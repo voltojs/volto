@@ -15,11 +15,12 @@
     "check:core-deps": "node scripts/check-core-zero-deps.mjs"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.57.0",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "eslint": "^8.57.0",
     "vitest": "^3.0.0"
   },
   "pnpm": {

@@ -1,6 +1,8 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" }
+    { "path": "packages/core" },
+    { "path": "packages/runtimes/node" },
+    { "path": "packages/providers/openai" }
   ]
 }

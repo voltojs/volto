@@ -93,3 +93,18 @@ export type {
 // Reducer
 export { step, createInitialState } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
+
+// Testing utilities
+export {
+  createMockModelPort,
+  textDelta,
+  reasoningDelta,
+  toolUseStart,
+  toolUseDelta,
+  usage,
+  modelDone,
+  modelError,
+  toolCallScript,
+  textScript,
+} from "./testing/mock-model-port.js";
+export type { ModelPortScript } from "./testing/mock-model-port.js";

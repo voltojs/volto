@@ -241,18 +241,21 @@ packages:
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现 Runner:循环 `step` → 对每个 effect 调对应 port → 结果作为 input 回喂,直到 `Done`
-- [ ] Runner 支持 `CallModel`(消费 `ModelPort.stream` 的 chunk 回喂)、`Emit`、`Checkpoint`、`WaitForInput`
-- [ ] Runner 接入 `AbortSignal`:收到 `Cancel` input → reducer 转 `cancelling` → Runner 对进行中的 model stream / tool 触发 abort
-- [ ] 实现 mock ModelPort:按脚本产出 text / tool_use / usage 事件,供确定性测试
-- [ ] 实现 OpenAI 兼容 ModelPort:`/v1/chat/completions` `stream:true`,`baseURL` 可配
-- [ ] 实现流式归一化:累积分片 `tool_calls`(按 `index` 拼接 `arguments`)、text delta、usage;reasoning 缺失时降级
-- [ ] 单测:Runner + mock 跑通含取消路径的端到端循环;归一化单测覆盖分片 tool_call 拼接
+- [x] 实现 Runner:循环 `step` → 对每个 effect 调对应 port → 结果作为 input 回喂,直到 `Done`
+- [x] Runner 支持 `CallModel`(消费 `ModelPort.stream` 的 chunk 回喂)、`Emit`、`Checkpoint`、`WaitForInput`
+- [x] Runner 接入 `AbortSignal`:收到 `Cancel` input → reducer 转 `cancelling` → Runner 对进行中的 model stream / tool 触发 abort
+- [x] 实现 mock ModelPort:按脚本产出 text / tool_use / usage 事件,供确定性测试
+- [x] 实现 OpenAI 兼容 ModelPort:`/v1/chat/completions` `stream:true`,`baseURL` 可配
+- [x] 实现流式归一化:累积分片 `tool_calls`(按 `index` 拼接 `arguments`)、text delta、usage;reasoning 缺失时降级
+- [x] 单测:Runner + mock 跑通含取消路径的端到端循环;归一化单测覆盖分片 tool_call 拼接
 
 **Acceptance Criteria**:
 1. Runner 用 mock 跑通含取消路径的端到端循环。
 2. 接真实 OpenAI 兼容 provider 能完成一轮流式对话,usage 正确归一化(集成测试可标记为按需运行/需要 API key)。
 3. `Cancel` 能中止进行中的 stream(AbortSignal 生效),pending 被清理。
+
+**Reviewed**: 2026-06-03 by reviewer
+**Commit**: ac1c696 feat(plan-001): phase 3 - Runner 与 OpenAI 兼容 ModelPort
 
 <!-- Backfill after execution:
 **Reviewed**: <date> by reviewer
