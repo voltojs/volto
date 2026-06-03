@@ -1,5 +1,5 @@
-import type { PendingToolCall, ToolResult, ToolDefinition, FileSystem, Clock } from "@agent-core/core";
-import { routeToolCall } from "@agent-core/core";
+import type { PendingToolCall, ToolResult, ToolDefinition, FileSystem } from "@agent-core/core";
+import { routeToolCall, evaluateEditGate, evaluateOverwriteGate } from "@agent-core/core";
 import type { FileTool } from "@agent-core/tools-fs";
 import {
   createReadFileTool,
@@ -8,19 +8,23 @@ import {
   createLsTool,
   createGlobTool,
   createGrepTool,
+  CAP_FS_READ,
+  CAP_FS_WRITE,
 } from "@agent-core/tools-fs";
 import type { ToolExecutor } from "./runner.js";
 
-interface ReadVersionEntry {
-  version: number;
-  readAt: number;
-}
-
 export interface CreateFsToolExecutorOptions {
   fs: FileSystem;
-  clock: Clock;
 }
 
+/**
+ * Build a tool executor backed by a FileSystem port.
+ *
+ * Read-before-edit + staleness gating runs HERE, before any side effect, using
+ * the serializable readFiles state threaded in via the executor context (so it
+ * survives resume). The pure decision lives in @agent-core/core (evaluate*Gate);
+ * this layer only supplies on-disk facts (existence, current mtime).
+ */
 export function createFsToolExecutor(options: CreateFsToolExecutorOptions): ToolExecutor {
   const tools: FileTool[] = [
     createReadFileTool(options.fs),
@@ -30,92 +34,51 @@ export function createFsToolExecutor(options: CreateFsToolExecutorOptions): Tool
     createGlobTool(options.fs),
     createGrepTool(options.fs),
   ];
+  const definitions: ToolDefinition[] = tools.map((entry) => entry.definition);
+  const capabilities = new Set<string>([CAP_FS_READ, CAP_FS_WRITE]);
 
-  const fallbackDefinition: ToolDefinition = tools[0]?.definition ?? {
-    name: "__fallback__",
-    description: "fallback",
-    inputSchema: {},
-    requires: [],
-    riskTier: "READ_ONLY",
-  };
-
-  const readVersions = new Map<string, ReadVersionEntry>();
-
-  return async (call: PendingToolCall): Promise<ToolResult> => {
-    const routed = routeToolCall(
-      tools.map((entry) => entry.definition),
-      new Set(["filesystem:read", "filesystem:write"]),
-      call,
-    );
+  return async (call: PendingToolCall, ctx): Promise<ToolResult> => {
+    const routed = routeToolCall(definitions, capabilities, call);
     if (routed.result) {
       return routed.result;
     }
 
-    const matchedTool = tools.find((entry) => entry.definition.name === call.name);
-    const tool: FileTool = matchedTool ?? {
-      definition: fallbackDefinition,
-      handler: async (): Promise<ToolResult> => ({
-        modelContent: `Unknown tool: ${call.name}`,
-        isError: true,
-      }),
-    };
+    const tool = tools.find((entry) => entry.definition.name === call.name);
+    if (!tool) {
+      return { modelContent: `Unknown tool: ${call.name}`, isError: true };
+    }
 
     const targetPath = typeof call.input.path === "string" ? call.input.path : undefined;
+    const readFiles = ctx.readFiles;
 
-    if (call.name === "write_file" && targetPath) {
+    // ── Pre-write gate (before any side effect) ──
+    if (targetPath && call.name === "edit_file") {
+      let currentMtime: number;
       try {
-        await options.fs.stat(targetPath);
-        if (!readVersions.has(targetPath)) {
-          return {
-            modelContent: `write_file blocked: read_file "${targetPath}" was not called before overwriting.`,
-            isError: true,
-          };
-        }
+        currentMtime = (await options.fs.stat(targetPath)).mtime;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (!message.includes("ENOENT")) {
-          return {
-            modelContent: `write_file failed: ${message}`,
-            isError: true,
-          };
-        }
+        return { modelContent: `edit_file failed: ${message}`, isError: true };
+      }
+      const blocked = evaluateEditGate(readFiles, targetPath, currentMtime);
+      if (blocked) {
+        return blocked;
       }
     }
 
-    const toolResult = await tool.handler(call.input);
-    const readFileMeta = toolResult.displayMetadata?.readFile as { path?: string } | undefined;
-    const writeFileMeta = toolResult.displayMetadata?.writeFile as { path?: string } | undefined;
-
-    if (readFileMeta?.path && !toolResult.isError) {
-      const readAt = options.clock.now();
-      readVersions.set(readFileMeta.path, {
-        version: (readVersions.get(readFileMeta.path)?.version ?? 0) + 1,
-        readAt,
-      });
-      toolResult.displayMetadata = {
-        ...toolResult.displayMetadata,
-        readAt,
-      };
-    }
-
-    if (writeFileMeta?.path && call.name === "edit_file") {
-      const versionEntry = readVersions.get(writeFileMeta.path);
-      if (!versionEntry) {
-        return {
-          modelContent: `edit_file blocked: read_file "${writeFileMeta.path}" was not called before editing.`,
-          isError: true,
-        };
+    if (targetPath && call.name === "write_file") {
+      let exists = true;
+      try {
+        await options.fs.stat(targetPath);
+      } catch {
+        exists = false;
       }
-
-      const latestStat = await options.fs.stat(writeFileMeta.path);
-      if (latestStat.mtime > versionEntry.readAt) {
-        return {
-          modelContent: `edit_file blocked: "${writeFileMeta.path}" changed after the last read. Re-read the file before editing.`,
-          isError: true,
-        };
+      const blocked = evaluateOverwriteGate(readFiles, targetPath, exists);
+      if (blocked) {
+        return blocked;
       }
     }
 
-    return toolResult;
+    return tool.handler(call.input);
   };
 }

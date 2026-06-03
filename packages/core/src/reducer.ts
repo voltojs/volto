@@ -4,10 +4,11 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord } from "./state.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition } from "./tool.js";
+import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -323,6 +324,13 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
     const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
 
+    // Record read/write file access into serializable state (used by the
+    // read-before-edit + staleness gate). Pure — facts come from displayMetadata.
+    const fileAccess = input.result.isError ? null : extractFileAccess(input.result.displayMetadata);
+    const readFiles: ReadFileRecord[] = fileAccess
+      ? recordFileAccess(state.readFiles, fileAccess)
+      : state.readFiles;
+
     if (remainingTools.length > 0) {
       // More tools to execute
       return {
@@ -330,6 +338,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           ...state,
           messages: [...state.messages, toolResultMsg],
           pendingTools: remainingTools,
+          readFiles,
         },
         effects: [],
       };
@@ -340,6 +349,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       ...state,
       messages: [...state.messages, toolResultMsg],
       pendingTools: [],
+      readFiles,
       status: "calling_model",
     };
     return {

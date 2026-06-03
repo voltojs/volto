@@ -17,6 +17,7 @@
     "lint": "eslint src/",
     "test": "vitest run"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
 }

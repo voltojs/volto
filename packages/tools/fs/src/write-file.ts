@@ -1,41 +1,35 @@
-import type { FileSystem, ToolDefinition } from "@agent-core/core";
+import type { FileSystem } from "@agent-core/core";
+import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
+import { defineFileTool } from "./define-tool.js";
 import type { FileTool } from "./common.js";
 
+const schema = z.object({
+  path: z.string(),
+  content: z.string(),
+});
+
+// Note: overwrite-requires-prior-read gating runs in the runtime tool executor
+// (it needs to know whether the file already exists on disk).
 export function createWriteFileTool(fs: FileSystem): FileTool {
-  const definition: ToolDefinition = {
+  return defineFileTool({
     name: "write_file",
-    description: "Create or overwrite a file. Overwrite requires prior read_file of the same path.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        content: { type: "string" },
-      },
-      required: ["path", "content"],
-      additionalProperties: false,
-    },
+    description: "Create or overwrite a file. Overwriting an existing file requires a prior read_file of the same path.",
+    schema,
     requires: [CAP_FS_WRITE],
     riskTier: "WRITE_HIGH",
-  };
-
-  return {
-    definition,
-    handler: async (input) => {
-      const path = String(input.path ?? "");
-      const content = String(input.content ?? "");
-
+    run: async ({ path, content }) => {
       try {
         await fs.write(path, content);
+        const mtime = (await fs.stat(path)).mtime;
+        return {
+          modelContent: `write_file: ${path} written.`,
+          displayMetadata: { path, writeFile: { path, mtime } },
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { modelContent: `write_file failed: ${message}`, isError: true };
       }
-
-      return {
-        modelContent: `write_file: ${path} written.`,
-        displayMetadata: { path, writeFile: { path } },
-      };
     },
-  };
+  });
 }

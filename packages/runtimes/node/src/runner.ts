@@ -14,7 +14,7 @@ import type {
   PendingToolCall,
   ModelEvent,
   ToolResult,
-  Clock,
+  ReadFileRecord,
 } from "@agent-core/core";
 import { step, createInitialState, filterVisibleTools, routeToolCall } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
@@ -23,7 +23,15 @@ import type { StepContext, ReducerState } from "@agent-core/core";
 // Public types
 // ──────────────────────────────────────────────
 
-export type ToolExecutor = (call: PendingToolCall) => Promise<ToolResult>;
+/**
+ * Tool executor. Receives the call plus a read-only view of serializable gate
+ * state (readFiles) so write-class tools can enforce read-before-edit/staleness
+ * before performing any side effect.
+ */
+export interface ToolExecutorContext {
+  readFiles: ReadFileRecord[];
+}
+export type ToolExecutor = (call: PendingToolCall, ctx: ToolExecutorContext) => Promise<ToolResult>;
 
 export interface RunnerOptions {
   modelPort: ModelPort;
@@ -33,7 +41,6 @@ export interface RunnerOptions {
   abortSignal?: AbortSignal;
   initialState?: ReducerState;
   availableCapabilities?: Set<string>;
-  clock?: Clock;
 }
 
 export interface Runner {
@@ -55,8 +62,6 @@ export function createRunner(opts: RunnerOptions): Runner {
     ...opts.stepContext,
     tools: visibleTools,
   };
-
-  const clock: Clock = opts.clock ?? { now: Date.now };
 
   const onAbort = (): void => { cancelled = true; };
   if (opts.abortSignal) {
@@ -89,24 +94,6 @@ export function createRunner(opts: RunnerOptions): Runner {
 
   function getStatus(): string {
     return state.status;
-  }
-
-  function updateReadFileRecord(path: string): void {
-    const existing = state.readFiles.find((entry) => entry.path === path);
-    if (existing) {
-      state = {
-        ...state,
-        readFiles: state.readFiles.map((entry) =>
-          entry.path === path ? { ...entry, version: entry.version + 1, readAt: clock.now() } : entry,
-        ),
-      };
-      return;
-    }
-
-    state = {
-      ...state,
-      readFiles: [...state.readFiles, { path, version: 1, readAt: clock.now() }],
-    };
   }
 
   // ── Model streaming ──────────────────────────
@@ -195,13 +182,9 @@ export function createRunner(opts: RunnerOptions): Runner {
       };
     }
     try {
-      const toolResult = await opts.toolExecutor(toolCall);
-      const readFileMeta = toolResult.displayMetadata?.readFile as { path?: string } | undefined;
-      if (readFileMeta?.path && !toolResult.isError) {
-        updateReadFileRecord(readFileMeta.path);
-      }
-
-      return toolResult;
+      // Pass a read-only view of gate state; recording of reads/writes back into
+      // state.readFiles happens purely in the reducer from the result metadata.
+      return await opts.toolExecutor(toolCall, { readFiles: state.readFiles });
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
       return {

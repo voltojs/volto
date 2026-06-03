@@ -1,27 +1,21 @@
-import type { FileSystem, ToolDefinition } from "@agent-core/core";
+import type { FileSystem } from "@agent-core/core";
+import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
+import { defineFileTool } from "./define-tool.js";
 import type { FileTool } from "./common.js";
 
+const schema = z.object({
+  pattern: z.string(),
+});
+
 export function createGlobTool(fs: FileSystem): FileTool {
-  const definition: ToolDefinition = {
+  return defineFileTool({
     name: "glob",
-    description: "Find files by glob pattern, sorted by modification time.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        pattern: { type: "string" },
-      },
-      required: ["pattern"],
-      additionalProperties: false,
-    },
+    description: "Find files by glob pattern, sorted by modification time (newest first).",
+    schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
-  };
-
-  return {
-    definition,
-    handler: async (input) => {
-      const pattern = String(input.pattern ?? "");
+    run: async ({ pattern }) => {
       try {
         const result = await fs.glob(pattern);
         return {
@@ -33,5 +27,5 @@ export function createGlobTool(fs: FileSystem): FileTool {
         return { modelContent: `glob failed: ${message}`, isError: true };
       }
     },
-  };
+  });
 }

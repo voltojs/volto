@@ -1,69 +1,52 @@
-import type { FileReadResult, FileSystem, ToolDefinition } from "@agent-core/core";
+import type { FileReadResult, FileSystem } from "@agent-core/core";
+import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
+import { defineFileTool } from "./define-tool.js";
 import type { FileTool } from "./common.js";
 
 const MAX_LINES = 2000;
 
+const schema = z.object({
+  path: z.string().describe("Absolute or workspace-relative path."),
+  offset: z.number().int().positive().optional().describe("1-based start line."),
+  limit: z.number().int().positive().optional().describe("Maximum lines to return."),
+});
+
 export function createReadFileTool(fs: FileSystem): FileTool {
-  const definition: ToolDefinition = {
+  return defineFileTool({
     name: "read_file",
     description: "Read a file with line numbers (cat -n style). Supports offset and limit for pagination.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Absolute or workspace-relative path." },
-        offset: { type: "number", description: "1-based start line." },
-        limit: { type: "number", description: "Maximum lines to return." },
-      },
-      required: ["path"],
-      additionalProperties: false,
-    },
+    schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
-  };
-
-  return {
-    definition,
-    handler: async (input) => {
-      const path = String(input.path ?? "");
-      const offset = typeof input.offset === "number" && input.offset > 0 ? Math.floor(input.offset) : 1;
-      const limit = typeof input.limit === "number" && input.limit > 0 ? Math.min(Math.floor(input.limit), MAX_LINES) : MAX_LINES;
+    run: async ({ path, offset, limit }) => {
+      const startLine = offset ?? 1;
+      const lineLimit = Math.min(limit ?? MAX_LINES, MAX_LINES);
 
       let result: FileReadResult;
+      let mtime: number;
       try {
-        result = await fs.read(path, offset, limit);
+        result = await fs.read(path, startLine, lineLimit);
+        mtime = (await fs.stat(path)).mtime;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { modelContent: `read_file failed: ${message}`, isError: true };
       }
 
       const lines = result.content.split(/\r?\n/);
-      const numbered = lines.map((line, index) => `${offset + index}\t${line}`).join("\n");
-
-      if (result.truncated) {
-        const message = `read_file: output truncated at ${limit} lines.`;
-        return {
-          modelContent: `${message}\n${numbered}`,
-          displayMetadata: {
-            totalLines: result.totalLines,
-            truncated: true,
-            offset,
-            limit,
-            readFile: { path },
-          },
-        };
-      }
+      const numbered = lines.map((line, index) => `${startLine + index}\t${line}`).join("\n");
+      const prefix = result.truncated ? `read_file: output truncated at ${lineLimit} lines.\n` : "";
 
       return {
-        modelContent: numbered,
+        modelContent: `${prefix}${numbered}`,
         displayMetadata: {
           totalLines: result.totalLines,
-          truncated: false,
-          offset,
-          limit,
-          readFile: { path },
+          truncated: result.truncated,
+          offset: startLine,
+          limit: lineLimit,
+          readFile: { path, mtime },
         },
       };
     },
-  };
+  });
 }

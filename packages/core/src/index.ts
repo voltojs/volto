@@ -97,6 +97,16 @@ export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 // ToolRouter
 export { validateToolInput, filterVisibleTools, routeToolCall } from "./tool-router.js";
 
+// File gate (read-before-edit + staleness) — pure decisions
+export {
+  recordFileAccess,
+  findReadRecord,
+  evaluateEditGate,
+  evaluateOverwriteGate,
+  extractFileAccess,
+} from "./file-gate.js";
+export type { FileAccess } from "./file-gate.js";
+
 // Testing utilities
 export {
   createMockModelPort,

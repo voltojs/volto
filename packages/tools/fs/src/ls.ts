@@ -1,27 +1,21 @@
-import type { FileSystem, ToolDefinition } from "@agent-core/core";
+import type { FileSystem } from "@agent-core/core";
+import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
+import { defineFileTool } from "./define-tool.js";
 import type { FileTool } from "./common.js";
 
+const schema = z.object({
+  path: z.string().default("."),
+});
+
 export function createLsTool(fs: FileSystem): FileTool {
-  const definition: ToolDefinition = {
+  return defineFileTool({
     name: "ls",
     description: "List directory entries.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-      },
-      required: ["path"],
-      additionalProperties: false,
-    },
+    schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
-  };
-
-  return {
-    definition,
-    handler: async (input) => {
-      const path = String(input.path ?? ".");
+    run: async ({ path }) => {
       try {
         const result = await fs.list(path);
         const lines = result.entries.map((entry) => `${entry.isDirectory ? "d" : "-"} ${entry.path}`);
@@ -34,5 +28,5 @@ export function createLsTool(fs: FileSystem): FileTool {
         return { modelContent: `ls failed: ${message}`, isError: true };
       }
     },
-  };
+  });
 }

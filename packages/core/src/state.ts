@@ -89,11 +89,13 @@ export interface PendingToolCall {
   input: Record<string, unknown>;
 }
 
-/** Read file record for edit_file gating */
+/** Read file record for edit_file gating (pure, serializable — survives resume) */
 export interface ReadFileRecord {
   path: string;
+  /** Incremented each time the path is (re)read or successfully written */
   version: number;
-  readAt: number; // timestamp from Clock port
+  /** File mtime (epoch ms) observed at read/write time; used for staleness comparison */
+  mtime: number;
 }
 
 /** The complete agent state */

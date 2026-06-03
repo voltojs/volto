@@ -288,7 +288,8 @@ packages:
 4. 端到端跑通"读文件 → 改文件";越界路径被 FileSystem adapter 拒绝。
 
 **Reviewed**: 2026-06-03 by reviewer
-**Commit**: 9214e23 feat(plan-001): phase 4 - ToolRouter, FS tools and Node filesystem adapter
+**Commit**: 9c0065b feat(plan-001): phase 4 - ToolRouter, FS tools and Node filesystem adapter
+**Review 跟进**: 读改门控改为纯状态驱动(`state.readFiles` + `file-gate.ts`,写盘前裁决,survives resume)、工具入参改用 Zod、grep 改用 ripgrep、修复工作区边界前缀绕过、glob/ls 按 mtime 排序、去重 ToolRouter。
 
 ---
 
