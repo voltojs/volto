@@ -243,6 +243,72 @@ describe("step()", () => {
       const errorEmit = allEffects.find((e) => e.type === "emit" && e.event.type === "error");
       expect(errorEmit).toBeDefined();
     });
+
+    it("should stop a runaway tool_use loop once maxIterations is reached", () => {
+      const state = createInitialState({ maxIterations: 2 });
+      // Model keeps asking to call tools forever; guard must terminate the loop.
+      const toolUseChunk: AgentInput = {
+        type: "model_chunk",
+        chunk: { type: "tool_use_delta", toolCallId: "call_1", toolCallName: "read_file", argumentsDelta: '{"path":"a.ts"}' },
+      };
+      const inputs: AgentInput[] = [
+        { type: "user_message", content: "loop forever" },
+        toolUseChunk,
+        { type: "model_done", stopReason: "tool_use" }, // iteration 1 → executing_tools
+        { type: "tool_result", toolCallId: "call_1", toolName: "read_file", result: { modelContent: "x" } },
+        toolUseChunk,
+        { type: "model_done", stopReason: "tool_use" }, // iteration 2 = max → must stop, no tools dispatched
+      ];
+
+      const { finalState, allEffects } = runChain(state, inputs);
+      expect(finalState.status).toBe("done");
+      expect(finalState.pendingTools).toHaveLength(0);
+      const errorEmit = allEffects.find((e) => e.type === "emit" && e.event.type === "error");
+      expect(errorEmit).toBeDefined();
+      // Done effect emitted, loop terminated.
+      expect(allEffects.filter((e) => e.type === "done")).toHaveLength(1);
+    });
+  });
+
+  describe("token budget", () => {
+    it("should accumulate usage and stop the tool_use loop when tokenBudget is exceeded", () => {
+      const state = createInitialState({ tokenBudget: 100, maxIterations: 50 });
+      const inputs: AgentInput[] = [
+        { type: "user_message", content: "expensive" },
+        {
+          type: "model_chunk",
+          chunk: { type: "tool_use_delta", toolCallId: "call_1", toolCallName: "read_file", argumentsDelta: '{"path":"a.ts"}' },
+        },
+        // 120 tokens > budget of 100 → next continuation must be blocked
+        { type: "model_done", stopReason: "tool_use", usage: { inputTokens: 80, outputTokens: 40 } },
+      ];
+
+      const { finalState, allEffects } = runChain(state, inputs);
+      expect(finalState.status).toBe("done");
+      expect(finalState.tokensUsed).toBe(120);
+      expect(finalState.pendingTools).toHaveLength(0);
+      const errorEmit = allEffects.find(
+        (e) => e.type === "emit" && e.event.type === "error" && e.event.data.error === "Token budget exceeded",
+      );
+      expect(errorEmit).toBeDefined();
+    });
+
+    it("should allow the loop to continue while under tokenBudget", () => {
+      const state = createInitialState({ tokenBudget: 1000 });
+      const inputs: AgentInput[] = [
+        { type: "user_message", content: "cheap" },
+        {
+          type: "model_chunk",
+          chunk: { type: "tool_use_delta", toolCallId: "call_1", toolCallName: "read_file", argumentsDelta: '{"path":"a.ts"}' },
+        },
+        { type: "model_done", stopReason: "tool_use", usage: { inputTokens: 10, outputTokens: 5 } },
+      ];
+
+      const { finalState } = runChain(state, inputs);
+      expect(finalState.status).toBe("executing_tools");
+      expect(finalState.tokensUsed).toBe(15);
+      expect(finalState.pendingTools).toHaveLength(1);
+    });
   });
 
   describe("cancel", () => {

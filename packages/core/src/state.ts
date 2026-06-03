@@ -102,6 +102,8 @@ export interface AgentState {
   pendingTools: PendingToolCall[];
   status: AgentStatus;
   tokenBudget: number | undefined;
+  /** Cumulative tokens consumed this turn (input + output), enforced against tokenBudget */
+  tokensUsed: number;
   maxIterations: number;
   iterationCount: number;
   readFiles: ReadFileRecord[];

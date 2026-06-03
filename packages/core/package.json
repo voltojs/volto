@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/",
+    "lint": "node ../../scripts/check-core-zero-deps.mjs && eslint src/",
     "test": "vitest run"
   },
   "dependencies": {},

@@ -56,6 +56,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     pendingTools: [],
     status: "idle",
     tokenBudget: undefined,
+    tokensUsed: 0,
     maxIterations: 20,
     iterationCount: 0,
     readFiles: [],
@@ -179,6 +180,9 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
   if (input.type === "model_done") {
     const newIterationCount = state.iterationCount + 1;
+    const newTokensUsed =
+      state.tokensUsed +
+      (input.usage ? input.usage.inputTokens + input.usage.outputTokens : 0);
 
     // Finalize the assistant message
     const assistantContent = buildAssistantContent(state);
@@ -192,6 +196,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       ...state,
       messages: [...state.messages, assistantMsg],
       iterationCount: newIterationCount,
+      tokensUsed: newTokensUsed,
       _accumulatedText: "",
       _accumulatedToolCalls: [],
     };
@@ -201,8 +206,22 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       event: { type: "model_done", data: { stopReason: input.stopReason, usage: input.usage } },
     };
 
+    // Runaway guard — applies to every path that would issue another model call.
+    // Covers both the tool_use loop and max_tokens continuation.
+    const limit = limitReached(baseState);
+
     // tool_use → extract pending tools, transition to executing_tools
     if (input.stopReason === "tool_use") {
+      if (limit) {
+        return {
+          state: { ...baseState, pendingTools: [], status: "done" },
+          effects: [
+            emitEffect,
+            { type: "emit", event: { type: "error", data: { error: limit } } },
+            { type: "done" },
+          ],
+        };
+      }
       const toolCalls = extractToolCalls(assistantMsg);
       return {
         state: { ...baseState, pendingTools: toolCalls, status: "executing_tools" },
@@ -212,12 +231,12 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     // max_tokens → continue or error
     if (input.stopReason === "max_tokens") {
-      if (newIterationCount >= state.maxIterations) {
+      if (limit) {
         return {
           state: { ...baseState, status: "done" },
           effects: [
             emitEffect,
-            { type: "emit", event: { type: "error", data: { error: "Maximum iterations reached with incomplete response" } } },
+            { type: "emit", event: { type: "error", data: { error: limit } } },
             { type: "done" },
           ],
         };
@@ -436,6 +455,21 @@ function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/**
+ * Runaway guard — returns an error message if the turn has hit its iteration
+ * cap or token budget, otherwise null. Checked before issuing any further
+ * model call (tool_use loop continuation or max_tokens continuation).
+ */
+function limitReached(state: ReducerState): string | null {
+  if (state.iterationCount >= state.maxIterations) {
+    return "Maximum iterations reached";
+  }
+  if (state.tokenBudget !== undefined && state.tokensUsed >= state.tokenBudget) {
+    return "Token budget exceeded";
+  }
+  return null;
+}
 
 /** Build assistant content blocks from accumulated streaming data */
 function buildAssistantContent(state: ReducerState): AssistantMessage["content"] {

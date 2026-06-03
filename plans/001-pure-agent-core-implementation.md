@@ -223,8 +223,7 @@ packages:
 4. `core` 包仍零运行时依赖。
 
 **Reviewed**: 2026-06-03 by reviewer
-**Commit**: 3624ecd feat(plan-001): phase 2 - 纯内核状态机
--->
+**Commit**: abd0892 feat(plan-001): phase 2 - 纯内核状态机
 
 ---
 
