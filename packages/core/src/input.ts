@@ -1,0 +1,76 @@
+/**
+ * AgentInput — all possible inputs to the step() reducer.
+ * Every input is a plain, serializable data object.
+ */
+
+import type { ContentBlock } from "./state.js";
+
+/** User sent a message */
+export interface UserMessageInput {
+  type: "user_message";
+  content: string | ContentBlock[];
+}
+
+/** Streaming chunk from the model (partial text or tool_use delta) */
+export interface ModelChunkInput {
+  type: "model_chunk";
+  chunk: {
+    type: "text_delta" | "reasoning_delta" | "tool_use_delta";
+    text?: string;
+    toolCallId?: string;
+    toolCallName?: string;
+    argumentsDelta?: string;
+  };
+}
+
+/** Model finished generating (stop reason determined) */
+export interface ModelDoneInput {
+  type: "model_done";
+  stopReason: "end_turn" | "tool_use" | "max_tokens";
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+/** Model encountered an error */
+export interface ModelErrorInput {
+  type: "model_error";
+  error: string;
+  retriable?: boolean;
+}
+
+/** Tool execution result (returned by Runner after ExecuteTool effect) */
+export interface ToolResultInput {
+  type: "tool_result";
+  toolCallId: string;
+  toolName: string;
+  result: {
+    modelContent: string;
+    isError?: boolean;
+    displayMetadata?: Record<string, unknown>;
+  };
+}
+
+/** HITL approval decision (returned after RequestApproval effect) */
+export interface ApprovalDecisionInput {
+  type: "approval_decision";
+  toolCallId: string;
+  decision: "allow" | "deny";
+}
+
+/** Cancel requested */
+export interface CancelInput {
+  type: "cancel";
+  reason?: string;
+}
+
+/** All possible inputs to the step() reducer */
+export type AgentInput =
+  | UserMessageInput
+  | ModelChunkInput
+  | ModelDoneInput
+  | ModelErrorInput
+  | ToolResultInput
+  | ApprovalDecisionInput
+  | CancelInput;

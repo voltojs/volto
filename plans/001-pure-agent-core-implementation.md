@@ -188,7 +188,7 @@ packages:
 3. 故意给 `packages/core/package.json` 添加一个 dependency,`check-core-zero-deps` 脚本报错(退出码非 0)。
 
 **Reviewed**: 2026-06-03 by reviewer
-**Commit**: (pending)
+**Commit**: 249a1a6 feat(plan-001): phase 1 - monorepo 脚手架与依赖边界
 
 ---
 
@@ -207,14 +207,14 @@ packages:
 - `packages/core/src/__tests__/reducer.test.ts`、`replay.test.ts`
 
 **Tasks**:
-- [ ] 定义 `AgentState`:`{ messages[], pendingTools[], status, tokenBudget, turnCount, readFiles }`,全部纯可序列化
-- [ ] 定义 `AgentInput` 联合:`UserMessage` / `ModelChunk` / `ModelDone` / `ModelError` / `ToolResult` / `ApprovalDecision` / `Cancel`
-- [ ] 定义 `Effect` 联合:`CallModel` / `ExecuteTool` / `RequestApproval` / `Emit` / `Checkpoint` / `WaitForInput` / `Done`
-- [ ] 定义全部 port 接口(仅类型)与 `ToolDefinition` / `ToolResult` / `Capability` / `JSONSchema`
-- [ ] 实现 `step()`:处理 status 转移(idle → calling_model → executing_tools → … → done),由 stop reason 驱动终止(`tool_use` 继续,`end_turn`/纯文本结束,`max_tokens` 决定续写/报错)
-- [ ] 实现 turn 级 token 预算 + 最大迭代数强制(防失控)
-- [ ] 单测:user → CallModel → tool_use → ExecuteTool → ToolResult → CallModel → Done 全链路
-- [ ] 重放测试:相同 input 序列两次运行,(state, effects) 序列 deep-equal
+- [x] 定义 `AgentState`:`{ messages[], pendingTools[], status, tokenBudget, turnCount, readFiles }`,全部纯可序列化
+- [x] 定义 `AgentInput` 联合:`UserMessage` / `ModelChunk` / `ModelDone` / `ModelError` / `ToolResult` / `ApprovalDecision` / `Cancel`
+- [x] 定义 `Effect` 联合:`CallModel` / `ExecuteTool` / `RequestApproval` / `Emit` / `Checkpoint` / `WaitForInput` / `Done`
+- [x] 定义全部 port 接口(仅类型)与 `ToolDefinition` / `ToolResult` / `Capability` / `JSONSchema`
+- [x] 实现 `step()`:处理 status 转移(idle → calling_model → executing_tools → … → done),由 stop reason 驱动终止(`tool_use` 继续,`end_turn`/纯文本结束,`max_tokens` 决定续写/报错)
+- [x] 实现 turn 级 token 预算 + 最大迭代数强制(防失控)
+- [x] 单测:user → CallModel → tool_use → ExecuteTool → ToolResult → CallModel → Done 全链路
+- [x] 重放测试:相同 input 序列两次运行,(state, effects) 序列 deep-equal
 
 **Acceptance Criteria**:
 1. 单测覆盖 user → CallModel → tool_use → ExecuteTool → ToolResult → CallModel → Done 全链路并通过。
@@ -222,9 +222,8 @@ packages:
 3. 重放测试:相同输入序列两次运行结果完全一致(deep-equal)。
 4. `core` 包仍零运行时依赖。
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
+**Reviewed**: 2026-06-03 by reviewer
+**Commit**: 3624ecd feat(plan-001): phase 2 - 纯内核状态机
 -->
 
 ---
