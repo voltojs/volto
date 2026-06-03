@@ -94,6 +94,9 @@ export type {
 export { step, createInitialState } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 
+// ToolRouter
+export { validateToolInput, filterVisibleTools, routeToolCall } from "./tool-router.js";
+
 // Testing utilities
 export {
   createMockModelPort,

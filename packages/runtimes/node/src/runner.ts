@@ -14,8 +14,9 @@ import type {
   PendingToolCall,
   ModelEvent,
   ToolResult,
+  Clock,
 } from "@agent-core/core";
-import { step, createInitialState } from "@agent-core/core";
+import { step, createInitialState, filterVisibleTools, routeToolCall } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 
 // ──────────────────────────────────────────────
@@ -31,6 +32,8 @@ export interface RunnerOptions {
   toolExecutor?: ToolExecutor;
   abortSignal?: AbortSignal;
   initialState?: ReducerState;
+  availableCapabilities?: Set<string>;
+  clock?: Clock;
 }
 
 export interface Runner {
@@ -46,6 +49,15 @@ export function createRunner(opts: RunnerOptions): Runner {
   let state: ReducerState = opts.initialState ?? createInitialState();
   let cancelled = false;
 
+  const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
+  const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
+  const stepContext: StepContext = {
+    ...opts.stepContext,
+    tools: visibleTools,
+  };
+
+  const clock: Clock = opts.clock ?? { now: Date.now };
+
   const onAbort = (): void => { cancelled = true; };
   if (opts.abortSignal) {
     if (opts.abortSignal.aborted) {
@@ -57,7 +69,7 @@ export function createRunner(opts: RunnerOptions): Runner {
 
   /** Feed an input to the pure reducer, update state, return effects. */
   function feed(input: AgentInput): Effect[] {
-    const result = step(state, input, opts.stepContext);
+    const result = step(state, input, stepContext);
     state = result.state;
     return result.effects;
   }
@@ -79,6 +91,24 @@ export function createRunner(opts: RunnerOptions): Runner {
     return state.status;
   }
 
+  function updateReadFileRecord(path: string): void {
+    const existing = state.readFiles.find((entry) => entry.path === path);
+    if (existing) {
+      state = {
+        ...state,
+        readFiles: state.readFiles.map((entry) =>
+          entry.path === path ? { ...entry, version: entry.version + 1, readAt: clock.now() } : entry,
+        ),
+      };
+      return;
+    }
+
+    state = {
+      ...state,
+      readFiles: [...state.readFiles, { path, version: 1, readAt: clock.now() }],
+    };
+  }
+
   // ── Model streaming ──────────────────────────
 
   /**
@@ -93,10 +123,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function runModelStream(): Promise<void> {
     const req = {
       messages: state.messages,
-      tools: opts.stepContext.tools,
-      model: opts.stepContext.model,
-      maxTokens: opts.stepContext.maxTokens,
-      temperature: opts.stepContext.temperature,
+      tools: stepContext.tools,
+      model: stepContext.model,
+      maxTokens: stepContext.maxTokens,
+      temperature: stepContext.temperature,
       abortSignal: opts.abortSignal,
     };
 
@@ -153,6 +183,11 @@ export function createRunner(opts: RunnerOptions): Runner {
   // ── Tool execution ───────────────────────────
 
   async function executeTool(toolCall: PendingToolCall): Promise<ToolResult> {
+    const { result: routingResult } = routeToolCall(visibleTools, availableCapabilities, toolCall);
+    if (routingResult) {
+      return routingResult;
+    }
+
     if (!opts.toolExecutor) {
       return {
         modelContent: `Tool "${toolCall.name}" is not available: no tool executor configured.`,
@@ -160,7 +195,13 @@ export function createRunner(opts: RunnerOptions): Runner {
       };
     }
     try {
-      return await opts.toolExecutor(toolCall);
+      const toolResult = await opts.toolExecutor(toolCall);
+      const readFileMeta = toolResult.displayMetadata?.readFile as { path?: string } | undefined;
+      if (readFileMeta?.path && !toolResult.isError) {
+        updateReadFileRecord(readFileMeta.path);
+      }
+
+      return toolResult;
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
       return {
@@ -258,24 +299,46 @@ function modelEventToInputs(
     case "reasoning_delta":
       return [{ type: "model_chunk", chunk: { type: "reasoning_delta", text: event.text } }];
     case "tool_use_start":
-      return [{
-        type: "model_chunk",
-        chunk: { type: "tool_use_delta", toolCallId: event.toolCallId, toolCallName: event.toolName },
-      }];
+      return [
+        {
+          type: "model_chunk",
+          chunk: {
+            type: "tool_use_delta",
+            toolCallId: event.toolCallId,
+            toolCallName: event.toolName,
+          },
+        },
+      ];
     case "tool_use_delta":
-      return [{
-        type: "model_chunk",
-        chunk: { type: "tool_use_delta", argumentsDelta: event.argumentsDelta },
-      }];
-    case "done":
-      return [{
-        type: "model_done",
-        stopReason: event.stopReason,
-        ...(pendingUsage ? { usage: pendingUsage } : {}),
-      }];
-    case "error":
-      return [{ type: "model_error", error: event.error, retriable: event.retriable }];
+      return [
+        {
+          type: "model_chunk",
+          chunk: {
+            type: "tool_use_delta",
+            toolCallId: event.toolCallId,
+            argumentsDelta: event.argumentsDelta,
+          },
+        },
+      ];
     case "usage":
+      return [];
+    case "done":
+      return [
+        {
+          type: "model_done",
+          stopReason: event.stopReason,
+          usage: pendingUsage,
+        },
+      ];
+    case "error":
+      return [
+        {
+          type: "model_error",
+          error: event.error,
+          retriable: event.retriable,
+        },
+      ];
+    default:
       return [];
   }
 }

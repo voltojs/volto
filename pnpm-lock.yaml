@@ -46,6 +46,11 @@ importers:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
+      '@agent-core/tools-fs':
+        specifier: workspace:*
+        version: link:../../tools/fs
+
+  packages/tools/fs: {}
 
 packages:
 

@@ -27,6 +27,7 @@ const readTool: ToolDefinition = {
 };
 
 const ctx: StepContext = { tools: [readTool], model: "test-model" };
+const capabilities = new Set(["filesystem:read"]);
 
 function createMockToolExecutor(results: Record<string, ToolResult>): ToolExecutor {
   return async (call: PendingToolCall): Promise<ToolResult> => {
@@ -52,6 +53,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hi" });
@@ -74,6 +76,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hi" });
@@ -92,6 +95,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hello" });
@@ -103,9 +107,7 @@ describe("Runner", () => {
   describe("tool use cycle", () => {
     it("should run full tool use loop: user → model(tool_use) → execute → model(text) → done", async () => {
       const mockModel = createMockModelPort([
-        // First call: model wants to use a tool
         toolCallScript("call_1", "read_file", '{"path":"foo.ts"}'),
-        // Second call: model responds with text after seeing tool result
         textScript("The file contains: const x = 1;"),
       ]);
 
@@ -117,6 +119,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         toolExecutor,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read foo.ts" });
@@ -132,7 +135,6 @@ describe("Runner", () => {
 
     it("should handle multiple parallel tool calls", async () => {
       const mockModel = createMockModelPort([
-        // Model requests two tool calls
         [
           toolUseStart("call_1", "read_file"),
           toolUseDelta("call_1", '{"path":"a.ts"}'),
@@ -151,6 +153,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         toolExecutor,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read both files" });
@@ -173,6 +176,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         toolExecutor,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read missing.ts" });
@@ -197,6 +201,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         toolExecutor,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read bad.ts" });
@@ -220,10 +225,33 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read test.ts" });
 
+      const toolMsg = finalState.messages.find((m) => m.role === "tool");
+      expect(toolMsg).toBeDefined();
+      expect(toolMsg!.content[0]).toMatchObject({ isError: true });
+    });
+  });
+
+  describe("capability gating", () => {
+    it("should return capability error when required capability is missing", async () => {
+      const mockModel = createMockModelPort([
+        toolCallScript("call_1", "read_file", '{"path":"a.ts"}'),
+        textScript("cannot read"),
+      ]);
+
+      const runner = createRunner({
+        modelPort: mockModel,
+        stepContext: ctx,
+        availableCapabilities: new Set(),
+      });
+
+      const finalState = await runner.run({ type: "user_message", content: "Read file" });
+
+      expect(finalState.status).toBe("done");
       const toolMsg = finalState.messages.find((m) => m.role === "tool");
       expect(toolMsg).toBeDefined();
       expect(toolMsg!.content[0]).toMatchObject({ isError: true });
@@ -243,6 +271,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         abortSignal: ac.signal,
+        availableCapabilities: capabilities,
       });
 
       // Abort immediately — the runner should handle this gracefully
@@ -272,6 +301,7 @@ describe("Runner", () => {
         stepContext: ctx,
         toolExecutor,
         abortSignal: ac.signal,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Read file" });
@@ -292,6 +322,7 @@ describe("Runner", () => {
         modelPort: mockModel,
         stepContext: ctx,
         abortSignal: ac.signal,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hi" });
@@ -310,6 +341,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hi" });
@@ -330,6 +362,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const finalState = await runner.run({ type: "user_message", content: "Hi" });
@@ -349,14 +382,11 @@ describe("Runner", () => {
         [textDelta("Hello"), modelDone("end_turn")],
       ]);
 
-
-
-
-
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
         eventSink,
+        availableCapabilities: capabilities,
       });
 
       await runner.run({ type: "user_message", content: "Hi" });
@@ -377,6 +407,7 @@ describe("Runner", () => {
       const runner = createRunner({
         modelPort: mockModel,
         stepContext: ctx,
+        availableCapabilities: capabilities,
       });
 
       const initialState = runner.getState();

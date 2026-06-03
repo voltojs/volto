@@ -272,14 +272,14 @@ packages:
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现 ToolRouter:对每个 tool_use 用工具的 JSONSchema 校验入参;能力门控——`requires` 未被宿主满足的工具从可见集摘除;非法入参 → `isError` ToolResult 回喂
-- [ ] 实现 Node `FileSystem` adapter:`read`/`write`/`stat`/`list`/`glob`/`grep`,路径 resolve 后校验在工作区内,越界返回错误
-- [ ] 实现 `read_file`:带行号(`cat -n` 风格)、`offset`/`limit` 分页、上限截断(声明截断)、记录"已读文件 + 版本"到 state
-- [ ] 实现 `edit_file`:str_replace 主格式;0 次/多次匹配返回明确错误结果;fuzzy fallback(忽略行首尾空白 → 忽略 token 间空白正则);先读后改门控;写回前版本比对
-- [ ] 实现 `write_file`:新建(`WRITE_LOW`)/ 覆盖(`WRITE_HIGH`)区分;覆盖前要求先 read
-- [ ] 实现 `ls` / `glob`(按修改时间排序)/ `grep`(底层 ripgrep,输出模式 + 截断告知)
-- [ ] ToolResult 双层:`modelContent` + `displayMetadata`(diff/行数/耗时)
-- [ ] 端到端测试:读文件 → 改文件
+- [x] 实现 ToolRouter:对每个 tool_use 用工具的 JSONSchema 校验入参;能力门控——`requires` 未被宿主满足的工具从可见集摘除;非法入参 → `isError` ToolResult 回喂
+- [x] 实现 Node `FileSystem` adapter:`read`/`write`/`stat`/`list`/`glob`/`grep`,路径 resolve 后校验在工作区内,越界返回错误
+- [x] 实现 `read_file`:带行号(`cat -n` 风格)、`offset`/`limit` 分页、上限截断(声明截断)、记录"已读文件 + 版本"到 state
+- [x] 实现 `edit_file`:str_replace 主格式;0 次/多次匹配返回明确错误结果;fuzzy fallback(忽略行首尾空白 → 忽略 token 间空白正则);先读后改门控;写回前版本比对
+- [x] 实现 `write_file`:新建(`WRITE_LOW`)/ 覆盖(`WRITE_HIGH`)区分;覆盖前要求先 read
+- [x] 实现 `ls` / `glob`(按修改时间排序)/ `grep`(底层 ripgrep,输出模式 + 截断告知)
+- [x] ToolResult 双层:`modelContent` + `displayMetadata`(diff/行数/耗时)
+- [x] 端到端测试:读文件 → 改文件
 
 **Acceptance Criteria**:
 1. `edit_file` 精确匹配失败时 fuzzy fallback 能正确命中并以原文实际内容替换。
@@ -287,10 +287,8 @@ packages:
 3. 未 `read_file`(或版本过期)的文件 `edit_file` 被拒绝。
 4. 端到端跑通"读文件 → 改文件";越界路径被 FileSystem adapter 拒绝。
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Reviewed**: 2026-06-03 by reviewer
+**Commit**: 9214e23 feat(plan-001): phase 4 - ToolRouter, FS tools and Node filesystem adapter
 
 ---
 
