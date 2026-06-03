@@ -104,7 +104,7 @@ apps/
 
 故目录 `providers/`(复数集合)↔ 包名 `provider-openai`(单数实例)的表面不一致是**有原则的**:容器复数、实例按义。
 
-依赖只能向下:`core ← tools-*/provider-*/runtime-*/store-* ← sdk ← apps/*`,全部仅以 type import 依赖 `@agent-core/core`。
+依赖只能向下:`core ← tools-*/provider-*/runtime-*/store-* ← sdk ← apps/*`。其中 tools-* / provider-* / store-* 仅以 **type import** 消费 core 的接口类型;而 Runner(runtime-*)与 SDK 作为内核执行者,合法值导入纯函数内核(`step` / `createInitialState`)——详见 AGENTS.md「依赖单向向下」条。
 
 **pnpm workspace glob**(混合深度):
 
@@ -255,12 +255,7 @@ packages:
 3. `Cancel` 能中止进行中的 stream(AbortSignal 生效),pending 被清理。
 
 **Reviewed**: 2026-06-03 by reviewer
-**Commit**: ac1c696 feat(plan-001): phase 3 - Runner 与 OpenAI 兼容 ModelPort
-
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Commit**: b8009b8 feat(plan-001): phase 3 - Runner 与 OpenAI 兼容 ModelPort
 
 ---
 

@@ -181,6 +181,14 @@ export function createRunner(opts: RunnerOptions): Runner {
     while (true) {
       const status = getStatus();
 
+      // Short-circuit: if cancellation fired, transition to cancelling before
+      // dispatching any new model call or tool execution. Avoids initiating a
+      // wasted model request after abort.
+      if (cancelled && status !== "cancelling" && status !== "done") {
+        forwardEmit(feed({ type: "cancel", reason: "abort" }));
+        continue;
+      }
+
       if (status === "calling_model") {
         await runModelStream();
         continue;

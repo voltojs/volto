@@ -87,23 +87,11 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
       return { role: "user", content: msg.content };
     }
     if (msg.role === "assistant") {
-      // Convert content blocks to OpenAI format
-      const parts: Array<Record<string, unknown>> = [];
-      for (const block of msg.content) {
-        if (block.type === "text") {
-          parts.push({ type: "text", text: block.text });
-        } else if (block.type === "tool_use") {
-          parts.push({
-            type: "tool_call",
-            id: block.id,
-            function: {
-              name: block.name,
-              arguments: JSON.stringify(block.input),
-            },
-          });
-        }
-      }
-      // OpenAI expects tool_calls at message level, not in content
+      // OpenAI expects tool_calls at the message level (not inside content).
+      const text = msg.content
+        .filter((c) => c.type === "text")
+        .map((c) => c.text)
+        .join("");
       const toolCalls = msg.content
         .filter((c) => c.type === "tool_use")
         .map((c) => ({
@@ -116,15 +104,14 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
         }));
 
       if (toolCalls.length > 0) {
-        const textParts = parts.filter((p) => p.type === "text");
         return {
           role: "assistant",
-          content: textParts.length > 0 ? textParts.map((p) => p.text).join("") : null,
+          content: text.length > 0 ? text : null,
           tool_calls: toolCalls,
         };
       }
 
-      return { role: "assistant", content: parts.map((p) => p.text ?? "").join("") };
+      return { role: "assistant", content: text };
     }
     if (msg.role === "tool") {
       return msg.content.map((tc) => ({
