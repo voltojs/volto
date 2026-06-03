@@ -1,0 +1,135 @@
+# Pure Agent Core — 通用 Agent 内核
+
+零环境耦合、零副作用核心、能力即注入的通用 agent 内核。纯函数状态机(`step(state, input) → { state, effects[] }`)+ 薄解释器(Runner)+ 可插拔工具包 + 可替换 ports adapter。纯 TypeScript,pnpm + Turborepo monorepo。
+
+---
+
+# 🔴 必读规则（每次任务都必须遵守）
+
+> 以下规则违反成本高、最易被忽略。**开始任何任务前先确认这一节，回复前再自检一次。**
+
+## 1. 语言规范（Language Convention）— 最高优先级
+
+- **对话回复 / 思考输出：默认中文。** 除非用户用其它语言提问或明确要求。
+- **文档默认中文** — `docs/`、`plans/` 下的 Markdown、commit message、PR description 一律中文撰写。
+- **代码与标识符永远英文** — 变量、函数、类型、文件名、分支名、CLI flag、log key 不得使用中文。
+- **仅以下情形保留英文**：引用英文原文、专有名词、API / 库 / 命令名称。
+- 用户显式指定语言时，以用户指令为准（覆盖以上默认）。
+
+✅ 正确：回复用中文 + 代码 `function step(state, input)` + commit `feat(plan-001): phase 2 - 纯内核状态机`
+❌ 错误：回复用英文 / commit 用英文 / 变量名 `状态机`
+
+## 2. 核心纯度铁律（Functional Core Purity）— 本项目立身之本
+
+> 核心包 `@agent-core/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
+
+- **`packages/core/` 内禁止任何 I/O 与隐式副作用**：不得出现 `Date.now()` / `Math.random()` / `crypto.randomUUID()` / `node:*` import / 直接 `fs`。时间、随机、ID、token 计数一律走 `Clock` / `Random` / `Id` / `Tokenizer` port 注入。
+- **核心只 import port 接口类型，绝不 import 任何实现**。`@agent-core/core` 的 `dependencies` 与 `peerDependencies` 必须为空（CI 脚本 `check-core-zero-deps` 强制）。
+- **决策逻辑全部为纯函数** —— `step()` reducer、ContextAssembler、Compactor、ToolRouter、PermissionPolicy 不碰 I/O；真正的副作用只通过返回 `Effect[]` 表达，由 Runner 解释执行。
+- **重放纪律**：同一串 `AgentInput` 序列两次运行必须产生完全一致的 `(state, effects)` 序列。改动 reducer 后跑重放测试作为回归门。
+
+## 3. 完成标准（Execution Quality Gate）
+
+> "完成任务" ≠ "完成类型、接口、文档、骨架或 TODO"
+
+功能任务必须落地到真实运行路径，缺一不可：
+
+1. **决策—执行闭环完成** — 纯核心产出 `Effect` → Runner 调对应 port → 结果作为 `AgentInput` 回喂核心。
+2. **工具接线完成** — 工具经 ToolRouter 校验 + 能力门控后可被模型选用；缺失对应 port 的工具自动从可见集摘除。
+3. **错误不中断循环** — 工具 / 模型错误一律归一化为 `isError: true` 的 `ToolResult` 或 `ModelError` input 回喂，**绝不抛异常中断主循环**。
+4. **可验证** — `pnpm turbo run typecheck lint test` 通过 + 给出手工验收步骤（或对应 Phase 的 Acceptance Criteria 全绿）。
+
+## 4. 代码改动硬性约束
+
+- **每次代码改动后必须运行 `pnpm turbo run typecheck lint test`**（受影响包即可，用 `--filter`），通过才算完成。
+- **依赖单向向下** — `core ← tools-*/providers-*/runtimes-*/stores-* ← sdk ← apps/*`；下游仅以 **type import** 依赖 core。**`zod` 只允许出现在 `tools/*` 与 `sdk`**，核心只认抽象 `JSONSchema`。
+- **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@agent-core/tools-fs`（一包多工具，复数）、`@agent-core/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
+- **第三方库构造器参数必须查阅官方文档确认**，不得凭记忆臆测（尤其 OpenAI 兼容 streaming 的 `tool_calls` 分片累积、Zod schema 写法）。
+- **Plan 工作先建分支** — 提交前创建 `feat/plan-NNN-...`，禁止直接提交到 `dev` / `main`。
+
+---
+
+# 工作流与质量门
+
+- **Plan 生成 / 执行 / Phase Review** → 全局 skill `plan-execution-gate`（每个 Phase 完成后须经独立 review pass 通过 + 单独 git commit，方可进入下一 Phase）。
+- **能力门控 vs 权限策略** 职责分离：门控（ToolRouter）决定"工具是否对模型可见"，权限（PermissionPolicy）决定"可见工具是否放行（allow / deny / ask）"。改动二者之一时勿混淆职责。
+- 静态门:`pnpm turbo run typecheck`、`pnpm turbo run lint`、`pnpm turbo run test`。
+
+---
+
+<details>
+<summary>📚 参考信息（技术栈 / 结构 / 命令 / 索引）</summary>
+
+## Tech Stack
+
+- **语言**：TypeScript（strict / `noUncheckedIndexedAccess`）
+- **Monorepo**：pnpm workspace + Turborepo（任务依赖图编排 build / test / lint / typecheck）
+- **核心**：零依赖 functional core —— `state` / `input` / `effect` 类型、`step()` reducer、ContextAssembler / Compactor / ToolRouter / PermissionPolicy 纯决策、全部 port 接口
+- **工具 schema**：Zod（运行时校验 + 推导 JSON Schema，仅 `tools/*` 与 `sdk` 依赖）
+- **首个 Provider**：OpenAI 兼容 ModelPort（`/v1/chat/completions` 流式，`baseURL` 可配）
+- **Runtime adapter**：Node（FileSystem / Shell / Network / Tokenizer / ApprovalGate）
+- **SessionStore**：内存 + sqlite
+- **测试**：Vitest（含重放测试、SessionStore 共享行为测试、能力门控测试）
+
+## Project Structure（目标态，详见 Plan 001 §4.2）
+
+```
+agent-core/
+├── packages/
+│   ├── core/                 # @agent-core/core   纯函数内核 + ports 接口  ← 零依赖
+│   ├── sdk/                  # @agent-core/sdk     门面 run / stream / resume
+│   ├── tools/
+│   │   ├── fs/               # @agent-core/tools-fs     read/edit/write/ls/glob/grep
+│   │   ├── shell/            # @agent-core/tools-shell  bash
+│   │   ├── web/              # @agent-core/tools-web    web_fetch / web_search
+│   │   ├── plan/             # @agent-core/tools-plan   write_todos
+│   │   └── agent/            # @agent-core/tools-agent  task 子 agent
+│   ├── providers/
+│   │   └── openai/           # @agent-core/provider-openai
+│   ├── runtimes/
+│   │   └── node/             # @agent-core/runtime-node
+│   └── stores/
+│       ├── memory/           # @agent-core/store-memory
+│       └── sqlite/           # @agent-core/store-sqlite
+├── apps/
+│   └── reference-cli/        # 参考宿主：仅 wiring + 订阅事件，核心零改动
+├── plans/                    # 实施方案文档
+└── docs/                     # 架构设计文档
+```
+
+> pnpm workspace glob 用混合深度：`packages/*`（core/sdk）+ `packages/*/*`（tools/providers/runtimes/stores）+ `apps/*`。
+
+## Commands（Plan 001 Phase 1 建立后可用）
+
+```bash
+pnpm install                              # 安装依赖
+pnpm turbo run build                      # 构建所有包
+pnpm turbo run typecheck                  # 类型检查 (tsc --noEmit)
+pnpm turbo run lint                       # 代码检查 (含 core 零依赖 / 纯度规则)
+pnpm turbo run test                       # 运行测试 (vitest)
+pnpm turbo run test --filter @agent-core/core   # 仅测受影响包
+node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
+```
+
+## Coding Conventions（细节）
+
+- **核心纯度** — 见 §2；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@agent-core/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
+- **ToolResult 双层** — `modelContent`（给模型，精简，超量必截断且声明）+ `displayMetadata`（给 UI / 日志，diff / 行数 / 耗时，经 EventSink 流出）。
+- **`edit_file` 编辑格式** — 主格式 `str_replace`（`old_string` / `new_string` / `replace_all?`）；精确匹配失败时 fuzzy fallback（① 忽略行首尾空白 ② 忽略 token 间空白正则）；未 `read_file` 或版本过期的文件拒绝编辑；写回前版本比对。`apply_patch`(diff) 留扩展点，暂不实现。
+- **缓存友好** — ContextAssembler 把静态内容（system prompt / tool defs / 项目指令）前置，变量（user 输入 / tool result）后置；工具集变更尽量发生在 turn 边界。
+- **确定性** — 时间 / 随机 / ID 全部经 port 注入，支持离线重放与快照测试。
+
+## Skills Index
+
+| Skill                 | 用途                                                    |
+| --------------------- | ------------------------------------------------------- |
+| `plan-execution-gate` | Plan 生成、落地执行、Phase-by-Phase Review、Test Cases  |
+
+## Documentation Index
+
+| 文档              | 路径                                          | 说明                                       |
+| ----------------- | --------------------------------------------- | ------------------------------------------ |
+| 架构设计文档      | `docs/pure-agent-core.md`                     | 纯 Agent 核心架构、模块分解、ports 契约、路线图 M1–M7 |
+| 实施方案 Plan 001 | `plans/001-pure-agent-core-implementation.md` | monorepo 落地方案、目录/包结构、8 个 Phase  |
+
+</details>
