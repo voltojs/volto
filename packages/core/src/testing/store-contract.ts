@@ -78,6 +78,7 @@ export function runStoreContractTests(createStore: () => SessionStore): void {
           { role: "assistant", content: [{ type: "text", text: "Hello!" }] },
         ],
         pendingTools: [{ id: "t1", name: "read_file", input: { path: "/a.ts" } }],
+        pendingApprovalTool: { id: "t2", name: "edit_file", input: { path: "/b.ts" } },
         readFiles: [{ path: "/a.ts", version: 1, mtime: 1000 }],
         tokensUsed: 42,
         iterationCount: 3,
@@ -88,6 +89,7 @@ export function runStoreContractTests(createStore: () => SessionStore): void {
 
       expect(loaded!.state.messages).toHaveLength(3);
       expect(loaded!.state.pendingTools).toHaveLength(1);
+      expect(loaded!.state.pendingApprovalTool?.id).toBe("t2");
       expect(loaded!.state.readFiles).toHaveLength(1);
       expect(loaded!.state.tokensUsed).toBe(42);
       expect(loaded!.state.iterationCount).toBe(3);

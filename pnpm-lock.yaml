@@ -50,13 +50,13 @@ importers:
         specifier: workspace:*
         version: link:../../tools/fs
 
-  packages/stores/memory:
+  packages/stores/file:
     dependencies:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
 
-  packages/stores/sqlite:
+  packages/stores/memory:
     dependencies:
       '@agent-core/core':
         specifier: workspace:*

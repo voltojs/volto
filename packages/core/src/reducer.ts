@@ -379,16 +379,17 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     const toolDef = ctx.tools.find((td) => td.name === tool.name);
     const riskTier = toolDef?.riskTier ?? "WRITE_HIGH";
     const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
+    const newState: ReducerState = {
+      ...state,
+      pendingTools: remainingTools,
+      pendingApprovalTool: tool,
+      status: "waiting_for_approval",
+    };
     return {
-      state: {
-        ...state,
-        pendingTools: remainingTools,
-        pendingApprovalTool: tool,
-        status: "waiting_for_approval",
-      },
+      state: newState,
       effects: [
         { type: "request_approval", toolCall: tool, riskTier },
-        { type: "checkpoint", state: { ...state, pendingTools: remainingTools, pendingApprovalTool: tool, status: "waiting_for_approval" } },
+        { type: "checkpoint", state: newState },
       ],
     };
   }
@@ -418,7 +419,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
           pendingApprovalTool: undefined,
           status: "executing_tools",
         },
-        effects: [{ type: "execute_tool", toolCall: approvedTool }],
+        effects: [],
       };
     }
 

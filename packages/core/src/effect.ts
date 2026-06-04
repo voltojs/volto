@@ -4,7 +4,7 @@
  * The Runner interprets these effects and calls the corresponding ports.
  */
 
-import type { Message, PendingToolCall } from "./state.js";
+import type { AgentState, Message, PendingToolCall } from "./state.js";
 import type { RiskTier, ToolDefinition } from "./tool.js";
 
 /** Request the model to generate a response */
@@ -44,7 +44,7 @@ export interface EmitEffect {
 /** Save a checkpoint (state snapshot) to SessionStore */
 export interface CheckpointEffect {
   type: "checkpoint";
-  state: unknown;
+  state: AgentState;
 }
 
 /** Pause execution and wait for external input */

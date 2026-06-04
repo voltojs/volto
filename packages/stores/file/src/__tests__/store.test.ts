@@ -66,4 +66,27 @@ describe("FileStore specifics", () => {
     expect(list).toHaveLength(1);
     expect(list[0]!.id).toBe("good");
   });
+
+  it("throws on corrupted JSON in load (not silent)", async () => {
+    // Write a valid file first so the ID sanitizer produces a known filename
+    const store = createStore({ directory: tempDir });
+    await store.save({
+      id: "corrupt",
+      state: {
+        messages: [],
+        pendingTools: [],
+        status: "idle",
+        tokenBudget: undefined,
+        tokensUsed: 0,
+        maxIterations: 20,
+        iterationCount: 0,
+        readFiles: [],
+      },
+      createdAt: Date.now(),
+    });
+    // Overwrite with invalid JSON
+    await fs.writeFile(path.join(tempDir, "corrupt.json"), "not json", "utf-8");
+
+    await expect(store.load("corrupt")).rejects.toThrow();
+  });
 });

@@ -92,7 +92,7 @@ agent-core/
 │   │   └── node/             # @agent-core/runtime-node
 │   └── stores/
 │       ├── memory/           # @agent-core/store-memory
-│       └── sqlite/           # @agent-core/store-sqlite
+│       └── file/            # @agent-core/store-file
 ├── apps/
 │   └── reference-cli/        # 参考宿主：仅 wiring + 订阅事件，核心零改动
 ├── plans/                    # 实施方案文档

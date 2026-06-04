@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/store-sqlite",
+  "name": "@agent-core/store-file",
   "version": "0.0.1",
   "private": true,
   "type": "module",

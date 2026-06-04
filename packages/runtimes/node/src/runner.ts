@@ -322,7 +322,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       if (e.type === "checkpoint" && opts.sessionStore && opts.sessionId) {
         await opts.sessionStore.save({
           id: opts.sessionId,
-          state: e.state as import("@agent-core/core").AgentState,
+          state: e.state,
           createdAt: Date.now(),
         });
       }
@@ -364,7 +364,17 @@ export function createRunner(opts: RunnerOptions): Runner {
         throw new Error(`Session not found: ${resumeSessionId}`);
       }
       state = snapshot.state as ReducerState;
-      const approvedId = state.pendingApprovalTool?.id ?? "";
+      if (state.status !== "waiting_for_approval") {
+        throw new Error(
+          `Cannot resume session ${resumeSessionId}: expected status "waiting_for_approval" but got "${state.status}"`,
+        );
+      }
+      if (!state.pendingApprovalTool) {
+        throw new Error(
+          `Cannot resume session ${resumeSessionId}: checkpoint missing pendingApprovalTool (corrupted or stale)`,
+        );
+      }
+      const approvedId = state.pendingApprovalTool.id;
       // Pre-authorize the re-queued tool so runLoop's permission gate does not
       // re-prompt for the decision the user already gave on resume.
       if (decision === "allow") approvedToolCallIds.add(approvedId);

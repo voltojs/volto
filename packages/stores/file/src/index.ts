@@ -1,8 +1,6 @@
 /**
  * File-based SessionStore implementation.
  * Persists snapshots as JSON files in a directory.
- * Named "sqlite" for package naming consistency with the plan,
- * but uses file-based storage to avoid native dependencies.
  */
 
 import type { SessionStore, SessionSnapshot } from "@agent-core/core";
@@ -12,6 +10,10 @@ import * as path from "node:path";
 export interface FileStoreOptions {
   /** Directory to store session files */
   directory: string;
+}
+
+function isEnoent(err: unknown): boolean {
+  return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 export function createStore(opts: FileStoreOptions): SessionStore {
@@ -38,8 +40,9 @@ export function createStore(opts: FileStoreOptions): SessionStore {
       try {
         const data = await fs.readFile(filePath(id), "utf-8");
         return JSON.parse(data) as SessionSnapshot;
-      } catch {
-        return undefined;
+      } catch (err: unknown) {
+        if (isEnoent(err)) return undefined;
+        throw err;
       }
     },
 
@@ -54,7 +57,7 @@ export function createStore(opts: FileStoreOptions): SessionStore {
           const data = await fs.readFile(path.join(directory, file), "utf-8");
           snapshots.push(JSON.parse(data) as SessionSnapshot);
         } catch {
-          // Skip corrupted files
+          // Skip corrupted or unreadable files in listing
         }
       }
 

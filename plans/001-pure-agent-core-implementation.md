@@ -27,7 +27,7 @@
 | 仓库 | 非 git 仓库(`git status` 报错) | 已 `git init`,有 feature 分支与 Phase 提交历史 |
 | 核心 | 无 | 纯函数 `step()` reducer + 全部 port 接口 + 重放测试 |
 | 工具 | 无 | 文件 / shell / web / planning / 子 agent 五类工具包,Zod 校验 + 能力门控 |
-| 适配层 | 无 | OpenAI 兼容 ModelPort、Node 文件/shell/network adapter、内存 + sqlite SessionStore |
+| 适配层 | 无 | OpenAI 兼容 ModelPort、Node 文件/shell/network adapter、内存 + file SessionStore |
 | 对外 API | 无 | SDK 门面 `run / stream / resume`,最小配置仅需一个 model |
 | 宿主 | 无 | 一个参考 CLI,仅做 wiring,核心包零改动即可跑通 |
 
@@ -47,7 +47,7 @@
 4. 实现 OpenAI 兼容 ModelPort adapter,流式归一化 text / reasoning / tool_use / usage;附带 mock ModelPort。
 5. 实现文件工具包(read/edit/write/ls/glob/grep),`edit_file` 支持 str_replace + fuzzy fallback + 先读后改 + 版本比对;附 Node 文件 adapter(工作区边界)。
 6. 实现 ContextAssembler(cache 友好排序)、Tokenizer adapter、Compactor 压缩决策。
-7. 实现 PermissionPolicy、RequestApproval/ApprovalDecision 闭环、SessionStore(内存 + sqlite)、ApprovalGate(auto-allow + 交互式)。
+7. 实现 PermissionPolicy、RequestApproval/ApprovalDecision 闭环、SessionStore(内存 + file)、ApprovalGate(auto-allow + 交互式)。
 8. 实现 shell / web / planning 工具包与能力门控验证。
 9. 实现 `task` 子 agent(上下文隔离)、SDK 门面(run/stream/resume + 缺省 port 兜底)、参考 CLI 宿主。
 10. 全程满足验收:重放测试、能力门控测试、`resume` 等价性测试、SDK 最小配置(仅 model)可启动。
@@ -92,7 +92,7 @@ packages/
     node/              @agent-core/runtime-node
   stores/
     memory/            @agent-core/store-memory
-    sqlite/            @agent-core/store-sqlite
+    file/             @agent-core/store-file
 apps/
   reference-cli/       仅依赖 sdk,做 wiring + 订阅事件
 ```
@@ -324,12 +324,12 @@ packages:
 
 ### Phase 6: 权限、HITL 与会话恢复(M5)
 
-**Goal**: 实现 PermissionPolicy、RequestApproval/ApprovalDecision 闭环、SessionStore(内存 + sqlite)、ApprovalGate(auto-allow + 交互式)。
+**Goal**: 实现 PermissionPolicy、RequestApproval/ApprovalDecision 闭环、SessionStore(内存 + file)、ApprovalGate(auto-allow + 交互式)。
 
 **Files covered**:
 - `packages/core/src/permission-policy.ts`(纯决策)
 - `packages/stores/memory/src/index.ts`
-- `packages/stores/sqlite/src/index.ts`
+- `packages/stores/file/src/index.ts`
 - `packages/runtimes/node/src/approval-gate.ts`(auto-allow + 终端交互)
 - `packages/core/src/testing/store-contract.ts`(共享行为测试套件)
 - 对应 `__tests__/`
@@ -337,7 +337,7 @@ packages:
 **Tasks**:
 - [x] 实现 PermissionPolicy:依 `riskTier` + 配置输出 `allow` / `deny` / `ask`
 - [x] reducer/Runner 支持 `RequestApproval` 效果 → `ApprovalGate.ask` → `ApprovalDecision` 回喂;`ask` 时落 `Checkpoint` 暂停
-- [x] 实现内存 SessionStore 与 sqlite SessionStore:`save` / `load` / `list`(注:`store-sqlite` 实为 file-based JSON 持久化,包名沿用 `sqlite` 仅为与计划命名一致、避免引入原生依赖;已通过同一份合同测试)
+- [x] 实现内存 SessionStore 与 file SessionStore:`save` / `load` / `list`(`@agent-core/store-file` 为 file-based JSON 持久化,已通过合同测试)
 - [x] 抽取 SessionStore 共享行为测试套件,两种实现都跑通
 - [x] 实现 SDK 层 `resume(sessionId, decision)` 的核心支撑(从 checkpoint 重建 state 续跑)—— SDK 门面在 Phase 8 组装
 - [x] 实现 ApprovalGate:auto-allow(策略自动)+ 终端交互式
@@ -346,7 +346,7 @@ packages:
 **Acceptance Criteria**:
 1. 写 / 高风险工具触发 `ask`,中断后状态完整落盘(snapshot 可序列化)。
 2. 从 checkpoint 重建续跑(`resume(sessionId, decision)`)结果与不中断等价。
-3. 内存 store 与 sqlite store 通过同一组行为测试。✅
+3. 内存 store 与 file store 通过同一组行为测试。✅
 
 **Review 跟进**:首轮 review FAIL —— Runner 的 HITL `ask` 闭环断裂:`interpretEffects` 同步取得审批并回喂 `approval_decision` 后,reducer 产出的 `execute_tool` / `call_model` 效果被 `forwardEmit` 丢弃,且 runLoop 直接 `return`,导致**已批准的工具永不执行、deny 后模型永不重调**(实证探针 `executed=0, status=executing_tools`);`resume` 在配 `permissionConfig` 时会对已批准工具重跑权限检查 → 无限重暂停;且全无 Runner 级 ask/checkpoint/resume 测试。返工:① `ask` 分支改 `break` 让外层 while 按新状态重新分发以闭环;② 新增 `approvedToolCallIds`,审批通过的工具 id 绕过权限门(`interpretEffects` 与 `resume` 两处填充);③ `interpretEffects` 先持久化 checkpoint 再询问 gate(防 gate 抛错/延迟丢快照);④ 新增 `runner-hitl.test.ts` 4 例(auto-allow 执行闭环 / deny 重调模型 / 暂停落 checkpoint / resume 与不中断等价)。复审 PASS。
 

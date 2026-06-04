@@ -5,6 +5,6 @@
     { "path": "packages/runtimes/node" },
     { "path": "packages/providers/openai" },
     { "path": "packages/stores/memory" },
-    { "path": "packages/stores/sqlite" }
+    { "path": "packages/stores/file" }
   ]
 }

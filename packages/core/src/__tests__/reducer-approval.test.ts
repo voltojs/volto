@@ -45,7 +45,7 @@ describe("reducer: request_approval flow", () => {
     ).toThrow('not found in pendingTools');
   });
 
-  it("allow decision moves tool back to pendingTools and emits execute_tool", () => {
+  it("allow decision moves tool back to pendingTools", () => {
     let state = stateWithPendingTools();
     // request_approval → waiting_for_approval
     const r1 = step(state, { type: "request_approval", toolCallId: "t1" }, ctx);
@@ -62,8 +62,7 @@ describe("reducer: request_approval flow", () => {
     expect(state.pendingTools).toHaveLength(1);
     expect(state.pendingTools[0]!.id).toBe("t1");
     expect(state.pendingApprovalTool).toBeUndefined();
-    expect(r2.effects).toHaveLength(1);
-    expect(r2.effects[0]!.type).toBe("execute_tool");
+    expect(r2.effects).toHaveLength(0);
   });
 
   it("deny decision creates error result and clears pending approval tool", () => {
