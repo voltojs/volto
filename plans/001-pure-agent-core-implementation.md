@@ -427,3 +427,179 @@ packages:
 ## 执行须知(Branch Gate)
 
 本仓库当前**非 git 仓库**。Phase 1 首个任务即:`git init` → 创建 `.gitignore` → 建立主分支(`main`)→ 从 `main` 切出 feature 分支 `feat/plan-001-pure-agent-core`,所有 Phase 提交落在该分支。每个 Phase 完成后须经独立 review pass 通过,再做单独提交,方可进入下一 Phase。
+
+---
+
+## Test Cases
+
+### TC-1: Monorepo 构建通过（Phase 1 AC1）
+
+**Title**: 全量 build / typecheck / lint / test 通过  
+**Preconditions**: 已 `pnpm install`  
+**Steps**:
+1. 运行 `pnpm turbo run build typecheck lint test`
+2. 检查退出码为 0  
+**Paths involved**: `turbo.json`、所有 `package.json`  
+**Expected result**: 全部任务成功，无错误输出
+
+### TC-2: 核心包 lint 规则阻止 I/O（Phase 1 AC2）
+
+**Title**: ESLint 禁止 core 内 `node:fs` import 与 `Date.now()` 调用  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 在 `packages/core/src` 任意 `.ts` 文件中添加 `import fs from "node:fs"`
+2. 运行 `pnpm turbo run lint --filter @agent-core/core`
+3. 观察 lint 报错（`no-restricted-imports`）  
+**Paths involved**: `packages/core/src/*.ts`  
+**Expected result**: lint 报错，退出码非 0
+
+### TC-3: 核心包零依赖校验（Phase 1 AC3）
+
+**Title**: `check-core-zero-deps` 脚本拒绝非空 dependencies  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 临时给 `packages/core/package.json` 的 `dependencies` 添加 `"foo": "1.0.0"`
+2. 运行 `node scripts/check-core-zero-deps.mjs`
+3. 观察退出码非 0  
+**Paths involved**: `packages/core/package.json`、`scripts/check-core-zero-deps.mjs`  
+**Expected result**: 脚本报错并以非 0 退出码退出
+
+### TC-4: Reducer 全链路单测（Phase 2 AC1）
+
+**Title**: user → CallModel → tool_use → ExecuteTool → ToolResult → CallModel → Done  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/core`
+2. 观察 `reducer.test.ts` 中 "full tool use loop" 用例通过  
+**Paths involved**: `packages/core/src/__tests__/reducer.test.ts`  
+**Expected result**: 单测通过，消息序列为 user → assistant(tool_use) → tool → assistant(text)
+
+### TC-5: 重放测试确定性（Phase 2 AC3）
+
+**Title**: 相同 input 序列两次运行产生 deep-equal (state, effects) 序列  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/core`
+2. 观察 `replay.test.ts` 用例通过  
+**Paths involved**: `packages/core/src/__tests__/replay.test.ts`  
+**Expected result**: 两次运行的 state 和 effects 序列完全一致
+
+### TC-6: Runner 取消路径（Phase 3 AC3）
+
+**Title**: AbortSignal 中止进行中的 stream  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/runtime-node`
+2. 观察 `runner.test.ts` 中 cancellation 相关用例通过  
+**Paths involved**: `packages/runtimes/node/src/__tests__/runner.test.ts`  
+**Expected result**: Runner 在 AbortSignal 触发后进入 done 状态，pending 被清理
+
+### TC-7: edit_file fuzzy fallback（Phase 4 AC1）
+
+**Title**: 精确匹配失败时 fuzzy fallback 正确命中  
+**Preconditions**: Node FileSystem adapter 可用  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/tools-fs`
+2. 观察 `tools.test.ts` 中 fuzzy match 相关用例通过  
+**Paths involved**: `packages/tools/fs/src/__tests__/tools.test.ts`、`packages/tools/fs/src/fuzzy-match.ts`  
+**Expected result**: fuzzy fallback 正确替换目标内容
+
+### TC-8: edit_file 读改门控（Phase 4 AC3）
+
+**Title**: 未 read_file 的文件被 edit_file 拒绝  
+**Preconditions**: Node FileSystem adapter 可用  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/tools-fs`
+2. 观察 edit_file 未读拒绝用例通过  
+**Paths involved**: `packages/tools/fs/src/__tests__/tools.test.ts`  
+**Expected result**: 返回 `isError: true` 的 ToolResult，模型可自我修正
+
+### TC-9: Compactor 关键信息保留（Phase 5 AC1）
+
+**Title**: 超长 history 触发 Compactor 并保留近因/文件路径/未完成 todo  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/core`
+2. 观察 `compactor.test.ts` 中 "preserves key messages" 用例通过  
+**Paths involved**: `packages/core/src/__tests__/compactor.test.ts`  
+**Expected result**: `preservedMessages` 包含关键消息，`compressibleMessages` 不含
+
+### TC-10: HITL 审批闭环（Phase 6 AC1+AC2）
+
+**Title**: ask → 中断落盘 → resume 续跑等价  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/runtime-node`
+2. 观察 `runner-hitl.test.ts` 中 "resume equivalence" 用例通过  
+**Paths involved**: `packages/runtimes/node/src/__tests__/runner-hitl.test.ts`  
+**Expected result**: resume 后的 final state 与不中断路径的 final state 等价
+
+### TC-11: SessionStore 合同测试（Phase 6 AC3）
+
+**Title**: 内存 store 与 file store 通过同一组行为测试  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/store-memory --filter @agent-core/store-file`
+2. 观察合同测试用例通过  
+**Paths involved**: `packages/core/src/testing/store-contract.ts`、`packages/stores/memory/src/__tests__/`、`packages/stores/file/src/__tests__/`  
+**Expected result**: 两种 store 实现均通过 save / load / list 行为测试
+
+### TC-12: Shell 能力门控（Phase 7 AC1）
+
+**Title**: 未注入 Shell port 时 bash 工具不可见  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/tools-web`
+2. 观察 `capability-gating.test.ts` 用例通过  
+**Paths involved**: `packages/tools/web/src/__tests__/capability-gating.test.ts`  
+**Expected result**: `filterVisibleTools` 在缺少对应 capability 时摘除工具
+
+### TC-13: 参考宿主纯 wiring（Phase 8 AC1）
+
+**Title**: 参考 CLI 仅通过 wiring 跑通完整流程，core 包零改动  
+**Preconditions**: Phase 8 已提交  
+**Steps**:
+1. 运行 `git diff --stat HEAD~1 -- packages/core/`
+2. 确认无 core 包文件变更  
+**Paths involved**: `apps/reference-cli/src/main.ts`  
+**Expected result**: git diff 在 Phase 8 commit 中不含 core 包任何文件
+
+### TC-14: Task 子 agent 上下文隔离（Phase 8 AC2）
+
+**Title**: 主 agent 仅收到子 agent 最终输出，子 agent 无 task 工具  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+2. 观察 `sub-agent-isolation.test.ts` 中 "context isolation" 用例通过  
+**Paths involved**: `packages/sdk/src/__tests__/sub-agent-isolation.test.ts`、`packages/sdk/src/create-agent.ts`  
+**Expected result**: task tool 返回子 agent 的 `extractPlainText` 输出；子 agent 尝试调用 task 时返回 `Unknown tool` 错误
+
+### TC-15: SDK 最小配置启动（Phase 8 AC3）
+
+**Title**: 仅传 `modelPort` 即可启动纯对话 agent 并完成一轮对话  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+2. 观察 `create-agent.test.ts` 中 "minimal config" 用例通过  
+**Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`、`packages/sdk/src/create-agent.ts`  
+**Expected result**: `createAgent({ modelPort })` 返回的 agent 实例可 `run("Hi")` 并得到包含 assistant 文本的 final state
+
+### TC-16: SDK 多轮对话状态衔接（Phase 8 AC3 扩展）
+
+**Title**: 多次 `run()` 调用之间对话历史正确保持  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+2. 观察 `create-agent.test.ts` 中 "multiple turns" 用例通过  
+**Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`  
+**Expected result**: 第二轮 `run()` 后 `state.messages` 包含前一轮的 user/assistant 消息 + 新轮的消息
+
+### TC-17: stream() 事件输出（Phase 8 扩展）
+
+**Title**: `stream()` 异步生成器正确 yield 事件  
+**Preconditions**: 项目构建环境正常  
+**Steps**:
+1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+2. 观察 `create-agent.test.ts` 中 "stream()" 用例通过  
+**Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`、`packages/sdk/src/stream-channel.ts`  
+**Expected result**: `for await (const event of agent.stream(...))` 收到 `text_delta` 和 `model_done` 事件
