@@ -407,7 +407,8 @@ packages:
 2. `task` 子 agent 上下文隔离,主 agent 仅收到其最终输出。✅
 3. SDK 最小配置(仅 `model`)可启动一个纯对话 agent 并完成一轮对话。✅
 
-**Reviewed**: 2026-06-04 by reviewer
+**Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent)
+**Commit**: 7331347 feat(plan-001): phase 8 - 子 Agent / SDK 门面 / 参考 CLI 宿主
 
 ## 6. Risks and mitigations
 
