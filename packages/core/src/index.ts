@@ -107,6 +107,28 @@ export {
 } from "./file-gate.js";
 export type { FileAccess } from "./file-gate.js";
 
+// ContextAssembler — cache-friendly message ordering
+export {
+  assembleContext,
+  buildToolPrompt,
+  computeStaticPrefixTokens,
+} from "./context-assembler.js";
+export type { AssembleContextOptions, AssembledContext } from "./context-assembler.js";
+
+// Compactor — compression decision logic
+export {
+  decideCompaction,
+  estimateTokens,
+  estimateMessageTokens,
+  extractFilePaths,
+  hasIncompleteTodos,
+  isToolInteraction,
+} from "./compactor.js";
+export type { CompactionOptions, CompactionDecision } from "./compactor.js";
+
+// Text extraction — shared helpers for Message → string
+export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
+
 // Testing utilities
 export {
   createMockModelPort,
@@ -121,3 +143,6 @@ export {
   textScript,
 } from "./testing/mock-model-port.js";
 export type { ModelPortScript } from "./testing/mock-model-port.js";
+
+// Testing tokenizer utilities
+export { createCharTokenizer, createFixedTokenizer, createMappedTokenizer } from "./testing/char-tokenizer.js";

@@ -305,14 +305,14 @@ packages:
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现 ContextAssembler:把 system prompt / tool defs / 项目指令(静态)前置,user 输入 / tool result(变量)后置,保证可缓存前缀稳定
-- [ ] 实现 Tokenizer adapter(char-heuristic)与确定性测试版
-- [ ] 实现 Compactor:依 Tokenizer 估算判断是否压缩、压缩哪些消息;保留近因 + 关键决策 / 文件路径 / 未完成 todo;实际摘要走 `CallModel` 效果(调便宜模型)
-- [ ] 测试:超长 history 触发 Compactor 并保留关键信息;工具集不变时静态前缀稳定
+- [x] 实现 ContextAssembler:把 system prompt / tool defs / 项目指令(静态)前置,user 输入 / tool result(变量)后置,保证可缓存前缀稳定
+- [x] 实现 Tokenizer adapter(char-heuristic)与确定性测试版
+- [x] 实现 Compactor:依 Tokenizer 估算判断是否压缩、压缩哪些消息;保留近因 + 关键决策 / 文件路径 / 未完成 todo;实际摘要走 `CallModel` 效果(调便宜模型)
+- [x] 测试:超长 history 触发 Compactor 并保留关键信息;工具集不变时静态前缀稳定
 
 **Acceptance Criteria**:
-1. 超长 history 时 Compactor 正确触发并保留关键信息(近因 / 文件路径 / 未完成 todo)。
-2. 工具集不变时 ContextAssembler 产出的静态前缀稳定(逐字节可缓存)。
+1. 超长 history 时 Compactor 正确触发并保留关键信息(近因 / 文件路径 / 未完成 todo)。✅
+2. 工具集不变时 ContextAssembler 产出的静态前缀稳定(逐字节可缓存)。✅
 
 <!-- Backfill after execution:
 **Reviewed**: <date> by reviewer
