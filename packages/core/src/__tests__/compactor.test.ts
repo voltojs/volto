@@ -186,10 +186,9 @@ describe("decideCompaction", () => {
     });
 
     expect(decision.shouldCompact).toBe(true);
-    expect(decision.compactRange).toBeDefined();
-    expect(decision.compactRange!.start).toBeGreaterThanOrEqual(0);
-    expect(decision.compactRange!.end).toBeLessThanOrEqual(messages.length);
-    expect(decision.compactRange!.start).toBeLessThan(decision.compactRange!.end);
+    expect(decision.compressedIndices).toBeDefined();
+    expect(decision.compressedIndices!.length).toBeGreaterThan(0);
+    expect(Math.max(...decision.compressedIndices!)).toBeLessThan(messages.length);
     expect(decision.compressibleMessages.length).toBeGreaterThan(0);
     expect(decision.preservedMessages.length).toBeGreaterThan(0);
     expect(decision.summaryPrompt).toBeDefined();

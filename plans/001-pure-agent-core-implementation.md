@@ -422,6 +422,53 @@ packages:
 - **配套改动**：SDK `CreateAgentOptions` 新增 `approvalGate?: ApprovalGate` 选项（之前 hardcode `createAutoAllowGate()`，无法测 HITL 闭环）。
 **二次 Review 跟进 Commit**: f5635ff fix(plan-001): phase 8 二次 review 跟进 — P0/P1/P2 全量修复 + 补测
 
+---
+
+## 9. 遗留修复项（全量 Review 后续）
+
+> 2026-06-04 全量 code review 发现但未在本轮修复的问题。按影响面排序，留待后续迭代处理。
+
+### 9.1 P2 — 需要修复但影响面可控
+
+| # | 模块 | 问题描述 | 修复方案 | 阻塞原因 |
+|---|------|---------|---------|---------|
+| D-1 | `packages/tools/fs/src/glob.ts` | `glob` 输出无截断声明：`**/*` 在大仓库返回数千路径无 limit | 新增 `limit` 参数（默认 500），超量截断 + truncation declaration | 需评估默认值对不同仓库的适用性 |
+| D-2 | `packages/tools/fs/src/grep.ts` | grep 截断了 match 数但未限止单行长度：200KB 单行仍会爆炸 | 每条 match 文本限长（如 2000 字符）+ `[truncated]` 后缀 | 需与 bash 工具的截断策略对齐 |
+| D-3 | `packages/runtimes/node/src/approval-gate.ts` | Interactive gate 无 AbortSignal 支持：agent 取消后 readline 接口泄漏 | `createInteractiveGate()` 接受 `AbortSignal`，abort 时 `rl.close()` | 需改 API 签名，影响面较大 |
+| D-4 | `packages/runtimes/node/src/runner.ts:425` | checkpoint 用 `Date.now()`，破坏 runner 级重放确定性 | RunnerOptions 新增 `clock?: Clock` 可选注入 | 架构允许但影响测试确定性 |
+| D-5 | `packages/providers/openai/src/stream-normalize.ts:47-128` | 无 usage chunk 时 token 计数归零：流以 choices 结束但无 usage chunk → `lastUsage` 为 undefined → synthesized `model_done` 不带 usage | stream-normalize 在 generator 结束时 yield 一个零值 usage event 作为兜底 | 边缘场景，实际 OpenAI 始终返回 usage |
+
+### 9.2 P2 — 测试覆盖度缺口
+
+| # | 模块 | 缺口描述 | 补测方案 |
+|---|------|---------|---------|
+| T-1 | `packages/core/src/tool-router.ts` | `validateToolInput`、`filterVisibleTools`、`routeToolCall` 三个纯函数零单元测试 | 新增 `tool-router.test.ts`：必填字段校验、类型强转、schema 缺 properties、空 capabilities、未知工具 |
+| T-2 | `packages/core/src/file-gate.ts` | `recordFileAccess`、`evaluateEditGate`、`evaluateOverwriteGate` 等纯决策函数零单元测试 | 新增 `file-gate.test.ts`：版本 bump、mtime 匹配/不匹配、新文件/已存在文件、extractFileAccess 解析 |
+| T-3 | `packages/tools/fs/src/ls.ts` | `createLsTool` handler 零测试 | 新增测试：正常目录列表、空目录返回 "(empty)"、不存在路径返回 isError |
+| T-4 | `packages/tools/fs/src/glob.ts` | `createGlobTool` handler 零测试 | 新增测试：pattern 匹配、无匹配返回空、输出截断声明 |
+| T-5 | `packages/tools/fs/src/grep.ts` | `createGrepTool` handler 零测试 | 新增测试：正常搜索、无匹配、limit 截断、单行超长截断 |
+| T-6 | `packages/tools/fs/src/write-file.ts` | `createWriteFileTool` handler 零测试（仅门控被间接测试） | 新增测试：新建文件、覆盖文件、Zod 校验失败、fs.write 抛错、displayMetadata 形状 |
+| T-7 | `packages/sdk/src/stream-channel.ts` | producer-consumer 桥接无独立测试 | 新增 `stream-channel.test.ts`：多次 emit before poll、done while awaiting、队列背压 |
+| T-8 | `packages/tools/fs/` | FS 能力门控测试缺失（shell/web/plan 均有 `capability-gating.test.ts`，fs 缺失） | 新增 `capability-gating.test.ts`：未注入 FileSystem port 时 `read_file`/`edit_file`/`write_file` 不可见 |
+| T-9 | `packages/runtimes/node/src/tokenizer.ts` | `createNodeTokenizer` 无测试 | 新增测试：空字符串返回 0、正常文本返回 `Math.max(1, ceil(len/4))` |
+| T-10 | `packages/core/src/compactor.ts` | `summaryPrompt` 空 compressible 边界未测 | 新增测试：compressible 为空时 `summaryPrompt` 不崩溃（或 `shouldCompact` 不触发） |
+
+### 9.3 P3 — 低优先级改进
+
+| # | 模块 | 描述 |
+|---|------|------|
+| N-1 | `packages/runtimes/node/src/shell.ts:88` | 信号终止时 exit code 默认 1，非常规 128+signum（如 SIGTERM=143） |
+| N-2 | `packages/runtimes/node/src/shell.ts:56-58` | SIGKILL timer 未存储引用、未在 finally 中 clearTimeout，进程提前退出时 timer 泄漏 |
+| N-3 | `packages/runtimes/node/src/tokenizer.ts:15` | `charsPerToken=4` 对英文偏移，CJK 文本（约 1.5-2 chars/token）会 2x 延迟触发 compaction |
+| N-4 | `packages/core/src/reducer.ts:559` | `buildAssistantContent` JSON parse 失败静默吞掉，丢失原始文本上下文 |
+| N-5 | `packages/providers/openai/src/model-port.ts:172` | SSE parser 不处理多行 `data:` 字段（罕见但不符合 SSE 规范） |
+| N-6 | `apps/reference-cli/src/render.ts:34` | Sub-agent 以 depth>0 事件结束时 `[depth=N]` 标签不关闭 |
+| N-7 | `packages/stores/file/src/index.ts:59` | `list()` 静默吞掉 JSON parse 错误，损坏数据不可见 |
+| N-8 | `packages/core/src/compactor.ts:66` | 路径 regex 贪婪匹配，会误捕 CSS selector（`/deep/`）、URL 等 |
+| N-9 | `packages/runtimes/node/src/shell-adapter.test.ts:38` | 用 `Date.now()` 断言耗时，慢 CI 上不稳定 |
+
+---
+
 ## 6. Risks and mitigations
 
 | Risk | Impact | Mitigation |
@@ -615,3 +662,208 @@ packages:
 2. 观察 `create-agent.test.ts` 中 "stream()" 用例通过  
 **Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`、`packages/sdk/src/stream-channel.ts`  
 **Expected result**: `for await (const event of agent.stream(...))` 收到 `text_delta` 和 `model_done` 事件
+
+---
+
+## 10. E2E 测试用例（端到端集成验证）
+
+> 以下测试用例覆盖从用户输入到最终输出的完整链路，验证各模块协作正确性。优先级高于单元测试中的间接覆盖。
+
+### TC-E1: Shell 取消全链路（AbortSignal 端到端）
+
+**Title**: Agent 取消时 Shell 命令被正确中止  
+**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Steps**:
+1. 创建 mock ModelPort：第一轮返回 `tool_use(bash, "sleep 30")`，不返回 text
+2. 创建 Node Shell adapter + Node FileSystem adapter
+3. 创建 Runner，注入 AbortSignal（50ms 后触发）
+4. 调用 `runner.run({ type: "user_message", content: "run long command" })`
+5. 等待 runner 完成
+6. 断言：runner 状态为 `done`；Shell adapter 的子进程已被 kill（通过 mock 或 spy 验证）  
+**Paths involved**: `packages/runtimes/node/src/runner.ts`、`packages/runtimes/node/src/shell-tool-executor.ts`、`packages/runtimes/node/src/shell.ts`  
+**Expected result**: AbortSignal 从 Runner → shell-tool-executor → bash tool → shell.exec → child.kill 完整传递，进程在超时前被终止
+
+### TC-E2: edit_file fuzzy 缩进保持端到端
+
+**Title**: Fuzzy 匹配替换后原始缩进不丢失  
+**Preconditions**: `@agent-core/tools-fs` 构建通过  
+**Steps**:
+1. 创建 in-memory FileSystem，写入 `  function hello() {\n    return 1;\n  }`（4 空格缩进）
+2. 创建 `createEditFileTool(fs)`
+3. 调用 handler：`old_string: "function hello() { return 1; }"`（无缩进），`new_string: "function hello() { return 2; }"`
+4. 断言：`result.isError` 为 falsy
+5. 读取文件内容
+6. 断言：新内容为 `  function hello() {\n    return 2;\n  }`（缩进保持 4 空格）  
+**Paths involved**: `packages/tools/fs/src/edit-file.ts`、`packages/tools/fs/src/fuzzy-match.ts`  
+**Expected result**: `preserveIndentation` 正确检测匹配行前缀空白并应用到 newString 的后续行
+
+### TC-E3: stream-normalize 非标准 provider tool call 缓冲
+
+**Title**: 首 chunk 无 id/name 的 tool call 不丢失  
+**Preconditions**: `@agent-core/provider-openai` 构建通过  
+**Steps**:
+1. 构造 mock raw chunk 序列（模拟 vLLM/Azure 行为）：
+   - chunk 1: `tool_calls[{index:0, function:{arguments:'{"path":'}}]`（无 id/name）
+   - chunk 2: `tool_calls[{index:0, id:"call_1", function:{name:"read_file", arguments:'"foo.ts"}'}]`
+   - chunk 3: `finish_reason:"tool_calls"`
+2. 调用 `normalizeStream(mockChunks)`
+3. 收集所有 yield 的 ModelEvent
+4. 断言：
+   - 收到 `tool_use_start`（toolCallId="call_1", toolName="read_file"）
+   - 收到 `tool_use_delta`（argumentsDelta 包含缓冲的 `'{"path":'` + `'foo.ts"}'`）
+   - 收到 `done`（stopReason="tool_use"）  
+**Paths involved**: `packages/providers/openai/src/stream-normalize.ts`  
+**Expected result**: `pendingArgs` Map 正确缓冲参数 delta，identity 到达后合并回放，tool call 不丢失
+
+### TC-E4: FileStore atomic write 中断恢复
+
+**Title**: 写入中断后文件不损坏  
+**Preconditions**: `@agent-core/store-file` 构建通过  
+**Steps**:
+1. 创建 FileStore，save 一个有效 snapshot
+2. 读取文件确认 JSON 可解析
+3. 手动写入截断内容到 `{id}.json`（模拟 crash）
+4. 调用 `store.list()`
+5. 断言：corrupted 文件被跳过，不抛异常
+6. 调用 `store.save()` 写入新 snapshot
+7. 断言：新文件写入成功（通过 `.tmp.{pid}` → `rename` 原子路径）  
+**Paths involved**: `packages/stores/file/src/index.ts`  
+**Expected result**: atomic write（writeFile tmp → rename）保证 crash 后文件要么是旧完整版，要么是新完整版，不会出现截断
+
+### TC-E5: Retriable model error 后 streaming 累加器清零
+
+**Title**: 可重试错误后重试不产生重复内容  
+**Preconditions**: `@agent-core/core` 构建通过  
+**Steps**:
+1. 构造 reducer 状态：`status: "calling_model"`，`_accumulatedText: "partial "`
+2. 输入 `model_error`（retriable: true）
+3. 调用 `step(state, input, ctx)`
+4. 断言：返回的 `state._accumulatedText` 为 `""`（已清零）
+5. 断言：返回的 `state._accumulatedToolCalls` 为 `[]`（已清零）
+6. 断言：effects 包含 `call_model`（触发重试）  
+**Paths involved**: `packages/core/src/reducer.ts`  
+**Expected result**: retriable error 分支重置 accumulators，避免重试后内容重复
+
+### TC-E6: glob 工作区边界防逃逸
+
+**Title**: 符号链接或 `..` 模式无法逃逸工作区  
+**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Steps**:
+1. 创建 NodeFileSystem（root = `/tmp/test-workspace`）
+2. 在工作区内创建符号链接 `link` → `/etc/passwd`
+3. 调用 `fs.glob("link")`
+4. 断言：返回的 paths 不包含 `/etc/passwd`（被边界校验过滤）
+5. 创建文件 `../escape.txt`（通过 symlink）
+6. 调用 `fs.glob("**/*.txt")`
+7. 断言：逃逸文件不在结果中  
+**Paths involved**: `packages/runtimes/node/src/filesystem.ts`  
+**Expected result**: `glob` 返回的每个路径都通过 `resolveWithinRoot` 校验，逃逸路径被静默过滤
+
+### TC-E7: Network AbortError 透传端到端
+
+**Title**: 取消网络请求时 AbortError 不被包装为通用错误  
+**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Steps**:
+1. 创建 NodeNetwork adapter
+2. 创建 AbortController，立即 abort
+3. 调用 `network.fetch({ url: "https://example.com", abortSignal: controller.signal })`
+4. 断言：抛出的错误 `name === "AbortError"`
+5. 断言：错误 message 不包含 "Network fetch failed"（未被包装）  
+**Paths involved**: `packages/runtimes/node/src/network.ts`  
+**Expected result**: AbortError 保持原始 identity，调用方可通过 `error.name === "AbortError"` 区分取消与真实网络错误
+
+### TC-E8: SDK + Runner Compaction 端到端
+
+**Title**: 超长对话自动触发上下文压缩  
+**Preconditions**: `@agent-core/sdk` 构建通过  
+**Steps**:
+1. 创建 SDK agent，配置 `compaction: { maxTokens: 200, tokenizer: charTokenizer }`
+2. 注入 spy ModelPort：模拟多轮对话使 token 数超过 200
+3. 调用 `agent.run()` 多次直到 compaction 触发
+4. 断言：spy ModelPort 被调用时 `messages` 包含一个 system message（summary）
+5. 断言：summary message 在 preserved messages 中靠前位置（static prefix 友好）  
+**Paths involved**: `packages/sdk/src/create-agent.ts`、`packages/runtimes/node/src/runner.ts`、`packages/core/src/compactor.ts`  
+**Expected result**: Compactor 正确触发，summary 插入到 static prefix 之后、recent messages 之前
+
+### TC-E9: ToolRouter 能力门控 + 权限策略联合
+
+**Title**: 缺失 capability 的工具不可见，可见工具受权限策略约束  
+**Preconditions**: `@agent-core/core` 构建通过  
+**Steps**:
+1. 构造工具集：`read_file`（requires: filesystem:read）、`bash`（requires: shell:exec）、`edit_file`（requires: filesystem:write）
+2. 注入 capabilities：仅 `filesystem:read`、`filesystem:write`（无 `shell:exec`）
+3. 调用 `filterVisibleTools(tools, capabilities)`
+4. 断言：结果不含 `bash`，含 `read_file` 和 `edit_file`
+5. 配置 `permissionConfig`：`edit_file` riskTier 为 `WRITE_LOW` → `ask`
+6. 调用 `evaluatePermission(config, "edit_file", "WRITE_LOW")`
+7. 断言：返回 `"ask"`  
+**Paths involved**: `packages/core/src/tool-router.ts`、`packages/core/src/permission-policy.ts`  
+**Expected result**: 门控摘除不可见工具，权限策略约束可见工具的放行决策
+
+### TC-E10: Shell 高风险命令触发 ask + 输出截断
+
+**Title**: bash 高风险命令经 PermissionPolicy 触发 ask；超量输出被截断并声明  
+**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Steps**:
+1. 创建 Runner，配置 `permissionConfig`（bash → ask）
+2. Mock ModelPort：第一轮返回 `tool_use(bash, "rm -rf /tmp/test")`，第二轮返回 text
+3. 创建 auto-allow ApprovalGate（自动批准）
+4. 调用 `runner.run()`
+5. 断言：effects 序列包含 `request_approval`
+6. Mock ModelPort 改为：第一轮返回 `tool_use(bash, "echo $(seq 1 100000)")`（超大输出）
+7. 断言：tool_result 的 `modelContent` 包含 "truncated" 声明
+8. 断言：`displayMetadata.truncated === true`  
+**Paths involved**: `packages/runtimes/node/src/runner.ts`、`packages/tools/shell/src/bash.ts`、`packages/core/src/permission-policy.ts`  
+**Expected result**: 高风险命令触发 ask 审批流；超量输出被截断到 OUTPUT_LIMIT 并声明
+
+### TC-E11: web_fetch 输出截断 + web_search 认证头
+
+**Title**: web_fetch 超量输出被截断；web_search 携带 API key  
+**Preconditions**: `@agent-core/tools-web` 构建通过  
+**Steps**:
+1. 创建 mock Network adapter：`fetch` 返回 200KB body
+2. 创建 `createWebFetchTool(network)`
+3. 调用 handler
+4. 断言：`modelContent` 长度 ≤ 100001（OUTPUT_LIMIT + truncation note）
+5. 断言：`displayMetadata.truncated === true`
+6. 创建 `createWebSearchTool(network, { apiKey: "test-key" })`
+7. 调用 handler
+8. 断言：mock Network 收到的请求 headers 包含 `X-Subscription-Token: test-key`  
+**Paths involved**: `packages/tools/web/src/web-fetch.ts`、`packages/tools/web/src/web-search.ts`  
+**Expected result**: web_fetch 输出受 OUTPUT_LIMIT 约束；web_search 正确注入认证头
+
+### TC-E12: Runner tool executor 冗余 routeToolCall 已消除
+
+**Title**: tool executor 不再重复调用 routeToolCall  
+**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Steps**:
+1. 创建 fs/shell/network tool executor
+2. 用 spy 包装 `routeToolCall`（统计调用次数）
+3. 通过 Runner 执行一个 tool_use 效果
+4. 断言：`routeToolCall` 仅被 Runner 调用 1 次（executor 内部不再调用）  
+**Paths involved**: `packages/runtimes/node/src/tool-executor.ts`、`packages/runtimes/node/src/shell-tool-executor.ts`、`packages/runtimes/node/src/network-tool-executor.ts`  
+**Expected result**: routeToolCall 仅在 Runner 层做一次权威校验，executor 不重复
+
+### TC-E13: Core barrel 无 vitest 污染
+
+**Title**: 生产环境 import `@agent-core/core` 不触发 vitest 加载  
+**Preconditions**: `@agent-core/core` 构建通过  
+**Steps**:
+1. 在非测试环境（普通 Node 脚本）中 `import("@agent-core/core")`
+2. 断言：不抛出 vitest 相关错误
+3. 确认 `runStoreContractTests` 不在 barrel 导出中
+4. 确认可从 `@agent-core/core/testing` 独立导入 `runStoreContractTests`  
+**Paths involved**: `packages/core/src/index.ts`、`packages/core/package.json`  
+**Expected result**: barrel 零 vitest 污染；测试工具通过独立 `./testing` 导出
+
+### TC-E14: 全量 build → typecheck → lint → test 无回归
+
+**Title**: 所有修复后全量 CI 门控通过  
+**Preconditions**: 所有代码修复已提交  
+**Steps**:
+1. 运行 `pnpm turbo run build typecheck lint test`
+2. 断言：退出码为 0
+3. 运行 `node scripts/check-core-zero-deps.mjs`
+4. 断言：退出码为 0  
+**Paths involved**: 所有包  
+**Expected result**: 12 个包 + 1 个 app 全部通过 build/typecheck/lint/test 四道门控

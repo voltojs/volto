@@ -40,14 +40,27 @@ export interface RawStreamChunk {
   } | null;
 }
 
+interface ToolCallEntry {
+  id: string;
+  name: string;
+  argsAccum: string;
+  emittedStart: boolean;
+}
+
 /**
  * Normalize a stream of raw OpenAI chunks into core ModelEvents.
  * Statefully accumulates tool call arguments across chunks.
+ *
+ * Some OpenAI-compatible providers (Azure, vLLM, etc.) send the initial
+ * tool call chunk without `id` or `name` — those arrive in a later delta.
+ * We buffer argument-only chunks and merge them once the identity arrives.
  */
 export async function* normalizeStream(
   rawChunks: AsyncIterable<RawStreamChunk>,
 ): AsyncGenerator<ModelEvent> {
-  const toolCalls = new Map<number, { id: string; name: string; argsAccum: string; emittedStart: boolean }>();
+  const toolCalls = new Map<number, ToolCallEntry>();
+  /** Buffer argument deltas for tool call indices that haven't received id/name yet. */
+  const pendingArgs = new Map<number, string>();
   let hasEmittedUsage = false;
 
   for await (const chunk of rawChunks) {
@@ -81,39 +94,48 @@ export async function* normalizeStream(
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
         const existing = toolCalls.get(tc.index);
+        const hasIdentity = Boolean(tc.id && tc.function?.name);
 
-        if (tc.id && tc.function?.name && !existing) {
-          // New tool call starting
-          const entry = {
-            id: tc.id,
-            name: tc.function.name,
-            argsAccum: tc.function.arguments ?? "",
+        if (hasIdentity && !existing) {
+          // New tool call — may have buffered argument-only chunks from earlier.
+          const buffered = pendingArgs.get(tc.index) ?? "";
+          const entry: ToolCallEntry = {
+            id: tc.id!,
+            name: tc.function!.name!,
+            argsAccum: buffered + (tc.function?.arguments ?? ""),
             emittedStart: true,
           };
           toolCalls.set(tc.index, entry);
+          pendingArgs.delete(tc.index);
           yield {
             type: "tool_use_start",
             toolCallId: entry.id,
             toolName: entry.name,
           };
-          // First chunk may also carry arguments
-          if (tc.function.arguments) {
+          // Emit any buffered args first, then current chunk's args.
+          if (entry.argsAccum) {
             yield {
               type: "tool_use_delta",
               toolCallId: entry.id,
-              argumentsDelta: tc.function.arguments,
+              argumentsDelta: entry.argsAccum,
             };
           }
         } else if (existing) {
-          // Arguments delta for existing tool call
-          const delta = tc.function?.arguments ?? "";
-          if (delta) {
-            existing.argsAccum += delta;
+          // Arguments delta for existing tool call.
+          const argsDelta = tc.function?.arguments ?? "";
+          if (argsDelta) {
+            existing.argsAccum += argsDelta;
             yield {
               type: "tool_use_delta",
               toolCallId: existing.id,
-              argumentsDelta: delta,
+              argumentsDelta: argsDelta,
             };
+          }
+        } else if (!hasIdentity) {
+          // Argument-only chunk before identity arrives — buffer it.
+          const argsDelta = tc.function?.arguments ?? "";
+          if (argsDelta) {
+            pendingArgs.set(tc.index, (pendingArgs.get(tc.index) ?? "") + argsDelta);
           }
         }
       }

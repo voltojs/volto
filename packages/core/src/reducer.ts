@@ -183,6 +183,8 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       const existing = newState._accumulatedToolCalls;
       const last = existing[existing.length - 1];
 
+      // Truthiness check is intentional: providers send empty strings for
+      // id/name in continuation chunks (standard OpenAI streaming pattern).
       if (chunk.toolCallId && chunk.toolCallName) {
         // New tool call starting
         newState = {
@@ -299,7 +301,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
   if (input.type === "model_error") {
     if (input.retriable) {
       return {
-        state,
+        state: { ...state, _accumulatedText: "", _accumulatedToolCalls: [] },
         effects: [
           { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
           {

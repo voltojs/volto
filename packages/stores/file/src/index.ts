@@ -32,8 +32,11 @@ export function createStore(opts: FileStoreOptions): SessionStore {
   return {
     async save(snapshot: SessionSnapshot): Promise<void> {
       await ensureDir();
+      const target = filePath(snapshot.id);
+      const tmp = `${target}.tmp.${process.pid}`;
       const data = JSON.stringify(snapshot, null, 2);
-      await fs.writeFile(filePath(snapshot.id), data, "utf-8");
+      await fs.writeFile(tmp, data, "utf-8");
+      await fs.rename(tmp, target);
     },
 
     async load(id: string): Promise<SessionSnapshot | undefined> {

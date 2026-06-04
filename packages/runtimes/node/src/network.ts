@@ -48,6 +48,11 @@ export function createNodeNetwork(options?: NodeNetworkOptions): Network {
           body,
         };
       } catch (error) {
+        // Preserve AbortError identity so callers can distinguish
+        // timeout/cancellation from genuine network failures.
+        if (error instanceof Error && error.name === "AbortError") {
+          throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Network fetch failed: ${message}`);
       } finally {

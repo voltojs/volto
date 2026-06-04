@@ -1,7 +1,6 @@
-import type { PendingToolCall, ToolResult, ToolDefinition, Shell } from "@agent-core/core";
-import { routeToolCall } from "@agent-core/core";
+import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
 import type { ShellTool } from "@agent-core/tools-shell";
-import { createBashTool, CAP_SHELL_EXEC } from "@agent-core/tools-shell";
+import { createBashTool } from "@agent-core/tools-shell";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateShellToolExecutorOptions {
@@ -10,16 +9,26 @@ export interface CreateShellToolExecutorOptions {
 
 export function createShellToolExecutor(options: CreateShellToolExecutorOptions): ToolExecutor {
   const tools: ShellTool[] = [createBashTool(options.shell)];
-  const definitions: ToolDefinition[] = tools.map((entry) => entry.definition);
-  const capabilities = new Set<string>([CAP_SHELL_EXEC]);
 
-  return async (call: PendingToolCall): Promise<ToolResult> => {
-    const routed = routeToolCall(definitions, capabilities, call);
-    if (routed.result) return routed.result;
-
+  return async (call: PendingToolCall, ctx: import("./runner.js").ToolExecutorContext): Promise<ToolResult> => {
     const tool = tools.find((entry) => entry.definition.name === call.name);
     if (!tool) {
       return { modelContent: `Unknown tool: ${call.name}`, isError: true };
+    }
+
+    // Forward abortSignal by wrapping the shell adapter rather than passing
+    // through the Zod schema (AbortSignal can't round-trip JSON Schema).
+    if (ctx.abortSignal) {
+      const abortableShell: Shell = {
+        exec: (cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> =>
+          options.shell.exec(cmd, { ...opts, abortSignal: ctx.abortSignal }),
+        launch: options.shell.launch
+          ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">): Promise<string> =>
+              options.shell.launch!(cmd, opts)
+          : undefined,
+      };
+      const abortableTool = createBashTool(abortableShell);
+      return abortableTool.handler(call.input);
     }
 
     return tool.handler(call.input);

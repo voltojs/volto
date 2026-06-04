@@ -152,6 +152,3 @@ export type { ModelPortScript } from "./testing/mock-model-port.js";
 
 // Testing tokenizer utilities
 export { createCharTokenizer, createFixedTokenizer, createMappedTokenizer } from "./testing/char-tokenizer.js";
-
-// Testing store contract
-export { runStoreContractTests } from "./testing/store-contract.js";

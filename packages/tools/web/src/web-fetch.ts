@@ -3,6 +3,8 @@ import { z } from "zod";
 import { defineTool } from "@agent-core/tools-common";
 import { CAP_NETWORK_FETCH } from "./capabilities.js";
 
+const OUTPUT_LIMIT = 100_000;
+
 const webFetchSchema = z.object({
   url: z.string().url().describe("URL to fetch"),
   method: z.string().optional().describe("HTTP method (default: GET)"),
@@ -25,12 +27,18 @@ export function createWebFetchTool(network: Network) {
       const abortSignal = (input as Record<string, unknown>).abortSignal as AbortSignal | undefined;
       try {
         const response = await network.fetch({ url, method, headers, abortSignal });
+        const truncated = response.body.length > OUTPUT_LIMIT;
+        const content = truncated ? response.body.slice(0, OUTPUT_LIMIT) : response.body;
+        const truncationNote = truncated
+          ? `\n\n(output truncated: ${response.body.length} chars total, showing first ${OUTPUT_LIMIT})`
+          : "";
         return {
-          modelContent: response.body,
+          modelContent: `${content}${truncationNote}`,
           displayMetadata: {
             status: response.status,
             headers: response.headers,
             bodyLength: response.body.length,
+            truncated,
           },
         };
       } catch (error) {

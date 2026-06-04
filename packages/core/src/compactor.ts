@@ -31,8 +31,8 @@ export interface CompactionOptions {
 export interface CompactionDecision {
   /** Whether compaction is needed */
   shouldCompact: boolean;
-  /** Index range of messages eligible for summarization [start, end) */
-  compactRange?: { start: number; end: number };
+  /** Exact indices of messages selected for compression (may be non-contiguous) */
+  compressedIndices?: number[];
   /** Messages that will be kept as-is (not compressed) */
   preservedMessages: Message[];
   /** Messages eligible for compression */
@@ -223,10 +223,7 @@ export function decideCompaction(
 
   return {
     shouldCompact: true,
-    compactRange: {
-      start: toCompress.length > 0 ? toCompress[0]!.index : 0,
-      end: toCompress.length > 0 ? toCompress[toCompress.length - 1]!.index + 1 : 0,
-    },
+    compressedIndices: Array.from(compressedIndices).sort((a, b) => a - b),
     preservedMessages,
     compressibleMessages,
     summaryPrompt,

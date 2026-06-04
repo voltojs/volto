@@ -1,11 +1,11 @@
 import type { FileSystem } from "@agent-core/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { computeFuzzyMatchRegex } from "./fuzzy-match.js";
+import { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
 import { defineTool as defineFileTool } from "@agent-core/tools-common";
 import type { Tool as FileTool } from "@agent-core/tools-common";
 
-export { computeFuzzyMatchRegex } from "./fuzzy-match.js";
+export { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
 
 const schema = z.object({
   path: z.string(),
@@ -44,15 +44,46 @@ export function createEditFileTool(fs: FileSystem): FileTool {
       if (occurrences === 0) {
         // Fuzzy fallback: ignore per-line leading/trailing whitespace, then inter-token whitespace.
         const regex = computeFuzzyMatchRegex(content, oldString);
-        const match = regex?.exec(content);
-        if (!regex || !match) {
+        if (!regex) {
           return {
             modelContent: `edit_file failed: old_string not found in ${path}. Provide more surrounding context or verify the file contents.`,
             isError: true,
           };
         }
-        updated = `${content.slice(0, match.index)}${newString}${content.slice(match.index + match[0].length)}`;
-        editMode = "fuzzy";
+
+        if (replaceAll) {
+          // Replace all fuzzy matches — iterate and apply each one.
+          let result = content;
+          let replaced = 0;
+          let match = findFuzzyMatch(result, regex);
+          while (match) {
+            const indentedNew = preserveIndentation(result, match.index, newString);
+            result = result.slice(0, match.index) + indentedNew + result.slice(match.index + match[0].length);
+            replaced++;
+            // Reset regex for next iteration on the modified string.
+            regex.lastIndex = match.index + indentedNew.length;
+            match = findFuzzyMatch(result, regex);
+          }
+          if (replaced === 0) {
+            return {
+              modelContent: `edit_file failed: old_string not found in ${path}. Provide more surrounding context or verify the file contents.`,
+              isError: true,
+            };
+          }
+          updated = result;
+          editMode = "fuzzy-replaceAll";
+        } else {
+          const match = findFuzzyMatch(content, regex);
+          if (!match) {
+            return {
+              modelContent: `edit_file failed: old_string not found in ${path}. Provide more surrounding context or verify the file contents.`,
+              isError: true,
+            };
+          }
+          const indentedNew = preserveIndentation(content, match.index, newString);
+          updated = `${content.slice(0, match.index)}${indentedNew}${content.slice(match.index + match[0].length)}`;
+          editMode = "fuzzy";
+        }
       } else if (occurrences > 1 && !replaceAll) {
         return {
           modelContent: `edit_file failed: old_string matched ${occurrences} times in ${path}. Narrow the match or pass replace_all: true.`,

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createStore } from "../index.js";
-import { runStoreContractTests } from "@agent-core/core";
+import { runStoreContractTests } from "@agent-core/core/testing";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";

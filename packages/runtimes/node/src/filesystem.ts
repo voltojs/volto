@@ -115,7 +115,15 @@ export function createNodeFileSystem(options: NodeFileSystemOptions): FileSystem
       const { glob } = await import("node:fs/promises");
       const matches: string[] = [];
       for await (const entry of glob(pattern, { cwd: root })) {
-        matches.push(normalizeSeparators(path.relative(root, path.resolve(root, entry))));
+        const rel = normalizeSeparators(path.relative(root, path.resolve(root, entry)));
+        // Validate the resolved path stays within the workspace boundary.
+        // Symlinks or patterns like "../*" could escape without this check.
+        const resolved = path.resolve(root, entry);
+        const checkRel = path.relative(root, resolved);
+        if (checkRel === ".." || checkRel.startsWith(`..${path.sep}`) || path.isAbsolute(checkRel)) {
+          continue;
+        }
+        matches.push(rel);
       }
       return { paths: await sortByMtime(matches) };
     },

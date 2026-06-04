@@ -4,7 +4,7 @@
 export { defineTool as defineFileTool } from "@agent-core/tools-common";
 export type { Tool as FileTool, ToolHandler } from "@agent-core/tools-common";
 export { createReadFileTool } from "./read-file.js";
-export { createEditFileTool, computeFuzzyMatchRegex } from "./edit-file.js";
+export { createEditFileTool, computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./edit-file.js";
 export { createWriteFileTool } from "./write-file.js";
 export { createLsTool } from "./ls.js";
 export { createGlobTool } from "./glob.js";

@@ -1,5 +1,5 @@
 import type { PendingToolCall, ToolResult, ToolDefinition, FileSystem } from "@agent-core/core";
-import { routeToolCall, evaluateEditGate, evaluateOverwriteGate } from "@agent-core/core";
+import { evaluateEditGate, evaluateOverwriteGate } from "@agent-core/core";
 import type { FileTool } from "@agent-core/tools-fs";
 import {
   createReadFileTool,
@@ -8,8 +8,6 @@ import {
   createLsTool,
   createGlobTool,
   createGrepTool,
-  CAP_FS_READ,
-  CAP_FS_WRITE,
 } from "@agent-core/tools-fs";
 import type { ToolExecutor } from "./runner.js";
 
@@ -24,6 +22,9 @@ export interface CreateFsToolExecutorOptions {
  * the serializable readFiles state threaded in via the executor context (so it
  * survives resume). The pure decision lives in @agent-core/core (evaluate*Gate);
  * this layer only supplies on-disk facts (existence, current mtime).
+ *
+ * NOTE: routeToolCall / capability gating is handled by the Runner before
+ * invoking this executor — no need to duplicate that logic here.
  */
 export function createFsToolExecutor(options: CreateFsToolExecutorOptions): ToolExecutor {
   const tools: FileTool[] = [
@@ -34,15 +35,8 @@ export function createFsToolExecutor(options: CreateFsToolExecutorOptions): Tool
     createGlobTool(options.fs),
     createGrepTool(options.fs),
   ];
-  const definitions: ToolDefinition[] = tools.map((entry) => entry.definition);
-  const capabilities = new Set<string>([CAP_FS_READ, CAP_FS_WRITE]);
 
   return async (call: PendingToolCall, ctx): Promise<ToolResult> => {
-    const routed = routeToolCall(definitions, capabilities, call);
-    if (routed.result) {
-      return routed.result;
-    }
-
     const tool = tools.find((entry) => entry.definition.name === call.name);
     if (!tool) {
       return { modelContent: `Unknown tool: ${call.name}`, isError: true };

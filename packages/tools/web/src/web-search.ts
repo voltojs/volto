@@ -13,7 +13,17 @@ const webSearchSchema = z.object({
     .describe("Maximum number of results to return (default: 5)"),
 });
 
-export function createWebSearchTool(network: Network) {
+export interface WebSearchOptions {
+  /** Search API base URL (default: Brave Search) */
+  apiUrl?: string;
+  /** API key for authentication */
+  apiKey?: string;
+}
+
+export function createWebSearchTool(network: Network, opts?: WebSearchOptions) {
+  const apiUrl = opts?.apiUrl ?? "https://api.search.brave.com/res/v1/web/search";
+  const apiKey = opts?.apiKey;
+
   return defineTool({
     name: "web_search",
     description:
@@ -27,11 +37,15 @@ export function createWebSearchTool(network: Network) {
       const abortSignal = (input as Record<string, unknown>).abortSignal as AbortSignal | undefined;
       try {
         const maxResults = numResults ?? 5;
-        const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`;
+        const searchUrl = `${apiUrl}?q=${encodeURIComponent(query)}&count=${maxResults}`;
+        const headers: Record<string, string> = { Accept: "application/json" };
+        if (apiKey) {
+          headers["X-Subscription-Token"] = apiKey;
+        }
         const response = await network.fetch({
           url: searchUrl,
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers,
           abortSignal,
         });
         return {
