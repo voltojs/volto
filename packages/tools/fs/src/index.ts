@@ -10,3 +10,4 @@ export { createLsTool } from "./ls.js";
 export { createGlobTool } from "./glob.js";
 export { createGrepTool } from "./grep.js";
 export { CAP_FS_READ, CAP_FS_WRITE } from "./capabilities.js";
+export { FS_TOOL_NAMES } from "./tool-names.js";

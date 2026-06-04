@@ -61,7 +61,6 @@ const agent = createAgent({
   fs,
   shell,
   network,
-  cwd: CWD,
   eventSink: stdoutEventSink,
   tools: [createWriteTodosTool()],
   enableTaskTool: true,

@@ -124,11 +124,11 @@ describe("createAgent — SDK facade", () => {
   });
 
   describe("resume()", () => {
-    it("should throw when no session exists yet", async () => {
+    it("should throw when no session exists in runner or store", async () => {
       const mockModel = createMockModelPort([textScript("ok")]);
       const agent = createAgent({ modelPort: mockModel });
 
-      await expect(agent.resume("session-1", "allow")).rejects.toThrow("No active session");
+      await expect(agent.resume("nonexistent", "allow")).rejects.toThrow("Session not found");
     });
   });
 

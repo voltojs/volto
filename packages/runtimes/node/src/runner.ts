@@ -18,8 +18,17 @@ import type {
   PermissionConfig,
   SessionStore,
   ApprovalGate,
+  CompactionConfig,
+  Message,
 } from "@agent-core/core";
-import { step, createInitialState, filterVisibleTools, routeToolCall, evaluatePermission } from "@agent-core/core";
+import {
+  step,
+  createInitialState,
+  filterVisibleTools,
+  routeToolCall,
+  evaluatePermission,
+  decideCompaction,
+} from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 
 // ──────────────────────────────────────────────
@@ -54,6 +63,8 @@ export interface RunnerOptions {
   sessionId?: string;
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
+  /** Compaction config — enables automatic context compression when messages grow large */
+  compaction?: CompactionConfig;
 }
 
 export interface Runner {
@@ -123,6 +134,62 @@ export function createRunner(opts: RunnerOptions): Runner {
     return state.status;
   }
 
+  // ── Compaction ──────────────────────────────
+
+  /**
+   * Apply context compaction before a model call.
+   * If the message history exceeds the token threshold, issues a summarization
+   * call to the model and replaces compressible messages with the summary.
+   * Returns the messages to use for the main request.
+   */
+  async function applyCompaction(messages: Message[]): Promise<Message[]> {
+    if (!opts.compaction) return messages;
+
+    const decision = decideCompaction(messages, {
+      tokenizer: opts.compaction.tokenizer,
+      maxTokens: opts.compaction.maxTokens,
+      recentKeepCount: opts.compaction.recentKeepCount ?? 4,
+    });
+
+    if (!decision.shouldCompact || !decision.summaryPrompt) return messages;
+
+    // Issue a summarization model call
+    try {
+      const summaryEvents = opts.modelPort.stream({
+        messages: [
+          { role: "user", content: decision.summaryPrompt },
+        ],
+        tools: [],
+        model: stepContext.model,
+        maxTokens: 1024,
+        abortSignal: opts.abortSignal,
+      });
+
+      let summaryText = "";
+      for await (const event of summaryEvents) {
+        if (event.type === "text_delta") summaryText += event.text;
+        if (event.type === "error") {
+          // Compaction failed — proceed with uncompressed messages
+          return messages;
+        }
+        if (event.type === "done") break;
+      }
+
+      if (!summaryText) return messages;
+
+      // Build new messages: system + summary + preserved
+      const summaryMsg: Message = {
+        role: "user",
+        content: `[Earlier conversation summary]\n${summaryText}`,
+      };
+
+      return [...decision.preservedMessages, summaryMsg];
+    } catch {
+      // Compaction failed — proceed with uncompressed messages
+      return messages;
+    }
+  }
+
   // ── Model streaming ──────────────────────────
 
   /**
@@ -135,8 +202,11 @@ export function createRunner(opts: RunnerOptions): Runner {
    * returns without synthesizing — the main loop will call runModelStream again.
    */
   async function runModelStream(): Promise<void> {
+    // Apply compaction before building the main request
+    const messages = await applyCompaction(state.messages);
+
     const req = {
-      messages: state.messages,
+      messages,
       tools: stepContext.tools,
       model: stepContext.model,
       maxTokens: stepContext.maxTokens,

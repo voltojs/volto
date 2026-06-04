@@ -126,7 +126,7 @@ export {
   isToolInteraction,
   isKeyMessage,
 } from "./compactor.js";
-export type { CompactionOptions, CompactionDecision } from "./compactor.js";
+export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
 // PermissionPolicy — pure permission decision logic
 export { evaluatePermission, createDefaultPermissionConfig } from "./permission-policy.js";

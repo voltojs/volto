@@ -409,6 +409,11 @@ packages:
 
 **Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent)
 **Commit**: 7331347 feat(plan-001): phase 8 - 子 Agent / SDK 门面 / 参考 CLI 宿主
+**Review 跟进**: 独立复审发现 2 项 P1 + 4 项 P2 + 5 项 P3 需返工：
+- **P1** (已修复)：① Runner Compactor/ContextAssembler/Tokenizer 接线 — Runner 新增 `compaction?: CompactionConfig` 入参，`runModelStream()` 每次调模型前跑 `decideCompaction`，超阈值时先发 summarization call 再替换 compressible messages；SDK 通过 `compaction` 选项透传（默认不开启，传入即生效，默认 tokenizer 为 char-heuristic）。② SDK 三个死配置修复 — `systemPrompt` 注入为首轮 system message 并跨 turn 保持；`maxIterations` / `tokenBudget` 透传至 `createInitialState`；移除 `cwd` 装饰性选项。
+- **P2** (已修复)：① `resume()` 跨进程 — 先尝试 `lastRunner.resume()`，失败后从 `sessionStore.load()` 重建 Runner 续跑；② `stream()` 错误传播 — 移除 `try/finally` 中的 `throw`（ESLint `no-unsafe-finally`），改为 yield* 后 await runPromise + throw runError；③ 子 agent `eventSink` 透传 — sub-runner 接收 `opts.eventSink`；④ 工具名路由去硬编码 — `FS_TOOL_NAMES` / `SHELL_TOOL_NAMES` / `NETWORK_TOOL_NAMES` 从各包导出 `ReadonlySet<string>`，SDK 用 `.has()` 分发。
+- **P3** (已修复)：`createInitialState` 传 `messages: undefined` 覆盖默认 `[]` 的 bug — 改为条件性 spread，仅在有值时传入。
+- **P3** (留待后续)：① 子 agent 隔离测试断言 `req.messages` 内容分离（当前仅断言 output）；② 参考 CLI smoke 测试；③ SDK `resume()` 正向闭环测试（HITL ask → checkpoint → resume）。
 
 ## 6. Risks and mitigations
 

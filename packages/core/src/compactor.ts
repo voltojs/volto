@@ -45,6 +45,19 @@ export interface CompactionDecision {
   estimatedTokensAfter: number;
 }
 
+/**
+ * Runner-level compaction configuration.
+ * Passed to the Runner to enable automatic context compression.
+ */
+export interface CompactionConfig {
+  /** Tokenizer for estimating token counts */
+  tokenizer: Tokenizer;
+  /** Maximum tokens before compaction is triggered */
+  maxTokens: number;
+  /** Number of recent messages to always preserve (default: 4) */
+  recentKeepCount?: number;
+}
+
 // ──────────────────────────────────────────────
 // Key information extractors (pure)
 // ──────────────────────────────────────────────
