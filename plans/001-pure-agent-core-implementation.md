@@ -414,6 +414,7 @@ packages:
 - **P2** (已修复)：① `resume()` 跨进程 — 先尝试 `lastRunner.resume()`，失败后从 `sessionStore.load()` 重建 Runner 续跑；② `stream()` 错误传播 — 移除 `try/finally` 中的 `throw`（ESLint `no-unsafe-finally`），改为 yield* 后 await runPromise + throw runError；③ 子 agent `eventSink` 透传 — sub-runner 接收 `opts.eventSink`；④ 工具名路由去硬编码 — `FS_TOOL_NAMES` / `SHELL_TOOL_NAMES` / `NETWORK_TOOL_NAMES` 从各包导出 `ReadonlySet<string>`，SDK 用 `.has()` 分发。
 - **P3** (已修复)：`createInitialState` 传 `messages: undefined` 覆盖默认 `[]` 的 bug — 改为条件性 spread，仅在有值时传入。
 - **P3** (留待后续)：① 子 agent 隔离测试断言 `req.messages` 内容分离（当前仅断言 output）；② 参考 CLI smoke 测试；③ SDK `resume()` 正向闭环测试（HITL ask → checkpoint → resume）。
+**Review 跟进 Commit**: 36f9a8b fix(plan-001): phase 8 review 跟进 — P1/P2/P3 全量返工
 
 ## 6. Risks and mitigations
 
