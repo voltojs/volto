@@ -133,6 +133,17 @@ describe("buildToolPrompt", () => {
     const p2 = buildToolPrompt(sampleTools);
     expect(p1).toBe(p2);
   });
+
+  it("AC2: identical tool set → identical bytes; changed tool set → different bytes", () => {
+    // Same set in a different declaration order must still be byte-identical
+    // (sort-by-name makes the prefix order-insensitive → cacheable).
+    const reordered = [...sampleTools].reverse();
+    expect(buildToolPrompt(reordered)).toBe(buildToolPrompt(sampleTools));
+
+    // Dropping a tool MUST change the prefix bytes (cache correctly invalidates).
+    const subset = [sampleTools[0]!];
+    expect(buildToolPrompt(subset)).not.toBe(buildToolPrompt(sampleTools));
+  });
 });
 
 describe("computeStaticPrefixTokens", () => {

@@ -5,6 +5,7 @@ import {
   extractFilePaths,
   hasIncompleteTodos,
   isToolInteraction,
+  isKeyMessage,
 } from "../compactor.js";
 import { createCharTokenizer, createFixedTokenizer } from "../testing/char-tokenizer.js";
 import type { Message } from "../state.js";
@@ -52,6 +53,27 @@ describe("extractFilePaths", () => {
   it("returns empty array when no paths", () => {
     const msg = userMsg("Hello world");
     expect(extractFilePaths(msg)).toEqual([]);
+  });
+
+  it("extracts paths wrapped in punctuation like (/a/b.ts)", () => {
+    const msg = userMsg("See the config (/important/config.ts) and [/tmp/x.log]");
+    const paths = extractFilePaths(msg);
+    expect(paths).toContain("/important/config.ts");
+    expect(paths).toContain("/tmp/x.log");
+  });
+});
+
+describe("isKeyMessage", () => {
+  it("is true when the message carries a file path", () => {
+    expect(isKeyMessage(userMsg("edit ./src/index.ts"))).toBe(true);
+  });
+
+  it("is true when the message carries an incomplete todo", () => {
+    expect(isKeyMessage(assistantMsg("- [ ] not done"))).toBe(true);
+  });
+
+  it("is false for a plain message", () => {
+    expect(isKeyMessage(userMsg("just chatting"))).toBe(false);
   });
 });
 
@@ -199,6 +221,56 @@ describe("decideCompaction", () => {
       const lastPreserved = decision.preservedMessages.slice(-2);
       expect(lastPreserved).toHaveLength(2);
     }
+  });
+
+  it("AC1: keeps a non-recent message carrying a file path OUT of compression", () => {
+    const tokenizer = createFixedTokenizer(100);
+    // The path-bearing message sits early (non-recent) so recency alone would
+    // not save it; only the key-message guard can.
+    const keyMsg = userMsg("Remember to update /important/config.ts later");
+    const messages: Message[] = [
+      sysMsg("System"),
+      keyMsg,                          // index 1 — non-recent, carries a path
+      assistantMsg("ok"),
+      toolUseMsg("read_file", "t1"),
+      toolResultMsg("t1", "stuff"),
+      userMsg("recent 1"),
+      assistantMsg("recent 2"),
+    ];
+
+    const decision = decideCompaction(messages, {
+      maxTokens: 300,
+      recentKeepCount: 2,
+      tokenizer,
+    });
+
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.preservedMessages).toContainEqual(keyMsg);
+    expect(decision.compressibleMessages).not.toContainEqual(keyMsg);
+  });
+
+  it("AC1: keeps a non-recent message carrying an incomplete todo OUT of compression", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const todoMsg = assistantMsg("Plan:\n- [ ] wire the gate\n- [x] done part");
+    const messages: Message[] = [
+      sysMsg("System"),
+      todoMsg,                         // index 1 — non-recent, has incomplete todo
+      assistantMsg("filler"),
+      toolUseMsg("read_file", "t1"),
+      toolResultMsg("t1", "stuff"),
+      userMsg("recent 1"),
+      assistantMsg("recent 2"),
+    ];
+
+    const decision = decideCompaction(messages, {
+      maxTokens: 300,
+      recentKeepCount: 2,
+      tokenizer,
+    });
+
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.preservedMessages).toContainEqual(todoMsg);
+    expect(decision.compressibleMessages).not.toContainEqual(todoMsg);
   });
 
   it("preserves file paths in summary prompt", () => {

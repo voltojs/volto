@@ -54,8 +54,10 @@ export function extractFilePaths(msg: Message): string[] {
   const paths: string[] = [];
   const text = extractMessageText(msg);
 
-  // Match common path patterns: /path/to/file, ./relative, ~/home
-  const pathRegex = /(?:^|\s)(\/[\w./-]+|\.\.?\/[\w./-]+|~\/[\w./-]+)/g;
+  // Match common path patterns: /path/to/file, ./relative, ~/home.
+  // The leading boundary accepts start-of-string, whitespace, or punctuation
+  // wrappers like ( [ < " ' so paths embedded as `(/a/b.ts)` are still caught.
+  const pathRegex = /(?:^|[\s([<"'`])((?:\/|\.\.?\/|~\/)[\w./-]+)/g;
   let match;
   while ((match = pathRegex.exec(text)) !== null) {
     const path = match[1]!.trim();
@@ -83,6 +85,14 @@ export function isToolInteraction(msg: Message): boolean {
   ) || (
     msg.role === "tool"
   );
+}
+
+/**
+ * A message is "key" — never compressible — when it carries information the
+ * model must not lose across a compaction: file paths or incomplete todos.
+ */
+export function isKeyMessage(msg: Message): boolean {
+  return hasIncompleteTodos(msg) || extractFilePaths(msg).length > 0;
 }
 
 // ──────────────────────────────────────────────
@@ -136,7 +146,14 @@ export function decideCompaction(
 
   // Always preserve the last N non-system messages
   const keepCount = Math.min(recentKeepCount, otherMessages.length);
-  const compressible = otherMessages.slice(0, otherMessages.length - keepCount);
+  const recencyEligible = otherMessages.slice(0, otherMessages.length - keepCount);
+
+  // Key messages — those carrying file paths or incomplete todos — are NEVER
+  // compressed: they hold information the model must not lose. Excluding them
+  // here keeps them in `preservedMessages` (built below from the un-compressed
+  // set). This is the kernel-level preservation guarantee required by AC1;
+  // the summary-prompt instruction is only a best-effort backstop for the rest.
+  const compressible = recencyEligible.filter((item) => !isKeyMessage(item.msg));
 
   // Among compressible, prefer compressing old tool interactions
   // Sort: compress tool interactions first, then oldest first

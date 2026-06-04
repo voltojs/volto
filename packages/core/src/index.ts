@@ -123,6 +123,7 @@ export {
   extractFilePaths,
   hasIncompleteTodos,
   isToolInteraction,
+  isKeyMessage,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision } from "./compactor.js";
 

@@ -314,10 +314,11 @@ packages:
 1. 超长 history 时 Compactor 正确触发并保留关键信息(近因 / 文件路径 / 未完成 todo)。✅
 2. 工具集不变时 ContextAssembler 产出的静态前缀稳定(逐字节可缓存)。✅
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Review 跟进**:首轮 review FAIL —— `extractFilePaths` / `hasIncompleteTodos` 仅作为 helper 存在,从未接入 `decideCompaction` 决策路径,带文件路径 / 未完成 todo 的非近因消息会被误压缩(违反 AC1);且 AC1 测试为空断言(只校验 summary prompt 常量字符串)。返工:新增 `isKeyMessage` 并在压缩筛选前排除关键消息使其留在 `preservedMessages`;补真实保留测试(断言 `preservedMessages` / `compressibleMessages` 成员)、AC2 字节对比测试、修复路径正则对前置标点的漏匹配。复审 PASS。
+**遗留(留待 Phase 6 Runner 接线注意)**:`compactRange` 由压缩消息的 min/max index 派生,当被压缩消息因关键消息插入而非连续时,该 range 会跨越保留的关键消息 —— 消费方须以 `compressibleMessages` 成员为准,勿将 `compactRange` 当作可整段删除的连续区间。
+
+**Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent)
+**Commit**: 855b241 feat(plan-001): phase 5 - ContextAssembler / Tokenizer / Compactor(review 跟进见下一 fix commit)
 
 ---
 
