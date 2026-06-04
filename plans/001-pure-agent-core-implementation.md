@@ -420,7 +420,7 @@ packages:
 - **P1** (已修复)：③ 子 agent 事件无来源标签导致 CLI 输出混杂 — 新增 `tagEventSink(inner, depth, label)` wrapper，sub-runner 用包装过的 sink 把 `agentDepth` / `agentLabel` 注入事件 payload；reference-CLI 的 `createRenderingEventSink` 据此对 sub-agent 输出加 `[task (depth=1)]…[/depth=1]` 包裹。④ SDK 直接捏 reducer 内部累加字段 (`_accumulatedText` / `_accumulatedToolCalls`) — 在 core 新增导出纯函数 `resetTurnForNextInput(state)`，SDK 改调它，不再触碰内部字段；core 重构这些字段时 SDK 不会再静默坏。
 - **P2 测试补齐**：⑤ sub-agent messages 隔离 — `sub-agent-messages-isolation.test.ts` 用 spy ModelPort 断言第 2 次调用（sub-agent）的 `messages` 长度为 1 且不含父对话，第 3 次（主回流）含 tool_result；附加一例断言 sub 事件携带 `agentDepth >= 1`、main 事件不带。⑥ 参考 CLI smoke — `apps/reference-cli` 启用 vitest，新增 `render.test.ts`（2 例：主输出 / sub 包裹）与 `smoke.test.ts`（mock ModelPort + renderer 端到端）。⑦ SDK resume 正向闭环 — `resume.test.ts` 3 例覆盖：同进程 HITL ask → checkpoint → resume(`allow`) → 工具执行 + 续跑；resume 不存在 sessionId 报错；跨进程（新 agent 实例共享 store）resume 续跑等价。
 - **配套改动**：SDK `CreateAgentOptions` 新增 `approvalGate?: ApprovalGate` 选项（之前 hardcode `createAutoAllowGate()`，无法测 HITL 闭环）。
-**二次 Review 跟进 Commit**: 待提交
+**二次 Review 跟进 Commit**: f5635ff fix(plan-001): phase 8 二次 review 跟进 — P0/P1/P2 全量修复 + 补测
 
 ## 6. Risks and mitigations
 
