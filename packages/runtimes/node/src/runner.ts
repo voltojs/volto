@@ -15,8 +15,11 @@ import type {
   ModelEvent,
   ToolResult,
   ReadFileRecord,
+  PermissionConfig,
+  SessionStore,
+  ApprovalGate,
 } from "@agent-core/core";
-import { step, createInitialState, filterVisibleTools, routeToolCall } from "@agent-core/core";
+import { step, createInitialState, filterVisibleTools, routeToolCall, evaluatePermission } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 
 // ──────────────────────────────────────────────
@@ -41,11 +44,21 @@ export interface RunnerOptions {
   abortSignal?: AbortSignal;
   initialState?: ReducerState;
   availableCapabilities?: Set<string>;
+  /** Permission policy — if set, tools are checked before execution */
+  permissionConfig?: PermissionConfig;
+  /** Session store for checkpoint/resume persistence */
+  sessionStore?: SessionStore;
+  /** Session ID for checkpoint persistence */
+  sessionId?: string;
+  /** Approval gate for HITL interaction (auto-allow or interactive) */
+  approvalGate?: ApprovalGate;
 }
 
 export interface Runner {
   run(initialInput: AgentInput): Promise<ReducerState>;
   getState(): ReducerState;
+  /** Resume from a checkpoint with an approval decision */
+  resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
 }
 
 // ──────────────────────────────────────────────
@@ -53,8 +66,20 @@ export interface Runner {
 // ──────────────────────────────────────────────
 
 export function createRunner(opts: RunnerOptions): Runner {
+  // Validate: permissionConfig requires approvalGate (otherwise "ask" decisions hang)
+  if (opts.permissionConfig && !opts.approvalGate) {
+    throw new Error(
+      "permissionConfig requires an approvalGate to handle 'ask' decisions. " +
+      "Configure an ApprovalGate or remove permissionConfig.",
+    );
+  }
+
   let state: ReducerState = opts.initialState ?? createInitialState();
   let cancelled = false;
+  // Tool call ids that have already cleared an HITL "ask" (decision = allow).
+  // The permission gate must NOT re-evaluate these when the approved tool is
+  // re-queued into executing_tools, otherwise it would re-prompt forever.
+  const approvedToolCallIds = new Set<string>();
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -226,7 +251,43 @@ export function createRunner(opts: RunnerOptions): Runner {
             return;
           }
 
+          // Permission check before execution. Tools that already cleared an
+          // HITL "ask" (approvedToolCallIds) bypass the gate so the approved
+          // tool actually runs instead of being re-prompted.
+          if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
+            const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+            if (toolDef) {
+              const permDecision = evaluatePermission(opts.permissionConfig, toolCall.name, toolDef.riskTier);
+              if (permDecision === "deny") {
+                forwardEmit(feed({
+                  type: "tool_result",
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.name,
+                  result: { modelContent: `Tool "${toolCall.name}" denied by permission policy`, isError: true },
+                }));
+                const afterPerm = getStatus();
+                if (afterPerm !== "executing_tools") break;
+                continue;
+              }
+              if (permDecision === "ask") {
+                // Transition to waiting_for_approval + checkpoint, then resolve
+                // the approval (auto/interactive) in-process. interpretEffects
+                // feeds the approval_decision back into the reducer, which moves
+                // the tool back to executing_tools (allow) or to calling_model
+                // (deny). Break the inner loop so the outer while re-dispatches
+                // on the freshly updated status — this is what closes the loop.
+                const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
+                forwardEmit(effects);
+                await interpretEffects(effects);
+                break;
+              }
+            }
+          }
+
           const result = await executeTool(toolCall);
+          // Approval is single-use: consume it so the Set stays bounded and a
+          // recycled tool-call id can never bypass the gate on a later call.
+          approvedToolCallIds.delete(toolCall.id);
           forwardEmit(feed({
             type: "tool_result",
             toolCallId: toolCall.id,
@@ -251,6 +312,34 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
   }
 
+  /**
+   * Interpret effects that require I/O (checkpoint, request_approval).
+   * Checkpoints are persisted FIRST (durable before any approval interaction),
+   * so a gate that throws / defers cannot lose the snapshot needed for resume.
+   */
+  async function interpretEffects(effects: Effect[]): Promise<void> {
+    for (const e of effects) {
+      if (e.type === "checkpoint" && opts.sessionStore && opts.sessionId) {
+        await opts.sessionStore.save({
+          id: opts.sessionId,
+          state: e.state as import("@agent-core/core").AgentState,
+          createdAt: Date.now(),
+        });
+      }
+    }
+    for (const e of effects) {
+      if (e.type === "request_approval" && opts.approvalGate) {
+        const decision = await opts.approvalGate.ask(e.toolCall, e.riskTier);
+        if (decision === "allow") approvedToolCallIds.add(e.toolCall.id);
+        forwardEmit(feed({
+          type: "approval_decision",
+          toolCallId: e.toolCall.id,
+          decision,
+        }));
+      }
+    }
+  }
+
   return {
     async run(initialInput: AgentInput): Promise<ReducerState> {
       try {
@@ -263,6 +352,28 @@ export function createRunner(opts: RunnerOptions): Runner {
     },
 
     getState(): ReducerState {
+      return state;
+    },
+
+    async resume(resumeSessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
+      if (!opts.sessionStore) {
+        throw new Error("Cannot resume: no sessionStore configured");
+      }
+      const snapshot = await opts.sessionStore.load(resumeSessionId);
+      if (!snapshot) {
+        throw new Error(`Session not found: ${resumeSessionId}`);
+      }
+      state = snapshot.state as ReducerState;
+      const approvedId = state.pendingApprovalTool?.id ?? "";
+      // Pre-authorize the re-queued tool so runLoop's permission gate does not
+      // re-prompt for the decision the user already gave on resume.
+      if (decision === "allow") approvedToolCallIds.add(approvedId);
+      forwardEmit(feed({
+        type: "approval_decision",
+        toolCallId: approvedId,
+        decision,
+      }));
+      await runLoop();
       return state;
     },
   };

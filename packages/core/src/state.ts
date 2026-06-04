@@ -109,4 +109,6 @@ export interface AgentState {
   maxIterations: number;
   iterationCount: number;
   readFiles: ReadFileRecord[];
+  /** Tool call pending HITL approval (serialized for checkpoint/resume) */
+  pendingApprovalTool?: PendingToolCall;
 }

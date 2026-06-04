@@ -50,6 +50,18 @@ importers:
         specifier: workspace:*
         version: link:../../tools/fs
 
+  packages/stores/memory:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/stores/sqlite:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
   packages/tools/fs:
     dependencies:
       zod:

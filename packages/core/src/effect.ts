@@ -5,7 +5,7 @@
  */
 
 import type { Message, PendingToolCall } from "./state.js";
-import type { ToolDefinition } from "./tool.js";
+import type { RiskTier, ToolDefinition } from "./tool.js";
 
 /** Request the model to generate a response */
 export interface CallModelEffect {
@@ -29,7 +29,7 @@ export interface ExecuteToolEffect {
 export interface RequestApprovalEffect {
   type: "request_approval";
   toolCall: PendingToolCall;
-  riskTier: string;
+  riskTier: RiskTier;
 }
 
 /** Emit an event to the EventSink (streaming tokens, status changes, etc.) */

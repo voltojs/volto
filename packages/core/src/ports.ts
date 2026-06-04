@@ -5,7 +5,7 @@
  */
 
 import type { AgentState, Message, PendingToolCall } from "./state.js";
-import type { ToolDefinition } from "./tool.js";
+import type { RiskTier, ToolDefinition } from "./tool.js";
 
 // ──────────────────────────────────────────────
 // ModelPort — the model provider interface
@@ -193,7 +193,7 @@ export interface EventSink {
 // ──────────────────────────────────────────────
 
 export interface ApprovalGate {
-  ask(call: PendingToolCall, riskTier: string): Promise<"allow" | "deny">;
+  ask(call: PendingToolCall, riskTier: RiskTier): Promise<"allow" | "deny">;
 }
 
 // ──────────────────────────────────────────────

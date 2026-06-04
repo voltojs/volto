@@ -65,6 +65,12 @@ export interface CancelInput {
   reason?: string;
 }
 
+/** Runner requests HITL approval for a pending tool call (ask tier) */
+export interface RequestApprovalInput {
+  type: "request_approval";
+  toolCallId: string;
+}
+
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
@@ -73,4 +79,5 @@ export type AgentInput =
   | ModelErrorInput
   | ToolResultInput
   | ApprovalDecisionInput
+  | RequestApprovalInput
   | CancelInput;

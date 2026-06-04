@@ -45,6 +45,8 @@ export interface ReducerState extends AgentState {
     name: string;
     argumentsText: string;
   }>;
+  /** Tool call pending HITL approval (set when status is waiting_for_approval) */
+  pendingApprovalTool?: PendingToolCall;
 }
 
 // ──────────────────────────────────────────────
@@ -369,6 +371,28 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     };
   }
 
+  if (input.type === "request_approval") {
+    const tool = state.pendingTools.find((t) => t.id === input.toolCallId);
+    if (!tool) {
+      throw new Error(`request_approval: tool call "${input.toolCallId}" not found in pendingTools`);
+    }
+    const toolDef = ctx.tools.find((td) => td.name === tool.name);
+    const riskTier = toolDef?.riskTier ?? "WRITE_HIGH";
+    const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
+    return {
+      state: {
+        ...state,
+        pendingTools: remainingTools,
+        pendingApprovalTool: tool,
+        status: "waiting_for_approval",
+      },
+      effects: [
+        { type: "request_approval", toolCall: tool, riskTier },
+        { type: "checkpoint", state: { ...state, pendingTools: remainingTools, pendingApprovalTool: tool, status: "waiting_for_approval" } },
+      ],
+    };
+  }
+
   if (input.type === "cancel") {
     return {
       state: { ...state, status: "cancelling", pendingTools: [] },
@@ -381,42 +405,57 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
 function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "approval_decision") {
+    const approvedTool = state.pendingApprovalTool;
+    if (!approvedTool || approvedTool.id !== input.toolCallId) {
+      throw new Error(`approval_decision: tool call "${input.toolCallId}" not found in pending approval`);
+    }
+
     if (input.decision === "allow") {
-      const approvedTool = state.pendingTools.find((t) => t.id === input.toolCallId);
-      if (!approvedTool) {
-        throw new Error(`approval_decision: tool call "${input.toolCallId}" not found in pendingTools`);
-      }
       return {
-        state: { ...state, status: "executing_tools" },
+        state: {
+          ...state,
+          pendingTools: [...state.pendingTools, approvedTool],
+          pendingApprovalTool: undefined,
+          status: "executing_tools",
+        },
         effects: [{ type: "execute_tool", toolCall: approvedTool }],
       };
     }
-    // Denied → add error result to messages, remove from pending, continue
-    const deniedTool = state.pendingTools.find((t) => t.id === input.toolCallId);
-    if (!deniedTool) {
-      throw new Error(`approval_decision: tool call "${input.toolCallId}" not found in pendingTools`);
-    }
-    const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
+
+    // Denied → add error result to messages, continue with remaining tools
     const toolResultMsg: ToolResultMessage = {
       role: "tool",
       content: [
         {
           type: "tool_result",
           toolUseId: input.toolCallId,
-          content: `Tool "${deniedTool.name}" was denied by the user.`,
+          content: `Tool "${approvedTool.name}" was denied by the user.`,
           isError: true,
         },
       ],
     };
-    if (remainingTools.length > 0) {
+
+    if (state.pendingTools.length > 0) {
       return {
-        state: { ...state, messages: [...state.messages, toolResultMsg], pendingTools: remainingTools, status: "executing_tools" },
+        state: {
+          ...state,
+          messages: [...state.messages, toolResultMsg],
+          pendingApprovalTool: undefined,
+          status: "executing_tools",
+        },
         effects: [],
       };
     }
+
     // All tools processed (denied), call model again
     return {
-      state: { ...state, messages: [...state.messages, toolResultMsg], pendingTools: [], status: "calling_model" },
+      state: {
+        ...state,
+        messages: [...state.messages, toolResultMsg],
+        pendingTools: [],
+        pendingApprovalTool: undefined,
+        status: "calling_model",
+      },
       effects: [
         {
           type: "call_model",

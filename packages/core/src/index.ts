@@ -28,6 +28,7 @@ export type {
   ModelErrorInput,
   ToolResultInput,
   ApprovalDecisionInput,
+  RequestApprovalInput,
   CancelInput,
   AgentInput,
 } from "./input.js";
@@ -127,6 +128,10 @@ export {
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision } from "./compactor.js";
 
+// PermissionPolicy — pure permission decision logic
+export { evaluatePermission, createDefaultPermissionConfig } from "./permission-policy.js";
+export type { PermissionConfig } from "./permission-policy.js";
+
 // Text extraction — shared helpers for Message → string
 export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
 
@@ -147,3 +152,6 @@ export type { ModelPortScript } from "./testing/mock-model-port.js";
 
 // Testing tokenizer utilities
 export { createCharTokenizer, createFixedTokenizer, createMappedTokenizer } from "./testing/char-tokenizer.js";
+
+// Testing store contract
+export { runStoreContractTests } from "./testing/store-contract.js";

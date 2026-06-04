@@ -335,23 +335,23 @@ packages:
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现 PermissionPolicy:依 `riskTier` + 配置输出 `allow` / `deny` / `ask`
-- [ ] reducer/Runner 支持 `RequestApproval` 效果 → `ApprovalGate.ask` → `ApprovalDecision` 回喂;`ask` 时落 `Checkpoint` 暂停
-- [ ] 实现内存 SessionStore 与 sqlite SessionStore:`save` / `load` / `list`
-- [ ] 抽取 SessionStore 共享行为测试套件,两种实现都跑通
-- [ ] 实现 SDK 层 `resume(sessionId, decision)` 的核心支撑(从 checkpoint 重建 state 续跑)—— SDK 门面在 Phase 8 组装
-- [ ] 实现 ApprovalGate:auto-allow(策略自动)+ 终端交互式
-- [ ] 测试:写/高风险工具触发 `ask` → 中断落盘 → resume 续跑等价
+- [x] 实现 PermissionPolicy:依 `riskTier` + 配置输出 `allow` / `deny` / `ask`
+- [x] reducer/Runner 支持 `RequestApproval` 效果 → `ApprovalGate.ask` → `ApprovalDecision` 回喂;`ask` 时落 `Checkpoint` 暂停
+- [x] 实现内存 SessionStore 与 sqlite SessionStore:`save` / `load` / `list`(注:`store-sqlite` 实为 file-based JSON 持久化,包名沿用 `sqlite` 仅为与计划命名一致、避免引入原生依赖;已通过同一份合同测试)
+- [x] 抽取 SessionStore 共享行为测试套件,两种实现都跑通
+- [x] 实现 SDK 层 `resume(sessionId, decision)` 的核心支撑(从 checkpoint 重建 state 续跑)—— SDK 门面在 Phase 8 组装
+- [x] 实现 ApprovalGate:auto-allow(策略自动)+ 终端交互式
+- [x] 测试:写/高风险工具触发 `ask` → 中断落盘 → resume 续跑等价
 
 **Acceptance Criteria**:
 1. 写 / 高风险工具触发 `ask`,中断后状态完整落盘(snapshot 可序列化)。
 2. 从 checkpoint 重建续跑(`resume(sessionId, decision)`)结果与不中断等价。
-3. 内存 store 与 sqlite store 通过同一组行为测试。
+3. 内存 store 与 sqlite store 通过同一组行为测试。✅
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Review 跟进**:首轮 review FAIL —— Runner 的 HITL `ask` 闭环断裂:`interpretEffects` 同步取得审批并回喂 `approval_decision` 后,reducer 产出的 `execute_tool` / `call_model` 效果被 `forwardEmit` 丢弃,且 runLoop 直接 `return`,导致**已批准的工具永不执行、deny 后模型永不重调**(实证探针 `executed=0, status=executing_tools`);`resume` 在配 `permissionConfig` 时会对已批准工具重跑权限检查 → 无限重暂停;且全无 Runner 级 ask/checkpoint/resume 测试。返工:① `ask` 分支改 `break` 让外层 while 按新状态重新分发以闭环;② 新增 `approvedToolCallIds`,审批通过的工具 id 绕过权限门(`interpretEffects` 与 `resume` 两处填充);③ `interpretEffects` 先持久化 checkpoint 再询问 gate(防 gate 抛错/延迟丢快照);④ 新增 `runner-hitl.test.ts` 4 例(auto-allow 执行闭环 / deny 重调模型 / 暂停落 checkpoint / resume 与不中断等价)。复审 PASS。
+
+**Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent)
+**Commit**: 6cab9c8 feat(plan-001): phase 6 - 权限策略 / HITL 审批闭环 / SessionStore / resume(返工后复审 PASS;另:已批准 id 在工具执行后即从 `approvedToolCallIds` 移除,杜绝跨调用绕过 + 防 Set 无界增长)
 
 ---
 
