@@ -33,6 +33,8 @@ import type { StepContext, ReducerState } from "@agent-core/core";
  */
 export interface ToolExecutorContext {
   readFiles: ReadFileRecord[];
+  /** Abort signal from the Runner, for forwarding to cancellable ports (e.g. Network) */
+  abortSignal?: AbortSignal;
 }
 export type ToolExecutor = (call: PendingToolCall, ctx: ToolExecutorContext) => Promise<ToolResult>;
 
@@ -209,7 +211,7 @@ export function createRunner(opts: RunnerOptions): Runner {
     try {
       // Pass a read-only view of gate state; recording of reads/writes back into
       // state.readFiles happens purely in the reducer from the result metadata.
-      return await opts.toolExecutor(toolCall, { readFiles: state.readFiles });
+      return await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
       return {
@@ -288,6 +290,19 @@ export function createRunner(opts: RunnerOptions): Runner {
           // Approval is single-use: consume it so the Set stays bounded and a
           // recycled tool-call id can never bypass the gate on a later call.
           approvedToolCallIds.delete(toolCall.id);
+
+          // Emit any pendingEvents declared by the tool in displayMetadata.
+          // This routes events through the effect channel (tool → Runner → EventSink),
+          // keeping tools side-effect-free and fully replayable.
+          const pendingEvents = result.displayMetadata?.pendingEvents as
+            | Array<{ type: string; data: Record<string, unknown> }>
+            | undefined;
+          if (pendingEvents && opts.eventSink) {
+            for (const evt of pendingEvents) {
+              opts.eventSink.emit(evt);
+            }
+          }
+
           forwardEmit(feed({
             type: "tool_result",
             toolCallId: toolCall.id,

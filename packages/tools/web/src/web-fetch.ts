@@ -1,6 +1,6 @@
 import type { Network, ToolResult } from "@agent-core/core";
 import { z } from "zod";
-import { defineFileTool } from "@agent-core/tools-fs";
+import { defineTool } from "@agent-core/tools-common";
 import { CAP_NETWORK_FETCH } from "./capabilities.js";
 
 const webFetchSchema = z.object({
@@ -13,7 +13,7 @@ const webFetchSchema = z.object({
 });
 
 export function createWebFetchTool(network: Network) {
-  return defineFileTool({
+  return defineTool({
     name: "web_fetch",
     description: "Fetch content from a URL via HTTP. Returns the response body text.",
     schema: webFetchSchema,
@@ -21,8 +21,10 @@ export function createWebFetchTool(network: Network) {
     riskTier: "READ_ONLY",
     run: async (input): Promise<ToolResult> => {
       const { url, method, headers } = input;
+      // abortSignal is injected by the Runner via the tool executor (not exposed to the model).
+      const abortSignal = (input as Record<string, unknown>).abortSignal as AbortSignal | undefined;
       try {
-        const response = await network.fetch({ url, method, headers });
+        const response = await network.fetch({ url, method, headers, abortSignal });
         return {
           modelContent: response.body,
           displayMetadata: {

@@ -1,5 +1,8 @@
-export type { FileTool, ToolHandler } from "./common.js";
-export { defineFileTool } from "./define-tool.js";
+// @agent-core/tools-fs — re-exports from tools-common for backward compatibility
+// + fs-specific tool definitions
+
+export { defineTool as defineFileTool } from "@agent-core/tools-common";
+export type { Tool as FileTool, ToolHandler } from "@agent-core/tools-common";
 export { createReadFileTool } from "./read-file.js";
 export { createEditFileTool, computeFuzzyMatchRegex } from "./edit-file.js";
 export { createWriteFileTool } from "./write-file.js";

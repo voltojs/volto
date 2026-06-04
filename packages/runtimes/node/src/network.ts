@@ -14,8 +14,19 @@ export function createNodeNetwork(options?: NodeNetworkOptions): Network {
 
   return {
     async fetch(req: NetworkRequest): Promise<NetworkResponse> {
+      // Merge per-request signal with adapter-level timeout.
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), defaultTimeout);
+
+      // If the caller provides an abortSignal, forward its abort to our controller.
+      const onExternalAbort = (): void => controller.abort();
+      if (req.abortSignal) {
+        if (req.abortSignal.aborted) {
+          controller.abort();
+        } else {
+          req.abortSignal.addEventListener("abort", onExternalAbort, { once: true });
+        }
+      }
 
       try {
         const response = await globalThis.fetch(req.url, {
@@ -41,6 +52,9 @@ export function createNodeNetwork(options?: NodeNetworkOptions): Network {
         throw new Error(`Network fetch failed: ${message}`);
       } finally {
         clearTimeout(timer);
+        if (req.abortSignal) {
+          req.abortSignal.removeEventListener("abort", onExternalAbort);
+        }
       }
     },
   };

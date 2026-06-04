@@ -1,8 +1,8 @@
 import type { FileSystem } from "@agent-core/core";
 import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
-import { defineFileTool } from "./define-tool.js";
-import type { FileTool } from "./common.js";
+import { defineTool as defineFileTool } from "@agent-core/tools-common";
+import type { Tool as FileTool } from "@agent-core/tools-common";
 
 const schema = z.object({
   path: z.string().default("."),

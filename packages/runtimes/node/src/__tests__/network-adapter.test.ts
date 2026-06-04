@@ -11,7 +11,7 @@ describe("Node Network adapter", () => {
   it("fetches a URL and returns status, headers, body", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       status: 200,
-      headers: new Map([["content-type", "text/html"]]),
+      headers: new Headers([["content-type", "text/html"]]),
       text: async () => "<html>hello</html>",
     });
 

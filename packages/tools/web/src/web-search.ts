@@ -1,6 +1,6 @@
 import type { Network, ToolResult } from "@agent-core/core";
 import { z } from "zod";
-import { defineFileTool } from "@agent-core/tools-fs";
+import { defineTool } from "@agent-core/tools-common";
 import { CAP_NETWORK_FETCH } from "./capabilities.js";
 
 const webSearchSchema = z.object({
@@ -14,7 +14,7 @@ const webSearchSchema = z.object({
 });
 
 export function createWebSearchTool(network: Network) {
-  return defineFileTool({
+  return defineTool({
     name: "web_search",
     description:
       "Search the web via a search API endpoint. Returns search results as text.",
@@ -23,6 +23,8 @@ export function createWebSearchTool(network: Network) {
     riskTier: "READ_ONLY",
     run: async (input): Promise<ToolResult> => {
       const { query, numResults } = input;
+      // abortSignal is injected by the Runner via the tool executor (not exposed to the model).
+      const abortSignal = (input as Record<string, unknown>).abortSignal as AbortSignal | undefined;
       try {
         const maxResults = numResults ?? 5;
         const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`;
@@ -30,6 +32,7 @@ export function createWebSearchTool(network: Network) {
           url: searchUrl,
           method: "GET",
           headers: { Accept: "application/json" },
+          abortSignal,
         });
         return {
           modelContent: response.body,

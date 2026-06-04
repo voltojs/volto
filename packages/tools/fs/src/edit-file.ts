@@ -2,8 +2,8 @@ import type { FileSystem } from "@agent-core/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
 import { computeFuzzyMatchRegex } from "./fuzzy-match.js";
-import { defineFileTool } from "./define-tool.js";
-import type { FileTool } from "./common.js";
+import { defineTool as defineFileTool } from "@agent-core/tools-common";
+import type { Tool as FileTool } from "@agent-core/tools-common";
 
 export { computeFuzzyMatchRegex } from "./fuzzy-match.js";
 

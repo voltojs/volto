@@ -154,6 +154,8 @@ export interface NetworkRequest {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** Abort signal for cancelling in-flight requests (Cancel → AbortSignal path) */
+  abortSignal?: AbortSignal;
 }
 
 export interface NetworkResponse {

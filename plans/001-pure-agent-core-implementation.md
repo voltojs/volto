@@ -378,7 +378,8 @@ packages:
 2. `bash` 高风险命令触发 `ask`;输出流式回传且超量截断并声明。✅
 
 **Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent, 2nd pass)
-**Commit**: 6aeeeb8 feat(plan-001): phase 7 - Shell / Web / Planning 工具与能力门控验证
+**Commit**: 6f597f6 fix(plan-001): phase 7 review 跟进 — P0/P1/P2 全量返工
+**Review 跟进**: 首轮 review 发现 6 项需返工：(1) Shell 串行读流死锁 → 改用事件监听并行消费 stdout/stderr（async queue + Promise resolver chain）；(2) Shell/Network tool executor 无 e2e 闭环测试 → 新增 shell-e2e + network-e2e + bash-ask-e2e 三组测试；(3) 工具类目互相依赖错位 → 提取 `@agent-core/tools-common`（`defineTool` / `Tool` 通用工厂），fs/shell/web/plan 均依赖 common 而非 fs；(4) `write_todos` 绕过 effect channel 直接调 EventSink → 改为 `displayMetadata.pendingEvents`，Runner 统一转发；(5) Network port 缺 `abortSignal` → `NetworkRequest` 增 `abortSignal?`，Node adapter + Runner ToolExecutorContext + web 工具全链路贯通；(6) network adapter test 用 `Map` 冒充 `Headers` → 改用 `new Headers()`。P2: bash riskTier 保持 `WRITE_HIGH`（首期所有 bash 一律 ask，依赖宿主 `toolOverrides` 细分），`write_todos` 保持 `WRITE_LOW`（工具更新内存状态）。复审 PASS。
 
 ---
 

@@ -1,17 +1,34 @@
 import { describe, it, expect } from "vitest";
-import type { Shell } from "@agent-core/core";
+import type { Shell, ShellEvent } from "@agent-core/core";
 import { spawn } from "node:child_process";
 import { createBashTool, CAP_SHELL_EXEC } from "../index.js";
 
-/** Mock shell that actually executes commands via child_process.spawn */
+/** Mock shell that actually executes commands via child_process.spawn (concurrent stdout/stderr) */
 function realShell(): Shell {
   return {
     async *exec(cmd: string) {
       const child = spawn(cmd, [], { shell: true, stdio: ["ignore", "pipe", "pipe"] });
-      if (child.stdout) for await (const chunk of child.stdout) yield { type: "stdout", data: chunk.toString() };
-      if (child.stderr) for await (const chunk of child.stderr) yield { type: "stderr", data: chunk.toString() };
-      const code: number = await new Promise((resolve) => child.on("close", (c) => resolve(c ?? 1)));
-      yield { type: "exit", code };
+      const queue: ShellEvent[] = [];
+      let resolveWaiter: (() => void) | null = null;
+      let closed = false;
+      function enqueue(event: ShellEvent) {
+        if (resolveWaiter) { const r = resolveWaiter; resolveWaiter = null; r(); }
+        queue.push(event);
+      }
+      child.stdout?.on("data", (chunk: Buffer) => enqueue({ type: "stdout", data: chunk.toString() }));
+      child.stderr?.on("data", (chunk: Buffer) => enqueue({ type: "stderr", data: chunk.toString() }));
+      child.on("close", (code) => { closed = true; enqueue({ type: "exit", code: code ?? 1 }); });
+      while (true) {
+        if (queue.length > 0) {
+          const e = queue.shift()!;
+          yield e;
+          if (e.type === "exit") return;
+        } else if (closed) {
+          return;
+        } else {
+          await new Promise<void>((r) => { resolveWaiter = r; });
+        }
+      }
     },
   };
 }

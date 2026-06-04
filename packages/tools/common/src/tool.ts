@@ -2,7 +2,8 @@ import type { ToolDefinition, ToolResult } from "@agent-core/core";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<ToolResult>;
 
-export interface FileTool {
+/** Generic tool: a definition + handler pair. Works for all tool categories. */
+export interface Tool {
   definition: ToolDefinition;
   handler: ToolHandler;
 }

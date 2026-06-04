@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createWriteTodosTool, CAP_PLAN_WRITE } from "../index.js";
-import type { EventSink } from "@agent-core/core";
 
 describe("write_todos tool", () => {
   it("updates the todo list and returns formatted summary", async () => {
@@ -19,19 +18,24 @@ describe("write_todos tool", () => {
     expect(result.displayMetadata?.totalCount).toBe(3);
   });
 
-  it("emits todoListUpdated event via EventSink", async () => {
-    const emit = vi.fn();
-    const eventSink: EventSink = { emit };
-    const tool = createWriteTodosTool(eventSink);
+  it("declares pendingEvents in displayMetadata for effect channel routing", async () => {
+    const tool = createWriteTodosTool();
     const todos = [{ id: "t1", content: "Task", status: "completed" as const }];
-    await tool.handler({ todos });
-    expect(emit).toHaveBeenCalledWith({
-      type: "todoListUpdated",
-      data: { todos },
-    });
+    const result = await tool.handler({ todos });
+    // The tool no longer calls EventSink directly. Instead, it declares the
+    // event in displayMetadata.pendingEvents, and the Runner routes it via
+    // the effect channel (tool → Runner → EventSink).
+    const pendingEvents = result.displayMetadata?.pendingEvents as Array<{
+      type: string;
+      data: { todos: typeof todos };
+    }>;
+    expect(pendingEvents).toBeDefined();
+    expect(pendingEvents).toHaveLength(1);
+    expect(pendingEvents[0]!.type).toBe("todoListUpdated");
+    expect(pendingEvents[0]!.data.todos).toEqual(todos);
   });
 
-  it("works without EventSink", async () => {
+  it("works without any external dependencies", async () => {
     const tool = createWriteTodosTool();
     const todos = [{ id: "t1", content: "Task", status: "pending" as const }];
     const result = await tool.handler({ todos });

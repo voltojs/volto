@@ -68,8 +68,23 @@ importers:
         specifier: workspace:*
         version: link:../../core
 
+  packages/tools/common:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/tools/fs:
     dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -79,36 +94,27 @@ importers:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-fs':
+      '@agent-core/tools-common':
         specifier: workspace:*
-        version: link:../fs
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
+        version: link:../common
 
   packages/tools/shell:
     dependencies:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-fs':
+      '@agent-core/tools-common':
         specifier: workspace:*
-        version: link:../fs
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
+        version: link:../common
 
   packages/tools/web:
     dependencies:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-fs':
+      '@agent-core/tools-common':
         specifier: workspace:*
-        version: link:../fs
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
+        version: link:../common
 
 packages:
 

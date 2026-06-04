@@ -1,6 +1,6 @@
-import type { EventSink, ToolResult } from "@agent-core/core";
+import type { ToolResult } from "@agent-core/core";
 import { z } from "zod";
-import { defineFileTool } from "@agent-core/tools-fs";
+import { defineTool } from "@agent-core/tools-common";
 import { CAP_PLAN_WRITE } from "./capabilities.js";
 
 const todoItemSchema = z.object({
@@ -19,11 +19,11 @@ export const writeTodosSchema = z.object({
 
 export type TodoItem = z.infer<typeof todoItemSchema>;
 
-export function createWriteTodosTool(eventSink?: EventSink) {
-  return defineFileTool({
+export function createWriteTodosTool() {
+  return defineTool({
     name: "write_todos",
     description:
-      "Write or update the project todo list. Pass the complete updated list each time. Emits a todoListUpdated event.",
+      "Write or update the project todo list. Pass the complete updated list each time.",
     schema: writeTodosSchema,
     requires: [CAP_PLAN_WRITE],
     riskTier: "WRITE_LOW",
@@ -42,12 +42,12 @@ export function createWriteTodosTool(eventSink?: EventSink) {
         })
         .join("\n");
 
-      eventSink?.emit({
-        type: "todoListUpdated",
-        data: { todos },
-      });
-
       const completed = todos.filter((t) => t.status === "completed").length;
+
+      // Emit the todoListUpdated event via the effect channel (pendingEvents).
+      // The Runner reads these and forwards them to the EventSink, keeping the
+      // tool itself side-effect-free and fully replayable.
+      const pendingEvents = [{ type: "todoListUpdated", data: { todos } }];
 
       return {
         modelContent: `Todo list updated (${completed}/${todos.length} completed):\n${summary}`,
@@ -55,6 +55,7 @@ export function createWriteTodosTool(eventSink?: EventSink) {
           todos,
           completedCount: completed,
           totalCount: todos.length,
+          pendingEvents,
         },
       };
     },

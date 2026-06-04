@@ -16,7 +16,7 @@ export function createNetworkToolExecutor(options: CreateNetworkToolExecutorOpti
   const definitions: ToolDefinition[] = tools.map((entry) => entry.definition);
   const capabilities = new Set<string>([CAP_NETWORK_FETCH]);
 
-  return async (call: PendingToolCall): Promise<ToolResult> => {
+  return async (call: PendingToolCall, ctx): Promise<ToolResult> => {
     const routed = routeToolCall(definitions, capabilities, call);
     if (routed.result) return routed.result;
 
@@ -25,6 +25,12 @@ export function createNetworkToolExecutor(options: CreateNetworkToolExecutorOpti
       return { modelContent: `Unknown tool: ${call.name}`, isError: true };
     }
 
-    return tool.handler(call.input);
+    // Forward the Runner's abortSignal into the tool call so cancellable
+    // network requests can be aborted when the agent is cancelled.
+    const input = ctx.abortSignal
+      ? { ...call.input, abortSignal: ctx.abortSignal }
+      : call.input;
+
+    return tool.handler(input);
   };
 }

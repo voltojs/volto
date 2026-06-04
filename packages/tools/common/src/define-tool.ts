@@ -1,21 +1,21 @@
 import type { ToolDefinition, ToolResult, RiskTier, Capability, JSONSchema } from "@agent-core/core";
 import { z } from "zod";
-import type { FileTool } from "./common.js";
+import type { Tool } from "./tool.js";
 
 /**
- * Build a FileTool from a Zod schema. The Zod schema is the single source of
- * truth: its JSON Schema (via z.toJSONSchema) is exposed to the model, and the
- * same schema validates input at runtime. Invalid input → isError ToolResult
+ * Build a Tool from a Zod schema. The Zod schema is the single source of
+ * truth: its JSON Schema (via z.toJSONSchema) is exposed to the model, and
+ * the same schema validates input at runtime. Invalid input → isError ToolResult
  * (never throws), so the model can self-correct.
  */
-export function defineFileTool<S extends z.ZodType>(spec: {
+export function defineTool<S extends z.ZodType>(spec: {
   name: string;
   description: string;
   schema: S;
   requires: Capability[];
   riskTier: RiskTier;
   run: (input: z.infer<S>) => Promise<ToolResult>;
-}): FileTool {
+}): Tool {
   const definition: ToolDefinition = {
     name: spec.name,
     description: spec.description,

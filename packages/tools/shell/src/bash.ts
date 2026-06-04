@@ -1,6 +1,6 @@
 import type { Shell, ToolResult } from "@agent-core/core";
 import { z } from "zod";
-import { defineFileTool } from "@agent-core/tools-fs";
+import { defineTool } from "@agent-core/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const OUTPUT_LIMIT = 100_000;
@@ -26,7 +26,7 @@ const bashSchema = z.object({
 });
 
 export function createBashTool(shell: Shell) {
-  return defineFileTool({
+  return defineTool({
     name: "bash",
     description:
       "Execute a shell command via child process. Supports timeout and working directory. Output may be truncated when large.",

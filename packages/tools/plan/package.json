@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@agent-core/core": "workspace:*",
-    "@agent-core/tools-fs": "workspace:*",
-    "zod": "^4.4.3"
+    "@agent-core/tools-common": "workspace:*"
   }
 }
