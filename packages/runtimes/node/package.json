@@ -19,7 +19,9 @@
   },
   "dependencies": {
     "@agent-core/core": "workspace:*",
-    "@agent-core/tools-fs": "workspace:*"
+    "@agent-core/tools-fs": "workspace:*",
+    "@agent-core/tools-shell": "workspace:*",
+    "@agent-core/tools-web": "workspace:*"
   },
   "devDependencies": {}
 }

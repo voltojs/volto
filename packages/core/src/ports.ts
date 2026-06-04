@@ -141,6 +141,8 @@ export interface ShellExecOptions {
 
 export interface Shell {
   exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent>;
+  /** Launch a command in the background. Returns immediately with a process ID. */
+  launch?(cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">): Promise<string>;
 }
 
 // ──────────────────────────────────────────────

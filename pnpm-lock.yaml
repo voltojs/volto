@@ -49,6 +49,12 @@ importers:
       '@agent-core/tools-fs':
         specifier: workspace:*
         version: link:../../tools/fs
+      '@agent-core/tools-shell':
+        specifier: workspace:*
+        version: link:../../tools/shell
+      '@agent-core/tools-web':
+        specifier: workspace:*
+        version: link:../../tools/web
 
   packages/stores/file:
     dependencies:
@@ -64,6 +70,42 @@ importers:
 
   packages/tools/fs:
     dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/plan:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-fs':
+        specifier: workspace:*
+        version: link:../fs
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/shell:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-fs':
+        specifier: workspace:*
+        version: link:../fs
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/web:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-fs':
+        specifier: workspace:*
+        version: link:../fs
       zod:
         specifier: ^4.4.3
         version: 4.4.3

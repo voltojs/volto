@@ -13,6 +13,12 @@
     },
     {
       "path": "../../tools/fs"
+    },
+    {
+      "path": "../../tools/shell"
+    },
+    {
+      "path": "../../tools/web"
     }
   ]
 }

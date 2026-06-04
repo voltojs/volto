@@ -367,20 +367,18 @@ packages:
 - 对应 `__tests__/`(含能力门控集成测试)
 
 **Tasks**:
-- [ ] 实现 Node `Shell` adapter:子进程执行,流式 stdout/stderr/exit,`timeout` / `run_in_background` / 工作目录约束
-- [ ] 实现 `bash` 工具:输出截断并声明;高风险命令(删除/推送/网络/提权)经 PermissionPolicy 必 `ask`
-- [ ] 实现 Node `Network` adapter 与 `web_fetch` / `web_search`
-- [ ] 实现 `write_todos`(纯状态操作),发 `todoListUpdated` 事件
-- [ ] 能力门控集成测试:未注入 Shell port 时可见工具集不含 `bash`
+- [x] 实现 Node `Shell` adapter:子进程执行,流式 stdout/stderr/exit,`timeout` / `run_in_background` / 工作目录约束
+- [x] 实现 `bash` 工具:输出截断并声明;高风险命令(删除/推送/网络/提权)经 PermissionPolicy 必 `ask`
+- [x] 实现 Node `Network` adapter 与 `web_fetch` / `web_search`
+- [x] 实现 `write_todos`(纯状态操作),发 `todoListUpdated` 事件
+- [x] 能力门控集成测试:未注入 Shell port 时可见工具集不含 `bash`
 
 **Acceptance Criteria**:
-1. 未注入 Shell port 时可见工具集不含 `bash`,模型无法调用(门控测试通过)。
-2. `bash` 高风险命令触发 `ask`;输出流式回传且超量截断并声明。
+1. 未注入 Shell port 时可见工具集不含 `bash`,模型无法调用(门控测试通过)。✅
+2. `bash` 高风险命令触发 `ask`;输出流式回传且超量截断并声明。✅
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent, 2nd pass)
+**Commit**: 6aeeeb8 feat(plan-001): phase 7 - Shell / Web / Planning 工具与能力门控验证
 
 ---
 
