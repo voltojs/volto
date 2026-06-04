@@ -396,21 +396,18 @@ packages:
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现 `task` 子 agent:新建核心实例(独立 context window + 工具集,共享 ModelPort / 工具注册表),最终输出作为一条 tool_result 返回主循环(上下文隔离)
-- [ ] 实现 SDK `createAgent({ model, tools, store, approval, fs, shell, ... })`:缺省 port 用内存 / no-op / real 时间随机兜底
-- [ ] 实现 `run(input)`(跑完一个 turn 返回最终消息)、`stream(input)`(实时 event 迭代)、`resume(sessionId, decision)`
-- [ ] 实现参考 CLI:wiring(选 adapter + 注入能力 + 订阅事件 + stdout 渲染),核心包零改动
-- [ ] 测试:参考宿主仅 wiring 跑通完整流程;`task` 子 agent 上下文隔离;SDK 最小配置(仅 model)启动纯对话 agent
+- [x] 实现 `task` 子 agent:新建核心实例(独立 context window + 工具集,共享 ModelPort / 工具注册表),最终输出作为一条 tool_result 返回主循环(上下文隔离)
+- [x] 实现 SDK `createAgent({ model, tools, store, approval, fs, shell, ... })`:缺省 port 用内存 / no-op / real 时间随机兜底
+- [x] 实现 `run(input)`(跑完一个 turn 返回最终消息)、`stream(input)`(实时 event 迭代)、`resume(sessionId, decision)`
+- [x] 实现参考 CLI:wiring(选 adapter + 注入能力 + 订阅事件 + stdout 渲染),核心包零改动
+- [x] 测试:参考宿主仅 wiring 跑通完整流程;`task` 子 agent 上下文隔离;SDK 最小配置(仅 model)启动纯对话 agent
 
 **Acceptance Criteria**:
-1. 参考宿主仅通过 wiring(选 adapter)跑通完整流程,`@agent-core/core` 包零改动(git diff 在本 Phase 不含 core 包)。
-2. `task` 子 agent 上下文隔离,主 agent 仅收到其最终输出。
-3. SDK 最小配置(仅 `model`)可启动一个纯对话 agent 并完成一轮对话。
+1. 参考宿主仅通过 wiring(选 adapter)跑通完整流程,`@agent-core/core` 包零改动(git diff 在本 Phase 不含 core 包)。✅
+2. `task` 子 agent 上下文隔离,主 agent 仅收到其最终输出。✅
+3. SDK 最小配置(仅 `model`)可启动一个纯对话 agent 并完成一轮对话。✅
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <commit hash> <commit message subject>
--->
+**Reviewed**: 2026-06-04 by reviewer
 
 ## 6. Risks and mitigations
 

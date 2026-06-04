@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../tools/common" },
+    { "path": "../tools/agent" },
+    { "path": "../tools/fs" },
+    { "path": "../tools/shell" },
+    { "path": "../tools/web" },
+    { "path": "../runtimes/node" },
+    { "path": "../stores/memory" }
+  ]
+}

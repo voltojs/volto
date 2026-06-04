@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/sdk" },
+    { "path": "../../packages/providers/openai" },
+    { "path": "../../packages/runtimes/node" },
+    { "path": "../../packages/tools/fs" },
+    { "path": "../../packages/tools/shell" },
+    { "path": "../../packages/tools/web" },
+    { "path": "../../packages/tools/plan" }
+  ]
+}

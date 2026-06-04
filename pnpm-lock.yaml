@@ -33,6 +33,24 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@25.9.1)
 
+  apps/reference-cli:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@agent-core/provider-openai':
+        specifier: workspace:*
+        version: link:../../packages/providers/openai
+      '@agent-core/runtime-node':
+        specifier: workspace:*
+        version: link:../../packages/runtimes/node
+      '@agent-core/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@agent-core/tools-plan':
+        specifier: workspace:*
+        version: link:../../packages/tools/plan
+
   packages/core: {}
 
   packages/providers/openai:
@@ -56,6 +74,33 @@ importers:
         specifier: workspace:*
         version: link:../../tools/web
 
+  packages/sdk:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-core/runtime-node':
+        specifier: workspace:*
+        version: link:../runtimes/node
+      '@agent-core/store-memory':
+        specifier: workspace:*
+        version: link:../stores/memory
+      '@agent-core/tools-agent':
+        specifier: workspace:*
+        version: link:../tools/agent
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../tools/common
+      '@agent-core/tools-fs':
+        specifier: workspace:*
+        version: link:../tools/fs
+      '@agent-core/tools-shell':
+        specifier: workspace:*
+        version: link:../tools/shell
+      '@agent-core/tools-web':
+        specifier: workspace:*
+        version: link:../tools/web
+
   packages/stores/file:
     dependencies:
       '@agent-core/core':
@@ -67,6 +112,15 @@ importers:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
+
+  packages/tools/agent:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
 
   packages/tools/common:
     dependencies:

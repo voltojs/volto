@@ -1,0 +1,20 @@
+{
+  "name": "@agent-core/reference-cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@agent-core/core": "workspace:*",
+    "@agent-core/sdk": "workspace:*",
+    "@agent-core/provider-openai": "workspace:*",
+    "@agent-core/runtime-node": "workspace:*",
+    "@agent-core/tools-plan": "workspace:*"
+  }
+}
