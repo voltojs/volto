@@ -177,13 +177,25 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       if (!summaryText) return messages;
 
-      // Build new messages: system + summary + preserved
+      // Re-order: [...system, summary, ...non-system preserved (recent)].
+      // The summary represents *earlier* dropped messages, so it must sit
+      // before the recent kept messages — appending it would make the model
+      // read it as the newest user input. Role is `system` so it does not
+      // masquerade as a fresh user turn (providers tolerant of mid-history
+      // system messages handle this cleanly; the prefix keeps it self-
+      // labelling even when downgraded).
+      const systemMessages = decision.preservedMessages.filter(
+        (m) => m.role === "system",
+      );
+      const nonSystemPreserved = decision.preservedMessages.filter(
+        (m) => m.role !== "system",
+      );
       const summaryMsg: Message = {
-        role: "user",
+        role: "system",
         content: `[Earlier conversation summary]\n${summaryText}`,
       };
 
-      return [...decision.preservedMessages, summaryMsg];
+      return [...systemMessages, summaryMsg, ...nonSystemPreserved];
     } catch {
       // Compaction failed — proceed with uncompressed messages
       return messages;

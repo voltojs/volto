@@ -92,7 +92,7 @@ export type {
 } from "./tool.js";
 
 // Reducer
-export { step, createInitialState } from "./reducer.js";
+export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 
 // ToolRouter

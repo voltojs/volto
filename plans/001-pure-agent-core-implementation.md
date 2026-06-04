@@ -411,10 +411,16 @@ packages:
 **Commit**: 7331347 feat(plan-001): phase 8 - 子 Agent / SDK 门面 / 参考 CLI 宿主
 **Review 跟进**: 独立复审发现 2 项 P1 + 4 项 P2 + 5 项 P3 需返工：
 - **P1** (已修复)：① Runner Compactor/ContextAssembler/Tokenizer 接线 — Runner 新增 `compaction?: CompactionConfig` 入参，`runModelStream()` 每次调模型前跑 `decideCompaction`，超阈值时先发 summarization call 再替换 compressible messages；SDK 通过 `compaction` 选项透传（默认不开启，传入即生效，默认 tokenizer 为 char-heuristic）。② SDK 三个死配置修复 — `systemPrompt` 注入为首轮 system message 并跨 turn 保持；`maxIterations` / `tokenBudget` 透传至 `createInitialState`；移除 `cwd` 装饰性选项。
-- **P2** (已修复)：① `resume()` 跨进程 — 先尝试 `lastRunner.resume()`，失败后从 `sessionStore.load()` 重建 Runner 续跑；② `stream()` 错误传播 — 移除 `try/finally` 中的 `throw`（ESLint `no-unsafe-finally`），改为 yield* 后 await runPromise + throw runError；③ 子 agent `eventSink` 透传 — sub-runner 接收 `opts.eventSink`；④ 工具名路由去硬编码 — `FS_TOOL_NAMES` / `SHELL_TOOL_NAMES` / `NETWORK_TOOL_NAMES` 从各包导出 `ReadonlySet<string>`，SDK 用 `.has()` 分发。
+- **P2** (已修复)：① `resume()` 跨进程 — 先尝试 `lastRunner.resume()`，失败后从 `sessionStore.load()` 重建 Runner 续跑；② 子 agent `eventSink` 透传 — sub-runner 接收 `opts.eventSink`；③ 工具名路由去硬编码 — `FS_TOOL_NAMES` / `SHELL_TOOL_NAMES` / `NETWORK_TOOL_NAMES` 从各包导出 `ReadonlySet<string>`，SDK 用 `.has()` 分发。
 - **P3** (已修复)：`createInitialState` 传 `messages: undefined` 覆盖默认 `[]` 的 bug — 改为条件性 spread，仅在有值时传入。
-- **P3** (留待后续)：① 子 agent 隔离测试断言 `req.messages` 内容分离（当前仅断言 output）；② 参考 CLI smoke 测试；③ SDK `resume()` 正向闭环测试（HITL ask → checkpoint → resume）。
 **Review 跟进 Commit**: 36f9a8b fix(plan-001): phase 8 review 跟进 — P1/P2/P3 全量返工
+
+**二次 Review 跟进** (2026-06-04 复审)：上一轮声称已修复但实际未生效 / 新引入回归 / 测试缺位的项，本轮全量补齐：
+- **P0** (已修复)：① `stream()` 早退错误丢失 — 之前的 `yield* … await runPromise; throw runError` 在 consumer `break` 时不会执行，验证脚本确认错误被吞；改为 `AbortController + try/finally` 模式：在 `finally` 中 `abortController.abort()` 并 `await runPromise`，保证 runner 被取消、错误被透出；新增 `stream-early-break.test.ts` 2 例回归覆盖。② Runner compaction summary 位置错误 — 之前 `[...preservedMessages, summary]` 把摘要放到最末，模型会读作"最新一句用户输入"；改为 `[...system, summary(role=system), ...non-system preserved]`，并把 summary 的 role 从 `user` 升级为 `system`；新增 `runner-compaction.test.ts` 2 例（spy ModelPort 验证 summary 位置 + 阈值未触发时不压缩）。
+- **P1** (已修复)：③ 子 agent 事件无来源标签导致 CLI 输出混杂 — 新增 `tagEventSink(inner, depth, label)` wrapper，sub-runner 用包装过的 sink 把 `agentDepth` / `agentLabel` 注入事件 payload；reference-CLI 的 `createRenderingEventSink` 据此对 sub-agent 输出加 `[task (depth=1)]…[/depth=1]` 包裹。④ SDK 直接捏 reducer 内部累加字段 (`_accumulatedText` / `_accumulatedToolCalls`) — 在 core 新增导出纯函数 `resetTurnForNextInput(state)`，SDK 改调它，不再触碰内部字段；core 重构这些字段时 SDK 不会再静默坏。
+- **P2 测试补齐**：⑤ sub-agent messages 隔离 — `sub-agent-messages-isolation.test.ts` 用 spy ModelPort 断言第 2 次调用（sub-agent）的 `messages` 长度为 1 且不含父对话，第 3 次（主回流）含 tool_result；附加一例断言 sub 事件携带 `agentDepth >= 1`、main 事件不带。⑥ 参考 CLI smoke — `apps/reference-cli` 启用 vitest，新增 `render.test.ts`（2 例：主输出 / sub 包裹）与 `smoke.test.ts`（mock ModelPort + renderer 端到端）。⑦ SDK resume 正向闭环 — `resume.test.ts` 3 例覆盖：同进程 HITL ask → checkpoint → resume(`allow`) → 工具执行 + 续跑；resume 不存在 sessionId 报错；跨进程（新 agent 实例共享 store）resume 续跑等价。
+- **配套改动**：SDK `CreateAgentOptions` 新增 `approvalGate?: ApprovalGate` 选项（之前 hardcode `createAutoAllowGate()`，无法测 HITL 闭环）。
+**二次 Review 跟进 Commit**: 待提交
 
 ## 6. Risks and mitigations
 

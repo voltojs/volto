@@ -26,11 +26,13 @@ import type {
   Network,
   Message,
   CompactionConfig,
+  ApprovalGate,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
   extractPlainText,
   createInitialState,
+  resetTurnForNextInput,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 import { createRunner, type Runner, type ToolExecutor } from "@agent-core/runtime-node";
@@ -104,6 +106,13 @@ export interface CreateAgentOptions {
 
   /** Session store for HITL checkpoint/resume */
   sessionStore?: SessionStore;
+
+  /**
+   * Approval gate for HITL `ask` decisions. Defaults to auto-allow.
+   * Hosts that need real user interaction should inject
+   * `createInteractiveGate()` or their own implementation.
+   */
+  approvalGate?: ApprovalGate;
 
   /** Event sink for observability */
   eventSink?: EventSink;
@@ -202,7 +211,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const allCustomTools: Tool[] = [...(opts.tools ?? [])];
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig),
+      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1),
     );
     allCustomTools.push(taskTool);
   }
@@ -242,7 +251,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Permission config ─────────────────────
   const permissionConfig = opts.permissionConfig ?? createDefaultPermissionConfig();
-  const approvalGate = createAutoAllowGate();
+  const approvalGate = opts.approvalGate ?? createAutoAllowGate();
 
   // ── Session store ─────────────────────────
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
@@ -258,7 +267,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
 
-  function createNextRunner(runnerEventSink: EventSink): Runner {
+  function createNextRunner(runnerEventSink: EventSink, abortSignal?: AbortSignal): Runner {
     const previousState = lastFinalState;
     lastRunner = null;
     lastFinalState = null;
@@ -273,24 +282,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       approvalGate,
       sessionStore,
       compaction: compactionConfig,
+      abortSignal,
       sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     };
 
     if (previousState && previousState.status === "done") {
-      // Carry forward conversation history. Reset turn-specific accumulator
-      // fields so the new turn starts clean.
+      // Carry forward conversation history. resetTurnForNextInput() is the
+      // public core helper that handles clearing turn-scoped accumulator
+      // fields (including reducer-private ones) without leaking internals.
       return createRunner({
         ...runnerOpts,
-        initialState: {
-          ...previousState,
-          status: "idle",
-          pendingTools: [],
-          pendingApprovalTool: undefined,
-          iterationCount: 0,
-          tokensUsed: 0,
-          _accumulatedText: "",
-          _accumulatedToolCalls: [],
-        },
+        initialState: resetTurnForNextInput(previousState),
       });
     }
 
@@ -325,24 +327,38 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
       const agentInput = normalizeInput(input);
       const channel = createStreamChannel();
-      const runner = createNextRunner(channel.eventSink);
+      // AbortController lets us cancel the runner if the consumer breaks
+      // out of `for await` early. Without it, the detached runner would
+      // keep going and any error it threw would be swallowed silently.
+      const abortController = new AbortController();
+      const runner = createNextRunner(channel.eventSink, abortController.signal);
       lastRunner = runner;
 
       let runError: unknown;
-      const runPromise = runner.run(agentInput).then((finalState) => {
-        lastFinalState = finalState;
-        channel.done();
-      }).catch((err) => {
-        runError = err;
-        channel.done();
-      });
+      const runPromise = runner.run(agentInput).then(
+        (finalState) => {
+          lastFinalState = finalState;
+          channel.done();
+        },
+        (err) => {
+          runError = err;
+          channel.done();
+        },
+      );
 
-      yield* channel.events();
-      // Ensure runner completes and errors propagate.
-      // The finally-less approach: yield* returns when consumer breaks or
-      // generator is garbage-collected; we await runPromise after yield*
-      // returns to catch any pending errors.
-      await runPromise;
+      // try/finally so that consumer break / return / throw still awaits the
+      // runner and surfaces its error. AsyncGenerator runs `finally` blocks
+      // when `.return()` is invoked (e.g. by an early `break`), which gives
+      // us a deterministic place to abort and observe runError.
+      try {
+        yield* channel.events();
+      } finally {
+        abortController.abort();
+        // Drain queued events / let runner observe abort. Errors thrown by
+        // the runner during abort are captured in runError above; we still
+        // wait for the promise to settle before propagating.
+        await runPromise;
+      }
       if (runError) throw runError;
     },
 
@@ -416,9 +432,36 @@ function normalizeInput(input: string | AgentInput): AgentInput {
 }
 
 /**
+ * Wrap an EventSink so every emitted event is tagged with the originating
+ * agent depth and an optional label. Used by sub-agents so the host can
+ * distinguish nested output from the main agent's stream without breaking
+ * existing event payload shapes.
+ */
+function tagEventSink(
+  inner: EventSink,
+  depth: number,
+  label?: string,
+): EventSink {
+  return {
+    emit(event) {
+      inner.emit({
+        type: event.type,
+        data: {
+          ...event.data,
+          agentDepth: depth,
+          ...(label !== undefined ? { agentLabel: label } : {}),
+        },
+      });
+    },
+  };
+}
+
+/**
  * Create a SubAgentExecutor that spins up a fresh Runner with isolated state,
  * shared ModelPort and tools (without task tools to prevent recursion).
- * Sub-agent events are forwarded to the parent's event sink for observability.
+ * Sub-agent events are forwarded to the parent's event sink with an
+ * `agentDepth` tag so the host can render them separately from the main
+ * agent's output.
  */
 function createSubAgentExecutor(
   opts: CreateAgentOptions,
@@ -426,6 +469,7 @@ function createSubAgentExecutor(
   parentAdapterTools: Tool[],
   capabilities: Set<string>,
   compactionConfig?: CompactionConfig,
+  depth: number = 1,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const subCustomTools = parentCustomTools.filter(
@@ -462,6 +506,10 @@ function createSubAgentExecutor(
       temperature: opts.temperature,
     };
 
+    const taggedSink = opts.eventSink
+      ? tagEventSink(opts.eventSink, depth, "task")
+      : undefined;
+
     const subRunner = createRunner({
       modelPort: opts.modelPort,
       stepContext: subStepContext,
@@ -469,7 +517,7 @@ function createSubAgentExecutor(
       availableCapabilities: subCapabilities,
       permissionConfig: opts.permissionConfig,
       approvalGate: createAutoAllowGate(),
-      eventSink: opts.eventSink,
+      eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

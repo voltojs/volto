@@ -69,6 +69,32 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
   };
 }
 
+/**
+ * Reset turn-scoped fields so the next `user_message` input can be fed without
+ * leaking accumulator state from the previous turn.
+ *
+ * Preserves cross-turn state (`messages`, `readFiles`, `tokenBudget`,
+ * `maxIterations`) and clears: pending tools, pending approval, iteration /
+ * token counters and the reducer's internal streaming accumulators. The result
+ * is in `status: "idle"` and is ready to receive a new user message.
+ *
+ * SDK / Runner callers should use this instead of hand-crafting partial
+ * overrides — the set of internal accumulator fields is reducer-private and
+ * subject to change.
+ */
+export function resetTurnForNextInput(state: ReducerState): ReducerState {
+  return {
+    ...state,
+    status: "idle",
+    pendingTools: [],
+    pendingApprovalTool: undefined,
+    iterationCount: 0,
+    tokensUsed: 0,
+    _accumulatedText: "",
+    _accumulatedToolCalls: [],
+  };
+}
+
 // ──────────────────────────────────────────────
 // step()
 // ──────────────────────────────────────────────

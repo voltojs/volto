@@ -7,7 +7,6 @@
  */
 
 import { createAgent } from "@agent-core/sdk";
-import type { EventSink } from "@agent-core/core";
 import { createOpenAIModelPort } from "@agent-core/provider-openai";
 import {
   createNodeFileSystem,
@@ -15,6 +14,7 @@ import {
   createNodeNetwork,
 } from "@agent-core/runtime-node";
 import { createWriteTodosTool } from "@agent-core/tools-plan";
+import { createRenderingEventSink } from "./render.js";
 
 // ── Config from environment ──
 const MODEL = process.env["AGENT_MODEL"] ?? "gpt-4o";
@@ -32,15 +32,12 @@ if (!API_KEY) {
 }
 
 // ── Stdout event sink (streaming render) ──
-const stdoutEventSink: EventSink = {
-  emit(event) {
-    if (event.type === "text_delta") {
-      process.stdout.write(event.data["text"] as string);
-    } else if (event.type === "model_done") {
-      process.stdout.write("\n");
-    }
-  },
-};
+// The renderer recognizes `agentDepth` so sub-agent output is bracket-wrapped
+// and doesn't intermix opaquely with the main agent stream.
+const stdoutEventSink = createRenderingEventSink({
+  stdout: (s) => process.stdout.write(s),
+  stderr: (s) => process.stderr.write(s),
+});
 
 // ── Assemble adapters ──
 const fs = createNodeFileSystem({ root: CWD });
