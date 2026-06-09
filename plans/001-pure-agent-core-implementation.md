@@ -428,6 +428,16 @@ packages:
 
 > 2026-06-04 全量 code review 发现但未在本轮修复的问题。按影响面排序，留待后续迭代处理。
 
+### 9.0 已解决（R0 跟进，2026-06-09）
+
+> 分支 `feat/plan-001-r0-followup`。全量门控（51/51 typecheck/lint/test）+ `check-core-zero-deps` 通过。
+
+- **R0.1**（commit `83e73eb`）：13 个 `tc-e*.test.ts` E2E 测试文件之前未提交且触发 lint 失败 → 已提交；core 纯度规则对 `__tests__/**` 豁免（仅 node 内置/Date/Math/crypto，不放开 unused-vars）；清理各处 unused 变量/导入。**恢复全量门控全绿。**
+- **R0.2**（commit `8302019`）：补齐 §9.2 测试缺口 **T-1..T-10**（tool-router / file-gate / ls / glob / grep / write-file / stream-channel / fs 能力门控 / tokenizer / compactor 空 compressible 边界）。
+- **R0.3**（commit `ecf1597`）：修复 **D-4** —— RunnerOptions 新增可选 `clock?: Clock`，checkpoint `createdAt` 改为注入优先、wall-clock 兜底，落实 runner 级重放确定性 + 补确定性测试。
+
+> 下表中 **T-1..T-10 全部已解决**；D-1/D-2/D-3/D-5 与 P3 项（N-1..N-9）仍待梯队 1 处理。
+
 ### 9.1 P2 — 需要修复但影响面可控
 
 | # | 模块 | 问题描述 | 修复方案 | 阻塞原因 |
