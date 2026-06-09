@@ -169,11 +169,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] state 增 `queuedUserInputs: UserMessage[]`（可序列化，survives resume）
-- [ ] reducer：`calling_model` / `executing_tools` 收到 `user_message` → 入队，不抛错、不打断
-- [ ] reducer：turn 边界（工具全部完成转 `calling_model` 处、及 turn 收束处）drain 队列注入 `messages`，注入点确定
-- [ ] 重放测试：相同插话 input 序列两次运行结果一致
-- [ ] 测试：插话不改变进行中工具的执行与结果
+- [x] state 增 `queuedUserInputs: UserMessage[]`（可序列化，survives resume）
+- [x] reducer：`calling_model` / `executing_tools` 收到 `user_message` → 入队，不抛错、不打断
+- [x] reducer：turn 边界（工具全部完成转 `calling_model` 处、及 turn 收束处）drain 队列注入 `messages`，注入点确定
+- [x] 重放测试：相同插话 input 序列两次运行结果一致
+- [x] 测试：插话不改变进行中工具的执行与结果
 
 **Acceptance Criteria**:
 1. `executing_tools` / `calling_model` 期间注入 `user_message` 被入队（不再抛错），进行中的工具不受影响。
@@ -181,6 +181,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. 重放测试：含插话的 input 序列两次运行 (state, effects) deep-equal。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 1eed8ec feat(plan-002): phase 3 - steering（中途插话，队列 + turn 边界注入）
 
 ---
 

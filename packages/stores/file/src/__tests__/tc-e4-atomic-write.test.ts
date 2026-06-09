@@ -14,6 +14,7 @@ const emptyState: AgentState = {
   maxIterations: 20,
   iterationCount: 0,
   readFiles: [],
+  queuedUserInputs: [],
 };
 
 let tempDir: string;

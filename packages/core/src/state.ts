@@ -111,4 +111,10 @@ export interface AgentState {
   readFiles: ReadFileRecord[];
   /** Tool call pending HITL approval (serialized for checkpoint/resume) */
   pendingApprovalTool?: PendingToolCall;
+  /**
+   * Steering queue — user messages received mid-turn (during calling_model or
+   * executing_tools). Injected into messages at the next turn boundary
+   * (all tools complete → calling_model). Serializable for checkpoint/resume.
+   */
+  queuedUserInputs: UserMessage[];
 }

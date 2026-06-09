@@ -19,6 +19,7 @@ function makeSnapshot(id: string, overrides?: Partial<AgentState>): SessionSnaps
       maxIterations: 20,
       iterationCount: 0,
       readFiles: [],
+      queuedUserInputs: [],
       ...overrides,
     },
     createdAt: 1000000000000, // fixed timestamp for deterministic tests

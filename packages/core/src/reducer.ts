@@ -4,7 +4,7 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition } from "./tool.js";
@@ -71,6 +71,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     maxIterations: 20,
     iterationCount: 0,
     readFiles: [],
+    queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
@@ -99,6 +100,7 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     pendingApprovalTool: undefined,
     iterationCount: 0,
     tokensUsed: 0,
+    queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
@@ -345,6 +347,15 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     };
   }
 
+  if (input.type === "user_message") {
+    // Steering: queue for injection at next turn boundary
+    const userMsg = { role: "user" as const, content: input.content };
+    return {
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
+      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
+    };
+  }
+
   throw new Error(`calling_model: unexpected input type "${input.type}"`);
 }
 
@@ -391,11 +402,19 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       .map((t) => newBuffer[t.id])
       .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
+    // Drain steering queue: inject queued user messages at the turn boundary
+    const drainedMessages: Message[] = [
+      ...state.messages,
+      ...orderedResultMsgs,
+      ...state.queuedUserInputs,
+    ];
+
     const newState: ReducerState = {
       ...state,
-      messages: [...state.messages, ...orderedResultMsgs],
+      messages: drainedMessages,
       pendingTools: [],
       _toolResultBuffer: {},
+      queuedUserInputs: [],
       readFiles,
       status: "calling_model",
     };
@@ -444,6 +463,15 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     return {
       state: { ...state, status: "cancelling", pendingTools: [], _toolResultBuffer: {} },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
+    };
+  }
+
+  if (input.type === "user_message") {
+    // Steering: queue for injection at next turn boundary
+    const userMsg = { role: "user" as const, content: input.content };
+    return {
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
+      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
     };
   }
 
@@ -501,12 +529,20 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
     // pendingTools is empty, so use buffered keys in insertion order
     const orderedResultMsgs = Object.values(newBuffer);
 
+    // Drain steering queue at turn boundary
+    const drainedMessages: Message[] = [
+      ...state.messages,
+      ...orderedResultMsgs,
+      ...state.queuedUserInputs,
+    ];
+
     return {
       state: {
         ...state,
-        messages: [...state.messages, ...orderedResultMsgs],
+        messages: drainedMessages,
         pendingTools: [],
         _toolResultBuffer: {},
+        queuedUserInputs: [],
         pendingApprovalTool: undefined,
         status: "calling_model",
       },
@@ -514,7 +550,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         {
           type: "call_model",
           request: {
-            messages: [...state.messages, ...orderedResultMsgs],
+            messages: drainedMessages,
             tools: ctx.tools,
             model: ctx.model,
             maxTokens: ctx.maxTokens,

@@ -32,6 +32,7 @@ describe("FileStore specifics", () => {
         maxIterations: 20,
         iterationCount: 0,
         readFiles: [],
+        queuedUserInputs: [],
       },
       createdAt: Date.now(),
     });
@@ -55,6 +56,7 @@ describe("FileStore specifics", () => {
           maxIterations: 20,
           iterationCount: 0,
           readFiles: [],
+        queuedUserInputs: [],
         },
         createdAt: Date.now(),
       }),
@@ -81,6 +83,7 @@ describe("FileStore specifics", () => {
         maxIterations: 20,
         iterationCount: 0,
         readFiles: [],
+        queuedUserInputs: [],
       },
       createdAt: Date.now(),
     });
