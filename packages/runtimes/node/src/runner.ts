@@ -335,15 +335,18 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       if (status === "executing_tools") {
         const pending = [...state.pendingTools];
+
+        // ── Permission classification ─────────────
+        // Partition into: parallelBatch (allow) vs approvalQueue (ask)
+        const parallelBatch: PendingToolCall[] = [];
+        const approvalQueue: PendingToolCall[] = [];
+
         for (const toolCall of pending) {
           if (cancelled) {
             forwardEmit(feed({ type: "cancel", reason: "abort" }));
-            return;
+            break;
           }
 
-          // Permission check before execution. Tools that already cleared an
-          // HITL "ask" (approvedToolCallIds) bypass the gate so the approved
-          // tool actually runs instead of being re-prompted.
           if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
@@ -355,52 +358,68 @@ export function createRunner(opts: RunnerOptions): Runner {
                   toolName: toolCall.name,
                   result: { modelContent: `Tool "${toolCall.name}" denied by permission policy`, isError: true },
                 }));
-                const afterPerm = getStatus();
-                if (afterPerm !== "executing_tools") break;
+                if (getStatus() !== "executing_tools") break;
                 continue;
               }
               if (permDecision === "ask") {
-                // Transition to waiting_for_approval + checkpoint, then resolve
-                // the approval (auto/interactive) in-process. interpretEffects
-                // feeds the approval_decision back into the reducer, which moves
-                // the tool back to executing_tools (allow) or to calling_model
-                // (deny). Break the inner loop so the outer while re-dispatches
-                // on the freshly updated status — this is what closes the loop.
-                const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
-                forwardEmit(effects);
-                await interpretEffects(effects);
-                break;
+                approvalQueue.push(toolCall);
+                continue;
               }
             }
           }
 
-          const result = await executeTool(toolCall);
-          // Approval is single-use: consume it so the Set stays bounded and a
-          // recycled tool-call id can never bypass the gate on a later call.
-          approvedToolCallIds.delete(toolCall.id);
-
-          // Emit any pendingEvents declared by the tool in displayMetadata.
-          // This routes events through the effect channel (tool → Runner → EventSink),
-          // keeping tools side-effect-free and fully replayable.
-          const pendingEvents = result.displayMetadata?.pendingEvents as
-            | Array<{ type: string; data: Record<string, unknown> }>
-            | undefined;
-          if (pendingEvents && opts.eventSink) {
-            for (const evt of pendingEvents) {
-              opts.eventSink.emit(evt);
-            }
-          }
-
-          forwardEmit(feed({
-            type: "tool_result",
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            result,
-          }));
-
-          const afterTool = getStatus();
-          if (afterTool !== "executing_tools") break;
+          parallelBatch.push(toolCall);
         }
+
+        // ── Approval tools: sequential through existing HITL flow ──
+        for (const toolCall of approvalQueue) {
+          if (cancelled || getStatus() !== "executing_tools") break;
+
+          const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
+          forwardEmit(effects);
+          await interpretEffects(effects);
+          if (getStatus() !== "executing_tools") break;
+        }
+
+        // ── Parallel batch: execute all allow tools concurrently ──
+        if (parallelBatch.length > 0 && getStatus() === "executing_tools" && !cancelled) {
+          const results = await Promise.all(
+            parallelBatch.map(async (toolCall) => {
+              const result = await executeTool(toolCall);
+              approvedToolCallIds.delete(toolCall.id);
+              return { toolCall, result };
+            }),
+          );
+
+          // Feed results one at a time — the reducer buffers and flushes
+          // in pendingTools order for deterministic replay.
+          for (const { toolCall, result } of results) {
+            if (cancelled) break;
+
+            const pendingEvents = result.displayMetadata?.pendingEvents as
+              | Array<{ type: string; data: Record<string, unknown> }>
+              | undefined;
+            if (pendingEvents && opts.eventSink) {
+              for (const evt of pendingEvents) {
+                opts.eventSink.emit(evt);
+              }
+            }
+
+            forwardEmit(feed({
+              type: "tool_result",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              result,
+            }));
+            if (getStatus() !== "executing_tools") break;
+          }
+        }
+
+        // Post-batch: if cancelled during parallel execution, transition
+        if (cancelled && getStatus() !== "cancelling" && getStatus() !== "done") {
+          forwardEmit(feed({ type: "cancel", reason: "abort" }));
+        }
+
         continue;
       }
 

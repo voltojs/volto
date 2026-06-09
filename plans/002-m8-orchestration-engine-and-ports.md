@@ -142,11 +142,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`（含重放测试扩展）
 
 **Tasks**:
-- [ ] reducer：`executing_tools` 收到 `tool_result` 时写入按 id 索引的缓冲，仅当全部 `pendingTools` 完成后按**原始顺序**一次性 append `tool_result` 消息，再转 `calling_model`（保证顺序确定）
-- [ ] Runner：本轮 `pendingTools` 权限分流——`allow` 工具有界并发执行，`ask` 工具走既有串行审批闭环；保留单工具执行后即时回喂
-- [ ] Runner：并行执行期间收到 `Cancel` → 中止全部进行中工具、清理 pending、转 `cancelling`
-- [ ] 重放测试：构造乱序到达的多工具结果，断言两次运行 (state, effects) deep-equal
-- [ ] 回归：既有单工具 / HITL / resume 测试全绿
+- [x] reducer：`executing_tools` 收到 `tool_result` 时写入按 id 索引的缓冲，仅当全部 `pendingTools` 完成后按**原始顺序**一次性 append `tool_result` 消息，再转 `calling_model`（保证顺序确定）
+- [x] Runner：本轮 `pendingTools` 权限分流——`allow` 工具有界并发执行，`ask` 工具走既有串行审批闭环；保留单工具执行后即时回喂
+- [x] Runner：并行执行期间收到 `Cancel` → 中止全部进行中工具、清理 pending、转 `cancelling`
+- [x] 重放测试：构造乱序到达的多工具结果，断言两次运行 (state, effects) deep-equal
+- [x] 回归：既有单工具 / HITL / resume 测试全绿
 
 **Acceptance Criteria**:
 1. 一轮 assistant 含 N 个 tool_use 时，Runner 并行执行 `allow` 工具；最终 `messages` 中 tool_result 顺序严格等于 `pendingTools` 原始顺序，**与完成先后无关**。
@@ -154,6 +154,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. HITL `ask` 工具在并行批中仍正确串行审批；`Cancel` 能中止进行中的并行批并清理 pending。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 3ed9675 feat(plan-002): phase 2 - 并行工具执行 + 确定性结果归并
 
 ---
 

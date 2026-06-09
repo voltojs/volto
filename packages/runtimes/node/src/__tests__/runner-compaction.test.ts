@@ -68,6 +68,7 @@ describe("Runner — compaction wiring", () => {
       readFiles: [],
       _accumulatedText: "",
       _accumulatedToolCalls: [],
+      _toolResultBuffer: {},
     };
 
     const spy = createSpyModelPort([

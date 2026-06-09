@@ -47,6 +47,14 @@ export interface ReducerState extends AgentState {
   }>;
   /** Tool call pending HITL approval (set when status is waiting_for_approval) */
   pendingApprovalTool?: PendingToolCall;
+  /**
+   * Buffer for tool results during parallel execution.
+   * Results are collected by tool-call id; once ALL pendingTools have
+   * reported, they are flushed in pendingTools order — guaranteeing that
+   * the message sequence is independent of completion order and fully
+   * deterministic for replay.
+   */
+  _toolResultBuffer: Record<string, ToolResultMessage>;
 }
 
 // ──────────────────────────────────────────────
@@ -65,6 +73,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     readFiles: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
+    _toolResultBuffer: {},
     ...overrides,
   };
 }
@@ -92,6 +101,7 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     tokensUsed: 0,
     _accumulatedText: "",
     _accumulatedToolCalls: [],
+    _toolResultBuffer: {},
   };
 }
 
@@ -352,36 +362,44 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       ],
     };
 
-    const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
-
-    // Record read/write file access into serializable state (used by the
-    // read-before-edit + staleness gate). Pure — facts come from displayMetadata.
+    // Record file access from this result (pure, deterministic)
     const fileAccess = input.result.isError ? null : extractFileAccess(input.result.displayMetadata);
     const readFiles: ReadFileRecord[] = fileAccess
       ? recordFileAccess(state.readFiles, fileAccess)
       : state.readFiles;
 
-    if (remainingTools.length > 0) {
-      // More tools to execute
+    // Buffer the result by tool-call id
+    const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: toolResultMsg };
+
+    // Check if ALL pending tools have reported
+    const allDone = state.pendingTools.every((t) => t.id in newBuffer);
+
+    if (!allDone) {
+      // More tools to finish — buffer and wait
       return {
         state: {
           ...state,
-          messages: [...state.messages, toolResultMsg],
-          pendingTools: remainingTools,
+          _toolResultBuffer: newBuffer,
           readFiles,
         },
         effects: [],
       };
     }
 
-    // All tools done → call model again
+    // All tools done — flush in pendingTools order for deterministic replay
+    const orderedResultMsgs = state.pendingTools
+      .map((t) => newBuffer[t.id])
+      .filter((msg): msg is ToolResultMessage => msg !== undefined);
+
     const newState: ReducerState = {
       ...state,
-      messages: [...state.messages, toolResultMsg],
+      messages: [...state.messages, ...orderedResultMsgs],
       pendingTools: [],
+      _toolResultBuffer: {},
       readFiles,
       status: "calling_model",
     };
+
     return {
       state: newState,
       effects: [
@@ -424,7 +442,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
   if (input.type === "cancel") {
     return {
-      state: { ...state, status: "cancelling", pendingTools: [] },
+      state: { ...state, status: "cancelling", pendingTools: [], _toolResultBuffer: {} },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
     };
   }
@@ -451,8 +469,9 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // Denied → add error result to messages, continue with remaining tools
-    const toolResultMsg: ToolResultMessage = {
+    // Denied — buffer the error result; it will be flushed in pendingTools
+    // order alongside parallel tool results for deterministic replay.
+    const denyResultMsg: ToolResultMessage = {
       role: "tool",
       content: [
         {
@@ -464,11 +483,13 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       ],
     };
 
+    const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: denyResultMsg };
+
     if (state.pendingTools.length > 0) {
       return {
         state: {
           ...state,
-          messages: [...state.messages, toolResultMsg],
+          _toolResultBuffer: newBuffer,
           pendingApprovalTool: undefined,
           status: "executing_tools",
         },
@@ -476,12 +497,16 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // All tools processed (denied), call model again
+    // All tools processed (denied was the last one) — flush buffer in order
+    // pendingTools is empty, so use buffered keys in insertion order
+    const orderedResultMsgs = Object.values(newBuffer);
+
     return {
       state: {
         ...state,
-        messages: [...state.messages, toolResultMsg],
+        messages: [...state.messages, ...orderedResultMsgs],
         pendingTools: [],
+        _toolResultBuffer: {},
         pendingApprovalTool: undefined,
         status: "calling_model",
       },
@@ -489,7 +514,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         {
           type: "call_model",
           request: {
-            messages: [...state.messages, toolResultMsg],
+            messages: [...state.messages, ...orderedResultMsgs],
             tools: ctx.tools,
             model: ctx.model,
             maxTokens: ctx.maxTokens,
