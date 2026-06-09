@@ -30,6 +30,7 @@ export type {
   ApprovalDecisionInput,
   RequestApprovalInput,
   CancelInput,
+  BudgetExceededInput,
   AgentInput,
 } from "./input.js";
 
@@ -80,6 +81,21 @@ export type {
   Id,
   Random,
   Tokenizer,
+  // M8: new port interfaces
+  ToolSource,
+  MemoryEntry,
+  MemoryStore,
+  Embedder,
+  TelemetrySpan,
+  Telemetry,
+  Cache,
+  SandboxExecSpec,
+  SandboxEvent,
+  Sandbox,
+  Secrets,
+  Scheduler,
+  PolicyRequest,
+  PolicyEngine,
 } from "./ports.js";
 
 // Types — Tool
@@ -134,6 +150,10 @@ export type { PermissionConfig } from "./permission-policy.js";
 
 // Text extraction — shared helpers for Message → string
 export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
+
+// Loop detector — oscillation detection (pure function)
+export { detectLoop } from "./loop-detector.js";
+export type { LoopDetectionResult } from "./loop-detector.js";
 
 // Testing utilities
 export {

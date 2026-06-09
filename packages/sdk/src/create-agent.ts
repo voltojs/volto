@@ -27,6 +27,15 @@ import type {
   Message,
   CompactionConfig,
   ApprovalGate,
+  ToolSource,
+  MemoryStore,
+  Embedder,
+  Telemetry,
+  Cache,
+  Sandbox,
+  Secrets,
+  Scheduler,
+  PolicyEngine,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
@@ -61,6 +70,15 @@ import {
   defaultEventSink,
   defaultTokenizer,
   createDefaultSessionStore,
+  defaultToolSource,
+  createDefaultMemoryStore,
+  defaultEmbedder,
+  defaultTelemetry,
+  createDefaultCache,
+  defaultSandbox,
+  defaultSecrets,
+  defaultScheduler,
+  defaultPolicyEngine,
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 
@@ -98,6 +116,18 @@ export interface CreateAgentOptions {
 
   /** Token budget per turn (default: no limit) */
   tokenBudget?: number;
+
+  /** Max tool calls per turn (default: no limit) */
+  maxToolCalls?: number;
+
+  /** Max cumulative token cost per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  maxCostTokens?: number;
+
+  /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  maxWallclockMs?: number;
+
+  /** Max consecutive identical failed tool calls before loop intervention (default: no limit) */
+  maxLoopCount?: number;
 
   // ── Port overrides (all optional, defaults provided) ──
 
@@ -139,6 +169,35 @@ export interface CreateAgentOptions {
    * grow large. Uses the default character-count tokenizer if not specified.
    */
   compaction?: Omit<CompactionConfig, "tokenizer"> & { tokenizer?: CompactionConfig["tokenizer"] };
+
+  // ── M8: New port overrides (all optional, defaults provided) ──
+
+  /** Dynamic tool source (MCP / plugins). Defaults to empty list. */
+  toolSource?: ToolSource;
+
+  /** Semantic / long-term memory store. Defaults to in-memory Map. */
+  memoryStore?: MemoryStore;
+
+  /** Text embedding provider. Defaults to throw-if-called. */
+  embedder?: Embedder;
+
+  /** Structured telemetry (OTel-style). Defaults to no-op. */
+  telemetry?: Telemetry;
+
+  /** General-purpose key/value cache. Defaults to in-memory with TTL. */
+  cache?: Cache;
+
+  /** Isolated execution environment. Defaults to throw-if-called. */
+  sandbox?: Sandbox;
+
+  /** Secure credential resolution. Defaults to returning undefined. */
+  secrets?: Secrets;
+
+  /** Timed / delayed / background tasks. Defaults to no-op. */
+  scheduler?: Scheduler;
+
+  /** External authorization decision engine. Defaults to allow-all. */
+  policyEngine?: PolicyEngine;
 }
 
 export interface AgentInstance {
@@ -158,6 +217,22 @@ export interface AgentInstance {
 
   /** Read the latest runner state */
   getState(): ReducerState;
+
+  /** Resolved M8 port instances (for advanced usage / testing) */
+  ports: ResolvedPorts;
+}
+
+/** All resolved port instances held by this agent */
+export interface ResolvedPorts {
+  toolSource: ToolSource;
+  memoryStore: MemoryStore;
+  embedder: Embedder;
+  telemetry: Telemetry;
+  cache: Cache;
+  sandbox: Sandbox;
+  secrets: Secrets;
+  scheduler: Scheduler;
+  policyEngine: PolicyEngine;
 }
 
 // ──────────────────────────────────────────────
@@ -225,6 +300,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     model: opts.model,
     maxTokens: opts.maxTokens,
     temperature: opts.temperature,
+    maxLoopCount: opts.maxLoopCount,
   };
 
   // ── Compose tool executor ────────────────
@@ -255,6 +331,19 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Session store ─────────────────────────
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
+
+  // ── M8: Resolve new ports ────────────────
+  const resolvedPorts: ResolvedPorts = {
+    toolSource: opts.toolSource ?? defaultToolSource,
+    memoryStore: opts.memoryStore ?? createDefaultMemoryStore(),
+    embedder: opts.embedder ?? defaultEmbedder,
+    telemetry: opts.telemetry ?? defaultTelemetry,
+    cache: opts.cache ?? createDefaultCache(),
+    sandbox: opts.sandbox ?? defaultSandbox,
+    secrets: opts.secrets ?? defaultSecrets,
+    scheduler: opts.scheduler ?? defaultScheduler,
+    policyEngine: opts.policyEngine ?? defaultPolicyEngine,
+  };
 
   // ── Build initial messages (system prompt) ──
   const initialMessages: Message[] = [];
@@ -296,10 +385,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       });
     }
 
-    // First turn: apply systemPrompt + maxIterations + tokenBudget
+    // First turn: apply systemPrompt + maxIterations + tokenBudget + M8 limits
     const initStateOverrides: Partial<ReducerState> = {
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       ...(opts.tokenBudget !== undefined ? { tokenBudget: opts.tokenBudget } : {}),
+      ...(opts.maxToolCalls !== undefined ? { maxToolCalls: opts.maxToolCalls } : {}),
+      ...(opts.maxCostTokens !== undefined ? { maxCostDollars: opts.maxCostTokens } : {}),
+      ...(opts.maxWallclockMs !== undefined ? { maxWallclockMs: opts.maxWallclockMs } : {}),
       ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
     };
     const initState = createInitialState(
@@ -313,6 +405,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   return {
+    ports: resolvedPorts,
+
     async run(input: string | AgentInput): Promise<ReducerState> {
       const agentInput = normalizeInput(input);
       const runner = createNextRunner(opts.eventSink ?? defaultEventSink);

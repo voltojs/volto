@@ -96,9 +96,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let state: ReducerState = opts.initialState ?? createInitialState();
   let cancelled = false;
   // Tool call ids that have already cleared an HITL "ask" (decision = allow).
-  // The permission gate must NOT re-evaluate these when the approved tool is
-  // re-queued into executing_tools, otherwise it would re-prompt forever.
   const approvedToolCallIds = new Set<string>();
+  // M8 Phase 4: wallclock and cost tracking for the current turn
+  let turnStartTime = 0;
+  let cumulativeCost = 0;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -121,6 +122,30 @@ export function createRunner(opts: RunnerOptions): Runner {
     const result = step(state, input, stepContext);
     state = result.state;
     return result.effects;
+  }
+
+  /**
+   * Check wallclock and cost budget limits at the Runner level.
+   * Feeds a budget_exceeded input if limits are breached.
+   * Returns true if a budget_exceeded was fed (caller should break/return).
+   */
+  function checkBudgetLimits(): boolean {
+    if (state.status === "done" || state.status === "idle") return false;
+
+    if (turnStartTime > 0 && state.maxWallclockMs !== undefined) {
+      const elapsed = Date.now() - turnStartTime;
+      if (elapsed > state.maxWallclockMs) {
+        forwardEmit(feed({ type: "budget_exceeded", reason: "Wallclock limit exceeded" }));
+        return true;
+      }
+    }
+
+    if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
+      forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+      return true;
+    }
+
+    return false;
   }
 
   /** Forward emit effects to EventSink. */
@@ -247,6 +272,8 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Accumulate cost from this usage event (tokens as cost unit)
+          cumulativeCost += event.inputTokens + event.outputTokens;
           continue;
         }
 
@@ -316,9 +343,15 @@ export function createRunner(opts: RunnerOptions): Runner {
    * Handles: model calls → tool execution → model calls → ... → done.
    */
   async function runLoop(): Promise<void> {
+    // Initialize wallclock tracking at the start of each turn
+    if (turnStartTime === 0) turnStartTime = Date.now();
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const status = getStatus();
+
+      // Budget check: wallclock / cost exceeded → feed budget_exceeded
+      if (status !== "done" && status !== "idle" && checkBudgetLimits()) continue;
 
       // Short-circuit: if cancellation fired, transition to cancelling before
       // dispatching any new model call or tool execution. Avoids initiating a
@@ -335,15 +368,18 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       if (status === "executing_tools") {
         const pending = [...state.pendingTools];
+
+        // ── Permission classification ─────────────
+        // Partition into: parallelBatch (allow) vs approvalQueue (ask)
+        const parallelBatch: PendingToolCall[] = [];
+        const approvalQueue: PendingToolCall[] = [];
+
         for (const toolCall of pending) {
           if (cancelled) {
             forwardEmit(feed({ type: "cancel", reason: "abort" }));
-            return;
+            break;
           }
 
-          // Permission check before execution. Tools that already cleared an
-          // HITL "ask" (approvedToolCallIds) bypass the gate so the approved
-          // tool actually runs instead of being re-prompted.
           if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
@@ -355,52 +391,68 @@ export function createRunner(opts: RunnerOptions): Runner {
                   toolName: toolCall.name,
                   result: { modelContent: `Tool "${toolCall.name}" denied by permission policy`, isError: true },
                 }));
-                const afterPerm = getStatus();
-                if (afterPerm !== "executing_tools") break;
+                if (getStatus() !== "executing_tools") break;
                 continue;
               }
               if (permDecision === "ask") {
-                // Transition to waiting_for_approval + checkpoint, then resolve
-                // the approval (auto/interactive) in-process. interpretEffects
-                // feeds the approval_decision back into the reducer, which moves
-                // the tool back to executing_tools (allow) or to calling_model
-                // (deny). Break the inner loop so the outer while re-dispatches
-                // on the freshly updated status — this is what closes the loop.
-                const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
-                forwardEmit(effects);
-                await interpretEffects(effects);
-                break;
+                approvalQueue.push(toolCall);
+                continue;
               }
             }
           }
 
-          const result = await executeTool(toolCall);
-          // Approval is single-use: consume it so the Set stays bounded and a
-          // recycled tool-call id can never bypass the gate on a later call.
-          approvedToolCallIds.delete(toolCall.id);
-
-          // Emit any pendingEvents declared by the tool in displayMetadata.
-          // This routes events through the effect channel (tool → Runner → EventSink),
-          // keeping tools side-effect-free and fully replayable.
-          const pendingEvents = result.displayMetadata?.pendingEvents as
-            | Array<{ type: string; data: Record<string, unknown> }>
-            | undefined;
-          if (pendingEvents && opts.eventSink) {
-            for (const evt of pendingEvents) {
-              opts.eventSink.emit(evt);
-            }
-          }
-
-          forwardEmit(feed({
-            type: "tool_result",
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            result,
-          }));
-
-          const afterTool = getStatus();
-          if (afterTool !== "executing_tools") break;
+          parallelBatch.push(toolCall);
         }
+
+        // ── Approval tools: sequential through existing HITL flow ──
+        for (const toolCall of approvalQueue) {
+          if (cancelled || getStatus() !== "executing_tools") break;
+
+          const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
+          forwardEmit(effects);
+          await interpretEffects(effects);
+          if (getStatus() !== "executing_tools") break;
+        }
+
+        // ── Parallel batch: execute all allow tools concurrently ──
+        if (parallelBatch.length > 0 && getStatus() === "executing_tools" && !cancelled) {
+          const results = await Promise.all(
+            parallelBatch.map(async (toolCall) => {
+              const result = await executeTool(toolCall);
+              approvedToolCallIds.delete(toolCall.id);
+              return { toolCall, result };
+            }),
+          );
+
+          // Feed results one at a time — the reducer buffers and flushes
+          // in pendingTools order for deterministic replay.
+          for (const { toolCall, result } of results) {
+            if (cancelled) break;
+
+            const pendingEvents = result.displayMetadata?.pendingEvents as
+              | Array<{ type: string; data: Record<string, unknown> }>
+              | undefined;
+            if (pendingEvents && opts.eventSink) {
+              for (const evt of pendingEvents) {
+                opts.eventSink.emit(evt);
+              }
+            }
+
+            forwardEmit(feed({
+              type: "tool_result",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              result,
+            }));
+            if (getStatus() !== "executing_tools") break;
+          }
+        }
+
+        // Post-batch: if cancelled during parallel execution, transition
+        if (cancelled && getStatus() !== "cancelling" && getStatus() !== "done") {
+          forwardEmit(feed({ type: "cancel", reason: "abort" }));
+        }
+
         continue;
       }
 
@@ -446,6 +498,9 @@ export function createRunner(opts: RunnerOptions): Runner {
   return {
     async run(initialInput: AgentInput): Promise<ReducerState> {
       try {
+        // Reset budget tracking for this turn
+        turnStartTime = Date.now();
+        cumulativeCost = 0;
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;

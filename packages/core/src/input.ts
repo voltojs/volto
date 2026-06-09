@@ -65,6 +65,16 @@ export interface CancelInput {
   reason?: string;
 }
 
+/**
+ * Budget exceeded — fed by the Runner when wallclock or cost limits are breached.
+ * The core reducer terminates the turn with a "done" state and emits a
+ * clear reason. Separated from Cancel to preserve semantic clarity.
+ */
+export interface BudgetExceededInput {
+  type: "budget_exceeded";
+  reason: string;
+}
+
 /** Runner requests HITL approval for a pending tool call (ask tier) */
 export interface RequestApprovalInput {
   type: "request_approval";
@@ -80,4 +90,5 @@ export type AgentInput =
   | ToolResultInput
   | ApprovalDecisionInput
   | RequestApprovalInput
-  | CancelInput;
+  | CancelInput
+  | BudgetExceededInput;

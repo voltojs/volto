@@ -111,4 +111,33 @@ export interface AgentState {
   readFiles: ReadFileRecord[];
   /** Tool call pending HITL approval (serialized for checkpoint/resume) */
   pendingApprovalTool?: PendingToolCall;
+  /**
+   * Steering queue — user messages received mid-turn (during calling_model or
+   * executing_tools). Injected into messages at the next turn boundary
+   * (all tools complete → calling_model). Serializable for checkpoint/resume.
+   */
+  queuedUserInputs: UserMessage[];
+  /** Cumulative tool calls dispatched this turn. Enforced against maxToolCalls. */
+  toolCallCount: number;
+  /**
+   * Max tool calls allowed per turn. When exceeded, the reducer terminates
+   * the turn with a "budget_exceeded" done state. Undefined = no limit.
+   */
+  maxToolCalls: number | undefined;
+  /**
+   * Maximum total cost ($) allowed per turn. When exceeded by the Runner,
+   * a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
+   */
+  maxCostDollars: number | undefined;
+  /**
+   * Maximum wall-clock milliseconds allowed per turn. When exceeded by the
+   * Runner, a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
+   */
+  maxWallclockMs: number | undefined;
+  /**
+   * Max consecutive identical failed tool calls before intervention (loop detection).
+   * When the model repeats the same tool call with the same input K times and
+   * all return errors, the turn is terminated. Undefined = no limit.
+   */
+  maxLoopCount: number | undefined;
 }

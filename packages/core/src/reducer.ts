@@ -4,11 +4,12 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition } from "./tool.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
+import { detectLoop } from "./loop-detector.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -25,6 +26,8 @@ export interface StepContext {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
+  maxLoopCount?: number;
 }
 
 // ──────────────────────────────────────────────
@@ -47,6 +50,14 @@ export interface ReducerState extends AgentState {
   }>;
   /** Tool call pending HITL approval (set when status is waiting_for_approval) */
   pendingApprovalTool?: PendingToolCall;
+  /**
+   * Buffer for tool results during parallel execution.
+   * Results are collected by tool-call id; once ALL pendingTools have
+   * reported, they are flushed in pendingTools order — guaranteeing that
+   * the message sequence is independent of completion order and fully
+   * deterministic for replay.
+   */
+  _toolResultBuffer: Record<string, ToolResultMessage>;
 }
 
 // ──────────────────────────────────────────────
@@ -63,8 +74,15 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     maxIterations: 20,
     iterationCount: 0,
     readFiles: [],
+    queuedUserInputs: [],
+    toolCallCount: 0,
+    maxToolCalls: undefined,
+    maxCostDollars: undefined,
+    maxWallclockMs: undefined,
+    maxLoopCount: undefined,
     _accumulatedText: "",
     _accumulatedToolCalls: [],
+    _toolResultBuffer: {},
     ...overrides,
   };
 }
@@ -90,8 +108,11 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     pendingApprovalTool: undefined,
     iterationCount: 0,
     tokensUsed: 0,
+    toolCallCount: 0,
+    queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
+    _toolResultBuffer: {},
   };
 }
 
@@ -104,6 +125,23 @@ export function step(
   input: AgentInput,
   ctx: StepContext,
 ): StepResult {
+  // Unified budget_exceeded handler — applies in all active states.
+  // Terminates the turn with a clear reason; no exception.
+  if (input.type === "budget_exceeded" && state.status !== "done" && state.status !== "idle") {
+    return {
+      state: {
+        ...state,
+        pendingTools: [],
+        _toolResultBuffer: {},
+        status: "done",
+      },
+      effects: [
+        { type: "emit", event: { type: "budget_exceeded", data: { reason: input.reason } } },
+        { type: "done" },
+      ],
+    };
+  }
+
   switch (state.status) {
     case "idle":
       return handleIdle(state, input, ctx);
@@ -243,19 +281,40 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     // tool_use → extract pending tools, transition to executing_tools
     if (input.stopReason === "tool_use") {
-      if (limit) {
+      const toolCalls = extractToolCalls(assistantMsg);
+      const newToolCallCount = baseState.toolCallCount + toolCalls.length;
+      const baseWithToolCount = { ...baseState, toolCallCount: newToolCallCount };
+      const limit2 = limitReached(baseWithToolCount);
+      if (limit2) {
         return {
-          state: { ...baseState, pendingTools: [], status: "done" },
+          state: { ...baseWithToolCount, pendingTools: [], status: "done" },
           effects: [
             emitEffect,
-            { type: "emit", event: { type: "error", data: { error: limit } } },
+            { type: "emit", event: { type: "error", data: { error: limit2 } } },
             { type: "done" },
           ],
         };
       }
-      const toolCalls = extractToolCalls(assistantMsg);
+
+      // Loop / oscillation detection: check if these new tool calls
+      // repeat a sequence of K identical failed calls.
+      if (ctx.maxLoopCount !== undefined && ctx.maxLoopCount >= 2) {
+        const loopResult = detectLoop(state.messages, assistantMsg, toolCalls, ctx.maxLoopCount);
+        if (loopResult.detected) {
+          const loopError = `Loop detected: tool "${loopResult.toolName}" has been called ${loopResult.consecutiveCount} times with identical input and returned errors`;
+          return {
+            state: { ...baseWithToolCount, pendingTools: [], status: "done" },
+            effects: [
+              emitEffect,
+              { type: "emit", event: { type: "error", data: { error: loopError } } },
+              { type: "done" },
+            ],
+          };
+        }
+      }
+
       return {
-        state: { ...baseState, pendingTools: toolCalls, status: "executing_tools" },
+        state: { ...baseWithToolCount, pendingTools: toolCalls, status: "executing_tools" },
         effects: [emitEffect],
       };
     }
@@ -335,6 +394,15 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     };
   }
 
+  if (input.type === "user_message") {
+    // Steering: queue for injection at next turn boundary
+    const userMsg = { role: "user" as const, content: input.content };
+    return {
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
+      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
+    };
+  }
+
   throw new Error(`calling_model: unexpected input type "${input.type}"`);
 }
 
@@ -352,36 +420,52 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       ],
     };
 
-    const remainingTools = state.pendingTools.filter((t) => t.id !== input.toolCallId);
-
-    // Record read/write file access into serializable state (used by the
-    // read-before-edit + staleness gate). Pure — facts come from displayMetadata.
+    // Record file access from this result (pure, deterministic)
     const fileAccess = input.result.isError ? null : extractFileAccess(input.result.displayMetadata);
     const readFiles: ReadFileRecord[] = fileAccess
       ? recordFileAccess(state.readFiles, fileAccess)
       : state.readFiles;
 
-    if (remainingTools.length > 0) {
-      // More tools to execute
+    // Buffer the result by tool-call id
+    const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: toolResultMsg };
+
+    // Check if ALL pending tools have reported
+    const allDone = state.pendingTools.every((t) => t.id in newBuffer);
+
+    if (!allDone) {
+      // More tools to finish — buffer and wait
       return {
         state: {
           ...state,
-          messages: [...state.messages, toolResultMsg],
-          pendingTools: remainingTools,
+          _toolResultBuffer: newBuffer,
           readFiles,
         },
         effects: [],
       };
     }
 
-    // All tools done → call model again
+    // All tools done — flush in pendingTools order for deterministic replay
+    const orderedResultMsgs = state.pendingTools
+      .map((t) => newBuffer[t.id])
+      .filter((msg): msg is ToolResultMessage => msg !== undefined);
+
+    // Drain steering queue: inject queued user messages at the turn boundary
+    const drainedMessages: Message[] = [
+      ...state.messages,
+      ...orderedResultMsgs,
+      ...state.queuedUserInputs,
+    ];
+
     const newState: ReducerState = {
       ...state,
-      messages: [...state.messages, toolResultMsg],
+      messages: drainedMessages,
       pendingTools: [],
+      _toolResultBuffer: {},
+      queuedUserInputs: [],
       readFiles,
       status: "calling_model",
     };
+
     return {
       state: newState,
       effects: [
@@ -424,8 +508,17 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
   if (input.type === "cancel") {
     return {
-      state: { ...state, status: "cancelling", pendingTools: [] },
+      state: { ...state, status: "cancelling", pendingTools: [], _toolResultBuffer: {} },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
+    };
+  }
+
+  if (input.type === "user_message") {
+    // Steering: queue for injection at next turn boundary
+    const userMsg = { role: "user" as const, content: input.content };
+    return {
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
+      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
     };
   }
 
@@ -451,8 +544,9 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // Denied → add error result to messages, continue with remaining tools
-    const toolResultMsg: ToolResultMessage = {
+    // Denied — buffer the error result; it will be flushed in pendingTools
+    // order alongside parallel tool results for deterministic replay.
+    const denyResultMsg: ToolResultMessage = {
       role: "tool",
       content: [
         {
@@ -464,11 +558,13 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       ],
     };
 
+    const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: denyResultMsg };
+
     if (state.pendingTools.length > 0) {
       return {
         state: {
           ...state,
-          messages: [...state.messages, toolResultMsg],
+          _toolResultBuffer: newBuffer,
           pendingApprovalTool: undefined,
           status: "executing_tools",
         },
@@ -476,12 +572,24 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // All tools processed (denied), call model again
+    // All tools processed (denied was the last one) — flush buffer in order
+    // pendingTools is empty, so use buffered keys in insertion order
+    const orderedResultMsgs = Object.values(newBuffer);
+
+    // Drain steering queue at turn boundary
+    const drainedMessages: Message[] = [
+      ...state.messages,
+      ...orderedResultMsgs,
+      ...state.queuedUserInputs,
+    ];
+
     return {
       state: {
         ...state,
-        messages: [...state.messages, toolResultMsg],
+        messages: drainedMessages,
         pendingTools: [],
+        _toolResultBuffer: {},
+        queuedUserInputs: [],
         pendingApprovalTool: undefined,
         status: "calling_model",
       },
@@ -489,7 +597,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         {
           type: "call_model",
           request: {
-            messages: [...state.messages, toolResultMsg],
+            messages: drainedMessages,
             tools: ctx.tools,
             model: ctx.model,
             maxTokens: ctx.maxTokens,
@@ -545,6 +653,9 @@ function limitReached(state: ReducerState): string | null {
   }
   if (state.tokenBudget !== undefined && state.tokensUsed >= state.tokenBudget) {
     return "Token budget exceeded";
+  }
+  if (state.maxToolCalls !== undefined && state.toolCallCount >= state.maxToolCalls) {
+    return "Tool call limit exceeded";
   }
   return null;
 }

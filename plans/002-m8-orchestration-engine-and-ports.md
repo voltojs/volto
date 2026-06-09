@@ -1,6 +1,6 @@
 # Plan 002 — M8 内核编排引擎深化 + 端口面扩展
 
-> **Status**: Draft
+> **Status**: Complete
 > **Owner**: TBD
 > **Created**: 2026-06-09
 > **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M8；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 001（M1–M7 已交付）
@@ -110,12 +110,12 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 在 `ports.ts` 新增 `ToolSource` / `MemoryStore` / `Embedder` / `Telemetry` / `Cache` / `Sandbox` / `Secrets` / `Scheduler` / `PolicyEngine` 接口（纯类型，含相关结果/参数类型）
-- [ ] `ModelEventUsage` 预置可选字段 `cacheReadTokens?` / `cacheWriteTokens?`（为 M9 Prompt 缓存计量预留；ports.ts 单一归属于 M8，下游 provider 仅填充不改类型）
-- [ ] `index.ts` 统一导出新端口类型
-- [ ] SDK `defaults.ts` 提供兜底：no-op `Telemetry`、no-op `Scheduler`、内存 `Cache`、内存 `MemoryStore`、allow-all `PolicyEngine`、缺省 `Secrets`（返回 undefined）、空 `ToolSource`
-- [ ] `createAgent` 接受可选注入这些端口（缺省走兜底）
-- [ ] 测试：兜底实现 smoke（各方法可调用、语义正确）；最小配置（仅 model）仍可启动
+- [x] 在 `ports.ts` 新增 `ToolSource` / `MemoryStore` / `Embedder` / `Telemetry` / `Cache` / `Sandbox` / `Secrets` / `Scheduler` / `PolicyEngine` 接口（纯类型，含相关结果/参数类型）
+- [x] `ModelEventUsage` 预置可选字段 `cacheReadTokens?` / `cacheWriteTokens?`（为 M9 Prompt 缓存计量预留；ports.ts 单一归属于 M8，下游 provider 仅填充不改类型）
+- [x] `index.ts` 统一导出新端口类型
+- [x] SDK `defaults.ts` 提供兜底：no-op `Telemetry`、no-op `Scheduler`、内存 `Cache`、内存 `MemoryStore`、allow-all `PolicyEngine`、缺省 `Secrets`（返回 undefined）、空 `ToolSource`
+- [x] `createAgent` 接受可选注入这些端口（缺省走兜底）
+- [x] 测试：兜底实现 smoke（各方法可调用、语义正确）；最小配置（仅 model）仍可启动
 
 **Acceptance Criteria**:
 1. `@agent-core/core` 仍零运行时依赖（`check-core-zero-deps` 通过），新端口均为纯类型（core lint 纯度规则不破）。
@@ -126,6 +126,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 **Reviewed**: <date> by reviewer
 **Commit**: <hash> <subject>
 -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 0595603 feat(plan-002): phase 1 - 端口面扩展（纯类型契约 + SDK 兜底）
 
 ---
 
@@ -140,11 +142,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`（含重放测试扩展）
 
 **Tasks**:
-- [ ] reducer：`executing_tools` 收到 `tool_result` 时写入按 id 索引的缓冲，仅当全部 `pendingTools` 完成后按**原始顺序**一次性 append `tool_result` 消息，再转 `calling_model`（保证顺序确定）
-- [ ] Runner：本轮 `pendingTools` 权限分流——`allow` 工具有界并发执行，`ask` 工具走既有串行审批闭环；保留单工具执行后即时回喂
-- [ ] Runner：并行执行期间收到 `Cancel` → 中止全部进行中工具、清理 pending、转 `cancelling`
-- [ ] 重放测试：构造乱序到达的多工具结果，断言两次运行 (state, effects) deep-equal
-- [ ] 回归：既有单工具 / HITL / resume 测试全绿
+- [x] reducer：`executing_tools` 收到 `tool_result` 时写入按 id 索引的缓冲，仅当全部 `pendingTools` 完成后按**原始顺序**一次性 append `tool_result` 消息，再转 `calling_model`（保证顺序确定）
+- [x] Runner：本轮 `pendingTools` 权限分流——`allow` 工具有界并发执行，`ask` 工具走既有串行审批闭环；保留单工具执行后即时回喂
+- [x] Runner：并行执行期间收到 `Cancel` → 中止全部进行中工具、清理 pending、转 `cancelling`
+- [x] 重放测试：构造乱序到达的多工具结果，断言两次运行 (state, effects) deep-equal
+- [x] 回归：既有单工具 / HITL / resume 测试全绿
 
 **Acceptance Criteria**:
 1. 一轮 assistant 含 N 个 tool_use 时，Runner 并行执行 `allow` 工具；最终 `messages` 中 tool_result 顺序严格等于 `pendingTools` 原始顺序，**与完成先后无关**。
@@ -152,6 +154,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. HITL `ask` 工具在并行批中仍正确串行审批；`Cancel` 能中止进行中的并行批并清理 pending。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 3ed9675 feat(plan-002): phase 2 - 并行工具执行 + 确定性结果归并
 
 ---
 
@@ -165,11 +169,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] state 增 `queuedUserInputs: UserMessage[]`（可序列化，survives resume）
-- [ ] reducer：`calling_model` / `executing_tools` 收到 `user_message` → 入队，不抛错、不打断
-- [ ] reducer：turn 边界（工具全部完成转 `calling_model` 处、及 turn 收束处）drain 队列注入 `messages`，注入点确定
-- [ ] 重放测试：相同插话 input 序列两次运行结果一致
-- [ ] 测试：插话不改变进行中工具的执行与结果
+- [x] state 增 `queuedUserInputs: UserMessage[]`（可序列化，survives resume）
+- [x] reducer：`calling_model` / `executing_tools` 收到 `user_message` → 入队，不抛错、不打断
+- [x] reducer：turn 边界（工具全部完成转 `calling_model` 处、及 turn 收束处）drain 队列注入 `messages`，注入点确定
+- [x] 重放测试：相同插话 input 序列两次运行结果一致
+- [x] 测试：插话不改变进行中工具的执行与结果
 
 **Acceptance Criteria**:
 1. `executing_tools` / `calling_model` 期间注入 `user_message` 被入队（不再抛错），进行中的工具不受影响。
@@ -177,6 +181,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. 重放测试：含插话的 input 序列两次运行 (state, effects) deep-equal。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 1eed8ec feat(plan-002): phase 3 - steering（中途插话，队列 + turn 边界注入）
 
 ---
 
@@ -192,11 +198,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] state/ctx：新增工具调用数计数与上限、成本上限、wallclock 上限配置字段
-- [ ] reducer：`limitReached` 增管工具调用数；越限时转 `done` 并 emit 明确 reason（不抛异常）
-- [ ] input：扩展 `cancel`/新增终止 input 的 `reason: "budget_exceeded"`，core 统一转 `done`
-- [ ] Runner：累计 wallclock 与成本（来自归一化 usage），越限时回喂归一化终止 input
-- [ ] 测试：token / 工具调用数 / 迭代数 越限 → 核心终止（重放确定）；wallclock / 成本越限 → Runner 回喂终止 → 核心转 done
+- [x] state/ctx：新增工具调用数计数与上限、成本上限、wallclock 上限配置字段
+- [x] reducer：`limitReached` 增管工具调用数；越限时转 `done` 并 emit 明确 reason（不抛异常）
+- [x] input：扩展 `cancel`/新增终止 input 的 `reason: "budget_exceeded"`，core 统一转 `done`
+- [x] Runner：累计 wallclock 与成本（来自归一化 usage），越限时回喂归一化终止 input
+- [x] 测试：token / 工具调用数 / 迭代数 越限 → 核心终止（重放确定）；wallclock / 成本越限 → Runner 回喂终止 → 核心转 done
 
 **Acceptance Criteria**:
 1. token / 工具调用数 / 最大迭代数任一越限 → 核心转 `done` 并产出明确终止 reason，**不抛异常**；重放确定。
@@ -204,6 +210,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. 未配置上限时行为与现状一致（向后兼容）。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 9034b39 feat(plan-002): phase 4 - 资源调速器（核心确定性维度 + Runner wallclock/成本）
 
 ---
 
@@ -218,10 +226,10 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现纯函数：扫描近期消息，识别连续 K 次"相同 name + 相同 input + isError" 的工具调用
-- [ ] reducer：在形成 `pendingTools` / 工具边界处接入检测，命中则注入干预（终止并 emit reason，或回喂系统提示——二选一在实现时定，需可重放）
-- [ ] 单测：K 次相同失败触发；不同 input / 成功结果 不误判；边界（不足 K 次）
-- [ ] 重放测试：含震荡序列两次运行一致
+- [x] 实现纯函数：扫描近期消息，识别连续 K 次"相同 name + 相同 input + isError" 的工具调用
+- [x] reducer：在形成 `pendingTools` / 工具边界处接入检测，命中则注入干预（终止并 emit reason，或回喂系统提示——二选一在实现时定，需可重放）
+- [x] 单测：K 次相同失败触发；不同 input / 成功结果 不误判；边界（不足 K 次）
+- [x] 重放测试：含震荡序列两次运行一致
 
 **Acceptance Criteria**:
 1. 连续 K 次相同失败工具调用触发干预（终止 + reason 或系统提示），可配置 K。
@@ -229,6 +237,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. 纯函数、无隐式副作用；含震荡序列的重放测试 deep-equal。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 437285f feat(plan-002): phase 5 - 循环/震荡检测（纯函数 + reducer 接入）
 
 ---
 
@@ -242,3 +252,107 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 | wallclock 治理诱使引入隐式时间进核心 | 破坏纯度/可重放 | 明确分工：核心只裁决确定性维度，时间/成本在 Runner；core lint 纯度规则把关 |
 | 并行 + HITL 交互复杂 | 审批语义错乱 | 权限分流：`allow` 并行、`ask` 串行经既有闭环；复用 `approvedToolCallIds` 防重复审批 |
 | 工具调用数计数与 resume 冲突 | 跨进程续跑计数错乱 | 计数纳入可序列化状态，随 checkpoint 持久化 |
+
+---
+
+## 7. Test Cases
+
+### TC-P2-001: 端口接口纯类型 + SDK 兜底可调用
+
+- **Preconditions**: 项目构建通过，core 零依赖
+- **Steps**:
+  1. 运行 `node scripts/check-core-zero-deps.mjs`
+  2. 在 SDK 中 `createAgent({ modelPort })` 并访问 `agent.ports` 的 9 个端口
+  3. 对每个兜底调用其核心方法（list/save/query/embed/startSpan/get/schedule/evaluate/resolve）
+- **Paths**: `packages/core/src/ports.ts:227-341`, `packages/sdk/src/defaults.ts:70-184`, `packages/sdk/src/__tests__/m8-port-defaults.test.ts`
+- **Expected**: 零依赖 PASS；9 个兜底方法可调用且语义正确（no-op 返回 undefined/空、throw 返回明确错误、allow-all 返回 "allow"）
+
+### TC-P2-002: 并行工具执行确定性归并
+
+- **Preconditions**: reducer 支持 `_toolResultBuffer` 缓冲
+- **Steps**:
+  1. 构造 model_done(tool_use) 带 3 个 tool_use（A, B, C）
+  2. 以反序 C→B→A 送入 tool_result
+  3. 断言最终 messages 中 tool_result 顺序为 A→B→C
+  4. 重放：两次相同乱序输入序列 → final state + effects deep-equal
+- **Paths**: `packages/core/src/reducer.ts:368-415`, `packages/core/src/__tests__/reducer-parallel.test.ts:88-140`
+- **Expected**: 消息顺序与 pendingTools 原始顺序一致；重放确定
+
+### TC-P2-003: Steering 中途插话入队 + turn 边界注入
+
+- **Preconditions**: state 含 `queuedUserInputs` 字段
+- **Steps**:
+  1. 将 reducer 驱动至 `calling_model` 状态
+  2. 送入 `user_message`（中途插话）
+  3. 断言状态仍为 `calling_model`，`queuedUserInputs` 长度 +1，不抛错
+  4. 完成工具执行 → 触发 turn 边界 drain
+  5. 断言队列消息出现在 messages 中且 `queuedUserInputs` 清空
+  6. 重放：相同插话 input 序列两次运行 final state deep-equal
+- **Paths**: `packages/core/src/reducer.ts:350-358`（入队）、`packages/core/src/reducer.ts:405-415`（drain）、`packages/core/src/__tests__/steering.test.ts:56-100`
+- **Expected**: 插话不打断工具、队列消息在 turn 边界注入、重放确定
+
+### TC-P2-004: 工具调用数越限 → 核心终止
+
+- **Preconditions**: state 含 `toolCallCount`/`maxToolCalls`
+- **Steps**:
+  1. 设置 `maxToolCalls = 2`
+  2. 驱动 2 次完整工具调用循环（每次 model_done(tool_use) 递增 `toolCallCount`）
+  3. 第 3 次 model_done(tool_use) 时，`toolCallCount` 越限
+  4. 断言 `status === "done"` 且 emit error 事件包含 "Tool call limit exceeded"
+- **Paths**: `packages/core/src/reducer.ts:279-296`（计数递增 + limit 检查）、`packages/core/src/__tests__/resource-governor.test.ts:85-110`
+- **Expected**: 越限 → 转 done + emit error，不抛异常
+
+### TC-P2-005: budget_exceeded 统一终止
+
+- **Preconditions**: 新增 `BudgetExceededInput`
+- **Steps**:
+  1. 驱动至 `calling_model` 状态
+  2. 送入 `{ type: "budget_exceeded", reason: "Wallclock limit exceeded" }`
+  3. 断言 `status === "done"`，emit 事件含 `budget_exceeded` 类型和 reason
+  4. 在 `executing_tools` 状态同样测试
+- **Paths**: `packages/core/src/reducer.ts:127-140`（统一 handler）、`packages/core/src/__tests__/resource-governor.test.ts:116-160`
+- **Expected**: 任何 active 状态收到 budget_exceeded → done + emit budget_exceeded
+
+### TC-P2-006: Runner wallclock/成本监控
+
+- **Preconditions**: Runner 含 `turnStartTime`/`cumulativeCost` 跟踪
+- **Steps**:
+  1. 配置 `maxWallclockMs: 1`（极小值）
+  2. 运行一轮（含模型调用）
+  3. 断言 Runner 回喂 `budget_exceeded` input 导致 turn 终止
+  4. 配置 `maxCostTokens: 1`（极小值）
+  5. 断言 usage 累加后超过限制 → `budget_exceeded`
+- **Paths**: `packages/runtimes/node/src/runner.ts:134-155`（tracking）、`packages/runtimes/node/src/runner.ts:357-358`（重置）
+- **Expected**: Runner 监测越限 → feed budget_exceeded → 核心转 done
+
+### TC-P2-007: 循环检测 K 次相同失败触发终止
+
+- **Preconditions**: `maxLoopCount` 已配置
+- **Steps**:
+  1. 构造 2 对 prior (assistant(tool_use)→tool_result(isError))，tool name+input 相同
+  2. 新 model_done(tool_use) 发出相同的第 3 个 tool call
+  3. 断言 `detectLoop` 返回 `detected: true`
+  4. 断言 reducer 转 done + emit error 含 "Loop detected"
+- **Paths**: `packages/core/src/loop-detector.ts:41-82`、`packages/core/src/reducer.ts:299-314`、`packages/core/src/__tests__/loop-detector.test.ts:150-200`
+- **Expected**: K 次相同失败 → 终止 + reason
+
+### TC-P2-008: 循环检测合法重复不误判
+
+- **Preconditions**: `maxLoopCount = 3`
+- **Steps**:
+  1. 仅 1 对 prior（不足 K-1）→ 断言不触发
+  2. prior 中 input 不同 → 断言不触发
+  3. prior 中 tool name 不同 → 断言不触发
+  4. prior 中 result 非 error → 断言不触发
+- **Paths**: `packages/core/src/__tests__/loop-detector.test.ts:100-135`
+- **Expected**: 合法重复（不同 input / 成功结果 / 不足 K 次）不被误判
+
+### TC-P2-009: 全包回归 + 零依赖
+
+- **Preconditions**: 全部 Phase 完成
+- **Steps**:
+  1. `pnpm turbo run typecheck lint test` → 51 tasks 全通过
+  2. `node scripts/check-core-zero-deps.mjs` → PASS
+  3. 既有 165+ 核心测试 + 58 runtime 测试 + 46 SDK 测试全绿
+- **Paths**: 全局
+- **Expected**: 零回归、零新增依赖
