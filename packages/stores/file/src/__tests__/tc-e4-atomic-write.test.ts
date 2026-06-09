@@ -19,6 +19,7 @@ const emptyState: AgentState = {
   maxToolCalls: undefined,
   maxCostDollars: undefined,
   maxWallclockMs: undefined,
+  maxLoopCount: undefined,
 };
 
 let tempDir: string;

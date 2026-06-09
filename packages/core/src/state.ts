@@ -134,4 +134,10 @@ export interface AgentState {
    * Runner, a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
    */
   maxWallclockMs: number | undefined;
+  /**
+   * Max consecutive identical failed tool calls before intervention (loop detection).
+   * When the model repeats the same tool call with the same input K times and
+   * all return errors, the turn is terminated. Undefined = no limit.
+   */
+  maxLoopCount: number | undefined;
 }

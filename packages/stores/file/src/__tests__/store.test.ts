@@ -37,6 +37,7 @@ describe("FileStore specifics", () => {
         maxToolCalls: undefined,
         maxCostDollars: undefined,
         maxWallclockMs: undefined,
+        maxLoopCount: undefined,
       },
       createdAt: Date.now(),
     });
@@ -65,6 +66,7 @@ describe("FileStore specifics", () => {
         maxToolCalls: undefined,
         maxCostDollars: undefined,
         maxWallclockMs: undefined,
+        maxLoopCount: undefined,
         },
         createdAt: Date.now(),
       }),
@@ -96,6 +98,7 @@ describe("FileStore specifics", () => {
         maxToolCalls: undefined,
         maxCostDollars: undefined,
         maxWallclockMs: undefined,
+        maxLoopCount: undefined,
       },
       createdAt: Date.now(),
     });

@@ -24,6 +24,7 @@ function makeSnapshot(id: string, overrides?: Partial<AgentState>): SessionSnaps
       maxToolCalls: undefined,
       maxCostDollars: undefined,
       maxWallclockMs: undefined,
+      maxLoopCount: undefined,
       ...overrides,
     },
     createdAt: 1000000000000, // fixed timestamp for deterministic tests

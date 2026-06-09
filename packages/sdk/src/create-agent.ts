@@ -126,6 +126,9 @@ export interface CreateAgentOptions {
   /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
   maxWallclockMs?: number;
 
+  /** Max consecutive identical failed tool calls before loop intervention (default: no limit) */
+  maxLoopCount?: number;
+
   // ── Port overrides (all optional, defaults provided) ──
 
   /** Permission policy — defaults to sensible read/write/ask/deny */
@@ -297,6 +300,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     model: opts.model,
     maxTokens: opts.maxTokens,
     temperature: opts.temperature,
+    maxLoopCount: opts.maxLoopCount,
   };
 
   // ── Compose tool executor ────────────────

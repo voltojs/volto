@@ -9,6 +9,7 @@ import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition } from "./tool.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
+import { detectLoop } from "./loop-detector.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -25,6 +26,8 @@ export interface StepContext {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
+  maxLoopCount?: number;
 }
 
 // ──────────────────────────────────────────────
@@ -76,6 +79,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     maxToolCalls: undefined,
     maxCostDollars: undefined,
     maxWallclockMs: undefined,
+    maxLoopCount: undefined,
     _accumulatedText: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
@@ -291,6 +295,24 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
           ],
         };
       }
+
+      // Loop / oscillation detection: check if these new tool calls
+      // repeat a sequence of K identical failed calls.
+      if (ctx.maxLoopCount !== undefined && ctx.maxLoopCount >= 2) {
+        const loopResult = detectLoop(state.messages, assistantMsg, toolCalls, ctx.maxLoopCount);
+        if (loopResult.detected) {
+          const loopError = `Loop detected: tool "${loopResult.toolName}" has been called ${loopResult.consecutiveCount} times with identical input and returned errors`;
+          return {
+            state: { ...baseWithToolCount, pendingTools: [], status: "done" },
+            effects: [
+              emitEffect,
+              { type: "emit", event: { type: "error", data: { error: loopError } } },
+              { type: "done" },
+            ],
+          };
+        }
+      }
+
       return {
         state: { ...baseWithToolCount, pendingTools: toolCalls, status: "executing_tools" },
         effects: [emitEffect],
