@@ -72,6 +72,11 @@ export interface ModelRequest {
   abortSignal?: AbortSignal;
   /** Structured / JSON output mode (provider-specific translation) */
   responseFormat?: { type: "json"; schema?: JSONSchema };
+  /**
+   * Cache breakpoints — message indices where provider-side prompt cache
+   * should be anchored. Provider translates to native cache_control mechanism.
+   */
+  cacheBreakpoints?: number[];
 }
 
 export interface ModelPort {

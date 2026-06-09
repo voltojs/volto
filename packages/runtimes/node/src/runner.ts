@@ -67,6 +67,11 @@ export interface RunnerOptions {
   /** Compaction config — enables automatic context compression when messages grow large */
   compaction?: CompactionConfig;
   /**
+   * Cache breakpoints — message indices where provider-side prompt cache
+   * should be anchored. Passed through to ModelRequest for provider translation.
+   */
+  cacheBreakpoints?: number[];
+  /**
    * Clock for checkpoint timestamps. Inject a seeded Clock for deterministic
    * runner-level replay; defaults to wall-clock (Date.now) when omitted.
    */
@@ -255,6 +260,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       maxTokens: stepContext.maxTokens,
       temperature: stepContext.temperature,
       responseFormat: stepContext.responseFormat,
+      cacheBreakpoints: opts.cacheBreakpoints,
       abortSignal: opts.abortSignal,
     };
 

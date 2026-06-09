@@ -249,11 +249,11 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `ContextAssembler`：在静态前缀（system / 展开后指令 / 工具定义边界）产出 `cacheBreakpoints`（消息索引 + 稳定 key，纯数据）；RAG / 变量内容排在断点之后（与 Phase 5 槽位一致）
-- [ ] Anthropic provider：把断点翻译为请求体 `cache_control: { type: "ephemeral" }`；归一化 usage 暴露 `cacheReadTokens` / `cacheWriteTokens`
-- [ ] OpenAI provider：自动前缀缓存场景下断点仅用于诊断，usage 折算 cache token（按官方字段）
-- [ ] 响应级缓存：对确定性子调用（compaction summary / 分类）按请求内容 hash 经 `Cache` 端口 get/set，命中跳过模型调用但归一为同样事件序列（读写在 Runner / SDK）
-- [ ] 测试：重复请求静态前缀命中（mock usage 显示 cache read token / 成本下降）；指令变更使前缀失效；RAG 注入后前缀断点字节不变（仍命中）；响应级缓存命中跳过调用且重放等价
+- [x] `ContextAssembler`：在静态前缀（system / 展开后指令 / 工具定义边界）产出 `cacheBreakpoints`（消息索引 + 稳定 key，纯数据）；RAG / 变量内容排在断点之后（与 Phase 5 槽位一致）
+- [x] Anthropic provider：把断点翻译为请求体 `cache_control: { type: "ephemeral" }`；归一化 usage 暴露 `cacheReadTokens` / `cacheWriteTokens`
+- [x] OpenAI provider：自动前缀缓存场景下断点仅用于诊断，usage 折算 cache token（按官方字段）
+- [x] 响应级缓存：对确定性子调用（compaction summary / 分类）按请求内容 hash 经 `Cache` 端口 get/set，命中跳过模型调用但归一为同样事件序列（读写在 Runner / SDK）
+- [x] 测试：重复请求静态前缀命中（mock usage 显示 cache read token / 成本下降）；指令变更使前缀失效；RAG 注入后前缀断点字节不变（仍命中）；响应级缓存命中跳过调用且重放等价
 
 **Acceptance Criteria**:
 1. **启用缓存时静态前缀命中**：mock provider usage 显示 cache read token > 0 / 成本下降；前缀字节稳定时命中、变更时失效。
@@ -261,7 +261,10 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 3. 响应级缓存（`Cache` 端口）命中时跳过模型调用，归一化事件序列与未命中一致，重放 deep-equal。
 4. `ContextAssembler` 断点产出为纯函数；core 零依赖不破；Cache 读写仅在 Runner / SDK。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: <hash> <subject>
+-->
 
 ---
 

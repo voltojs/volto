@@ -95,11 +95,38 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
     }
   }
 
-  if (systemParts.length > 0) {
+  // Cache breakpoints: convert system to block format if cache_control needed
+  const hasSystemCacheBreakpoint = (req.cacheBreakpoints ?? []).some(
+    (bp) => bp === 0 && systemParts.length > 0,
+  );
+
+  if (hasSystemCacheBreakpoint) {
+    // Anthropic system field can be an array of content blocks with cache_control
+    body.system = [
+      {
+        type: "text",
+        text: systemParts.join("\n\n"),
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+  } else if (systemParts.length > 0) {
     body.system = systemParts.join("\n\n");
   }
 
-  body.messages = otherMessages.map(convertMessage);
+  // Convert messages and apply cache_control at breakpoint indices
+  const breakpoints = new Set(req.cacheBreakpoints ?? []);
+  // Adjust breakpoints: system messages are extracted, so message indices shift
+  const systemCount = systemParts.length;
+  const convertedMessages = otherMessages.map((msg, i) => {
+    const converted = convertMessage(msg);
+    // Breakpoint index i+systemCount in original = breakpoint at i in otherMessages
+    if (breakpoints.has(i + systemCount)) {
+      return { ...converted, cache_control: { type: "ephemeral" } };
+    }
+    return converted;
+  });
+
+  body.messages = convertedMessages;
 
   if (req.tools.length > 0) {
     body.tools = req.tools.map((t) => ({
