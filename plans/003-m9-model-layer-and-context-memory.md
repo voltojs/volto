@@ -155,11 +155,11 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 > 注：`ModelEventUsage` 的 `cacheReadTokens?` / `cacheWriteTokens?` 字段由 **M8（Plan 002 Phase 1）** 在 `packages/core/src/ports.ts` 预置；本 Plan **不改 core 端口/事件类型**，仅在各 provider 归一化时填充这些字段。
 
 **Tasks**:
-- [ ] 查 Anthropic Messages API 流式官方文档，确认 `message_start` / `content_block_start|delta|stop`（text / thinking / tool_use+`input_json_delta` 累积）/ `message_delta`（usage / stop_reason）/ `message_stop` 事件序列
-- [ ] 实现 `createAnthropicModelPort`：SSE 解析 + `normalizeStream` 翻译为既有 `ModelEvent`（thinking→`reasoning_delta`、tool_use→`tool_use_*`、usage 含 cache token 折算、stop→`done`）
-- [ ] 错误归一为 `ModelEventError`（含 `retriable` 标注 5xx/429），abort 归一为 `error`（不抛异常）
-- [ ] 在 Anthropic / OpenAI 两个 provider 的 usage 归一化中填充 M8 预置的 `cacheReadTokens?` / `cacheWriteTokens?`（无则 undefined）；**不改 core 类型定义**
-- [ ] 测试：录制 Anthropic SSE 分片 → 断言归一化事件序列；同一抽象 mock 脚本分别走 OpenAI / Anthropic provider，断言 (state, effects) deep-equal
+- [x] 查 Anthropic Messages API 流式官方文档，确认 `message_start` / `content_block_start|delta|stop`（text / thinking / tool_use+`input_json_delta` 累积）/ `message_delta`（usage / stop_reason）/ `message_stop` 事件序列
+- [x] 实现 `createAnthropicModelPort`：SSE 解析 + `normalizeStream` 翻译为既有 `ModelEvent`（thinking→`reasoning_delta`、tool_use→`tool_use_*`、usage 含 cache token 折算、stop→`done`）
+- [x] 错误归一为 `ModelEventError`（含 `retriable` 标注 5xx/429），abort 归一为 `error`（不抛异常）
+- [x] 在 Anthropic / OpenAI 两个 provider 的 usage 归一化中填充 M8 预置的 `cacheReadTokens?` / `cacheWriteTokens?`（无则 undefined）；**不改 core 类型定义**
+- [x] 测试：录制 Anthropic SSE 分片 → 断言归一化事件序列；同一抽象 mock 脚本分别走 OpenAI / Anthropic provider，断言 (state, effects) deep-equal
 
 **Acceptance Criteria**:
 1. Anthropic provider 把 thinking / tool_use（含 `input_json_delta` 分片累积）/ usage 正确归一化为既有 `ModelEvent`，无新事件类型，且不改 core（cache 字段由 M8 预置，仅填充）。
@@ -168,8 +168,8 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 4. `@agent-core/core` 仍零依赖（`check-core-zero-deps` 通过）；既有 OpenAI 测试零回归。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <hash> <subject>
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 30a9101 feat(plan-003): phase 1 - 原生 Anthropic provider + 多 provider 归一化等价
 -->
 
 ---
