@@ -1,4 +1,4 @@
-import type { PendingToolCall, ToolResult, ToolDefinition, FileSystem } from "@agent-core/core";
+import type { PendingToolCall, ToolResult, FileSystem } from "@agent-core/core";
 import { evaluateEditGate, evaluateOverwriteGate } from "@agent-core/core";
 import type { FileTool } from "@agent-core/tools-fs";
 import {

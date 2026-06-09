@@ -92,5 +92,17 @@ module.exports = {
         ],
       },
     },
+    {
+      // Core purity rules target shipped production code only. Test files under
+      // __tests__ legitimately need Node builtins / time / randomness (e.g. the
+      // barrel-purity meta-test spawns a Node subprocess via node:child_process).
+      // The strict purity guard still applies to src/**/*.ts and src/testing/**.
+      files: ["packages/core/src/__tests__/**/*.ts"],
+      rules: {
+        "no-restricted-imports": "off",
+        "no-restricted-properties": "off",
+        "no-restricted-globals": "off",
+      },
+    },
   ],
 };
