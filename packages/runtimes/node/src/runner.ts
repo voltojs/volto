@@ -96,9 +96,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let state: ReducerState = opts.initialState ?? createInitialState();
   let cancelled = false;
   // Tool call ids that have already cleared an HITL "ask" (decision = allow).
-  // The permission gate must NOT re-evaluate these when the approved tool is
-  // re-queued into executing_tools, otherwise it would re-prompt forever.
   const approvedToolCallIds = new Set<string>();
+  // M8 Phase 4: wallclock and cost tracking for the current turn
+  let turnStartTime = 0;
+  let cumulativeCost = 0;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -121,6 +122,30 @@ export function createRunner(opts: RunnerOptions): Runner {
     const result = step(state, input, stepContext);
     state = result.state;
     return result.effects;
+  }
+
+  /**
+   * Check wallclock and cost budget limits at the Runner level.
+   * Feeds a budget_exceeded input if limits are breached.
+   * Returns true if a budget_exceeded was fed (caller should break/return).
+   */
+  function checkBudgetLimits(): boolean {
+    if (state.status === "done" || state.status === "idle") return false;
+
+    if (turnStartTime > 0 && state.maxWallclockMs !== undefined) {
+      const elapsed = Date.now() - turnStartTime;
+      if (elapsed > state.maxWallclockMs) {
+        forwardEmit(feed({ type: "budget_exceeded", reason: "Wallclock limit exceeded" }));
+        return true;
+      }
+    }
+
+    if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
+      forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+      return true;
+    }
+
+    return false;
   }
 
   /** Forward emit effects to EventSink. */
@@ -247,6 +272,8 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Accumulate cost from this usage event (tokens as cost unit)
+          cumulativeCost += event.inputTokens + event.outputTokens;
           continue;
         }
 
@@ -316,9 +343,15 @@ export function createRunner(opts: RunnerOptions): Runner {
    * Handles: model calls → tool execution → model calls → ... → done.
    */
   async function runLoop(): Promise<void> {
+    // Initialize wallclock tracking at the start of each turn
+    if (turnStartTime === 0) turnStartTime = Date.now();
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const status = getStatus();
+
+      // Budget check: wallclock / cost exceeded → feed budget_exceeded
+      if (status !== "done" && status !== "idle" && checkBudgetLimits()) continue;
 
       // Short-circuit: if cancellation fired, transition to cancelling before
       // dispatching any new model call or tool execution. Avoids initiating a
@@ -465,6 +498,9 @@ export function createRunner(opts: RunnerOptions): Runner {
   return {
     async run(initialInput: AgentInput): Promise<ReducerState> {
       try {
+        // Reset budget tracking for this turn
+        turnStartTime = Date.now();
+        cumulativeCost = 0;
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;

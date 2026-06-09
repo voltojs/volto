@@ -72,6 +72,10 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     iterationCount: 0,
     readFiles: [],
     queuedUserInputs: [],
+    toolCallCount: 0,
+    maxToolCalls: undefined,
+    maxCostDollars: undefined,
+    maxWallclockMs: undefined,
     _accumulatedText: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
@@ -100,6 +104,7 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     pendingApprovalTool: undefined,
     iterationCount: 0,
     tokensUsed: 0,
+    toolCallCount: 0,
     queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
@@ -116,6 +121,23 @@ export function step(
   input: AgentInput,
   ctx: StepContext,
 ): StepResult {
+  // Unified budget_exceeded handler — applies in all active states.
+  // Terminates the turn with a clear reason; no exception.
+  if (input.type === "budget_exceeded" && state.status !== "done" && state.status !== "idle") {
+    return {
+      state: {
+        ...state,
+        pendingTools: [],
+        _toolResultBuffer: {},
+        status: "done",
+      },
+      effects: [
+        { type: "emit", event: { type: "budget_exceeded", data: { reason: input.reason } } },
+        { type: "done" },
+      ],
+    };
+  }
+
   switch (state.status) {
     case "idle":
       return handleIdle(state, input, ctx);
@@ -255,19 +277,22 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     // tool_use → extract pending tools, transition to executing_tools
     if (input.stopReason === "tool_use") {
-      if (limit) {
+      const toolCalls = extractToolCalls(assistantMsg);
+      const newToolCallCount = baseState.toolCallCount + toolCalls.length;
+      const baseWithToolCount = { ...baseState, toolCallCount: newToolCallCount };
+      const limit2 = limitReached(baseWithToolCount);
+      if (limit2) {
         return {
-          state: { ...baseState, pendingTools: [], status: "done" },
+          state: { ...baseWithToolCount, pendingTools: [], status: "done" },
           effects: [
             emitEffect,
-            { type: "emit", event: { type: "error", data: { error: limit } } },
+            { type: "emit", event: { type: "error", data: { error: limit2 } } },
             { type: "done" },
           ],
         };
       }
-      const toolCalls = extractToolCalls(assistantMsg);
       return {
-        state: { ...baseState, pendingTools: toolCalls, status: "executing_tools" },
+        state: { ...baseWithToolCount, pendingTools: toolCalls, status: "executing_tools" },
         effects: [emitEffect],
       };
     }
@@ -606,6 +631,9 @@ function limitReached(state: ReducerState): string | null {
   }
   if (state.tokenBudget !== undefined && state.tokensUsed >= state.tokenBudget) {
     return "Token budget exceeded";
+  }
+  if (state.maxToolCalls !== undefined && state.toolCallCount >= state.maxToolCalls) {
+    return "Tool call limit exceeded";
   }
   return null;
 }

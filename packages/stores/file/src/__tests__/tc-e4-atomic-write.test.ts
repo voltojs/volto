@@ -15,6 +15,10 @@ const emptyState: AgentState = {
   iterationCount: 0,
   readFiles: [],
   queuedUserInputs: [],
+  toolCallCount: 0,
+  maxToolCalls: undefined,
+  maxCostDollars: undefined,
+  maxWallclockMs: undefined,
 };
 
 let tempDir: string;

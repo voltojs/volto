@@ -117,6 +117,15 @@ export interface CreateAgentOptions {
   /** Token budget per turn (default: no limit) */
   tokenBudget?: number;
 
+  /** Max tool calls per turn (default: no limit) */
+  maxToolCalls?: number;
+
+  /** Max cumulative token cost per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  maxCostTokens?: number;
+
+  /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  maxWallclockMs?: number;
+
   // ── Port overrides (all optional, defaults provided) ──
 
   /** Permission policy — defaults to sensible read/write/ask/deny */
@@ -372,10 +381,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       });
     }
 
-    // First turn: apply systemPrompt + maxIterations + tokenBudget
+    // First turn: apply systemPrompt + maxIterations + tokenBudget + M8 limits
     const initStateOverrides: Partial<ReducerState> = {
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       ...(opts.tokenBudget !== undefined ? { tokenBudget: opts.tokenBudget } : {}),
+      ...(opts.maxToolCalls !== undefined ? { maxToolCalls: opts.maxToolCalls } : {}),
+      ...(opts.maxCostTokens !== undefined ? { maxCostDollars: opts.maxCostTokens } : {}),
+      ...(opts.maxWallclockMs !== undefined ? { maxWallclockMs: opts.maxWallclockMs } : {}),
       ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
     };
     const initState = createInitialState(

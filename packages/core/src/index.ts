@@ -30,6 +30,7 @@ export type {
   ApprovalDecisionInput,
   RequestApprovalInput,
   CancelInput,
+  BudgetExceededInput,
   AgentInput,
 } from "./input.js";
 

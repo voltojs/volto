@@ -198,11 +198,11 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] state/ctx：新增工具调用数计数与上限、成本上限、wallclock 上限配置字段
-- [ ] reducer：`limitReached` 增管工具调用数；越限时转 `done` 并 emit 明确 reason（不抛异常）
-- [ ] input：扩展 `cancel`/新增终止 input 的 `reason: "budget_exceeded"`，core 统一转 `done`
-- [ ] Runner：累计 wallclock 与成本（来自归一化 usage），越限时回喂归一化终止 input
-- [ ] 测试：token / 工具调用数 / 迭代数 越限 → 核心终止（重放确定）；wallclock / 成本越限 → Runner 回喂终止 → 核心转 done
+- [x] state/ctx：新增工具调用数计数与上限、成本上限、wallclock 上限配置字段
+- [x] reducer：`limitReached` 增管工具调用数；越限时转 `done` 并 emit 明确 reason（不抛异常）
+- [x] input：扩展 `cancel`/新增终止 input 的 `reason: "budget_exceeded"`，core 统一转 `done`
+- [x] Runner：累计 wallclock 与成本（来自归一化 usage），越限时回喂归一化终止 input
+- [x] 测试：token / 工具调用数 / 迭代数 越限 → 核心终止（重放确定）；wallclock / 成本越限 → Runner 回喂终止 → 核心转 done
 
 **Acceptance Criteria**:
 1. token / 工具调用数 / 最大迭代数任一越限 → 核心转 `done` 并产出明确终止 reason，**不抛异常**；重放确定。
@@ -210,6 +210,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 3. 未配置上限时行为与现状一致（向后兼容）。
 
 <!-- Backfill -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 9034b39 feat(plan-002): phase 4 - 资源调速器（核心确定性维度 + Runner wallclock/成本）
 
 ---
 

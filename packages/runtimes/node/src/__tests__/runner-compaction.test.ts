@@ -70,6 +70,10 @@ describe("Runner — compaction wiring", () => {
       _accumulatedToolCalls: [],
       _toolResultBuffer: {},
       queuedUserInputs: [],
+      toolCallCount: 0,
+      maxToolCalls: undefined,
+      maxCostDollars: undefined,
+      maxWallclockMs: undefined,
     };
 
     const spy = createSpyModelPort([

@@ -117,4 +117,21 @@ export interface AgentState {
    * (all tools complete → calling_model). Serializable for checkpoint/resume.
    */
   queuedUserInputs: UserMessage[];
+  /** Cumulative tool calls dispatched this turn. Enforced against maxToolCalls. */
+  toolCallCount: number;
+  /**
+   * Max tool calls allowed per turn. When exceeded, the reducer terminates
+   * the turn with a "budget_exceeded" done state. Undefined = no limit.
+   */
+  maxToolCalls: number | undefined;
+  /**
+   * Maximum total cost ($) allowed per turn. When exceeded by the Runner,
+   * a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
+   */
+  maxCostDollars: number | undefined;
+  /**
+   * Maximum wall-clock milliseconds allowed per turn. When exceeded by the
+   * Runner, a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
+   */
+  maxWallclockMs: number | undefined;
 }
