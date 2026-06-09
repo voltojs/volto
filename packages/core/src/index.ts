@@ -80,6 +80,21 @@ export type {
   Id,
   Random,
   Tokenizer,
+  // M8: new port interfaces
+  ToolSource,
+  MemoryEntry,
+  MemoryStore,
+  Embedder,
+  TelemetrySpan,
+  Telemetry,
+  Cache,
+  SandboxExecSpec,
+  SandboxEvent,
+  Sandbox,
+  Secrets,
+  Scheduler,
+  PolicyRequest,
+  PolicyEngine,
 } from "./ports.js";
 
 // Types — Tool

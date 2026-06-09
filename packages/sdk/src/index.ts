@@ -1,7 +1,7 @@
 // @agent-core/sdk — facade: createAgent, run / stream / resume
 
 export { createAgent } from "./create-agent.js";
-export type { CreateAgentOptions, AgentInstance } from "./create-agent.js";
+export type { CreateAgentOptions, AgentInstance, ResolvedPorts } from "./create-agent.js";
 
 // Re-export commonly needed types
 export type {
@@ -26,6 +26,16 @@ export {
   defaultTokenizer,
   defaultEventSink,
   createDefaultSessionStore,
+  // M8: new port defaults
+  defaultToolSource,
+  createDefaultMemoryStore,
+  defaultEmbedder,
+  defaultTelemetry,
+  createDefaultCache,
+  defaultSandbox,
+  defaultSecrets,
+  defaultScheduler,
+  defaultPolicyEngine,
 } from "./defaults.js";
 
 // Re-export stream channel for advanced usage

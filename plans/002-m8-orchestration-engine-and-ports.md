@@ -110,12 +110,12 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 在 `ports.ts` 新增 `ToolSource` / `MemoryStore` / `Embedder` / `Telemetry` / `Cache` / `Sandbox` / `Secrets` / `Scheduler` / `PolicyEngine` 接口（纯类型，含相关结果/参数类型）
-- [ ] `ModelEventUsage` 预置可选字段 `cacheReadTokens?` / `cacheWriteTokens?`（为 M9 Prompt 缓存计量预留；ports.ts 单一归属于 M8，下游 provider 仅填充不改类型）
-- [ ] `index.ts` 统一导出新端口类型
-- [ ] SDK `defaults.ts` 提供兜底：no-op `Telemetry`、no-op `Scheduler`、内存 `Cache`、内存 `MemoryStore`、allow-all `PolicyEngine`、缺省 `Secrets`（返回 undefined）、空 `ToolSource`
-- [ ] `createAgent` 接受可选注入这些端口（缺省走兜底）
-- [ ] 测试：兜底实现 smoke（各方法可调用、语义正确）；最小配置（仅 model）仍可启动
+- [x] 在 `ports.ts` 新增 `ToolSource` / `MemoryStore` / `Embedder` / `Telemetry` / `Cache` / `Sandbox` / `Secrets` / `Scheduler` / `PolicyEngine` 接口（纯类型，含相关结果/参数类型）
+- [x] `ModelEventUsage` 预置可选字段 `cacheReadTokens?` / `cacheWriteTokens?`（为 M9 Prompt 缓存计量预留；ports.ts 单一归属于 M8，下游 provider 仅填充不改类型）
+- [x] `index.ts` 统一导出新端口类型
+- [x] SDK `defaults.ts` 提供兜底：no-op `Telemetry`、no-op `Scheduler`、内存 `Cache`、内存 `MemoryStore`、allow-all `PolicyEngine`、缺省 `Secrets`（返回 undefined）、空 `ToolSource`
+- [x] `createAgent` 接受可选注入这些端口（缺省走兜底）
+- [x] 测试：兜底实现 smoke（各方法可调用、语义正确）；最小配置（仅 model）仍可启动
 
 **Acceptance Criteria**:
 1. `@agent-core/core` 仍零运行时依赖（`check-core-zero-deps` 通过），新端口均为纯类型（core lint 纯度规则不破）。
@@ -126,6 +126,8 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 **Reviewed**: <date> by reviewer
 **Commit**: <hash> <subject>
 -->
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 0595603 feat(plan-002): phase 1 - 端口面扩展（纯类型契约 + SDK 兜底）
 
 ---
 

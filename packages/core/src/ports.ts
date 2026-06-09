@@ -37,6 +37,10 @@ export interface ModelEventUsage {
   type: "usage";
   inputTokens: number;
   outputTokens: number;
+  /** Tokens read from provider-side prompt cache (e.g. OpenAI prompt caching) */
+  cacheReadTokens?: number;
+  /** Tokens written to provider-side prompt cache */
+  cacheWriteTokens?: number;
 }
 
 export interface ModelEventDone {
@@ -218,4 +222,119 @@ export interface Random {
 
 export interface Tokenizer {
   count(text: string): number;
+}
+
+// ──────────────────────────────────────────────
+// ToolSource — dynamic tool discovery (for MCP / plugins)
+// ──────────────────────────────────────────────
+
+export interface ToolSource {
+  /** List all currently available tools from this source */
+  list(): Promise<ToolDefinition[]>;
+  /** Optional: subscribe to tool set changes. Returns an unsubscribe function. */
+  onChange?(cb: () => void): () => void;
+}
+
+// ──────────────────────────────────────────────
+// MemoryStore — semantic / long-term memory
+// ──────────────────────────────────────────────
+
+export interface MemoryEntry {
+  id: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemoryStore {
+  save(entry: MemoryEntry): Promise<string>;
+  query(text: string, k?: number): Promise<MemoryEntry[]>;
+  delete(id: string): Promise<boolean>;
+}
+
+// ──────────────────────────────────────────────
+// Embedder — text to vector
+// ──────────────────────────────────────────────
+
+export interface Embedder {
+  embed(texts: string[]): Promise<number[][]>;
+}
+
+// ──────────────────────────────────────────────
+// Telemetry — structured observability (distinct from EventSink)
+// ──────────────────────────────────────────────
+
+export interface TelemetrySpan {
+  setAttribute(key: string, value: unknown): void;
+  end(): void;
+}
+
+export interface Telemetry {
+  startSpan(name: string, attributes?: Record<string, unknown>): TelemetrySpan;
+  metric(name: string, value: number, attributes?: Record<string, unknown>): void;
+}
+
+// ──────────────────────────────────────────────
+// Cache — general-purpose key/value cache
+// ──────────────────────────────────────────────
+
+export interface Cache {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void>;
+  delete(key: string): Promise<boolean>;
+}
+
+// ──────────────────────────────────────────────
+// Sandbox — isolated execution environment
+// ──────────────────────────────────────────────
+
+export interface SandboxExecSpec {
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  isolation?: "none" | "process" | "container";
+  timeout?: number;
+  abortSignal?: AbortSignal;
+}
+
+export interface SandboxEvent {
+  type: "stdout" | "stderr" | "exit";
+  data?: string;
+  code?: number;
+}
+
+export interface Sandbox {
+  run(spec: SandboxExecSpec): AsyncIterable<SandboxEvent>;
+}
+
+// ──────────────────────────────────────────────
+// Secrets — secure credential resolution
+// ──────────────────────────────────────────────
+
+export interface Secrets {
+  resolve(ref: string): Promise<string | undefined>;
+}
+
+// ──────────────────────────────────────────────
+// Scheduler — timed / delayed / background tasks
+// ──────────────────────────────────────────────
+
+export interface Scheduler {
+  schedule(delayMs: number, ref: string): Promise<string>;
+  cancel(id: string): Promise<boolean>;
+  sleep(ms: number, abortSignal?: AbortSignal): Promise<void>;
+}
+
+// ──────────────────────────────────────────────
+// PolicyEngine — external authorization decision
+// ──────────────────────────────────────────────
+
+export interface PolicyRequest {
+  action: string;
+  principal?: string;
+  context?: Record<string, unknown>;
+}
+
+export interface PolicyEngine {
+  evaluate(request: PolicyRequest): Promise<"allow" | "deny" | "ask">;
 }
