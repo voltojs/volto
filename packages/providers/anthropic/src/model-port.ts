@@ -113,6 +113,16 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
     body.temperature = req.temperature;
   }
 
+  // Structured / JSON output mode — Anthropic doesn't have native JSON schema
+  // mode, so inject a system instruction to enforce JSON output.
+  if (req.responseFormat?.type === "json") {
+    const schemaHint = req.responseFormat.schema
+      ? `\nYou MUST respond with valid JSON matching this schema:\n${JSON.stringify(req.responseFormat.schema, null, 2)}`
+      : "\nYou MUST respond with valid JSON only. No markdown, no explanations outside the JSON.";
+    systemParts.push(schemaHint);
+    body.system = systemParts.join("\n\n");
+  }
+
   return body;
 }
 

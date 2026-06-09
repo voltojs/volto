@@ -37,6 +37,9 @@ export interface RawStreamChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
   } | null;
 }
 
@@ -71,6 +74,7 @@ export async function* normalizeStream(
         type: "usage",
         inputTokens: chunk.usage.prompt_tokens ?? 0,
         outputTokens: chunk.usage.completion_tokens ?? 0,
+        cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? undefined,
       };
     }
 

@@ -3,6 +3,12 @@
 export { createAgent } from "./create-agent.js";
 export type { CreateAgentOptions, AgentInstance, ResolvedPorts } from "./create-agent.js";
 
+// M9: Model layer
+export { createModelRouter } from "./model-router.js";
+export type { ModelRouterOptions } from "./model-router.js";
+export { createCostMeter } from "./cost-meter.js";
+export type { CostMeterOptions, PricingTable, PricingEntry, CostMeterResult } from "./cost-meter.js";
+
 // Re-export commonly needed types
 export type {
   ModelPort,

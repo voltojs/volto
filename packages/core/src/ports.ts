@@ -5,7 +5,7 @@
  */
 
 import type { AgentState, Message, PendingToolCall } from "./state.js";
-import type { RiskTier, ToolDefinition } from "./tool.js";
+import type { RiskTier, ToolDefinition, JSONSchema } from "./tool.js";
 
 // ──────────────────────────────────────────────
 // ModelPort — the model provider interface
@@ -70,6 +70,8 @@ export interface ModelRequest {
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
+  /** Structured / JSON output mode (provider-specific translation) */
+  responseFormat?: { type: "json"; schema?: JSONSchema };
 }
 
 export interface ModelPort {

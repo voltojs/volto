@@ -254,6 +254,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       model: stepContext.model,
       maxTokens: stepContext.maxTokens,
       temperature: stepContext.temperature,
+      responseFormat: stepContext.responseFormat,
       abortSignal: opts.abortSignal,
     };
 

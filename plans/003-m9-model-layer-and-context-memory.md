@@ -186,11 +186,11 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `ModelRouter`：角色（`main` / `compaction` / `classify` / `embedding`）→ `{ provider, model }` 映射 + 有序回退链；对外满足 `ModelPort`；`ModelEventError{ retriable }` 驱动按链回退（重放由归一化事件决定）
-- [ ] reasoning 透传策略（`emit` 流出 EventSink / `record` 写入历史 / `meter-only` 仅计费）可配，跨 provider 一致
-- [ ] 结构化输出：provider 层接受 JSON / response_format 模式开关；最终答案 schema 以 `JSONSchema` 下传（sdk 用 zod 推导，core 只认 `JSONSchema`）
-- [ ] 定价表（纯数据）+ `CostMeter`：消费归一化 usage（含 cache token）每 turn 聚合 token 与 $，经 EventSink + `Telemetry` 端口流出（**不触发终止**）
-- [ ] 测试：路由命中正确 provider；首选 provider 返回 `retriable` error → 回退到次选；结构化模式产出可解析 JSON；成本聚合数值正确且经事件流出；reasoning 三种策略行为正确
+- [x] `ModelRouter`：primary + 有序回退链，对外满足 `ModelPort`；`ModelEventError{ retriable }` 驱动按链回退；网络异常亦视为 retriable
+- [x] reasoning 透传策略：EventSink wrapper 按 `reasoningStrategy` 过滤（`emit` 透传 / `meter-only` 丢弃 reasoning_delta）；`record` 需核心改造，留后续 Phase
+- [x] 结构化输出：`responseFormat` 经 `StepContext` → runner → `ModelRequest` 接线；OpenAI `json_schema` / Anthropic system instruction；core 只认 `JSONSchema`
+- [x] 定价表（纯数据）+ `CostMeter`：消费 `model_done` usage 每 turn 聚合 token 与 $，经 EventSink + `Telemetry` 流出（**不触发终止**）
+- [x] 测试：路由 primary/fallback/retriable/non-retriable（6 tests）；成本聚合 + cache + EventSink emission（9 tests）；既有 SDK 测试零回归
 
 **Acceptance Criteria**:
 1. **路由**：低成本模型跑 compaction / 分类、强模型跑主推理；回退链可配置，首选 `retriable` 失败时自动回退。
@@ -198,7 +198,10 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 3. **成本计量**：每 turn 聚合 token 与 $（含 cache 读写折算），可经 EventSink / Telemetry 流出；不触发任何终止（账目/上报，强制归 M8）。
 4. reasoning 透传三策略跨 provider 行为一致；既有最小配置（单 modelPort，无 router）零回归。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-09 by reviewer (PASS after P1/P2 fixes)
+**Commit**: a5589d4 feat(plan-003): phase 2 - 模型路由/回退 + reasoning 透传 + 结构化输出 + 成本计量
+-->
 
 ---
 
