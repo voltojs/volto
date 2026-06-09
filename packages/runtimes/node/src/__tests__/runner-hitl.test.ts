@@ -142,6 +142,39 @@ describe("Runner HITL — checkpoint + resume", () => {
     expect(cp.state.pendingApprovalTool?.id).toBe("c1");
   });
 
+  it("AC (D-4): an injected Clock makes checkpoint timestamps deterministic", async () => {
+    const saved: SessionSnapshot[] = [];
+    const store: SessionStore = {
+      async save(s) {
+        saved.push(s);
+      },
+      async load() {
+        return undefined;
+      },
+      async list() {
+        return [];
+      },
+    };
+
+    const { exec } = countingExecutor();
+    const runner = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      availableCapabilities: new Set(),
+      toolExecutor: exec,
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: createAutoAllowGate(),
+      sessionStore: store,
+      sessionId: "sess-clock",
+      clock: { now: () => 4242 }, // seeded clock → deterministic createdAt
+    });
+
+    await runner.run({ type: "user_message", content: "go" });
+
+    expect(saved.length).toBeGreaterThanOrEqual(1);
+    expect(saved.every((s) => s.createdAt === 4242)).toBe(true);
+  });
+
   it("AC: resume(id, allow) yields a final state equivalent to the never-interrupted run", async () => {
     // 1) Never-interrupted baseline: auto-allow gate drives it to done in-process.
     const baselineExec = countingExecutor();

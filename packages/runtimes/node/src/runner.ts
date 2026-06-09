@@ -20,6 +20,7 @@ import type {
   ApprovalGate,
   CompactionConfig,
   Message,
+  Clock,
 } from "@agent-core/core";
 import {
   step,
@@ -65,6 +66,11 @@ export interface RunnerOptions {
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
   compaction?: CompactionConfig;
+  /**
+   * Clock for checkpoint timestamps. Inject a seeded Clock for deterministic
+   * runner-level replay; defaults to wall-clock (Date.now) when omitted.
+   */
+  clock?: Clock;
 }
 
 export interface Runner {
@@ -420,7 +426,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         await opts.sessionStore.save({
           id: opts.sessionId,
           state: e.state,
-          createdAt: Date.now(),
+          createdAt: opts.clock ? opts.clock.now() : Date.now(),
         });
       }
     }
