@@ -263,7 +263,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 <!-- Backfill after execution:
 **Reviewed**: 2026-06-09 by reviewer
-**Commit**: <hash> <subject>
+**Commit**: ad1e665 feat(plan-003): phase 4 - Prompt/上下文缓存接线
 -->
 
 ---
@@ -281,11 +281,11 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `@agent-core/embedder-openai`：实现 M8 `Embedder.embed(texts)`（OpenAI 兼容 embeddings API），错误归一不抛异常
-- [ ] 分层记忆：新包 `@agent-core/memory-inmemory` 实现 `MemoryStore`，entry 带 tier（工作 / 情景 / 语义）元数据；语义层经 `Embedder` 索引；`query(text, k)` 跨层检索；情景层归档 turn 摘要（**不修改 `stores/memory`**）
-- [ ] `retrieval.ts` 纯函数：给定检索片段，产出注入位置 = 静态前缀缓存断点**之后**、对话变量之前的稳定槽位（不改写前缀字节）
-- [ ] SDK / Runner：检索流程（embed query → `MemoryStore.query` → 纯选片 → 注入）；记忆写入（turn 结束写情景 / 语义）经端口
-- [ ] 测试:Embedder smoke;分层记忆 save/query/delete + tier 过滤;RAG 注入后静态前缀断点不变(联动 Phase 4 验收 2);检索为 I/O 在端口、选片为纯函数;含 RAG 的重放等价(固定 mock embedding)
+- [x] `@agent-core/embedder-openai`：实现 M8 `Embedder.embed(texts)`（OpenAI 兼容 embeddings API），错误归一不抛异常
+- [x] 分层记忆：新包 `@agent-core/memory-inmemory` 实现 `MemoryStore`，entry 带 tier（工作 / 情景 / 语义）元数据；语义层经 `Embedder` 索引；`query(text, k)` 跨层检索；情景层归档 turn 摘要（**不修改 `stores/memory`**）
+- [x] `retrieval.ts` 纯函数：给定检索片段，产出注入位置 = 静态前缀缓存断点**之后**、对话变量之前的稳定槽位（不改写前缀字节）
+- [x] SDK / Runner：检索流程（embed query → `MemoryStore.query` → 纯选片 → 注入）；记忆写入（turn 结束写情景 / 语义）经端口
+- [x] 测试：Embedder smoke;分层记忆 save/query/delete + tier 过滤（5 tests）;RAG 注入后静态前缀断点不变(联动 Phase 4 验收 2);检索为 I/O 在端口、选片为纯函数(5 tests);含 RAG 的重放等价(固定 mock embedding)
 
 **Acceptance Criteria**:
 1. `Embedder` 真实实现消费 M8 端口（**不重定义端口类型**），embed 错误归一不抛异常。
@@ -293,7 +293,10 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 3. **RAG 注入不破坏静态前缀稳定性**：检索片段排在缓存断点之后，前缀仍命中缓存（与 Phase 4 联合验证）；选片为纯函数、检索为端口 I/O。
 4. 含 RAG（固定 mock embedding）的输入序列两次运行 (state, effects) deep-equal。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: <hash> <subject>
+-->
 
 ---
 
