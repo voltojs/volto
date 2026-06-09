@@ -133,5 +133,6 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 | ----------------- | --------------------------------------------- | ------------------------------------------ |
 | 架构设计文档      | `docs/pure-agent-core.md`                     | 纯 Agent 核心架构、模块分解、ports 契约、路线图 M1–M7 |
 | 实施方案 Plan 001 | `plans/001-pure-agent-core-implementation.md` | monorepo 落地方案、目录/包结构、8 个 Phase  |
+| 演进路线图        | `docs/roadmap.md`                             | 内核平台化 M8–M14 路线、10 条能力工作流、依赖 DAG  |
 
 </details>
