@@ -219,18 +219,21 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `instructions.ts` 纯函数：输入「路径→内容」映射 + 入口路径，递归展开 `@import`（按 AGENTS.md 约定的独立行 `@path` 指令），输出展开文本 + 引用图；已访问集合防环；限定根目录防越界；缺失 import 降级为可见占位（不抛错）
-- [ ] 分层合并：全局 < 项目优先级；展开结果作为 system 静态前缀（参与 Phase 4 缓存断点）
-- [ ] SDK：经 FileSystem 端口发现 `CLAUDE.md` / `AGENTS.md`（从 cwd 向上 / 全局目录）+ 读取，再调纯函数（`fs` 留端口，不入 core）
-- [ ] pinning：state 加 `pinnedMessageIds`（可序列化，survives resume）；`Compactor.isKeyMessage` 或并行集合纳入 pinned；`ContextAssembler` 把 pinned 稳定排进前缀槽位
-- [ ] 测试：多层 `@import` 递归展开正确；循环 import 不死锁、越界 import 被拒、缺失 import 降级；pinned 消息在压缩后仍保留且位置稳定；重放等价
+- [x] `instructions.ts` 纯函数：输入「路径→内容」映射 + 入口路径，递归展开 `@import`，输出展开文本 + 引用图；已访问集合防环；限定根目录防越界；缺失 import 降级为可见占位
+- [x] 分层合并：全局 < 项目优先级；展开结果作为 system 静态前缀（参与 Phase 4 缓存断点）
+- [x] SDK：经 FileSystem 端口发现 `CLAUDE.md` / `AGENTS.md`（从 cwd 向上 / 全局目录）+ 读取，再调纯函数（`fs` 留端口，不入 core）
+- [x] pinning：state 加 `pinnedMessageIds`（可序列化，survives resume）；`Compactor` 纳入永不压缩集合；`ContextAssembler` 把 pinned 稳定排进前缀槽位
+- [x] 测试：多层 @import 递归展开正确（6 tests）；循环 import 不死锁、越界 import 被拒、缺失 import 降级；pinned 消息在压缩后仍保留且位置稳定；重放等价
 
 **Acceptance Criteria**:
 1. **指令加载**：发现项目层级指令文件并递归展开 `@import`（防环 / 防越界 / 缺失降级），注入为可缓存静态前缀。
 2. pinned 消息永不被 `Compactor` 压缩，且在 `ContextAssembler` 中位置稳定；标记随 checkpoint 持久化、resume 后不丢。
 3. 指令解析 / 合并 / pinning 全为纯函数无 I/O（文件读经 FileSystem 端口）；`check-core-zero-deps` 通过；含 import / pinning 的重放测试 deep-equal。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-09 by reviewer
+**Commit**: 3f7172c feat(plan-003): phase 3 - 项目指令分层加载 + 上下文 pinning
+-->
 
 ---
 

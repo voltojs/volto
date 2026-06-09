@@ -82,6 +82,15 @@ export type Message =
   | AssistantMessage
   | ToolResultMessage;
 
+/**
+ * Optional stable identifier for a message.
+ * Used by pinning to track which messages must never be compressed.
+ * Set by the host when adding messages to state; absent messages are not pinnable.
+ */
+export interface WithId {
+  id?: string;
+}
+
 /** A tool call extracted from a model response, pending execution */
 export interface PendingToolCall {
   id: string;
@@ -140,4 +149,10 @@ export interface AgentState {
    * all return errors, the turn is terminated. Undefined = no limit.
    */
   maxLoopCount: number | undefined;
+  /**
+   * IDs of messages that are "pinned" — never compressed by Compactor,
+   * and stably positioned in ContextAssembler prefix slots.
+   * Serializable for checkpoint/resume.
+   */
+  pinnedMessageIds?: string[];
 }

@@ -23,6 +23,12 @@ export interface AssembleContextOptions {
   tools: ToolDefinition[];
   /** Optional system prompt override (default: extract from messages) */
   systemPrompt?: string;
+  /**
+   * IDs (indices as strings) of pinned messages.
+   * Pinned messages are stably placed in the prefix slot (after system messages)
+   * so they are never displaced by compaction or rearrangement.
+   */
+  pinnedMessageIds?: string[];
 }
 
 export interface AssembledContext {
@@ -53,24 +59,29 @@ export interface AssembledContext {
  */
 export function assembleContext(opts: AssembleContextOptions): AssembledContext {
   const { messages } = opts;
+  const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
 
   const systemMessages: Message[] = [];
+  const pinnedMessages: Message[] = [];
   const otherMessages: Message[] = [];
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!;
     if (msg.role === "system") {
       systemMessages.push(msg);
+    } else if (pinnedIndices.has(i)) {
+      pinnedMessages.push(msg);
     } else {
       otherMessages.push(msg);
     }
   }
 
-  // System messages first (stable prefix), then everything else in order
-  const assembled = [...systemMessages, ...otherMessages];
+  // System messages → pinned messages → everything else (stable prefix includes pinned)
+  const assembled = [...systemMessages, ...pinnedMessages, ...otherMessages];
 
   return {
     messages: assembled,
-    staticPrefixLength: systemMessages.length,
+    staticPrefixLength: systemMessages.length + pinnedMessages.length,
   };
 }
 

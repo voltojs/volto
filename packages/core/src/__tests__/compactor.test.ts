@@ -400,4 +400,34 @@ describe("decideCompaction — empty compressible boundary (T-10)", () => {
     expect(typeof decision.summaryPrompt).toBe("string");
     expect(decision.summaryPrompt).toContain("Summarize");
   });
+
+  describe("pinnedMessageIds", () => {
+    it("should not compress pinned messages even when over budget", () => {
+      const tokenizer = createFixedTokenizer(10);
+      // 6 non-system messages × 10 tokens = 60, budget = 30 → over budget
+      // Keep last 2, so indices 0-3 are eligible. Pin index 1.
+      const messages: Message[] = [
+        sysMsg("system"),
+        userMsg("msg-0"),  // index 1 — eligible, NOT pinned
+        userMsg("msg-1"),  // index 2 — eligible, PINNED
+        userMsg("msg-2"),  // index 3 — eligible, NOT pinned
+        userMsg("msg-3"),  // index 4 — recent keep
+        userMsg("msg-4"),  // index 5 — recent keep
+      ];
+
+      const decision = decideCompaction(messages, {
+        maxTokens: 30,
+        recentKeepCount: 2,
+        tokenizer,
+        pinnedMessageIds: ["2"],
+      });
+
+      expect(decision.shouldCompact).toBe(true);
+      // msg-1 (index 2) is pinned → not in compressible
+      const compressibleTexts = decision.compressibleMessages.map((m) =>
+        (m as Message & { content: string }).content,
+      );
+      expect(compressibleTexts).not.toContain("msg-1");
+    });
+  });
 });
