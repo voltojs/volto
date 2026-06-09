@@ -367,3 +367,37 @@ describe("hasIncompleteTodos edge cases", () => {
     expect(hasIncompleteTodos(msg)).toBe(false);
   });
 });
+
+describe("decideCompaction — empty compressible boundary (T-10)", () => {
+  it("does not crash when all non-recent messages are key messages", () => {
+    const tokenizer = createFixedTokenizer(100);
+    // Every non-recent message carries a file path → all are key messages →
+    // compressible set is empty even though we are over the token budget.
+    const messages: Message[] = [
+      sysMsg("system"),
+      userMsg("Read /a/one.ts"),
+      userMsg("Read /a/two.ts"),
+      userMsg("Read /a/three.ts"),
+      userMsg("recent tail 1"),
+      userMsg("recent tail 2"),
+    ];
+
+    let decision!: ReturnType<typeof decideCompaction>;
+    expect(() => {
+      decision = decideCompaction(messages, {
+        maxTokens: 10,
+        recentKeepCount: 2,
+        tokenizer,
+      });
+    }).not.toThrow();
+
+    // Over budget → shouldCompact true, but nothing is compressible.
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.compressibleMessages).toHaveLength(0);
+    // Key messages are retained in preservedMessages.
+    expect(decision.preservedMessages.some((m) => isKeyMessage(m))).toBe(true);
+    // summaryPrompt is still well-formed (built over an empty segment).
+    expect(typeof decision.summaryPrompt).toBe("string");
+    expect(decision.summaryPrompt).toContain("Summarize");
+  });
+});
