@@ -1,6 +1,6 @@
 # Plan 003 — M9 模型与推理层 + 上下文/记忆
 
-> **Status**: Draft
+> **Status**: Done
 > **Owner**: TBD
 > **Created**: 2026-06-09
 > **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M9；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 001（M1–M7 已交付）；Plan 002（M8 — 9 个端口契约 + SDK 兜底，本 Plan 消费其中 4 个）
@@ -295,7 +295,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 <!-- Backfill after execution:
 **Reviewed**: 2026-06-09 by reviewer
-**Commit**: <hash> <subject>
+**Commit**: bf81a79 feat(plan-003): phase 5 - Embedder 实现 + 分层记忆 + RAG 注入
 -->
 
 ---
@@ -314,3 +314,124 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 | 成本计量误做成预算强制 | 与 M8 Phase 4 职责重叠 | 明确 `CostMeter` 只聚合 + 经 EventSink/Telemetry 上报，不触发任何终止（§4.8） |
 | 结构化输出滑向校验-修复 loop | 越界侵占 Plan 005 范围 | 本 Plan 仅做模式开关 + `JSONSchema` 约束；schema 校验失败的自纠循环明确归 M11 |
 | zod 渗入 core | 破坏依赖单向 / 核心纯抽象 | 结构化输出 schema 在 sdk 用 zod 推导，core 只接收 `JSONSchema`；lint 依赖规则把关 |
+
+---
+
+## Test Cases
+
+### TC-001: Anthropic provider 流式归一化 — text / thinking / tool_use / usage
+
+- **Preconditions**: `@agent-core/provider-anthropic` 包已构建，vitest 可运行
+- **Steps**:
+  1. 构造 Anthropic SSE 事件序列（message_start → content_block_start(text) → content_block_delta(text_delta) → content_block_stop → message_delta(stop_reason) → message_stop）
+  2. 调用 `normalizeStream()`，收集产出事件
+  3. 断言：text_delta 事件内容正确、done 事件 stopReason 正确、usage 事件 inputTokens/outputTokens 正确
+  4. 同样构造含 thinking + tool_use 的序列，断言 reasoning_delta 和 tool_use_start/delta 正确
+- **Paths**: `packages/providers/anthropic/src/__tests__/stream-normalize.test.ts:39-155`
+- **Expected**: 15 个测试全部通过；事件序列与 Mock 脚本预期完全一致
+
+### TC-002: 跨 provider 重放等价 — OpenAI ↔ Anthropic 输出 deep-equal
+
+- **Preconditions**: OpenAI 和 Anthropic provider 包均已构建
+- **Steps**:
+  1. 构造同一逻辑对话脚本的 OpenAI RawStreamChunk 序列和 Anthropic RawAnthropicEvent 序列
+  2. 分别调用 `normalizeStream()` 归一化
+  3. 断言两组输出 `expect(ant).toEqual(oai)` deep-equal
+  4. 覆盖场景：text-only、tool_use、reasoning+text、parallel tool calls
+- **Paths**: `packages/providers/anthropic/src/__tests__/replay-equivalence.test.ts:43-183`
+- **Expected**: 4 个测试全部通过；两 provider 归一化输出完全一致
+
+### TC-003: ModelRouter 透明回退 — retriable error 触发 fallback
+
+- **Preconditions**: `@agent-core/sdk` 已构建
+- **Steps**:
+  1. 创建 primary ModelPort 返回 `{ type: "error", retriable: true }`
+  2. 创建 fallback ModelPort 返回 `{ type: "text_delta", text: "fallback" }` + `{ type: "done" }`
+  3. 创建 `createModelRouter({ primary, fallbacks: [fallback] })`
+  4. 调用 `router.stream()`，收集事件
+  5. 断言：输出包含 fallback 的 text_delta 和 done 事件
+- **Paths**: `packages/sdk/src/__tests__/model-router.test.ts:55-80`
+- **Expected**: 6 个测试全部通过；retriable error 自动回退到次选 provider
+
+### TC-004: CostMeter 聚合 + 定价计算 — token 累加与 $ 折算
+
+- **Preconditions**: `@agent-core/sdk` 已构建
+- **Steps**:
+  1. 创建 CostMeter，pricing 为 `test-model: { inputPer1M: 3, outputPer1M: 15, cacheReadPer1M: 0.3, cacheWritePer1M: 3.75 }`
+  2. 调用 `meter.record()` 两次，分别注入 usage 事件
+  3. 调用 `meter.result()`，断言 inputTokens/outputTokens 正确累加
+  4. 断言 totalCost 按 pricing table 正确折算（$3.0 × 1M input + $15.0 × 1M output = $18.0）
+  5. 断言 EventSink 收到 `cost_summary` 事件
+- **Paths**: `packages/sdk/src/__tests__/cost-meter.test.ts:43-105`
+- **Expected**: 9 个测试全部通过；成本计算与 pricing table 一致
+
+### TC-005: `@import` 递归展开 — 防环 / 防越界 / 缺失降级
+
+- **Preconditions**: `@agent-core/core` 已构建
+- **Steps**:
+  1. 构造 `fileContents` Map：`/a.md` 引用 `@./b.md`，`/b.md` 引用 `@./a.md`（循环）
+  2. 调用 `expandInstructions(files, "/a.md", "/")`
+  3. 断言输出包含 `[circular import: ...]`
+  4. 构造越界 import（`@/etc/passwd`），断言输出包含 `[import out of scope: ...]`
+  5. 构造缺失 import，断言输出包含 `[missing instruction file: ...]`
+- **Paths**: `packages/core/src/__tests__/instructions.test.ts:30-62`
+- **Expected**: 9 个测试全部通过；递归展开正确、防环/防越界/缺失降级均生效
+
+### TC-006: 上下文 pinning — pinned 消息永不压缩 + 前缀槽位稳定
+
+- **Preconditions**: `@agent-core/core` 已构建
+- **Steps**:
+  1. 构造 6 条消息，pin index 2（`pinnedMessageIds: ["2"]`）
+  2. 调用 `decideCompaction(messages, { maxTokens: 30, recentKeepCount: 2, pinnedMessageIds: ["2"] })`
+  3. 断言：pinned 消息不在 `compressibleMessages` 中
+  4. 调用 `assembleContext({ messages, tools: [], pinnedMessageIds: ["2"] })`
+  5. 断言：pinned 消息位于 system 之后、其他消息之前；`staticPrefixLength` 包含 pinned
+- **Paths**: `packages/core/src/__tests__/compactor.test.ts:264-293`, `packages/core/src/__tests__/context-assembler.test.ts:118-152`
+- **Expected**: compactor + assembler 各 1 个 pinning 测试通过；pinned 消息受保护且位置稳定
+
+### TC-007: 分层记忆 — tier 过滤 + save/query/delete
+
+- **Preconditions**: `@agent-core/memory-inmemory` 已构建
+- **Steps**:
+  1. 创建 `createInMemoryMemoryStore()`
+  2. 调用 `saveWithTier(entry("episodic fact"), "episodic")` 和 `saveWithTier(entry("semantic fact"), "semantic")`
+  3. 调用 `queryByTier("any", 10, "episodic")`，断言返回 1 条且 text 为 "episodic fact"
+  4. 调用 `queryByTier("any", 10, "semantic")`，断言返回 1 条且 text 为 "semantic fact"
+  5. 调用 `queryByTier("any", 10)`（不指定 tier），断言返回 2 条
+  6. 调用 `delete(id)`，断言 `query` 返回 0 条
+- **Paths**: `packages/memories/inmemory/src/__tests__/memory.test.ts:54-88`
+- **Expected**: 5 个测试全部通过；tier 过滤、CRUD 操作正确
+
+### TC-008: cacheBreakpoints — 静态前缀产出 + Anthropic cache_control 翻译
+
+- **Preconditions**: `@agent-core/core` 已构建
+- **Steps**:
+  1. 构造 messages：2 条 system + 3 条 user（无 pinned）
+  2. 调用 `assembleContext({ messages, tools: [] })`
+  3. 断言：`cacheBreakpoints` 包含 `[0, 2]`（首条 + system 结束边界）
+  4. 断言：`staticPrefixLength === 2`
+  5. 将 breakpoints 传入 Anthropic `buildRequestBody()`，断言 system 字段为 content block 格式且含 `cache_control: { type: "ephemeral" }`
+- **Paths**: `packages/core/src/context-assembler.ts:54-88`, `packages/providers/anthropic/src/model-port.ts:79-130`
+- **Expected**: assembler 产出正确断点；Anthropic provider 正确翻译为 cache_control
+
+### TC-009: RAG 注入不破坏前缀稳定性
+
+- **Preconditions**: `@agent-core/core` 已构建
+- **Steps**:
+  1. 构造 messages：system + 3 条 user
+  2. 调用 `assembleContext()`，记录 `cacheBreakpoints` 和 `staticPrefixLength`
+  3. 调用 `computeRAGInjectionIndex(cacheBreakpoints, totalMessages)`
+  4. 断言：注入索引位于最后一个断点之后
+  5. 验证：注入 RAG 消息后重新调用 `assembleContext()`，断言 `cacheBreakpoints` 不变（前缀字节稳定）
+- **Paths**: `packages/core/src/__tests__/retrieval.test.ts:7-22`, `packages/core/src/context-assembler.ts:54-88`
+- **Expected**: RAG 注入点位于断点之后；前缀断点不受 RAG 内容影响
+
+### TC-010: 全量回归 — check-core-zero-deps + typecheck/lint/test 全绿
+
+- **Preconditions**: 所有包已安装依赖
+- **Steps**:
+  1. 运行 `node scripts/check-core-zero-deps.mjs`
+  2. 运行 `pnpm turbo run typecheck lint test --filter @agent-core/core --filter @agent-core/sdk --filter @agent-core/provider-anthropic --filter @agent-core/provider-openai --filter @agent-core/runtime-node --filter @agent-core/memory-inmemory`
+  3. 断言：所有任务成功，无 error TS 或 lint error
+- **Paths**: `scripts/check-core-zero-deps.mjs`, 全量 CI 管道
+- **Expected**: check-core-zero-deps PASS；30 tasks 全部 successful；0 个测试失败
