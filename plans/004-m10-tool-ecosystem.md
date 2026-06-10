@@ -274,6 +274,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 3. 命令失败 / 输出解析失败归一为 `isError` 回喂；超量输出截断并声明，不抛异常。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: e9f91cd feat(plan-004): phase 5 - 测试/构建/Git 结构化工具（tools-vcs）
 
 ---
 
