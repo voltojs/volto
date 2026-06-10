@@ -59,6 +59,12 @@ importers:
         specifier: workspace:*
         version: link:../../core
 
+  packages/eval:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/memories/inmemory:
     dependencies:
       '@agent-core/core':
@@ -212,6 +218,18 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/tools/document:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/tools/fs:
     dependencies:
       '@agent-core/core':
@@ -238,6 +256,18 @@ importers:
       '@agent-core/tools-common':
         specifier: workspace:*
         version: link:../common
+
+  packages/tools/schedule:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/shell:
     dependencies:

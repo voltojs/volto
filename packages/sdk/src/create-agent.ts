@@ -87,7 +87,11 @@ import {
   createBuildTool,
 } from "@agent-core/tools-vcs";
 import { createAskUserTool } from "@agent-core/tools-ask";
-import { createHttpQueryTool } from "@agent-core/tools-data";
+import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@agent-core/tools-data";
+import type { DatabaseAdapter } from "@agent-core/tools-data";
+import { createReadDocumentTool } from "@agent-core/tools-document";
+import type { DocumentParserAdapter } from "@agent-core/tools-document";
+import { createScheduleTool, createCancelScheduleTool } from "@agent-core/tools-schedule";
 import {
   createBrowserNavigateTool,
   createBrowserClickTool,
@@ -194,6 +198,12 @@ export interface CreateAgentOptions {
 
   /** Browser adapter — when provided, browser/computer-use tools are auto-created */
   browserAdapter?: BrowserAdapter;
+
+  /** Database adapter — when provided, db_query / db_exec tools are auto-created */
+  dbAdapter?: DatabaseAdapter;
+
+  /** Document parser adapter — when provided, read_document tool is auto-created */
+  documentParser?: DocumentParserAdapter;
 
   /** Available capabilities (auto-populated from injected adapters if not set) */
   capabilities?: Set<string>;
@@ -347,6 +357,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.browserAdapter) {
     capabilities.add("browser:control");
   }
+  if (opts.dbAdapter) {
+    capabilities.add("db:query");
+    capabilities.add("db:exec");
+  }
+  if (opts.documentParser) {
+    capabilities.add("document:parse");
+  }
   if (opts.enableTaskTool) {
     capabilities.add("agent:task");
   }
@@ -396,6 +413,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createBrowserTypeTool(opts.browserAdapter),
       createBrowserScreenshotTool(opts.browserAdapter),
       createBrowserGetPageTextTool(opts.browserAdapter),
+    );
+  }
+  if (opts.dbAdapter) {
+    adapterTools.push(
+      createDbQueryTool(opts.dbAdapter),
+      createDbExecTool(opts.dbAdapter),
+    );
+  }
+  if (opts.documentParser) {
+    adapterTools.push(
+      createReadDocumentTool(opts.documentParser),
+    );
+  }
+  if (opts.scheduler) {
+    capabilities.add("scheduler:exec");
+    adapterTools.push(
+      createScheduleTool(opts.scheduler),
+      createCancelScheduleTool(opts.scheduler),
     );
   }
 
@@ -639,6 +674,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       compaction: compactionConfig,
       abortSignal,
       sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      policyEngine: resolvedPorts.policyEngine,
     };
 
     if (previousState && previousState.status === "done") {

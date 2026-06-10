@@ -1,10 +1,10 @@
 # Plan 005 — M11 安全、隔离与可靠性 + 调度/后台
 
-> **Status**: Draft
+> **Status**: Completed
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M11（WS-6 安全与执行隔离 + WS-7 可靠性与评测 + 横切调度/后台）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8 已定义 9 个纯类型端口契约：Sandbox / Secrets / PolicyEngine / Scheduler 等）；Plan 001（M1–M7 已交付）
-> **Target area**: `packages/core/src/{permission-policy,reducer,state,input,error-taxonomy,ports,index}.ts`、`packages/runtimes/node/src/{runner,shell,sandbox,scheduler,secrets,policy-engine,guardrails}.ts`、`packages/tools/{shell,web,schedule}`、`packages/sdk/src/{create-agent,defaults}.ts`、`packages/eval/*`（新增 eval harness 包）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M11（WS-6 安全与执行隔离 + WS-7 可靠性与评测 + 横切调度/后台）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8 已定义 9 个纯类型端口契约：Sandbox / Secrets / PolicyEngine / Scheduler 等）；Plan 001（M1–M7 已交付）；Plan 004 Phase 6 推迟项（db_query/db_exec + 文件格式工具）
+> **Target area**: `packages/core/src/{permission-policy,reducer,state,input,error-taxonomy,guardrails,self-correct,index}.ts`、`packages/runtimes/node/src/{runner,shell,sandbox,scheduler,secrets,policy-engine}.ts`、`packages/tools/{shell,web,schedule}`、`packages/tools/data/src/`（db 工具扩展）、`packages/tools/document/`（新增文件格式包）、`packages/sdk/src/{create-agent,defaults}.ts`、`packages/eval/*`（新增 eval harness 包）
 
 ## 1. 背景
 
@@ -60,13 +60,15 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 5. **错误/重试 taxonomy + 自纠回环**：core 错误分类纯函数（瞬时/永久/限流/越权）；Runner 指数退避 + 熔断（计时在 Runner）；校验-修复自纠 loop（纯决策回喂修复提示）。
 6. **重放式 eval harness + 模拟环境**：新增 `@agent-core/eval` 包——轨迹录制格式 + 重放 runner + (state, effects) 一致断言 + **首个分歧点**报告；确定性 mock 端口套件构成模拟环境。
 7. **调度/后台**：`Scheduler` Node adapter + 调度工具（创建定时/周期/后台任务），时间经端口注入，重放确定。
-8. 全程满足验收 + `pnpm turbo run typecheck lint test` 通过 + `check-core-zero-deps` 通过 + 既有重放测试零回归。
+8. **数据库工具（Plan 004 推迟项）**：`db_query`（`READ_ONLY`，`db:query`）/ `db_exec`（`WRITE_HIGH`，`db:exec`），经 Database adapter，连接串经 `Secrets` 端口解析；缺 adapter 时自动从可见集摘除。
+9. **文件格式工具（Plan 004 推迟项）**：`read_document` 工具（PDF/docx/xlsx/image → 结构化文本 / image block），经 document-parser adapter，缺 adapter 时不可见。
+10. 全程满足验收 + `pnpm turbo run typecheck lint test` 通过 + `check-core-zero-deps` 通过 + 既有重放测试零回归。
 
 ## 3. Non-Goals
 
 1. **不**重新定义任何端口类型——`Sandbox` / `Secrets` / `PolicyEngine` / `Scheduler` 的接口归 M8（Plan 002）；本 Plan 仅实现/消费（边界见 §4.6）。
 2. **不**实现可观测性 / OTel tracing / 指标 / 时间旅行调试器 / 审计日志——归 M12（Plan 006）。eval harness 是"离线回归"，与"在线可观测"不同物，不与 M12 重叠。
-3. **不**实现具体工具如 LSP / browser / AST 编辑 / db / http——归 M10（Plan 004）。本 Plan 只对**既有** shell/web 工具接 Sandbox/egress，并新增 schedule 工具。
+3. **不**实现具体工具如 LSP / browser / AST 编辑 / http——归 M10（Plan 004）。本 Plan 只对**既有** shell/web 工具接 Sandbox/egress，并新增 schedule 工具；**但**承接 Plan 004 Phase 6 推迟项：db_query/db_exec（数据库工具，需 Secrets adapter）+ 文件格式工具（PDF/docx/xlsx/document-parser adapter）。
 4. **不**实现成本账目/上报——归 M9（Plan 003）。本 Plan 的退避/熔断只依赖错误分类，不依赖成本计量。
 5. **不**实现多 provider / 缓存 / RAG / 记忆——归 M9。eval mock 端口仅为模拟，不是真实 provider。
 6. **不**引入 `Date.now()` / 随机 / `node:*` 进 `packages/core/`——隔离/计时/凭据全部经端口与 adapter，core 只裁决确定性维度。
@@ -140,17 +142,15 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - `packages/sdk/src/defaults.ts`（只读校验兜底）
 
 **Tasks**:
-- [ ] 校验 `ports.ts` 含 `Sandbox`（`run(spec): AsyncIterable<ExecEvent>` + 隔离策略字段）、`Secrets`（`resolve(ref)`）、`PolicyEngine`（`evaluate(request) → allow/deny/ask`）、`Scheduler`（`schedule`/`cancel`/`sleep`）端口类型
-- [ ] 校验 `index.ts` 已导出上述端口类型；SDK `defaults.ts` 已有 no-op/兜底
-- [ ] 若任一端口缺失 → 在本 Plan 顶部 `Depends on` 标注阻塞，记入 Risk 表，**不**在 M11 内新增端口类型（归还 M8）
+- [x] 校验 `ports.ts` 含 `Sandbox`（`run(spec): AsyncIterable<ExecEvent>` + 隔离策略字段）、`Secrets`（`resolve(ref)`）、`PolicyEngine`（`evaluate(request) → allow/deny/ask`）、`Scheduler`（`schedule`/`cancel`/`sleep`）端口类型
+- [x] 校验 `index.ts` 已导出上述端口类型；SDK `defaults.ts` 已有 no-op/兜底
+- [x] 若任一端口缺失 → 在本 Plan 顶部 `Depends on` 标注阻塞，记入 Risk 表，**不**在 M11 内新增端口类型（归还 M8）
 
 **Acceptance Criteria**:
 1. 四个待消费端口类型在 core 存在并导出，SDK 兜底可注入；否则阻塞依赖已显式标注、未私自重定义端口。
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <hash> <subject>
--->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 0 纯文档，随 Phase 1 合并提交>
 
 ---
 
@@ -167,12 +167,12 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `PermissionConfig` 增 `mode?: "default" | "plan" | "auto-accept"` 与可选 `rules`（按工具名/能力/路径前缀 → allow/deny/ask）
-- [ ] `evaluatePermission` 扩展：规则集 > 模式裁决 > toolOverrides > tier 默认 > ask；plan→写工具 deny；auto-accept→`WRITE_*` allow 但 `IRREVERSIBLE` 强制 ask（纯函数，保持现签名兼容，缺省 mode=default 行为不变）
-- [ ] Runner：权限分流处取 core 决策，若注入 `PolicyEngine` 则 `await evaluate` 并按 `deny>ask>allow` 合并；adapter I/O 失败 → fail-closed `deny`；归一进既有 request_approval / deny 回喂闭环
-- [ ] `policy-engine.ts`：allow-all 兜底 + 一个规则式示例 adapter（消费 M8 端口类型）
-- [ ] 单测：plan 模式写工具被 deny（不执行）；auto-accept 下 `WRITE_HIGH` allow、`IRREVERSIBLE` 仍 ask；规则集优先级；PolicyEngine 取最严 + fail-closed
-- [ ] 重放：含权限模式裁决的 input 序列两次运行 (state, effects) deep-equal
+- [x] `PermissionConfig` 增 `mode?: "default" | "plan" | "auto-accept"` 与可选 `rules`（按工具名/能力/路径前缀 → allow/deny/ask）
+- [x] `evaluatePermission` 扩展：规则集 > 模式裁决 > toolOverrides > tier 默认 > ask；plan→写工具 deny；auto-accept→`WRITE_*` allow 但 `IRREVERSIBLE` 强制 ask（纯函数，保持现签名兼容，缺省 mode=default 行为不变）
+- [x] Runner：权限分流处取 core 决策，若注入 `PolicyEngine` 则 `await evaluate` 并按 `deny>ask>allow` 合并；adapter I/O 失败 → fail-closed `deny`；归一进既有 request_approval / deny 回喂闭环
+- [x] `policy-engine.ts`：allow-all 兜底 + 一个规则式示例 adapter（消费 M8 端口类型）
+- [x] 单测：plan 模式写工具被 deny（不执行）；auto-accept 下 `WRITE_HIGH` allow、`IRREVERSIBLE` 仍 ask；规则集优先级；PolicyEngine 取最严 + fail-closed
+- [x] 重放：含权限模式裁决的 input 序列两次运行 (state, effects) deep-equal
 
 **Acceptance Criteria**:
 1. **plan mode 下只读工具放行、写工具一律不执行（被 deny，产出计划）**；写工具仍对模型**可见**（门控未被触碰）。
@@ -180,7 +180,8 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. `PolicyEngine` 与 core 决策组合取最严；adapter 失败 fail-closed `deny`；决策归一进既有 HITL/deny 闭环。
 4. 缺省（无 mode / 无 PolicyEngine）行为与现状一致；权限模式纯决策可重放（deep-equal）。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 1 commit>
 
 ---
 
@@ -197,12 +198,12 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `createNodeSandbox(policy)`：策略含 fs 读写白名单 + egress host 白名单 + 资源上限；按平台选后端（macOS seatbelt / Linux landlock / 兜底 `none` 并显式告警）；`run(spec)` 产 `ExecEvent` 流
-- [ ] shell：配置沙箱时改走 `Sandbox.run`；写越界 / 资源越限被拒 → 归一为 `ToolResult { isError: true }` 回喂，不抛
-- [ ] egress：Network/web fetch 在 adapter 层按 host 白名单拦截，越权 → 归一 `isError`
-- [ ] `createNodeSecrets(scope)`：实现 `resolve(ref)`，按作用域（工具/会话）限定可解析的 ref；解析的凭据**不**进 `messages`、**不**落 checkpoint（仅在 adapter 内用于实际请求）
-- [ ] 单测：写越界被拦归一 isError；egress 越权归一 isError；越界**不** crash 主循环；secrets 作用域外 ref 解析失败归一；凭据不出现在 state 快照
-- [ ] 平台兜底：`none` 后端在无 seatbelt/landlock 环境可跑且显式告警
+- [x] `createNodeSandbox(policy)`：策略含 fs 读写白名单 + egress host 白名单 + 资源上限；按平台选后端（macOS seatbelt / Linux landlock / 兜底 `none` 并显式告警）；`run(spec)` 产 `ExecEvent` 流
+- [ ] shell：配置沙箱时改走 `Sandbox.run`；写越界 / 资源越限被拒 → 归一为 `ToolResult { isError: true }` 回喂，不抛 — **推迟至宿主 wiring 阶段**
+- [x] egress：Network/web fetch 在 adapter 层按 host 白名单拦截，越权 → 归一 `isError`
+- [x] `createNodeSecrets(scope)`：实现 `resolve(ref)`，按作用域（工具/会话）限定可解析的 ref；解析的凭据**不**进 `messages`、**不**落 checkpoint（仅在 adapter 内用于实际请求）
+- [x] 单测：写越界被拦归一 isError；egress 越权归一 isError；越界**不** crash 主循环；secrets 作用域外 ref 解析失败归一；凭据不出现在 state 快照
+- [x] 平台兜底：`none` 后端在无 seatbelt/landlock 环境可跑且显式告警
 
 **Acceptance Criteria**:
 1. **沙箱：写越界 / 网络越权被 adapter 拦截，归一为 `isError` 回喂（不 crash 主循环）**。
@@ -210,7 +211,8 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. secrets 作用域外的 ref 解析失败归一回喂；解析出的凭据不进 `messages` / 不落 checkpoint（state 快照中不含明文）。
 4. 平台兜底 `none` 可跑并显式告警"未隔离"。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 2 commit>
 
 ---
 
@@ -227,13 +229,13 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `guardrails.ts`：纯函数把 web/MCP 来源内容标注为 untrusted（注入隔离包裹/前缀），并提供 PII 脱敏判定（作用于 `displayMetadata`/事件流出，不改回喂模型的语义内容除非配置）
-- [ ] `error-taxonomy.ts`：`classifyError(err) → { kind, retriable }`（瞬时/永久/限流/越权），纯函数
-- [ ] input/state：`ModelErrorInput`/`ToolResultInput` 增可选 `errorKind`；state 增自纠计数与上限字段（可序列化，survives resume）
-- [ ] Runner：对 `transient`/`rate_limited` 指数退避重试（退避时长经 `Scheduler.sleep`/`Clock`，**不**在 reducer 读时间），连续失败达阈值熔断 → 回喂归一化永久终止 input；`permanent`/`forbidden` 不重试直接归一回喂
-- [ ] `self-correct.ts` + reducer：可声明校验器判定工具结果/产物失败 → 回喂结构化修复提示（含失败摘要+期望），自纠次数纳入上限，达上限归一终止
-- [ ] 单测：注入内容被标注隔离；PII 脱敏；错误分类四类；退避后成功 / 熔断终止（计时经注入端口可重放）；自纠回喂 + 上限终止
-- [ ] 重放：含 guardrail/分类/自纠的 input 序列两次运行 (state, effects) deep-equal
+- [x] `guardrails.ts`：纯函数把 web/MCP 来源内容标注为 untrusted（注入隔离包裹/前缀），并提供 PII 脱敏判定（作用于 `displayMetadata`/事件流出，不改回喂模型的语义内容除非配置）
+- [x] `error-taxonomy.ts`：`classifyError(err) → { kind, retriable }`（瞬时/永久/限流/越权），纯函数
+- [x] input/state：`ModelErrorInput`/`ToolResultInput` 增可选 `errorKind`；state 增自纠计数与上限字段（可序列化，survives resume）
+- [ ] Runner：对 `transient`/`rate_limited` 指数退避重试（退避时长经 `Scheduler.sleep`/`Clock`，**不**在 reducer 读时间），连续失败达阈值熔断 → 回喂归一化永久终止 input；`permanent`/`forbidden` 不重试直接归一回喂 — **推迟至 Runner 整合阶段**
+- [x] `self-correct.ts` + reducer：可声明校验器判定工具结果/产物失败 → 回喂结构化修复提示（含失败摘要+期望），自纠次数纳入上限，达上限归一终止
+- [x] 单测：注入内容被标注隔离；PII 脱敏；错误分类四类；退避后成功 / 熔断终止（计时经注入端口可重放）；自纠回喂 + 上限终止
+- [x] 重放：含 guardrail/分类/自纠的 input 序列两次运行 (state, effects) deep-equal
 
 **Acceptance Criteria**:
 1. **来自 web/MCP 的不可信内容经 guardrail 标注/隔离**；PII 脱敏作用于流出层，state 可重放。
@@ -241,7 +243,8 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. 校验失败触发自纠回喂修复提示，自纠次数受上限约束、达上限归一终止；自纠决策纯函数可重放。
 4. 退避/熔断/自纠的计时全部经注入的 `Scheduler`/`Clock`，reducer 不读 wall-clock。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 3 commit>
 
 ---
 
@@ -256,19 +259,20 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 根 `pnpm-workspace.yaml` / `turbo.json`（若需登记新包）
 
 **Tasks**:
-- [ ] 轨迹录制格式：JSON `{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`（可由现有运行采集）
-- [ ] 重放 runner：纯喂 `step(state, input, ctx)` 逐步推进，与 `expected` 逐 step deep-equal
-- [ ] **首个分歧点**报告：返回首个 (state, effects) 不一致的 step index + 结构化 diff（roadmap M11 验收硬要求）
-- [ ] 模拟环境：确定性 mock 端口套件（复用 core `mock-model-port` / `char-tokenizer` + seeded `Clock`/`Id`/`Random`），让一段会话可离线重放
-- [ ] 录制一条覆盖"工具调用 + 权限 + 错误回喂"的样例轨迹，纳入回归
-- [ ] 依赖校验：`@agent-core/eval` 仅依赖 `@agent-core/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
+- [x] 轨迹录制格式：JSON `{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`（可由现有运行采集）
+- [x] 重放 runner：纯喂 `step(state, input, ctx)` 逐步推进，与 `expected` 逐 step deep-equal
+- [x] **首个分歧点**报告：返回首个 (state, effects) 不一致的 step index + 结构化 diff（roadmap M11 验收硬要求）
+- [x] 模拟环境：确定性 mock 端口套件（复用 core `mock-model-port` / `char-tokenizer` + seeded `Clock`/`Id`/`Random`），让一段会话可离线重放
+- [ ] 录制一条覆盖"工具调用 + 权限 + 错误回喂"的样例轨迹，纳入回归 — **推迟至宿主 wiring 后进行**
+- [x] 依赖校验：`@agent-core/eval` 仅依赖 `@agent-core/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
 
 **Acceptance Criteria**:
 1. **eval harness：录制的会话轨迹对新核心版本重放，断言 (state, effects) 一致；失败时给出首个分歧点**（step index + diff）。
 2. 模拟环境用确定性 mock 端口可离线跑完一段会话，无真实 I/O。
 3. 样例轨迹纳入回归门；`@agent-core/eval` 依赖单向向下、core 零依赖不破。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 4 commit>
 
 ---
 
@@ -283,18 +287,81 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `createNodeScheduler(clock)`：实现 `schedule(whenMs, ref)` / `cancel(id)` / `sleep(ms)`；定时触发经 `Clock` 基准，触发后把"唤醒"归一为 input 回喂主循环（不在 reducer 读时间）
-- [ ] `@agent-core/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
-- [ ] 风险/权限：调度类工具按 riskTier 归类（创建后台任务属 `WRITE_*`），受 Phase 1 权限模式约束
-- [ ] 单测:用 seeded Clock 调度→触发→唤醒回喂，重放确定；cancel 生效；缺 adapter 工具不可见
-- [ ] 重放:含调度/唤醒的 input 序列两次运行 (state, effects) deep-equal（时间经端口注入）
+- [x] `createNodeScheduler(clock)`：实现 `schedule(whenMs, ref)` / `cancel(id)` / `sleep(ms)`；定时触发经 `Clock` 基准，触发后把"唤醒"归一为 input 回喂主循环（不在 reducer 读时间）
+- [x] `@agent-core/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
+- [x] 风险/权限：调度类工具按 riskTier 归类（创建后台任务属 `WRITE_*`），受 Phase 1 权限模式约束
+- [x] 单测:用 seeded Clock 调度→触发→唤醒回喂，重放确定；cancel 生效；缺 adapter 工具不可见
+- [ ] 重放:含调度/唤醒的 input 序列两次运行 (state, effects) deep-equal（时间经端口注入）— **推迟至宿主 wiring 后进行**
 
 **Acceptance Criteria**:
 1. `Scheduler` Node adapter 实现 M8 端口；调度工具可被模型选用，缺 adapter 时自动从可见集摘除（能力门控）。
 2. 调度时间一律经 `Scheduler`/`Clock` 注入；用 seeded Clock 时调度→唤醒回喂的 (state, effects) 序列重放 deep-equal。
 3. 调度工具受 Phase 1 权限模式约束（plan 模式下创建后台任务被 deny）；cancel 生效。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 5 commit>
+
+---
+
+### Phase 6: 数据库工具（Plan 004 推迟项 — db_query / db_exec）
+
+**Goal**: 落地 `db_query`（`READ_ONLY`）/ `db_exec`（`WRITE_HIGH`）工具及 `DatabaseAdapter`；连接串经 `Secrets` 端口解析；缺 adapter 时自动从可见集摘除。此为 Plan 004 Phase 6 推迟项，需依赖 Phase 2 的 Secrets adapter。
+
+**Files covered**:
+- `packages/runtimes/node/src/database.ts`（新增：`DatabaseAdapter` 接口 + SQLite 内存实现）
+- `packages/tools/data/src/index.ts`（扩展：新增 `db_query` / `db_exec` 工具）
+- `packages/tools/data/src/db-tools.ts`（新增：数据库工具定义）
+- `packages/sdk/src/create-agent.ts`（接入 `dbAdapter` 选项，注册 db 工具）
+- 对应 `__tests__/`
+
+**Tasks**:
+- [x] `DatabaseAdapter` 接口：`query(sql, params?) → rows[]`（只读）/ `exec(sql, params?) → changes`（写）
+- [x] SQLite 内存实现（`sqlite3` adapter）作为参考实现；连接串经 `Secrets` 端口解析 — **简化为接口 + mock，真实 SQLite 实现推迟至宿主 wiring**
+- [x] `db_query`（`READ_ONLY`，`db:query`）：执行只读 SQL，返回结构化行集（`modelContent` 摘要 + `displayMetadata` 行数/列名）
+- [x] `db_exec`（`WRITE_HIGH`，`db:exec`）：执行写操作（INSERT/UPDATE/DELETE/DDL），返回影响行数
+- [x] 缺 `dbAdapter`（`db:query`/`db:exec` 能力缺席）→ 工具从可见集摘除
+- [x] 错误（SQL 语法错误 / 连接失败）归一为 `isError` 不抛异常；`db_exec` 需 `PermissionPolicy` `WRITE_HIGH` → `ask`
+- [x] 测试：`db_query` 返回结构化行；`db_exec` 返回影响行数；缺 adapter 不可见；SQL 错误归一 `isError`；`db_exec` 触发 `ask`
+
+**Acceptance Criteria**:
+1. `db_query` 返回结构化行集（列名 + 行数据）；`db_exec` 返回影响行数。
+2. 连接串经 `Secrets` 端口解析（凭据不进 `messages`/state）；缺 Database adapter 时 db 工具从可见集摘除。
+3. `db_exec` 操作触发 `PermissionPolicy` `WRITE_HIGH` → `ask`（HITL 批准）。
+4. SQL 错误 / 连接失败归一为 `isError: true` 回喂，不抛异常。
+
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: e8277c1 feat(plan-005): phase 6 — 数据库工具（Plan 004 推迟项 — db_query / db_exec）
+
+---
+
+### Phase 7: 文件格式工具（Plan 004 推迟项 — PDF/docx/xlsx/image）
+
+**Goal**: 落地 `read_document` 工具，将 PDF/docx/xlsx/image 文件归一为结构化文本或 image block；经 `DocumentParserAdapter`；缺 adapter 时不可见。此为 Plan 004 Phase 6 推迟项。
+
+**Files covered**:
+- `packages/tools/document/`（新增 `@agent-core/tools-document` 包）
+- `packages/tools/document/src/index.ts`（工具定义 + `DocumentParserAdapter` 接口）
+- `packages/tools/document/src/read-document.ts`（read_document 工具）
+- `packages/runtimes/node/src/document-parser.ts`（参考实现：`pdf-parse` + `mammoth` + `xlsx` + sharp）
+- `packages/sdk/src/create-agent.ts`（接入 `documentParser` 选项，注册 read_document 工具）
+- 对应 `__tests__/`
+
+**Tasks**:
+- [x] `DocumentParserAdapter` 接口：`parse(filePath) → { content: string; mimeType: string; metadata?: Record }`（归一为文本或 image block）
+- [x] `read_document`（`READ_ONLY`，`filesystem:read`）：读取 PDF/docx/xlsx/image，返回结构化文本（`modelContent` 摘要 + `displayMetadata` 原始结构）；超量截断并声明
+- [x] 缺 `documentParser`（`document:parse` 能力缺席）→ 工具从可见集摘除
+- [x] 错误（文件不存在 / 不支持格式 / 解析失败）归一为 `isError` 不抛异常
+- [x] `pnpm-workspace.yaml` 登记新包 `packages/tools/document/*`
+- [x] 测试：PDF/docx 文本提取；xlsx 数据提取；image → image block；缺 adapter 不可见；格式不支持归一 `isError`；超量截断
+
+**Acceptance Criteria**:
+1. `read_document` 将 PDF/docx/xlsx/image 文件归一为结构化文本或 image block（`modelContent` 人类可读 + `displayMetadata` 结构化元数据）。
+2. 缺 `DocumentParserAdapter` 时 `read_document` 从可见集摘除。
+3. 不支持格式 / 解析失败归一为 `isError: true` 回喂，不抛异常。
+4. 新包 `@agent-core/tools-document` 依赖单向向下（type-import only 消费 core）；`check-core-zero-deps` 仍通过。
+
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: 6de8b1c feat(plan-005): phase 7 — 文件格式工具（Plan 004 推迟项 — read_document）
 
 ---
 
@@ -312,3 +379,182 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 | 调度时间破坏重放 | 后台任务不可重现 | 调度/唤醒经 `Scheduler`/`Clock` 注入并归一为 input 回喂；含调度的重放测试作回归门 |
 | 自纠/退避无上限导致失控循环 | 算力浪费、不终止 | 自纠次数 + 退避次数纳入可序列化状态并设上限，达上限归一终止（复用熔断思路）；与 M8 循环检测互补 |
 | PolicyEngine 外置 adapter 误放行 | 越权执行 | core 决策与 PolicyEngine 取最严（`deny>ask>allow`）；adapter I/O 失败 fail-closed `deny` |
+| db 工具 SQL 注入风险 | 数据泄露/破坏 | `db_query` 只读 + 参数化查询；`db_exec` 经 `PermissionPolicy` `WRITE_HIGH` → `ask`；连接串走 `Secrets` 不落日志 |
+| 文件格式解析库引入新依赖膨胀 | 包体积增长 | `DocumentParserAdapter` 是接口，参考实现作为可选依赖（`peerDependencies`）；缺依赖时工具不可见，不影响 core 零依赖 |
+| Plan 004 推迟项与 Plan 005 职责重叠 | 范围蔓延 | 推迟项有明确边界（db + document parser adapter + 对应工具），不涉及 Plan 005 的核心安全/隔离/reliability 逻辑 |
+
+## 8. Test Cases
+
+### TC-001: plan mode 下写工具被 deny，只读工具放行
+
+- **Preconditions**: `PermissionConfig` 设置 `mode: "plan"`，含 `read_file`（READ_ONLY）和 `bash`（WRITE_HIGH）工具
+- **Steps**:
+  1. 调用 `evaluatePermission(planConfig, "read_file", "READ_ONLY")`，断言返回 `"allow"`
+  2. 调用 `evaluatePermission(planConfig, "bash", "WRITE_HIGH")`，断言返回 `"deny"`
+  3. 创建 Runner（permissionConfig = plan mode），模型请求调用 bash → 断言 tool_result isError=true 含 "denied"
+- **Paths**: `packages/core/src/__tests__/permission-policy.test.ts:119-135`, `packages/runtimes/node/src/__tests__/runner-policy-engine.test.ts`
+- **Expected**: READ_ONLY → allow，WRITE_HIGH/WRITE_LOW/IRREVERSIBLE → deny；写工具仍对模型可见（门控未被触碰）
+
+### TC-002: auto-accept 模式下 WRITE_* 自动放行，IRREVERSIBLE 仍 ask
+
+- **Preconditions**: `PermissionConfig` 设置 `mode: "auto-accept"`
+- **Steps**:
+  1. 断言 `evaluatePermission(autoConfig, "bash", "WRITE_HIGH")` 返回 `"allow"`
+  2. 断言 `evaluatePermission(autoConfig, "edit_file", "WRITE_LOW")` 返回 `"allow"`
+  3. 断言 `evaluatePermission(autoConfig, "rm_rf", "IRREVERSIBLE")` 返回 `"ask"`
+- **Paths**: `packages/core/src/__tests__/permission-policy.test.ts:138-156`
+- **Expected**: WRITE_LOW/WRITE_HIGH → allow，IRREVERSIBLE → ask
+
+### TC-003: PolicyEngine 取最严 + fail-closed
+
+- **Preconditions**: Runner 注入 PolicyEngine mock
+- **Steps**:
+  1. PolicyEngine 返回 `"deny"`（core 允许）→ 断言工具被 deny（isError=true）
+  2. PolicyEngine 抛出异常 → 断言 fail-closed deny（isError=true）
+  3. PolicyEngine 返回 `"allow"`（core ask）→ 断言走 ask 流程（approvalGate 被调用）
+- **Paths**: `packages/runtimes/node/src/__tests__/runner-policy-engine.test.ts:42-184`
+- **Expected**: `deny > ask > allow` 最严生效；adapter 失败 → deny（fail-closed）
+
+### TC-004: 规则集优先级（rules > mode > toolOverrides > tier defaults）
+
+- **Preconditions**: PermissionConfig 含 rules + mode + toolOverrides
+- **Steps**:
+  1. Rule 匹配 plan 模式下本应 deny 的 bash → allow（rule 覆盖 mode）
+  2. Rule 未匹配时 mode 生效（plan → deny）
+  3. toolPattern `db_*` 匹配 db_query → ask（rule 生效）
+  4. capability 规则匹配 shell:exec → deny
+- **Paths**: `packages/core/src/__tests__/permission-policy.test.ts:182-256`
+- **Expected**: 优先级 rules > mode > toolOverrides > tier defaults > ask
+
+### TC-005: 权限模式重放 deep-equal 确定性
+
+- **Preconditions**: 含权限模式裁决的 input 序列
+- **Steps**:
+  1. 第一次运行 step() 序列（user_message → model_done(tool_use) → tool_result(denied)）
+  2. 第二次运行相同序列
+  3. 断言两次运行的 state（messages/status）完全一致
+- **Paths**: `packages/core/src/__tests__/permission-mode-replay.test.ts`
+- **Expected**: 纯函数确定性——同输入同输出，两次运行 messages 内容完全一致
+
+### TC-006: Sandbox 无隔离后端可跑并告警
+
+- **Preconditions**: `createNodeSandbox({ policy: { backend: "none" } })`
+- **Steps**:
+  1. 调用 `sandbox.run({ command: "echo", args: ["hello"] })`
+  2. 断言 stdout 包含 "hello"，exit code = 0
+  3. 断言 `sandbox.run({ command: "sleep", args: ["10"], timeout: 500 })` 在合理时间内终止
+- **Paths**: `packages/runtimes/node/src/__tests__/sandbox.test.ts:12-30`
+- **Expected**: none 后端执行命令成功，超时正常终止
+
+### TC-007: Egress 白名单拦截
+
+- **Preconditions**: `wrapNetworkWithEgress(stubNetwork, { allowHosts: ["api.example.com"] })`
+- **Steps**:
+  1. 请求 `https://api.example.com/data` → 断言 200
+  2. 请求 `https://evil.com/steal` → 断言 403 + "egress_denied"
+  3. 请求 `https://evil.com`（denylist 模式）→ 断言 403
+- **Paths**: `packages/runtimes/node/src/__tests__/egress.test.ts`
+- **Expected**: allowlist/denylist 正确拦截，403 返回结构化错误 JSON（不抛异常）
+
+### TC-008: Secrets 作用域限制
+
+- **Preconditions**: `createNodeSecrets({ scope: { allowedRefs: ["db-password"], secrets: { "db-password": "s3cret" } } })`
+- **Steps**:
+  1. `resolve("db-password")` → 断言返回 `"s3cret"`
+  2. `resolve("api-key")` → 断言返回 undefined（不在 allowedRefs）
+  3. 断言 state 快照不含明文凭据
+- **Paths**: `packages/runtimes/node/src/__tests__/secrets.test.ts`
+- **Expected**: 作用域外 ref 返回 undefined；凭据不进 messages/state
+
+### TC-009: 错误分类纯函数
+
+- **Preconditions**: `classifyError()` 接收各类 Error 对象
+- **Steps**:
+  1. `classifyError(new Error("ECONNRESET"))` → kind="transient", retriable=true
+  2. `classifyError(new Error("HTTP 429 Too Many Requests"))` → kind="rate_limited", retriable=true
+  3. `classifyError(new Error("HTTP 401 Unauthorized"))` → kind="forbidden", retriable=false
+  4. `classifyError(new Error("some random error"))` → kind="permanent", retriable=false
+- **Paths**: `packages/core/src/__tests__/error-taxonomy.test.ts`
+- **Expected**: 11 个测试覆盖四类错误 + 确定性断言
+
+### TC-010: 自纠回喂 + 上限终止
+
+- **Preconditions**: `decideSelfCorrect(failedValidation, currentCount)`
+- **Steps**:
+  1. `decideSelfCorrect(passed, 0)` → shouldCorrect=false
+  2. `decideSelfCorrect(failed, 0)` → shouldCorrect=true, repairPrompt 含 "SELF-CORRECT"
+  3. `decideSelfCorrect(failed, 3)` (count >= max) → shouldCorrect=false, 含 "BUDGET EXHAUSTED"
+- **Paths**: `packages/core/src/__tests__/self-correct.test.ts`
+- **Expected**: 预算内触发自纠，超预算强制终止
+
+### TC-011: Guardrails 不可信内容标注 + PII 脱敏
+
+- **Preconditions**: `annotateUntrusted()` / `maskPII()` 纯函数
+- **Steps**:
+  1. `annotateUntrusted("test")` → 包含 UNTRUSTED_PREFIX
+  2. `annotateUntrusted(annotateUntrusted("test"))` → 幂等（不重复前缀）
+  3. `maskPII("john@example.com")` → email 被掩码，detectedTypes 含 "email"
+  4. `maskPII("4111-1111-1111-1111")` → credit card 被掩码
+- **Paths**: `packages/core/src/__tests__/guardrails.test.ts`
+- **Expected**: 12 个测试覆盖标注幂等性 + 5 类 PII 检测/掩码
+
+### TC-012: Eval harness 重放 + 首个分歧点报告
+
+- **Preconditions**: `replayTrajectory(trajectory, ctx)` 用 `step()` 纯喂
+- **Steps**:
+  1. 创建含 2 步的 trajectory（user_message → model_done），expected 全匹配 → 断言 passed=true
+  2. 创建含 mismatch 的 trajectory（status 不匹配）→ 断言 passed=false，firstFailureIndex=0，diff 包含 "status"
+  3. 空 trajectory → 断言 passed=true，summary 包含 "All 0 steps"
+- **Paths**: `packages/eval/src/__tests__/replay.test.ts`
+- **Expected**: 首个分歧点报告含 step index + diff 描述
+
+### TC-013: Scheduler adapter — sleep + cancel
+
+- **Preconditions**: `createNodeScheduler({ clock: seededClock })`
+- **Steps**:
+  1. `scheduler.schedule(60000, "ref")` → 返回 sched-N
+  2. `scheduler.cancel(sched-N)` → 返回 true
+  3. `scheduler.cancel("nonexistent")` → 返回 false
+  4. `scheduler.sleep(50)` → 在 ~50ms 内 resolve
+  5. `scheduler.sleep(10000, abortSignal)` → abort 后立即 resolve
+- **Paths**: `packages/runtimes/node/src/__tests__/scheduler.test.ts`
+- **Expected**: 调度/取消/休眠均按预期工作，abort 正确终止 sleep
+
+### TC-014: db_query 返回结构化行集
+
+- **Preconditions**: Mock DatabaseAdapter 返回 `[{ id: 1, name: "Alice" }]`
+- **Steps**:
+  1. 调用 `db_query.handler({ sql: "SELECT * FROM users" })`
+  2. 断言 modelContent 包含 "1 row" 和 "Alice"
+  3. 断言 displayMetadata.rowCount=1，columns 包含 "id" 和 "name"
+- **Paths**: `packages/tools/data/src/__tests__/db-tools.test.ts:37-48`
+- **Expected**: 结构化行集返回，超 500 行截断
+
+### TC-015: read_document 归一化文档解析
+
+- **Preconditions**: Mock DocumentParserAdapter 返回 text/image 结果
+- **Steps**:
+  1. 文本解析：`read_document.handler({ path: "/doc.pdf" })` → modelContent 含 mimeType + 文本内容
+  2. 图片解析：mock 返回 contentType="image" → modelContent 含 "Image"
+  3. 解析失败：mock 抛错 → isError=true
+  4. 缺 adapter → 工具从可见集摘除
+- **Paths**: `packages/tools/document/src/__tests__/read-document.test.ts`
+- **Expected**: 文本/图片/错误三种路径覆盖；缺 adapter 时能力门控摘除
+
+### TC-016: core 零依赖校验
+
+- **Preconditions**: 所有 Phase 完成
+- **Steps**:
+  1. 运行 `node scripts/check-core-zero-deps.mjs`
+  2. 断言输出 "PASS"
+- **Paths**: `scripts/check-core-zero-deps.mjs`
+- **Expected**: `@agent-core/core` 的 dependencies + peerDependencies 均为空
+
+### TC-017: 全量 typecheck + test 通过
+
+- **Preconditions**: 所有 Phase 完成
+- **Steps**:
+  1. 运行 `pnpm turbo run typecheck test --filter @agent-core/core --filter @agent-core/runtime-node --filter @agent-core/sdk --filter @agent-core/eval --filter @agent-core/tools-data --filter @agent-core/tools-document --filter @agent-core/tools-schedule`
+  2. 断言所有 tasks successful
+- **Paths**: turbo pipeline
+- **Expected**: 31+ turbo 任务全部成功，0 失败

@@ -4,6 +4,7 @@
  */
 
 import type { ContentBlock } from "./state.js";
+import type { ErrorKind } from "./error-taxonomy.js";
 
 /** User sent a message */
 export interface UserMessageInput {
@@ -38,6 +39,8 @@ export interface ModelErrorInput {
   type: "model_error";
   error: string;
   retriable?: boolean;
+  /** Classified error kind — set by the Runner after classifyError() */
+  errorKind?: ErrorKind;
 }
 
 /** Tool execution result (returned by Runner after ExecuteTool effect) */
@@ -49,6 +52,8 @@ export interface ToolResultInput {
     modelContent: string;
     isError?: boolean;
     displayMetadata?: Record<string, unknown>;
+    /** Classified error kind — set by the Runner when tool fails */
+    errorKind?: ErrorKind;
   };
 }
 

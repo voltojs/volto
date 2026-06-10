@@ -4,6 +4,7 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
+  UNTRUSTED_PREFIX,
 } from "@agent-core/core";
 import type { ToolSource, ToolDefinition, ToolResult } from "@agent-core/core";
 
@@ -75,7 +76,7 @@ describe("createAgent — ToolSource integration", () => {
       const toolMsg = state.messages.find((m) => m.role === "tool");
       expect(toolMsg).toBeDefined();
       const blocks = toolMsg?.content as Array<{ type: string; content: string }>;
-      expect(blocks.some((b) => b.type === "tool_result" && b.content === "mock: mcp__srv__greet")).toBe(true);
+      expect(blocks.some((b) => b.type === "tool_result" && b.content === `${UNTRUSTED_PREFIX}mock: mcp__srv__greet`)).toBe(true);
     });
 
     it("backward compat: no toolSources = same as before (no ToolSource tools)", async () => {

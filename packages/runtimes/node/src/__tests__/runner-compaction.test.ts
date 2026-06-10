@@ -75,6 +75,8 @@ describe("Runner — compaction wiring", () => {
       maxCostDollars: undefined,
       maxWallclockMs: undefined,
       maxLoopCount: undefined,
+      selfCorrectionCount: 0,
+      maxSelfCorrections: undefined,
     };
 
     const spy = createSpyModelPort([

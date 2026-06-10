@@ -21,6 +21,7 @@ import type {
   CompactionConfig,
   Message,
   Clock,
+  PolicyEngine,
 } from "@agent-core/core";
 import {
   step,
@@ -29,6 +30,8 @@ import {
   routeToolCall,
   evaluatePermission,
   decideCompaction,
+  classifyError,
+  annotateUntrusted,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 
@@ -76,6 +79,12 @@ export interface RunnerOptions {
    * runner-level replay; defaults to wall-clock (Date.now) when omitted.
    */
   clock?: Clock;
+  /**
+   * External policy engine for authorization decisions.
+   * When provided, evaluated alongside core PermissionPolicy (most restrictive wins).
+   * Fail-closed: if PolicyEngine evaluation throws, decision defaults to "deny".
+   */
+  policyEngine?: PolicyEngine;
 }
 
 export interface Runner {
@@ -311,7 +320,8 @@ export function createRunner(opts: RunnerOptions): Runner {
     } catch (err: unknown) {
       if (getStatus() === "calling_model") {
         const error = err instanceof Error ? err.message : String(err);
-        forwardEmit(feed({ type: "model_error", error, retriable: false }));
+        const classification = classifyError(err);
+        forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
       }
     }
   }
@@ -390,7 +400,28 @@ export function createRunner(opts: RunnerOptions): Runner {
           if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
-              const permDecision = evaluatePermission(opts.permissionConfig, toolCall.name, toolDef.riskTier);
+              const toolCaps = new Set(toolDef.requires ?? []);
+              let permDecision = evaluatePermission(
+                opts.permissionConfig,
+                toolCall.name,
+                toolDef.riskTier,
+                toolCaps,
+              );
+
+              // Combine with external PolicyEngine (most restrictive wins)
+              if (opts.policyEngine && permDecision !== "deny") {
+                try {
+                  const externalDecision = await opts.policyEngine.evaluate({
+                    action: toolCall.name,
+                    context: { riskTier: toolDef.riskTier },
+                  });
+                  permDecision = mostRestrictive(permDecision, externalDecision);
+                } catch {
+                  // Fail-closed: PolicyEngine failure → deny
+                  permDecision = "deny";
+                }
+              }
+
               if (permDecision === "deny") {
                 forwardEmit(feed({
                   type: "tool_result",
@@ -445,11 +476,20 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
+            // Annotate untrusted content from web/MCP tools
+            const isExternal = toolCall.name.startsWith("web_") || toolCall.name.startsWith("mcp__");
+            const annotatedResult = isExternal && !result.isError
+              ? { ...result, modelContent: annotateUntrusted(result.modelContent) }
+              : result;
+
             forwardEmit(feed({
               type: "tool_result",
               toolCallId: toolCall.id,
               toolName: toolCall.name,
-              result,
+              result: {
+                ...annotatedResult,
+                ...(annotatedResult.isError ? { errorKind: classifyError(annotatedResult.modelContent).kind } : {}),
+              },
             }));
             if (getStatus() !== "executing_tools") break;
           }
@@ -557,6 +597,15 @@ export function createRunner(opts: RunnerOptions): Runner {
 // ──────────────────────────────────────────────
 // ModelEvent → AgentInput conversion
 // ──────────────────────────────────────────────
+
+/** Most restrictive permission: deny > ask > allow */
+function mostRestrictive(
+  a: "allow" | "deny" | "ask",
+  b: "allow" | "deny" | "ask",
+): "allow" | "deny" | "ask" {
+  const rank = { deny: 3, ask: 2, allow: 1 };
+  return rank[a] >= rank[b] ? a : b;
+}
 
 function modelEventToInputs(
   event: ModelEvent,
