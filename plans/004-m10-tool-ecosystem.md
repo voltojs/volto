@@ -309,7 +309,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ---
 
-## Test Cases
+## 6. Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
@@ -324,7 +324,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ---
 
-## Test Cases
+## 7. Test Cases
 
 ### TC-001: MCP 工具通过 ToolSource 进入可见集并可调用
 
