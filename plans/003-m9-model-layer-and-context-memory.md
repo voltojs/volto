@@ -67,6 +67,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 5. **不**实现沙箱 / secrets / 调度等其余 M8 端口的 adapter（归 Plan 005+）。
 6. **不**实现多 agent 编排拓扑、OTel 导出后端（归 Plan 006 / M12；本 Plan 只把成本 metric 喂给 `Telemetry` 端口，导出由 M12）。
 7. **不**引入 `Date.now()` / 随机 / `node:*` 进 `packages/core`（时间 / 随机 / ID 仍走 port；文件发现走 FileSystem 端口）。
+8. **不**实现 reasoning `record` 策略（需改造 reducer 将 reasoning_delta 写入 AssistantMessage，牵涉核心状态类型）；本 Plan 仅实现 `emit` 和 `meter-only` 两种策略，`record` 留后续 Plan。
 
 ## 4. Key decisions
 
@@ -285,7 +286,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - [x] 分层记忆：新包 `@agent-core/memory-inmemory` 实现 `MemoryStore`，entry 带 tier（工作 / 情景 / 语义）元数据；语义层经 `Embedder` 索引；`query(text, k)` 跨层检索；情景层归档 turn 摘要（**不修改 `stores/memory`**）
 - [x] `retrieval.ts` 纯函数：给定检索片段，产出注入位置 = 静态前缀缓存断点**之后**、对话变量之前的稳定槽位（不改写前缀字节）
 - [x] SDK / Runner：检索流程（embed query → `MemoryStore.query` → 纯选片 → 注入）；记忆写入（turn 结束写情景 / 语义）经端口
-- [x] 测试：Embedder smoke;分层记忆 save/query/delete + tier 过滤（5 tests）;RAG 注入后静态前缀断点不变(联动 Phase 4 验收 2);检索为 I/O 在端口、选片为纯函数(5 tests);含 RAG 的重放等价(固定 mock embedding)
+- [x] 测试：Embedder smoke（5 tests: 创建 / 空输入 / 网络失败 / HTTP 错误 / 正常解析）；分层记忆 save/query/delete + tier 过滤（5 tests）;RAG 注入后静态前缀断点不变(联动 Phase 4 验收 2);检索为 I/O 在端口、选片为纯函数(5 tests);含 RAG 的重放等价(固定 mock embedding)
 
 **Acceptance Criteria**:
 1. `Embedder` 真实实现消费 M8 端口（**不重定义端口类型**），embed 错误归一不抛异常。
@@ -314,6 +315,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 | 成本计量误做成预算强制 | 与 M8 Phase 4 职责重叠 | 明确 `CostMeter` 只聚合 + 经 EventSink/Telemetry 上报，不触发任何终止（§4.8） |
 | 结构化输出滑向校验-修复 loop | 越界侵占 Plan 005 范围 | 本 Plan 仅做模式开关 + `JSONSchema` 约束；schema 校验失败的自纠循环明确归 M11 |
 | zod 渗入 core | 破坏依赖单向 / 核心纯抽象 | 结构化输出 schema 在 sdk 用 zod 推导，core 只接收 `JSONSchema`；lint 依赖规则把关 |
+| Embedder 端口签名无 error channel | `embed()` 返回 `Promise<number[][]>`，错误只能 throw，与"不抛异常"AC 表面矛盾 | M8 `Embedder` 端口设计遗留问题；throw 由 Runner 在系统边界 catch 并归一化为 `ModelError` input，行为等价于不中断主循环；后续 Plan 可在端口加 `EmbedResult` 类型（含 error 字段）彻底解决 |
 
 ---
 
