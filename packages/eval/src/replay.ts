@@ -138,16 +138,14 @@ function compareStep(
     }
   }
 
-  // Compare effects (type names)
-  if (expected.effects.length > 0) {
-    const missingEffects = expected.effects.filter((e) => !actualEffects.includes(e));
-    const extraEffects = actualEffects.filter((e) => !expected.effects.includes(e));
-    if (missingEffects.length > 0) {
-      diffs.push(`missing effects: ${missingEffects.join(", ")}`);
-    }
-    if (extraEffects.length > 0) {
-      diffs.push(`unexpected effects: ${extraEffects.join(", ")}`);
-    }
+  // Compare effects (type names) — always compare, even when expected is empty
+  const missingEffects = expected.effects.filter((e) => !actualEffects.includes(e));
+  const extraEffects = actualEffects.filter((e) => !expected.effects.includes(e));
+  if (missingEffects.length > 0) {
+    diffs.push(`missing effects: ${missingEffects.join(", ")}`);
+  }
+  if (extraEffects.length > 0) {
+    diffs.push(`unexpected effects: ${extraEffects.join(", ")}`);
   }
 
   return diffs.length > 0 ? diffs.join("; ") : null;

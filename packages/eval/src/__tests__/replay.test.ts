@@ -20,7 +20,7 @@ describe("replayTrajectory", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: [], // don't assert effects — just status
+          effects: ["call_model", "emit"], // user_message → call_model + emit
         },
       ],
     };
@@ -83,11 +83,11 @@ describe("replayTrajectory", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: [], // don't assert exact effects, just status
+          effects: ["call_model", "emit"],
         },
         {
           state: { status: "done" },
-          effects: [],
+          effects: ["emit", "done"], // model_done produces emit + done
         },
       ],
     };

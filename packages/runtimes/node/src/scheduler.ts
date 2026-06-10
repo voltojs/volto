@@ -21,8 +21,6 @@ export interface NodeSchedulerOptions {
   clock: Clock;
 }
 
-let taskCounter = 0;
-
 /**
  * Create a Node.js Scheduler adapter.
  *
@@ -37,6 +35,7 @@ let taskCounter = 0;
 export function createNodeScheduler(opts: NodeSchedulerOptions): Scheduler {
   const { clock } = opts;
   const tasks = new Map<string, ScheduledTask>();
+  let taskCounter = 0;
 
   return {
     async schedule(delayMs: number, ref: string): Promise<string> {

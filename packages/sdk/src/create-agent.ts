@@ -91,6 +91,7 @@ import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@agent
 import type { DatabaseAdapter } from "@agent-core/tools-data";
 import { createReadDocumentTool } from "@agent-core/tools-document";
 import type { DocumentParserAdapter } from "@agent-core/tools-document";
+import { createScheduleTool, createCancelScheduleTool } from "@agent-core/tools-schedule";
 import {
   createBrowserNavigateTool,
   createBrowserClickTool,
@@ -423,6 +424,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.documentParser) {
     adapterTools.push(
       createReadDocumentTool(opts.documentParser),
+    );
+  }
+  if (opts.scheduler) {
+    capabilities.add("scheduler:exec");
+    adapterTools.push(
+      createScheduleTool(opts.scheduler),
+      createCancelScheduleTool(opts.scheduler),
     );
   }
 

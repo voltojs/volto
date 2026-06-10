@@ -30,6 +30,8 @@ import {
   routeToolCall,
   evaluatePermission,
   decideCompaction,
+  classifyError,
+  annotateUntrusted,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 
@@ -318,7 +320,8 @@ export function createRunner(opts: RunnerOptions): Runner {
     } catch (err: unknown) {
       if (getStatus() === "calling_model") {
         const error = err instanceof Error ? err.message : String(err);
-        forwardEmit(feed({ type: "model_error", error, retriable: false }));
+        const classification = classifyError(err);
+        forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
       }
     }
   }
@@ -473,11 +476,20 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
+            // Annotate untrusted content from web/MCP tools
+            const isExternal = toolCall.name.startsWith("web_") || toolCall.name.startsWith("mcp__");
+            const annotatedResult = isExternal && !result.isError
+              ? { ...result, modelContent: annotateUntrusted(result.modelContent) }
+              : result;
+
             forwardEmit(feed({
               type: "tool_result",
               toolCallId: toolCall.id,
               toolName: toolCall.name,
-              result,
+              result: {
+                ...annotatedResult,
+                ...(annotatedResult.isError ? { errorKind: classifyError(annotatedResult.modelContent).kind } : {}),
+              },
             }));
             if (getStatus() !== "executing_tools") break;
           }

@@ -94,6 +94,9 @@ const CAP_DB_READ = "db:query";
 const CAP_DB_WRITE = "db:exec";
 const MAX_ROWS = 500;
 
+/** Destructive SQL verbs that must not appear in db_query */
+const DESTRUCTIVE_SQL_VERBS = /\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE)\b/i;
+
 const dbQuerySchema = z.object({
   sql: z.string().describe("A read-only SQL SELECT query."),
   params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
@@ -119,6 +122,13 @@ export function createDbQueryTool(db: DatabaseAdapter): Tool {
     requires: [CAP_DB_READ],
     riskTier: "READ_ONLY",
     run: async ({ sql, params }) => {
+      // Enforce SELECT-only at runtime (description is not a security boundary)
+      if (DESTRUCTIVE_SQL_VERBS.test(sql)) {
+        return {
+          modelContent: "db_query only allows SELECT queries. Destructive statements (DELETE, UPDATE, DROP, etc.) are not permitted. Use db_exec for write operations.",
+          isError: true,
+        };
+      }
       try {
         const rows = await db.query(sql, params);
         const truncated = rows.length > MAX_ROWS;

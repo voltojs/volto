@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Network, StepContext, ToolDefinition } from "@agent-core/core";
-import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@agent-core/core";
+import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta, UNTRUSTED_PREFIX } from "@agent-core/core";
 import { createWebFetchTool, CAP_NETWORK_FETCH } from "@agent-core/tools-web";
 import { createRunner } from "../runner.js";
 import { createNetworkToolExecutor } from "../network-tool-executor.js";
@@ -40,7 +40,7 @@ describe("network end-to-end via Runner (executor + reducer loop)", () => {
     expect(toolMsg!.content[0]).toMatchObject({
       type: "tool_result",
       toolUseId: "c1",
-      content: "page content",
+      content: `${UNTRUSTED_PREFIX}page content`,
     });
   });
 

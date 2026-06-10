@@ -113,20 +113,22 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
       }
 
       let execCmd = cmd;
-      const execArgs = [...args];
+      const execArgs: string[] = [];
 
       // Platform-specific isolation wrapping
       if (backend === "seatbelt") {
         const profile = buildSeatbeltProfile(policy);
         // sandbox-exec wraps the command
         execCmd = "sandbox-exec";
-        execArgs.unshift("-p", profile, cmd, ...args);
+        execArgs.push("-p", profile, cmd, ...args);
       } else if (backend === "landlock") {
         // landlock is kernel-level; for userspace we use `unshare --net` as a proxy
         execCmd = "unshare";
-        execArgs.unshift("--net", cmd, ...args);
+        execArgs.push("--net", "--", cmd, ...args);
+      } else {
+        // "none" → run bare
+        execArgs.push(...args);
       }
-      // "none" → run bare (no wrapping)
 
       const child = spawn(execCmd, execArgs, {
         cwd,

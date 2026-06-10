@@ -16,18 +16,23 @@ export interface EgressPolicy {
 
 function extractHost(url: string): string {
   try {
-    return new URL(url).hostname;
+    return new URL(url).hostname.toLowerCase();
   } catch {
     return "";
   }
 }
 
 function isHostAllowed(host: string, policy: EgressPolicy): boolean {
-  // Denylist takes precedence
-  if (policy.denyHosts?.includes(host)) return false;
-  // Allowlist mode: if set, host must be in the list
+  // Empty host = malformed URL → fail-closed (deny)
+  if (!host) return false;
+
+  const normalizedHost = host.toLowerCase();
+
+  // Denylist takes precedence (case-insensitive)
+  if (policy.denyHosts?.some((h) => h.toLowerCase() === normalizedHost)) return false;
+  // Allowlist mode: if set, host must be in the list (case-insensitive)
   if (policy.allowHosts !== undefined) {
-    return policy.allowHosts.includes(host);
+    return policy.allowHosts.some((h) => h.toLowerCase() === normalizedHost);
   }
   // No policy → allow all
   return true;
