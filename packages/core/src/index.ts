@@ -146,8 +146,8 @@ export {
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
 // PermissionPolicy — pure permission decision logic
-export { evaluatePermission, createDefaultPermissionConfig } from "./permission-policy.js";
-export type { PermissionConfig } from "./permission-policy.js";
+export { evaluatePermission, createDefaultPermissionConfig, isWriteTier } from "./permission-policy.js";
+export type { PermissionConfig, PermissionMode, PermissionRule } from "./permission-policy.js";
 
 // Text extraction — shared helpers for Message → string
 export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";

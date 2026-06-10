@@ -639,6 +639,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       compaction: compactionConfig,
       abortSignal,
       sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      policyEngine: resolvedPorts.policyEngine,
     };
 
     if (previousState && previousState.status === "done") {
