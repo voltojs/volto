@@ -20,6 +20,7 @@ export type {
   AgentInput,
   ReducerState,
   PermissionConfig,
+  ToolScopeConfig,
 } from "@agent-core/core";
 
 // Re-export runner types for advanced usage

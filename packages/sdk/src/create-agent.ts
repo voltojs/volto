@@ -37,12 +37,14 @@ import type {
   Scheduler,
   PolicyEngine,
   JSONSchema,
+  ToolScopeConfig,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
   extractPlainText,
   createInitialState,
   resetTurnForNextInput,
+  filterByScope,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 import { createRunner, type Runner, type ToolExecutor } from "@agent-core/runtime-node";
@@ -213,6 +215,19 @@ export interface CreateAgentOptions {
 
   /** External authorization decision engine. Defaults to allow-all. */
   policyEngine?: PolicyEngine;
+
+  /**
+   * Tool visibility trimming — after capability gating, trim the visible tool
+   * set by scope group and/or hard limit (default: ~20). Applied at turn
+   * boundaries so static prefix caching remains stable.
+   * If omitted, no trimming beyond capability gating is applied.
+   */
+  toolVisibility?: {
+    /** Scope-based group filtering config */
+    scope?: ToolScopeConfig;
+    /** Maximum number of visible tools (default: 20, applied even without scope) */
+    limit?: number;
+  };
 
   // ── M9: Model layer options ──
 
@@ -412,10 +427,26 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       toolDefs.push(t.definition);
     }
     toolDefs.push(...sourceDefs);
+
+    // Apply scope/limit trimming after merging source tools
+    if (toolDefs.length > visibilityLimit || visibilityScope) {
+      const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);
+      toolDefs.length = 0;
+      toolDefs.push(...trimmed);
+    }
   }
 
   const allTools = [...allCustomTools, ...adapterTools];
   const toolDefs: ToolDefinition[] = [...allTools.map((t) => t.definition)];
+
+  // Apply scope/limit trimming to initial tool set
+  const visibilityLimit = opts.toolVisibility?.limit ?? 20;
+  const visibilityScope = opts.toolVisibility?.scope ?? null;
+  if (toolDefs.length > visibilityLimit || visibilityScope) {
+    const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);
+    toolDefs.length = 0;
+    toolDefs.push(...trimmed);
+  }
 
   // ── Step context ─────────────────────────
   const stepContext: StepContext = {

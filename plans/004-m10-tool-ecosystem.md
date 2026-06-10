@@ -164,6 +164,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 -->
 
 **Reviewed**: 2026-06-09 by reviewer (PASS)
+**Commit**: 5a151af feat(plan-004): phase 1 - MCP 客户端实现 ToolSource 端口
 
 ---
 
@@ -180,18 +181,18 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 实现纯函数 `filterByScope(tools, scopeConfig, limit)`：能力门控后，按作用域/模式 + 工具优先级裁剪到 ≤ N（默认 ~20），裁剪确定性（同输入同输出）
-- [ ] ContextAssembler 取工具处接入裁剪；裁剪发生在 turn 边界（工具集变更不破坏静态前缀缓存）
-- [ ] SDK：注入作用域/上限配置（缺省 = 全部可见 + 上限 ~20）
-- [ ] 测试：工具数 > N 时裁剪到 ≤ N；按作用域过滤正确；裁剪纯函数可重放（快照断言）
-- [ ] 回归：工具数 ≤ N 时行为与现状一致（无裁剪）
+- [x] 实现纯函数 `filterByScope(tools, scopeConfig, limit)`：能力门控后，按作用域/模式 + 工具优先级裁剪到 ≤ N（默认 ~20），裁剪确定性（同输入同输出）
+- [x] ContextAssembler 取工具处接入裁剪；裁剪发生在 turn 边界（工具集变更不破坏静态前缀缓存）
+- [x] SDK：注入作用域/上限配置（缺省 = 全部可见 + 上限 ~20）
+- [x] 测试：工具数 > N 时裁剪到 ≤ N；按作用域过滤正确；裁剪纯函数可重放（快照断言）
+- [x] 回归：工具数 ≤ N 时行为与现状一致（向后兼容）
 
 **Acceptance Criteria**:
 1. 工具总量超阈值时按作用域/模式动态过滤，**默认可见 ≤ ~20**（对应 roadmap M10 验收 5、架构 §4.6）。
 2. 裁剪为纯决策、可重放（同输入同输出，快照测试通过）；发生在 turn 边界，不破坏静态前缀缓存。
 3. 工具数未超阈值时行为与现状一致（向后兼容）。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
 
 ---
 

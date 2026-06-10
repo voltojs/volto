@@ -112,7 +112,8 @@ export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 
 // ToolRouter
-export { validateToolInput, filterVisibleTools, routeToolCall } from "./tool-router.js";
+export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall } from "./tool-router.js";
+export type { ToolScopeConfig, ScopeGroupConfig } from "./tool-router.js";
 
 // File gate (read-before-edit + staleness) — pure decisions
 export {

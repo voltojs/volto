@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   validateToolInput,
   filterVisibleTools,
+  filterByScope,
   routeToolCall,
 } from "../tool-router.js";
+import type { ToolScopeConfig } from "../tool-router.js";
 import type { ToolDefinition, JSONSchema } from "../tool.js";
 import type { PendingToolCall } from "../state.js";
 
@@ -134,5 +136,79 @@ describe("routeToolCall", () => {
     );
     expect(t?.name).toBe("read_file");
     expect(result).toBeUndefined();
+  });
+});
+
+describe("filterByScope", () => {
+  const makeTools = (names: string[]): ToolDefinition[] =>
+    names.map((name) => tool(name, []));
+
+  it("returns tools unchanged when under limit and no scope config", () => {
+    const tools = makeTools(["a", "b", "c"]);
+    expect(filterByScope(tools, null, 20)).toEqual(tools);
+  });
+
+  it("trims to limit when tools exceed limit", () => {
+    const tools = makeTools(["a", "b", "c", "d", "e"]);
+    const trimmed = filterByScope(tools, null, 3);
+    expect(trimmed).toHaveLength(3);
+    expect(trimmed.map((t) => t.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("filters by enabled groups", () => {
+    const tools = makeTools(["mcp__srv__echo", "read_file", "lsp__definition"]);
+    const scope: ToolScopeConfig = {
+      groups: { mcp: { enabled: true }, read_file: { enabled: false }, lsp: { enabled: true } },
+    };
+    const result = filterByScope(tools, scope, 20);
+    expect(result.map((t) => t.name)).toEqual(["mcp__srv__echo", "lsp__definition"]);
+  });
+
+  it("respects priority ordering within groups", () => {
+    const tools = makeTools(["mcp__a__tool1", "lsp__hover", "mcp__b__tool2"]);
+    const scope: ToolScopeConfig = {
+      groups: { mcp: { priority: 10 }, lsp: { priority: 5 } },
+    };
+    const result = filterByScope(tools, scope, 20);
+    // mcp tools (priority 10) should come before lsp (priority 5)
+    expect(result[0]!.name).toBe("mcp__a__tool1");
+    expect(result[1]!.name).toBe("mcp__b__tool2");
+    expect(result[2]!.name).toBe("lsp__hover");
+  });
+
+  it("uses explicit toolGroups mapping when provided", () => {
+    const tools = makeTools(["custom_tool_a", "custom_tool_b"]);
+    const scope: ToolScopeConfig = {
+      groups: { core: { enabled: true }, extra: { enabled: false } },
+      toolGroups: { custom_tool_a: "core", custom_tool_b: "extra" },
+    };
+    const result = filterByScope(tools, scope, 20);
+    expect(result.map((t) => t.name)).toEqual(["custom_tool_a"]);
+  });
+
+  it("applies both scope filtering and limit", () => {
+    const tools = makeTools(["mcp__x__a", "mcp__y__b", "mcp__z__c", "mcp__w__d"]);
+    const scope: ToolScopeConfig = {
+      groups: { mcp: { priority: 1 } },
+    };
+    const result = filterByScope(tools, scope, 2);
+    expect(result).toHaveLength(2);
+  });
+
+  it("preserves original order within same priority (stable sort)", () => {
+    const tools = makeTools(["a", "b", "c", "d"]);
+    const scope: ToolScopeConfig = {
+      groups: { a: { priority: 1 }, b: { priority: 1 }, c: { priority: 0 }, d: { priority: 0 } },
+    };
+    const result = filterByScope(tools, scope, 10);
+    expect(result.map((t) => t.name)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("pure function: same input produces same output (replayable)", () => {
+    const tools = makeTools(["mcp__s__t1", "lsp__def", "read_file"]);
+    const scope: ToolScopeConfig = { groups: { mcp: { priority: 5 }, lsp: { priority: 3 }, read_file: { priority: 1 } } };
+    const r1 = filterByScope(tools, scope, 10);
+    const r2 = filterByScope(tools, scope, 10);
+    expect(r1.map((t) => t.name)).toEqual(r2.map((t) => t.name));
   });
 });
