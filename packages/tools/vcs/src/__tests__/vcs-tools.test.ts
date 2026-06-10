@@ -112,6 +112,10 @@ describe("git_commit", () => {
         { type: "stdout", data: "[main abc1234] test commit\n 1 file changed" },
         { type: "exit", code: 0 },
       ],
+      "echo": [
+        { type: "stdout", data: "[main abc1234] test commit\n 1 file changed" },
+        { type: "exit", code: 0 },
+      ],
     });
     const tool = createGitCommitTool(shell);
     const result = await tool.handler({ message: "test commit" });

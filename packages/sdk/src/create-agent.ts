@@ -62,6 +62,8 @@ import {
   createReadFileTool,
   createEditFileTool,
   createWriteFileTool,
+  createApplyPatchTool,
+  createMultiEditTool,
   createLsTool,
   createGlobTool,
   createGrepTool,
@@ -356,6 +358,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createReadFileTool(opts.fs),
       createEditFileTool(opts.fs),
       createWriteFileTool(opts.fs),
+      createApplyPatchTool(opts.fs),
+      createMultiEditTool(opts.fs),
       createLsTool(opts.fs),
       createGlobTool(opts.fs),
       createGrepTool(opts.fs),
@@ -511,7 +515,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const toolDefs: ToolDefinition[] = [...allTools.map((t) => t.definition)];
 
   // Apply scope/limit trimming to initial tool set
-  const visibilityLimit = opts.toolVisibility?.limit ?? 20;
+  // When toolVisibility is not provided, default to no limit (Infinity)
+  // to preserve backward compatibility with pre-M10 behavior.
+  const visibilityLimit = opts.toolVisibility?.limit ?? (opts.toolVisibility ? 20 : Infinity);
   const visibilityScope = opts.toolVisibility?.scope ?? null;
   if (toolDefs.length > visibilityLimit || visibilityScope) {
     const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);

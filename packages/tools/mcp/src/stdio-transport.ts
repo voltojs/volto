@@ -127,7 +127,7 @@ export class StdioTransport implements McpTransport {
       }, timeout);
 
       const unsub = this.onMessage((msg) => {
-        if ("id" in msg && msg.id === id && "result" in msg) {
+        if ("id" in msg && msg.id === id && ("result" in msg || "error" in msg)) {
           clearTimeout(timer);
           unsub();
           if (msg.error) {

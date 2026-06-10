@@ -122,8 +122,10 @@ export function createGitCommitTool(shell: Shell): Tool {
     riskTier: "WRITE_HIGH",
     run: async ({ message, cwd }) => {
       try {
-        const escaped = message.replace(/"/g, '\\"');
-        const { stdout, exitCode } = await collectStdout(shell, `git commit -m "${escaped}"`, cwd);
+        // Use stdin to pass the commit message, avoiding shell interpretation
+        // of metacharacters ($, `, ;, etc.) that would be unsafe with -m flag.
+        const cmd = `echo '${message.replace(/'/g, "'\\''")}' | git commit -F -`;
+        const { stdout, exitCode } = await collectStdout(shell, cmd, cwd);
         if (exitCode !== 0) {
           return { modelContent: `git_commit failed (exit ${exitCode}): ${stdout}`, isError: true };
         }
