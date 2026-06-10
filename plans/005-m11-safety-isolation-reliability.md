@@ -259,19 +259,20 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 根 `pnpm-workspace.yaml` / `turbo.json`（若需登记新包）
 
 **Tasks**:
-- [ ] 轨迹录制格式：JSON `{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`（可由现有运行采集）
-- [ ] 重放 runner：纯喂 `step(state, input, ctx)` 逐步推进，与 `expected` 逐 step deep-equal
-- [ ] **首个分歧点**报告：返回首个 (state, effects) 不一致的 step index + 结构化 diff（roadmap M11 验收硬要求）
-- [ ] 模拟环境：确定性 mock 端口套件（复用 core `mock-model-port` / `char-tokenizer` + seeded `Clock`/`Id`/`Random`），让一段会话可离线重放
-- [ ] 录制一条覆盖"工具调用 + 权限 + 错误回喂"的样例轨迹，纳入回归
-- [ ] 依赖校验：`@agent-core/eval` 仅依赖 `@agent-core/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
+- [x] 轨迹录制格式：JSON `{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`（可由现有运行采集）
+- [x] 重放 runner：纯喂 `step(state, input, ctx)` 逐步推进，与 `expected` 逐 step deep-equal
+- [x] **首个分歧点**报告：返回首个 (state, effects) 不一致的 step index + 结构化 diff（roadmap M11 验收硬要求）
+- [x] 模拟环境：确定性 mock 端口套件（复用 core `mock-model-port` / `char-tokenizer` + seeded `Clock`/`Id`/`Random`），让一段会话可离线重放
+- [ ] 录制一条覆盖"工具调用 + 权限 + 错误回喂"的样例轨迹，纳入回归 — **推迟至宿主 wiring 后进行**
+- [x] 依赖校验：`@agent-core/eval` 仅依赖 `@agent-core/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
 
 **Acceptance Criteria**:
 1. **eval harness：录制的会话轨迹对新核心版本重放，断言 (state, effects) 一致；失败时给出首个分歧点**（step index + diff）。
 2. 模拟环境用确定性 mock 端口可离线跑完一段会话，无真实 I/O。
 3. 样例轨迹纳入回归门；`@agent-core/eval` 依赖单向向下、core 零依赖不破。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 4 commit>
 
 ---
 
