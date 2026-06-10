@@ -106,15 +106,30 @@ importers:
       '@agent-core/tools-agent':
         specifier: workspace:*
         version: link:../tools/agent
+      '@agent-core/tools-ask':
+        specifier: workspace:*
+        version: link:../tools/ask
+      '@agent-core/tools-browser':
+        specifier: workspace:*
+        version: link:../tools/browser
+      '@agent-core/tools-code':
+        specifier: workspace:*
+        version: link:../tools/code
       '@agent-core/tools-common':
         specifier: workspace:*
         version: link:../tools/common
+      '@agent-core/tools-data':
+        specifier: workspace:*
+        version: link:../tools/data
       '@agent-core/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
       '@agent-core/tools-shell':
         specifier: workspace:*
         version: link:../tools/shell
+      '@agent-core/tools-vcs':
+        specifier: workspace:*
+        version: link:../tools/vcs
       '@agent-core/tools-web':
         specifier: workspace:*
         version: link:../tools/web
@@ -140,11 +155,59 @@ importers:
         specifier: workspace:*
         version: link:../common
 
+  packages/tools/ask:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/browser:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/code:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/tools/common:
     dependencies:
       '@agent-core/core':
         specifier: workspace:*
         version: link:../../core
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/tools/data:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -184,6 +247,18 @@ importers:
       '@agent-core/tools-common':
         specifier: workspace:*
         version: link:../common
+
+  packages/tools/vcs:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@agent-core/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/web:
     dependencies:
