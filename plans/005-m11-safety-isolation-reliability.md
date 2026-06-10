@@ -198,12 +198,12 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `createNodeSandbox(policy)`：策略含 fs 读写白名单 + egress host 白名单 + 资源上限；按平台选后端（macOS seatbelt / Linux landlock / 兜底 `none` 并显式告警）；`run(spec)` 产 `ExecEvent` 流
-- [ ] shell：配置沙箱时改走 `Sandbox.run`；写越界 / 资源越限被拒 → 归一为 `ToolResult { isError: true }` 回喂，不抛
-- [ ] egress：Network/web fetch 在 adapter 层按 host 白名单拦截，越权 → 归一 `isError`
-- [ ] `createNodeSecrets(scope)`：实现 `resolve(ref)`，按作用域（工具/会话）限定可解析的 ref；解析的凭据**不**进 `messages`、**不**落 checkpoint（仅在 adapter 内用于实际请求）
-- [ ] 单测：写越界被拦归一 isError；egress 越权归一 isError；越界**不** crash 主循环；secrets 作用域外 ref 解析失败归一；凭据不出现在 state 快照
-- [ ] 平台兜底：`none` 后端在无 seatbelt/landlock 环境可跑且显式告警
+- [x] `createNodeSandbox(policy)`：策略含 fs 读写白名单 + egress host 白名单 + 资源上限；按平台选后端（macOS seatbelt / Linux landlock / 兜底 `none` 并显式告警）；`run(spec)` 产 `ExecEvent` 流
+- [ ] shell：配置沙箱时改走 `Sandbox.run`；写越界 / 资源越限被拒 → 归一为 `ToolResult { isError: true }` 回喂，不抛 — **推迟至宿主 wiring 阶段**
+- [x] egress：Network/web fetch 在 adapter 层按 host 白名单拦截，越权 → 归一 `isError`
+- [x] `createNodeSecrets(scope)`：实现 `resolve(ref)`，按作用域（工具/会话）限定可解析的 ref；解析的凭据**不**进 `messages`、**不**落 checkpoint（仅在 adapter 内用于实际请求）
+- [x] 单测：写越界被拦归一 isError；egress 越权归一 isError；越界**不** crash 主循环；secrets 作用域外 ref 解析失败归一；凭据不出现在 state 快照
+- [x] 平台兜底：`none` 后端在无 seatbelt/landlock 环境可跑且显式告警
 
 **Acceptance Criteria**:
 1. **沙箱：写越界 / 网络越权被 adapter 拦截，归一为 `isError` 回喂（不 crash 主循环）**。
@@ -211,7 +211,8 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. secrets 作用域外的 ref 解析失败归一回喂；解析出的凭据不进 `messages` / 不落 checkpoint（state 快照中不含明文）。
 4. 平台兜底 `none` 可跑并显式告警"未隔离"。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 2 commit>
 
 ---
 
