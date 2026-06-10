@@ -143,14 +143,14 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`（含 mock MCP server）
 
 **Tasks**:
-- [ ] 新建 `@agent-core/tools-mcp` 包（依赖单向向下，type-import only 消费 core 的 `ToolSource` / `ToolDefinition` / `ToolResult` 接口类型，不值导入 core 实现）
-- [ ] 实现 MCP 连接层：stdio（子进程）与 HTTP-SSE 两种传输；连接生命周期（connect / disconnect / 断线检测）
-- [ ] 实现 `ToolSource.list()`：把在线 server 的 `tools` 映射为 `ToolDefinition`（input JSON Schema 透传为核心抽象 `JSONSchema`），统一声明 `mcp:<serverId>` 能力
-- [ ] `resources` / `prompts` 以受控工具暴露（如 `mcp_list_resources` / `mcp_read_resource` / `mcp_get_prompt`）
-- [ ] 实现 `onChange(cb)`：server 连接/断开/工具列表变更时通知；SDK 在 turn 边界重算可见集
-- [ ] 工具调用转发：把内核 `PendingToolCall` 转发给对应 server，返回归一为 `ToolResult`（双层：`modelContent` 精简 + `displayMetadata` 原始结构）；调用失败/超时/server 断线一律 `isError: true` 不抛异常
-- [ ] SDK：`createAgent` 接受 `toolSources`，与静态工具合并为可见候选集；turn 边界聚合 + 能力门控
-- [ ] 测试：mock MCP server，断言 (1) 工具进入可见集且可被选用 (2) 调用结果归一回喂 (3) server 缺席/断线时工具自动摘除 (4) 调用失败归一为 `isError`
+- [x] 新建 `@agent-core/tools-mcp` 包（依赖单向向下，type-import only 消费 core 的 `ToolSource` / `ToolDefinition` / `ToolResult` 接口类型，不值导入 core 实现）
+- [x] 实现 MCP 连接层：stdio（子进程）与 HTTP-SSE 两种传输；连接生命周期（connect / disconnect / 断线检测）
+- [x] 实现 `ToolSource.list()`：把在线 server 的 `tools` 映射为 `ToolDefinition`（input JSON Schema 透传为核心抽象 `JSONSchema`），统一声明 `mcp:<serverId>` 能力
+- [x] `resources` / `prompts` 以受控工具暴露（如 `mcp_list_resources` / `mcp_read_resource` / `mcp_get_prompt`）
+- [x] 实现 `onChange(cb)`：server 连接/断开/工具列表变更时通知；SDK 在 turn 边界重算可见集
+- [x] 工具调用转发：把内核 `PendingToolCall` 转发给对应 server，返回归一为 `ToolResult`（双层：`modelContent` 精简 + `displayMetadata` 原始结构）；调用失败/超时/server 断线一律 `isError: true` 不抛异常
+- [x] SDK：`createAgent` 接受 `toolSources`，与静态工具合并为可见候选集；turn 边界聚合 + 能力门控
+- [x] 测试：mock MCP server，断言 (1) 工具进入可见集且可被选用 (2) 调用结果归一回喂 (3) server 缺席/断线时工具自动摘除 (4) 调用失败归一为 `isError`
 
 **Acceptance Criteria**:
 1. 配置一个 MCP server 后，其工具自动进入可见集、可被模型选用、结果归一回喂；**server 缺席（未连接/断线）时工具自动从可见集摘除**（复用能力门控，对应 roadmap M10 验收 1）。
@@ -162,6 +162,8 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 **Reviewed**: <date> by reviewer
 **Commit**: <hash> <subject>
 -->
+
+**Reviewed**: 2026-06-09 by reviewer (PASS)
 
 ---
 

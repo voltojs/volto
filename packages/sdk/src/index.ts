@@ -14,6 +14,7 @@ export type {
   ModelPort,
   ToolDefinition,
   ToolResult,
+  ToolSource,
   EventSink,
   SessionStore,
   AgentInput,

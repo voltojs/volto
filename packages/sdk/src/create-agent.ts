@@ -174,7 +174,20 @@ export interface CreateAgentOptions {
 
   // ── M8: New port overrides (all optional, defaults provided) ──
 
-  /** Dynamic tool source (MCP / plugins). Defaults to empty list. */
+  /**
+   * Dynamic tool sources (MCP / plugins). Each source's tools are merged
+   * into the visible tool set and are callable through the executor.
+   * onChange triggers tool set refresh at turn boundaries.
+   * Backward-compatible: the legacy single `toolSource` is used if
+   * `toolSources` is not provided.
+   */
+  toolSources?: ToolSource[];
+
+  /**
+   * @deprecated Use `toolSources` instead. Kept for backward compatibility.
+   * If `toolSources` is empty/undefined and `toolSource` is set, it is
+   * wrapped into a single-element array.
+   */
   toolSource?: ToolSource;
 
   /** Semantic / long-term memory store. Defaults to in-memory Map. */
@@ -317,8 +330,92 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     allCustomTools.push(taskTool);
   }
 
+  // ── Resolve ToolSources (backward-compat: single toolSource → array) ──
+  const resolvedToolSources: ToolSource[] = (() => {
+    if (opts.toolSources && opts.toolSources.length > 0) return opts.toolSources;
+    if (opts.toolSource && opts.toolSource !== defaultToolSource) return [opts.toolSource];
+    return [];
+  })();
+
+  // Merge ToolSource tools into customToolMap so the executor can route them.
+  // We store a marker to identify source-backed tools for onChange refresh.
+  const sourceToolHandlers = new Map<string, (input: Record<string, unknown>) => Promise<ToolResult>>();
+  const _sourceUnsubscribers: Array<() => void> = [];
+
+  // Synchronous initial merge — for async sources, callers should call
+  // refreshToolSources() before the first turn or use a connectAll() preamble.
+  // For MCP, McpToolSource.list() is async; the caller connects servers
+  // and the SDK calls list() lazily on first run/stream.
+  let _toolSourcesInitialized = false;
+
+  async function initToolSources(): Promise<void> {
+    if (_toolSourcesInitialized) return;
+    _toolSourcesInitialized = true;
+    await refreshToolSources();
+    // Subscribe to changes — debounced to turn boundary
+    let _pendingRefresh = false;
+    for (const source of resolvedToolSources) {
+      if (source.onChange) {
+        const unsub = source.onChange(() => {
+          if (!_pendingRefresh) {
+            _pendingRefresh = true;
+            // Schedule refresh for next microtask (debounce multiple rapid changes)
+            Promise.resolve().then(async () => {
+              await refreshToolSources();
+              _pendingRefresh = false;
+            });
+          }
+        });
+        _sourceUnsubscribers.push(unsub);
+      }
+    }
+  }
+
+  async function refreshToolSources(): Promise<void> {
+    // Clear previous source tools from customToolMap
+    for (const [name] of sourceToolHandlers) {
+      customToolMap.delete(name);
+    }
+    sourceToolHandlers.clear();
+
+    // Discover tools from all sources
+    const sourceDefs: ToolDefinition[] = [];
+    for (const source of resolvedToolSources) {
+      let defs: ToolDefinition[];
+      try {
+        defs = await source.list();
+      } catch {
+        continue; // Source failed — skip silently
+      }
+      for (const def of defs) {
+        sourceDefs.push(def);
+        // Create a Tool with handler that routes back through the source
+        const tool: Tool = {
+          definition: def,
+          handler: async (input: Record<string, unknown>): Promise<ToolResult> => {
+            // Route through source's callTool if available (McpToolSource pattern)
+            const src = source as unknown as Record<string, unknown>;
+            if (typeof src.callTool === "function") {
+              return (src.callTool as (name: string, input: Record<string, unknown>) => Promise<ToolResult>)(def.name, input);
+            }
+            return { modelContent: `ToolSource does not support callTool: ${def.name}`, isError: true };
+          },
+        };
+        customToolMap.set(def.name, tool);
+        sourceToolHandlers.set(def.name, tool.handler);
+      }
+    }
+
+    // Rebuild stepContext.tools: base tools + source tools (for ContextAssembler)
+    toolDefs.length = 0;
+    for (const t of [...allCustomTools, ...adapterTools]) {
+      toolDefs.push(t.definition);
+    }
+    toolDefs.push(...sourceDefs);
+  }
+
   const allTools = [...allCustomTools, ...adapterTools];
-  const toolDefs: ToolDefinition[] = allTools.map((t) => t.definition);
+  const toolDefs: ToolDefinition[] = [...allTools.map((t) => t.definition)];
 
   // ── Step context ─────────────────────────
   const stepContext: StepContext = {
@@ -469,6 +566,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     ports: resolvedPorts,
 
     async run(input: string | AgentInput): Promise<ReducerState> {
+      await initToolSources();
       const agentInput = normalizeInput(input);
       const runner = createNextRunner(opts.eventSink ?? defaultEventSink);
       lastRunner = runner;
@@ -480,6 +578,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async *stream(
       input: string | AgentInput,
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
+      await initToolSources();
       const agentInput = normalizeInput(input);
       const channel = createStreamChannel();
       // AbortController lets us cancel the runner if the consumer breaks

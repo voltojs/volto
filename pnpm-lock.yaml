@@ -161,6 +161,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/tools/mcp:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
   packages/tools/plan:
     dependencies:
       '@agent-core/core':
