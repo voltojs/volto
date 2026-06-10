@@ -209,16 +209,16 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 **Tasks**:
 - [x] `apply_patch`：消费 unified diff，应用到文件；hunk 不匹配归一为 `isError` + 候选提示；继承先读后改 + 写回前版本比对
 - [x] `multi_edit`：单文件多处 `str_replace` 原子应用（全成功才写回，任一失败整体回滚归一为 `isError`）
-- [ ] `notebook` 编辑：定位/编辑 .ipynb cell（源码/输出），归一为结构化结果
-- [ ] `ast_edit`：经 tree-sitter adapter 按符号/节点定位编辑（缺 adapter 时工具不可见，声明 `ast:edit` 能力）
+- [~] `notebook` 编辑：定位/编辑 .ipynb cell（源码/输出），归一为结构化结果 — **M10 未实现，推迟至 M13 插件生态（Plan 007）**
+- [~] `ast_edit`：经 tree-sitter adapter 按符号/节点定位编辑（缺 adapter 时工具不可见，声明 `ast:edit` 能力） — **M10 未实现，推迟至 M13 插件生态（Plan 007）**
 - [x] 编辑格式选择：宿主可按模型能力暴露 `str_replace`（默认）/ `apply_patch` / `multi_edit`
 - [x] 全部走 `defineTool`（zod）、声明 `requires` + `riskTier`（写类 `WRITE_LOW`/`WRITE_HIGH`）
-- [x] 测试：apply_patch 命中/不匹配；multi_edit 原子性（部分失败整体回滚）；notebook cell 编辑；ast_edit 缺 adapter 不可见；先读后改/版本比对门控仍生效
+- [x] 测试：apply_patch 命中/不匹配；multi_edit 原子性（部分失败整体回滚）；先读后改/版本比对门控仍生效；notebook/ast_edit 推迟
 
 **Acceptance Criteria**:
 1. `apply_patch` 与 `multi_edit` 落地，编辑工具可按模型能力选择格式（对应 roadmap M10 验收 2）。
 2. `multi_edit` 原子性：单处失败整体回滚并归一为 `isError`；`apply_patch` hunk 不匹配返回明确错误 + 候选，不抛异常。
-3. 所有新编辑工具继承"未 `read_file`/版本过期拒绝编辑 + 写回前版本比对"门控；`ast_edit` 缺 tree-sitter adapter 时不可见。
+3. 所有新编辑工具继承"未 `read_file`/版本过期拒绝编辑 + 写回前版本比对"门控；`notebook`/`ast_edit` 推迟至 M13（Plan 007）。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
 **Commit**: c6ed985 feat(plan-004): phase 3 - apply_patch + multi_edit 结构化编辑工具
@@ -292,17 +292,17 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 **Tasks**:
 - [x] browser/computer-use：声明 `browser:control` 能力 + 经 Browser adapter（导航/点击/输入/截图/读取页面）；高风险动作偏高 `riskTier`，可 `ask`；缺 adapter 不可见
-- [ ] db：`db_query`（`READ_ONLY`，`db:query`）/ `db_exec`（`WRITE_HIGH`，`db:exec`）经 Database adapter；连接串经 `Secrets` 端口解析（M8 契约 + M10 兜底）
+- [~] db：`db_query`（`READ_ONLY`，`db:query`）/ `db_exec`（`WRITE_HIGH`，`db:exec`）经 Database adapter；连接串经 `Secrets` 端口解析（M8 契约 + M10 兜底） — **M10 未实现，推迟至 M11 横切轨道（Plan 005）**（需执行沙箱 + Secrets 真实金库支撑）
 - [x] http：结构化 HTTP 工具（自定义 method/headers/body）复用既有 `Network` port，声明 `network`
-- [ ] 文件格式：PDF/docx/xlsx/image 经解析 adapter 归一为结构化文本 / image block（扩展 `read_file` 多模态或独立 `read_document`）
+- [~] 文件格式：PDF/docx/xlsx/image 经解析 adapter 归一为结构化文本 / image block（扩展 `read_file` 多模态或独立 `read_document`） — **M10 未实现，推迟至 M11 横切轨道（Plan 005）**（需 document-parser adapter）
 - [x] `ask_user`：无外部能力，经 `ApprovalGate`/`EventSink` 向宿主提问，回答作为 input 回喂归一为 `ToolResult`；宿主无交互能力时归一为 `isError`
 - [x] 全走 `defineTool`，声明 `requires` + `riskTier`；各工具错误归一为 `isError` 不抛异常
-- [x] 测试：browser 经 capability 门控、缺 adapter 不可见；db 凭据经 Secrets 解析；http 经 Network；文件格式归一为结构化；`ask_user` 回喂
+- [x] 测试：browser 经 capability 门控、缺 adapter 不可见；http 经 Network；`ask_user` 回喂；db/文件格式推迟
 
 **Acceptance Criteria**:
 1. browser 工具经 **capability 门控；缺 adapter 时不可见**（对应 roadmap M10 验收 4）。
-2. db / http / 文件格式 / `ask_user` 工具各按 capability 门控落地，缺对应 port/adapter 时自动从可见集摘除。
-3. 所有工具错误（浏览器超时 / SQL 报错 / 文件解析失败 / 宿主无交互能力）归一为 `isError: true` 回喂，不抛异常；db 凭据经 `Secrets` 端口解析（不明文）。
+2. http / `ask_user` 工具各按 capability 门控落地，缺对应 port/adapter 时自动从可见集摘除。
+3. 所有工具错误（浏览器超时 / 宿主无交互能力）归一为 `isError: true` 回喂，不抛异常；db / 文件格式推迟至 M11（Plan 005）。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
 **Commit**: 9ca7675 feat(plan-004): phase 6 - 外设与数据工具（ask_user / http_query / browser）
@@ -322,9 +322,16 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 | db 凭据明文进日志/状态 | 凭据泄露 | 连接串经 `Secrets` 端口解析，不入 `displayMetadata` / 状态；真实金库归 M11 |
 | 与 M13 插件系统 / M11 沙箱职责重叠返工 | 范围蔓延 / 重复实现 | §4.7 边界已显式划清：M10 只做 ToolSource adapter（MCP 客户端）+ 能力门控 + riskTier；插件框架归 M13、隔离硬化归 M11，且复用本 Plan 接线点 |
 
----
+## 7. 推迟项（Deferred to later milestones）
 
-## 7. Test Cases
+| 项目 | Phase | 推迟原因 | 归属 Plan |
+|------|-------|----------|-----------|
+| `notebook` 编辑（.ipynb cell 定位/编辑） | Phase 3 | 需 notebook 解析库，复杂度较高 | Plan 007（M13 插件生态） |
+| `ast_edit`（tree-sitter 结构化编辑） | Phase 3 | 需 tree-sitter adapter + 语言语法定义 | Plan 007（M13 插件生态） |
+| `db_query` / `db_exec`（数据库工具） | Phase 6 | 需执行沙箱 + Secrets 真实金库支撑 | Plan 005（M11 横切轨道） |
+| 文件格式工具（PDF/docx/xlsx/image） | Phase 6 | 需 document-parser adapter（多格式解析库） | Plan 005（M11 横切轨道） |
+
+## 8. Test Cases
 
 ### TC-001: MCP 工具通过 ToolSource 进入可见集并可调用
 
