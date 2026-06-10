@@ -5,6 +5,8 @@ import {
   createReadFileTool,
   createEditFileTool,
   createWriteFileTool,
+  createApplyPatchTool,
+  createMultiEditTool,
   createLsTool,
   createGlobTool,
   createGrepTool,
@@ -31,6 +33,8 @@ export function createFsToolExecutor(options: CreateFsToolExecutorOptions): Tool
     createReadFileTool(options.fs),
     createEditFileTool(options.fs),
     createWriteFileTool(options.fs),
+    createApplyPatchTool(options.fs),
+    createMultiEditTool(options.fs),
     createLsTool(options.fs),
     createGlobTool(options.fs),
     createGrepTool(options.fs),
@@ -46,13 +50,14 @@ export function createFsToolExecutor(options: CreateFsToolExecutorOptions): Tool
     const readFiles = ctx.readFiles;
 
     // ── Pre-write gate (before any side effect) ──
-    if (targetPath && call.name === "edit_file") {
+    // apply_patch and multi_edit inherit the same read-before-edit gate as edit_file
+    if (targetPath && (call.name === "edit_file" || call.name === "apply_patch" || call.name === "multi_edit")) {
       let currentMtime: number;
       try {
         currentMtime = (await options.fs.stat(targetPath)).mtime;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { modelContent: `edit_file failed: ${message}`, isError: true };
+        return { modelContent: `${call.name} failed: ${message}`, isError: true };
       }
       const blocked = evaluateEditGate(readFiles, targetPath, currentMtime);
       if (blocked) {

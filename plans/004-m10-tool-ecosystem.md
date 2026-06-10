@@ -207,20 +207,20 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `apply_patch`：消费 unified diff，应用到文件；hunk 不匹配归一为 `isError` + 候选提示；继承先读后改 + 写回前版本比对
-- [ ] `multi_edit`：单文件多处 `str_replace` 原子应用（全成功才写回，任一失败整体回滚归一为 `isError`）
+- [x] `apply_patch`：消费 unified diff，应用到文件；hunk 不匹配归一为 `isError` + 候选提示；继承先读后改 + 写回前版本比对
+- [x] `multi_edit`：单文件多处 `str_replace` 原子应用（全成功才写回，任一失败整体回滚归一为 `isError`）
 - [ ] `notebook` 编辑：定位/编辑 .ipynb cell（源码/输出），归一为结构化结果
 - [ ] `ast_edit`：经 tree-sitter adapter 按符号/节点定位编辑（缺 adapter 时工具不可见，声明 `ast:edit` 能力）
-- [ ] 编辑格式选择：宿主可按模型能力暴露 `str_replace`（默认）/ `apply_patch` / `multi_edit`
-- [ ] 全部走 `defineTool`（zod）、声明 `requires` + `riskTier`（写类 `WRITE_LOW`/`WRITE_HIGH`）
-- [ ] 测试：apply_patch 命中/不匹配；multi_edit 原子性（部分失败整体回滚）；notebook cell 编辑；ast_edit 缺 adapter 不可见；先读后改/版本比对门控仍生效
+- [x] 编辑格式选择：宿主可按模型能力暴露 `str_replace`（默认）/ `apply_patch` / `multi_edit`
+- [x] 全部走 `defineTool`（zod）、声明 `requires` + `riskTier`（写类 `WRITE_LOW`/`WRITE_HIGH`）
+- [x] 测试：apply_patch 命中/不匹配；multi_edit 原子性（部分失败整体回滚）；notebook cell 编辑；ast_edit 缺 adapter 不可见；先读后改/版本比对门控仍生效
 
 **Acceptance Criteria**:
 1. `apply_patch` 与 `multi_edit` 落地，编辑工具可按模型能力选择格式（对应 roadmap M10 验收 2）。
 2. `multi_edit` 原子性：单处失败整体回滚并归一为 `isError`；`apply_patch` hunk 不匹配返回明确错误 + 候选，不抛异常。
 3. 所有新编辑工具继承"未 `read_file`/版本过期拒绝编辑 + 写回前版本比对"门控；`ast_edit` 缺 tree-sitter adapter 时不可见。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
 
 ---
 
