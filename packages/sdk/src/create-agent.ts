@@ -84,6 +84,16 @@ import {
   createRunTestsTool,
   createBuildTool,
 } from "@agent-core/tools-vcs";
+import { createAskUserTool } from "@agent-core/tools-ask";
+import { createHttpQueryTool } from "@agent-core/tools-data";
+import {
+  createBrowserNavigateTool,
+  createBrowserClickTool,
+  createBrowserTypeTool,
+  createBrowserScreenshotTool,
+  createBrowserGetPageTextTool,
+} from "@agent-core/tools-browser";
+import type { BrowserAdapter } from "@agent-core/tools-browser";
 import {
   defaultEventSink,
   defaultTokenizer,
@@ -179,6 +189,9 @@ export interface CreateAgentOptions {
 
   /** LSP client adapter — when provided, LSP code intelligence tools are auto-created */
   lspClient?: import("@agent-core/tools-code").LspClient;
+
+  /** Browser adapter — when provided, browser/computer-use tools are auto-created */
+  browserAdapter?: BrowserAdapter;
 
   /** Available capabilities (auto-populated from injected adapters if not set) */
   capabilities?: Set<string>;
@@ -329,6 +342,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.lspClient) {
     capabilities.add("lsp:query");
   }
+  if (opts.browserAdapter) {
+    capabilities.add("browser:control");
+  }
   if (opts.enableTaskTool) {
     capabilities.add("agent:task");
   }
@@ -358,6 +374,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (opts.network) {
     adapterTools.push(createWebFetchTool(opts.network), createWebSearchTool(opts.network));
+    adapterTools.push(createHttpQueryTool(opts.network));
   }
   if (opts.lspClient) {
     adapterTools.push(
@@ -368,6 +385,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createLspHoverTool(opts.lspClient),
     );
   }
+  if (opts.browserAdapter) {
+    adapterTools.push(
+      createBrowserNavigateTool(opts.browserAdapter),
+      createBrowserClickTool(opts.browserAdapter),
+      createBrowserTypeTool(opts.browserAdapter),
+      createBrowserScreenshotTool(opts.browserAdapter),
+      createBrowserGetPageTextTool(opts.browserAdapter),
+    );
+  }
 
   // ── Compaction config ─────────────────────
   const compactionConfig: CompactionConfig | undefined = opts.compaction
@@ -376,6 +402,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Assemble all tools ────────────────────
   const allCustomTools: Tool[] = [...(opts.tools ?? [])];
+
+  // ask_user tool — always available, uses approvalGate + eventSink
+  const resolvedApprovalGate = opts.approvalGate ?? createAutoAllowGate();
+  const resolvedEventSink = opts.eventSink ?? defaultEventSink;
+  allCustomTools.push(
+    createAskUserTool({ approvalGate: resolvedApprovalGate, eventSink: resolvedEventSink }),
+  );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
       createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1),

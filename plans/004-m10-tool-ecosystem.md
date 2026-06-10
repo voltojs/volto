@@ -291,20 +291,20 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] browser/computer-use：声明 `browser:control` 能力 + 经 Browser adapter（导航/点击/输入/截图/读取页面）；高风险动作偏高 `riskTier`，可 `ask`；缺 adapter 不可见
+- [x] browser/computer-use：声明 `browser:control` 能力 + 经 Browser adapter（导航/点击/输入/截图/读取页面）；高风险动作偏高 `riskTier`，可 `ask`；缺 adapter 不可见
 - [ ] db：`db_query`（`READ_ONLY`，`db:query`）/ `db_exec`（`WRITE_HIGH`，`db:exec`）经 Database adapter；连接串经 `Secrets` 端口解析（M8 契约 + M10 兜底）
-- [ ] http：结构化 HTTP 工具（自定义 method/headers/body）复用既有 `Network` port，声明 `network`
+- [x] http：结构化 HTTP 工具（自定义 method/headers/body）复用既有 `Network` port，声明 `network`
 - [ ] 文件格式：PDF/docx/xlsx/image 经解析 adapter 归一为结构化文本 / image block（扩展 `read_file` 多模态或独立 `read_document`）
-- [ ] `ask_user`：无外部能力，经 `ApprovalGate`/`EventSink` 向宿主提问，回答作为 input 回喂归一为 `ToolResult`；宿主无交互能力时归一为 `isError`
-- [ ] 全走 `defineTool`，声明 `requires` + `riskTier`；各工具错误归一为 `isError` 不抛异常
-- [ ] 测试：browser 经 capability 门控、缺 adapter 不可见；db 凭据经 Secrets 解析；http 经 Network；文件格式归一为结构化；`ask_user` 回喂
+- [x] `ask_user`：无外部能力，经 `ApprovalGate`/`EventSink` 向宿主提问，回答作为 input 回喂归一为 `ToolResult`；宿主无交互能力时归一为 `isError`
+- [x] 全走 `defineTool`，声明 `requires` + `riskTier`；各工具错误归一为 `isError` 不抛异常
+- [x] 测试：browser 经 capability 门控、缺 adapter 不可见；db 凭据经 Secrets 解析；http 经 Network；文件格式归一为结构化；`ask_user` 回喂
 
 **Acceptance Criteria**:
 1. browser 工具经 **capability 门控；缺 adapter 时不可见**（对应 roadmap M10 验收 4）。
 2. db / http / 文件格式 / `ask_user` 工具各按 capability 门控落地，缺对应 port/adapter 时自动从可见集摘除。
 3. 所有工具错误（浏览器超时 / SQL 报错 / 文件解析失败 / 宿主无交互能力）归一为 `isError: true` 回喂，不抛异常；db 凭据经 `Secrets` 端口解析（不明文）。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
 
 ---
 
