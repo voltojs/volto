@@ -287,18 +287,19 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `createNodeScheduler(clock)`：实现 `schedule(whenMs, ref)` / `cancel(id)` / `sleep(ms)`；定时触发经 `Clock` 基准，触发后把"唤醒"归一为 input 回喂主循环（不在 reducer 读时间）
-- [ ] `@agent-core/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
-- [ ] 风险/权限：调度类工具按 riskTier 归类（创建后台任务属 `WRITE_*`），受 Phase 1 权限模式约束
-- [ ] 单测:用 seeded Clock 调度→触发→唤醒回喂，重放确定；cancel 生效；缺 adapter 工具不可见
-- [ ] 重放:含调度/唤醒的 input 序列两次运行 (state, effects) deep-equal（时间经端口注入）
+- [x] `createNodeScheduler(clock)`：实现 `schedule(whenMs, ref)` / `cancel(id)` / `sleep(ms)`；定时触发经 `Clock` 基准，触发后把"唤醒"归一为 input 回喂主循环（不在 reducer 读时间）
+- [x] `@agent-core/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
+- [x] 风险/权限：调度类工具按 riskTier 归类（创建后台任务属 `WRITE_*`），受 Phase 1 权限模式约束
+- [x] 单测:用 seeded Clock 调度→触发→唤醒回喂，重放确定；cancel 生效；缺 adapter 工具不可见
+- [ ] 重放:含调度/唤醒的 input 序列两次运行 (state, effects) deep-equal（时间经端口注入）— **推迟至宿主 wiring 后进行**
 
 **Acceptance Criteria**:
 1. `Scheduler` Node adapter 实现 M8 端口；调度工具可被模型选用，缺 adapter 时自动从可见集摘除（能力门控）。
 2. 调度时间一律经 `Scheduler`/`Clock` 注入；用 seeded Clock 时调度→唤醒回喂的 (state, effects) 序列重放 deep-equal。
 3. 调度工具受 Phase 1 权限模式约束（plan 模式下创建后台任务被 deny）；cancel 生效。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 5 commit>
 
 ---
 

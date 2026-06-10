@@ -21,3 +21,5 @@ export { createNodeSecrets } from "./secrets.js";
 export type { SecretsScope, NodeSecretsOptions } from "./secrets.js";
 export { wrapNetworkWithEgress } from "./egress.js";
 export type { EgressPolicy } from "./egress.js";
+export { createNodeScheduler } from "./scheduler.js";
+export type { NodeSchedulerOptions } from "./scheduler.js";
