@@ -247,6 +247,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 3. LSP server 超时/无响应归一为 `isError: true` 回喂，不抛异常。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: 58442e2 feat(plan-004): phase 4 - LSP 代码智能工具（tools-code）
 
 ---
 
