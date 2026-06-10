@@ -261,19 +261,19 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `git_status` / `git_diff`（`READ_ONLY`）/ `git_commit`（`WRITE_HIGH`）/ `git_push`（`IRREVERSIBLE`，触发 `ask`）：经 Shell port 执行，解析输出为结构化结果（变更文件 + 行数 / diff / 提交 hash）
-- [ ] `run_tests`：经 Shell 执行测试命令，解析为结构化 pass/fail 数 + 失败用例名 + 摘要（`modelContent` 精简，`displayMetadata` 原始）
-- [ ] `build`：经 Shell 执行构建，解析为成功/失败 + 错误摘要
-- [ ] 全走 `defineTool`，声明 `shell:exec` 能力（缺 Shell port 时不可见）+ 正确 `riskTier`；高风险触发 `PermissionPolicy` `ask`
-- [ ] 错误（命令失败/解析失败）归一为 `isError`，不抛异常；输出超量截断并声明
-- [ ] 测试：结构化 pass/fail 解析正确；`git_commit`/`git_push` 触发 `ask`；缺 Shell port 不可见
+- [x] `git_status` / `git_diff`（`READ_ONLY`）/ `git_commit`（`WRITE_HIGH`）/ `git_push`（`IRREVERSIBLE`，触发 `ask`）：经 Shell port 执行，解析输出为结构化结果（变更文件 + 行数 / diff / 提交 hash）
+- [x] `run_tests`：经 Shell 执行测试命令，解析为结构化 pass/fail 数 + 失败用例名 + 摘要（`modelContent` 精简，`displayMetadata` 原始）
+- [x] `build`：经 Shell 执行构建，解析为成功/失败 + 错误摘要
+- [x] 全走 `defineTool`，声明 `shell:exec` 能力（缺 Shell port 时不可见）+ 正确 `riskTier`；高风险触发 `PermissionPolicy` `ask`
+- [x] 错误（命令失败/解析失败）归一为 `isError`，不抛异常；输出超量截断并声明
+- [x] 测试：结构化 pass/fail 解析正确；`git_commit`/`git_push` 触发 `ask`；缺 Shell port 不可见
 
 **Acceptance Criteria**:
 1. 测试/构建/Git 工具返回**结构化 pass/fail / diff / 提交摘要**（非裸 bash 文本，对应 roadmap WS-5）。
 2. `git_commit` / `git_push` 等高风险操作经 `PermissionPolicy` 触发 `ask`；缺 `Shell` port 时工具不可见。
 3. 命令失败 / 输出解析失败归一为 `isError` 回喂；超量输出截断并声明，不抛异常。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
 
 ---
 

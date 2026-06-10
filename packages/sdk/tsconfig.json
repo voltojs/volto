@@ -12,6 +12,7 @@
     { "path": "../tools/code" },
     { "path": "../tools/fs" },
     { "path": "../tools/shell" },
+    { "path": "../tools/vcs" },
     { "path": "../tools/web" },
     { "path": "../runtimes/node" },
     { "path": "../stores/memory" }

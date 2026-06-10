@@ -77,6 +77,14 @@ import {
   createLspHoverTool,
 } from "@agent-core/tools-code";
 import {
+  createGitStatusTool,
+  createGitDiffTool,
+  createGitCommitTool,
+  createGitPushTool,
+  createRunTestsTool,
+  createBuildTool,
+} from "@agent-core/tools-vcs";
+import {
   defaultEventSink,
   defaultTokenizer,
   createDefaultSessionStore,
@@ -339,6 +347,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (opts.shell) {
     adapterTools.push(createBashTool(opts.shell));
+    adapterTools.push(
+      createGitStatusTool(opts.shell),
+      createGitDiffTool(opts.shell),
+      createGitCommitTool(opts.shell),
+      createGitPushTool(opts.shell),
+      createRunTestsTool(opts.shell),
+      createBuildTool(opts.shell),
+    );
   }
   if (opts.network) {
     adapterTools.push(createWebFetchTool(opts.network), createWebSearchTool(opts.network));

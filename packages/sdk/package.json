@@ -24,6 +24,7 @@
     "@agent-core/tools-code": "workspace:*",
     "@agent-core/tools-fs": "workspace:*",
     "@agent-core/tools-shell": "workspace:*",
+    "@agent-core/tools-vcs": "workspace:*",
     "@agent-core/tools-web": "workspace:*",
     "@agent-core/runtime-node": "workspace:*",
     "@agent-core/store-memory": "workspace:*"
