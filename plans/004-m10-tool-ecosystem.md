@@ -1,6 +1,6 @@
 # Plan 004 — M10 工具生态（MCP / 代码智能 / 结构化编辑 / 扩展工具目录）
 
-> **Status**: Draft
+> **Status**: Completed
 > **Owner**: TBD
 > **Created**: 2026-06-09
 > **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M10（WS-5）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8：内核引擎深化 + 9 个纯类型端口契约，其中 **ToolSource** 是本 Plan 的关键消费点）；Plan 001（M1–M7 已交付）
@@ -305,10 +305,11 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 3. 所有工具错误（浏览器超时 / SQL 报错 / 文件解析失败 / 宿主无交互能力）归一为 `isError: true` 回喂，不抛异常；db 凭据经 `Secrets` 端口解析（不明文）。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: 9ca7675 feat(plan-004): phase 6 - 外设与数据工具（ask_user / http_query / browser）
 
 ---
 
-## 6. Risks and mitigations
+## Test Cases
 
 | Risk | Impact | Mitigation |
 |---|---|---|
@@ -320,3 +321,134 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 | server 缺席/断线判定与可见集重算时机错位 | 工具该摘未摘 / turn 中途变更破坏缓存 | 复用能力门控（`mcp:<serverId>` 能力随连接增删）；可见集重算固定在 turn 边界 |
 | db 凭据明文进日志/状态 | 凭据泄露 | 连接串经 `Secrets` 端口解析，不入 `displayMetadata` / 状态；真实金库归 M11 |
 | 与 M13 插件系统 / M11 沙箱职责重叠返工 | 范围蔓延 / 重复实现 | §4.7 边界已显式划清：M10 只做 ToolSource adapter（MCP 客户端）+ 能力门控 + riskTier；插件框架归 M13、隔离硬化归 M11，且复用本 Plan 接线点 |
+
+---
+
+## Test Cases
+
+### TC-001: MCP 工具通过 ToolSource 进入可见集并可调用
+
+- **Preconditions**: 已配置一个 mock MCP server（`tools-mcp` 内 mock transport），server 在线，`mcp:<serverId>` 能力已注入
+- **Steps**:
+  1. 创建 `McpToolSource` 并 `connectAll()` 连接 mock server
+  2. 调用 `source.list()` 获取工具定义列表
+  3. 断言返回的 `ToolDefinition[]` 包含 `mcp__<serverId>__<toolName>`
+  4. 调用 `source.callTool(fullName, args)` 执行调用
+  5. 断言返回 `ToolResult` 中 `modelContent` 包含 mock server 返回值
+- **Paths**: `packages/tools/mcp/src/__tests__/mcp-tool-source.test.ts:67`, `packages/tools/mcp/src/connection.ts:81`
+- **Expected**: 工具定义正确映射（含 `mcp:<serverId>` capability），调用结果归一为 `ToolResult`，双层（`modelContent` + `displayMetadata`）
+
+### TC-002: MCP server 缺席时工具自动从可见集摘除
+
+- **Preconditions**: `McpToolSource` 有一个 server 未连接（`connectAll` 后 `disconnectServer`）
+- **Steps**:
+  1. `connectAll()` 连接 server，确认 `capabilities.has("mcp:srv1")` 为 true
+  2. `disconnectServer("srv1")` 断开连接
+  3. 断言 `capabilities.has("mcp:srv1")` 为 false
+  4. 调用 `source.list()` 断言返回空数组
+  5. 断言 `filterVisibleTools(tools, capabilities)` 过滤掉该 server 的工具
+- **Paths**: `packages/tools/mcp/src/__tests__/mcp-tool-source.test.ts:80`, `packages/core/src/tool-router.ts:64`
+- **Expected**: server 断开后 `mcp:<serverId>` 能力被移除，`filterVisibleTools` 自动过滤该 server 的工具
+
+### TC-003: MCP 工具调用失败归一为 isError（不抛异常）
+
+- **Preconditions**: mock transport 在 `tools/call` 时抛出异常
+- **Steps**:
+  1. 创建 `McpConnection`，mock transport 的 `request("tools/call")` 抛出 `Error("server crashed")`
+  2. 调用 `connection.callTool("echo", {})`
+  3. 断言返回 `ToolResult` 中 `isError === true`
+  4. 断言 `modelContent` 包含 "server crashed"
+- **Paths**: `packages/tools/mcp/src/__tests__/mcp-connection.test.ts:95`, `packages/tools/mcp/src/connection.ts:107`
+- **Expected**: 返回 `{ isError: true, modelContent: "...crashed..." }`，无异常抛出
+
+### TC-004: filterByScope 裁剪纯函数可重放（快照断言）
+
+- **Preconditions**: 4 个 `ToolDefinition`（`mcp__a__t1`, `mcp__b__t2`, `lsp__def`, `read_file`），含 scope 配置
+- **Steps**:
+  1. 第一次调用 `filterByScope(tools, scopeConfig, 10)` 获得 `r1`
+  2. 第二次调用相同参数获得 `r2`
+  3. 断言 `r1.map(t => t.name)` 等于 `r2.map(t => t.name)`（完全相同）
+- **Paths**: `packages/core/src/__tests__/tool-router.test.ts:207`, `packages/core/src/tool-router.ts:113`
+- **Expected**: 纯函数确定性 — 同输入同输出，工具名数组顺序完全一致
+
+### TC-005: 工具数超阈值时裁剪到 limit
+
+- **Preconditions**: 30 个 `Tool`，limit=5
+- **Steps**:
+  1. 调用 `createAgent({ modelPort: mock, tools: thirtyTools, toolVisibility: { limit: 5 } })`
+  2. 调用 `agent.run("hi")` 触发 `initToolSources()` + `refreshToolSources()`
+  3. 断言 `state.status === "done"`（agent 正常运行）
+- **Paths**: `packages/sdk/src/__tests__/tool-visibility.test.ts:31`, `packages/sdk/src/create-agent.ts:443`
+- **Expected**: agent 运行完成，未因工具过多报错；`stepContext.tools` 长度 ≤ 5
+
+### TC-006: apply_patch 命中成功、hunk 不匹配返回候选
+
+- **Preconditions**: 文件 `test.ts` 内容 `"line1\nline2\nline3"`
+- **Steps**:
+  1. 构造 valid unified diff（`-line2` → `+line2-modified`），调用 `apply_patch`，断言成功
+  2. 构造 invalid diff（`-nonexistent` → `+replaced`），调用 `apply_patch`
+  3. 断言 `isError === true`，`modelContent` 包含 "did not match"
+- **Paths**: `packages/tools/fs/src/__tests__/extended-edit-tools.test.ts:38`, `packages/tools/fs/src/apply-patch.ts:113`
+- **Expected**: 有效 diff 成功应用；无效 diff 返回 `isError` + 候选行号，不抛异常
+
+### TC-007: multi_edit 原子性 — 部分失败整体回滚
+
+- **Preconditions**: 文件 `test.ts` 内容 `"function hello() {\n  console.log('hello');\n  return true;\n}"`
+- **Steps**:
+  1. 构造 2 个 edits：第 1 个 `function hello()` → `function greet()`（成功），第 2 个 `nonexistent` → `nope`（失败）
+  2. 调用 `multi_edit({ path: "test.ts", edits })`
+  3. 断言 `isError === true`，`modelContent` 包含 "aborted"
+  4. 读取文件内容，断言与原始完全一致（原子回滚）
+- **Paths**: `packages/tools/fs/src/__tests__/extended-edit-tools.test.ts:148`, `packages/tools/fs/src/multi-edit.ts:39`
+- **Expected**: 第 2 个 edit 失败导致全部回滚，文件内容不变，返回 `isError: true`
+
+### TC-008: LSP 工具返回结构化结果
+
+- **Preconditions**: mock `LspClient`，`definition()` 返回 `[{ uri: "file:///src/foo.ts", range: ... }]`
+- **Steps**:
+  1. 创建 `createLspDefinitionTool(mockClient)`
+  2. 调用 `tool.handler({ file: "/src/foo.ts", line: 5, character: 3 })`
+  3. 断言 `modelContent` 包含 "1 definition" 和文件路径
+  4. 断言 `displayMetadata.locations` 包含结构化位置数据
+- **Paths**: `packages/tools/code/src/__tests__/lsp-tools.test.ts:38`, `packages/tools/code/src/lsp-tools.ts:23`
+- **Expected**: 返回结构化 `ToolResult`（`modelContent` 人类可读 + `displayMetadata` 结构化位置数组），非裸文本
+
+### TC-009: LSP 工具缺 adapter 时能力门控摘除
+
+- **Preconditions**: `createAgent({ modelPort: mock })` 不传 `lspClient`
+- **Steps**:
+  1. 断言 `capabilities` 不包含 `"lsp:query"`
+  2. 断言 `adapterTools` 不含任何 `lsp_*` 工具
+  3. 断言 `filterVisibleTools(toolDefs, capabilities)` 不含 `lsp_*`
+- **Paths**: `packages/sdk/src/create-agent.ts:322`, `packages/core/src/tool-router.ts:64`
+- **Expected**: 无 LSP adapter 时 5 个 LSP 工具从可见集完全移除，模型不可见
+
+### TC-010: git_commit / git_push 高风险经 PermissionPolicy 触发 ask
+
+- **Preconditions**: 已配置 `permissionConfig`（默认 `WRITE_HIGH → ask`，`IRREVERSIBLE → deny`）
+- **Steps**:
+  1. 创建 `createGitCommitTool(mockShell)`，断言 `riskTier === "WRITE_HIGH"`
+  2. 创建 `createGitPushTool(mockShell)`，断言 `riskTier === "IRREVERSIBLE"`
+  3. 在 Runner 中触发 `git_commit` 调用，断言 PermissionPolicy 返回 `"ask"`
+- **Paths**: `packages/tools/vcs/src/__tests__/vcs-tools.test.ts:122`, `packages/core/src/permission-policy.ts:67`
+- **Expected**: `git_commit` 触发 `ask`（需用户批准），`git_push` 默认 `deny`（需宿主显式配置 `allow`）
+
+### TC-011: browser 工具缺 adapter 不可见
+
+- **Preconditions**: `createAgent({ modelPort: mock })` 不传 `browserAdapter`
+- **Steps**:
+  1. 断言 `capabilities` 不包含 `"browser:control"`
+  2. 断言 `adapterTools` 不含 `browser_*` 工具
+- **Paths**: `packages/sdk/src/create-agent.ts:346`, `packages/core/src/tool-router.ts:64`
+- **Expected**: 无 Browser adapter 时 5 个 browser 工具从可见集移除
+
+### TC-012: ask_user 宿主不可用时归一为 isError
+
+- **Preconditions**: `ApprovalGate.ask()` 抛出异常（宿主不可用）
+- **Steps**:
+  1. 创建 mock `ApprovalGate`（`ask()` 抛出 `Error("no host")`）
+  2. 创建 `createAskUserTool({ approvalGate: mockGate, eventSink })`
+  3. 调用 `tool.handler({ question: "Continue?" })`
+  4. 断言 `isError === true`，`modelContent` 包含 "not available"
+- **Paths**: `packages/tools/ask/src/__tests__/ask-user.test.ts:42`, `packages/tools/ask/src/index.ts:49`
+- **Expected**: 宿主不可用返回 `isError: true`，不抛异常中断主循环
