@@ -145,6 +145,22 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
   if (req.maxTokens !== undefined) body.max_tokens = req.maxTokens;
   if (req.temperature !== undefined) body.temperature = req.temperature;
 
+  // Structured / JSON output mode
+  if (req.responseFormat?.type === "json") {
+    if (req.responseFormat.schema) {
+      body.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: "response",
+          strict: true,
+          schema: req.responseFormat.schema,
+        },
+      };
+    } else {
+      body.response_format = { type: "json_object" };
+    }
+  }
+
   return body;
 }
 

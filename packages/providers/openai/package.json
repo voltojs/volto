@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./stream-normalize.js": {
+      "types": "./dist/stream-normalize.d.ts",
+      "import": "./dist/stream-normalize.js"
     }
   },
   "scripts": {

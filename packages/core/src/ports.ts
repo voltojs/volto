@@ -5,7 +5,7 @@
  */
 
 import type { AgentState, Message, PendingToolCall } from "./state.js";
-import type { RiskTier, ToolDefinition } from "./tool.js";
+import type { RiskTier, ToolDefinition, JSONSchema } from "./tool.js";
 
 // ──────────────────────────────────────────────
 // ModelPort — the model provider interface
@@ -70,6 +70,13 @@ export interface ModelRequest {
   maxTokens?: number;
   temperature?: number;
   abortSignal?: AbortSignal;
+  /** Structured / JSON output mode (provider-specific translation) */
+  responseFormat?: { type: "json"; schema?: JSONSchema };
+  /**
+   * Cache breakpoints — message indices where provider-side prompt cache
+   * should be anchored. Provider translates to native cache_control mechanism.
+   */
+  cacheBreakpoints?: number[];
 }
 
 export interface ModelPort {

@@ -36,6 +36,7 @@ import type {
   Secrets,
   Scheduler,
   PolicyEngine,
+  JSONSchema,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
@@ -81,6 +82,7 @@ import {
   defaultPolicyEngine,
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
+import { createCostMeter, type PricingTable } from "./cost-meter.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -198,6 +200,30 @@ export interface CreateAgentOptions {
 
   /** External authorization decision engine. Defaults to allow-all. */
   policyEngine?: PolicyEngine;
+
+  // ── M9: Model layer options ──
+
+  /**
+   * Pricing table for cost metering (keyed by "provider/model").
+   * When provided, a CostMeter aggregates token/$ per turn and reports via
+   * EventSink + Telemetry. Does NOT enforce any budget (M8 Phase 4 handles that).
+   */
+  pricing?: PricingTable;
+
+  /**
+   * Reasoning (thinking) passthrough strategy:
+   * - "emit" (default): reasoning_delta events flow to EventSink (visible to UI)
+   * - "record": reasoning is stored in message history (for debugging)
+   * - "meter-only": reasoning is consumed only by CostMeter (not surfaced)
+   */
+  reasoningStrategy?: "emit" | "record" | "meter-only";
+
+  /**
+   * Structured / JSON output mode. When set, the provider is instructed to
+   * produce structured JSON output (OpenAI: response_format, Anthropic: system instruction).
+   * Schema is passed as abstract JSONSchema — zod is NOT used in core.
+   */
+  responseFormat?: { type: "json"; schema?: JSONSchema };
 }
 
 export interface AgentInstance {
@@ -301,6 +327,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     maxTokens: opts.maxTokens,
     temperature: opts.temperature,
     maxLoopCount: opts.maxLoopCount,
+    responseFormat: opts.responseFormat,
   };
 
   // ── Compose tool executor ────────────────
@@ -351,6 +378,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     initialMessages.push({ role: "system", content: opts.systemPrompt });
   }
 
+  // ── M9: Cost meter (created per-run via wrapping EventSink) ──
+  const costMeter = opts.pricing
+    ? createCostMeter({ pricing: opts.pricing, eventSink: opts.eventSink ?? defaultEventSink, telemetry: resolvedPorts.telemetry })
+    : null;
+
   // ── Public API ────────────────────────────
 
   let lastRunner: Runner | null = null;
@@ -361,10 +393,39 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     lastRunner = null;
     lastFinalState = null;
 
+    // Wrap EventSink to intercept usage events for cost metering
+    // and filter reasoning_delta based on reasoningStrategy.
+    const reasoningStrategy = opts.reasoningStrategy ?? "emit";
+    const effectiveSink: EventSink = (costMeter || reasoningStrategy !== "emit")
+      ? {
+          emit(event) {
+            // Filter reasoning_delta based on strategy
+            if (event.type === "reasoning_delta" && reasoningStrategy === "meter-only") {
+              // Meter-only: drop reasoning events from the consumer-facing stream
+              return;
+            }
+
+            // Cost metering: intercept model_done usage data
+            if (event.type === "model_done" && costMeter) {
+              const usage = event.data.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+              if (usage) {
+                costMeter.record({
+                  type: "usage",
+                  inputTokens: usage.inputTokens ?? 0,
+                  outputTokens: usage.outputTokens ?? 0,
+                });
+              }
+            }
+
+            runnerEventSink.emit(event);
+          },
+        }
+      : runnerEventSink;
+
     const runnerOpts: RunnerOptions = {
       modelPort,
       stepContext,
-      eventSink: runnerEventSink,
+      eventSink: effectiveSink,
       toolExecutor,
       availableCapabilities: capabilities,
       permissionConfig,

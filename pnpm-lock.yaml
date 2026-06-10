@@ -53,6 +53,24 @@ importers:
 
   packages/core: {}
 
+  packages/embedders/openai:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/memories/inmemory:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/providers/anthropic:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../core
+
   packages/providers/openai:
     dependencies:
       '@agent-core/core':

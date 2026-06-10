@@ -155,6 +155,13 @@ export { extractMessageText, extractBlockText, extractPlainText } from "./text-e
 export { detectLoop } from "./loop-detector.js";
 export type { LoopDetectionResult } from "./loop-detector.js";
 
+// Instructions — project instruction loading with @import expansion
+export { expandInstructions, mergeInstructionLayers } from "./instructions.js";
+export type { InstructionExpandResult, InstructionReference } from "./instructions.js";
+
+// RAG retrieval — slot placement for augmented context
+export { computeRAGInjectionIndex, buildRAGMessage } from "./retrieval.js";
+
 // Testing utilities
 export {
   createMockModelPort,

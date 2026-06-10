@@ -164,3 +164,41 @@ describe("computeStaticPrefixTokens", () => {
     expect(computeStaticPrefixTokens(messages, tokenizer)).toBe(0);
   });
 });
+
+describe("pinned messages in assembleContext", () => {
+  it("should place pinned messages in the prefix slot after system messages", () => {
+    const messages: Message[] = [
+      { role: "system", content: "System prompt" },
+      { role: "user", content: "msg-0" },      // index 1 — not pinned
+      { role: "user", content: "pinned-msg" },  // index 2 — pinned
+      { role: "user", content: "msg-3" },       // index 3 — not pinned
+    ];
+
+    const result = assembleContext({
+      messages,
+      tools: [],
+      pinnedMessageIds: ["2"],
+    });
+
+    // Order: system, pinned, then remaining non-system in original order
+    const roles = result.messages.map((m) => m.role);
+    expect(roles).toEqual(["system", "user", "user", "user"]);
+
+    // The pinned message is second (after system)
+    const contents = result.messages.map((m) => (m as { content: string }).content);
+    expect(contents[1]).toBe("pinned-msg");
+
+    // staticPrefixLength includes system + pinned
+    expect(result.staticPrefixLength).toBe(2);
+  });
+
+  it("should not affect prefix when no pinned messages", () => {
+    const messages: Message[] = [
+      { role: "system", content: "System" },
+      { role: "user", content: "Hello" },
+    ];
+
+    const result = assembleContext({ messages, tools: [] });
+    expect(result.staticPrefixLength).toBe(1);
+  });
+});

@@ -23,6 +23,12 @@ export interface AssembleContextOptions {
   tools: ToolDefinition[];
   /** Optional system prompt override (default: extract from messages) */
   systemPrompt?: string;
+  /**
+   * IDs (indices as strings) of pinned messages.
+   * Pinned messages are stably placed in the prefix slot (after system messages)
+   * so they are never displaced by compaction or rearrangement.
+   */
+  pinnedMessageIds?: string[];
 }
 
 export interface AssembledContext {
@@ -30,6 +36,18 @@ export interface AssembledContext {
   messages: Message[];
   /** The static prefix length (number of messages) — for cache diagnostics */
   staticPrefixLength: number;
+  /**
+   * Cache breakpoints — message indices where provider-side prompt cache
+   * should be anchored. These correspond to boundaries in the static prefix:
+   * - Index 0: first system message (always a breakpoint)
+   * - Indices within system messages: after each distinct system message
+   * - Index after all system + pinned messages: the boundary before variable content
+   *
+   * Providers translate these to their native cache_control mechanism:
+   * - Anthropic: cache_control: { type: "ephemeral" } on messages at these indices
+   * - OpenAI: automatic prefix caching (breakpoints are diagnostic only)
+   */
+  cacheBreakpoints: number[];
 }
 
 // ──────────────────────────────────────────────
@@ -53,24 +71,38 @@ export interface AssembledContext {
  */
 export function assembleContext(opts: AssembleContextOptions): AssembledContext {
   const { messages } = opts;
+  const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
 
   const systemMessages: Message[] = [];
+  const pinnedMessages: Message[] = [];
   const otherMessages: Message[] = [];
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!;
     if (msg.role === "system") {
       systemMessages.push(msg);
+    } else if (pinnedIndices.has(i)) {
+      pinnedMessages.push(msg);
     } else {
       otherMessages.push(msg);
     }
   }
 
-  // System messages first (stable prefix), then everything else in order
-  const assembled = [...systemMessages, ...otherMessages];
+  // System messages → pinned messages → everything else (stable prefix includes pinned)
+  const assembled = [...systemMessages, ...pinnedMessages, ...otherMessages];
+  const prefixLen = systemMessages.length + pinnedMessages.length;
+
+  // Cache breakpoints: indices where provider-side prompt cache should anchor.
+  // Always include index 0 (first message) and the boundary after the static prefix.
+  const cacheBreakpoints: number[] = [0];
+  if (prefixLen > 0 && prefixLen < assembled.length) {
+    cacheBreakpoints.push(prefixLen);
+  }
 
   return {
     messages: assembled,
-    staticPrefixLength: systemMessages.length,
+    staticPrefixLength: prefixLen,
+    cacheBreakpoints,
   };
 }
 

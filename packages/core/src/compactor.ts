@@ -26,6 +26,8 @@ export interface CompactionOptions {
   recentKeepCount: number;
   /** Tokenizer for estimating message sizes */
   tokenizer: Tokenizer;
+  /** IDs of messages that must never be compressed (pinned) */
+  pinnedMessageIds?: string[];
 }
 
 export interface CompactionDecision {
@@ -166,7 +168,10 @@ export function decideCompaction(
   // here keeps them in `preservedMessages` (built below from the un-compressed
   // set). This is the kernel-level preservation guarantee required by AC1;
   // the summary-prompt instruction is only a best-effort backstop for the rest.
-  const compressible = recencyEligible.filter((item) => !isKeyMessage(item.msg));
+  const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
+  const compressible = recencyEligible.filter(
+    (item) => !isKeyMessage(item.msg) && !pinnedIndices.has(item.index),
+  );
 
   // Among compressible, prefer compressing old tool interactions
   // Sort: compress tool interactions first, then oldest first

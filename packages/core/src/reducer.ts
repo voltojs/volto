@@ -7,7 +7,7 @@
 import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
-import type { ToolDefinition } from "./tool.js";
+import type { ToolDefinition, JSONSchema } from "./tool.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
 
@@ -28,6 +28,8 @@ export interface StepContext {
   temperature?: number;
   /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
   maxLoopCount?: number;
+  /** Structured / JSON output mode (passed through to ModelPort.stream) */
+  responseFormat?: { type: "json"; schema?: JSONSchema };
 }
 
 // ──────────────────────────────────────────────
@@ -80,6 +82,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     maxCostDollars: undefined,
     maxWallclockMs: undefined,
     maxLoopCount: undefined,
+    pinnedMessageIds: [],
     _accumulatedText: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
