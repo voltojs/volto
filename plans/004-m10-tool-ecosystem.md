@@ -221,6 +221,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 3. 所有新编辑工具继承"未 `read_file`/版本过期拒绝编辑 + 写回前版本比对"门控；`ast_edit` 缺 tree-sitter adapter 时不可见。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: c6ed985 feat(plan-004): phase 3 - apply_patch + multi_edit 结构化编辑工具
 
 ---
 
