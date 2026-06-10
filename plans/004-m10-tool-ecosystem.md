@@ -235,18 +235,18 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`（mock LSP server）
 
 **Tasks**:
-- [ ] LSP runtime adapter：启动/连接 language server（按语言配置），封装 LSP 请求（definition/references/rename/diagnostics/hover），声明 `lsp:query` 能力
-- [ ] 工具：`lsp_definition`（跳转）/ `lsp_references`（引用）/ `lsp_rename`（重命名，写类 → `WRITE_HIGH`）/ `lsp_diagnostics`（诊断）/ `lsp_hover`（hover），全走 `defineTool`，结果归一为结构化 `ToolResult`（位置/范围/符号列表）
-- [ ] 缺 LSP adapter（`lsp:query` 能力缺席）→ 工具自动从可见集摘除
-- [ ] LSP server 无响应/超时/不支持的语言 → 归一为 `isError` 不抛异常
-- [ ] 测试：mock LSP server 返回结构化结果；缺 adapter 不可见；超时归一为 `isError`
+- [x] LSP runtime adapter：启动/连接 language server（按语言配置），封装 LSP 请求（definition/references/rename/diagnostics/hover），声明 `lsp:query` 能力
+- [x] 工具：`lsp_definition`（跳转）/ `lsp_references`（引用）/ `lsp_rename`（重命名，写类 → `WRITE_HIGH`）/ `lsp_diagnostics`（诊断）/ `lsp_hover`（hover），全走 `defineTool`，结果归一为结构化 `ToolResult`（位置/范围/符号列表）
+- [x] 缺 LSP adapter（`lsp:query` 能力缺席）→ 工具自动从可见集摘除
+- [x] LSP server 无响应/超时/不支持的语言 → 归一为 `isError` 不抛异常
+- [x] 测试：mock LSP server 返回结构化结果；缺 adapter 不可见；超时归一为 `isError`
 
 **Acceptance Criteria**:
 1. LSP 工具返回**结构化结果**（跳转/引用/诊断），而非裸文本（对应 roadmap M10 验收 3）。
 2. 缺 LSP adapter（能力缺席）时 LSP 工具从可见集摘除，模型不可见。
 3. LSP server 超时/无响应归一为 `isError: true` 回喂，不抛异常。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
 
 ---
 

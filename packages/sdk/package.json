@@ -21,6 +21,7 @@
     "@agent-core/core": "workspace:*",
     "@agent-core/tools-common": "workspace:*",
     "@agent-core/tools-agent": "workspace:*",
+    "@agent-core/tools-code": "workspace:*",
     "@agent-core/tools-fs": "workspace:*",
     "@agent-core/tools-shell": "workspace:*",
     "@agent-core/tools-web": "workspace:*",

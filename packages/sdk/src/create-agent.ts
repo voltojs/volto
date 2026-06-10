@@ -70,6 +70,13 @@ import {
 import { createBashTool, SHELL_TOOL_NAMES } from "@agent-core/tools-shell";
 import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@agent-core/tools-web";
 import {
+  createLspDefinitionTool,
+  createLspReferencesTool,
+  createLspRenameTool,
+  createLspDiagnosticsTool,
+  createLspHoverTool,
+} from "@agent-core/tools-code";
+import {
   defaultEventSink,
   defaultTokenizer,
   createDefaultSessionStore,
@@ -161,6 +168,9 @@ export interface CreateAgentOptions {
 
   /** Network adapter */
   network?: Network;
+
+  /** LSP client adapter — when provided, LSP code intelligence tools are auto-created */
+  lspClient?: import("@agent-core/tools-code").LspClient;
 
   /** Available capabilities (auto-populated from injected adapters if not set) */
   capabilities?: Set<string>;
@@ -308,6 +318,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.network) {
     capabilities.add("network:fetch");
   }
+  if (opts.lspClient) {
+    capabilities.add("lsp:query");
+  }
   if (opts.enableTaskTool) {
     capabilities.add("agent:task");
   }
@@ -329,6 +342,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (opts.network) {
     adapterTools.push(createWebFetchTool(opts.network), createWebSearchTool(opts.network));
+  }
+  if (opts.lspClient) {
+    adapterTools.push(
+      createLspDefinitionTool(opts.lspClient),
+      createLspReferencesTool(opts.lspClient),
+      createLspRenameTool(opts.lspClient),
+      createLspDiagnosticsTool(opts.lspClient),
+      createLspHoverTool(opts.lspClient),
+    );
   }
 
   // ── Compaction config ─────────────────────

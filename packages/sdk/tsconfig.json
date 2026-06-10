@@ -9,6 +9,7 @@
     { "path": "../core" },
     { "path": "../tools/common" },
     { "path": "../tools/agent" },
+    { "path": "../tools/code" },
     { "path": "../tools/fs" },
     { "path": "../tools/shell" },
     { "path": "../tools/web" },
