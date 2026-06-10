@@ -193,6 +193,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 3. 工具数未超阈值时行为与现状一致（向后兼容）。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: e1570ab feat(plan-004): phase 2 - 工具可见集动态过滤（filterByScope 纯函数）
 
 ---
 
