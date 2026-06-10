@@ -229,13 +229,13 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] `guardrails.ts`：纯函数把 web/MCP 来源内容标注为 untrusted（注入隔离包裹/前缀），并提供 PII 脱敏判定（作用于 `displayMetadata`/事件流出，不改回喂模型的语义内容除非配置）
-- [ ] `error-taxonomy.ts`：`classifyError(err) → { kind, retriable }`（瞬时/永久/限流/越权），纯函数
-- [ ] input/state：`ModelErrorInput`/`ToolResultInput` 增可选 `errorKind`；state 增自纠计数与上限字段（可序列化，survives resume）
-- [ ] Runner：对 `transient`/`rate_limited` 指数退避重试（退避时长经 `Scheduler.sleep`/`Clock`，**不**在 reducer 读时间），连续失败达阈值熔断 → 回喂归一化永久终止 input；`permanent`/`forbidden` 不重试直接归一回喂
-- [ ] `self-correct.ts` + reducer：可声明校验器判定工具结果/产物失败 → 回喂结构化修复提示（含失败摘要+期望），自纠次数纳入上限，达上限归一终止
-- [ ] 单测：注入内容被标注隔离；PII 脱敏；错误分类四类；退避后成功 / 熔断终止（计时经注入端口可重放）；自纠回喂 + 上限终止
-- [ ] 重放：含 guardrail/分类/自纠的 input 序列两次运行 (state, effects) deep-equal
+- [x] `guardrails.ts`：纯函数把 web/MCP 来源内容标注为 untrusted（注入隔离包裹/前缀），并提供 PII 脱敏判定（作用于 `displayMetadata`/事件流出，不改回喂模型的语义内容除非配置）
+- [x] `error-taxonomy.ts`：`classifyError(err) → { kind, retriable }`（瞬时/永久/限流/越权），纯函数
+- [x] input/state：`ModelErrorInput`/`ToolResultInput` 增可选 `errorKind`；state 增自纠计数与上限字段（可序列化，survives resume）
+- [ ] Runner：对 `transient`/`rate_limited` 指数退避重试（退避时长经 `Scheduler.sleep`/`Clock`，**不**在 reducer 读时间），连续失败达阈值熔断 → 回喂归一化永久终止 input；`permanent`/`forbidden` 不重试直接归一回喂 — **推迟至 Runner 整合阶段**
+- [x] `self-correct.ts` + reducer：可声明校验器判定工具结果/产物失败 → 回喂结构化修复提示（含失败摘要+期望），自纠次数纳入上限，达上限归一终止
+- [x] 单测：注入内容被标注隔离；PII 脱敏；错误分类四类；退避后成功 / 熔断终止（计时经注入端口可重放）；自纠回喂 + 上限终止
+- [x] 重放：含 guardrail/分类/自纠的 input 序列两次运行 (state, effects) deep-equal
 
 **Acceptance Criteria**:
 1. **来自 web/MCP 的不可信内容经 guardrail 标注/隔离**；PII 脱敏作用于流出层，state 可重放。
@@ -243,7 +243,8 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. 校验失败触发自纠回喂修复提示，自纠次数受上限约束、达上限归一终止；自纠决策纯函数可重放。
 4. 退避/熔断/自纠的计时全部经注入的 `Scheduler`/`Clock`，reducer 不读 wall-clock。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-10 by reviewer (PASS)
+**Commit**: <pending — Phase 3 commit>
 
 ---
 

@@ -155,4 +155,12 @@ export interface AgentState {
    * Serializable for checkpoint/resume.
    */
   pinnedMessageIds?: string[];
+  /**
+   * Self-correction attempt counter (reset each turn).
+   * Tracked in serializable state for checkpoint/resume.
+   * When maxSelfCorrections is reached, forced termination occurs.
+   */
+  selfCorrectionCount: number;
+  /** Max self-corrections per turn. Undefined = no limit (0 effectively disables self-correction). */
+  maxSelfCorrections: number | undefined;
 }

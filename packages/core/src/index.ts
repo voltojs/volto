@@ -156,6 +156,28 @@ export { extractMessageText, extractBlockText, extractPlainText } from "./text-e
 export { detectLoop } from "./loop-detector.js";
 export type { LoopDetectionResult } from "./loop-detector.js";
 
+// Error taxonomy — pure classification for retry decisions
+export { classifyError } from "./error-taxonomy.js";
+export type { ErrorKind, ErrorClassification } from "./error-taxonomy.js";
+
+// Guardrails — content safety (untrusted annotation + PII masking)
+export {
+  annotateUntrusted,
+  isUntrusted,
+  maskPII,
+  containsPII,
+  UNTRUSTED_PREFIX,
+} from "./guardrails.js";
+export type { PIIMaskResult } from "./guardrails.js";
+
+// Self-correction — validation-repair pure decision logic
+export {
+  decideSelfCorrect,
+  createSchemaValidator,
+  DEFAULT_MAX_SELF_CORRECTIONS,
+} from "./self-correct.js";
+export type { ValidationResult, SelfCorrectDecision, Validator } from "./self-correct.js";
+
 // Instructions — project instruction loading with @import expansion
 export { expandInstructions, mergeInstructionLayers } from "./instructions.js";
 export type { InstructionExpandResult, InstructionReference } from "./instructions.js";
