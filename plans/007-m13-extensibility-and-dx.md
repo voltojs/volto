@@ -170,7 +170,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 3. `check-core-zero-deps` 通过；最小配置（无 `plugins`）零回归。
 
 **Reviewed**: 2026-06-11 by reviewer
-**Commit**: pending
+**Commit**: 3af6b20 feat(plan-007): phase 2 — 插件协议 + 注册表（Plugin / PluginRegistry / collectPlugins）
 
 ---
 
@@ -186,19 +186,20 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 - 对应 `__tests__/`（含 deny / modify / 顺序 / 重放）
 
 **Tasks**:
-- [ ] 定义 `Hook`（命名生命周期点 + 处理函数）、`HookOutcome = continue | modify(patch) | deny(reason)`、`HookPipeline`（按注册顺序串行执行、首个 deny 短路）
-- [ ] Runner：在 `run` 入口 emit `session:start`、结束 emit `session:end`；进入 `calling_model` 前 `turn:start`、turn 收束 `turn:end`
-- [ ] Runner：`executeTool` 前跑 `preToolUse`（在权限判定之后、`toolExecutor` 之前）；`deny` → **不执行工具**，构造 `{ modelContent: reason, isError: true }` 回喂（与 `runner.ts` 现有权限 deny 同路，line 351–360）；`modify` → 用 patch 后的 input 执行
-- [ ] Runner：拿到 `ToolResult` 后跑 `postToolUse`，允许 `modify`（如 redact 输出）后再回喂 reducer
-- [ ] hook 管线副作用全在 Runner；reducer 不新增 hook 类型；hook 决策确定 → 同输入序列重放 (state, effects) deep-equal
-- [ ] 测试:`preToolUse` deny → 工具未执行、模型收到 isError 结果、循环继续不抛异常；`modify` 改写 input/output 生效；多 hook 注册顺序确定；含 hook 的重放 deep-equal
+- [x] 定义 `Hook`（命名生命周期点 + 处理函数）、`HookOutcome = continue | modify(patch) | deny(reason)`、`HookPipeline`（按注册顺序串行执行、首个 deny 短路）
+- [x] Runner：在 `run` 入口 emit `session:start`、结束 emit `session:end`；进入 `calling_model` 前 `turn:start`、turn 收束 `turn:end`
+- [x] Runner：`executeTool` 前跑 `preToolUse`（在权限判定之后、`toolExecutor` 之前）；`deny` → **不执行工具**，构造 `{ modelContent: reason, isError: true }` 回喂（与 `runner.ts` 现有权限 deny 同路，line 351–360）；`modify` → 用 patch 后的 input 执行
+- [x] Runner：拿到 `ToolResult` 后跑 `postToolUse`，允许 `modify`（如 redact 输出）后再回喂 reducer
+- [x] hook 管线副作用全在 Runner；reducer 不新增 hook 类型；hook 决策确定 → 同输入序列重放 (state, effects) deep-equal
+- [x] 测试:`preToolUse` deny → 工具未执行、模型收到 isError 结果、循环继续不抛异常；`modify` 改写 input/output 生效；多 hook 注册顺序确定；含 hook 的重放 deep-equal
 
 **Acceptance Criteria**:
 1. **hooks：pre/post tool-use 可拦截、改写、阻断（产出 deny）**：`preToolUse` 返回 deny 时工具不执行、结果归一为 `isError` 回喂、主循环不中断；`modify` 能改写工具 input / result。
 2. session / turn / pre-post tool-use 六个生命周期点按固定切点触发，多 hook 按注册顺序串行、首个 deny 短路。
 3. hook 副作用仅在 Runner；`packages/core` 不新增 hook 概念；含 hook 的 input 序列两次运行 (state, effects) deep-equal（可重放）。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: pending
 
 ---
 

@@ -12,6 +12,8 @@
 import type {
   ToolDefinition,
   ToolSource,
+  HookLifecycle,
+  HookHandler,
 } from "@agent-core/core";
 import type { Tool } from "@agent-core/tools-common";
 
@@ -54,13 +56,11 @@ export interface PluginRegistry {
 // Plugin product types (Phase 3-5 will flesh these out)
 // ──────────────────────────────────────────────
 
-/** Hook placeholder — will be fully defined in Phase 3 */
+/** Hook — fully typed using core HookLifecycle and HookHandler */
 export interface PluginHook {
   name: string;
-  /** Lifecycle point this hook listens to */
-  lifecycle: string;
-  /** Handler function — signature TBD by Phase 3 */
-  handler: (...args: unknown[]) => unknown;
+  lifecycle: HookLifecycle;
+  handler: HookHandler;
 }
 
 /** Slash command placeholder — will be fully defined in Phase 5 */

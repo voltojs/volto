@@ -35,6 +35,8 @@ import {
   annotateUntrusted,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
+import type { Hook } from "@agent-core/core";
+import { runHookPipeline } from "@agent-core/core";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -104,6 +106,13 @@ export interface RunnerOptions {
    * WRITE_HIGH/IRREVERSIBLE tool executions.
    */
   auditSink?: AuditSink;
+  /**
+   * Lifecycle hooks — called at session:start/end, turn:start/end,
+   * preToolUse (after permission, before executor), postToolUse (after result).
+   * preToolUse hooks can deny (→ normalized tool_result isError) or modify input.
+   * postToolUse hooks can modify tool result before it's fed to the reducer.
+   */
+  hooks?: Hook[];
 }
 
 export interface Runner {
@@ -426,15 +435,42 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
 
     const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+
+    // M13: preToolUse hook — after permission, before executor
+    const preOutcome = await runHookPipeline(opts.hooks ?? [], "preToolUse", {
+      sessionId: opts.sessionId,
+      toolCall: { id: toolCall.id, name: toolCall.name, input: toolCall.input },
+    });
+    if (preOutcome.action === "deny") {
+      return {
+        modelContent: `Tool "${toolCall.name}" denied by hook: ${preOutcome.reason}`,
+        isError: true,
+      };
+    }
+    const effectiveCall = preOutcome.action === "modify" && preOutcome.patch.input
+      ? { ...toolCall, input: preOutcome.patch.input }
+      : toolCall;
+
     const toolSpan = opts.telemetry?.startSpan("tool_execute", {
       toolName: toolCall.name,
       riskTier: toolDef?.riskTier,
     });
     const toolSpanStartedAt = opts.clock?.now() ?? Date.now();
     try {
-      const result = await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
-      if (toolSpan && result.isError) toolSpan.setAttribute("error", true);
-      return result;
+      const result = await opts.toolExecutor(effectiveCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
+
+      // M13: postToolUse hook — can modify result before feeding to reducer
+      const postOutcome = await runHookPipeline(opts.hooks ?? [], "postToolUse", {
+        sessionId: opts.sessionId,
+        toolCall: { id: effectiveCall.id, name: effectiveCall.name, input: effectiveCall.input },
+        toolResult: result,
+      });
+      const finalResult = postOutcome.action === "modify" && postOutcome.patch.result
+        ? { ...result, ...postOutcome.patch.result }
+        : result;
+
+      if (toolSpan && finalResult.isError) toolSpan.setAttribute("error", true);
+      return finalResult;
     } catch (err: unknown) {
       turnHadError = true;
       if (toolSpan) toolSpan.setAttribute("error", true);
@@ -483,6 +519,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
 
       if (status === "calling_model") {
+        // M13: turn:start hook
+        await runHookPipeline(opts.hooks ?? [], "turn:start", {
+          sessionId: opts.sessionId,
+        });
         await runModelStream();
         continue;
       }
@@ -631,6 +671,11 @@ export function createRunner(opts: RunnerOptions): Runner {
       break;
     }
 
+    // M13: turn:end hook
+    await runHookPipeline(opts.hooks ?? [], "turn:end", {
+      sessionId: opts.sessionId,
+    });
+
     if (turnSpan) {
       turnSpan.setAttribute("status", state.status);
       if (turnHadError) turnSpan.setAttribute("error", true);
@@ -693,10 +738,18 @@ export function createRunner(opts: RunnerOptions): Runner {
         turnStartTime = Date.now();
         cumulativeCost = 0;
         turnHadError = false;
+        // M13: session:start hook
+        await runHookPipeline(opts.hooks ?? [], "session:start", {
+          sessionId: opts.sessionId,
+        });
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;
       } finally {
+        // M13: session:end hook
+        await runHookPipeline(opts.hooks ?? [], "session:end", {
+          sessionId: opts.sessionId,
+        });
         cleanup();
       }
     },

@@ -115,6 +115,10 @@ export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall } from "./tool-router.js";
 export type { ToolScopeConfig, ScopeGroupConfig } from "./tool-router.js";
 
+// Hooks — M13
+export { runHookPipeline } from "./hooks.js";
+export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "./hooks.js";
+
 // File gate (read-before-edit + staleness) — pure decisions
 export {
   recordFileAccess,

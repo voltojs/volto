@@ -319,6 +319,15 @@ export interface CreateAgentOptions {
     limit?: number;
   };
 
+  // ── M13: Lifecycle hooks ──
+
+  /**
+   * Lifecycle hooks — called at session:start/end, turn:start/end,
+   * preToolUse (after permission, before executor), postToolUse (after result).
+   * Merged with any hooks registered by plugins. Serial execution, first deny short-circuits.
+   */
+  hooks?: import("@agent-core/core").Hook[];
+
   // ── M9: Model layer options ──
 
   /**
@@ -728,6 +737,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         }
       : runnerEventSink;
 
+    // M13: Merge hooks from opts + plugins (plugin hooks appended after opts hooks)
+    const allHooks: import("@agent-core/core").Hook[] = [
+      ...(opts.hooks ?? []),
+      ...pluginData.hooks.map((ph) => ({
+        name: ph.name,
+        lifecycle: ph.lifecycle,
+        handler: ph.handler,
+      })),
+    ];
+
     const runnerOpts: RunnerOptions = {
       modelPort,
       stepContext,
@@ -744,6 +763,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
       auditSink: opts.auditSink ?? defaultAuditSink,
+      hooks: allHooks.length > 0 ? allHooks : undefined,
     };
 
     if (previousState && previousState.status === "done") {

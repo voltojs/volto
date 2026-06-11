@@ -74,6 +74,10 @@ export type {
   PluginAgentSpec,
 } from "./plugin.js";
 
+// M13: Hooks (re-exported from core)
+export { runHookPipeline } from "@agent-core/core";
+export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@agent-core/core";
+
 // M12: Multi-agent orchestration
 export { createOrchestrator } from "./orchestration.js";
 export type { OrchestratorOptions } from "./orchestration.js";

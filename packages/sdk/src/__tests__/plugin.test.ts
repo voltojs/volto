@@ -116,8 +116,8 @@ describe("collectPlugins", () => {
     const plugin: Plugin = {
       name: "hook-plugin",
       register(r) {
-        r.addHook({ name: "log", lifecycle: "preToolUse", handler: () => {} });
-        r.addHook({ name: "audit", lifecycle: "postToolUse", handler: () => {} });
+        r.addHook({ name: "log", lifecycle: "preToolUse", handler: () => ({ action: "continue" as const }) });
+        r.addHook({ name: "audit", lifecycle: "postToolUse", handler: () => ({ action: "continue" as const }) });
       },
     };
 
