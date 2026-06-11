@@ -98,6 +98,12 @@ export interface RunnerOptions {
    * When provided, Runner records `cost_usd` metric on model call spans.
    */
   pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+  /**
+   * Structured audit sink for approval decisions and high-risk tool executions.
+   * When provided, Runner records audit entries for HITL decisions and
+   * WRITE_HIGH/IRREVERSIBLE tool executions.
+   */
+  auditSink?: AuditSink;
 }
 
 export interface Runner {
@@ -105,6 +111,22 @@ export interface Runner {
   getState(): ReducerState;
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
+}
+
+/** Structured audit entry for approval decisions and high-risk tool executions. */
+export interface AuditEntry {
+  kind: "approval" | "high_risk_exec";
+  toolName: string;
+  riskTier?: string;
+  decision?: "allow" | "deny";
+  timestamp: number;
+  isError?: boolean;
+  sessionId?: string;
+}
+
+/** Sink for audit entries — records structured audit data. */
+export interface AuditSink {
+  record(entry: AuditEntry): void;
 }
 
 // ──────────────────────────────────────────────
@@ -566,6 +588,20 @@ export function createRunner(opts: RunnerOptions): Runner {
                 ...(annotatedResult.isError ? { errorKind: classifyError(annotatedResult.modelContent).kind } : {}),
               },
             }));
+            // Audit: record high-risk tool execution
+            if (opts.auditSink) {
+              const tDef = visibleTools.find((t) => t.name === toolCall.name);
+              if (tDef && (tDef.riskTier === "WRITE_HIGH" || tDef.riskTier === "IRREVERSIBLE")) {
+                opts.auditSink.record({
+                  kind: "high_risk_exec",
+                  toolName: toolCall.name,
+                  riskTier: tDef.riskTier,
+                  isError: result.isError,
+                  timestamp: opts.clock?.now() ?? Date.now(),
+                  sessionId: opts.sessionId,
+                });
+              }
+            }
             if (getStatus() !== "executing_tools") break;
           }
         }
@@ -619,6 +655,17 @@ export function createRunner(opts: RunnerOptions): Runner {
           toolCallId: e.toolCall.id,
           decision,
         }));
+        // Audit: record approval decision
+        if (opts.auditSink) {
+          opts.auditSink.record({
+            kind: "approval",
+            toolName: e.toolCall.name,
+            riskTier: e.riskTier,
+            decision,
+            timestamp: opts.clock?.now() ?? Date.now(),
+            sessionId: opts.sessionId,
+          });
+        }
       }
     }
   }

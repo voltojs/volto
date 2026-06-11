@@ -9,6 +9,10 @@ export type { ModelRouterOptions } from "./model-router.js";
 export { createCostMeter } from "./cost-meter.js";
 export type { CostMeterOptions, PricingTable, PricingEntry, CostMeterResult } from "./cost-meter.js";
 
+// M12: Audit
+export { defaultAuditSink } from "./audit.js";
+export type { AuditEntry, AuditSink } from "./audit.js";
+
 // Re-export commonly needed types
 export type {
   ModelPort,

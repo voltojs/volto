@@ -1,5 +1,5 @@
 export { createRunner } from "./runner.js";
-export type { Runner, RunnerOptions, ToolExecutor } from "./runner.js";
+export type { Runner, RunnerOptions, ToolExecutor, AuditEntry, AuditSink } from "./runner.js";
 export { createNodeFileSystem } from "./filesystem.js";
 export type { NodeFileSystemOptions } from "./filesystem.js";
 export { createNodeShell } from "./shell.js";

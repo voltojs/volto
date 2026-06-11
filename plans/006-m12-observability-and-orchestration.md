@@ -197,18 +197,21 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 定义审计条目结构（`kind: "approval" | "high_risk_exec"`、toolName、riskTier、decision?、timestamp、isError?、归因 id）
-- [ ] Runner：`interpretEffects` 处理 `approval_decision`（runner.ts:434）时记审批审计条目（allow/deny + 工具）
-- [ ] Runner：执行工具前/后，对 `toolDef.riskTier ∈ {WRITE_HIGH, IRREVERSIBLE}` 记高风险执行审计条目（含结果 isError）
-- [ ] SDK：可选 `auditSink`（缺省 no-op），可桥接到 `Telemetry`；条目时间戳用注入 `Clock`
-- [ ] 测试:审批 allow/deny 各产一条审计；高风险工具执行产一条；只读工具/低风险不产；错误执行仍记录且不抛
+- [x] 定义审计条目结构（`kind: "approval" | "high_risk_exec"`、toolName、riskTier、decision?、timestamp、isError?、归因 id）
+- [x] Runner：`interpretEffects` 处理 `approval_decision`（runner.ts:434）时记审批审计条目（allow/deny + 工具）
+- [x] Runner：执行工具前/后，对 `toolDef.riskTier ∈ {WRITE_HIGH, IRREVERSIBLE}` 记高风险执行审计条目（含结果 isError）
+- [x] SDK：可选 `auditSink`（缺省 no-op），可桥接到 `Telemetry`；条目时间戳用注入 `Clock`
+- [x] 测试:审批 allow/deny 各产一条审计；高风险工具执行产一条；只读工具/低风险不产；错误执行仍记录且不抛
 
 **Acceptance Criteria**:
 1. 每个审批决策（allow / deny）产生一条结构化审计条目，含工具名与决策。
 2. 每次高风险工具（`WRITE_HIGH` / `IRREVERSIBLE`）执行产生一条审计条目，含 riskTier 与执行结果；只读/低风险不产生。
 3. 审计旁路主循环：不改 reducer、不改控制流、错误不中断循环；未注入 auditSink 时行为不变。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: <hash> <subject>
+-->
 
 ---
 

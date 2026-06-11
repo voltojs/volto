@@ -116,6 +116,7 @@ import {
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
+import { type AuditSink, defaultAuditSink } from "./audit.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -258,6 +259,13 @@ export interface CreateAgentOptions {
 
   /** External authorization decision engine. Defaults to allow-all. */
   policyEngine?: PolicyEngine;
+
+  /**
+   * Structured audit sink for approval decisions and high-risk tool executions.
+   * When provided, Runner records audit entries for HITL decisions and
+   * WRITE_HIGH/IRREVERSIBLE tool executions. Defaults to no-op (entries discarded).
+   */
+  auditSink?: AuditSink;
 
   /**
    * Tool visibility trimming — after capability gating, trim the visible tool
@@ -677,6 +685,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
+      auditSink: opts.auditSink ?? defaultAuditSink,
     };
 
     if (previousState && previousState.status === "done") {
