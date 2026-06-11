@@ -116,7 +116,7 @@ import {
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
-import { type AuditSink, defaultAuditSink } from "./audit.js";
+import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
 
 // ──────────────────────────────────────────────
 // Public types

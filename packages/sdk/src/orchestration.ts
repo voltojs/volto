@@ -131,6 +131,14 @@ export function createOrchestrator(opts: OrchestratorOptions): {
     return "";
   }
 
+  /**
+   * Run a pipeline topology: nodes execute sequentially in the order
+   * specified by `topology.order`. Each node receives the previous node's
+   * output as input. The final output is the last node's result.
+   *
+   * Note: This is a simple sequential chain. No parallelization, branching,
+   * or conditional routing is performed.
+   */
   async function runPipeline(input: string): Promise<TopologyResult> {
     const nodeOutputs: Record<string, string> = {};
     let currentInput = input;
@@ -157,6 +165,17 @@ export function createOrchestrator(opts: OrchestratorOptions): {
     };
   }
 
+  /**
+   * Run a supervisor topology: the first node (supervisor) processes the
+   * input, then its output is broadcast to all worker nodes in parallel.
+   * The final result aggregates the supervisor output and all worker outputs.
+   *
+   * Note: This is a simplified "broadcast + aggregate" pattern. The supervisor
+   * node's output is sent verbatim to every worker; there is no routing logic
+   * that selectively dispatches work based on the supervisor's output content.
+   * True routing-based supervisor topologies require an additional parsing
+   * step in the orchestrator to interpret the supervisor's routing decisions.
+   */
   async function runSupervisor(input: string): Promise<TopologyResult> {
     const nodeOutputs: Record<string, string> = {};
     const supervisorName = topology.order[0]!;

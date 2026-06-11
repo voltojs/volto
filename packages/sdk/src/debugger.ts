@@ -44,17 +44,23 @@ export function createTimeTravelDebugger(opts: DebuggerOptions): TimeTravelDebug
 
   return {
     async listCheckpoints(): Promise<Checkpoint[]> {
+      const prefix = `${sessionId}#`;
+      const all = await sessionStore.list();
       const checkpoints: Checkpoint[] = [];
-      // Scan seq 1..N, stop at first miss
-      for (let seq = 1; seq <= 10_000; seq++) {
-        const snapshot = await sessionStore.load(`${sessionId}#${seq}`);
-        if (!snapshot) break;
-        checkpoints.push({
-          seq,
-          state: snapshot.state as ReducerState,
-          createdAt: snapshot.createdAt,
-        });
+      for (const snap of all) {
+        if (snap.id.startsWith(prefix)) {
+          const seqStr = snap.id.slice(prefix.length);
+          const seq = parseInt(seqStr, 10);
+          if (!isNaN(seq)) {
+            checkpoints.push({
+              seq,
+              state: snap.state as ReducerState,
+              createdAt: snap.createdAt,
+            });
+          }
+        }
       }
+      checkpoints.sort((a, b) => a.seq - b.seq);
       return checkpoints;
     },
 

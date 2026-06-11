@@ -129,6 +129,11 @@ export interface AuditSink {
   record(entry: AuditEntry): void;
 }
 
+/** No-op audit sink — entries are discarded. */
+export const defaultAuditSink: AuditSink = {
+  record(): void {},
+};
+
 // ──────────────────────────────────────────────
 // Implementation
 // ──────────────────────────────────────────────
@@ -373,11 +378,12 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
     } finally {
       const endTime = opts.clock?.now() ?? Date.now();
+      const usageData = capturedUsage ?? lastUsage;
       if (modelSpan) {
         if (modelError) modelSpan.setAttribute("error", true);
-        if (lastUsage) {
-          modelSpan.setAttribute("inputTokens", lastUsage.inputTokens);
-          modelSpan.setAttribute("outputTokens", lastUsage.outputTokens);
+        if (usageData) {
+          modelSpan.setAttribute("inputTokens", usageData.inputTokens);
+          modelSpan.setAttribute("outputTokens", usageData.outputTokens);
         }
         modelSpan.end();
       }
@@ -388,7 +394,6 @@ export function createRunner(opts: RunnerOptions): Runner {
           opts.telemetry.metric("latency_ms", endTime - modelSpanStartedAt, attrs);
         }
         // Token counts (use capturedUsage since lastUsage is reset after done event)
-        const usageData = capturedUsage ?? lastUsage;
         if (usageData) {
           opts.telemetry.metric("tokens", usageData.inputTokens, { ...attrs, kind: "input" });
           opts.telemetry.metric("tokens", usageData.outputTokens, { ...attrs, kind: "output" });
