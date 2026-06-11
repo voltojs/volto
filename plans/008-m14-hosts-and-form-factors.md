@@ -256,11 +256,11 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - 各 app `package.json` + `src/__tests__/*.test.ts`
 
 **Tasks**:
-- [ ] VS Code 扩展：注册命令，把用户输入经 HTTP/SSE 转发到 headless server（或嵌入模式直连 SDK），事件渲染到 OutputChannel/webview；HITL `ask` 弹 VS Code modal 映射为 `resume`
-- [ ] IPC 契约骨架：抽出 IDE ↔ agent 的请求/事件类型，VS Code 实现之、JetBrains 仅占位实现（标注 TODO 留后续）
-- [ ] GitHub Action：解析 inputs（prompt/model/cwd），`createAgent` auto-policy 跑 `run`，最终回复写入 `$GITHUB_OUTPUT` / PR 评论；非交互（approvalGate auto-allow 或 deny-写）
-- [ ] chat 适配：Slack/Discord 收消息 → 调 headless server `stream`，EventSink 事件聚合为 chat 回复（流式编辑或分段）；HITL 经交互按钮映射 resume
-- [ ] 各宿主 smoke 测试：mock headless server / mock SDK 下，输入 → 期望输出渲染；CI 在无真实 token 时跳过外呼并标注
+- [x] VS Code 扩展：注册命令，把用户输入经 HTTP/SSE 转发到 headless server（或嵌入模式直连 SDK），事件渲染到 OutputChannel/webview；HITL `ask` 弹 VS Code modal 映射为 `resume`
+- [x] IPC 契约骨架：抽出 IDE ↔ agent 的请求/事件类型，VS Code 实现之、JetBrains 仅占位实现（标注 TODO 留后续）
+- [x] GitHub Action：解析 inputs（prompt/model/cwd），`createAgent` auto-policy 跑 `run`，最终回复写入 `$GITHUB_OUTPUT` / PR 评论；非交互（approvalGate auto-allow 或 deny-写）
+- [x] chat 适配：Slack/Discord 收消息 → 调 headless server `stream`，EventSink 事件聚合为 chat 回复（流式编辑或分段）；HITL 经交互按钮映射 resume
+- [x] 各宿主 smoke 测试：mock headless server / mock SDK 下，输入 → 期望输出渲染；CI 在无真实 token 时跳过外呼并标注
 
 **Acceptance Criteria**:
 1. VS Code 扩展经 headless server（或嵌入 SDK）跑通一轮对话并渲染事件，HITL 经 modal → resume 续跑。
@@ -268,7 +268,8 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 3. Slack/Discord 适配把 headless server 事件流渲染为 chat 回复；JetBrains 留 IPC 契约骨架（标注后续）。
 4. 三宿主均为薄 wiring，复用 Phase 2 server / SDK 门面；git diff 不含 `packages/core/**`；`typecheck lint test` 全绿。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: 0de218c feat(plan-008): phase 5 — 集成形态 IDE / CI / chat 宿主
 
 ---
 

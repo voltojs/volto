@@ -33,6 +33,23 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@25.9.1)
 
+  apps/chat-adapter: {}
+
+  apps/github-action:
+    dependencies:
+      '@agent-core/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@agent-core/provider-openai':
+        specifier: workspace:*
+        version: link:../../packages/providers/openai
+      '@agent-core/runtime-node':
+        specifier: workspace:*
+        version: link:../../packages/runtimes/node
+      '@agent-core/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   apps/headless-server:
     dependencies:
       '@agent-core/core':
@@ -57,6 +74,8 @@ importers:
       '@types/ws':
         specifier: ^8.5.0
         version: 8.18.1
+
+  apps/ide-extension: {}
 
   apps/mcp-server:
     dependencies:
