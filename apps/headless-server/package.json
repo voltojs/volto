@@ -1,0 +1,25 @@
+{
+  "name": "@agent-core/headless-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@agent-core/core": "workspace:*",
+    "@agent-core/sdk": "workspace:*",
+    "@agent-core/provider-openai": "workspace:*",
+    "@agent-core/runtime-node": "workspace:*",
+    "@agent-core/store-sqlite": "workspace:*",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0"
+  }
+}

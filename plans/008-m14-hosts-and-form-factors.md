@@ -165,12 +165,12 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - `apps/headless-server/src/__tests__/*.test.ts`（端点 + 流式 e2e，用 mock-model-port）
 
 **Tasks**:
-- [ ] `POST /run`：解析 body（message + 可选 sessionId）→ `agent.run(input)` → 返回最终 `state`（JSON）
-- [ ] `GET /stream`(SSE)：`createSseEventSink(res)` 注入 `createAgent`，转发 `agent.stream(input)` 事件为 `data: {json}\n\n` 帧；连接断开时 abort
-- [ ] `GET /ws`(WS)：`createWsEventSink(socket)` 注入，转发同一事件流为 WS message；客户端关闭时 abort
-- [ ] `POST /resume`：`{ sessionId, decision }` → `agent.resume(...)`（从注入的持久化 store 加载，支持跨连接/跨进程续跑）
-- [ ] wiring：服务进程注入 `store-sqlite`/`store-postgres`（非默认内存）使 resume 跨连接可用；policy 走 auto/PolicyEngine 兜底
-- [ ] e2e 测试：mock-model-port 下 `POST /run` 返回最终 state；SSE 与 WS 各收到完整事件序列；HITL 暂停后 `POST /resume` 续跑到 done
+- [x] `POST /run`：解析 body（message + 可选 sessionId）→ `agent.run(input)` → 返回最终 `state`（JSON）
+- [x] `GET /stream`(SSE)：`createSseEventSink(res)` 注入 `createAgent`，转发 `agent.stream(input)` 事件为 `data: {json}\n\n` 帧；连接断开时 abort
+- [x] `GET /ws`(WS)：`createWsEventSink(socket)` 注入，转发同一事件流为 WS message；客户端关闭时 abort
+- [x] `POST /resume`：`{ sessionId, decision }` → `agent.resume(...)`（从注入的持久化 store 加载，支持跨连接/跨进程续跑）
+- [x] wiring：服务进程注入 `store-sqlite`/`store-postgres`（非默认内存）使 resume 跨连接可用；policy 走 auto/PolicyEngine 兜底
+- [x] e2e 测试：mock-model-port 下 `POST /run` 返回最终 state；SSE 与 WS 各收到完整事件序列；HITL 暂停后 `POST /resume` 续跑到 done
 
 **Acceptance Criteria**:
 1. **headless server 经 SSE 与 WS 两种流式传输输出事件**，且 `POST /run`、`POST /resume`、`GET /stream`/`GET /ws` 覆盖 run/stream/resume 三姿势。
@@ -178,7 +178,8 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 3. server 仅做协议 ↔ SDK 调用 + EventSink 序列化；git diff 不含 `packages/core/**`。
 4. `typecheck lint test` 全绿。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: 48ce0a5 feat(plan-008): phase 2 — 服务形态 headless server（HTTP + SSE + WS，run/stream/resume）
 
 ---
 
