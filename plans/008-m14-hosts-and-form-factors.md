@@ -285,3 +285,141 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 | MCP server 暴露与 Plan 004 MCP 客户端职责混淆 | 重复实现、边界冲突 | 本 Plan 严格只做 server 暴露（被调用方向）；客户端方向记入 Non-Goals + 边界表，引用 Plan 004 |
 | 端口契约（M8）不足以支撑某宿主（如 PolicyEngine 字段缺） | 诱使在本 Plan 改核心端口类型 | 不在本 Plan 改端口；记风险回流 Plan 002 M8 调整契约，本 Plan 先用兜底实现绕行 |
 | headless server 缺鉴权被当生产用 | 安全事故 | 文档明确"最小 token 校验骨架、非生产安全"；生产硬化划归后续/M11 安全轨 |
+
+---
+
+## Test Cases
+
+### TC-001: store-sqlite 合同测试全绿
+
+- **Preconditions**: store-sqlite 包已安装
+- **Steps**:
+  1. 运行 `pnpm turbo run test --filter @agent-core/store-sqlite`
+  2. 断言 7 个测试全部通过（5 合同 + 2 特化）
+- **Paths**: `packages/stores/sqlite/src/__tests__/store.test.ts`
+- **Expected**: runStoreContractTests 5 个用例全绿；跨实例持久化可见；目录自动创建
+
+### TC-002: store-postgres 合同测试（有 PG 时全绿，无 PG 时优雅跳过）
+
+- **Preconditions**: 无
+- **Steps**:
+  1. 运行 `pnpm turbo run test --filter @agent-core/store-postgres`
+  2. 若 `DATABASE_URL` 可用：断言 8 个测试通过
+  3. 若无 PG：断言 1 通过 + 7 跳过
+- **Paths**: `packages/stores/postgres/src/__tests__/store.test.ts`
+- **Expected**: 有 PG 时合同测试全绿；无 PG 时优雅跳过不 crash
+
+### TC-003: store 驱动隔离 — core 零依赖
+
+- **Preconditions**: store-sqlite / store-postgres 已安装
+- **Steps**:
+  1. 运行 `node scripts/check-core-zero-deps.mjs`
+  2. 断言输出 `PASS: @agent-core/core has zero dependencies`
+  3. 检查 `packages/core/package.json` 不含 `better-sqlite3` 或 `pg`
+- **Paths**: `packages/core/package.json`, `scripts/check-core-zero-deps.mjs`
+- **Expected**: core 零运行时依赖不变
+
+### TC-004: headless server POST /run 返回最终 state
+
+- **Preconditions**: headless-server 已构建
+- **Steps**:
+  1. 启动 server（mock-model-port）
+  2. `POST /run { message: "hi" }`
+  3. 断言响应 200，`state.status === "done"`
+- **Paths**: `apps/headless-server/src/__tests__/server.test.ts`
+- **Expected**: 一次性 run 返回完整 state
+
+### TC-005: headless server GET /stream SSE 事件序列
+
+- **Preconditions**: headless-server 已构建
+- **Steps**:
+  1. `GET /stream?message=hi`
+  2. 断言收到 `text_delta` 事件和 `[DONE]` 标记
+- **Paths**: `apps/headless-server/src/__tests__/server.test.ts`
+- **Expected**: SSE 帧包含完整事件序列
+
+### TC-006: headless server WebSocket 事件流
+
+- **Preconditions**: headless-server 已构建
+- **Steps**:
+  1. 连接 `ws://localhost:{port}/ws?message=hi`
+  2. 断言收到事件消息，最后一条为 `type: "done"`
+- **Paths**: `apps/headless-server/src/__tests__/server.test.ts`
+- **Expected**: WS 收到完整事件流
+
+### TC-007: runtime-browser 虚拟文件系统读写
+
+- **Preconditions**: runtime-browser 已构建
+- **Steps**:
+  1. `createBrowserFileSystem()` → `write("/test.txt", "hello")` → `read("/test.txt")`
+  2. 断言 `content === "hello"`, `totalLines === 1`
+  3. 测试 `stat`, `list`, `glob("**/*.txt")`, `grep("hello")`
+- **Paths**: `packages/runtimes/browser/src/__tests__/runtime.test.ts`
+- **Expected**: 全部 9 个测试通过
+
+### TC-008: runtime-edge 对象存储文件系统
+
+- **Preconditions**: runtime-edge 已构建
+- **Steps**:
+  1. `createEdgeFileSystem()` → `write("/test.txt", "hello")` → `read("/test.txt")`
+  2. 断言读写 round-trip 正确
+  3. 测试 `stat`, `list`, `glob`, `grep`
+- **Paths**: `packages/runtimes/edge/src/__tests__/runtime.test.ts`
+- **Expected**: 全部 7 个测试通过
+
+### TC-009: runtime-browser/edge 零 node:* import
+
+- **Preconditions**: runtime-browser / runtime-edge 源码已编写
+- **Steps**:
+  1. `grep -r "node:" packages/runtimes/browser/src/ packages/runtimes/edge/src/`
+  2. 断言无匹配
+- **Paths**: `packages/runtimes/browser/src/`, `packages/runtimes/edge/src/`
+- **Expected**: 无 `node:*` import
+
+### TC-010: MCP server agent_run tool 可发现可调用
+
+- **Preconditions**: mcp-server 已构建
+- **Steps**:
+  1. 创建 in-memory MCP client 连接 server
+  2. `listTools()` → 断言包含 `agent_run`
+  3. `callTool("agent_run", { message: "hello" })` → 断言返回 agent 响应
+- **Paths**: `apps/mcp-server/src/__tests__/server.test.ts`
+- **Expected**: 3 个测试通过（list tools、call tool、unknown tool error）
+
+### TC-011: MCP server EventSink 通知转发
+
+- **Preconditions**: mcp-server 已构建
+- **Steps**:
+  1. server 创建时注入 `createMcpEventSink`
+  2. agent run 期间 EventSink 事件通过 MCP notification 转发
+- **Paths**: `apps/mcp-server/src/server.ts`, `apps/mcp-server/src/event-sink.ts`
+- **Expected**: event-sink.ts 被正确导入并注入 createAgent
+
+### TC-012: git diff 不含 packages/core/**（全 5 Phase 硬验收）
+
+- **Preconditions**: 所有 Phase 已提交
+- **Steps**:
+  1. `git diff --name-only main | grep "^packages/core/"`
+  2. 断言无输出
+- **Paths**: `packages/core/**`
+- **Expected**: 全部 5 Phase 的 git diff 不含 core 包任何改动
+
+### TC-013: 全量 typecheck + lint + test
+
+- **Preconditions**: 所有新包已构建
+- **Steps**:
+  1. `pnpm turbo run typecheck lint test`
+  2. 断言全部通过
+- **Paths**: 全项目
+- **Expected**: 无 typecheck 错误、无 lint 错误、所有测试通过
+
+### TC-014: 向后兼容 — 无 M14 参数时行为不变
+
+- **Preconditions**: 无
+- **Steps**:
+  1. `createAgent({ modelPort })` — 不传 M14 新增参数
+  2. 运行一轮对话，断言 `state.status === "done"`
+  3. 运行 `pnpm turbo run typecheck lint test`
+  4. 运行 `check-core-zero-deps`
+- **Paths**: `packages/sdk/src/create-agent.ts`
+- **Expected**: 不传 M14 参数时行为与 Plan 008 之前完全一致
