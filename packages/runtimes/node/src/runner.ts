@@ -151,6 +151,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   let cumulativeCost = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
+  // M12 Phase 4: checkpoint history sequence counter
+  let checkpointSeq = 0;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -639,10 +641,19 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function interpretEffects(effects: Effect[]): Promise<void> {
     for (const e of effects) {
       if (e.type === "checkpoint" && opts.sessionStore && opts.sessionId) {
+        const now = opts.clock?.now() ?? Date.now();
+        // Save canonical single-key checkpoint (for resume)
         await opts.sessionStore.save({
           id: opts.sessionId,
           state: e.state,
-          createdAt: opts.clock ? opts.clock.now() : Date.now(),
+          createdAt: now,
+        });
+        // M12: Append checkpoint history (key = sessionId#seq)
+        checkpointSeq++;
+        await opts.sessionStore.save({
+          id: `${opts.sessionId}#${checkpointSeq}`,
+          state: e.state,
+          createdAt: now,
         });
       }
     }

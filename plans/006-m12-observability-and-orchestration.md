@@ -228,11 +228,11 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`（含重放等价断言）
 
 **Tasks**:
-- [ ] core 纯函数 `diffState(a, b)`：产出结构化差异（messages 增删、status 变迁、pendingTools、tokensUsed/iterationCount、readFiles 等），纯、可序列化、可测
-- [ ] Runner：每 turn 边界向历史存储追加带递增 `seq` 的 checkpoint（复用 `SessionStore` 多 key：`${sessionId}#${seq}`，不覆盖既有单 key 行为；或薄 `CheckpointHistory` 包装）
-- [ ] 调试器 API:`listCheckpoints(sessionId)`（按 seq 排序）、`rewindTo(sessionId, seq)`（取该快照）、`stepForward(state, input, ctx)`（调核心 `step`，不触真实 port）、`diff(a, b)`（调 `diffState`）
-- [ ] reference-cli：增调试子命令（列出 turn checkpoints、回退到指定 turn、单步前进、与原始后续状态 diff 并打印）
-- [ ] 测试:录一段多 turn 会话 → 列出 N 个 checkpoints → 回退到第 k 个 → 从该状态 `step` 单步重放，断言与原始 (state, effects) 序列 deep-equal（重放等价）；`diffState` 单测覆盖各字段差异；checkpoint 历史不破坏现有 `SessionStore` 合同测试
+- [x] core 纯函数 `diffState(a, b)`：产出结构化差异（messages 增删、status 变迁、pendingTools、tokensUsed/iterationCount、readFiles 等），纯、可序列化、可测
+- [x] Runner：每 turn 边界向历史存储追加带递增 `seq` 的 checkpoint（复用 `SessionStore` 多 key：`${sessionId}#${seq}`，不覆盖既有单 key 行为；或薄 `CheckpointHistory` 包装）
+- [x] 调试器 API:`listCheckpoints(sessionId)`（按 seq 排序）、`rewindTo(sessionId, seq)`（取该快照）、`stepForward(state, input, ctx)`（调核心 `step`，不触真实 port）、`diff(a, b)`（调 `diffState`）
+- [x] reference-cli：增调试子命令（列出 turn checkpoints、回退到指定 turn、单步前进、与原始后续状态 diff 并打印）
+- [x] 测试:录一段多 turn 会话 → 列出 N 个 checkpoints → 回退到第 k 个 → 从该状态 `step` 单步重放，断言与原始 (state, effects) 序列 deep-equal（重放等价）；`diffState` 单测覆盖各字段差异；checkpoint 历史不破坏现有 `SessionStore` 合同测试
 
 **Acceptance Criteria**:
 1. 一段多 turn 会话产生可列举的 checkpoint 历史，可回退到任一 turn 的快照。
@@ -240,7 +240,10 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. `diffState(a, b)` 产出结构化、可读的状态差异；调试器经 reference-cli 可"回退某 turn → 单步 → 看 diff"。
 4. checkpoint 历史以附加方式实现，既有 `SessionStore` 合同测试零回归。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: <hash> <subject>
+-->
 
 ---
 
