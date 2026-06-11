@@ -9,6 +9,10 @@ export type { ModelRouterOptions } from "./model-router.js";
 export { createCostMeter } from "./cost-meter.js";
 export type { CostMeterOptions, PricingTable, PricingEntry, CostMeterResult } from "./cost-meter.js";
 
+// M12: Audit
+export { defaultAuditSink } from "@agent-core/runtime-node";
+export type { AuditEntry, AuditSink } from "@agent-core/runtime-node";
+
 // Re-export commonly needed types
 export type {
   ModelPort,
@@ -49,3 +53,11 @@ export {
 // Re-export stream channel for advanced usage
 export { createStreamChannel } from "./stream-channel.js";
 export type { StreamChannel } from "./stream-channel.js";
+
+// M12: Time-travel debugger
+export { createTimeTravelDebugger, createInitialState } from "./debugger.js";
+export type { Checkpoint, DebuggerOptions, TimeTravelDebugger } from "./debugger.js";
+
+// M12: Multi-agent orchestration
+export { createOrchestrator } from "./orchestration.js";
+export type { OrchestratorOptions } from "./orchestration.js";

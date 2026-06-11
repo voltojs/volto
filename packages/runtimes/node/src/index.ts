@@ -1,5 +1,6 @@
 export { createRunner } from "./runner.js";
-export type { Runner, RunnerOptions, ToolExecutor } from "./runner.js";
+export { defaultAuditSink } from "./runner.js";
+export type { Runner, RunnerOptions, ToolExecutor, AuditEntry, AuditSink } from "./runner.js";
 export { createNodeFileSystem } from "./filesystem.js";
 export type { NodeFileSystemOptions } from "./filesystem.js";
 export { createNodeShell } from "./shell.js";
@@ -31,3 +32,5 @@ export { createSqliteDatabaseAdapter } from "./database.js";
 export type { SqliteDatabaseOptions } from "./database.js";
 export { createNodeDocumentParser } from "./document-parser.js";
 export type { NodeDocumentParserOptions } from "./document-parser.js";
+export { InMemoryTelemetry } from "./telemetry.js";
+export type { RecordedSpan, RecordedMetric } from "./telemetry.js";

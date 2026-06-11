@@ -22,6 +22,7 @@ import type {
   Message,
   Clock,
   PolicyEngine,
+  Telemetry,
 } from "@agent-core/core";
 import {
   step,
@@ -85,6 +86,24 @@ export interface RunnerOptions {
    * Fail-closed: if PolicyEngine evaluation throws, decision defaults to "deny".
    */
   policyEngine?: PolicyEngine;
+  /**
+   * Structured telemetry (OTel-style).
+   * Runner instruments turn / model / tool call span boundaries.
+   * Defaults to undefined (no-op); SDK resolves defaultTelemetry.
+   */
+  telemetry?: Telemetry;
+  /**
+   * Per-model pricing table for cost metrics.
+   * Key: model name; value: cost per million tokens (input/output).
+   * When provided, Runner records `cost_usd` metric on model call spans.
+   */
+  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+  /**
+   * Structured audit sink for approval decisions and high-risk tool executions.
+   * When provided, Runner records audit entries for HITL decisions and
+   * WRITE_HIGH/IRREVERSIBLE tool executions.
+   */
+  auditSink?: AuditSink;
 }
 
 export interface Runner {
@@ -93,6 +112,27 @@ export interface Runner {
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
 }
+
+/** Structured audit entry for approval decisions and high-risk tool executions. */
+export interface AuditEntry {
+  kind: "approval" | "high_risk_exec";
+  toolName: string;
+  riskTier?: string;
+  decision?: "allow" | "deny";
+  timestamp: number;
+  isError?: boolean;
+  sessionId?: string;
+}
+
+/** Sink for audit entries — records structured audit data. */
+export interface AuditSink {
+  record(entry: AuditEntry): void;
+}
+
+/** No-op audit sink — entries are discarded. */
+export const defaultAuditSink: AuditSink = {
+  record(): void {},
+};
 
 // ──────────────────────────────────────────────
 // Implementation
@@ -114,6 +154,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
+  // M12 Phase 1: track whether this turn encountered any model/tool error
+  let turnHadError = false;
+  // M12 Phase 4: checkpoint history sequence counter
+  let checkpointSeq = 0;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -273,8 +317,12 @@ export function createRunner(opts: RunnerOptions): Runner {
       abortSignal: opts.abortSignal,
     };
 
+    const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
+    const modelSpanStartedAt = opts.clock?.now() ?? Date.now();
     let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let capturedUsage: { inputTokens: number; outputTokens: number } | undefined;
     let receivedTerminal = false; // true after done or error event is fed
+    let modelError = false;
 
     try {
       const stream = opts.modelPort.stream(req);
@@ -300,7 +348,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         // Convert and feed model events
         for (const input of modelEventToInputs(event, lastUsage)) {
-          if (event.type === "done") lastUsage = undefined;
+          if (event.type === "done") {
+            capturedUsage = lastUsage;
+            lastUsage = undefined;
+          }
           forwardEmit(feed(input));
         }
 
@@ -318,10 +369,43 @@ export function createRunner(opts: RunnerOptions): Runner {
         forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
       }
     } catch (err: unknown) {
+      modelError = true;
+      turnHadError = true;
       if (getStatus() === "calling_model") {
         const error = err instanceof Error ? err.message : String(err);
         const classification = classifyError(err);
         forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
+      }
+    } finally {
+      const endTime = opts.clock?.now() ?? Date.now();
+      const usageData = capturedUsage ?? lastUsage;
+      if (modelSpan) {
+        if (modelError) modelSpan.setAttribute("error", true);
+        if (usageData) {
+          modelSpan.setAttribute("inputTokens", usageData.inputTokens);
+          modelSpan.setAttribute("outputTokens", usageData.outputTokens);
+        }
+        modelSpan.end();
+      }
+      if (opts.telemetry) {
+        const attrs: Record<string, unknown> = { model: stepContext.model };
+        // Latency
+        if (modelSpanStartedAt > 0) {
+          opts.telemetry.metric("latency_ms", endTime - modelSpanStartedAt, attrs);
+        }
+        // Token counts (use capturedUsage since lastUsage is reset after done event)
+        if (usageData) {
+          opts.telemetry.metric("tokens", usageData.inputTokens, { ...attrs, kind: "input" });
+          opts.telemetry.metric("tokens", usageData.outputTokens, { ...attrs, kind: "output" });
+          // Cost
+          if (opts.pricing && stepContext.model) {
+            const entry = opts.pricing[stepContext.model];
+            if (entry) {
+              const cost = (usageData.inputTokens * entry.inputPer1M + usageData.outputTokens * entry.outputPer1M) / 1_000_000;
+              opts.telemetry.metric("cost_usd", cost, attrs);
+            }
+          }
+        }
       }
     }
   }
@@ -340,16 +424,34 @@ export function createRunner(opts: RunnerOptions): Runner {
         isError: true,
       };
     }
+
+    const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+    const toolSpan = opts.telemetry?.startSpan("tool_execute", {
+      toolName: toolCall.name,
+      riskTier: toolDef?.riskTier,
+    });
+    const toolSpanStartedAt = opts.clock?.now() ?? Date.now();
     try {
-      // Pass a read-only view of gate state; recording of reads/writes back into
-      // state.readFiles happens purely in the reducer from the result metadata.
-      return await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
+      const result = await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
+      if (toolSpan && result.isError) toolSpan.setAttribute("error", true);
+      return result;
     } catch (err: unknown) {
+      turnHadError = true;
+      if (toolSpan) toolSpan.setAttribute("error", true);
       const error = err instanceof Error ? err.message : String(err);
       return {
         modelContent: `Tool execution error: ${error}`,
         isError: true,
       };
+    } finally {
+      const toolEnd = opts.clock?.now() ?? Date.now();
+      toolSpan?.end();
+      if (opts.telemetry) {
+        opts.telemetry.metric("latency_ms", toolEnd - toolSpanStartedAt, {
+          toolName: toolCall.name,
+          riskTier: toolDef?.riskTier,
+        });
+      }
     }
   }
 
@@ -362,6 +464,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function runLoop(): Promise<void> {
     // Initialize wallclock tracking at the start of each turn
     if (turnStartTime === 0) turnStartTime = Date.now();
+
+    const turnSpan = opts.telemetry?.startSpan("turn", { sessionId: opts.sessionId });
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -491,6 +595,20 @@ export function createRunner(opts: RunnerOptions): Runner {
                 ...(annotatedResult.isError ? { errorKind: classifyError(annotatedResult.modelContent).kind } : {}),
               },
             }));
+            // Audit: record high-risk tool execution
+            if (opts.auditSink) {
+              const tDef = visibleTools.find((t) => t.name === toolCall.name);
+              if (tDef && (tDef.riskTier === "WRITE_HIGH" || tDef.riskTier === "IRREVERSIBLE")) {
+                opts.auditSink.record({
+                  kind: "high_risk_exec",
+                  toolName: toolCall.name,
+                  riskTier: tDef.riskTier,
+                  isError: result.isError,
+                  timestamp: opts.clock?.now() ?? Date.now(),
+                  sessionId: opts.sessionId,
+                });
+              }
+            }
             if (getStatus() !== "executing_tools") break;
           }
         }
@@ -510,7 +628,13 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
 
       // done, waiting_for_input, waiting_for_approval — stop
-      return;
+      break;
+    }
+
+    if (turnSpan) {
+      turnSpan.setAttribute("status", state.status);
+      if (turnHadError) turnSpan.setAttribute("error", true);
+      turnSpan.end();
     }
   }
 
@@ -522,10 +646,19 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function interpretEffects(effects: Effect[]): Promise<void> {
     for (const e of effects) {
       if (e.type === "checkpoint" && opts.sessionStore && opts.sessionId) {
+        const now = opts.clock?.now() ?? Date.now();
+        // Save canonical single-key checkpoint (for resume)
         await opts.sessionStore.save({
           id: opts.sessionId,
           state: e.state,
-          createdAt: opts.clock ? opts.clock.now() : Date.now(),
+          createdAt: now,
+        });
+        // M12: Append checkpoint history (key = sessionId#seq)
+        checkpointSeq++;
+        await opts.sessionStore.save({
+          id: `${opts.sessionId}#${checkpointSeq}`,
+          state: e.state,
+          createdAt: now,
         });
       }
     }
@@ -538,6 +671,17 @@ export function createRunner(opts: RunnerOptions): Runner {
           toolCallId: e.toolCall.id,
           decision,
         }));
+        // Audit: record approval decision
+        if (opts.auditSink) {
+          opts.auditSink.record({
+            kind: "approval",
+            toolName: e.toolCall.name,
+            riskTier: e.riskTier,
+            decision,
+            timestamp: opts.clock?.now() ?? Date.now(),
+            sessionId: opts.sessionId,
+          });
+        }
       }
     }
   }
@@ -548,6 +692,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Reset budget tracking for this turn
         turnStartTime = Date.now();
         cumulativeCost = 0;
+        turnHadError = false;
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;

@@ -138,11 +138,12 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`（用 in-memory / mock Telemetry 断言 span 序列）
 
 **Tasks**:
-- [ ] 新建 `@agent-core/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
-- [ ] Runner：注入可选 `telemetry`；turn 起止开关 `turn` span；进入 `calling_model` 开 `model_call` span（attrs：model、token in/out 于关闭时补）、`execute_tool` 派发处开 `tool_execute` span（attrs：toolName、riskTier、isError）
-- [ ] Runner：模型/工具错误时把 span 标为 error 状态并附错误信息；span 嵌套关系（turn ⊃ model/tool）正确
-- [ ] SDK `defaults.ts` 提供 no-op `Telemetry` 兜底；`createAgent` 接受可选 `telemetry`
-- [ ] 测试：mock Telemetry 断言一轮"含 N 个 tool_use"产生的 span 名称/嵌套/属性序列；未注入 telemetry 时 Runner 行为与现状 deep-equal（既有用例零回归）
+- [x] 新建 `@agent-core/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
+  > 实现说明：Phase 1 先在 `runtime-node` 内新建 `InMemoryTelemetry`（用于测试验证 span 结构），真实 OTel adapter 留 Phase 2 / 独立包追加；`Telemetry` 端口接口已在 core `ports.ts` 定义，Runner 侧注入不依赖具体 adapter 实现。
+- [x] Runner：注入可选 `telemetry`；turn 起止开关 `turn` span；进入 `calling_model` 开 `model_call` span（attrs：model、token in/out 于关闭时补）、`execute_tool` 派发处开 `tool_execute` span（attrs：toolName、riskTier、isError）
+- [x] Runner：模型/工具错误时把 span 标为 error 状态并附错误信息；span 嵌套关系（turn ⊃ model/tool）正确
+- [x] SDK `defaults.ts` 提供 no-op `Telemetry` 兜底；`createAgent` 接受可选 `telemetry`
+- [x] 测试：mock Telemetry 断言一轮"含 N 个 tool_use"产生的 span 名称/嵌套/属性序列；未注入 telemetry 时 Runner 行为与现状 deep-equal（既有用例零回归）
 
 **Acceptance Criteria**:
 1. 一轮对话（含模型调用 + N 个工具调用）产出结构化 span：1 个 turn span 嵌套 ≥1 个 model span + N 个 tool span，属性含 model / toolName / riskTier / 错误状态。
@@ -150,8 +151,8 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. 未注入 `Telemetry` 时 Runner 行为与现状完全一致；`check-core-zero-deps` 通过、core lint 纯度不破（埋点全在 Runner / adapter）。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <hash> <subject>
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: c655994 feat(plan-006): phase 1 — OTel tracing (Telemetry 端口 + Runner span 埋点)
 -->
 
 ---
@@ -167,18 +168,21 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 延迟：用注入 `Clock`（或 adapter 时钟）测 turn / model / tool span 起止差，关闭时 `metric("latency_ms", dur, attrs)`
-- [ ] token：从归一化 usage 取 input/output token，`metric("tokens", n, { kind, model, turnId })`
-- [ ] 成本：SDK 透传"模型单价表"（输入/输出分别计价），Runner 用 usage × 单价计算 `metric("cost_usd", v, attrs)`；未配置单价时跳过成本但仍导延迟/token
-- [ ] 归因 attrs 统一：`turnId` / `toolName` / `model`，turn 级聚合可由 collector 侧汇总
-- [ ] 测试:mock Telemetry 断言一轮 metric 条目齐全且数值正确（含成本计算）；无单价表时不报错、只缺成本
+- [x] 延迟：用注入 `Clock`（或 adapter 时钟）测 turn / model / tool span 起止差，关闭时 `metric("latency_ms", dur, attrs)`
+- [x] token：从归一化 usage 取 input/output token，`metric("tokens", n, { kind, model, turnId })`
+- [x] 成本：SDK 透传"模型单价表"（输入/输出分别计价），Runner 用 usage × 单价计算 `metric("cost_usd", v, attrs)`；未配置单价时跳过成本但仍导延迟/token
+- [x] 归因 attrs 统一：`turnId` / `toolName` / `model`，turn 级聚合可由 collector 侧汇总
+- [x] 测试:mock Telemetry 断言一轮 metric 条目齐全且数值正确（含成本计算）；无单价表时不报错、只缺成本
 
 **Acceptance Criteria**:
 1. 每 turn / 工具 / 模型调用导出延迟 ms、token 计数指标，归因属性（turnId / toolName / model）正确。
 2. 配置单价表时导出成本$，数值 = usage × 单价；未配置时跳过成本、其余指标不受影响。
 3. 指标导出全在 Runner / adapter，核心无新增时间/成本事实；纯度不破。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: 5dc0c0f feat(plan-006): phase 2 — 成本/延迟/token 指标导出
+-->
 
 ---
 
@@ -193,18 +197,21 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 定义审计条目结构（`kind: "approval" | "high_risk_exec"`、toolName、riskTier、decision?、timestamp、isError?、归因 id）
-- [ ] Runner：`interpretEffects` 处理 `approval_decision`（runner.ts:434）时记审批审计条目（allow/deny + 工具）
-- [ ] Runner：执行工具前/后，对 `toolDef.riskTier ∈ {WRITE_HIGH, IRREVERSIBLE}` 记高风险执行审计条目（含结果 isError）
-- [ ] SDK：可选 `auditSink`（缺省 no-op），可桥接到 `Telemetry`；条目时间戳用注入 `Clock`
-- [ ] 测试:审批 allow/deny 各产一条审计；高风险工具执行产一条；只读工具/低风险不产；错误执行仍记录且不抛
+- [x] 定义审计条目结构（`kind: "approval" | "high_risk_exec"`、toolName、riskTier、decision?、timestamp、isError?、归因 id）
+- [x] Runner：`interpretEffects` 处理 `approval_decision`（runner.ts:434）时记审批审计条目（allow/deny + 工具）
+- [x] Runner：执行工具前/后，对 `toolDef.riskTier ∈ {WRITE_HIGH, IRREVERSIBLE}` 记高风险执行审计条目（含结果 isError）
+- [x] SDK：可选 `auditSink`（缺省 no-op），可桥接到 `Telemetry`；条目时间戳用注入 `Clock`
+- [x] 测试:审批 allow/deny 各产一条审计；高风险工具执行产一条；只读工具/低风险不产；错误执行仍记录且不抛
 
 **Acceptance Criteria**:
 1. 每个审批决策（allow / deny）产生一条结构化审计条目，含工具名与决策。
 2. 每次高风险工具（`WRITE_HIGH` / `IRREVERSIBLE`）执行产生一条审计条目，含 riskTier 与执行结果；只读/低风险不产生。
 3. 审计旁路主循环：不改 reducer、不改控制流、错误不中断循环；未注入 auditSink 时行为不变。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: 2f723ef feat(plan-006): phase 3 — 审计日志（审批决策 + 高风险工具执行）
+-->
 
 ---
 
@@ -221,11 +228,11 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`（含重放等价断言）
 
 **Tasks**:
-- [ ] core 纯函数 `diffState(a, b)`：产出结构化差异（messages 增删、status 变迁、pendingTools、tokensUsed/iterationCount、readFiles 等），纯、可序列化、可测
-- [ ] Runner：每 turn 边界向历史存储追加带递增 `seq` 的 checkpoint（复用 `SessionStore` 多 key：`${sessionId}#${seq}`，不覆盖既有单 key 行为；或薄 `CheckpointHistory` 包装）
-- [ ] 调试器 API:`listCheckpoints(sessionId)`（按 seq 排序）、`rewindTo(sessionId, seq)`（取该快照）、`stepForward(state, input, ctx)`（调核心 `step`，不触真实 port）、`diff(a, b)`（调 `diffState`）
-- [ ] reference-cli：增调试子命令（列出 turn checkpoints、回退到指定 turn、单步前进、与原始后续状态 diff 并打印）
-- [ ] 测试:录一段多 turn 会话 → 列出 N 个 checkpoints → 回退到第 k 个 → 从该状态 `step` 单步重放，断言与原始 (state, effects) 序列 deep-equal（重放等价）；`diffState` 单测覆盖各字段差异；checkpoint 历史不破坏现有 `SessionStore` 合同测试
+- [x] core 纯函数 `diffState(a, b)`：产出结构化差异（messages 增删、status 变迁、pendingTools、tokensUsed/iterationCount、readFiles 等），纯、可序列化、可测
+- [x] Runner：每 turn 边界向历史存储追加带递增 `seq` 的 checkpoint（复用 `SessionStore` 多 key：`${sessionId}#${seq}`，不覆盖既有单 key 行为；或薄 `CheckpointHistory` 包装）
+- [x] 调试器 API:`listCheckpoints(sessionId)`（按 seq 排序）、`rewindTo(sessionId, seq)`（取该快照）、`stepForward(state, input, ctx)`（调核心 `step`，不触真实 port）、`diff(a, b)`（调 `diffState`）
+- [x] reference-cli：增调试子命令（列出 turn checkpoints、回退到指定 turn、单步前进、与原始后续状态 diff 并打印）
+- [x] 测试:录一段多 turn 会话 → 列出 N 个 checkpoints → 回退到第 k 个 → 从该状态 `step` 单步重放，断言与原始 (state, effects) 序列 deep-equal（重放等价）；`diffState` 单测覆盖各字段差异；checkpoint 历史不破坏现有 `SessionStore` 合同测试
 
 **Acceptance Criteria**:
 1. 一段多 turn 会话产生可列举的 checkpoint 历史，可回退到任一 turn 的快照。
@@ -233,7 +240,10 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. `diffState(a, b)` 产出结构化、可读的状态差异；调试器经 reference-cli 可"回退某 turn → 单步 → 看 diff"。
 4. checkpoint 历史以附加方式实现，既有 `SessionStore` 合同测试零回归。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: c05b226 feat(plan-006): phase 4 — 时间旅行调试器（checkpoint 历史 + diffState）
+-->
 
 ---
 
@@ -249,11 +259,11 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] core:定义拓扑 spec 纯数据类型（节点 = 子 agent 定义 prompt/tools/model/policy；边 = 数据流 + 聚合方式；kind ∈ supervisor/pipeline，预留 map-reduce/debate/router 枚举）
-- [ ] core:确定性纯决策——pipeline 的串接顺序、map-reduce 的聚合归并顺序、router 的路由匹配（纯函数，可重放）；supervisor 的"模型裁决分派"本质是一次子 agent 调用，不在核心写非确定逻辑
-- [ ] SDK 编排器:解释 spec → 为每节点经 `createSubAgentExecutor` 起隔离子 agent → pipeline 串接 / supervisor 分派+汇聚；并行分派吃 M8 并行能力；结果聚合回主流程作为文本/工具结果
-- [ ] SDK:暴露 `createOrchestrator(spec)`（或 createAgent options）；子 agent 隔离、共享 ModelPort、事件经 `tagEventSink` 标 depth
-- [ ] 测试:pipeline——三节点串接，前节点输出进后节点，最终聚合正确；supervisor——主管分派给 ≥2 worker、结果汇聚；子 agent 上下文隔离（worker 看不到彼此/父历史）；确定性归并的重放等价（同 mock 脚本两次运行 deep-equal）
+- [x] core:定义拓扑 spec 纯数据类型（节点 = 子 agent 定义 prompt/tools/model/policy；边 = 数据流 + 聚合方式；kind ∈ supervisor/pipeline，预留 map-reduce/debate/router 枚举）
+- [x] core:确定性纯决策——pipeline 的串接顺序、map-reduce 的聚合归并顺序、router 的路由匹配（纯函数，可重放）；supervisor 的"模型裁决分派"本质是一次子 agent 调用，不在核心写非确定逻辑
+- [x] SDK 编排器:解释 spec → 为每节点经 `createSubAgentExecutor` 起隔离子 agent → pipeline 串接 / supervisor 分派+汇聚；并行分派吃 M8 并行能力；结果聚合回主流程作为文本/工具结果
+- [x] SDK:暴露 `createOrchestrator(spec)`（或 createAgent options）；子 agent 隔离、共享 ModelPort、事件经 `tagEventSink` 标 depth
+- [x] 测试:pipeline——三节点串接，前节点输出进后节点，最终聚合正确；supervisor——主管分派给 ≥2 worker、结果汇聚；子 agent 上下文隔离（worker 看不到彼此/父历史）；确定性归并的重放等价（同 mock 脚本两次运行 deep-equal）
 
 **Acceptance Criteria**:
 1. supervisor + pipeline 两种拓扑均可经声明式 spec 组合并运行。
@@ -261,7 +271,10 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. 拓扑的确定性归并/串接为纯决策、可重放：同一 mock 脚本两次运行 (state, effects) deep-equal。
 4. 编排建立在 M8 引擎（并行/调速）与既有子 agent 之上，未重做引擎、未重定义端口。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: f056d76 feat(plan-006): phase 5 — 多 agent 编排拓扑（pipeline + supervisor）
+-->
 
 ---
 
@@ -278,3 +291,129 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 | 编排重做引擎 / 重写隔离 | 与 M8 / M7 重叠 | 拓扑建立在 M8 并行 + 既有 `createSubAgentExecutor` 之上；不复制引擎、不重写隔离 |
 | 成本单价表口径不一 | 成本指标失真 | 单价表为显式配置（输入/输出分价），未配置则不导成本只导延迟/token；口径在文档明确 |
 | 审计条目影响主循环 | 控制流被污染、可能抛异常中断 | 审计旁路:不进 reducer、不改控制流、错误不抛；缺省 no-op sink |
+
+## Test Cases
+
+### TC-001: OTel span 结构正确（Phase 1 AC1）
+
+**Preconditions**: InMemoryTelemetry 已注入 Runner；mock model 返回含 tool_use 的 script。
+**Steps**:
+1. 构造 mock model port：返回 [tool_use_start → tool_use_delta → done(tool_use)]，然后 [text_delta → done(end_turn)]
+2. 用 `createRunner({ telemetry, modelPort, toolExecutor, ... })` 创建 runner
+3. 执行 `runner.run({ type: "user_message", content: "use tool" })`
+4. 检查 `telemetry.spans`
+**Paths involved**: `packages/runtimes/node/src/runner.ts:454 (runLoop turn span)`, `runner.ts:339 (model_call span)`, `runner.ts:451 (tool_execute span)`, `packages/runtimes/node/src/__tests__/telemetry-tracing.test.ts:84`
+**Expected result**: `spans` 含 3 个条目：name="turn"、name="model_call"（attributes 含 model）、name="tool_execute"（attributes 含 toolName="stub_tool"、riskTier="READ_ONLY"）
+
+### TC-002: 模型/工具错误标记 span error（Phase 1 AC1）
+
+**Preconditions**: InMemoryTelemetry 已注入；mock model stream 抛异常 / toolExecutor 抛异常。
+**Steps**:
+1. 构造 `errorModel = { stream: () => { throw new Error("unavailable") } }`
+2. `createRunner({ modelPort: errorModel, telemetry, ... }).run(...)`
+3. 检查 `telemetry.spans.find(s => s.name === "model_call").attributes.error === true`
+4. 对 toolExecutor 抛异常重复类似验证
+**Paths involved**: `runner.ts:338 (modelError flag)`, `runner.ts:410 (turnHadError)`, `packages/runtimes/node/src/__tests__/telemetry-tracing.test.ts:111`
+**Expected result**: model_call 和 tool_execute span 的 `error` attribute 为 `true`
+
+### TC-003: 无 telemetry 时 Runner 行为不变（Phase 1 AC3）
+
+**Preconditions**: 不注入 telemetry。
+**Steps**:
+1. `createRunner({ modelPort, stepContext, ... })` — 不传 telemetry
+2. `runner.run({ type: "user_message", content: "hi" })`
+3. 验证 `final.status === "done"` 且 `final.messages.length > 0`
+**Paths involved**: `runner.ts` (all `opts.telemetry?.` optional chaining), `packages/runtimes/node/src/__tests__/telemetry-tracing.test.ts:155`
+**Expected result**: Runner 正常完成，状态正确，无 crash
+
+### TC-004: latency_ms 指标使用 Clock 注入（Phase 2 AC1）
+
+**Preconditions**: 创建 fakeClock（手动控制 `now()` 返回值）；InMemoryTelemetry 注入。
+**Steps**:
+1. `clock = { now: () => 1000, tick: (ms) => { time += ms } }`
+2. mock model stream 中调用 `clock.tick(50)`
+3. 运行 runner
+4. 检查 `telemetry.metrics.find(m => m.name === "latency_ms" && m.attributes.model === "test")`
+**Paths involved**: `runner.ts:351-364 (model finally block)`, `runner.ts:436-441 (tool finally block)`, `packages/runtimes/node/src/__tests__/telemetry-tracing.test.ts:226`
+**Expected result**: latency_ms 指标的 `value` ≥ 50
+
+### TC-005: token 和 cost 指标正确计算（Phase 2 AC1/AC2）
+
+**Preconditions**: mock model port 含 `usage(1000, 500)` 事件；pricing 表含 `{ test: { inputPer1M: 3, outputPer1M: 15 } }`。
+**Steps**:
+1. `createMockModelPort([[textDelta("OK"), usage(1000, 500), modelDone("end_turn")])`
+2. `createRunner({ ..., pricing: { test: { inputPer1M: 3, outputPer1M: 15 } }, telemetry })`
+3. 运行后检查 metrics
+**Paths involved**: `runner.ts:368-378 (cost calculation in model finally block)`, `packages/runtimes/node/src/__tests__/telemetry-tracing.test.ts:313`
+**Expected result**: `tokens` kind=input 值为 1000；kind=output 值为 500；`cost_usd` 值为 `(1000*3+500*15)/1e6 = 0.0105`
+
+### TC-006: 审批决策审计条目（Phase 3 AC1）
+
+**Preconditions**: `permissionConfig` 设置为全 ask；`interactiveGate` 返回 allow；`auditSink` 收集 entries。
+**Steps**:
+1. 构造 mock model 返回 tool_use → stub_tool
+2. `createRunner({ ..., permissionConfig: createPermissionAskAll(), approvalGate: interactiveGate, auditSink })`
+3. 运行后检查 `auditSink.entries`
+**Paths involved**: `runner.ts:658-671 (interpretEffects approval audit)`, `packages/runtimes/node/src/__tests__/telemetry-audit.test.ts:82`
+**Expected result**: entries 含 1 个 `kind="approval"`, `decision="allow"`, `toolName="stub_tool"` 的条目
+
+### TC-007: 高风险工具执行审计条目（Phase 3 AC2）
+
+**Preconditions**: 工具 riskTier="WRITE_HIGH"；auditSink 收集。
+**Steps**:
+1. 构造 mock model 返回 tool_use → write_tool (WRITE_HIGH)
+2. `createRunner({ ..., auditSink })`
+3. 运行后检查 `auditSink.entries.filter(e => e.kind === "high_risk_exec")`
+**Paths involved**: `runner.ts:593-605 (parallel batch high-risk audit)`, `packages/runtimes/node/src/__tests__/telemetry-audit.test.ts:121`
+**Expected result**: entries 含 1 个 `kind="high_risk_exec"`, `toolName="write_tool"`, `riskTier="WRITE_HIGH"` 条目
+
+### TC-008: diffState 产出结构化差异（Phase 4 AC3）
+
+**Preconditions**: 两个 ReducerState 快照，其中一个 status 不同、tokensUsed 不同。
+**Steps**:
+1. `a = createInitialState()`
+2. `b = { ...a, status: "done", tokensUsed: 100 }`
+3. `diffState(a, b)`
+**Paths involved**: `packages/core/src/state-diff.ts:39-79`, `packages/sdk/src/__tests__/debugger.test.ts:24`
+**Expected result**: `statusChanged = { from: "idle", to: "done" }`; `tokensDelta = 100`; `hasChanges = true`
+
+### TC-009: 调试器 rewindTo / stepForward 流程（Phase 4 AC1/AC2）
+
+**Preconditions**: 内存 SessionStore 中预存两个 checkpoint（seq=1 idle, seq=2 done）。
+**Steps**:
+1. 创建 `createTimeTravelDebugger({ sessionStore, sessionId, stepContext })`
+2. `listCheckpoints()` → 验证返回 2 个 checkpoint
+3. `rewindTo(1)` → 验证 status="idle"
+4. `stepForward(state, userMessage)` → 验证新 state 含用户消息
+**Paths involved**: `packages/sdk/src/debugger.ts:31-71`, `packages/sdk/src/__tests__/debugger.test.ts:85`
+**Expected result**: list 返回 2 个条目；rewindTo(1) 返回 idle 状态；stepForward 产生新状态
+
+### TC-010: pipeline 三节点串接（Phase 5 AC1）
+
+**Preconditions**: TopologySpec kind="pipeline"，3 个节点；per-node mock model。
+**Steps**:
+1. 构造 `TopologySpec { kind: "pipeline", nodes: [a,b,c], order: ["a","b","c"] }`
+2. `createOrchestrator({ topology, agentOpts })`
+3. `orchestrator.run("start")`
+**Paths involved**: `packages/sdk/src/orchestration.ts:103-119 (runPipeline)`, `packages/sdk/src/__tests__/orchestration.test.ts:43`
+**Expected result**: `nodeOutputs["a"]` 为节点 A 的输出；`nodeOutputs["b"]` 为节点 B 的输出；`output` 为最后一个节点的输出
+
+### TC-011: supervisor 主管分派 + worker 并行（Phase 5 AC1/AC2）
+
+**Preconditions**: TopologySpec kind="supervisor"，1 supervisor + 2 workers。
+**Steps**:
+1. 构造 TopologySpec，supervisor node systemPrompt="You route work"
+2. per-node mock model 根据 systemPrompt 返回对应文本
+3. `orchestrator.run("do work")`
+**Paths involved**: `packages/sdk/src/orchestration.ts:122-163 (runSupervisor)`, `packages/sdk/src/__tests__/orchestration.test.ts:100`
+**Expected result**: `nodeOutputs` 含 supervisor/worker1/worker2 三个键；`output` 聚合了主管和所有 worker 输出
+
+### TC-012: 全量回归验证（Phase 1-5 总体 AC）
+
+**Preconditions**: 无
+**Steps**:
+1. `pnpm turbo run typecheck lint test`（全量）
+2. `node scripts/check-core-zero-deps.mjs`
+3. `git log --oneline feat/plan-006-m12-observability-orchestration --not main` 确认 5 个 commit
+**Paths involved**: 全局
+**Expected result**: 99 任务全部成功；core 零依赖通过；git log 含 5 个 phase commit

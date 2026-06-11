@@ -185,6 +185,18 @@ export type { InstructionExpandResult, InstructionReference } from "./instructio
 // RAG retrieval — slot placement for augmented context
 export { computeRAGInjectionIndex, buildRAGMessage } from "./retrieval.js";
 
+// State diff — pure function for time-travel debugger
+export { diffState } from "./state-diff.js";
+export type { StateDiff } from "./state-diff.js";
+
+// Orchestration — topology spec types (pure data)
+export type {
+  TopologyKind,
+  TopologyNodeSpec,
+  TopologySpec,
+  TopologyResult,
+} from "./orchestration.js";
+
 // Testing utilities
 export {
   createMockModelPort,
