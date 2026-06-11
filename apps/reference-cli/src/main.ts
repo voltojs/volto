@@ -7,11 +7,17 @@
  */
 
 import { createAgent } from "@agent-core/sdk";
+import { createDefaultPermissionConfig } from "@agent-core/core";
 import { createOpenAIModelPort } from "@agent-core/provider-openai";
 import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
+  createNodeScheduler,
+  createSqliteDatabaseAdapter,
+  createNodeDocumentParser,
+  createNodeBrowserAdapter,
+  createNodeLspClient,
 } from "@agent-core/runtime-node";
 import { createWriteTodosTool } from "@agent-core/tools-plan";
 import { createRenderingEventSink } from "./render.js";
@@ -21,6 +27,12 @@ const MODEL = process.env["AGENT_MODEL"] ?? "gpt-4o";
 const API_KEY = process.env["OPENAI_API_KEY"] ?? "";
 const BASE_URL = process.env["OPENAI_BASE_URL"];
 const CWD = process.env["AGENT_CWD"] ?? process.cwd();
+const DB_FILE = process.env["AGENT_DB_FILE"];
+const LSP_COMMAND = process.env["AGENT_LSP_COMMAND"];
+const LSP_ARGS = process.env["AGENT_LSP_ARGS"]?.split(",") ?? [];
+const ENABLE_DOCUMENT_PARSER = process.env["AGENT_DOCUMENT_PARSER"] === "true";
+const ENABLE_BROWSER = process.env["AGENT_BROWSER"] === "true";
+const PERMISSION_MODE = process.env["AGENT_PERMISSION_MODE"] ?? "auto-allow";
 
 // ── Validate ──
 if (!API_KEY) {
@@ -32,14 +44,12 @@ if (!API_KEY) {
 }
 
 // ── Stdout event sink (streaming render) ──
-// The renderer recognizes `agentDepth` so sub-agent output is bracket-wrapped
-// and doesn't intermix opaquely with the main agent stream.
 const stdoutEventSink = createRenderingEventSink({
   stdout: (s) => process.stdout.write(s),
   stderr: (s) => process.stderr.write(s),
 });
 
-// ── Assemble adapters ──
+// ── Assemble core adapters ──
 const fs = createNodeFileSystem({ root: CWD });
 const shell = createNodeShell({ defaultCwd: CWD });
 const network = createNodeNetwork();
@@ -49,9 +59,71 @@ const modelPort = createOpenAIModelPort({
   defaultModel: MODEL,
 });
 
+// ── Scheduler (always enabled) ──
+const clock = { now: () => Date.now() };
+const scheduler = createNodeScheduler({ clock });
+
+// ── Permission config ──
+const permissionConfig = createDefaultPermissionConfig();
+permissionConfig.mode = PERMISSION_MODE === "plan" ? "plan" : "auto-accept";
+
+// ── Optional adapters (conditional via env vars) ──
+let dbAdapter: Parameters<typeof createAgent>[0]["dbAdapter"];
+if (DB_FILE) {
+  try {
+    dbAdapter = await createSqliteDatabaseAdapter({ filename: DB_FILE });
+    process.stderr.write(`Database connected: ${DB_FILE}\n`);
+  } catch (err) {
+    process.stderr.write(
+      `Warning: Could not load database adapter: ${err instanceof Error ? err.message : String(err)}\n` +
+      "Install with: pnpm add better-sqlite3\n",
+    );
+  }
+}
+
+let documentParser: Parameters<typeof createAgent>[0]["documentParser"];
+if (ENABLE_DOCUMENT_PARSER) {
+  try {
+    documentParser = await createNodeDocumentParser();
+    process.stderr.write("Document parser enabled (pdf-parse/mammoth/xlsx)\n");
+  } catch (err) {
+    process.stderr.write(
+      `Warning: Could not load document parser: ${err instanceof Error ? err.message : String(err)}\n` +
+      "Install with: pnpm add pdf-parse mammoth xlsx\n",
+    );
+  }
+}
+
+let browserAdapter: Parameters<typeof createAgent>[0]["browserAdapter"];
+if (ENABLE_BROWSER) {
+  try {
+    browserAdapter = await createNodeBrowserAdapter({ headless: true });
+    process.stderr.write("Browser adapter enabled (Playwright)\n");
+  } catch (err) {
+    process.stderr.write(
+      `Warning: Could not load browser adapter: ${err instanceof Error ? err.message : String(err)}\n` +
+      "Install with: pnpm add playwright\n",
+    );
+  }
+}
+
+let lspClient: Parameters<typeof createAgent>[0]["lspClient"];
+if (LSP_COMMAND) {
+  try {
+    lspClient = await createNodeLspClient({
+      command: LSP_COMMAND,
+      args: LSP_ARGS,
+      cwd: CWD,
+    });
+    process.stderr.write(`LSP client connected: ${LSP_COMMAND}\n`);
+  } catch (err) {
+    process.stderr.write(
+      `Warning: Could not start LSP server: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+}
+
 // ── Create the agent (SDK wiring) ──
-// Adapter-backed tools (fs/shell/web) are auto-created by the SDK.
-// Only custom tools need to be passed explicitly.
 const agent = createAgent({
   modelPort,
   model: MODEL,
@@ -61,6 +133,12 @@ const agent = createAgent({
   eventSink: stdoutEventSink,
   tools: [createWriteTodosTool()],
   enableTaskTool: true,
+  scheduler,
+  permissionConfig,
+  dbAdapter,
+  documentParser,
+  browserAdapter,
+  lspClient,
 });
 
 // ── REPL ──
