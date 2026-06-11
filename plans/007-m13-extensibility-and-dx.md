@@ -256,7 +256,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 3. `renderCommand` / skills 发现为纯函数 / 确定性，可快照测试；参考 CLI 演示通过。
 
 **Reviewed**: 2026-06-11 by reviewer
-**Commit**: pending
+**Commit**: 65874eb feat(plan-007): phase 5 — 斜杠命令 + skills（纯渲染 + 触发发现）
 
 ---
 
@@ -272,3 +272,216 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 | 分层配置合并顺序歧义 | 配置结果不可预测、难排障 | 固定 全局<项目<运行时；合并为纯函数 + 来源标注；优先级断言入测试 |
 | 不可信插件代码执行带来安全风险 | 任意代码执行 | M13 显式假设插件本地受信（Non-Goal 6）；沙箱化执行归 M11；文档标注信任边界 |
 | 声明式规格与命令式子 agent 双路径分叉 | 行为不一致、维护负担 | 子 agent 与主 agent 同构、共用 `resolveAgentSpec`；命令式路径保留但以 spec 路径为主，回归测试覆盖两路 |
+
+---
+
+## Test Cases
+
+### TC-001: 分层配置合并优先级（全局 < 项目 < 运行时）
+
+- **Preconditions**: 三层 ConfigLayer 均提供 model 字段
+- **Steps**:
+  1. 调用 `mergeConfig({ model: "gpt-4" }, { model: "gpt-4o" }, { model: "gpt-4o-mini" })`
+  2. 断言 `result.config.model === "gpt-4o-mini"`（runtime 最高优先级）
+  3. 断言 `result.resolvedFrom.model === "runtime"`
+- **Paths**: `packages/sdk/src/config.ts:221`, `packages/sdk/src/__tests__/config.test.ts:30`
+- **Expected**: runtime 层值胜出；resolvedFrom 正确标注来源
+
+### TC-002: 分层配置数组 concat + replace
+
+- **Preconditions**: 两层配置均提供 capabilities 数组
+- **Steps**:
+  1. 调用 `mergeConfig({ capabilities: ["fs"] }, { capabilities: ["shell"] })` — 默认 concat+dedup
+  2. 断言 `result.config.capabilities` 含 `["fs", "shell"]`
+  3. 调用 `mergeConfig(g, p, undefined, { arrayFields: { capabilities: "replace" } })` — replace 策略
+  4. 断言 capabilities 被完全替换
+- **Paths**: `packages/sdk/src/config.ts:248-264`, `packages/sdk/src/__tests__/config.test.ts:50-63`
+- **Expected**: 默认 concat+dedup；声明 replace 时后者完全替换前者
+
+### TC-003: mergeConfig 纯函数确定性 + 快照
+
+- **Preconditions**: 任意三层配置组合
+- **Steps**:
+  1. 调用 `mergeConfig(global, project, runtime)` 两次
+  2. 断言两次结果 deep-equal
+  3. 断言 `toMatchInlineSnapshot` 与保存值一致
+- **Paths**: `packages/sdk/src/config.ts:221-293`, `packages/sdk/src/__tests__/config.test.ts:91-153`
+- **Expected**: 同输入同输出（纯函数）；快照完整覆盖合并结果和来源映射
+
+### TC-004: createAgent 配置层默认值注入
+
+- **Preconditions**: ResolvedConfig 含 model/maxTokens/temperature
+- **Steps**:
+  1. `mergeConfig({ model: "gpt-4", maxTokens: 512, temperature: 0.3 })` 生成 ResolvedConfig
+  2. `createAgent({ modelPort: mockModel, config })` — 不传 model/maxTokens/temperature
+  3. 运行一轮对话，断言 state.status === "done"
+  4. 显式 opts 覆盖 config：`createAgent({ modelPort, config, model: "gpt-4o" })` 断言 opts 优先
+- **Paths**: `packages/sdk/src/create-agent.ts:380-382`, `packages/sdk/src/__tests__/create-agent.test.ts:179-238`
+- **Expected**: config 层值作为默认值；显式 opts 始终最高优先级
+
+### TC-005: 插件注册工具经能力门控
+
+- **Preconditions**: 插件注册一个 echo 工具（requires: ["test:echo"]）
+- **Steps**:
+  1. `createAgent({ modelPort, plugins: [echoPlugin], capabilities: new Set(["test:echo"]) })`
+  2. Mock 模型调用 echo 工具
+  3. 断言 state.messages 含 tool_result，modelContent 包含工具输出
+  4. 去掉 capabilities 中的 "test:echo"，断言工具不可见（模型无 tool_call）
+- **Paths**: `packages/sdk/src/plugin.ts:169`, `packages/sdk/src/create-agent.ts:502-516`, `packages/sdk/src/__tests__/plugin.test.ts:202-254`
+- **Expected**: 插件工具进入可见集并可调用；缺能力时自动摘除
+
+### TC-006: 插件重名工具去重（last write wins）
+
+- **Preconditions**: 两个插件注册同名工具（不同 description）
+- **Steps**:
+  1. `collectPlugins([pluginA, pluginB])`
+  2. 断言 `collected.tools.length === 1`
+  3. 断言剩余工具的 description 来自 pluginB（后注册者胜出）
+- **Paths**: `packages/sdk/src/plugin.ts:96-98`, `packages/sdk/src/__tests__/plugin.test.ts:77-92`
+- **Expected**: 同名工具按注册顺序 last-write-wins
+
+### TC-007: preToolUse hook deny 阻断工具执行
+
+- **Preconditions**: hook 在 preToolUse 对 echo 工具返回 deny
+- **Steps**:
+  1. 创建 deny-echo hook：`{ lifecycle: "preToolUse", handler: (ctx) => ctx.toolCall?.name === "echo" ? { action: "deny", reason: "blocked" } : { action: "continue" } }`
+  2. `createAgent({ modelPort, tools: [echoTool], capabilities, hooks: [denyHook] })`
+  3. Mock 模型调用 echo
+  4. 断言 toolExecutor 未执行（toolExecuted === false）
+  5. 断言 tool_result 消息 isError === true，content 含 "blocked"
+- **Paths**: `packages/runtimes/node/src/runner.ts:440-448`, `packages/sdk/src/__tests__/hooks.test.ts:131-172`
+- **Expected**: 工具未执行；模型收到 isError 结果；主循环继续不抛异常
+
+### TC-008: preToolUse hook modify 改写工具输入
+
+- **Preconditions**: hook 在 preToolUse 对 echo 工具返回 modify（patch input）
+- **Steps**:
+  1. hook 将 `input.message` 从 "original" 改为 "modified"
+  2. Mock 模型调用 echo with message="original"
+  3. 断言 tool result 含 "modified"（工具收到的是修改后的 input）
+- **Paths**: `packages/runtimes/node/src/runner.ts:450-452`, `packages/sdk/src/__tests__/hooks.test.ts:174-212`
+- **Expected**: 工具收到修改后的 input；result 被正确回喂
+
+### TC-009: postToolUse hook modify redact 输出
+
+- **Preconditions**: hook 在 postToolUse 将 result.modelContent 替换为 "REDACTED"
+- **Steps**:
+  1. 创建 redact hook：`{ lifecycle: "postToolUse", handler: (ctx) => ctx.toolCall?.name === "echo" ? { action: "modify", patch: { result: { modelContent: "REDACTED" } } } : ... }`
+  2. Mock 模型调用 echo with message="secret"
+  3. 断言 reducer 收到的 tool_result.content === "REDACTED"
+- **Paths**: `packages/runtimes/node/src/runner.ts:463-469`, `packages/sdk/src/__tests__/hooks.test.ts:214-247`
+- **Expected**: tool result 被 redact 后回喂 reducer
+
+### TC-010: hook 管线串行 + 首个 deny 短路
+
+- **Preconditions**: 两个 hook 注册在同一 lifecycle
+- **Steps**:
+  1. Hook A 返回 deny；Hook B 记录是否被调用
+  2. `runHookPipeline([hookA, hookB], "preToolUse", {})`
+  3. 断言 HookB 未被调用（deny 短路）
+  4. 断言返回 `{ action: "deny", reason: "blocked" }`
+- **Paths**: `packages/core/src/hooks.ts:88-130`, `packages/sdk/src/__tests__/hooks.test.ts:66-77`
+- **Expected**: 首个 deny 短路后续 hook；结果正确
+
+### TC-011: 多 hook modify 合并
+
+- **Preconditions**: Hook A 修改 input 为 "modified-a"；Hook B 在其基础上追加 "-b"
+- **Steps**:
+  1. `runHookPipeline([hookA, hookB], "preToolUse", { toolCall: { input: { message: "original" } } })`
+  2. 断言最终 patch.input.message === "modified-a-b"（后 hook 看到前 hook 的修改）
+- **Paths**: `packages/core/src/hooks.ts:110-120`, `packages/sdk/src/__tests__/hooks.test.ts:79-93`
+- **Expected**: hook 按顺序执行；后 hook 可看到前 hook 的修改
+
+### TC-012: 含 hook 的重放 deep-equal
+
+- **Preconditions**: 确定性 hook（无副作用，记录调用日志）
+- **Steps**:
+  1. 使用确定性 mockModel（固定脚本）+ 追踪 hook（记录 callLog）
+  2. 第一次运行：记录 callLog1 和 state1.messages
+  3. 第二次运行：记录 callLog2 和 state2.messages
+  4. 断言 callLog1 === callLog2（hook 调用序列相同）
+  5. 断言 state1.messages[i] === state2.messages[i]（每条消息 deep-equal）
+- **Paths**: `packages/sdk/src/__tests__/hooks.test.ts:291-331`
+- **Expected**: 确定性 hook + 确定性模型 → 重放结果完全一致
+
+### TC-013: session:start / session:end / turn:start / turn:end 被调用
+
+- **Preconditions**: 注册监听所有四个生命周期的 hook
+- **Steps**:
+  1. 创建追踪 hook：每个生命周期点 push 名称到 called 数组
+  2. `createAgent({ modelPort, hooks }).run("hello")`
+  3. 断言 called 包含 "session:start"、"turn:start"、"turn:end"、"session:end"
+- **Paths**: `packages/runtimes/node/src/runner.ts:742,750,523,675`, `packages/sdk/src/__tests__/hooks.test.ts:251-272`
+- **Expected**: 六个生命周期点全部按固定位置触发
+
+### TC-014: 声明式 AgentSpec 加载并运行
+
+- **Preconditions**: AgentSpec 数据 + ToolRegistry 含 echo 工具
+- **Steps**:
+  1. 创建 `AgentSpec { name: "echo-agent", tools: ["echo"], capabilities: ["test:echo"] }`
+  2. `loadAgentSpec({ spec, modelPort: mockModel, toolRegistry })` 实例化
+  3. 调用 `agent.run("hello")`
+  4. 断言 state.status === "done"
+  5. Mock 模型调用 echo → 断言 tool result 正确回喂
+- **Paths**: `packages/sdk/src/agent-spec.ts:117-148`, `packages/sdk/src/__tests__/agent-spec.test.ts:174-208`
+- **Expected**: 声明式规格产出可运行 AgentInstance
+
+### TC-015: AgentSpec JSON 序列化往返
+
+- **Preconditions**: AgentSpec 含所有字段（name、tools、policy、responseFormat 等）
+- **Steps**:
+  1. `JSON.stringify(spec)` → `JSON.parse(serialized)` 反序列化
+  2. 断言每个字段值一致
+- **Paths**: `packages/sdk/src/agent-spec.ts:22-49`, `packages/sdk/src/__tests__/agent-spec.test.ts:121-143`
+- **Expected**: 序列化往返完全一致（可从配置文件加载）
+
+### TC-016: resolveAgentSpec 未知工具归一化报错
+
+- **Preconditions**: spec 引用 registry 中不存在的工具名
+- **Steps**:
+  1. `resolveAgentSpec({ name: "test", tools: ["echo", "nonexistent"] }, registry)`
+  2. 断言 resolved.tools.length === 1（仅 echo）
+  3. 断言 resolved.errors.length === 1，errors[0] 含 "nonexistent"
+- **Paths**: `packages/sdk/src/agent-spec.ts:82-96`, `packages/sdk/src/__tests__/agent-spec.test.ts:30-38`
+- **Expected**: 未知工具不抛异常；错误信息收集在 errors 数组
+
+### TC-017: 斜杠命令渲染 + 未知命令归一
+
+- **Preconditions**: 注册 `/greet name={{name}}` 命令
+- **Steps**:
+  1. `renderCommand(commands, "/greet name=Alice")` → 断言返回 "Hello Alice!"
+  2. `renderCommand(commands, "/nonexistent hello")` → 断言返回含 "Unknown command" 的提示
+  3. `renderCommand(commands, "regular message")` → 断言原样返回
+- **Paths**: `packages/sdk/src/commands.ts:80-118`, `packages/sdk/src/__tests__/commands-skills.test.ts:62-107`
+- **Expected**: 已知命令渲染模板；未知命令归一提示（不抛错）；非命令输入原样透传
+
+### TC-018: createAgent 斜杠命令集成
+
+- **Preconditions**: createAgent 注册 `/hello` 命令（template: "Say hello"）
+- **Steps**:
+  1. `agent.run("/hello")`
+  2. 断言 state.messages 中 role="user" 的消息 content === "Say hello"（非 "/hello"）
+  3. `agent.run("regular")` → 断言 user 消息 === "regular"
+- **Paths**: `packages/sdk/src/create-agent.ts:815-819`, `packages/sdk/src/__tests__/commands-skills.test.ts:182-219`
+- **Expected**: /name 输入被渲染为 UserMessage；非命令输入正常透传
+
+### TC-019: skills 触发匹配 + 资源收集
+
+- **Preconditions**: skills 列表含 trigger 关键词和 resources 引用
+- **Steps**:
+  1. `findTriggeredSkills(skills, "please review this code")` → 断言匹配 trigger="review" 的 skill
+  2. `findTriggeredSkills(skills, "hello world")` → 断言空数组
+  3. `collectResources(skills)` → 断言去重后的资源列表
+- **Paths**: `packages/sdk/src/skills.ts:48-63`, `packages/sdk/src/__tests__/commands-skills.test.ts:134-177`
+- **Expected**: 触发匹配 case-insensitive；无 trigger 的 skill 不匹配；资源去重
+
+### TC-020: 向后兼容 — 无扩展层时行为不变
+
+- **Preconditions**: 不传任何 M13 新增参数
+- **Steps**:
+  1. `createAgent({ modelPort })` — 无 config/plugins/hooks/commands
+  2. 运行一轮对话，断言 state.status === "done"
+  3. 运行 `pnpm turbo run typecheck lint test`，断言全部通过
+  4. 运行 `check-core-zero-deps`，断言 core 零依赖
+- **Paths**: `packages/sdk/src/create-agent.ts:356-358`, `packages/sdk/src/__tests__/create-agent.test.ts:46-64`
+- **Expected**: 不传 M13 参数时行为与 Plan 007 之前完全一致
