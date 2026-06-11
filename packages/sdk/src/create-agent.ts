@@ -676,6 +676,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
+      pricing: opts.pricing,
     };
 
     if (previousState && previousState.status === "done") {

@@ -92,6 +92,12 @@ export interface RunnerOptions {
    * Defaults to undefined (no-op); SDK resolves defaultTelemetry.
    */
   telemetry?: Telemetry;
+  /**
+   * Per-model pricing table for cost metrics.
+   * Key: model name; value: cost per million tokens (input/output).
+   * When provided, Runner records `cost_usd` metric on model call spans.
+   */
+  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
 }
 
 export interface Runner {
@@ -283,7 +289,9 @@ export function createRunner(opts: RunnerOptions): Runner {
     };
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
+    const modelSpanStartedAt = opts.clock?.now() ?? Date.now();
     let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let capturedUsage: { inputTokens: number; outputTokens: number } | undefined;
     let receivedTerminal = false; // true after done or error event is fed
     let modelError = false;
 
@@ -311,7 +319,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         // Convert and feed model events
         for (const input of modelEventToInputs(event, lastUsage)) {
-          if (event.type === "done") lastUsage = undefined;
+          if (event.type === "done") {
+            capturedUsage = lastUsage;
+            lastUsage = undefined;
+          }
           forwardEmit(feed(input));
         }
 
@@ -337,6 +348,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
       }
     } finally {
+      const endTime = opts.clock?.now() ?? Date.now();
       if (modelSpan) {
         if (modelError) modelSpan.setAttribute("error", true);
         if (lastUsage) {
@@ -344,6 +356,27 @@ export function createRunner(opts: RunnerOptions): Runner {
           modelSpan.setAttribute("outputTokens", lastUsage.outputTokens);
         }
         modelSpan.end();
+      }
+      if (opts.telemetry) {
+        const attrs: Record<string, unknown> = { model: stepContext.model };
+        // Latency
+        if (modelSpanStartedAt > 0) {
+          opts.telemetry.metric("latency_ms", endTime - modelSpanStartedAt, attrs);
+        }
+        // Token counts (use capturedUsage since lastUsage is reset after done event)
+        const usageData = capturedUsage ?? lastUsage;
+        if (usageData) {
+          opts.telemetry.metric("tokens", usageData.inputTokens, { ...attrs, kind: "input" });
+          opts.telemetry.metric("tokens", usageData.outputTokens, { ...attrs, kind: "output" });
+          // Cost
+          if (opts.pricing && stepContext.model) {
+            const entry = opts.pricing[stepContext.model];
+            if (entry) {
+              const cost = (usageData.inputTokens * entry.inputPer1M + usageData.outputTokens * entry.outputPer1M) / 1_000_000;
+              opts.telemetry.metric("cost_usd", cost, attrs);
+            }
+          }
+        }
       }
     }
   }
@@ -368,6 +401,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       toolName: toolCall.name,
       riskTier: toolDef?.riskTier,
     });
+    const toolSpanStartedAt = opts.clock?.now() ?? Date.now();
     try {
       const result = await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
       if (toolSpan && result.isError) toolSpan.setAttribute("error", true);
@@ -381,7 +415,14 @@ export function createRunner(opts: RunnerOptions): Runner {
         isError: true,
       };
     } finally {
+      const toolEnd = opts.clock?.now() ?? Date.now();
       toolSpan?.end();
+      if (opts.telemetry) {
+        opts.telemetry.metric("latency_ms", toolEnd - toolSpanStartedAt, {
+          toolName: toolCall.name,
+          riskTier: toolDef?.riskTier,
+        });
+      }
     }
   }
 

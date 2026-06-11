@@ -6,6 +6,7 @@ import {
   toolUseDelta,
   modelDone,
   textDelta,
+  usage,
 } from "@agent-core/core";
 import { createRunner } from "../runner.js";
 import { InMemoryTelemetry } from "../telemetry.js";
@@ -207,5 +208,166 @@ describe("Runner telemetry spans", () => {
 
     const toolSpan = telemetry.spans.find((s) => s.name === "tool_execute");
     expect(toolSpan?.attributes["riskTier"]).toBe("READ_ONLY");
+  });
+});
+
+// ── Phase 2: Metrics tests ──────────────────────
+
+/** Deterministic clock for testing latency metrics */
+function createFakeClock(startMs = 1000): { now: () => number; tick: (ms: number) => void } {
+  let time = startMs;
+  return {
+    now: () => time,
+    tick: (ms: number) => { time += ms; },
+  };
+}
+
+describe("Runner telemetry metrics (Phase 2)", () => {
+  it("records latency_ms metric for model_call span", async () => {
+    const clock = createFakeClock(1000);
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [textDelta("OK"), modelDone("end_turn")],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      telemetry,
+      clock,
+    });
+
+    // Simulate 50ms of model execution time
+    const origStream = model.stream.bind(model);
+    model.stream = async function* (req) {
+      clock.tick(50);
+      yield* origStream(req);
+    };
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const latency = telemetry.metrics.find(
+      (m) => m.name === "latency_ms" && m.attributes["model"] === "test",
+    );
+    expect(latency).toBeDefined();
+    expect(latency!.value).toBeGreaterThanOrEqual(50);
+  });
+
+  it("records latency_ms metric for tool_execute span", async () => {
+    const clock = createFakeClock(1000);
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [toolUseStart("t1", "stub_tool"), toolUseDelta("t1", '{"input":"x"}'), modelDone("tool_use")],
+      [textDelta("Done"), modelDone("end_turn")],
+    ]);
+
+    const slowExecutor = async () => {
+      clock.tick(30);
+      return { modelContent: "result", displayMetadata: { slow: true } };
+    };
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      toolExecutor: slowExecutor,
+      telemetry,
+      clock,
+    });
+
+    await runner.run({ type: "user_message", content: "go" });
+
+    const toolLatency = telemetry.metrics.find(
+      (m) => m.name === "latency_ms" && m.attributes["toolName"] === "stub_tool",
+    );
+    expect(toolLatency).toBeDefined();
+    expect(toolLatency!.value).toBeGreaterThanOrEqual(30);
+  });
+
+  it("records token metrics when usage is provided", async () => {
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [textDelta("OK"), usage(120, 80), modelDone("end_turn")],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      telemetry,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const inputTokenMetric = telemetry.metrics.find(
+      (m) => m.name === "tokens" && m.attributes["kind"] === "input",
+    );
+    const outputTokenMetric = telemetry.metrics.find(
+      (m) => m.name === "tokens" && m.attributes["kind"] === "output",
+    );
+    expect(inputTokenMetric?.value).toBe(120);
+    expect(outputTokenMetric?.value).toBe(80);
+  });
+
+  it("records cost_usd metric when pricing is provided", async () => {
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [textDelta("OK"), usage(1000, 500), modelDone("end_turn")],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      telemetry,
+      pricing: { test: { inputPer1M: 3, outputPer1M: 15 } },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const costMetric = telemetry.metrics.find((m) => m.name === "cost_usd");
+    expect(costMetric).toBeDefined();
+    // (1000 * 3 + 500 * 15) / 1_000_000 = (3000 + 7500) / 1_000_000 = 0.0105
+    expect(costMetric!.value).toBeCloseTo(0.0105, 6);
+  });
+
+  it("does NOT record cost_usd when pricing is not provided", async () => {
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [textDelta("OK"), usage(1000, 500), modelDone("end_turn")],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      telemetry,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const costMetric = telemetry.metrics.find((m) => m.name === "cost_usd");
+    expect(costMetric).toBeUndefined();
+  });
+
+  it("does NOT record cost_usd when model is not in pricing table", async () => {
+    const telemetry = new InMemoryTelemetry();
+    const model = createMockModelPort([
+      [textDelta("OK"), usage(1000, 500), modelDone("end_turn")],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      telemetry,
+      pricing: { "other-model": { inputPer1M: 3, outputPer1M: 15 } },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const costMetric = telemetry.metrics.find((m) => m.name === "cost_usd");
+    expect(costMetric).toBeUndefined();
   });
 });

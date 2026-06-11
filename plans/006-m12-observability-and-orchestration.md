@@ -152,7 +152,7 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 
 <!-- Backfill after execution:
 **Reviewed**: 2026-06-11 by code-reviewer
-**Commit**: <hash> <subject>
+**Commit**: c655994 feat(plan-006): phase 1 — OTel tracing (Telemetry 端口 + Runner span 埋点)
 -->
 
 ---
@@ -168,18 +168,21 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 延迟：用注入 `Clock`（或 adapter 时钟）测 turn / model / tool span 起止差，关闭时 `metric("latency_ms", dur, attrs)`
-- [ ] token：从归一化 usage 取 input/output token，`metric("tokens", n, { kind, model, turnId })`
-- [ ] 成本：SDK 透传"模型单价表"（输入/输出分别计价），Runner 用 usage × 单价计算 `metric("cost_usd", v, attrs)`；未配置单价时跳过成本但仍导延迟/token
-- [ ] 归因 attrs 统一：`turnId` / `toolName` / `model`，turn 级聚合可由 collector 侧汇总
-- [ ] 测试:mock Telemetry 断言一轮 metric 条目齐全且数值正确（含成本计算）；无单价表时不报错、只缺成本
+- [x] 延迟：用注入 `Clock`（或 adapter 时钟）测 turn / model / tool span 起止差，关闭时 `metric("latency_ms", dur, attrs)`
+- [x] token：从归一化 usage 取 input/output token，`metric("tokens", n, { kind, model, turnId })`
+- [x] 成本：SDK 透传"模型单价表"（输入/输出分别计价），Runner 用 usage × 单价计算 `metric("cost_usd", v, attrs)`；未配置单价时跳过成本但仍导延迟/token
+- [x] 归因 attrs 统一：`turnId` / `toolName` / `model`，turn 级聚合可由 collector 侧汇总
+- [x] 测试:mock Telemetry 断言一轮 metric 条目齐全且数值正确（含成本计算）；无单价表时不报错、只缺成本
 
 **Acceptance Criteria**:
 1. 每 turn / 工具 / 模型调用导出延迟 ms、token 计数指标，归因属性（turnId / toolName / model）正确。
 2. 配置单价表时导出成本$，数值 = usage × 单价；未配置时跳过成本、其余指标不受影响。
 3. 指标导出全在 Runner / adapter，核心无新增时间/成本事实；纯度不破。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: 5dc0c0f feat(plan-006): phase 2 — 成本/延迟/token 指标导出
+-->
 
 ---
 
