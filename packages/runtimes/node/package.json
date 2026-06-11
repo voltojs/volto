@@ -19,9 +19,39 @@
   },
   "dependencies": {
     "@agent-core/core": "workspace:*",
+    "@agent-core/tools-browser": "workspace:*",
+    "@agent-core/tools-code": "workspace:*",
+    "@agent-core/tools-data": "workspace:*",
+    "@agent-core/tools-document": "workspace:*",
     "@agent-core/tools-fs": "workspace:*",
     "@agent-core/tools-shell": "workspace:*",
     "@agent-core/tools-web": "workspace:*"
   },
-  "devDependencies": {}
+  "peerDependencies": {
+    "better-sqlite3": ">=9.0.0",
+    "mammoth": ">=1.6.0",
+    "pdf-parse": ">=1.1.1",
+    "playwright": ">=1.40.0",
+    "xlsx": ">=0.18.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "pdf-parse": {
+      "optional": true
+    },
+    "mammoth": {
+      "optional": true
+    },
+    "xlsx": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  }
 }
