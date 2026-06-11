@@ -133,12 +133,12 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - `packages/sdk/src/defaults.ts`（可选导出 store 工厂便利封装，**不**改默认兜底，仍是 memory）
 
 **Tasks**:
-- [ ] `store-sqlite`：建表（`sessions(id PRIMARY KEY, state JSON, created_at INTEGER)`），`save` 用 `INSERT OR REPLACE`（满足合同覆盖语义），`load`/`list` 反序列化 `AgentState`；`import type { SessionStore, SessionSnapshot }` from core
-- [ ] `store-postgres`：建表（`sessions(id TEXT PRIMARY KEY, state JSONB, created_at BIGINT)`），`save` 用 `INSERT ... ON CONFLICT (id) DO UPDATE`，连接池经 opts 注入或自建
-- [ ] 两包测试：`describe` 内调用 `runStoreContractTests(() => createStore(...))` 复用合同断言
-- [ ] sqlite 特化测试：跨 store 实例（同文件）`save` 后另一实例 `load` 可见；空目录自动建库
-- [ ] postgres 特化测试：并发 `save` 同 id 幂等收敛；`list` 返回全部；连接错误归一不 crash（用 `pg-mem` 或测试容器，CI 无库时跳过并标注）
-- [ ] package.json：驱动只进对应 store 包 `dependencies`；core/sdk 不新增对它们的强依赖
+- [x] `store-sqlite`：建表（`sessions(id PRIMARY KEY, state JSON, created_at INTEGER)`），`save` 用 `INSERT OR REPLACE`（满足合同覆盖语义），`load`/`list` 反序列化 `AgentState`；`import type { SessionStore, SessionSnapshot }` from core
+- [x] `store-postgres`：建表（`sessions(id TEXT PRIMARY KEY, state JSONB, created_at BIGINT)`），`save` 用 `INSERT ... ON CONFLICT (id) DO UPDATE`，连接池经 opts 注入或自建
+- [x] 两包测试：`describe` 内调用 `runStoreContractTests(() => createStore(...))` 复用合同断言
+- [x] sqlite 特化测试：跨 store 实例（同文件）`save` 后另一实例 `load` 可见；空目录自动建库
+- [x] postgres 特化测试：并发 `save` 同 id 幂等收敛；`list` 返回全部；连接错误归一不 crash（用 `pg-mem` 或测试容器，CI 无库时跳过并标注）
+- [x] package.json：驱动只进对应 store 包 `dependencies`；core/sdk 不新增对它们的强依赖
 
 **Acceptance Criteria**:
 1. `store-sqlite` 与 `store-postgres` **均通过 `runStoreContractTests`**（与 memory/file 同一套断言全绿）。
@@ -147,8 +147,8 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 4. git diff 不含 `packages/core/**`。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <hash> <subject>
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: 2677938 feat(plan-008): phase 1 — 持久化形态 store-sqlite / store-postgres（过合同测试）
 -->
 
 ---
