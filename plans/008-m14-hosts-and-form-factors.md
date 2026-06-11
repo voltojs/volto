@@ -226,11 +226,11 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - `apps/mcp-server/src/__tests__/*.test.ts`（MCP 客户端 ↔ server e2e，mock-model-port）
 
 **Tasks**:
-- [ ] MCP server：声明 server 元信息，注册 `agent_run` tool（inputSchema：`{ message: string, sessionId?: string }`），handler 调 `agent.run(input)` 返回最终回复文本
-- [ ] 可选 `agent_stream`：经 MCP progress/notification 把 `createMcpEventSink` 收到的事件流式回传
-- [ ] EventSink 适配：`createMcpEventSink(notify)` 把 `{type,data}` 序列化为 MCP 通知，注入 `createAgent({ eventSink })`
-- [ ] wiring：注入持久化 store 以支持多次调用间的 sessionId 续跑
-- [ ] e2e：用 MCP SDK 的 in-memory client 连本 server，`callTool("agent_run", {...})` 收到正确结果；流式变体收到事件序列
+- [x] MCP server：声明 server 元信息，注册 `agent_run` tool（inputSchema：`{ message: string, sessionId?: string }`），handler 调 `agent.run(input)` 返回最终回复文本
+- [x] 可选 `agent_stream`：经 MCP progress/notification 把 `createMcpEventSink` 收到的事件流式回传
+- [x] EventSink 适配：`createMcpEventSink(notify)` 把 `{type,data}` 序列化为 MCP 通知，注入 `createAgent({ eventSink })`
+- [x] wiring：注入持久化 store 以支持多次调用间的 sessionId 续跑
+- [x] e2e：用 MCP SDK 的 in-memory client 连本 server，`callTool("agent_run", {...})` 收到正确结果；流式变体收到事件序列
 
 **Acceptance Criteria**:
 1. **agent 暴露为 MCP server，`agent_run` tool 可被 MCP 客户端发现并调用**，返回 agent 最终回复——满足"可被其它 agent 作为工具调用"。
@@ -238,7 +238,8 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 3. 仅做 MCP 协议 ↔ SDK 调用适配（**不**实现 MCP 客户端方向，不与 Plan 004 重叠）；git diff 不含 `packages/core/**`。
 4. `typecheck lint test` 全绿。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: f920526 feat(plan-008): phase 4 — 互操作形态 MCP server 暴露
 
 ---
 
