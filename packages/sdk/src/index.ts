@@ -58,6 +58,10 @@ export type { StreamChannel } from "./stream-channel.js";
 export { createTimeTravelDebugger, createInitialState } from "./debugger.js";
 export type { Checkpoint, DebuggerOptions, TimeTravelDebugger } from "./debugger.js";
 
+// M13: Layered config
+export { mergeConfig } from "./config.js";
+export type { ConfigLayer, ConfigSource, ResolvedConfig, ResolvedFrom, MergeStrategy } from "./config.js";
+
 // M12: Multi-agent orchestration
 export { createOrchestrator } from "./orchestration.js";
 export type { OrchestratorOptions } from "./orchestration.js";

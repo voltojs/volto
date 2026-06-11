@@ -129,21 +129,19 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 定义 `LayeredConfig`（单层形状）与 `ResolvedConfig`（含 `resolvedFrom` 来源映射）类型
-- [ ] 实现纯函数 `mergeConfig(global, project, runtime)`：标量 / 对象后覆盖前；数组默认 concat 去重、可字段级声明 replace；记录每个生效字段来源
-- [ ] SDK 侧读取入口（经注入的 fs adapter 读全局 / 项目配置文件；缺失即空层），与纯合并解耦
-- [ ] `createAgent` 接受 `config?: ResolvedConfig`，将其映射为现有 `CreateAgentOptions` 字段（运行时 opts 仍最高优先级）
-- [ ] 测试：合并优先级（全局 < 项目 < 运行时）；数组 concat/replace；来源标注正确；缺省层不影响行为；最小配置零回归
+- [x] 定义 `LayeredConfig`（单层形状）与 `ResolvedConfig`（含 `resolvedFrom` 来源映射）类型
+- [x] 实现纯函数 `mergeConfig(global, project, runtime)`：标量 / 对象后覆盖前；数组默认 concat 去重、可字段级声明 replace；记录每个生效字段来源
+- [x] SDK 侧读取入口（经注入的 fs adapter 读全局 / 项目配置文件；缺失即空层），与纯合并解耦
+- [x] `createAgent` 接受 `config?: ResolvedConfig`，将其映射为现有 `CreateAgentOptions` 字段（运行时 opts 仍最高优先级）
+- [x] 测试：合并优先级（全局 < 项目 < 运行时）；数组 concat/replace；来源标注正确；缺省层不影响行为；最小配置零回归
 
 **Acceptance Criteria**:
 1. 同一字段三层都有值时，最终取**运行时**值；仅全局 + 项目时取项目值——优先级确定、有测试覆盖。
 2. `mergeConfig` 为纯函数（同输入同输出，无 I/O），可快照测试；`resolvedFrom` 能追溯每个字段来源。
 3. 不提供任何配置层时，`createAgent({ modelPort })` 行为与现状一致（向后兼容）。
 
-<!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
-**Commit**: <hash> <subject>
--->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: pending
 
 ---
 

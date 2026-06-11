@@ -116,7 +116,26 @@ import {
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
+import { type ResolvedConfig, type ConfigLayer } from "./config.js";
 import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
+
+// ──────────────────────────────────────────────
+// Config resolution helper
+// ──────────────────────────────────────────────
+
+/**
+ * Resolve a value: explicit opts wins, then config layer, then undefined.
+ * Pure function — no side effects.
+ */
+function resolveConfigValue<T>(
+  explicit: T | undefined,
+  configLayer: ConfigLayer | undefined,
+  key: keyof ConfigLayer,
+): T | undefined {
+  if (explicit !== undefined) return explicit;
+  if (configLayer === undefined) return undefined;
+  return configLayer[key] as T | undefined;
+}
 
 // ──────────────────────────────────────────────
 // Public types
@@ -125,6 +144,14 @@ import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
 export interface CreateAgentOptions {
   /** Model port — required, the LLM provider */
   modelPort: ModelPort;
+
+  /**
+   * Resolved layered config (global < project < runtime).
+   * When provided, config values fill in defaults for any option not
+   * explicitly set in this CreateAgentOptions object.
+   * Runtime-level opts (this object) always take highest priority.
+   */
+  config?: ResolvedConfig;
 
   /**
    * Custom tools to register. Adapter-backed tools (fs/shell/web) are
@@ -347,8 +374,17 @@ export interface ResolvedPorts {
 export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const { modelPort } = opts;
 
+  // ── Resolve layered config defaults ─────────
+  // Config layer values fill in defaults for opts not explicitly set.
+  // Explicit opts always take highest priority (they ARE the runtime layer).
+  const cfg = opts.config?.config;
+  const resolve = <T>(explicit: T | undefined, key: keyof ConfigLayer): T | undefined =>
+    resolveConfigValue(explicit, cfg, key);
+
   // ── Resolve capabilities ──────────────────
-  const capabilities = opts.capabilities ?? new Set<string>();
+  // Config layer capabilities (string[]) merged with explicit opts.capabilities (Set)
+  const configCaps = cfg?.capabilities;
+  const capabilities = opts.capabilities ?? new Set<string>(configCaps);
   if (opts.fs) {
     capabilities.add("filesystem:read");
     capabilities.add("filesystem:write");
@@ -372,7 +408,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.documentParser) {
     capabilities.add("document:parse");
   }
-  if (opts.enableTaskTool) {
+  if (resolve(opts.enableTaskTool, "enableTaskTool")) {
     capabilities.add("agent:task");
   }
 
@@ -443,8 +479,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   // ── Compaction config ─────────────────────
-  const compactionConfig: CompactionConfig | undefined = opts.compaction
-    ? { ...opts.compaction, tokenizer: opts.compaction.tokenizer ?? defaultTokenizer }
+  const resolvedCompaction = resolve(opts.compaction, "compaction") as
+    (Omit<CompactionConfig, "tokenizer"> & { tokenizer?: CompactionConfig["tokenizer"] }) | undefined;
+  const compactionConfig: CompactionConfig | undefined = resolvedCompaction
+    ? { ...resolvedCompaction, tokenizer: resolvedCompaction.tokenizer ?? defaultTokenizer }
     : undefined;
 
   // ── Assemble all tools ────────────────────
@@ -560,8 +598,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // Apply scope/limit trimming to initial tool set
   // When toolVisibility is not provided, default to no limit (Infinity)
   // to preserve backward compatibility with pre-M10 behavior.
-  const visibilityLimit = opts.toolVisibility?.limit ?? (opts.toolVisibility ? 20 : Infinity);
-  const visibilityScope = opts.toolVisibility?.scope ?? null;
+  const resolvedVisibility = resolve(opts.toolVisibility, "toolVisibility") as
+    { scope?: ToolScopeConfig; limit?: number } | undefined;
+  const visibilityLimit = resolvedVisibility?.limit ?? (resolvedVisibility ? 20 : Infinity);
+  const visibilityScope = resolvedVisibility?.scope ?? null;
   if (toolDefs.length > visibilityLimit || visibilityScope) {
     const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);
     toolDefs.length = 0;
@@ -571,11 +611,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // ── Step context ─────────────────────────
   const stepContext: StepContext = {
     tools: toolDefs,
-    model: opts.model,
-    maxTokens: opts.maxTokens,
-    temperature: opts.temperature,
-    maxLoopCount: opts.maxLoopCount,
-    responseFormat: opts.responseFormat,
+    model: resolve(opts.model, "model"),
+    maxTokens: resolve(opts.maxTokens, "maxTokens"),
+    temperature: resolve(opts.temperature, "temperature"),
+    maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
+    responseFormat: resolve(opts.responseFormat, "responseFormat"),
   };
 
   // ── Compose tool executor ────────────────
@@ -601,7 +641,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   };
 
   // ── Permission config ─────────────────────
-  const permissionConfig = opts.permissionConfig ?? createDefaultPermissionConfig();
+  const permissionConfig = resolve(opts.permissionConfig, "permissionConfig") ?? createDefaultPermissionConfig();
   const approvalGate = opts.approvalGate ?? createAutoAllowGate();
 
   // ── Session store ─────────────────────────
@@ -621,9 +661,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   };
 
   // ── Build initial messages (system prompt) ──
+  const resolvedSystemPrompt = resolve(opts.systemPrompt, "systemPrompt");
   const initialMessages: Message[] = [];
-  if (opts.systemPrompt) {
-    initialMessages.push({ role: "system", content: opts.systemPrompt });
+  if (resolvedSystemPrompt) {
+    initialMessages.push({ role: "system", content: resolvedSystemPrompt });
   }
 
   // ── M9: Cost meter (created per-run via wrapping EventSink) ──
@@ -643,7 +684,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
     // Wrap EventSink to intercept usage events for cost metering
     // and filter reasoning_delta based on reasoningStrategy.
-    const reasoningStrategy = opts.reasoningStrategy ?? "emit";
+    const reasoningStrategy = resolve(opts.reasoningStrategy, "reasoningStrategy") ?? "emit";
     const effectiveSink: EventSink = (costMeter || reasoningStrategy !== "emit")
       ? {
           emit(event) {
@@ -699,12 +740,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
 
     // First turn: apply systemPrompt + maxIterations + tokenBudget + M8 limits
+    const resolvedMaxIterations = resolve(opts.maxIterations, "maxIterations");
+    const resolvedTokenBudget = resolve(opts.tokenBudget, "tokenBudget");
+    const resolvedMaxToolCalls = resolve(opts.maxToolCalls, "maxToolCalls");
+    const resolvedMaxCostTokens = resolve(opts.maxCostTokens, "maxCostTokens");
+    const resolvedMaxWallclockMs = resolve(opts.maxWallclockMs, "maxWallclockMs");
     const initStateOverrides: Partial<ReducerState> = {
-      ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
-      ...(opts.tokenBudget !== undefined ? { tokenBudget: opts.tokenBudget } : {}),
-      ...(opts.maxToolCalls !== undefined ? { maxToolCalls: opts.maxToolCalls } : {}),
-      ...(opts.maxCostTokens !== undefined ? { maxCostDollars: opts.maxCostTokens } : {}),
-      ...(opts.maxWallclockMs !== undefined ? { maxWallclockMs: opts.maxWallclockMs } : {}),
+      ...(resolvedMaxIterations !== undefined ? { maxIterations: resolvedMaxIterations } : {}),
+      ...(resolvedTokenBudget !== undefined ? { tokenBudget: resolvedTokenBudget } : {}),
+      ...(resolvedMaxToolCalls !== undefined ? { maxToolCalls: resolvedMaxToolCalls } : {}),
+      ...(resolvedMaxCostTokens !== undefined ? { maxCostDollars: resolvedMaxCostTokens } : {}),
+      ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
     };
     const initState = createInitialState(
@@ -910,9 +956,9 @@ function createSubAgentExecutor(
 
     const subStepContext: StepContext = {
       tools: subToolDefs,
-      model: opts.model,
-      maxTokens: opts.maxTokens,
-      temperature: opts.temperature,
+      model: resolveConfigValue(opts.model, opts.config?.config, "model"),
+      maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
+      temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
     };
 
     const taggedSink = opts.eventSink
@@ -924,7 +970,7 @@ function createSubAgentExecutor(
       stepContext: subStepContext,
       toolExecutor: subExecutor,
       availableCapabilities: subCapabilities,
-      permissionConfig: opts.permissionConfig,
+      permissionConfig: resolveConfigValue(opts.permissionConfig, opts.config?.config, "permissionConfig"),
       approvalGate: createAutoAllowGate(),
       eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),

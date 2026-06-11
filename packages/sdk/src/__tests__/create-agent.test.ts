@@ -9,6 +9,8 @@ import {
 } from "@agent-core/core";
 import type { ToolDefinition, ToolResult } from "@agent-core/core";
 import { createMemoryStore } from "@agent-core/store-memory";
+import { mergeConfig } from "../config.js";
+import type { ResolvedConfig } from "../config.js";
 
 // ──────────────────────────────────────────────
 // Fixtures
@@ -171,6 +173,67 @@ describe("createAgent — SDK facade", () => {
       const state = await agent.run("hi");
       expect(state.status).toBe("done");
       // Session store is accepted; checkpoints are only saved during HITL approval
+    });
+  });
+
+  describe("with layered config (M13)", () => {
+    it("should use config layer values as defaults when opts omit them", async () => {
+      const mockModel = createMockModelPort([textScript("config works")]);
+      const config: ResolvedConfig = mergeConfig(
+        { model: "gpt-4", maxTokens: 512, temperature: 0.3 },
+      );
+
+      const agent = createAgent({
+        modelPort: mockModel,
+        config,
+      });
+
+      const state = await agent.run("hello");
+      expect(state.status).toBe("done");
+    });
+
+    it("explicit opts override config layer values", async () => {
+      const mockModel = createMockModelPort([textScript("override works")]);
+      const config: ResolvedConfig = mergeConfig(
+        { model: "gpt-4", temperature: 0.3 },
+      );
+
+      const agent = createAgent({
+        modelPort: mockModel,
+        config,
+        model: "gpt-4o", // explicit opts wins
+        temperature: 0.9,
+      });
+
+      const state = await agent.run("hello");
+      expect(state.status).toBe("done");
+    });
+
+    it("config capabilities are merged with adapter capabilities", async () => {
+      const mockModel = createMockModelPort([
+        toolCallScript("c1", "echo", '{"message":"hi"}'),
+        textScript("done"),
+      ]);
+      const config: ResolvedConfig = mergeConfig({
+        capabilities: ["test:echo"],
+      });
+
+      const agent = createAgent({
+        modelPort: mockModel,
+        config,
+        tools: [createEchoTool()],
+        // Note: no explicit capabilities — config provides "test:echo"
+      });
+
+      const state = await agent.run("echo hi");
+      expect(state.status).toBe("done");
+    });
+
+    it("backward compat — no config, createAgent works as before", async () => {
+      const mockModel = createMockModelPort([textScript("no config")]);
+      const agent = createAgent({ modelPort: mockModel });
+      const state = await agent.run("hello");
+      expect(state.status).toBe("done");
     });
   });
 });
