@@ -259,11 +259,11 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] core:定义拓扑 spec 纯数据类型（节点 = 子 agent 定义 prompt/tools/model/policy；边 = 数据流 + 聚合方式；kind ∈ supervisor/pipeline，预留 map-reduce/debate/router 枚举）
-- [ ] core:确定性纯决策——pipeline 的串接顺序、map-reduce 的聚合归并顺序、router 的路由匹配（纯函数，可重放）；supervisor 的"模型裁决分派"本质是一次子 agent 调用，不在核心写非确定逻辑
-- [ ] SDK 编排器:解释 spec → 为每节点经 `createSubAgentExecutor` 起隔离子 agent → pipeline 串接 / supervisor 分派+汇聚；并行分派吃 M8 并行能力；结果聚合回主流程作为文本/工具结果
-- [ ] SDK:暴露 `createOrchestrator(spec)`（或 createAgent options）；子 agent 隔离、共享 ModelPort、事件经 `tagEventSink` 标 depth
-- [ ] 测试:pipeline——三节点串接，前节点输出进后节点，最终聚合正确；supervisor——主管分派给 ≥2 worker、结果汇聚；子 agent 上下文隔离（worker 看不到彼此/父历史）；确定性归并的重放等价（同 mock 脚本两次运行 deep-equal）
+- [x] core:定义拓扑 spec 纯数据类型（节点 = 子 agent 定义 prompt/tools/model/policy；边 = 数据流 + 聚合方式；kind ∈ supervisor/pipeline，预留 map-reduce/debate/router 枚举）
+- [x] core:确定性纯决策——pipeline 的串接顺序、map-reduce 的聚合归并顺序、router 的路由匹配（纯函数，可重放）；supervisor 的"模型裁决分派"本质是一次子 agent 调用，不在核心写非确定逻辑
+- [x] SDK 编排器:解释 spec → 为每节点经 `createSubAgentExecutor` 起隔离子 agent → pipeline 串接 / supervisor 分派+汇聚；并行分派吃 M8 并行能力；结果聚合回主流程作为文本/工具结果
+- [x] SDK:暴露 `createOrchestrator(spec)`（或 createAgent options）；子 agent 隔离、共享 ModelPort、事件经 `tagEventSink` 标 depth
+- [x] 测试:pipeline——三节点串接，前节点输出进后节点，最终聚合正确；supervisor——主管分派给 ≥2 worker、结果汇聚；子 agent 上下文隔离（worker 看不到彼此/父历史）；确定性归并的重放等价（同 mock 脚本两次运行 deep-equal）
 
 **Acceptance Criteria**:
 1. supervisor + pipeline 两种拓扑均可经声明式 spec 组合并运行。
@@ -271,7 +271,10 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. 拓扑的确定性归并/串接为纯决策、可重放：同一 mock 脚本两次运行 (state, effects) deep-equal。
 4. 编排建立在 M8 引擎（并行/调速）与既有子 agent 之上，未重做引擎、未重定义端口。
 
-<!-- Backfill -->
+<!-- Backfill after execution:
+**Reviewed**: 2026-06-11 by code-reviewer
+**Commit**: <hash> <subject>
+-->
 
 ---
 

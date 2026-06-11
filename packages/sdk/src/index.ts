@@ -57,3 +57,7 @@ export type { StreamChannel } from "./stream-channel.js";
 // M12: Time-travel debugger
 export { createTimeTravelDebugger, createInitialState } from "./debugger.js";
 export type { Checkpoint, DebuggerOptions, TimeTravelDebugger } from "./debugger.js";
+
+// M12: Multi-agent orchestration
+export { createOrchestrator } from "./orchestration.js";
+export type { OrchestratorOptions } from "./orchestration.js";

@@ -189,6 +189,14 @@ export { computeRAGInjectionIndex, buildRAGMessage } from "./retrieval.js";
 export { diffState } from "./state-diff.js";
 export type { StateDiff } from "./state-diff.js";
 
+// Orchestration — topology spec types (pure data)
+export type {
+  TopologyKind,
+  TopologyNodeSpec,
+  TopologySpec,
+  TopologyResult,
+} from "./orchestration.js";
+
 // Testing utilities
 export {
   createMockModelPort,
