@@ -195,13 +195,13 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - `packages/runtimes/{browser,edge}/src/__tests__/*.test.ts`（port 行为 + 核心 e2e）
 
 **Tasks**:
-- [ ] `runtime-browser` FileSystem：OPFS（`navigator.storage.getDirectory()`）读/写/stat/list，回退纯内存 virtual-fs（无 OPFS 时）；实现 `glob`/`grep` 在 virtual-fs 上的纯 JS 版本
-- [ ] `runtime-browser` Network：包装全局 `fetch`，映射 `NetworkRequest`/`NetworkResponse`；Tokenizer：字符估算（或 WASM 分词）实现 `count`
-- [ ] `runtime-edge` FileSystem：抽象对象存储（put/get/list 前缀）映射 `FileSystem`；Network：fetch 包装；二者不 import `node:*`
-- [ ] 可移植 e2e（browser）：`mock-model-port` + `runtime-browser` adapter 经 `createAgent`（不传 `shell`）在 jsdom/happy-dom + OPFS polyfill（或真实浏览器 harness）跑通含 read/write 工具的一轮对话
-- [ ] 可移植 e2e（edge）：同上用 `runtime-edge` 在 Worker 风格运行时（或 `@cloudflare/workers-types` mock）跑通
-- [ ] 缺席能力验证：未注入 `shell` 时 bash 工具不在可见集（能力门控自动摘除），无需核心特判
-- [ ] **零改动断言**：在 e2e 测试或 CI 脚本中校验本 Phase 提交的 git diff 不含 `packages/core/**`
+- [x] `runtime-browser` FileSystem：OPFS（`navigator.storage.getDirectory()`）读/写/stat/list，回退纯内存 virtual-fs（无 OPFS 时）；实现 `glob`/`grep` 在 virtual-fs 上的纯 JS 版本
+- [x] `runtime-browser` Network：包装全局 `fetch`，映射 `NetworkRequest`/`NetworkResponse`；Tokenizer：字符估算（或 WASM 分词）实现 `count`
+- [x] `runtime-edge` FileSystem：抽象对象存储（put/get/list 前缀）映射 `FileSystem`；Network：fetch 包装；二者不 import `node:*`
+- [x] 可移植 e2e（browser）：`mock-model-port` + `runtime-browser` adapter 经 `createAgent`（不传 `shell`）在 jsdom/happy-dom + OPFS polyfill（或真实浏览器 harness）跑通含 read/write 工具的一轮对话
+- [x] 可移植 e2e（edge）：同上用 `runtime-edge` 在 Worker 风格运行时（或 `@cloudflare/workers-types` mock）跑通
+- [x] 缺席能力验证：未注入 `shell` 时 bash 工具不在可见集（能力门控自动摘除），无需核心特判
+- [x] **零改动断言**：在 e2e 测试或 CI 脚本中校验本 Phase 提交的 git diff 不含 `packages/core/**`
 
 **Acceptance Criteria**:
 1. **`runtime-browser` 在浏览器环境跑通核心一轮对话（read/write 经 OPFS/virtual-fs），`@agent-core/core` 包零改动**——可移植性最终证明。
@@ -209,7 +209,8 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 3. 两 runtime 以 `import type` 消费 core port 接口；`check-core-zero-deps` 通过。
 4. git diff 不含 `packages/core/**`（以脚本/测试断言）。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: 88aa1ce feat(plan-008): phase 3 — 可移植终证 runtime-browser / runtime-edge（core 零改动跑通）
 
 ---
 
