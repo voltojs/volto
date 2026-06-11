@@ -226,7 +226,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 3. 子 agent 规格与主 agent 同构，经 `task` 工具按名实例化；既有命令式子 agent 路径零回归。
 
 **Reviewed**: 2026-06-11 by reviewer
-**Commit**: pending
+**Commit**: 370a015 feat(plan-007): phase 4 — 声明式 agent 规格 loader（AgentSpec + resolveAgentSpec + loadAgentSpec）
 
 ---
 
@@ -243,19 +243,20 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 定义 `SlashCommand`（`name` / `scope` / `template` / `args: JSONSchema`）；纯函数 `renderCommand(cmd, rawArgs) → string`；未知命令归一为提示文本（不抛错）
-- [ ] `createAgent`：在 `normalizeInput` 前识别 `/name args`，命中则经 `renderCommand` 展开为 `UserMessage`
-- [ ] 定义 `Skill`（`name` / `description` / `trigger` / `resources: string[]`）；skills 清单发现（用户级 / 项目级目录）+ 元数据登记
-- [ ] skills 资源加载：**委托 M9 指令加载 / `@import` 展开**（以注入点 / 接口预留；M9 未接通前以占位实现 + 测试桩验证登记路径）
-- [ ] 参考 CLI：演示 `/foo` 输入展开为用户消息后正常进主循环
-- [ ] 测试:`renderCommand` 模板 + 参数渲染快照；未知命令归一提示；skills 清单发现 + 元数据正确；skills 资源加载走 M9 注入点（不重复实现 `@import`）
+- [x] 定义 `SlashCommand`（`name` / `scope` / `template` / `args: JSONSchema`）；纯函数 `renderCommand(cmd, rawArgs) → string`；未知命令归一为提示文本（不抛错）
+- [x] `createAgent`：在 `normalizeInput` 前识别 `/name args`，命中则经 `renderCommand` 展开为 `UserMessage`
+- [x] 定义 `Skill`（`name` / `description` / `trigger` / `resources: string[]`）；skills 清单发现（用户级 / 项目级目录）+ 元数据登记
+- [x] skills 资源加载：**委托 M9 指令加载 / `@import` 展开**（以注入点 / 接口预留；M9 未接通前以占位实现 + 测试桩验证登记路径）
+- [x] 参考 CLI：演示 `/foo` 输入展开为用户消息后正常进主循环
+- [x] 测试:`renderCommand` 模板 + 参数渲染快照；未知命令归一提示；skills 清单发现 + 元数据正确；skills 资源加载走 M9 注入点（不重复实现 `@import`）
 
 **Acceptance Criteria**:
 1. 注册斜杠命令后，输入 `/name args` 在 SDK 边界被纯函数渲染为 `UserMessage` 并进主循环；未知命令归一为提示（不抛错）。
 2. skills 清单可发现（用户级 / 项目级），元数据（name / description / trigger / 资源引用）完整；资源加载**复用 M9 机制**，本 Plan 不实现 `@import`（以注入点对接）。
 3. `renderCommand` / skills 发现为纯函数 / 确定性，可快照测试；参考 CLI 演示通过。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: pending
 
 ---
 

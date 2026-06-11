@@ -122,6 +122,7 @@ import {
   type CollectedPlugins,
   collectPlugins,
 } from "./plugin.js";
+import { renderCommand } from "./commands.js";
 import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
 
 // ──────────────────────────────────────────────
@@ -327,6 +328,15 @@ export interface CreateAgentOptions {
    * Merged with any hooks registered by plugins. Serial execution, first deny short-circuits.
    */
   hooks?: import("@agent-core/core").Hook[];
+
+  // ── M13: Slash commands ──
+
+  /**
+   * Slash commands — when user input starts with `/name`, the command's
+   * template is rendered and fed as the UserMessage instead of raw input.
+   * Unknown commands produce a normalized prompt (no throw).
+   */
+  commands?: import("./commands.js").SlashCommand[];
 
   // ── M9: Model layer options ──
 
@@ -800,12 +810,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     });
   }
 
+  // ── M13: Slash command resolution ──────────────
+  const commands = opts.commands ?? [];
+
+  /** Resolve input: check for /name command → render template → normalize */
+  function resolveInput(raw: string | AgentInput): AgentInput {
+    if (typeof raw === "string" && raw.trimStart().startsWith("/")) {
+      const rendered = renderCommand(commands, raw);
+      return { type: "user_message", content: rendered };
+    }
+    return normalizeInput(raw);
+  }
+
   return {
     ports: resolvedPorts,
 
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
-      const agentInput = normalizeInput(input);
+      const agentInput = resolveInput(input);
       const runner = createNextRunner(opts.eventSink ?? defaultEventSink);
       lastRunner = runner;
       const finalState = await runner.run(agentInput);
@@ -817,7 +839,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       input: string | AgentInput,
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
       await initToolSources();
-      const agentInput = normalizeInput(input);
+      const agentInput = resolveInput(input);
       const channel = createStreamChannel();
       // AbortController lets us cancel the runner if the consumer breaks
       // out of `for await` early. Without it, the detached runner would

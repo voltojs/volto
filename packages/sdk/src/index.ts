@@ -82,6 +82,14 @@ export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHand
 export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";
 export type { AgentSpec, ResolvedAgentSpec, ToolRegistry, LoadAgentSpecOptions } from "./agent-spec.js";
 
+// M13: Slash commands
+export { renderCommand, parseArgs, findCommand } from "./commands.js";
+export type { SlashCommand } from "./commands.js";
+
+// M13: Skills
+export { findTriggeredSkills, collectResources } from "./skills.js";
+export type { Skill, ResourceLoader } from "./skills.js";
+
 // M12: Multi-agent orchestration
 export { createOrchestrator } from "./orchestration.js";
 export type { OrchestratorOptions } from "./orchestration.js";
