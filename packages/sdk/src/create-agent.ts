@@ -117,6 +117,11 @@ import {
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
 import { type ResolvedConfig, type ConfigLayer } from "./config.js";
+import {
+  type Plugin,
+  type CollectedPlugins,
+  collectPlugins,
+} from "./plugin.js";
 import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
 
 // ──────────────────────────────────────────────
@@ -152,6 +157,13 @@ export interface CreateAgentOptions {
    * Runtime-level opts (this object) always take highest priority.
    */
   config?: ResolvedConfig;
+
+  /**
+   * Plugins to register. Each plugin declares its tools / providers / hooks
+   * via `register(registry)`. Plugin tools are merged into the ToolSource
+   * pipeline and go through the same capability-gating + permission checks.
+   */
+  plugins?: Plugin[];
 
   /**
    * Custom tools to register. Adapter-backed tools (fs/shell/web) are
@@ -486,7 +498,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     : undefined;
 
   // ── Assemble all tools ────────────────────
-  const allCustomTools: Tool[] = [...(opts.tools ?? [])];
+  // Collect plugins first — their tools are merged into the custom tool set
+  const pluginData: CollectedPlugins = opts.plugins && opts.plugins.length > 0
+    ? collectPlugins(opts.plugins)
+    : { tools: [], providers: new Map(), hooks: [], commands: [], skills: [], agentSpecs: [] };
+
+  const allCustomTools: Tool[] = [...(opts.tools ?? []), ...pluginData.tools];
 
   // ask_user tool — always available, uses approvalGate + eventSink
   const resolvedApprovalGate = opts.approvalGate ?? createAutoAllowGate();

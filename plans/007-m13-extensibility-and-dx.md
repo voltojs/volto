@@ -141,7 +141,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 3. 不提供任何配置层时，`createAgent({ modelPort })` 行为与现状一致（向后兼容）。
 
 **Reviewed**: 2026-06-11 by reviewer
-**Commit**: pending
+**Commit**: b45c64e feat(plan-007): phase 1 — 分层配置（mergeConfig 纯函数 + createAgent 接入）
 
 ---
 
@@ -157,19 +157,20 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 - 对应 `__tests__/`（含一个最小示例插件）
 
 **Tasks**:
-- [ ] 定义 `Plugin = { name; register(registry): void }` 与 `PluginRegistry`（`addTool` / `addProvider` / `addHook` / `addCommand` / `addSkill` / `addAgentSpec`）
-- [ ] 实现 `collectPlugins(plugins)`：调用各 `register`，聚合产物；工具聚合为实现 M8 `ToolSource` 的组合源
-- [ ] `createAgent`：把插件工具与内建 adapter 工具合并进 `ToolSource`，统一过 `filterVisibleTools`（门控）+ `PermissionPolicy`（放行）；provider 入注册表按名选用
-- [ ] 插件声明的所需 capability 并入 `availableCapabilities`；缺对应能力时该工具自动从可见集摘除（复用既有门控）
-- [ ] 测试：示例插件注册一个占位工具 → 工具进入可见集、可被 mock 模型选用、结果归一回喂；`packages/core` 与 `create-agent.ts` 核心 reducer / 主循环装配逻辑无需为该插件改动
-- [ ] 测试：插件工具缺能力时不可见；注册重名工具的去重 / 报错策略
+- [x] 定义 `Plugin = { name; register(registry): void }` 与 `PluginRegistry`（`addTool` / `addProvider` / `addHook` / `addCommand` / `addSkill` / `addAgentSpec`）
+- [x] 实现 `collectPlugins(plugins)`：调用各 `register`，聚合产物；工具聚合为实现 M8 `ToolSource` 的组合源
+- [x] `createAgent`：把插件工具与内建 adapter 工具合并进 `ToolSource`，统一过 `filterVisibleTools`（门控）+ `PermissionPolicy`（放行）；provider 入注册表按名选用
+- [x] 插件声明的所需 capability 并入 `availableCapabilities`；缺对应能力时该工具自动从可见集摘除（复用既有门控）
+- [x] 测试：示例插件注册一个占位工具 → 工具进入可见集、可被 mock 模型选用、结果归一回喂；`packages/core` 与 `create-agent.ts` 核心 reducer / 主循环装配逻辑无需为该插件改动
+- [x] 测试：插件工具缺能力时不可见；注册重名工具的去重 / 报错策略
 
 **Acceptance Criteria**:
 1. **第三方包以插件形式注册工具 / provider / hook，无需改核心**：示例插件经 `plugins:[...]` 注入后其工具可被模型选用、结果回喂；改动仅限插件包自身 + 注册表遍历，`packages/core` 零改动。
 2. 插件工具经 `ToolSource` 注入后仍统一过能力门控与权限策略；缺能力自动摘除（不旁路任一关）。
 3. `check-core-zero-deps` 通过；最小配置（无 `plugins`）零回归。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: pending
 
 ---
 

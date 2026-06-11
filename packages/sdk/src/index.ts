@@ -62,6 +62,18 @@ export type { Checkpoint, DebuggerOptions, TimeTravelDebugger } from "./debugger
 export { mergeConfig } from "./config.js";
 export type { ConfigLayer, ConfigSource, ResolvedConfig, ResolvedFrom, MergeStrategy } from "./config.js";
 
+// M13: Plugin protocol
+export { collectPlugins, createPluginToolSource, createPluginRegistry } from "./plugin.js";
+export type {
+  Plugin,
+  PluginRegistry,
+  CollectedPlugins,
+  PluginHook,
+  PluginCommand,
+  PluginSkill,
+  PluginAgentSpec,
+} from "./plugin.js";
+
 // M12: Multi-agent orchestration
 export { createOrchestrator } from "./orchestration.js";
 export type { OrchestratorOptions } from "./orchestration.js";
