@@ -27,9 +27,9 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 | 维度 | 当前实现 | 目标状态 |
 |---|---|---|
 | SessionStore | `store-memory`（Map）、`store-file`（JSON 文件）；二者过 `runStoreContractTests` 合同测试 | +`store-sqlite`、`store-postgres`，**同一合同测试套件全绿**，覆盖单机持久化与多副本/并发服务场景 |
-| 宿主形态 | 仅 `apps/reference-cli`（stdout 渲染、REPL、Node adapter） | +headless server（HTTP/SSE/WS）、MCP server、IDE 扩展、GitHub Action、chat 适配——均仅 wiring |
+| 宿主形态 | 仅 `apps/reference-cli`（stdout 渲染、REPL、Node adapter）；已接线 fs/shell/network + scheduler + 权限模式，可选接入 db / document / browser / LSP | +headless server（HTTP/SSE/WS）、MCP server、IDE 扩展、GitHub Action、chat 适配——均仅 wiring |
 | EventSink 形态 | 仅 stdout 渲染（`createRenderingEventSink`） | +SSE / WebSocket / IPC / MCP 协议适配，复用同一 `emit({type,data})` 契约 |
-| runtime adapter | 仅 `runtime-node`（FileSystem/Shell/Network/Tokenizer/ApprovalGate） | +`runtime-browser`（OPFS / virtual-fs / fetch-代理 Network；Shell 缺席）、`runtime-edge`（对象存储 fs / fetch；Shell 缺席） |
+| runtime adapter | 仅 `runtime-node`（FileSystem/Shell/Network/Tokenizer/ApprovalGate + browser/lsp/database/document-parser adapter，后者均通过动态 import 按需加载 optional peerDep） | +`runtime-browser`（OPFS / virtual-fs / fetch-代理 Network；Shell 缺席）、`runtime-edge`（对象存储 fs / fetch；Shell 缺席） |
 | 可移植性证据 | §9 矩阵中仅 "CLI 工具" 横行有落地证据 | 矩阵 "HTTP 服务"/"浏览器"/"Edge"/"MCP server" 横行均有可运行宿主 + 验收，**core 零改动**得到 e2e 证明 |
 | 对外互操作 | agent 只能被本仓宿主调用 | agent 作为 MCP server 暴露 run（及流式），可被任意 MCP 客户端当工具调用 |
 

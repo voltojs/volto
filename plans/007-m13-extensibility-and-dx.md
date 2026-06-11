@@ -33,7 +33,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 | 声明式 agent 规格 | 子 agent 仅由 `createSubAgentExecutor` 命令式构造（`create-agent.ts` line 466–537） | agent / 子 agent 规格为可序列化数据（prompt + tools + model + policy + capabilities），loader 纯映射为 `StepContext` / 注入集后实例化 |
 | 配置 | `CreateAgentOptions` 单层、全靠调用方拼装；无全局 / 项目层 | 三层（全局 `~/.agent` < 项目 `.agent` < 运行时 `CreateAgentOptions`），纯函数按确定优先级深合并，来源可追溯 |
 
-> 说明：M8（Plan 002）规划但尚未合入的 `ToolSource` / `PolicyEngine` 端口与 M9 / M10 机制，是本 Plan 的**前置依赖**。本 Plan 只**消费 / 实现**这些端口与机制，绝不重新定义端口类型或重做指令加载 / MCP 客户端。
+> 说明：M8（Plan 002）已落地 `ToolSource` / `PolicyEngine` 端口，M9 已实现指令分层加载（`@import`），M10 已实现 MCP 客户端（`McpToolSource`）。本 Plan 只**消费 / 包装**这些已有机制，绝不重新定义端口类型或重做指令加载 / MCP 客户端。
 
 ### 1.3 设计目标
 
