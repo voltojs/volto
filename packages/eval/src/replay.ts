@@ -89,7 +89,6 @@ export function replayTrajectory(
     }
   }
 
-  const totalPassed = stepResults.filter((s) => s.passed).length;
   const summary = firstFailureIndex === -1
     ? `All ${trajectory.inputs.length} steps passed.`
     : `Failed at step ${firstFailureIndex}: ${stepResults[firstFailureIndex]!.diff}`;

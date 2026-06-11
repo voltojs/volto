@@ -4,7 +4,7 @@ import type { DatabaseAdapter, SqlRow } from "../index.js";
 
 function createMockDb(rows: SqlRow[] = [], changes = 0): DatabaseAdapter {
   return {
-    async query(sql: string, _params?: unknown[]): Promise<SqlRow[]> {
+    async query(_sql: string, _params?: unknown[]): Promise<SqlRow[]> {
       return rows;
     },
     async exec(_sql: string, _params?: unknown[]): Promise<{ changes: number }> {

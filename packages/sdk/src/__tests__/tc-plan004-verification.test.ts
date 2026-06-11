@@ -174,7 +174,7 @@ describe("TC-005: 工具数超阈值时裁剪到 limit", () => {
   it("30 个工具，limit=5，agent 正常运行", async () => {
     const names = Array.from({ length: 30 }, (_, i) => `tool_${i}`);
     const tools = names.map((name) => ({
-      definition: { name, description: `tool ${name}`, inputSchema: { type: "object" } as any, requires: [], riskTier: "READ_ONLY" as const },
+      definition: { name, description: `tool ${name}`, inputSchema: { type: "object" }, requires: [], riskTier: "READ_ONLY" as const },
       handler: async (): Promise<ToolResult> => ({ modelContent: `ok: ${name}` }),
     }));
 
@@ -272,7 +272,7 @@ describe("TC-008: LSP 工具返回结构化结果", () => {
 
     // Step 4: displayMetadata 有结构化数据
     expect(result.displayMetadata).toBeDefined();
-    expect((result.displayMetadata as any).locations).toBeDefined();
+    expect((result.displayMetadata as Record<string, unknown>).locations).toBeDefined();
   });
 });
 
@@ -305,10 +305,10 @@ describe("TC-010: git_commit / git_push 高风险经 PermissionPolicy 触发 ask
     const mockShell = { async *[Symbol.asyncIterator]() { yield { type: "exit" as const, code: 0 }; } };
 
     // Step 1-2: 验证 riskTier
-    const commitTool = createGitCommitTool(mockShell as any);
+    const commitTool = createGitCommitTool(mockShell as unknown as Parameters<typeof createGitCommitTool>[0]);
     expect(commitTool.definition.riskTier).toBe("WRITE_HIGH");
 
-    const pushTool = createGitPushTool(mockShell as any);
+    const pushTool = createGitPushTool(mockShell as unknown as Parameters<typeof createGitPushTool>[0]);
     expect(pushTool.definition.riskTier).toBe("IRREVERSIBLE");
   });
 });
@@ -343,7 +343,7 @@ describe("TC-012: ask_user 宿主不可用时归一为 isError", () => {
     const sink = { emit() {} };
 
     // Step 1-3: 创建工具并调用
-    const tool = createAskUserTool({ approvalGate: gate as any, eventSink: sink as any });
+    const tool = createAskUserTool({ approvalGate: gate as unknown as Parameters<typeof createAskUserTool>[0]["approvalGate"], eventSink: sink as unknown as Parameters<typeof createAskUserTool>[0]["eventSink"] });
     const result = await tool.handler({ question: "Continue?" });
 
     // Step 4: isError + 包含 not available

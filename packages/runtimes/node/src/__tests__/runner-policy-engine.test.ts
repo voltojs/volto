@@ -43,16 +43,6 @@ const okExecutor: ToolExecutor = async (call: PendingToolCall): Promise<ToolResu
 /** Auto-allow approval gate (avoids "requires approvalGate" error) */
 const autoAllowGate = { async ask() { return "allow" as const; } };
 
-/** Find a tool_result message for a given tool name */
-function findToolResult(messages: Array<{ role: string; content: unknown }>, toolName: string): ToolResultMessage | undefined {
-  return messages.find(
-    (m): m is ToolResultMessage =>
-      m.role === "tool" &&
-      Array.isArray(m.content) &&
-      m.content.some((c: { toolUseId?: string }) => c.toolUseId !== undefined),
-  ) as ToolResultMessage | undefined;
-}
-
 // ──────────────────────────────────────────────
 // Tests
 // ──────────────────────────────────────────────

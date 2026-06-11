@@ -38,6 +38,8 @@ describe("FileStore specifics", () => {
         maxCostDollars: undefined,
         maxWallclockMs: undefined,
         maxLoopCount: undefined,
+        selfCorrectionCount: 0,
+        maxSelfCorrections: undefined,
       },
       createdAt: Date.now(),
     });
@@ -99,6 +101,8 @@ describe("FileStore specifics", () => {
         maxCostDollars: undefined,
         maxWallclockMs: undefined,
         maxLoopCount: undefined,
+        selfCorrectionCount: 0,
+        maxSelfCorrections: undefined,
       },
       createdAt: Date.now(),
     });

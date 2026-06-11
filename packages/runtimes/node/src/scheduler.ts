@@ -33,14 +33,13 @@ export interface NodeSchedulerOptions {
  * `cancel(id)` clears a pending timer.
  */
 export function createNodeScheduler(opts: NodeSchedulerOptions): Scheduler {
-  const { clock } = opts;
+  const { clock: _clock } = opts;
   const tasks = new Map<string, ScheduledTask>();
   let taskCounter = 0;
 
   return {
     async schedule(delayMs: number, ref: string): Promise<string> {
       const id = `sched-${taskCounter++}`;
-      const fireAt = clock.now() + delayMs;
 
       const timeout = setTimeout(() => {
         const task = tasks.get(id);

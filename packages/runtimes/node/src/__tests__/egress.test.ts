@@ -13,20 +13,6 @@ const stubNetwork: Network = {
   },
 };
 
-/** Stub Network that records calls */
-function createRecordingNetwork(): { network: Network; calls: string[] } {
-  const calls: string[] = [];
-  return {
-    network: {
-      async fetch(req: { url: string }) {
-        calls.push(req.url);
-        return { status: 200, headers: {}, body: "ok" };
-      },
-    } as Network,
-    calls,
-  };
-}
-
 describe("wrapNetworkWithEgress", () => {
   describe("allowlist mode", () => {
     it("allows requests to hosts in the allowlist", async () => {

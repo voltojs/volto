@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   evaluatePermission,
-  createDefaultPermissionConfig,
 } from "../permission-policy.js";
 import type { PermissionConfig } from "../permission-policy.js";
 import { step, createInitialState } from "../reducer.js";

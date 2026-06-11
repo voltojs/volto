@@ -7,7 +7,7 @@ function createMockParser(
   mimeType = "application/pdf",
 ): DocumentParserAdapter {
   return {
-    async parse(filePath: string) {
+    async parse(_filePath: string) {
       if (textResult !== undefined) {
         return {
           contentType: "text",

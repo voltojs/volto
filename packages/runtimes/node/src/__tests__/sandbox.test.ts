@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { createNodeSandbox } from "../sandbox.js";
-import type { SandboxPolicy } from "../sandbox.js";
 
 describe("createNodeSandbox", () => {
   describe("basic execution (no isolation)", () => {

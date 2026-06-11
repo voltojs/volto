@@ -11,6 +11,13 @@ module.exports = {
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
   ],
+  rules: {
+    "@typescript-eslint/no-unused-vars": ["error", {
+      argsIgnorePattern: "^_",
+      varsIgnorePattern: "^_",
+      caughtErrorsIgnorePattern: "^_",
+    }],
+  },
   ignorePatterns: ["dist/", "node_modules/", "*.js", "*.cjs"],
   overrides: [
     {
