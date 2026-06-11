@@ -31,3 +31,5 @@ export { createSqliteDatabaseAdapter } from "./database.js";
 export type { SqliteDatabaseOptions } from "./database.js";
 export { createNodeDocumentParser } from "./document-parser.js";
 export type { NodeDocumentParserOptions } from "./document-parser.js";
+export { InMemoryTelemetry } from "./telemetry.js";
+export type { RecordedSpan, RecordedMetric } from "./telemetry.js";

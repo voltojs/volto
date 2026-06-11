@@ -22,6 +22,7 @@ import type {
   Message,
   Clock,
   PolicyEngine,
+  Telemetry,
 } from "@agent-core/core";
 import {
   step,
@@ -85,6 +86,12 @@ export interface RunnerOptions {
    * Fail-closed: if PolicyEngine evaluation throws, decision defaults to "deny".
    */
   policyEngine?: PolicyEngine;
+  /**
+   * Structured telemetry (OTel-style).
+   * Runner instruments turn / model / tool call span boundaries.
+   * Defaults to undefined (no-op); SDK resolves defaultTelemetry.
+   */
+  telemetry?: Telemetry;
 }
 
 export interface Runner {
@@ -114,6 +121,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
+  // M12 Phase 1: track whether this turn encountered any model/tool error
+  let turnHadError = false;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -273,8 +282,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       abortSignal: opts.abortSignal,
     };
 
+    const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
     let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
     let receivedTerminal = false; // true after done or error event is fed
+    let modelError = false;
 
     try {
       const stream = opts.modelPort.stream(req);
@@ -318,10 +329,21 @@ export function createRunner(opts: RunnerOptions): Runner {
         forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
       }
     } catch (err: unknown) {
+      modelError = true;
+      turnHadError = true;
       if (getStatus() === "calling_model") {
         const error = err instanceof Error ? err.message : String(err);
         const classification = classifyError(err);
         forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
+      }
+    } finally {
+      if (modelSpan) {
+        if (modelError) modelSpan.setAttribute("error", true);
+        if (lastUsage) {
+          modelSpan.setAttribute("inputTokens", lastUsage.inputTokens);
+          modelSpan.setAttribute("outputTokens", lastUsage.outputTokens);
+        }
+        modelSpan.end();
       }
     }
   }
@@ -340,16 +362,26 @@ export function createRunner(opts: RunnerOptions): Runner {
         isError: true,
       };
     }
+
+    const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+    const toolSpan = opts.telemetry?.startSpan("tool_execute", {
+      toolName: toolCall.name,
+      riskTier: toolDef?.riskTier,
+    });
     try {
-      // Pass a read-only view of gate state; recording of reads/writes back into
-      // state.readFiles happens purely in the reducer from the result metadata.
-      return await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
+      const result = await opts.toolExecutor(toolCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
+      if (toolSpan && result.isError) toolSpan.setAttribute("error", true);
+      return result;
     } catch (err: unknown) {
+      turnHadError = true;
+      if (toolSpan) toolSpan.setAttribute("error", true);
       const error = err instanceof Error ? err.message : String(err);
       return {
         modelContent: `Tool execution error: ${error}`,
         isError: true,
       };
+    } finally {
+      toolSpan?.end();
     }
   }
 
@@ -362,6 +394,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function runLoop(): Promise<void> {
     // Initialize wallclock tracking at the start of each turn
     if (turnStartTime === 0) turnStartTime = Date.now();
+
+    const turnSpan = opts.telemetry?.startSpan("turn", { sessionId: opts.sessionId });
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -510,7 +544,13 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
 
       // done, waiting_for_input, waiting_for_approval — stop
-      return;
+      break;
+    }
+
+    if (turnSpan) {
+      turnSpan.setAttribute("status", state.status);
+      if (turnHadError) turnSpan.setAttribute("error", true);
+      turnSpan.end();
     }
   }
 
@@ -548,6 +588,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Reset budget tracking for this turn
         turnStartTime = Date.now();
         cumulativeCost = 0;
+        turnHadError = false;
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;

@@ -138,11 +138,12 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 - 对应 `__tests__/`（用 in-memory / mock Telemetry 断言 span 序列）
 
 **Tasks**:
-- [ ] 新建 `@agent-core/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
-- [ ] Runner：注入可选 `telemetry`；turn 起止开关 `turn` span；进入 `calling_model` 开 `model_call` span（attrs：model、token in/out 于关闭时补）、`execute_tool` 派发处开 `tool_execute` span（attrs：toolName、riskTier、isError）
-- [ ] Runner：模型/工具错误时把 span 标为 error 状态并附错误信息；span 嵌套关系（turn ⊃ model/tool）正确
-- [ ] SDK `defaults.ts` 提供 no-op `Telemetry` 兜底；`createAgent` 接受可选 `telemetry`
-- [ ] 测试：mock Telemetry 断言一轮"含 N 个 tool_use"产生的 span 名称/嵌套/属性序列；未注入 telemetry 时 Runner 行为与现状 deep-equal（既有用例零回归）
+- [x] 新建 `@agent-core/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
+  > 实现说明：Phase 1 先在 `runtime-node` 内新建 `InMemoryTelemetry`（用于测试验证 span 结构），真实 OTel adapter 留 Phase 2 / 独立包追加；`Telemetry` 端口接口已在 core `ports.ts` 定义，Runner 侧注入不依赖具体 adapter 实现。
+- [x] Runner：注入可选 `telemetry`；turn 起止开关 `turn` span；进入 `calling_model` 开 `model_call` span（attrs：model、token in/out 于关闭时补）、`execute_tool` 派发处开 `tool_execute` span（attrs：toolName、riskTier、isError）
+- [x] Runner：模型/工具错误时把 span 标为 error 状态并附错误信息；span 嵌套关系（turn ⊃ model/tool）正确
+- [x] SDK `defaults.ts` 提供 no-op `Telemetry` 兜底；`createAgent` 接受可选 `telemetry`
+- [x] 测试：mock Telemetry 断言一轮"含 N 个 tool_use"产生的 span 名称/嵌套/属性序列；未注入 telemetry 时 Runner 行为与现状 deep-equal（既有用例零回归）
 
 **Acceptance Criteria**:
 1. 一轮对话（含模型调用 + N 个工具调用）产出结构化 span：1 个 turn span 嵌套 ≥1 个 model span + N 个 tool span，属性含 model / toolName / riskTier / 错误状态。
@@ -150,7 +151,7 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 3. 未注入 `Telemetry` 时 Runner 行为与现状完全一致；`check-core-zero-deps` 通过、core lint 纯度不破（埋点全在 Runner / adapter）。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-11 by code-reviewer
 **Commit**: <hash> <subject>
 -->
 

@@ -675,6 +675,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       abortSignal,
       sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       policyEngine: resolvedPorts.policyEngine,
+      telemetry: resolvedPorts.telemetry,
     };
 
     if (previousState && previousState.status === "done") {
