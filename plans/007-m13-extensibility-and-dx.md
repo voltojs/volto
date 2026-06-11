@@ -199,7 +199,7 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 3. hook 副作用仅在 Runner；`packages/core` 不新增 hook 概念；含 hook 的 input 序列两次运行 (state, effects) deep-equal（可重放）。
 
 **Reviewed**: 2026-06-11 by reviewer
-**Commit**: pending
+**Commit**: fc0bb52 feat(plan-007): phase 3 — Runner 生命周期 hooks + tool-use 阻断
 
 ---
 
@@ -214,18 +214,19 @@ M1–M12 把内核做成了一个**功能完备**（编排 / 模型 / 工具 / �
 - 对应 `__tests__/`
 
 **Tasks**:
-- [ ] 定义 `AgentSpec`（`name` / `systemPrompt` / `model?` / `maxTokens?` / `temperature?` / `tools: string[]` / `capabilities?` / `policy?` / `enableTaskTool?`），全部可序列化
-- [ ] 纯函数 `resolveAgentSpec(spec, registry)`：按名解析 `tools` 为工具子集、组装 `StepContext` / capability 集 / permission 配置（无 I/O）
-- [ ] `loadAgentSpec(spec, ports, registry)`：用解析结果走现有 `createAgent` 装配实例化为 `AgentInstance`
-- [ ] 子 agent：`task` 工具按名选用子 agent 规格；`createSubAgentExecutor` 接受 `AgentSpec` 驱动（去任务工具防递归逻辑保留）
-- [ ] 测试：从 spec 数据加载并实例化 → 跑通一轮（mock 模型）；规格序列化 / 反序列化往返一致；按名引用未注册工具的归一化报错
+- [x] 定义 `AgentSpec`（`name` / `systemPrompt` / `model?` / `maxTokens?` / `temperature?` / `tools: string[]` / `capabilities?` / `policy?` / `enableTaskTool?`），全部可序列化
+- [x] 纯函数 `resolveAgentSpec(spec, registry)`：按名解析 `tools` 为工具子集、组装 `StepContext` / capability 集 / permission 配置（无 I/O）
+- [x] `loadAgentSpec(spec, ports, registry)`：用解析结果走现有 `createAgent` 装配实例化为 `AgentInstance`
+- [x] 子 agent：`task` 工具按名选用子 agent 规格；`createSubAgentExecutor` 接受 `AgentSpec` 驱动（去任务工具防递归逻辑保留）
+- [x] 测试：从 spec 数据加载并实例化 → 跑通一轮（mock 模型）；规格序列化 / 反序列化往返一致；按名引用未注册工具的归一化报错
 
 **Acceptance Criteria**:
 1. **声明式 agent 规格可加载并实例化运行**：给定 `AgentSpec` 数据，`loadAgentSpec` 产出的 `AgentInstance` 能跑通一轮对话（mock 模型）。
 2. `resolveAgentSpec` 为纯函数（无 I/O），规格可序列化往返一致、可快照测试。
 3. 子 agent 规格与主 agent 同构，经 `task` 工具按名实例化；既有命令式子 agent 路径零回归。
 
-<!-- Backfill -->
+**Reviewed**: 2026-06-11 by reviewer
+**Commit**: pending
 
 ---
 

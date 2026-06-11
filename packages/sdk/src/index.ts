@@ -78,6 +78,10 @@ export type {
 export { runHookPipeline } from "@agent-core/core";
 export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@agent-core/core";
 
+// M13: Declarative agent spec
+export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";
+export type { AgentSpec, ResolvedAgentSpec, ToolRegistry, LoadAgentSpecOptions } from "./agent-spec.js";
+
 // M12: Multi-agent orchestration
 export { createOrchestrator } from "./orchestration.js";
 export type { OrchestratorOptions } from "./orchestration.js";
