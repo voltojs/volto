@@ -16,8 +16,8 @@ export type { CreateNetworkToolExecutorOptions } from "./network-tool-executor.j
 export { createAutoAllowGate, createInteractiveGate } from "./approval-gate.js";
 export { createAllowAllPolicyEngine, createRuleBasedPolicyEngine } from "./policy-engine.js";
 export type { PolicyRule } from "./policy-engine.js";
-export { createNodeSandbox } from "./sandbox.js";
-export type { SandboxPolicy, NodeSandboxOptions } from "./sandbox.js";
+export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, buildSeatbeltProfile, buildBwrapArgs } from "./sandbox.js";
+export type { SandboxPolicy, NodeSandboxOptions, SandboxMode, SandboxBackend, SandboxConfig, SandboxNetworkConfig } from "./sandbox.js";
 export { createNodeSecrets } from "./secrets.js";
 export type { SecretsScope, NodeSecretsOptions } from "./secrets.js";
 export { wrapNetworkWithEgress } from "./egress.js";
