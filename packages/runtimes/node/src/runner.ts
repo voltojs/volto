@@ -23,6 +23,7 @@ import type {
   Clock,
   PolicyEngine,
   Telemetry,
+  Validator,
 } from "@agent-core/core";
 import {
   step,
@@ -33,6 +34,7 @@ import {
   decideCompaction,
   classifyError,
   annotateUntrusted,
+  decideSelfCorrect,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 import type { Hook } from "@agent-core/core";
@@ -113,6 +115,19 @@ export interface RunnerOptions {
    * postToolUse hooks can modify tool result before it's fed to the reducer.
    */
   hooks?: Hook[];
+  /**
+   * Validators run against tool results after execution. If any validator fails
+   * and the self-correction budget allows, the Runner injects a repair prompt
+   * as a user_message so the model can retry. Empty array = no self-correction.
+   */
+  validators?: Validator[];
+  /**
+   * Maximum self-corrections per turn. When a validator fails and this budget
+   * remains, the Runner injects a repair prompt and loops. When exhausted, the
+   * budget-exhausted error is included in the final result.
+   * Default 0 = self-correction disabled.
+   */
+  selfCorrectionMax?: number;
 }
 
 export interface Runner {
@@ -156,7 +171,11 @@ export function createRunner(opts: RunnerOptions): Runner {
     );
   }
 
-  let state: ReducerState = opts.initialState ?? createInitialState();
+  let state: ReducerState = {
+    ...(opts.initialState ?? createInitialState()),
+    selfCorrectionCount: 0,
+    maxSelfCorrections: opts.selfCorrectionMax,
+  };
   let cancelled = false;
   // Tool call ids that have already cleared an HITL "ask" (decision = allow).
   const approvedToolCallIds = new Set<string>();
@@ -345,8 +364,22 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
-          // Accumulate cost from this usage event (tokens as cost unit)
-          cumulativeCost += event.inputTokens + event.outputTokens;
+          // Accumulate cost: use dollar pricing when available, else token count fallback
+          if (opts.pricing && stepContext.model) {
+            const entry = opts.pricing[stepContext.model];
+            if (entry) {
+              cumulativeCost += (event.inputTokens * entry.inputPer1M + event.outputTokens * entry.outputPer1M) / 1_000_000;
+            } else {
+              cumulativeCost += event.inputTokens + event.outputTokens;
+            }
+          } else {
+            cumulativeCost += event.inputTokens + event.outputTokens;
+          }
+          // Check cost budget immediately after accumulation
+          if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
+            forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+            return;
+          }
           continue;
         }
 
@@ -524,6 +557,12 @@ export function createRunner(opts: RunnerOptions): Runner {
           sessionId: opts.sessionId,
         });
         await runModelStream();
+        // Check budget after model call completes — cost may have been
+        // updated during streaming but status may already be "done",
+        // skipping the top-of-loop budget check.
+        if (getStatus() !== "done" && getStatus() !== "idle") {
+          if (checkBudgetLimits()) continue;
+        }
         continue;
       }
 
@@ -649,6 +688,26 @@ export function createRunner(opts: RunnerOptions): Runner {
                 });
               }
             }
+
+            // Self-correction: validate tool result and inject repair prompt if needed
+            if (opts.validators && opts.validators.length > 0 && !result.isError) {
+              for (const validator of opts.validators) {
+                const vr = validator.validate(toolCall.name, result.modelContent);
+                if (!vr.passed) {
+                  const decision = decideSelfCorrect(vr, state.selfCorrectionCount, state.maxSelfCorrections ?? 0);
+                  if (decision.shouldCorrect) {
+                    state.selfCorrectionCount++;
+                  }
+                  // Always inject the repair/budget-exhausted prompt so the
+                  // model sees the correction instruction or exhaustion notice.
+                  if (decision.repairPrompt) {
+                    state.messages.push({ role: "user", content: decision.repairPrompt });
+                  }
+                  break;
+                }
+              }
+            }
+
             if (getStatus() !== "executing_tools") break;
           }
         }

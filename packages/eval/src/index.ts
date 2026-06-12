@@ -16,6 +16,10 @@ export type { Trajectory, ExpectedStep } from "./trajectory.js";
 export { replayTrajectory } from "./replay.js";
 export type { StepReplayResult, ReplayResult } from "./replay.js";
 
+// Trajectory recorder
+export { createTrajectoryRecorder } from "./recorder.js";
+export type { TrajectoryRecorder } from "./recorder.js";
+
 // Simulation (deterministic mock ports)
 export {
   createSeededClock,
