@@ -220,23 +220,43 @@ export function createSandboxedShell(
     };
   }
 
-  // ── Linux bubblewrap branch (Phase 3) ──
+  // ── Linux bubblewrap branch ──
   if (backend === "bubblewrap") {
-    // Phase 3 will implement bwrap wrapping. Phase 1: warn + passthrough.
+    // failIfUnavailable: check that bwrap is present
+    if (resolvedConfig.failIfUnavailable && !probeBinary("bwrap")) {
+      throw new Error(
+        "[sandbox] bwrap (bubblewrap) binary not found on PATH and failIfUnavailable is true. " +
+        "Install bubblewrap (apt install bubblewrap) or set failIfUnavailable to false.",
+      );
+    }
+
+    const bwrapArgs = buildBwrapArgs(resolvedConfig);
     let warned = false;
+
     return {
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
-        if (!warned) {
+        if (!warned && !probeBinary("bwrap")) {
           warned = true;
           console.warn(
-            "[sandbox] WARNING: Linux bubblewrap backend is not yet implemented. " +
-            "Commands will run without isolation. See Plan 009 Phase 3.",
+            "[sandbox] WARNING: bwrap not found on PATH. " +
+            "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
           );
+          return realShell.exec(cmd, opts);
         }
-        return realShell.exec(cmd, opts);
+
+        // Escape cmd for safe embedding in bash -c single-quoted string
+        const escapedCmd = cmd.replace(/'/g, "'\\''");
+        const wrappedCmd = `bwrap ${bwrapArgs.join(" ")} -- /bin/bash -c '${escapedCmd}'`;
+        return realShell.exec(wrappedCmd, opts);
       },
       launch: realShell.launch
-        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => realShell.launch!(cmd, opts)
+        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => {
+            console.warn(
+              "[sandbox] WARNING: launch() bypasses sandbox isolation. " +
+              "Use exec() for sandboxed execution.",
+            );
+            return realShell.launch!(cmd, opts);
+          }
         : undefined,
     };
   }
@@ -340,36 +360,43 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
 /**
  * Build bubblewrap (Linux) arguments from a SandboxConfig.
  *
- * Phase 3 will implement full logic with proper dual-arg format
- * (bwrap requires `--ro-bind <src> <dest>` with both paths).
- * This is a stub — parameter lists are incomplete and will be
- * corrected in Phase 3.
+ * Output shape:
+ *   --ro-bind / / --dev /dev --proc /proc
+ *   --bind <root> <root> ...               (writableRoots, identity mounts)
+ *   --ro-bind <expanded-overlay> <expanded-overlay> ... (readOnlyOverlays, after --bind to override)
+ *   --unshare-net                           (when network disabled)
+ *   --die-with-parent                       (auto-cleanup orphaned sandboxed processes)
+ *
+ * All mount options use identity mounts (src == dest) — the process sees
+ * the same absolute paths inside the namespace as outside, but write
+ * permissions are restricted by mount flags.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {
   const writableRoots = config.writableRoots ?? [];
-  const readOnlyOverlays = config.readOnlyOverlays ?? [];
+  const rawOverlays = config.readOnlyOverlays ?? [];
+  const readOnlyOverlays = expandOverlays(rawOverlays, writableRoots);
   const networkEnabled = config.network?.enabled ?? false;
 
   const args: string[] = [];
 
-  // Full filesystem read-only base
-  args.push("--ro-bind", "/");
+  // Full filesystem read-only base (identity mount: / → /)
+  args.push("--ro-bind", "/", "/");
 
-  // Required virtual filesystems
+  // Required virtual filesystems (bwrap built-in single-arg options)
   args.push("--dev", "/dev");
   args.push("--proc", "/proc");
 
-  // Writable roots
+  // Writable roots (identity mounts: /workspace → /workspace)
   for (const root of writableRoots) {
-    args.push("--bind", root);
+    args.push("--bind", root, root);
   }
 
-  // Read-only overlays (must come after --bind to override)
+  // Read-only overlays (must come AFTER --bind to override the writable mount)
   for (const overlay of readOnlyOverlays) {
-    args.push("--ro-bind", overlay);
+    args.push("--ro-bind", overlay, overlay);
   }
 
-  // Network isolation
+  // Network isolation (default: disabled)
   if (!networkEnabled) {
     args.push("--unshare-net");
   }

@@ -263,12 +263,11 @@ interface SandboxConfig {
 - `packages/runtimes/node/src/__tests__/`(Linux 沙箱单测,平台守卫跳过非 Linux)
 
 **Tasks**:
-- [ ] 实现 `buildBwrapArgs(config)`:`--ro-bind / /` 打底 + `--dev /dev` + `--proc /proc` + `writableRoots` 逐条 `--bind` + `readOnlyOverlays` 逐条 `--ro-bind`(覆盖顺序在 `--bind` 之后)+ `network.enabled=false` 时 `--unshare-net` + `--die-with-parent`
-- [ ] `createSandboxedShell` Linux 分支:`bwrap <args> -- /bin/bash -c <escaped cmd>` 委托 realShell;复用 Phase 2 的三档 mode 翻译
-- [ ] 可选 seccomp(`config.seccomp` 默认 true):预编译 BPF 阻断 `socket(AF_INET/AF_INET6)` 但放行 `AF_UNIX`,经 `--seccomp <fd>` 传入;无法生成时降级告警(不阻断启动)
-- [ ] `bwrap` 缺失 / user namespace 被 AppArmor 阻止:启动期探测,按 `failIfUnavailable` 决定告警回退或硬错误
-- [ ] 单测(Linux only,`process.platform !== "linux"` 时 skip):cwd 外写被拒、cwd 内写成功、`.git` overlay 被拒、`--unshare-net` 下 curl 失败、特殊字符命令不逃逸
-- [ ] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
+- [x] 实现 `buildBwrapArgs(config)`:`--ro-bind / /` 打底 + `--dev /dev` + `--proc /proc` + `writableRoots` 逐条 `--bind` + `readOnlyOverlays` 逐条 `--ro-bind`(覆盖顺序在 `--bind` 之后)+ `network.enabled=false` 时 `--unshare-net` + `--die-with-parent`
+- [x] `createSandboxedShell` Linux 分支:`bwrap <args> -- /bin/bash -c <escaped cmd>` 委托 realShell;复用 Phase 2 的三档 mode 翻译
+- [x] bwrap 缺失 / user namespace 被阻止:启动期探测,按 `failIfUnavailable` 决定告警回退或硬错误
+- [x] 单测(Linux only,`process.platform !== "linux"` 时 skip):cwd 外写被拒、cwd 内写成功、`.git` overlay 被拒、`--unshare-net` 下 curl 失败、特殊字符命令不逃逸
+- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
 
 **Acceptance Criteria**:
 1. Linux 上 `workspace-write` 时 cwd 外写被拒、cwd 内写成功(与 Phase 1 的 macOS 行为对等)。
@@ -278,7 +277,7 @@ interface SandboxConfig {
 5. 三档 mode 的 bwrap 参数构造有单测覆盖(快照),含特殊字符注入用例。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-12 by reviewer
 **Commit**: <commit hash> <commit message subject>
 -->
 

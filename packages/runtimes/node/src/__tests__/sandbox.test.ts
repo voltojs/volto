@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell } from "../sandbox.js";
+import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
 import type { SandboxConfig } from "../sandbox.js";
 import type { Shell } from "@agent-core/core";
 
@@ -330,5 +330,142 @@ describe("createSandboxedShell", () => {
     const allData = run1.map((e) => e.data ?? "").join("");
     expect(allData).not.toMatch(/\d{4}-\d{2}-\d{2}/); // no ISO dates
     expect(allData).not.toMatch(/[a-f0-9]{8}-[a-f0-9]{4}/); // no UUID fragments
+  });
+});
+
+// ──────────────────────────────────────────────
+// Phase 3: buildBwrapArgs / Linux bubblewrap
+// ──────────────────────────────────────────────
+
+describe("buildBwrapArgs", () => {
+  it("workspace-write: produces --ro-bind / / + writable --bind + overlays + --unshare-net", () => {
+    const args = buildBwrapArgs({
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: ["/workspace/.git"],
+      network: { enabled: false },
+    });
+    // Identity mount: --ro-bind / /
+    expect(args).toContain("--ro-bind");
+    expect(args[args.indexOf("--ro-bind") + 1]).toBe("/");
+    expect(args[args.indexOf("--ro-bind") + 2]).toBe("/");
+    // Writable root: --bind /workspace /workspace
+    const bindIdx = args.indexOf("--bind");
+    expect(args[bindIdx + 1]).toBe("/workspace");
+    expect(args[bindIdx + 2]).toBe("/workspace");
+    // Overlay comes AFTER the bind (to override it)
+    const overlayIdx = args.indexOf("--ro-bind", args.indexOf("--ro-bind") + 1); // second --ro-bind
+    expect(args[overlayIdx + 1]).toBe("/workspace/.git");
+    expect(args[overlayIdx + 2]).toBe("/workspace/.git");
+    // Network unshared
+    expect(args).toContain("--unshare-net");
+    // Die with parent
+    expect(args).toContain("--die-with-parent");
+  });
+
+  it("workspace-write: relative overlay expanded against writable root", () => {
+    const args = buildBwrapArgs({
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: [".env"],
+      network: { enabled: false },
+    });
+    // .env should be expanded to /workspace/.env
+    expect(args).toContain("/workspace/.env");
+  });
+
+  it("read-only mode: no --bind writable mounts", () => {
+    const args = buildBwrapArgs({
+      mode: "read-only",
+      network: { enabled: false },
+    });
+    // Only --ro-bind for /, no --bind writable roots
+    const bindCount = args.filter((a) => a === "--bind").length;
+    expect(bindCount).toBe(0);
+    expect(args).toContain("--unshare-net");
+  });
+
+  it("network enabled: no --unshare-net", () => {
+    const args = buildBwrapArgs({
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      network: { enabled: true },
+    });
+    expect(args).not.toContain("--unshare-net");
+  });
+
+  it("deterministic: same config produces identical args", () => {
+    const config: SandboxConfig = {
+      mode: "workspace-write",
+      writableRoots: ["/workspace", "/tmp"],
+      readOnlyOverlays: [".git", ".env"],
+      network: { enabled: false },
+    };
+    const a = buildBwrapArgs(config);
+    const b = buildBwrapArgs(config);
+    expect(a).toEqual(b);
+  });
+});
+
+describe("createSandboxedShell - Linux bubblewrap branch", () => {
+  it("non-Linux with explicit bubblewrap backend: warn + passthrough", async () => {
+    if (process.platform === "linux") return; // skip on actual Linux
+    const mock = createMockShell();
+    const wrapped = createSandboxedShell(mock, {
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: [],
+      network: { enabled: false },
+      backend: "bubblewrap",
+    });
+    const events: Array<{ type: string; data?: string }> = [];
+    for await (const event of wrapped.exec("echo test")) {
+      events.push(event);
+    }
+    const stdout = events.filter((e) => e.type === "stdout").map((e) => e.data).join("");
+    // On non-Linux, bubblewrap is not available — falls back to warn + passthrough
+    expect(stdout).toContain("echo test");
+  });
+
+  it("non-Linux + failIfUnavailable + bubblewrap backend: throws", () => {
+    if (process.platform === "linux") return;
+    const mock = createMockShell();
+    // On non-Linux, bwrap is not on PATH, so failIfUnavailable should throw
+    expect(() => createSandboxedShell(mock, {
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      network: { enabled: false },
+      backend: "bubblewrap",
+      failIfUnavailable: true,
+    })).toThrow("bwrap");
+  });
+
+  it("bubblewrap exec command contains correct bwrap args", async () => {
+    if (process.platform !== "linux") return; // bwrap only available on Linux
+    // Capture the actual command passed to the mock shell
+    let capturedCmd = "";
+    const capturingShell: Shell = {
+      async *exec(cmd: string): AsyncIterable<{ type: "stdout"; data: string } | { type: "exit"; code: number }> {
+        capturedCmd = cmd;
+        yield { type: "stdout", data: "ok" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const wrapped = createSandboxedShell(capturingShell, {
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: ["/workspace/.git"],
+      network: { enabled: false },
+      backend: "bubblewrap", // force bubblewrap backend even on macOS
+    });
+    for await (const _event of wrapped.exec("ls -la")) { /* drain */ }
+    expect(capturedCmd).toContain("bwrap");
+    expect(capturedCmd).toContain("--ro-bind / /");
+    expect(capturedCmd).toContain("--bind /workspace /workspace");
+    expect(capturedCmd).toContain("--ro-bind /workspace/.git /workspace/.git");
+    expect(capturedCmd).toContain("--unshare-net");
+    expect(capturedCmd).toContain("--die-with-parent");
+    expect(capturedCmd).toContain("/bin/bash -c");
+    expect(capturedCmd).toContain("ls -la");
   });
 });
