@@ -128,6 +128,16 @@ export interface RunnerOptions {
    * Default 0 = self-correction disabled.
    */
   selfCorrectionMax?: number;
+  /**
+   * Retry policy for retriable model errors. Exponential backoff with
+   * circuit breaker. Undefined = no retries (backward compat).
+   */
+  retryPolicy?: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    circuitBreakerThreshold?: number;
+  };
 }
 
 export interface Runner {
@@ -186,6 +196,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   let turnHadError = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
+  // Retry state for retriable model errors
+  let consecutiveModelErrors = 0;
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -408,6 +420,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       // received a done or error event (e.g. the stream was empty or
       // only contained usage events).
       if (!receivedTerminal && getStatus() === "calling_model") {
+        consecutiveModelErrors = 0;
         forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
       }
     } catch (err: unknown) {
@@ -416,7 +429,34 @@ export function createRunner(opts: RunnerOptions): Runner {
       if (getStatus() === "calling_model") {
         const error = err instanceof Error ? err.message : String(err);
         const classification = classifyError(err);
-        forwardEmit(feed({ type: "model_error", error, retriable: classification.retriable, errorKind: classification.kind }));
+
+        // Retry logic: exponential backoff with circuit breaker
+        if (classification.retriable && opts.retryPolicy) {
+          const { maxRetries = 3, baseDelayMs = 500, maxDelayMs = 30_000, circuitBreakerThreshold = 5 } = opts.retryPolicy;
+          consecutiveModelErrors++;
+
+          if (consecutiveModelErrors <= maxRetries && consecutiveModelErrors < circuitBreakerThreshold) {
+            const delay = Math.min(baseDelayMs * Math.pow(2, consecutiveModelErrors - 1), maxDelayMs);
+            opts.eventSink?.emit({ type: "model_retry", data: { attempt: consecutiveModelErrors, delayMs: delay, error } });
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, delay);
+              if (opts.abortSignal) {
+                opts.abortSignal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+              }
+            });
+            if (cancelled || getStatus() !== "calling_model") return;
+            // Retry: do not feed model_error, just return to let the loop call runModelStream again
+            return;
+          }
+          // Circuit breaker tripped or max retries exhausted — feed error as non-retriable
+          forwardEmit(feed({ type: "model_error", error: `${error} (retried ${consecutiveModelErrors} times)`, retriable: false, errorKind: classification.kind }));
+          return;
+        }
+
+        // No retry policy or non-retriable: feed error to reducer.
+        // When no retryPolicy, mark retriable errors as non-retriable to prevent
+        // the reducer from infinitely re-issuing model calls.
+        forwardEmit(feed({ type: "model_error", error, retriable: opts.retryPolicy ? classification.retriable : false, errorKind: classification.kind }));
       }
     } finally {
       const endTime = opts.clock?.now() ?? Date.now();
