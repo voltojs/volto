@@ -45,13 +45,28 @@ export function createMcpServer(opts: McpServerOptions = {}): Server {
           required: ["message"],
         },
       },
+      {
+        name: "agent_stream",
+        description: "Run the agent with a message and stream events via MCP notifications, returning the final response",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            message: {
+              type: "string",
+              description: "The user message to send to the agent",
+            },
+          },
+          required: ["message"],
+        },
+      },
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name !== "agent_run") {
+    const name = request.params.name;
+    if (name !== "agent_run" && name !== "agent_stream") {
       return {
-        content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
+        content: [{ type: "text", text: `Unknown tool: ${name}` }],
         isError: true,
       };
     }

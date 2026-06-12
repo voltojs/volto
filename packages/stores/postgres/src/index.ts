@@ -18,8 +18,15 @@ export interface PostgresStoreOptions {
   pool?: pg.Pool;
 }
 
+const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 export function createStore(opts: PostgresStoreOptions = {}): SessionStore {
   const tableName = opts.table ?? "sessions";
+  if (!TABLE_NAME_RE.test(tableName)) {
+    throw new Error(
+      `Invalid table name: "${tableName}". Only alphanumeric and underscore, starting with a letter or underscore.`,
+    );
+  }
   const pool = opts.pool ?? new Pool({ connectionString: opts.connectionString });
 
   let initialized = false;
