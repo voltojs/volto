@@ -233,12 +233,12 @@ interface SandboxConfig {
 - `packages/runtimes/node/src/__tests__/`(新增沙箱单测)
 
 **Tasks**:
-- [ ] `read-only` mode:profile 仅放行 `/dev` 等必需写,业务路径全只读
-- [ ] `readOnlyOverlays`(默认 `[".git", ".env"]`):在 `writableRoots` 内对这些子路径追加 `(deny file-write* (subpath "<root>/.git"))`,顺序确保 deny 覆盖 allow
-- [ ] `failIfUnavailable: true`:非 macOS 或 `sandbox-exec` 不存在时,`createSandboxedShell` 抛出构造期错误(在 SDK 装配阶段,非主循环内)
-- [ ] 单测:三档 mode 各自的 profile 快照测试;overlay 拒绝 `.git` 写;路径转义注入用例(命令含 `"` 不破坏 profile)
-- [ ] 重放测试:同一越界命令两次执行,归一的 `isError` `modelContent` 逐字节一致
-- [ ] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
+- [x] `read-only` mode:profile 仅放行 `/dev` 等必需写,业务路径全只读
+- [x] `readOnlyOverlays`(默认 `[".git", ".env"]`):在 `writableRoots` 内对这些子路径追加 `(deny file-write* (subpath "<root>/.git"))`,顺序确保 deny 覆盖 allow
+- [x] `failIfUnavailable: true`:非 macOS 或 `sandbox-exec` 不存在时,`createSandboxedShell` 抛出构造期错误(在 SDK 装配阶段,非主循环内)
+- [x] 单测:三档 mode 各自的 profile 快照测试;overlay 拒绝 `.git` 写;路径转义注入用例(命令含 `"` / `$` 不破坏 profile)
+- [x] 重放测试:同一越界命令两次执行,归一的 `isError` `modelContent` 逐字节一致(profile 确定性 + shell events 无时间戳/随机)
+- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
 
 **Acceptance Criteria**:
 1. `read-only` mode 下任何业务写被拒,读成功。
@@ -248,7 +248,7 @@ interface SandboxConfig {
 5. 含特殊字符(`"`、`$`)的命令不破坏 profile 也不逃逸沙箱。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-12 by reviewer
 **Commit**: <commit hash> <commit message subject>
 -->
 

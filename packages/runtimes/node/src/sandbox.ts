@@ -20,7 +20,7 @@ import type { Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@agent-core/core";
 import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 
 // ──────────────────────────────────────────────
@@ -146,9 +146,29 @@ export function createSandboxedShell(
     };
   }
 
+  // ── Resolve config defaults (Phase 2) ──
+  // Only needed for non-danger-full-access modes (danger-full-access returns above).
+  const isWriteMode = config.mode === "workspace-write";
+  const resolvedConfig: SandboxConfig = {
+    ...config,
+    writableRoots: isWriteMode
+      ? (config.writableRoots ?? [process.cwd(), tmpdir()])
+      : config.writableRoots,
+    readOnlyOverlays: isWriteMode
+      ? (config.readOnlyOverlays ?? [".git", ".env"])
+      : config.readOnlyOverlays,
+  };
+
   // ── macOS seatbelt branch ──
   if (backend === "seatbelt") {
-    const profileContent = buildSeatbeltProfile(config);
+    // failIfUnavailable: check that sandbox-exec is actually present
+    if (resolvedConfig.failIfUnavailable && !probeBinary("sandbox-exec")) {
+      throw new Error(
+        "[sandbox] sandbox-exec binary not found on PATH and failIfUnavailable is true. " +
+        "Install sandbox-exec or set failIfUnavailable to false.",
+      );
+    }
+    const profileContent = buildSeatbeltProfile(resolvedConfig);
     let warnedProfile = false;
 
     return {
@@ -238,6 +258,28 @@ function escapeSeatbeltPath(p: string): string {
 }
 
 /**
+ * Expand relative overlay paths into absolute subpaths for each writable root.
+ *
+ * For a writable root `/workspace` and overlay `.git`, produces `/workspace/.git`.
+ * Absolute overlays are kept as-is.
+ *
+ * Called by buildSeatbeltProfile and (later) buildBwrapArgs.
+ */
+export function expandOverlays(overlays: string[], writableRoots: string[]): string[] {
+  const result: string[] = [];
+  for (const overlay of overlays) {
+    if (isAbsolute(overlay)) {
+      result.push(overlay);
+    } else {
+      for (const root of writableRoots) {
+        result.push(join(root, overlay));
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Build a macOS Seatbelt profile string from a SandboxConfig.
  *
  * - `(deny default)` + full read `(allow file-read-data (subpath "/"))`
@@ -251,7 +293,9 @@ function escapeSeatbeltPath(p: string): string {
 export function buildSeatbeltProfile(config: SandboxConfig): string {
   const isReadOnly = config.mode === "read-only";
   const writableRoots = isReadOnly ? [] : (config.writableRoots ?? []);
-  const readOnlyOverlays = isReadOnly ? [] : (config.readOnlyOverlays ?? []);
+  const rawOverlays = isReadOnly ? [] : (config.readOnlyOverlays ?? []);
+  // Expand relative overlays (e.g. ".git") against each writable root
+  const readOnlyOverlays = expandOverlays(rawOverlays, writableRoots);
   const networkEnabled = config.network?.enabled ?? false;
 
   const lines: string[] = [
