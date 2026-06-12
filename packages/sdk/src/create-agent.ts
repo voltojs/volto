@@ -55,6 +55,7 @@ import {
   createNetworkToolExecutor,
 } from "@agent-core/runtime-node";
 import { createAutoAllowGate } from "@agent-core/runtime-node";
+import { createSandboxedShell, type SandboxConfig } from "@agent-core/runtime-node";
 import type { Tool } from "@agent-core/tools-common";
 import type { SubAgentExecutor } from "@agent-core/tools-agent";
 import { createTaskTool } from "@agent-core/tools-agent";
@@ -231,6 +232,14 @@ export interface CreateAgentOptions {
   /** Shell adapter */
   shell?: Shell;
 
+  /**
+   * Sandbox configuration for shell command isolation.
+   * When provided, the shell is wrapped in a platform-specific sandbox
+   * (macOS seatbelt / Linux bubblewrap) before being used by bash tools.
+   * When absent, the shell is used as-is (backward-compatible).
+   */
+  sandboxConfig?: SandboxConfig;
+
   /** Network adapter */
   network?: Network;
 
@@ -405,6 +414,13 @@ export interface ResolvedPorts {
 export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const { modelPort } = opts;
 
+  // ── Sandbox shell wrapping (Plan 009 §4.2) ──
+  // Wrap the shell early so both tool creation and the tool executor use
+  // the sandboxed version. danger-full-access / no-config → identity.
+  const effectiveShell: Shell | undefined = opts.shell
+    ? (opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)
+    : undefined;
+
   // ── Resolve layered config defaults ─────────
   // Config layer values fill in defaults for opts not explicitly set.
   // Explicit opts always take highest priority (they ARE the runtime layer).
@@ -458,14 +474,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     );
   }
   if (opts.shell) {
-    adapterTools.push(createBashTool(opts.shell));
+    adapterTools.push(createBashTool(effectiveShell!));
     adapterTools.push(
-      createGitStatusTool(opts.shell),
-      createGitDiffTool(opts.shell),
-      createGitCommitTool(opts.shell),
-      createGitPushTool(opts.shell),
-      createRunTestsTool(opts.shell),
-      createBuildTool(opts.shell),
+      createGitStatusTool(effectiveShell!),
+      createGitDiffTool(effectiveShell!),
+      createGitCommitTool(effectiveShell!),
+      createGitPushTool(effectiveShell!),
+      createRunTestsTool(effectiveShell!),
+      createBuildTool(effectiveShell!),
     );
   }
   if (opts.network) {
@@ -532,7 +548,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1),
+      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell),
     );
     allCustomTools.push(taskTool);
   }
@@ -661,7 +677,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   const fsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
-  const shellExecutor = opts.shell ? createShellToolExecutor({ shell: opts.shell }) : undefined;
+  const shellExecutor = effectiveShell ? createShellToolExecutor({ shell: effectiveShell }) : undefined;
   const networkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
   const toolExecutor: ToolExecutor = async (
@@ -984,6 +1000,7 @@ function createSubAgentExecutor(
   capabilities: Set<string>,
   compactionConfig?: CompactionConfig,
   depth: number = 1,
+  shellOverride?: Shell,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const subCustomTools = parentCustomTools.filter(
@@ -998,7 +1015,7 @@ function createSubAgentExecutor(
     }
 
     const subFsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
-    const subShellExecutor = opts.shell ? createShellToolExecutor({ shell: opts.shell }) : undefined;
+    const subShellExecutor = shellOverride ? createShellToolExecutor({ shell: shellOverride }) : undefined;
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
     const subExecutor: ToolExecutor = async (call, ctx) => {

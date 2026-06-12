@@ -202,12 +202,12 @@ interface SandboxConfig {
 - `packages/sdk/src/defaults.ts`(可选默认)
 
 **Tasks**:
-- [ ] 实现 `buildSeatbeltProfile(config)`:`(deny default)` + 全盘只读 `(allow file-read*)` + `writableRoots` 逐条 `(allow file-write* (subpath "<escaped>"))` + `network` 为 false 时 `(deny network*)`;路径做 `"` 转义
-- [ ] 实现 `createSandboxedShell(realShell, config)`:macOS 且 mode≠`danger-full-access` 时重写 `cmd` 为 `sandbox-exec -p <profile> /bin/bash -c <escaped cmd>` 委托 realShell;否则原样委托
-- [ ] 非 macOS 平台:`createSandboxedShell` 委托原样 + 一次性 `console.warn` 告警(除非 `failIfUnavailable` 见 Phase 2)
-- [ ] `create-agent.ts`:新增 `sandboxConfig?: SandboxConfig` 选项;在 `createBashTool(opts.shell)` 处改为 `createBashTool(opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)`
-- [ ] denial 归一:装饰器透传 ShellEvent;不抛异常(沙箱进程自身 spawn 失败也归一为 exit + stderr)
-- [ ] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node --filter @agent-core/sdk` 通过
+- [x] 实现 `buildSeatbeltProfile(config)`:`(deny default)` + 全盘只读 `(allow file-read*)` + `writableRoots` 逐条 `(allow file-write* (subpath "<escaped>"))` + `network` 为 false 时 `(deny network*)`;路径做 `"` 转义
+- [x] 实现 `createSandboxedShell(realShell, config)`:macOS 且 mode≠`danger-full-access` 时重写 `cmd` 为 `sandbox-exec -p <profile> /bin/bash -c <escaped cmd>` 委托 realShell;否则原样委托
+- [x] 非 macOS 平台:`createSandboxedShell` 委托原样 + 一次性 `console.warn` 告警(除非 `failIfUnavailable` 见 Phase 2)
+- [x] `create-agent.ts`:新增 `sandboxConfig?: SandboxConfig` 选项;在 `createBashTool(opts.shell)` 处改为 `createBashTool(opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)`
+- [x] denial 归一:装饰器透传 ShellEvent;不抛异常(沙箱进程自身 spawn 失败也归一为 exit + stderr)
+- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node --filter @agent-core/sdk` 通过
 
 **Acceptance Criteria**:
 1. 在 darwin 上,`sandboxConfig.mode = "workspace-write"` 时,bash 执行 `echo x > /tmp/outside_$$.txt`(cwd 外)被拒,exit 非零,stderr 含权限拒绝信息。
@@ -218,7 +218,7 @@ interface SandboxConfig {
 6. 未配置 `sandboxConfig` 时,SDK 行为与今日逐字节一致。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-12 by reviewer
 **Commit**: <commit hash> <commit message subject>
 -->
 

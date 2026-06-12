@@ -19,6 +19,9 @@
 import type { Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@agent-core/core";
 import { spawn, execFileSync } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -75,6 +78,9 @@ export function detectBackend(): SandboxBackend {
  * Probe whether a binary exists on PATH (cached per name).
  * Returns true if `which <name>` exits 0.
  */
+/** Profile file counter to avoid concurrent exec() collisions */
+let profileCounter = 0;
+
 const probeCache = new Map<string, boolean>();
 export function probeBinary(name: string): boolean {
   const cached = probeCache.get(name);
@@ -96,12 +102,10 @@ export function probeBinary(name: string): boolean {
 /**
  * Create a Shell decorator that wraps commands in a sandbox.
  *
- * - macOS: `sandbox-exec -p <profile> /bin/bash -c <escaped cmd>`
- * - Linux: `bwrap <args> -- /bin/bash -c <escaped cmd>`
+ * - macOS: `sandbox-exec -p <profile-file> /bin/bash -c <escaped cmd>`
+ * - Linux: `bwrap <args> -- /bin/bash -c <escaped cmd>` (Phase 3)
  * - danger-full-access: passthrough (no wrapping)
  * - Other platform: passthrough + console.warn (unless failIfUnavailable)
- *
- * Phase 0: skeleton — all modes passthrough. Real profiles built in Phase 1–3.
  */
 export function createSandboxedShell(
   realShell: Shell,
@@ -142,17 +146,83 @@ export function createSandboxedShell(
     };
   }
 
-  // Phase 1 will implement real wrapping; Phase 0 is passthrough for supported platforms too
-  return {
-    exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
-      // Phase 1: build profile → wrap cmd → delegate
-      // Phase 0: passthrough
-      return realShell.exec(cmd, opts);
-    },
-    launch: realShell.launch
-      ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => realShell.launch!(cmd, opts)
-      : undefined,
-  };
+  // ── macOS seatbelt branch ──
+  if (backend === "seatbelt") {
+    const profileContent = buildSeatbeltProfile(config);
+    let warnedProfile = false;
+
+    return {
+      exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
+        return (async function* () {
+          let profilePath: string | undefined;
+          try {
+            // Write profile to temp file (sandbox-exec requires a file path)
+            const profileId = `${process.pid}-${++profileCounter}`;
+            profilePath = join(tmpdir(), `agent-core-sandbox-${profileId}.sb`);
+            writeFileSync(profilePath, profileContent, "utf-8");
+
+            // Escape cmd for safe embedding in a bash -c string
+            const escapedCmd = cmd.replace(/'/g, "'\\''");
+
+            // Yield through all events from the wrapped command
+            for await (const event of realShell.exec(
+              `sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`,
+              opts,
+            )) {
+              yield event;
+            }
+          } catch (err) {
+            // Spawn failure or sandbox-exec missing: normalize to isError-like stderr + exit
+            if (!warnedProfile) {
+              warnedProfile = true;
+            }
+            const errMsg = err instanceof Error ? err.message : String(err);
+            yield { type: "stderr", data: `[sandbox] sandbox-exec wrapper failed: ${errMsg}` };
+            yield { type: "exit", code: 1 };
+          } finally {
+            // Clean up temp profile
+            if (profilePath !== undefined) {
+              try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+            }
+          }
+        })();
+      },
+      launch: realShell.launch
+        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => {
+            // launch() cannot use temp file lifecycle — passthrough with warning
+            console.warn(
+              "[sandbox] WARNING: launch() bypasses sandbox isolation. " +
+              "Use exec() for sandboxed execution.",
+            );
+            return realShell.launch!(cmd, opts);
+          }
+        : undefined,
+    };
+  }
+
+  // ── Linux bubblewrap branch (Phase 3) ──
+  if (backend === "bubblewrap") {
+    // Phase 3 will implement bwrap wrapping. Phase 1: warn + passthrough.
+    let warned = false;
+    return {
+      exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
+        if (!warned) {
+          warned = true;
+          console.warn(
+            "[sandbox] WARNING: Linux bubblewrap backend is not yet implemented. " +
+            "Commands will run without isolation. See Plan 009 Phase 3.",
+          );
+        }
+        return realShell.exec(cmd, opts);
+      },
+      launch: realShell.launch
+        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => realShell.launch!(cmd, opts)
+        : undefined,
+    };
+  }
+
+  // Fallback (should not reach here)
+  return realShell;
 }
 
 // ──────────────────────────────────────────────
@@ -171,16 +241,17 @@ function escapeSeatbeltPath(p: string): string {
  * Build a macOS Seatbelt profile string from a SandboxConfig.
  *
  * - `(deny default)` + full read `(allow file-read-data (subpath "/"))`
- * - `writableRoots` → `(allow file-write* (subpath "<escaped>"))` per path
- * - `readOnlyOverlays` → `(deny file-write* (subpath "<escaped>"))` per path (after allows)
+ * - Allow process-exec for node binary (required for child_process.spawn)
+ * - Allow mach-lookup for system.dylib (required for common system calls)
+ * - Allow stdout/stderr via `/dev`
+ * - `read-only` mode: no writable roots, only essential system writes
+ * - `workspace-write` mode: writableRoots → `(allow file-write* ...)`, readOnlyOverlays → `(deny file-write* ...)` (deny overrides allow)
  * - `network.enabled === false` → `(deny network*)`
- *
- * Phase 0: exported for use by both createNodeSandbox and createSandboxedShell.
- * Full implementation in Phase 1.
  */
 export function buildSeatbeltProfile(config: SandboxConfig): string {
-  const writableRoots = config.writableRoots ?? [];
-  const readOnlyOverlays = config.readOnlyOverlays ?? [];
+  const isReadOnly = config.mode === "read-only";
+  const writableRoots = isReadOnly ? [] : (config.writableRoots ?? []);
+  const readOnlyOverlays = isReadOnly ? [] : (config.readOnlyOverlays ?? []);
   const networkEnabled = config.network?.enabled ?? false;
 
   const lines: string[] = [
@@ -188,11 +259,15 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     "(deny default)",
     // Allow reading from everywhere (including /usr, /bin, /etc)
     '(allow file-read-data (subpath "/"))',
-    // Allow stdout/stderr
+    // Allow process exec (required for child_process.spawn to work)
+    '(allow process-exec (subpath "/"))',
+    // Allow mach-lookup for common system calls
+    '(allow mach-lookup (global-name "system.dylib"))',
+    // Allow stdout/stderr via /dev
     "(allow file-write-data (subpath \"/dev\"))",
   ];
 
-  // Writable roots (workspace-write mode)
+  // Writable roots (workspace-write mode only, skipped for read-only)
   for (const root of writableRoots) {
     lines.push(`(allow file-write* (subpath "${escapeSeatbeltPath(root)}"))`);
   }
