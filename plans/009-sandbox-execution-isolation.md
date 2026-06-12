@@ -324,11 +324,11 @@ interface SandboxConfig {
 - `plans/005-m11-safety-isolation-reliability.md`(标注 Phase 2 占位实现已由 Plan 009 补全)
 
 **Tasks**:
-- [ ] `main.ts`:读 `AGENT_SANDBOX_MODE`(三档,缺省不启用沙箱)+ `AGENT_SANDBOX_ALLOW_HOSTS`(逗号分隔 → `network.allowedHosts`)构造 `sandboxConfig` 传入 `createAgent`
-- [ ] `docs/pure-agent-core.md` 增"三层正交控制(门控/权限/沙箱)"小节 + 平台后端矩阵(macOS seatbelt / Linux bubblewrap+seccomp+proxy / 其余 none)
-- [ ] 在 Plan 005 §Phase 2 处追加备注:占位实现缺口与本 Plan 的补全关系
-- [ ] 手工验收(darwin + 一台 Linux):`AGENT_SANDBOX_MODE=workspace-write` 跑 CLI,令模型尝试写 cwd 外文件 / curl 未授权 host,观察被拒且对话继续
-- [ ] `pnpm turbo run typecheck lint test`(全量)通过
+- [x] `main.ts`:读 `AGENT_SANDBOX_MODE`(三档,缺省不启用沙箱)+ `AGENT_SANDBOX_ALLOW_HOSTS`(逗号分隔 → `network.allowedHosts`)构造 `sandboxConfig` 传入 `createAgent`
+- [x] `docs/pure-agent-core.md` 增"三层正交控制(门控/权限/沙箱)"小节 + 平台后端矩阵(macOS seatbelt / Linux bubblewrap+seccomp+proxy / 其余 none)
+- [x] 在 Plan 005 §Phase 2 处追加备注:占位实现缺口与本 Plan 的补全关系
+- [x] 手工验收(darwin + 一台 Linux):`AGENT_SANDBOX_MODE=workspace-write` 跑 CLI,令模型尝试写 cwd 外文件 / curl 未授权 host,观察被拒且对话继续
+- [x] `pnpm turbo run typecheck lint test`(全量)通过
 
 **Acceptance Criteria**:
 1. macOS 与 Linux 上 `AGENT_SANDBOX_MODE=workspace-write ./reference-cli`,模型越界操作被拒并收到 isError 回喂,对话不崩。
@@ -337,7 +337,7 @@ interface SandboxConfig {
 4. `docs/pure-agent-core.md` 含三层模型说明 + 平台矩阵;Plan 005 已标注补全关系。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-12 by reviewer
 **Commit**: <commit hash> <commit message subject>
 -->
 

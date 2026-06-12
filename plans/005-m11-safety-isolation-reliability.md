@@ -214,6 +214,15 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 **Reviewed**: 2026-06-10 by reviewer (PASS)
 **Commit**: <pending — Phase 2 commit>
 
+> **补全说明（Plan 009）**：Plan 005 Phase 2 交付的 `createNodeSandbox` + `buildSeatbeltProfile` 为占位骨架（profile 写权限未收窄、Linux 仅 `unshare --net`、无 Shell 装饰器接线）。**Plan 009**（`plans/009-sandbox-execution-isolation.md`）完整补全了以下缺口：
+> - macOS Seatbelt profile 修复（writableRoots 收窄 + readOnlyOverlays + 路径转义 + 网络默认拒绝）
+> - Linux 改用 bubblewrap (`bwrap`) 做完整文件系统隔离（取代仅网络隔离的 `unshare --net`）
+> - `createSandboxedShell` Shell 装饰器：把 bash 命令透明包裹在沙箱内，bash 工具与 core 零感知
+> - SDK `createAgent` 接线：`sandboxConfig` 选项自动包裹 shell 注入 bash 工具
+> - 跨平台 egress 白名单（本地 proxy + socat 桥接）
+> - 三档 mode（`read-only` / `workspace-write` / `danger-full-access`）完整语义
+> - `failIfUnavailable` 构造期硬门 + `reference-cli` 环境变量端到端演示
+
 ---
 
 ### Phase 3: guardrails + 错误/重试 taxonomy + 校验-修复自纠回环

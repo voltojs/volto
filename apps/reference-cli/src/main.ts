@@ -19,6 +19,7 @@ import {
   createNodeBrowserAdapter,
   createNodeLspClient,
 } from "@agent-core/runtime-node";
+import type { SandboxConfig } from "@agent-core/runtime-node";
 import { createWriteTodosTool } from "@agent-core/tools-plan";
 import { createRenderingEventSink } from "./render.js";
 
@@ -33,6 +34,21 @@ const LSP_ARGS = process.env["AGENT_LSP_ARGS"]?.split(",") ?? [];
 const ENABLE_DOCUMENT_PARSER = process.env["AGENT_DOCUMENT_PARSER"] === "true";
 const ENABLE_BROWSER = process.env["AGENT_BROWSER"] === "true";
 const PERMISSION_MODE = process.env["AGENT_PERMISSION_MODE"] ?? "auto-allow";
+
+// ── Sandbox config (Plan 009) ──
+const SANDBOX_MODE = process.env["AGENT_SANDBOX_MODE"];
+const SANDBOX_ALLOW_HOSTS = process.env["AGENT_SANDBOX_ALLOW_HOSTS"];
+let sandboxConfig: SandboxConfig | undefined;
+if (SANDBOX_MODE === "read-only" || SANDBOX_MODE === "workspace-write" || SANDBOX_MODE === "danger-full-access") {
+  sandboxConfig = {
+    mode: SANDBOX_MODE,
+    network: {
+      enabled: false,
+      ...(SANDBOX_ALLOW_HOSTS ? { enabled: true, allowedHosts: SANDBOX_ALLOW_HOSTS.split(",").map((h) => h.trim()).filter(Boolean) } : {}),
+    },
+  };
+  process.stderr.write(`Sandbox enabled: mode=${SANDBOX_MODE}${SANDBOX_ALLOW_HOSTS ? `, allowedHosts=${SANDBOX_ALLOW_HOSTS}` : ""}\n`);
+}
 
 // ── Validate ──
 if (!API_KEY) {
@@ -135,6 +151,7 @@ const agent = createAgent({
   enableTaskTool: true,
   scheduler,
   permissionConfig,
+  sandboxConfig,
   dbAdapter,
   documentParser,
   browserAdapter,
