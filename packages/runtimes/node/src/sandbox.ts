@@ -79,8 +79,6 @@ export function detectBackend(): SandboxBackend {
  * Probe whether a binary exists on PATH (cached per name).
  * Returns true if `which <name>` exits 0.
  */
-/** Profile file counter to avoid concurrent exec() collisions */
-let profileCounter = 0;
 
 const probeCache = new Map<string, boolean>();
 export function probeBinary(name: string): boolean {
@@ -193,7 +191,6 @@ export function createSandboxedShell(
       );
     }
     const profileContent = buildSeatbeltProfile(resolvedConfig);
-    let warnedProfile = false;
 
     return {
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
@@ -207,9 +204,8 @@ export function createSandboxedShell(
               const p = await ensureProxy();
               // socat bridges TCP → unix socket (runs outside sandbox)
               if (probeBinary("socat")) {
-                const socatPort = 18080 + (process.pid % 1000);
-                const { spawn: sp } = await import("node:child_process");
-                socatProc = sp("socat", [
+                const socatPort = 18080 + (++socatPortCounter);
+                socatProc = spawn("socat", [
                   `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
                   `UNIX-CONNECT:${p.socketPath}`,
                 ], { stdio: "ignore", detached: false });
@@ -223,11 +219,6 @@ export function createSandboxedShell(
                   "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
                   "Network requests inside sandbox may not be filtered. Install: apt install socat",
                 );
-                // Fallback: inject unix socket path directly (works on macOS)
-                proxyEnv = {
-                  HTTP_PROXY: `unix:${p.socketPath}`,
-                  HTTPS_PROXY: `unix:${p.socketPath}`,
-                };
               }
             }
 
@@ -253,9 +244,6 @@ export function createSandboxedShell(
             }
           } catch (err) {
             // Spawn failure or sandbox-exec missing: normalize to isError-like stderr + exit
-            if (!warnedProfile) {
-              warnedProfile = true;
-            }
             const errMsg = err instanceof Error ? err.message : String(err);
             yield { type: "stderr", data: `[sandbox] sandbox-exec wrapper failed: ${errMsg}` };
             yield { type: "exit", code: 1 };
@@ -316,9 +304,9 @@ export function createSandboxedShell(
             if (needsProxy) {
               const p = await ensureProxy();
               if (probeBinary("socat")) {
-                const socatPort = 18080 + (process.pid % 1000);
-                const { spawn: sp } = await import("node:child_process");
-                socatProc = sp("socat", [
+                const socatPort = 18080 + (++socatPortCounter);
+                
+                socatProc = spawn("socat", [
                   `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
                   `UNIX-CONNECT:${p.socketPath}`,
                 ], { stdio: "ignore", detached: false });
@@ -337,10 +325,13 @@ export function createSandboxedShell(
 
             // Escape cmd for safe embedding in bash -c single-quoted string
             const escapedCmd = cmd.replace(/'/g, "'\\''");
+            // Build inner command: envPrefix is already single-quote safe, escapedCmd is already escaped
             const innerCmd = envPrefix
               ? `${envPrefix} && ${escapedCmd}`
               : escapedCmd;
-            const wrappedCmd = `bwrap ${bwrapArgs.join(" ")} -- /bin/bash -c '${innerCmd.replace(/'/g, "'\\''")}'`;
+            // Shell-escape each bwrap arg to handle paths with spaces
+            const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+            const wrappedCmd = `bwrap ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
 
             yield* realShell.exec(wrappedCmd, opts);
           } finally {
@@ -424,6 +415,14 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     "(deny default)",
     // Allow reading from everywhere (including /usr, /bin, /etc)
     '(allow file-read-data (subpath "/"))',
+    // Allow file metadata reads (required for ls -l, stat, test -f, etc.)
+    '(allow file-read-metadata)',
+    // Allow sysctl reads (required for uname, hostname, etc.)
+    '(allow sysctl-read)',
+    // Allow signals (required for kill, trap, wait, etc.)
+    '(allow signal)',
+    // Allow POSIX IPC (required for pipes and basic process coordination)
+    '(allow ipc-posix*)',
     // Allow process exec (required for child_process.spawn to work)
     '(allow process-exec (subpath "/"))',
     // Allow mach-lookup for common system calls
@@ -674,3 +673,7 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
     },
   };
 }
+/** Profile file counter to avoid concurrent exec() collisions */
+let profileCounter = 0;
+/** Socat port counter to avoid port conflicts within the same process */
+let socatPortCounter = 0;

@@ -22,8 +22,6 @@ export interface SandboxProxyConfig {
 export interface SandboxProxy {
   /** Unix socket path the proxy listens on */
   socketPath: string;
-  /** TCP port socat bridges to the unix socket (Linux only) */
-  tcpPort: number;
   /** Start listening. Resolves when the server is ready. */
   start(): Promise<void>;
   /** Stop the proxy and clean up the socket file. */
@@ -58,6 +56,9 @@ export function isHostAllowed(host: string, allowedHosts: string[]): boolean {
 /**
  * Handle a CONNECT request: validate host against allowlist,
  * then tunnel bidirectionally.
+ *
+ * On allowlist hit: connect to the real target, write 200, pipe bidirectionally.
+ * On miss: 403 Forbidden.
  */
 function handleConnect(
   targetHost: string,
@@ -70,57 +71,17 @@ function handleConnect(
     clientSocket.destroy();
     return;
   }
-
-  const target = createServer();
-  target.once("error", () => {
+  // Connect directly to the real target, pipe bidirectionally
+  const realTarget = netCreateConnection({ host: targetHost, port: targetPort }, () => {
+    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    clientSocket.pipe(realTarget);
+    realTarget.pipe(clientSocket);
+    realTarget.on("error", () => clientSocket.destroy());
+    clientSocket.on("error", () => realTarget.destroy());
+  });
+  realTarget.on("error", () => {
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
     clientSocket.destroy();
-  });
-
-  target.listen(0, "127.0.0.1", () => {
-    const addr = target.address();
-    if (!addr || typeof addr === "string") {
-      clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-      clientSocket.destroy();
-      target.close();
-      return;
-    }
-
-    const upstream = createServer();
-    upstream.once("connection", (upstreamSocket) => {
-      target.close(); // stop accepting
-      clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      clientSocket.pipe(upstreamSocket);
-      upstreamSocket.pipe(clientSocket);
-      upstreamSocket.on("error", () => clientSocket.destroy());
-      clientSocket.on("error", () => upstreamSocket.destroy());
-    });
-
-    upstream.listen(0, "127.0.0.1", () => {
-      const upAddr = upstream.address();
-      if (!upAddr || typeof upAddr === "string") {
-        clientSocket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-        clientSocket.destroy();
-        target.close();
-        upstream.close();
-        return;
-      }
-      // Connect to the real target
-      const realTarget = netCreateConnection({ host: targetHost, port: targetPort }, () => {
-        upstream.close(); // stop accepting — we have our pipe
-        clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        clientSocket.pipe(realTarget);
-        realTarget.pipe(clientSocket);
-        realTarget.on("error", () => clientSocket.destroy());
-        clientSocket.on("error", () => realTarget.destroy());
-      });
-      realTarget.on("error", () => {
-        clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
-        clientSocket.destroy();
-        upstream.close();
-        target.close();
-      });
-    });
   });
 }
 
@@ -130,11 +91,9 @@ function handleConnect(
 export function createSandboxProxy(config: SandboxProxyConfig): SandboxProxy {
   const socketPath = makeSocketPath();
   let server: Server | null = null;
-  const tcpPort = 0; // Will be assigned by socat or dynamically
 
   return {
     socketPath,
-    tcpPort,
 
     start(): Promise<void> {
       return new Promise((resolve, reject) => {
