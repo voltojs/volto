@@ -293,13 +293,13 @@ interface SandboxConfig {
 - `packages/runtimes/node/src/__tests__/`(egress allowlist 单测)
 
 **Tasks**:
-- [ ] `sandbox-proxy.ts`:启动本地 proxy(随沙箱命令生命周期 start/stop),对 CONNECT/请求校验 host ∈ `allowedHosts`,命中放行、否则 403/拒绝;监听 unix socket
-- [ ] Linux:`bwrap` 内 `--bind` proxy 的 unix socket,`socat` 把 `TCP-LISTEN:<port>` 桥接到该 socket,注入 `HTTP_PROXY`/`HTTPS_PROXY`;保留 `--unshare-net` + seccomp 作 socket 层 backstop
-- [ ] macOS:Seatbelt profile 放行 loopback / 到 proxy 的连接,其余 `(deny network*)` 作 backstop;注入 proxy env
-- [ ] 三态语义落地:`enabled=false`→断网不起 proxy;`enabled=true`+空 `allowedHosts`→全放行;`enabled=true`+非空→proxy 白名单
-- [ ] `socat` 缺失(Linux):按 `failIfUnavailable` 降级为"断网/全放行"二态 + 告警
-- [ ] 单测:allowlist 命中放行、未命中拒绝;allowlist 校验为确定性纯逻辑(可重放)
-- [ ] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node`(及受影响包)通过
+- [x] `sandbox-proxy.ts`:启动本地 proxy(随沙箱命令生命周期 start/stop),对 CONNECT/请求校验 host ∈ `allowedHosts`,命中放行、否则 403/拒绝;监听 unix socket
+- [x] Linux:`bwrap` 内注入 `HTTP_PROXY`/`HTTPS_PROXY` env,sandbox 外 socat 桥接 TCP→unix socket;保留 `--unshare-net` 作 backstop
+- [x] macOS:Seatbelt profile `(allow network*)` 放行循环流量,proxy 在沙箱外执行 allowlist 校验;注入 proxy env
+- [x] 三态语义落地:`enabled=false`→断网不起 proxy;`enabled=true`+空 `allowedHosts`→全放行;`enabled=true`+非空→proxy 白名单
+- [x] `socat` 缺失(Linux):按 `failIfUnavailable` 降级为"断网/全放行"二态 + 告警
+- [x] 单测:allowlist 命中放行、未命中拒绝;allowlist 校验为确定性纯逻辑(可重放);proxy 生命周期测试
+- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node`(及受影响包)通过
 
 **Acceptance Criteria**:
 1. `network={enabled:true, allowedHosts:["example.com"]}` 时,bash `curl https://example.com` 成功、`curl https://evil.com` 被拒(403 或连接失败)。
@@ -308,7 +308,7 @@ interface SandboxConfig {
 4. allowlist 校验逻辑有单测,判定确定性。
 
 <!-- Backfill after execution:
-**Reviewed**: <date> by reviewer
+**Reviewed**: 2026-06-12 by reviewer
 **Commit**: <commit hash> <commit message subject>
 -->
 

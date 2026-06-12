@@ -22,6 +22,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
+import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -159,6 +160,29 @@ export function createSandboxedShell(
       : config.readOnlyOverlays,
   };
 
+  // ── Egress proxy setup (Phase 4: lazy start on first exec) ──
+  const needsProxy =
+    resolvedConfig.network?.enabled === true &&
+    (resolvedConfig.network.allowedHosts?.length ?? 0) > 0;
+  let proxy: SandboxProxy | null = null;
+  let proxyStarted = false;
+
+  async function ensureProxy(): Promise<SandboxProxy> {
+    if (proxy && proxyStarted) return proxy;
+    if (!proxy) {
+      proxy = createSandboxProxy({
+        allowedHosts: resolvedConfig.network!.allowedHosts!,
+      });
+    }
+    if (!proxyStarted) {
+      await proxy.start();
+      proxyStarted = true;
+      // Register cleanup on process exit (best-effort)
+      process.once("exit", () => { try { proxy?.stop(); } catch { /* best-effort */ } });
+    }
+    return proxy;
+  }
+
   // ── macOS seatbelt branch ──
   if (backend === "seatbelt") {
     // failIfUnavailable: check that sandbox-exec is actually present
@@ -175,7 +199,38 @@ export function createSandboxedShell(
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
           let profilePath: string | undefined;
+          let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
+            // Start egress proxy if needed (lazy, first call only)
+            let proxyEnv: Record<string, string> = {};
+            if (needsProxy) {
+              const p = await ensureProxy();
+              // socat bridges TCP → unix socket (runs outside sandbox)
+              if (probeBinary("socat")) {
+                const socatPort = 18080 + (process.pid % 1000);
+                const { spawn: sp } = await import("node:child_process");
+                socatProc = sp("socat", [
+                  `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+                  `UNIX-CONNECT:${p.socketPath}`,
+                ], { stdio: "ignore", detached: false });
+                proxyEnv = {
+                  HTTP_PROXY: `http://127.0.0.1:${socatPort}`,
+                  HTTPS_PROXY: `http://127.0.0.1:${socatPort}`,
+                  NO_PROXY: "localhost,127.0.0.1",
+                };
+              } else {
+                console.warn(
+                  "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
+                  "Network requests inside sandbox may not be filtered. Install: apt install socat",
+                );
+                // Fallback: inject unix socket path directly (works on macOS)
+                proxyEnv = {
+                  HTTP_PROXY: `unix:${p.socketPath}`,
+                  HTTPS_PROXY: `unix:${p.socketPath}`,
+                };
+              }
+            }
+
             // Write profile to temp file (sandbox-exec requires a file path)
             const profileId = `${process.pid}-${++profileCounter}`;
             profilePath = join(tmpdir(), `agent-core-sandbox-${profileId}.sb`);
@@ -184,11 +239,16 @@ export function createSandboxedShell(
             // Escape cmd for safe embedding in a bash -c string
             const escapedCmd = cmd.replace(/'/g, "'\\''");
 
+            // Inject proxy env vars into the sandboxed command
+            const envPrefix = Object.entries(proxyEnv)
+              .map(([k, v]) => `export ${k}='${v.replace(/'/g, "'\\''")}'`)
+              .join(" && ");
+            const wrappedCmd = envPrefix
+              ? `${envPrefix} && sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`
+              : `sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+
             // Yield through all events from the wrapped command
-            for await (const event of realShell.exec(
-              `sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`,
-              opts,
-            )) {
+            for await (const event of realShell.exec(wrappedCmd, opts)) {
               yield event;
             }
           } catch (err) {
@@ -200,9 +260,12 @@ export function createSandboxedShell(
             yield { type: "stderr", data: `[sandbox] sandbox-exec wrapper failed: ${errMsg}` };
             yield { type: "exit", code: 1 };
           } finally {
-            // Clean up temp profile
+            // Clean up temp profile and socat process
             if (profilePath !== undefined) {
               try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+            }
+            if (socatProc) {
+              try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ }
             }
           }
         })();
@@ -235,19 +298,57 @@ export function createSandboxedShell(
 
     return {
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
-        if (!warned && !probeBinary("bwrap")) {
-          warned = true;
-          console.warn(
-            "[sandbox] WARNING: bwrap not found on PATH. " +
-            "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
-          );
-          return realShell.exec(cmd, opts);
-        }
+        return (async function* () {
+          let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
+          try {
+            if (!warned && !probeBinary("bwrap")) {
+              warned = true;
+              console.warn(
+                "[sandbox] WARNING: bwrap not found on PATH. " +
+                "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
+              );
+              yield* realShell.exec(cmd, opts);
+              return;
+            }
 
-        // Escape cmd for safe embedding in bash -c single-quoted string
-        const escapedCmd = cmd.replace(/'/g, "'\\''");
-        const wrappedCmd = `bwrap ${bwrapArgs.join(" ")} -- /bin/bash -c '${escapedCmd}'`;
-        return realShell.exec(wrappedCmd, opts);
+            // Start egress proxy if needed
+            let envPrefix = "";
+            if (needsProxy) {
+              const p = await ensureProxy();
+              if (probeBinary("socat")) {
+                const socatPort = 18080 + (process.pid % 1000);
+                const { spawn: sp } = await import("node:child_process");
+                socatProc = sp("socat", [
+                  `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+                  `UNIX-CONNECT:${p.socketPath}`,
+                ], { stdio: "ignore", detached: false });
+                envPrefix = [
+                  `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+                  `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+                  "export NO_PROXY='localhost,127.0.0.1'",
+                ].join(" && ");
+              } else {
+                console.warn(
+                  "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
+                  "Network requests inside sandbox may not be filtered. Install: apt install socat",
+                );
+              }
+            }
+
+            // Escape cmd for safe embedding in bash -c single-quoted string
+            const escapedCmd = cmd.replace(/'/g, "'\\''");
+            const innerCmd = envPrefix
+              ? `${envPrefix} && ${escapedCmd}`
+              : escapedCmd;
+            const wrappedCmd = `bwrap ${bwrapArgs.join(" ")} -- /bin/bash -c '${innerCmd.replace(/'/g, "'\\''")}'`;
+
+            yield* realShell.exec(wrappedCmd, opts);
+          } finally {
+            if (socatProc) {
+              try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ }
+            }
+          }
+        })();
       },
       launch: realShell.launch
         ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => {
@@ -341,15 +442,15 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     lines.push(`(deny file-write* (subpath "${escapeSeatbeltPath(overlay)}"))`);
   }
 
-  // Network
+  // Network — three-state semantics:
+  // enabled=false  → deny all (default)
+  // enabled=true + empty allowedHosts → allow all
+  // enabled=true + non-empty allowedHosts → allow all
+  //   (the proxy runs OUTSIDE the sandbox and enforces the allowlist;
+  //    the sandboxed process only needs to reach the proxy via loopback,
+  //    and socat bridges loopback TCP → unix socket)
   if (networkEnabled) {
-    if (config.network?.allowedHosts && config.network.allowedHosts.length > 0) {
-      // Allow loopback for proxy; egress proxy handles allowlist
-      lines.push("(allow network* (remote-host))");
-    } else {
-      // Enabled but no allowlist: allow all
-      lines.push("(allow network*)");
-    }
+    lines.push("(allow network*)");
   } else {
     lines.push("(deny network*)");
   }

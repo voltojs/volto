@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
+import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import type { SandboxConfig } from "../sandbox.js";
 import type { Shell } from "@agent-core/core";
 
@@ -467,5 +468,64 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
     expect(capturedCmd).toContain("--die-with-parent");
     expect(capturedCmd).toContain("/bin/bash -c");
     expect(capturedCmd).toContain("ls -la");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Phase 4: Egress proxy allowlist + lifecycle
+// ──────────────────────────────────────────────
+
+describe("isHostAllowed", () => {
+  it("exact match allows the host", () => {
+    expect(isHostAllowed("example.com", ["example.com"])).toBe(true);
+  });
+
+  it("non-matching host is rejected", () => {
+    expect(isHostAllowed("evil.com", ["example.com"])).toBe(false);
+  });
+
+  it("wildcard *.example.com matches subdomain", () => {
+    expect(isHostAllowed("api.example.com", ["*.example.com"])).toBe(true);
+  });
+
+  it("wildcard *.example.com does not match bare domain", () => {
+    expect(isHostAllowed("example.com", ["*.example.com"])).toBe(false);
+  });
+
+  it("multiple patterns: any match allows", () => {
+    expect(isHostAllowed("evil.com", ["example.com", "evil.com"])).toBe(true);
+  });
+
+  it("empty allowlist: all hosts rejected", () => {
+    expect(isHostAllowed("example.com", [])).toBe(false);
+  });
+});
+
+describe("createSandboxProxy", () => {
+  it("creates and cleans up a unix socket file", async () => {
+    const proxy = createSandboxProxy({ allowedHosts: ["example.com"] });
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(proxy.socketPath)).toBe(false);
+
+    await proxy.start();
+    expect(existsSync(proxy.socketPath)).toBe(true);
+
+    await proxy.stop();
+    expect(existsSync(proxy.socketPath)).toBe(false);
+  });
+
+  it("socket path is unique across instances", () => {
+    const p1 = createSandboxProxy({ allowedHosts: [] });
+    const p2 = createSandboxProxy({ allowedHosts: [] });
+    expect(p1.socketPath).not.toBe(p2.socketPath);
+  });
+
+  it("deterministic allowlist logic (replay test)", () => {
+    const hosts = ["api.example.com", "cdn.example.com"];
+    // Same inputs → same results across calls
+    for (let i = 0; i < 10; i++) {
+      expect(isHostAllowed("api.example.com", hosts)).toBe(true);
+      expect(isHostAllowed("evil.com", hosts)).toBe(false);
+    }
   });
 });

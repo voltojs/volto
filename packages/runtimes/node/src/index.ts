@@ -18,6 +18,8 @@ export { createAllowAllPolicyEngine, createRuleBasedPolicyEngine } from "./polic
 export type { PolicyRule } from "./policy-engine.js";
 export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, buildSeatbeltProfile, buildBwrapArgs, expandOverlays } from "./sandbox.js";
 export type { SandboxPolicy, NodeSandboxOptions, SandboxMode, SandboxBackend, SandboxConfig, SandboxNetworkConfig } from "./sandbox.js";
+export { createSandboxProxy, isHostAllowed } from "./sandbox-proxy.js";
+export type { SandboxProxy, SandboxProxyConfig } from "./sandbox-proxy.js";
 export { createNodeSecrets } from "./secrets.js";
 export type { SecretsScope, NodeSecretsOptions } from "./secrets.js";
 export { wrapNetworkWithEgress } from "./egress.js";
