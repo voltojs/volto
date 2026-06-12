@@ -357,3 +357,173 @@ interface SandboxConfig {
 | egress proxy 被绕过(直连非 loopback) | 高 | Linux `--unshare-net` + seccomp socket 层兜底;macOS Seatbelt `(deny network*)` 兜底;proxy 仅作便利层,内核隔离才是边界 |
 | 路径技巧绕过(如 `/proc/self/root/...`) | 中 | bwrap mount namespace 从源头限制可见文件系统;denylist 不作为唯一防线;Phase 加红队用例 |
 | proxy 进程泄漏 / 端口占用 | 中 | proxy 绑定沙箱命令生命周期,exit/abort 时强制 stop;单测验证无悬挂 |
+
+---
+
+## Test Cases
+
+### TC-001: macOS workspace-write 模式 cwd 外写被拒
+
+- **Preconditions**: macOS (darwin) 平台, `sandbox-exec` 可用; 工作目录为 `/Users/test/project`
+- **Steps**:
+  1. `createSandboxedShell(realShell, { mode: "workspace-write", writableRoots: ["/Users/test/project"] })`
+  2. 调用 `shell.exec("echo x > /tmp/outside.txt")`
+  3. 收集 `ShellEvent` 事件
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:163-283` (`createSandboxedShell` seatbelt 分支), `packages/runtimes/node/src/sandbox.ts:294-340` (`buildSeatbeltProfile`)
+- **Expected**: exit code 非零, stderr 含权限拒绝信息; 主循环不中断
+
+### TC-002: macOS workspace-write 模式 cwd 内写成功
+
+- **Preconditions**: 同 TC-001
+- **Steps**:
+  1. `shell.exec("echo x > /Users/test/project/safe.txt")`
+  2. 检查 exit code
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:163-283`
+- **Expected**: exit code 为 0; 文件 `/Users/test/project/safe.txt` 内容为 `x`
+
+### TC-003: macOS 默认断网 (network.enabled=false)
+
+- **Preconditions**: macOS 平台; `sandboxConfig.network.enabled = false`（默认值）
+- **Steps**:
+  1. `shell.exec("curl -s https://example.com")`
+  2. 收集 exit code 和 stderr
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:330-336` (profile `(deny network*)`)
+- **Expected**: exit code 非零; stderr 含网络拒绝信息
+
+### TC-004: danger-full-access 模式行为与裸 shell 一致
+
+- **Preconditions**: 任意平台
+- **Steps**:
+  1. `createSandboxedShell(mockShell, { mode: "danger-full-access" })`
+  2. 验证返回值是原始 shell 引用 (`=== mockShell`)
+  3. 调用 `shell.exec("any command")`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:114-116`
+- **Expected**: 命令直接委托给 realShell, 无包裹; 行为与未配置沙箱完全一致
+
+### TC-005: failIfUnavailable 在不支持平台抛构造期错误
+
+- **Preconditions**: 非 macOS 非 Linux 平台, 或 `sandbox-exec` / `bwrap` 缺失
+- **Steps**:
+  1. `createSandboxedShell(mockShell, { mode: "workspace-write", backend: "none", failIfUnavailable: true })`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:122-127`
+- **Expected**: 抛出 `Error`（"failIfUnavailable is true"）; 错误发生在 SDK 装配阶段, 非 agent 主循环内
+
+### TC-006: readOnlyOverlays 默认阻止 .git 写
+
+- **Preconditions**: macOS 平台; workspace-write 模式; 未显式传入 `readOnlyOverlays`（使用默认值）
+- **Steps**:
+  1. `createSandboxedShell(realShell, { mode: "workspace-write", writableRoots: ["/workspace"] })`
+  2. `shell.exec("echo x > /workspace/.git/config")`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:155-160` (defaults), `packages/runtimes/node/src/sandbox.ts:268-280` (`expandOverlays`)
+- **Expected**: exit code 非零; `.git/config` 未被修改
+
+### TC-007: read-only 模式全盘业务写被拒
+
+- **Preconditions**: macOS 或 Linux 平台
+- **Steps**:
+  1. `createSandboxedShell(realShell, { mode: "read-only" })`
+  2. `shell.exec("echo x > /tmp/test.txt")`
+  3. `shell.exec("echo x > /workspace/file.txt")`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:294-296` (read-only: writableRoots=[])
+- **Expected**: 两个命令 exit code 均非零; 无任何文件被创建
+
+### TC-008: 路径含双引号不破坏 profile
+
+- **Preconditions**: macOS 平台; writableRoots 含双引号路径
+- **Steps**:
+  1. `buildSeatbeltProfile({ mode: "workspace-write", writableRoots: ['/path/with"quote'] })`
+  2. 检查 profile 内容
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:256-258` (`escapeSeatbeltPath`)
+- **Expected**: profile 含 `(allow file-write* (subpath "/path/with\\"quote"))`; profile 语法合法
+
+### TC-009: 路径含 $ 字符不被 shell 展开
+
+- **Preconditions**: macOS 或 Linux 平台
+- **Steps**:
+  1. `buildSeatbeltProfile({ mode: "workspace-write", writableRoots: ["/home/$USER/workspace"] })`
+  2. 验证 profile 含字面量 `$USER`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:256-258`
+- **Expected**: `$USER` 在 profile 中保持字面量; sandbox-exec 读取 profile 文件时不经过 shell
+
+### TC-010: 重放确定性 — profile 输出逐字节一致
+
+- **Preconditions**: 任意平台
+- **Steps**:
+  1. `buildSeatbeltProfile(config)` 调用两次, 相同 config
+  2. 断言两次输出 `===`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:294-340`
+- **Expected**: 两次输出完全一致; 无 Date.now / Math.random / UUID 污染
+
+### TC-011: Linux bwrap workspace-write 正确构造参数
+
+- **Preconditions**: Linux 平台; `bwrap` 可用
+- **Steps**:
+  1. `buildBwrapArgs({ mode: "workspace-write", writableRoots: ["/workspace"], readOnlyOverlays: ["/workspace/.git"], network: { enabled: false } })`
+  2. 验证参数序列
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:304-340` (`buildBwrapArgs`)
+- **Expected**: 含 `--ro-bind / /`, `--bind /workspace /workspace`, `--ro-bind /workspace/.git /workspace/.git` (在 --bind 之后), `--unshare-net`, `--die-with-parent`
+
+### TC-012: Linux bwrap 默认断网
+
+- **Preconditions**: Linux 平台; `network.enabled = false`（默认）
+- **Steps**:
+  1. `buildBwrapArgs({ mode: "workspace-write", writableRoots: ["/workspace"] })`
+  2. 检查是否含 `--unshare-net`
+- **Paths**: `packages/runtimes/node/src/sandbox.ts:326-328`
+- **Expected**: 参数序列含 `--unshare-net`
+
+### TC-013: egress allowlist 精确匹配放行
+
+- **Preconditions**: 任意平台; `network.allowedHosts = ["example.com"]`
+- **Steps**:
+  1. `isHostAllowed("example.com", ["example.com"])`
+- **Paths**: `packages/runtimes/node/src/sandbox-proxy.ts:52-61`
+- **Expected**: 返回 `true`
+
+### TC-014: egress allowlist 未命中拒绝
+
+- **Preconditions**: `allowedHosts = ["example.com"]`
+- **Steps**:
+  1. `isHostAllowed("evil.com", ["example.com"])`
+- **Paths**: `packages/runtimes/node/src/sandbox-proxy.ts:52-61`
+- **Expected**: 返回 `false`
+
+### TC-015: egress allowlist 通配符匹配子域名
+
+- **Preconditions**: `allowedHosts = ["*.example.com"]`
+- **Steps**:
+  1. `isHostAllowed("api.example.com", ["*.example.com"])` → `true`
+  2. `isHostAllowed("example.com", ["*.example.com"])` → `false`
+- **Paths**: `packages/runtimes/node/src/sandbox-proxy.ts:55-59`
+- **Expected**: 子域名匹配; 裸域名不匹配
+
+### TC-016: reference-cli 通过环境变量启用沙箱
+
+- **Preconditions**: macOS 或 Linux 平台; `AGENT_SANDBOX_MODE=workspace-write` 环境变量已设
+- **Steps**:
+  1. 运行 `AGENT_SANDBOX_MODE=workspace-write node apps/reference-cli/dist/main.js`
+  2. 在 REPL 中输入 "write test to /tmp/outside.txt"
+  3. 观察输出
+- **Paths**: `apps/reference-cli/src/main.ts:38-49` (sandbox env parsing), `apps/reference-cli/src/main.ts:131` (createAgent sandboxConfig)
+- **Expected**: stderr 显示 "Sandbox enabled: mode=workspace-write"; 越界写操作被拒; 对话继续不崩溃
+
+### TC-017: 不设 AGENT_SANDBOX_MODE 时行为不变
+
+- **Preconditions**: 未设置 `AGENT_SANDBOX_MODE` 环境变量
+- **Steps**:
+  1. 运行 `node apps/reference-cli/dist/main.js`
+  2. 验证 `sandboxConfig` 为 `undefined`
+- **Paths**: `apps/reference-cli/src/main.ts:38-49`
+- **Expected**: 无沙箱输出; CLI 行为与今日完全一致
+
+### TC-018: proxy socket 生命周期清理
+
+- **Preconditions**: 任意平台
+- **Steps**:
+  1. `createSandboxProxy({ allowedHosts: ["example.com"] })`
+  2. `proxy.start()`
+  3. 验证 socket 文件存在
+  4. `proxy.stop()`
+  5. 验证 socket 文件已删除
+- **Paths**: `packages/runtimes/node/src/sandbox-proxy.ts:125-150`
+- **Expected**: start 后 socket 文件存在; stop 后 socket 文件不存在; 无悬挂进程
