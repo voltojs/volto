@@ -24,6 +24,7 @@ import type {
   PolicyEngine,
   Telemetry,
   Validator,
+  MemoryStore,
 } from "@agent-core/core";
 import {
   step,
@@ -137,6 +138,16 @@ export interface RunnerOptions {
     baseDelayMs?: number;
     maxDelayMs?: number;
     circuitBreakerThreshold?: number;
+  };
+  /**
+   * RAG pipeline — when configured, queries MemoryStore before each model call
+   * and injects retrieved fragments into the message array without breaking
+   * the static prefix cache.
+   */
+  rag?: {
+    memoryStore: MemoryStore;
+    topK?: number;
+    queryBuilder?: (messages: Message[]) => string;
   };
 }
 
@@ -344,7 +355,38 @@ export function createRunner(opts: RunnerOptions): Runner {
    */
   async function runModelStream(): Promise<void> {
     // Apply compaction before building the main request
-    const messages = await applyCompaction(state.messages);
+    let messages = await applyCompaction(state.messages);
+
+    // RAG pipeline: query memory store and inject retrieved fragments
+    if (opts.rag) {
+      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
+      const queryText = queryBuilder
+        ? queryBuilder(messages)
+        : extractLastUserMessage(messages);
+      if (queryText) {
+        try {
+          const fragments = await memoryStore.query(queryText, topK);
+          if (fragments.length > 0) {
+            const ragText = fragments
+              .map((f, i) => `[${i + 1}] ${f.text}`)
+              .join("\n\n");
+            const ragMessage: Message = {
+              role: "user",
+              content: `# Retrieved Context\n\n${ragText}`,
+            };
+            // Inject after the last system message (preserving static prefix)
+            let insertIndex = 0;
+            for (let i = 0; i < messages.length; i++) {
+              if (messages[i]!.role === "system") insertIndex = i + 1;
+              else break;
+            }
+            messages = [...messages.slice(0, insertIndex), ragMessage, ...messages.slice(insertIndex)];
+          }
+        } catch {
+          // Memory query failure is non-fatal — proceed without RAG
+        }
+      }
+    }
 
     const req = {
       messages,
@@ -902,6 +944,22 @@ function mostRestrictive(
 ): "allow" | "deny" | "ask" {
   const rank = { deny: 3, ask: 2, allow: 1 };
   return rank[a] >= rank[b] ? a : b;
+}
+
+/** Extract the text content of the last user message for RAG query building */
+function extractLastUserMessage(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+    if (msg.role === "user") {
+      return typeof msg.content === "string"
+        ? msg.content
+        : msg.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join(" ");
+    }
+  }
+  return "";
 }
 
 function modelEventToInputs(
