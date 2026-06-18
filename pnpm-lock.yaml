@@ -112,6 +112,9 @@ importers:
       '@agent-core/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@agent-core/store-file':
+        specifier: workspace:*
+        version: link:../../packages/stores/file
       '@agent-core/tools-plan':
         specifier: workspace:*
         version: link:../../packages/tools/plan

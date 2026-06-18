@@ -18,6 +18,7 @@
     "@agent-core/sdk": "workspace:*",
     "@agent-core/provider-openai": "workspace:*",
     "@agent-core/runtime-node": "workspace:*",
+    "@agent-core/store-file": "workspace:*",
     "@agent-core/tools-plan": "workspace:*"
   }
 }

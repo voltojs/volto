@@ -10,6 +10,7 @@ import { createAgent } from "@agent-core/sdk";
 import { createDefaultPermissionConfig } from "@agent-core/core";
 import type { EventSink } from "@agent-core/core";
 import { createOpenAIModelPort } from "@agent-core/provider-openai";
+import * as path from "node:path";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -24,6 +25,7 @@ import {
 } from "@agent-core/runtime-node";
 import type { SandboxConfig } from "@agent-core/runtime-node";
 import { createWriteTodosTool } from "@agent-core/tools-plan";
+import { createStore } from "@agent-core/store-file";
 import { createRenderingEventSink } from "./render.js";
 import { createTracingEventSink } from "./tracing-sink.js";
 
@@ -64,6 +66,12 @@ if (SANDBOX_MODE === "read-only" || SANDBOX_MODE === "workspace-write" || SANDBO
   };
   process.stderr.write(`Sandbox enabled: mode=${SANDBOX_MODE}${SANDBOX_ALLOW_HOSTS ? `, allowedHosts=${SANDBOX_ALLOW_HOSTS}` : ""}\n`);
 }
+
+// ── Session store (file-backed) ──
+const SESSION_DIR = process.env["AGENT_SESSION_DIR"]
+  ?? path.join(CWD, ".agent-sessions");
+const sessionStore = createStore({ directory: SESSION_DIR });
+process.stderr.write(`Session store → ${SESSION_DIR}\n`);
 
 // ── Validate ──
 if (!API_KEY) {
@@ -199,6 +207,7 @@ const agent = createAgent({
   lspClient,
   auditSink,
   telemetry,
+  sessionStore,
 });
 
 // On exit (Ctrl-D, exit, quit), dump telemetry summary if tracing was on.

@@ -886,6 +886,24 @@ export function createRunner(opts: RunnerOptions): Runner {
       break;
     }
 
+    // Persist checkpoint at turn boundary (imperative shell I/O).
+    // The reducer only emits CheckpointEffect during HITL approval pauses;
+    // this ensures every completed turn is durable for resume / audit.
+    if (state.status === "done" && opts.sessionStore && opts.sessionId) {
+      const now = opts.clock?.now() ?? Date.now();
+      await opts.sessionStore.save({
+        id: opts.sessionId,
+        state,
+        createdAt: now,
+      });
+      checkpointSeq++;
+      await opts.sessionStore.save({
+        id: `${opts.sessionId}#${checkpointSeq}`,
+        state,
+        createdAt: now,
+      });
+    }
+
     // M13: turn:end hook
     await runHookPipeline(opts.hooks ?? [], "turn:end", {
       sessionId: opts.sessionId,
