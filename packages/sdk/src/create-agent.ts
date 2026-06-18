@@ -1068,6 +1068,15 @@ function createSubAgentExecutor(
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${idPort.next()}`,
+      // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
+      initialState: createInitialState({
+        ...(opts.maxCostTokens !== undefined
+          ? { maxCostDollars: resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") }
+          : {}),
+        ...(opts.maxWallclockMs !== undefined
+          ? { maxWallclockMs: resolveConfigValue(opts.maxWallclockMs, opts.config?.config, "maxWallclockMs") }
+          : {}),
+      }),
     });
 
     const finalState = await subRunner.run({
