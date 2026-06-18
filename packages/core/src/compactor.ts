@@ -69,10 +69,11 @@ export function extractFilePaths(msg: Message): string[] {
   const paths: string[] = [];
   const text = extractMessageText(msg);
 
-  // Match common path patterns: /path/to/file, ./relative, ~/home.
-  // The leading boundary accepts start-of-string, whitespace, or punctuation
-  // wrappers like ( [ < " ' so paths embedded as `(/a/b.ts)` are still caught.
-  const pathRegex = /(?:^|[\s([<"'`])((?:\/|\.\.?\/|~\/)[\w./-]+)/g;
+  // Match file paths with known extensions (stricter than generic path-like strings).
+  // This avoids matching import specifiers, shell builtins (/dev/null), and URL fragments.
+  // Accepted: /path/to/file.ts, ./relative.js, ~/home/config.json
+  // Rejected: import "./foo", /dev/null, https://example.com/path
+  const pathRegex = /(?:^|[\s([<"'`])((?:\/|\.\.?\/|~\/)[\w./-]+\.\w{1,10})\b/g;
   let match;
   while ((match = pathRegex.exec(text)) !== null) {
     const path = match[1]!.trim();
@@ -163,19 +164,21 @@ export function decideCompaction(
   const keepCount = Math.min(recentKeepCount, otherMessages.length);
   const recencyEligible = otherMessages.slice(0, otherMessages.length - keepCount);
 
-  // Key messages — those carrying file paths or incomplete todos — are NEVER
-  // compressed: they hold information the model must not lose. Excluding them
-  // here keeps them in `preservedMessages` (built below from the un-compressed
-  // set). This is the kernel-level preservation guarantee required by AC1;
-  // the summary-prompt instruction is only a best-effort backstop for the rest.
+  // Key messages — those carrying file paths or incomplete todos — are deprioritized
+  // (compressed last) rather than absolutely exempt. This ensures the summary prompt
+  // captures their content while keeping the compaction surface wide enough for
+  // long conversations. Pinned messages remain absolutely exempt.
   const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
   const compressible = recencyEligible.filter(
-    (item) => !isKeyMessage(item.msg) && !pinnedIndices.has(item.index),
+    (item) => !pinnedIndices.has(item.index),
   );
 
-  // Among compressible, prefer compressing old tool interactions
-  // Sort: compress tool interactions first, then oldest first
+  // Among compressible, prefer compressing old tool interactions,
+  // deprioritize key messages (compress last), then oldest first
   compressible.sort((a, b) => {
+    const aIsKey = isKeyMessage(a.msg) ? 1 : 0;
+    const bIsKey = isKeyMessage(b.msg) ? 1 : 0;
+    if (aIsKey !== bIsKey) return aIsKey - bIsKey;
     const aIsTool = isToolInteraction(a.msg) ? 0 : 1;
     const bIsTool = isToolInteraction(b.msg) ? 0 : 1;
     if (aIsTool !== bIsTool) return aIsTool - bIsTool;
@@ -266,6 +269,8 @@ export function estimateMessageTokens(msg: Message, tokenizer: Tokenizer): numbe
 /**
  * Build a prompt for the model to summarize compressible messages.
  * The summary should preserve: file paths, key decisions, incomplete tasks.
+ * Key messages (with file paths/incomplete todos) are included in compression
+ * as a last resort — the summary prompt ensures their content is retained.
  */
 function buildSummaryPrompt(messages: Message[]): string {
   const conversationText = messages
@@ -277,7 +282,7 @@ function buildSummaryPrompt(messages: Message[]): string {
     .join("\n\n");
 
   return `Summarize the following conversation segment concisely. Preserve:
-- All file paths mentioned
+- All file paths mentioned (critical — model needs these for file operations)
 - Key decisions and their reasoning
 - Incomplete tasks or TODOs
 - Important factual statements

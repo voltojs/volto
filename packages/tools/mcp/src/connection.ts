@@ -174,6 +174,7 @@ export class McpConnection {
       inputSchema: tool.inputSchema as unknown as JSONSchema,
       requires: [capability],
       riskTier: "READ_ONLY" as const,
+      trust: "untrusted" as const,
     }));
   }
 }

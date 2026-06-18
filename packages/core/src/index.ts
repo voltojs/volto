@@ -38,11 +38,9 @@ export type {
 // Types — Effect
 export type {
   CallModelEffect,
-  ExecuteToolEffect,
   RequestApprovalEffect,
   EmitEffect,
   CheckpointEffect,
-  WaitForInputEffect,
   DoneEffect,
   Effect,
 } from "./effect.js";

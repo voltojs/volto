@@ -760,9 +760,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
-            // Annotate untrusted content from web/MCP tools
-            const isExternal = toolCall.name.startsWith("web_") || toolCall.name.startsWith("mcp__");
-            const annotatedResult = isExternal && !result.isError
+            // Annotate untrusted content from tools declared as untrusted
+            const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+            const isUntrusted = toolDef?.trust === "untrusted";
+            const annotatedResult = isUntrusted && !result.isError
               ? { ...result, modelContent: annotateUntrusted(result.modelContent) }
               : result;
 

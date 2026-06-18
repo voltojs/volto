@@ -14,6 +14,8 @@ export function defineTool<S extends z.ZodType>(spec: {
   schema: S;
   requires: Capability[];
   riskTier: RiskTier;
+  /** Output trust level — untrusted output is annotated for prompt-injection defense */
+  trust?: "trusted" | "untrusted";
   run: (input: z.infer<S>) => Promise<ToolResult>;
 }): Tool {
   const definition: ToolDefinition = {
@@ -22,6 +24,7 @@ export function defineTool<S extends z.ZodType>(spec: {
     inputSchema: z.toJSONSchema(spec.schema) as unknown as JSONSchema,
     requires: spec.requires,
     riskTier: spec.riskTier,
+    trust: spec.trust,
   };
 
   return {
