@@ -263,6 +263,18 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
             { id: chunk.toolCallId, name: chunk.toolCallName, argumentsText: chunk.argumentsDelta ?? "" },
           ],
         };
+        effects.push({
+          type: "emit",
+          event: {
+            type: "tool_use_delta",
+            data: {
+              phase: "start",
+              toolCallId: chunk.toolCallId,
+              toolName: chunk.toolCallName,
+              argumentsDelta: chunk.argumentsDelta ?? "",
+            },
+          },
+        });
       } else if (last && chunk.argumentsDelta) {
         // Arguments delta for existing tool call
         newState = {
@@ -272,6 +284,18 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
             { ...last, argumentsText: last.argumentsText + chunk.argumentsDelta },
           ],
         };
+        effects.push({
+          type: "emit",
+          event: {
+            type: "tool_use_delta",
+            data: {
+              phase: "args",
+              toolCallId: last.id,
+              toolName: last.name,
+              argumentsDelta: chunk.argumentsDelta,
+            },
+          },
+        });
       }
     }
 
@@ -346,7 +370,20 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
       return {
         state: { ...baseWithToolCount, pendingTools: toolCalls, status: "executing_tools" },
-        effects: [emitEffect],
+        effects: [
+          emitEffect,
+          ...toolCalls.map<Effect>((tc) => ({
+            type: "emit",
+            event: {
+              type: "tool_use_complete",
+              data: {
+                toolCallId: tc.id,
+                toolName: tc.name,
+                input: tc.input,
+              },
+            },
+          })),
+        ],
       };
     }
 
@@ -442,6 +479,23 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     // Buffer the result by tool-call id
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: toolResultMsg };
 
+    // Emit a tool_result observability event for every result as it arrives.
+    // displayMetadata.durationMs (and other host annotations) flow through so
+    // tracing sinks can show timing without re-querying the runtime.
+    const matchingTool = state.pendingTools.find((t) => t.id === input.toolCallId);
+    const resultEmit: Effect = {
+      type: "emit",
+      event: {
+        type: "tool_result",
+        data: {
+          toolCallId: input.toolCallId,
+          toolName: matchingTool?.name,
+          isError: input.result.isError ?? false,
+          durationMs: input.result.displayMetadata?.["durationMs"],
+        },
+      },
+    };
+
     // Check if ALL pending tools have reported
     const allDone = state.pendingTools.every((t) => t.id in newBuffer);
 
@@ -453,7 +507,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           _toolResultBuffer: newBuffer,
           readFiles,
         },
-        effects: [],
+        effects: [resultEmit],
       };
     }
 
@@ -482,6 +536,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     return {
       state: newState,
       effects: [
+        resultEmit,
         buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
       ],
     };

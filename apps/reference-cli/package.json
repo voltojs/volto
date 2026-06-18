@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "vitest run",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "dev": "node --env-file-if-exists=.env dist/main.js",
+    "dev:strict": "node --env-file=.env dist/main.js"
   },
   "dependencies": {
     "@agent-core/core": "workspace:*",

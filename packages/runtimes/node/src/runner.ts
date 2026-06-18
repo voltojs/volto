@@ -564,16 +564,37 @@ export function createRunner(opts: RunnerOptions): Runner {
   // ── Tool execution ───────────────────────────
 
   async function executeTool(toolCall: PendingToolCall): Promise<ToolResult> {
+    // Start the clock as early as possible so durationMs reflects what the
+    // user actually waits for (routing, hook pipeline, executor, post hook).
+    // Routing/no-executor early returns finish in microseconds and would
+    // otherwise be reported as "0ms" — that's accurate enough and consistent.
+    const toolStartedAt = opts.clock?.now() ?? Date.now();
+
+    /**
+     * Stamp durationMs onto a ToolResult unless the underlying tool already
+     * provided its own measurement (some tools time their inner work more
+     * precisely than wallclock — never overwrite that).
+     */
+    const stamp = (result: ToolResult): ToolResult => {
+      const existing = result.displayMetadata?.["durationMs"];
+      if (typeof existing === "number") return result;
+      const elapsed = (opts.clock?.now() ?? Date.now()) - toolStartedAt;
+      return {
+        ...result,
+        displayMetadata: { ...(result.displayMetadata ?? {}), durationMs: elapsed },
+      };
+    };
+
     const { result: routingResult } = routeToolCall(visibleTools, availableCapabilities, toolCall);
     if (routingResult) {
-      return routingResult;
+      return stamp(routingResult);
     }
 
     if (!opts.toolExecutor) {
-      return {
+      return stamp({
         modelContent: `Tool "${toolCall.name}" is not available: no tool executor configured.`,
         isError: true,
-      };
+      });
     }
 
     const toolDef = visibleTools.find((t) => t.name === toolCall.name);
@@ -584,10 +605,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       toolCall: { id: toolCall.id, name: toolCall.name, input: toolCall.input },
     });
     if (preOutcome.action === "deny") {
-      return {
+      return stamp({
         modelContent: `Tool "${toolCall.name}" denied by hook: ${preOutcome.reason}`,
         isError: true,
-      };
+      });
     }
     const effectiveCall = preOutcome.action === "modify" && preOutcome.patch.input
       ? { ...toolCall, input: preOutcome.patch.input }
@@ -597,7 +618,6 @@ export function createRunner(opts: RunnerOptions): Runner {
       toolName: toolCall.name,
       riskTier: toolDef?.riskTier,
     });
-    const toolSpanStartedAt = opts.clock?.now() ?? Date.now();
     try {
       const result = await opts.toolExecutor(effectiveCall, { readFiles: state.readFiles, abortSignal: opts.abortSignal });
 
@@ -612,20 +632,20 @@ export function createRunner(opts: RunnerOptions): Runner {
         : result;
 
       if (toolSpan && finalResult.isError) toolSpan.setAttribute("error", true);
-      return finalResult;
+      return stamp(finalResult);
     } catch (err: unknown) {
       turnHadError = true;
       if (toolSpan) toolSpan.setAttribute("error", true);
       const error = err instanceof Error ? err.message : String(err);
-      return {
+      return stamp({
         modelContent: `Tool execution error: ${error}`,
         isError: true,
-      };
+      });
     } finally {
       const toolEnd = opts.clock?.now() ?? Date.now();
       toolSpan?.end();
       if (opts.telemetry) {
-        opts.telemetry.metric("latency_ms", toolEnd - toolSpanStartedAt, {
+        opts.telemetry.metric("latency_ms", toolEnd - toolStartedAt, {
           toolName: toolCall.name,
           riskTier: toolDef?.riskTier,
         });
