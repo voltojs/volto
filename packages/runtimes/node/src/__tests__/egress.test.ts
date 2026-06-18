@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { wrapNetworkWithEgress } from "../egress.js";
-import type { Network } from "@agent-core/core";
+import type { Network } from "@volto/core";
 
 /** Stub Network that always succeeds */
 const stubNetwork: Network = {

@@ -9,7 +9,7 @@
  * classify / embedding), each bound to its own primary + fallback chain.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest } from "@agent-core/core";
+import type { ModelPort, ModelEvent, ModelRequest } from "@volto/core";
 
 export interface ModelRouterOptions {
   /** Primary model port + model name */

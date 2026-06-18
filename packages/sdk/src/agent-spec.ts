@@ -10,9 +10,9 @@
 import type {
   PermissionConfig,
   JSONSchema,
-} from "@agent-core/core";
-import type { Tool } from "@agent-core/tools-common";
-import type { ModelPort } from "@agent-core/core";
+} from "@volto/core";
+import type { Tool } from "@volto/tools-common";
+import type { ModelPort } from "@volto/core";
 import { createAgent, type AgentInstance, type CreateAgentOptions } from "./create-agent.js";
 
 // ──────────────────────────────────────────────

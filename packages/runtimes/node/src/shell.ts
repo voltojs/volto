@@ -8,7 +8,7 @@
  * command produces large amounts on both streams simultaneously.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
+import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
 import { spawn, type ChildProcess } from "node:child_process";
 
 export interface NodeShellOptions {

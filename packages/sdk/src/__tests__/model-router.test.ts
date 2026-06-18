@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createModelRouter } from "../model-router.js";
-import type { ModelPort, ModelEvent, ModelRequest } from "@agent-core/core";
+import type { ModelPort, ModelEvent, ModelRequest } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Helpers

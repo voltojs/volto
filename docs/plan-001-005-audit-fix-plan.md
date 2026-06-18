@@ -42,7 +42,7 @@
 
 > 📌 **补充**：`store.test.ts:55` 还有第 4 处 inline state，但它被包在 `JSON.stringify(...)` 内，不参与对 `AgentState` 的类型检查，**不报错**——故仅前 3 处需要修复以恢复构建；为一致性建议第 4 处也一并补上（非必需）。
 
-**验证**: `pnpm turbo run build typecheck --filter @agent-core/store-file` 通过。
+**验证**: `pnpm turbo run build typecheck --filter @volto/store-file` 通过。
 
 ---
 
@@ -50,7 +50,7 @@
 
 **文件**: `packages/runtimes/node/src/` 下缺少 `browser.ts`
 
-**现状**: `@agent-core/tools-browser`（`packages/tools/browser/src/index.ts`）定义了 `BrowserAdapter` 接口 + 5 个工具（`browser_navigate / click / type / screenshot / get_page_text`），SDK `packages/sdk/src/create-agent.ts:200,357,409` 接受 `browserAdapter` 注入、声明 `browser:control` 能力并注册工具，但 **Node runtime 没有提供任何实现**。reference CLI 也无法提供。
+**现状**: `@volto/tools-browser`（`packages/tools/browser/src/index.ts`）定义了 `BrowserAdapter` 接口 + 5 个工具（`browser_navigate / click / type / screenshot / get_page_text`），SDK `packages/sdk/src/create-agent.ts:200,357,409` 接受 `browserAdapter` 注入、声明 `browser:control` 能力并注册工具，但 **Node runtime 没有提供任何实现**。reference CLI 也无法提供。
 
 **修复方案**: 在 `runtimes/node/src/browser.ts` 中实现 `createNodeBrowserAdapter()`，底层用 Playwright 或 Puppeteer。声明 `browser:control` 能力。Playwright 作为可选依赖（peerDependency）。
 
@@ -62,7 +62,7 @@
 
 **文件**: `packages/runtimes/node/src/` 下缺少 `lsp.ts`
 
-**现状**: `@agent-core/tools-code`（`lsp-client.ts` / `lsp-tools.ts`）定义了 `LspClient` 接口 + 5 个工具（`lsp_definition / references / rename / diagnostics / hover`），SDK `create-agent.ts:197,354,400` 接受 `lspClient` 注入并声明 `lsp:query` 能力。但 Node runtime 没有 LSP 客户端实现。
+**现状**: `@volto/tools-code`（`lsp-client.ts` / `lsp-tools.ts`）定义了 `LspClient` 接口 + 5 个工具（`lsp_definition / references / rename / diagnostics / hover`），SDK `create-agent.ts:197,354,400` 接受 `lspClient` 注入并声明 `lsp:query` 能力。但 Node runtime 没有 LSP 客户端实现。
 
 **修复方案**: 在 `runtimes/node/src/lsp.ts` 中实现 `createNodeLspClient()`，通过 stdio 启动 language server 进程并走 LSP 协议通信。依赖 `vscode-languageserver-protocol` 或类似库。
 
@@ -74,7 +74,7 @@
 
 **文件**: `packages/runtimes/node/src/` 下缺少 `database.ts`
 
-**现状**: `@agent-core/tools-data` 定义了 `DatabaseAdapter` 接口 + `db_query`/`db_exec` 工具，SDK `create-agent.ts:203,360,418` 接受 `dbAdapter` 注入、声明 `db:query`/`db:exec` 能力并注册工具。Plan 005 Phase 6 文档说实现 SQLite 参考实现，但实际只落了接口和 mock 测试（`packages/tools/data/src/__tests__/db-tools.test.ts`）。
+**现状**: `@volto/tools-data` 定义了 `DatabaseAdapter` 接口 + `db_query`/`db_exec` 工具，SDK `create-agent.ts:203,360,418` 接受 `dbAdapter` 注入、声明 `db:query`/`db:exec` 能力并注册工具。Plan 005 Phase 6 文档说实现 SQLite 参考实现，但实际只落了接口和 mock 测试（`packages/tools/data/src/__tests__/db-tools.test.ts`）。
 
 **修复方案**: 在 `runtimes/node/src/database.ts` 中实现 `createSqliteDatabaseAdapter()`，底层用 `better-sqlite3` 或 `sql.js`。连接串经 `Secrets` 端口解析。
 
@@ -86,7 +86,7 @@
 
 **文件**: `packages/runtimes/node/src/` 下缺少 `document-parser.ts`
 
-**现状**: `@agent-core/tools-document` 定义了 `DocumentParserAdapter` 接口 + `read_document` 工具，SDK `create-agent.ts:206,364,424` 接受 `documentParser` 注入、声明 `document:parse` 能力并注册工具。Plan 005 Phase 7 文档说实现 pdf-parse/mammoth/xlsx 等参考实现，但实际只落了接口和 mock 测试（`packages/tools/document/src/__tests__/read-document.test.ts`）。
+**现状**: `@volto/tools-document` 定义了 `DocumentParserAdapter` 接口 + `read_document` 工具，SDK `create-agent.ts:206,364,424` 接受 `documentParser` 注入、声明 `document:parse` 能力并注册工具。Plan 005 Phase 7 文档说实现 pdf-parse/mammoth/xlsx 等参考实现，但实际只落了接口和 mock 测试（`packages/tools/document/src/__tests__/read-document.test.ts`）。
 
 **修复方案**: 在 `runtimes/node/src/document-parser.ts` 中实现 `createNodeDocumentParser()`，按 MIME 类型分发到对应解析库。各解析库作为可选 peerDependencies。
 
@@ -171,7 +171,7 @@
 
 **问题**: Plan 005 Phase 7 文档约定创建 `read-document.ts` 存放工具实现，但 `DocumentParserAdapter` 接口 + `createReadDocumentTool` 全部写在 `index.ts`。功能正常，仅不符约定。
 
-> 📌 **补充**：`@agent-core/tools-browser` 同样把 5 个工具全部塞在 `index.ts`（无拆分），而 `tools-code` 则拆成了 `lsp-client.ts` / `lsp-tools.ts`。即"按职责拆文件"这一约定在仓库内本就执行不一致。修 L1 时建议顺带统一 `tools-browser`，或干脆将该约定降级为非强制建议。
+> 📌 **补充**：`@volto/tools-browser` 同样把 5 个工具全部塞在 `index.ts`（无拆分），而 `tools-code` 则拆成了 `lsp-client.ts` / `lsp-tools.ts`。即"按职责拆文件"这一约定在仓库内本就执行不一致。修 L1 时建议顺带统一 `tools-browser`，或干脆将该约定降级为非强制建议。
 
 **修复**: 将 `createReadDocumentTool` 和 `DocumentParserAdapter` 接口拆到 `read-document.ts`，`index.ts` 只做 re-export。
 

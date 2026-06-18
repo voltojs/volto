@@ -1,14 +1,14 @@
 /**
- * @agent-core/tools-schedule — scheduling tools for timed/delayed/background tasks.
+ * @volto/tools-schedule — scheduling tools for timed/delayed/background tasks.
  *
  * Provides `createScheduleTool` and `createCancelScheduleTool` which
  * consume the M8 Scheduler port for timed operations.
  */
 
-import type { Scheduler } from "@agent-core/core";
+import type { Scheduler } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
-import type { Tool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
+import type { Tool } from "@volto/tools-common";
 
 const CAP_SCHEDULER = "scheduler:exec";
 

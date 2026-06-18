@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition, StepContext } from "@agent-core/core";
-import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@agent-core/core";
-import { createBashTool, CAP_SHELL_EXEC } from "@agent-core/tools-shell";
+import type { ToolDefinition, StepContext } from "@volto/core";
+import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@volto/core";
+import { createBashTool, CAP_SHELL_EXEC } from "@volto/tools-shell";
 import { createRunner } from "../runner.js";
 import { createShellToolExecutor } from "../shell-tool-executor.js";
 import { createAutoAllowGate } from "../approval-gate.js";
-import { createDefaultPermissionConfig } from "@agent-core/core";
+import { createDefaultPermissionConfig } from "@volto/core";
 
 const bashDef: ToolDefinition = createBashTool({ async *exec() { yield { type: "exit", code: 0 }; } }).definition;
 const ctx: StepContext = { tools: [bashDef], model: "test" };

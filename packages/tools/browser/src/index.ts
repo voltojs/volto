@@ -1,5 +1,5 @@
 /**
- * @agent-core/tools-browser — browser/computer-use tools
+ * @volto/tools-browser — browser/computer-use tools
  *
  * BrowserAdapter provides the runtime capabilities; these tools
  * wrap it with defineTool and capability gating.

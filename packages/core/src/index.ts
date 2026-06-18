@@ -1,4 +1,4 @@
-// @agent-core/core — pure functional kernel, zero dependencies
+// @volto/core — pure functional kernel, zero dependencies
 
 export const VERSION = "0.0.1";
 

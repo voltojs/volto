@@ -11,7 +11,7 @@ import type {
   TopologySpec,
   TopologyNodeSpec,
   TopologyResult,
-} from "@agent-core/core";
+} from "@volto/core";
 import type {
   CreateAgentOptions,
 } from "./create-agent.js";
@@ -21,20 +21,20 @@ import type {
   EventSink,
   ReducerState,
   Message,
-} from "@agent-core/core";
-import type { Tool } from "@agent-core/tools-common";
-import { createRunner } from "@agent-core/runtime-node";
-import type { Runner, RunnerOptions, ToolExecutor } from "@agent-core/runtime-node";
-import { createAutoAllowGate } from "@agent-core/runtime-node";
-import { createInitialState } from "@agent-core/core";
+} from "@volto/core";
+import type { Tool } from "@volto/tools-common";
+import { createRunner } from "@volto/runtime-node";
+import type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
+import { createAutoAllowGate } from "@volto/runtime-node";
+import { createInitialState } from "@volto/core";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
   createNetworkToolExecutor,
-} from "@agent-core/runtime-node";
-import { FS_TOOL_NAMES } from "@agent-core/tools-fs";
-import { SHELL_TOOL_NAMES } from "@agent-core/tools-shell";
-import { NETWORK_TOOL_NAMES } from "@agent-core/tools-web";
+} from "@volto/runtime-node";
+import { FS_TOOL_NAMES } from "@volto/tools-fs";
+import { SHELL_TOOL_NAMES } from "@volto/tools-shell";
+import { NETWORK_TOOL_NAMES } from "@volto/tools-web";
 
 export interface OrchestratorOptions {
   /** The topology spec to execute */

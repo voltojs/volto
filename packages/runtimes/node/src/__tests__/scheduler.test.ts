@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createNodeScheduler } from "@agent-core/runtime-node";
-import { createSeededClock } from "@agent-core/eval";
+import { createNodeScheduler } from "@volto/runtime-node";
+import { createSeededClock } from "@volto/eval";
 
 describe("createNodeScheduler", () => {
   describe("schedule + cancel", () => {

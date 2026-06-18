@@ -3,7 +3,7 @@
 > **Status**: Draft
 > **Owner**: TBD
 > **Created**: 2026-06-12
-> **Depends on**: Plan 002(M8 已在 `core/src/ports.ts` 立下 `Sandbox` 端口契约);Plan 005(M11 Phase 2 声称交付 Sandbox adapter,实为占位,本 Plan 补全);架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)
+> **Depends on**: Plan 002(M8 已在 `core/src/ports.ts` 立下 `Sandbox` 端口契约);Plan 005(M11 Phase 2 声称交付 Sandbox adapter,实为占位,本 Plan 补全);架构设计 [docs/pure-volto.md](../docs/pure-volto.md)
 > **Target area**: `packages/runtimes/node/src/{sandbox,sandbox-proxy,shell}.ts`、`packages/sdk/src/{create-agent,defaults}.ts`、`apps/reference-cli/src/main.ts`、`packages/tools/shell/`(仅消费,不改签名)、`packages/core/`(**零改动**,仅复用既有 `Sandbox` 端口类型)
 > **平台范围**: macOS(Seatbelt)+ Linux(bubblewrap + seccomp + egress proxy);Windows 不在范围
 
@@ -178,10 +178,10 @@ interface SandboxConfig {
 - [x] 声明 `createSandboxedShell(realShell, config): Shell` 函数签名(空实现 / 直接委托 realShell,行为暂等同裸 shell)
 - [x] 把 `buildSeatbeltProfile` 抽成接受 `SandboxConfig` 的纯函数签名(实现留 Phase 1);预留 `buildBwrapArgs(config)` 签名(实现留 Phase 3)
 - [x] 删除/改写 `sandbox.ts:124` 误导性的 `unshare --net` "landlock" 分支,顶部注释标注 bubblewrap 实现见 Phase 3
-- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
+- [x] `pnpm turbo run typecheck lint test --filter @volto/runtime-node` 通过
 
 **Acceptance Criteria**:
-1. `SandboxConfig` / `SandboxBackend` / `createSandboxedShell` 类型可从 `@agent-core/runtime-node` 导入,typecheck 通过。
+1. `SandboxConfig` / `SandboxBackend` / `createSandboxedShell` 类型可从 `@volto/runtime-node` 导入,typecheck 通过。
 2. `detectBackend()` 在 darwin 返回 `seatbelt`、linux 返回 `bubblewrap`。
 3. 未配置沙箱时所有现有测试绿,无行为变更。
 
@@ -207,7 +207,7 @@ interface SandboxConfig {
 - [x] 非 macOS 平台:`createSandboxedShell` 委托原样 + 一次性 `console.warn` 告警(除非 `failIfUnavailable` 见 Phase 2)
 - [x] `create-agent.ts`:新增 `sandboxConfig?: SandboxConfig` 选项;在 `createBashTool(opts.shell)` 处改为 `createBashTool(opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)`
 - [x] denial 归一:装饰器透传 ShellEvent;不抛异常(沙箱进程自身 spawn 失败也归一为 exit + stderr)
-- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node --filter @agent-core/sdk` 通过
+- [x] `pnpm turbo run typecheck lint test --filter @volto/runtime-node --filter @volto/sdk` 通过
 
 **Acceptance Criteria**:
 1. 在 darwin 上,`sandboxConfig.mode = "workspace-write"` 时,bash 执行 `echo x > /tmp/outside_$$.txt`(cwd 外)被拒,exit 非零,stderr 含权限拒绝信息。
@@ -238,7 +238,7 @@ interface SandboxConfig {
 - [x] `failIfUnavailable: true`:非 macOS 或 `sandbox-exec` 不存在时,`createSandboxedShell` 抛出构造期错误(在 SDK 装配阶段,非主循环内)
 - [x] 单测:三档 mode 各自的 profile 快照测试;overlay 拒绝 `.git` 写;路径转义注入用例(命令含 `"` / `$` 不破坏 profile)
 - [x] 重放测试:同一越界命令两次执行,归一的 `isError` `modelContent` 逐字节一致(profile 确定性 + shell events 无时间戳/随机)
-- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
+- [x] `pnpm turbo run typecheck lint test --filter @volto/runtime-node` 通过
 
 **Acceptance Criteria**:
 1. `read-only` mode 下任何业务写被拒,读成功。
@@ -267,7 +267,7 @@ interface SandboxConfig {
 - [x] `createSandboxedShell` Linux 分支:`bwrap <args> -- /bin/bash -c <escaped cmd>` 委托 realShell;复用 Phase 2 的三档 mode 翻译
 - [x] bwrap 缺失 / user namespace 被阻止:启动期探测,按 `failIfUnavailable` 决定告警回退或硬错误
 - [x] 单测(Linux only,`process.platform !== "linux"` 时 skip):cwd 外写被拒、cwd 内写成功、`.git` overlay 被拒、`--unshare-net` 下 curl 失败、特殊字符命令不逃逸
-- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node` 通过
+- [x] `pnpm turbo run typecheck lint test --filter @volto/runtime-node` 通过
 
 **Acceptance Criteria**:
 1. Linux 上 `workspace-write` 时 cwd 外写被拒、cwd 内写成功(与 Phase 1 的 macOS 行为对等)。
@@ -299,7 +299,7 @@ interface SandboxConfig {
 - [x] 三态语义落地:`enabled=false`→断网不起 proxy;`enabled=true`+空 `allowedHosts`→全放行;`enabled=true`+非空→proxy 白名单
 - [x] `socat` 缺失(Linux):按 `failIfUnavailable` 降级为"断网/全放行"二态 + 告警
 - [x] 单测:allowlist 命中放行、未命中拒绝;allowlist 校验为确定性纯逻辑(可重放);proxy 生命周期测试
-- [x] `pnpm turbo run typecheck lint test --filter @agent-core/runtime-node`(及受影响包)通过
+- [x] `pnpm turbo run typecheck lint test --filter @volto/runtime-node`(及受影响包)通过
 
 **Acceptance Criteria**:
 1. `network={enabled:true, allowedHosts:["example.com"]}` 时,bash `curl https://example.com` 成功、`curl https://evil.com` 被拒(403 或连接失败)。
@@ -320,12 +320,12 @@ interface SandboxConfig {
 
 **Files covered**:
 - `apps/reference-cli/src/main.ts`(`AGENT_SANDBOX_MODE` + `AGENT_SANDBOX_ALLOW_HOSTS` 环境变量 → `sandboxConfig`)
-- `docs/pure-agent-core.md`(三层控制模型 + 沙箱 ports + 平台后端矩阵)
+- `docs/pure-volto.md`(三层控制模型 + 沙箱 ports + 平台后端矩阵)
 - `plans/005-m11-safety-isolation-reliability.md`(标注 Phase 2 占位实现已由 Plan 009 补全)
 
 **Tasks**:
 - [x] `main.ts`:读 `AGENT_SANDBOX_MODE`(三档,缺省不启用沙箱)+ `AGENT_SANDBOX_ALLOW_HOSTS`(逗号分隔 → `network.allowedHosts`)构造 `sandboxConfig` 传入 `createAgent`
-- [x] `docs/pure-agent-core.md` 增"三层正交控制(门控/权限/沙箱)"小节 + 平台后端矩阵(macOS seatbelt / Linux bubblewrap+seccomp+proxy / 其余 none)
+- [x] `docs/pure-volto.md` 增"三层正交控制(门控/权限/沙箱)"小节 + 平台后端矩阵(macOS seatbelt / Linux bubblewrap+seccomp+proxy / 其余 none)
 - [x] 在 Plan 005 §Phase 2 处追加备注:占位实现缺口与本 Plan 的补全关系
 - [x] 手工验收(darwin + 一台 Linux):`AGENT_SANDBOX_MODE=workspace-write` 跑 CLI,令模型尝试写 cwd 外文件 / curl 未授权 host,观察被拒且对话继续
 - [x] `pnpm turbo run typecheck lint test`(全量)通过
@@ -334,7 +334,7 @@ interface SandboxConfig {
 1. macOS 与 Linux 上 `AGENT_SANDBOX_MODE=workspace-write ./reference-cli`,模型越界操作被拒并收到 isError 回喂,对话不崩。
 2. 配 `AGENT_SANDBOX_ALLOW_HOSTS` 时仅清单内 host 可达。
 3. 不设 `AGENT_SANDBOX_MODE` 时 CLI 行为与今日一致。
-4. `docs/pure-agent-core.md` 含三层模型说明 + 平台矩阵;Plan 005 已标注补全关系。
+4. `docs/pure-volto.md` 含三层模型说明 + 平台矩阵;Plan 005 已标注补全关系。
 
 <!-- Backfill after execution:
 **Reviewed**: 2026-06-12 by reviewer

@@ -3,15 +3,15 @@
  * Reuses the same pattern as headless-server.
  */
 
-import { createAgent } from "@agent-core/sdk";
-import { createOpenAIModelPort } from "@agent-core/provider-openai";
+import { createAgent } from "@volto/sdk";
+import { createOpenAIModelPort } from "@volto/provider-openai";
 import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
-} from "@agent-core/runtime-node";
-import { createStore as createSqliteStore } from "@agent-core/store-sqlite";
-import type { ModelPort, EventSink } from "@agent-core/core";
+} from "@volto/runtime-node";
+import { createStore as createSqliteStore } from "@volto/store-sqlite";
+import type { ModelPort, EventSink } from "@volto/core";
 
 export interface WiringOptions {
   modelPort?: ModelPort;

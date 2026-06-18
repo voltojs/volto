@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem } from "@agent-core/core";
+import type { FileSystem } from "@volto/core";
 import { createApplyPatchTool } from "../apply-patch.js";
 import { createMultiEditTool } from "../multi-edit.js";
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ApprovalGate, EventSink } from "@agent-core/core";
+import type { ApprovalGate, EventSink } from "@volto/core";
 import { createAskUserTool } from "../index.js";
 
 function createMockApprovalGate(decision: "allow" | "deny"): ApprovalGate {

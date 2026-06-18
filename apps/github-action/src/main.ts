@@ -4,13 +4,13 @@
  */
 
 import * as fs from "node:fs";
-import { createAgent } from "@agent-core/sdk";
-import { createOpenAIModelPort } from "@agent-core/provider-openai";
+import { createAgent } from "@volto/sdk";
+import { createOpenAIModelPort } from "@volto/provider-openai";
 import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
-} from "@agent-core/runtime-node";
+} from "@volto/runtime-node";
 
 function getInput(name: string): string {
   // GitHub Actions inputs are accessed via INPUT_<NAME> environment variables

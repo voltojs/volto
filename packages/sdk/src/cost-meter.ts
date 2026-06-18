@@ -6,7 +6,7 @@
  * budget enforcement (that's M8 Phase 4's responsibility).
  */
 
-import type { ModelEvent, EventSink, Telemetry } from "@agent-core/core";
+import type { ModelEvent, EventSink, Telemetry } from "@volto/core";
 
 export interface PricingEntry {
   inputPer1M: number;

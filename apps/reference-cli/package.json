@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/reference-cli",
+  "name": "@volto/reference-cli",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,11 +14,11 @@
     "dev:strict": "node --env-file=.env dist/main.js"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/sdk": "workspace:*",
-    "@agent-core/provider-openai": "workspace:*",
-    "@agent-core/runtime-node": "workspace:*",
-    "@agent-core/store-file": "workspace:*",
-    "@agent-core/tools-plan": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/sdk": "workspace:*",
+    "@volto/provider-openai": "workspace:*",
+    "@volto/runtime-node": "workspace:*",
+    "@volto/store-file": "workspace:*",
+    "@volto/tools-plan": "workspace:*"
   }
 }

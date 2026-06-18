@@ -1,6 +1,6 @@
-import type { Shell, ToolResult } from "@agent-core/core";
+import type { Shell, ToolResult } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const OUTPUT_LIMIT = 100_000;

@@ -8,7 +8,7 @@
  * for subsequent calls. Call `close()` to release resources.
  */
 
-import type { BrowserAdapter } from "@agent-core/tools-browser";
+import type { BrowserAdapter } from "@volto/tools-browser";
 
 export interface NodeBrowserOptions {
   /** Launch options forwarded to Playwright's browserType.launch() */

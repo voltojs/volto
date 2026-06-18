@@ -9,7 +9,7 @@
  * output doesn't intermix opaquely with the main agent's stream.
  */
 
-import type { EventSink } from "@agent-core/core";
+import type { EventSink } from "@volto/core";
 
 export interface RenderTargets {
   /** Called with text destined for stdout (main visible output). */

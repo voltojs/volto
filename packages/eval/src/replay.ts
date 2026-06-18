@@ -6,9 +6,9 @@
  * Returns the first divergence point with a structured diff.
  */
 
-import { step, createInitialState } from "@agent-core/core";
-import type { AgentInput, AgentState } from "@agent-core/core";
-import type { StepContext, ReducerState } from "@agent-core/core";
+import { step, createInitialState } from "@volto/core";
+import type { AgentInput, AgentState } from "@volto/core";
+import type { StepContext, ReducerState } from "@volto/core";
 import type { Trajectory, ExpectedStep } from "./trajectory.js";
 
 /** Result of a single step replay */

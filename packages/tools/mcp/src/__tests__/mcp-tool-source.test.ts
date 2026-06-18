@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { McpToolSource, parseMcpToolName, isMcpToolName } from "../mcp-tool-source.js";
-import type { ToolSource } from "@agent-core/core";
+import type { ToolSource } from "@volto/core";
 
 /**
  * Mock transport that returns predetermined tools.

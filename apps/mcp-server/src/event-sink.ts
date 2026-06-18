@@ -3,7 +3,7 @@
  * Converts internal EventSink.emit() to MCP notifications.
  */
 
-import type { EventSink } from "@agent-core/core";
+import type { EventSink } from "@volto/core";
 
 export function createMcpEventSink(
   notify: (notification: string, params: Record<string, unknown>) => void,

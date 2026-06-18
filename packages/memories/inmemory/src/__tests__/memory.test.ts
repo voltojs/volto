@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createInMemoryMemoryStore } from "../memory.js";
-import type { MemoryEntry } from "@agent-core/core";
+import type { MemoryEntry } from "@volto/core";
 
 function entry(text: string, overrides?: Partial<MemoryEntry>): MemoryEntry {
   return {

@@ -13,7 +13,7 @@ import type {
   LspClient,
   LspLocation,
   LspReference,
-} from "@agent-core/tools-code";
+} from "@volto/tools-code";
 
 export interface NodeLspClientOptions {
   /** Language server command (e.g. "typescript-language-server") */

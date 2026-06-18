@@ -3,7 +3,7 @@
 > **Status**: Completed
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M11（WS-6 安全与执行隔离 + WS-7 可靠性与评测 + 横切调度/后台）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8 已定义 9 个纯类型端口契约：Sandbox / Secrets / PolicyEngine / Scheduler 等）；Plan 001（M1–M7 已交付）；Plan 004 Phase 6 推迟项（db_query/db_exec + 文件格式工具）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M11（WS-6 安全与执行隔离 + WS-7 可靠性与评测 + 横切调度/后台）；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 002（M8 已定义 9 个纯类型端口契约：Sandbox / Secrets / PolicyEngine / Scheduler 等）；Plan 001（M1–M7 已交付）；Plan 004 Phase 6 推迟项（db_query/db_exec + 文件格式工具）
 > **Target area**: `packages/core/src/{permission-policy,reducer,state,input,error-taxonomy,guardrails,self-correct,index}.ts`、`packages/runtimes/node/src/{runner,shell,sandbox,scheduler,secrets,policy-engine}.ts`、`packages/tools/{shell,web,schedule}`、`packages/tools/data/src/`（db 工具扩展）、`packages/tools/document/`（新增文件格式包）、`packages/sdk/src/{create-agent,defaults}.ts`、`packages/eval/*`（新增 eval harness 包）
 
 ## 1. 背景
@@ -38,7 +38,7 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 | secrets 作用域 | 无；M8 立 `Secrets` 端口类型 | `Secrets` adapter + 作用域绑定（按工具/会话限定可解析 ref），凭据不进 `messages` / 不落 checkpoint |
 | 错误 taxonomy | `model_error.retriable?` 二分；工具错误 `isError` 回喂 | core 增错误分类纯函数（瞬时/永久/限流/越权）；Runner 按类做指数退避 + 熔断；归一回喂不抛 |
 | 自纠回环 | 无（仅 M8 循环检测拦"重复失败"） | 校验-修复 loop：可声明的校验器对工具结果/产物校验失败时，向模型回喂结构化修复提示（纯决策可重放） |
-| eval / 模拟 | 仅包内零散重放测试 | 新增 `@agent-core/eval`：录制轨迹格式 + 重放 runner（mock 端口）+ 断言 (state, effects) 一致 + 首个分歧点报告；模拟环境（确定性 mock 端口套件） |
+| eval / 模拟 | 仅包内零散重放测试 | 新增 `@volto/eval`：录制轨迹格式 + 重放 runner（mock 端口）+ 断言 (state, effects) 一致 + 首个分歧点报告；模拟环境（确定性 mock 端口套件） |
 | 调度/后台 | 无；M8 立 `Scheduler` 端口类型（`schedule`/`cancel`/`sleep`） | `Scheduler` Node adapter + 调度工具（创建定时/周期/后台任务）；时间经 `Scheduler`/`Clock` 注入，重放确定 |
 
 ### 1.3 设计目标
@@ -58,7 +58,7 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 3. **Sandbox adapter（实现 M8 端口）**：Node 沙箱执行 runtime（macOS seatbelt / Linux landlock / 容器策略可配），shell/web 工具经 Sandbox；写越界 / 网络越权被 adapter 拦截并归一 `isError` 回喂不 crash。
 4. **Guardrails + egress + secrets 作用域**：纯函数 guardrail 标注/隔离不可信内容 + PII 脱敏；egress allow/deny 策略；Secrets adapter + 作用域绑定（凭据不进 `messages` / 不落 checkpoint）。
 5. **错误/重试 taxonomy + 自纠回环**：core 错误分类纯函数（瞬时/永久/限流/越权）；Runner 指数退避 + 熔断（计时在 Runner）；校验-修复自纠 loop（纯决策回喂修复提示）。
-6. **重放式 eval harness + 模拟环境**：新增 `@agent-core/eval` 包——轨迹录制格式 + 重放 runner + (state, effects) 一致断言 + **首个分歧点**报告；确定性 mock 端口套件构成模拟环境。
+6. **重放式 eval harness + 模拟环境**：新增 `@volto/eval` 包——轨迹录制格式 + 重放 runner + (state, effects) 一致断言 + **首个分歧点**报告；确定性 mock 端口套件构成模拟环境。
 7. **调度/后台**：`Scheduler` Node adapter + 调度工具（创建定时/周期/后台任务），时间经端口注入，重放确定。
 8. **数据库工具（Plan 004 推迟项）**：`db_query`（`READ_ONLY`，`db:query`）/ `db_exec`（`WRITE_HIGH`，`db:exec`），经 Database adapter，连接串经 `Secrets` 端口解析；缺 adapter 时自动从可见集摘除。
 9. **文件格式工具（Plan 004 推迟项）**：`read_document` 工具（PDF/docx/xlsx/image → 结构化文本 / image block），经 document-parser adapter，缺 adapter 时不可见。
@@ -122,9 +122,9 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - **横切调度/后台**：`Scheduler` 端口类型归 M8；M11 owns 其 **Node adapter 实现 + 调度工具**（M10 期亦可落部分调度工具，本 Plan 负责把 Scheduler adapter 与重放纪律收口）。
 - **权限：扩展不分裂**：本 Plan 扩展 core 既有 `PermissionPolicy`（增模式/规则集），不另起炉灶；`PolicyEngine` 是 M8 端口的实现，与 core 决策组合而非替代。
 
-### 4.7 eval harness 落点：独立包 `@agent-core/eval`
+### 4.7 eval harness 落点：独立包 `@volto/eval`
 
-**决策**：新增 `packages/eval`（`@agent-core/eval`），依赖 `@agent-core/core`（值导入纯函数 `step` 等，属 functional-core 执行者，合规）+ 测试期 mock 端口（复用 core 的 `mock-model-port` / `char-tokenizer`）。提供：① 轨迹录制格式（JSON：`{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`）；② 重放 runner（纯喂 `step`，逐步 deep-equal）；③ **首个分歧点**报告（首个 (state, effects) 不一致的 step index + diff）；④ 模拟环境（确定性 mock 端口套件 + seeded Clock/Id/Random）。
+**决策**：新增 `packages/eval`（`@volto/eval`），依赖 `@volto/core`（值导入纯函数 `step` 等，属 functional-core 执行者，合规）+ 测试期 mock 端口（复用 core 的 `mock-model-port` / `char-tokenizer`）。提供：① 轨迹录制格式（JSON：`{ stepContext, inputs: AgentInput[], expected: Array<{ state, effects }> }`）；② 重放 runner（纯喂 `step`，逐步 deep-equal）；③ **首个分歧点**报告（首个 (state, effects) 不一致的 step index + diff）；④ 模拟环境（确定性 mock 端口套件 + seeded Clock/Id/Random）。
 
 **理由**：eval 是 SDK 之外的工具型包，独立于运行时副作用；依赖单向向下（`core ← eval`）合规。首个分歧点是 roadmap M11 验收硬要求，作为重放断言的标准输出。
 
@@ -259,7 +259,7 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 
 ### Phase 4: 重放式 eval / 轨迹回归 harness + 模拟环境
 
-**Goal**: 新增 `@agent-core/eval` 包——轨迹录制格式 + 重放 runner + (state, effects) 一致断言 + **首个分歧点**报告 + 确定性 mock 端口模拟环境。
+**Goal**: 新增 `@volto/eval` 包——轨迹录制格式 + 重放 runner + (state, effects) 一致断言 + **首个分歧点**报告 + 确定性 mock 端口模拟环境。
 
 **Files covered**:
 - `packages/eval/`（新增包：`package.json` / `tsconfig` / `src/`）
@@ -273,12 +273,12 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 - [x] **首个分歧点**报告：返回首个 (state, effects) 不一致的 step index + 结构化 diff（roadmap M11 验收硬要求）
 - [x] 模拟环境：确定性 mock 端口套件（复用 core `mock-model-port` / `char-tokenizer` + seeded `Clock`/`Id`/`Random`），让一段会话可离线重放
 - [ ] 录制一条覆盖"工具调用 + 权限 + 错误回喂"的样例轨迹，纳入回归 — **推迟至宿主 wiring 后进行**
-- [x] 依赖校验：`@agent-core/eval` 仅依赖 `@agent-core/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
+- [x] 依赖校验：`@volto/eval` 仅依赖 `@volto/core`（值导入纯函数合规），不引运行时副作用；`check-core-zero-deps` 仍通过（core 未被污染）
 
 **Acceptance Criteria**:
 1. **eval harness：录制的会话轨迹对新核心版本重放，断言 (state, effects) 一致；失败时给出首个分歧点**（step index + diff）。
 2. 模拟环境用确定性 mock 端口可离线跑完一段会话，无真实 I/O。
-3. 样例轨迹纳入回归门；`@agent-core/eval` 依赖单向向下、core 零依赖不破。
+3. 样例轨迹纳入回归门；`@volto/eval` 依赖单向向下、core 零依赖不破。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
 **Commit**: <pending — Phase 4 commit>
@@ -291,13 +291,13 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 
 **Files covered**:
 - `packages/runtimes/node/src/scheduler.ts`（新增：`createNodeScheduler(clock)`，实现 M8 `Scheduler`）
-- `packages/tools/schedule/`（新增包 `@agent-core/tools-schedule`：schedule 工具，zod schema）
+- `packages/tools/schedule/`（新增包 `@volto/tools-schedule`：schedule 工具，zod schema）
 - `packages/sdk/src/{create-agent,defaults}.ts`（可选注入 scheduler）
 - 对应 `__tests__/`
 
 **Tasks**:
 - [x] `createNodeScheduler(clock)`：实现 `schedule(whenMs, ref)` / `cancel(id)` / `sleep(ms)`；定时触发经 `Clock` 基准，触发后把"唤醒"归一为 input 回喂主循环（不在 reducer 读时间）
-- [x] `@agent-core/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
+- [x] `@volto/tools-schedule`：schedule 工具（创建定时/周期/后台任务，zod schema → JSONSchema），经能力门控（缺 Scheduler adapter 时工具自动从可见集摘除，复用 ToolRouter）
 - [x] 风险/权限：调度类工具按 riskTier 归类（创建后台任务属 `WRITE_*`），受 Phase 1 权限模式约束
 - [x] 单测:用 seeded Clock 调度→触发→唤醒回喂，重放确定；cancel 生效；缺 adapter 工具不可见
 - [ ] 重放:含调度/唤醒的 input 序列两次运行 (state, effects) deep-equal（时间经端口注入）— **推迟至宿主 wiring 后进行**
@@ -348,7 +348,7 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 **Goal**: 落地 `read_document` 工具，将 PDF/docx/xlsx/image 文件归一为结构化文本或 image block；经 `DocumentParserAdapter`；缺 adapter 时不可见。此为 Plan 004 Phase 6 推迟项。
 
 **Files covered**:
-- `packages/tools/document/`（新增 `@agent-core/tools-document` 包）
+- `packages/tools/document/`（新增 `@volto/tools-document` 包）
 - `packages/tools/document/src/index.ts`（工具定义 + `DocumentParserAdapter` 接口）
 - `packages/tools/document/src/read-document.ts`（read_document 工具）
 - `packages/runtimes/node/src/document-parser.ts`（参考实现：`pdf-parse` + `mammoth` + `xlsx` + sharp）
@@ -367,7 +367,7 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
 1. `read_document` 将 PDF/docx/xlsx/image 文件归一为结构化文本或 image block（`modelContent` 人类可读 + `displayMetadata` 结构化元数据）。
 2. 缺 `DocumentParserAdapter` 时 `read_document` 从可见集摘除。
 3. 不支持格式 / 解析失败归一为 `isError: true` 回喂，不抛异常。
-4. 新包 `@agent-core/tools-document` 依赖单向向下（type-import only 消费 core）；`check-core-zero-deps` 仍通过。
+4. 新包 `@volto/tools-document` 依赖单向向下（type-import only 消费 core）；`check-core-zero-deps` 仍通过。
 
 **Reviewed**: 2026-06-10 by reviewer (PASS)
 **Commit**: 6de8b1c feat(plan-005): phase 7 — 文件格式工具（Plan 004 推迟项 — read_document）
@@ -557,13 +557,13 @@ M1–M7 交付了 PermissionPolicy（allow/deny/ask 三态纯决策）+ HITL 审
   1. 运行 `node scripts/check-core-zero-deps.mjs`
   2. 断言输出 "PASS"
 - **Paths**: `scripts/check-core-zero-deps.mjs`
-- **Expected**: `@agent-core/core` 的 dependencies + peerDependencies 均为空
+- **Expected**: `@volto/core` 的 dependencies + peerDependencies 均为空
 
 ### TC-017: 全量 typecheck + test 通过
 
 - **Preconditions**: 所有 Phase 完成
 - **Steps**:
-  1. 运行 `pnpm turbo run typecheck test --filter @agent-core/core --filter @agent-core/runtime-node --filter @agent-core/sdk --filter @agent-core/eval --filter @agent-core/tools-data --filter @agent-core/tools-document --filter @agent-core/tools-schedule`
+  1. 运行 `pnpm turbo run typecheck test --filter @volto/core --filter @volto/runtime-node --filter @volto/sdk --filter @volto/eval --filter @volto/tools-data --filter @volto/tools-document --filter @volto/tools-schedule`
   2. 断言所有 tasks successful
 - **Paths**: turbo pipeline
 - **Expected**: 31+ turbo 任务全部成功，0 失败

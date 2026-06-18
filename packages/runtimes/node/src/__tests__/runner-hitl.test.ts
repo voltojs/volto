@@ -7,7 +7,7 @@ import type {
   SessionSnapshot,
   SessionStore,
   ApprovalGate,
-} from "@agent-core/core";
+} from "@volto/core";
 import {
   createMockModelPort,
   toolUseStart,
@@ -15,7 +15,7 @@ import {
   modelDone,
   textDelta,
   createDefaultPermissionConfig,
-} from "@agent-core/core";
+} from "@volto/core";
 import { createRunner } from "../runner.js";
 import { createAutoAllowGate } from "../approval-gate.js";
 

@@ -1,4 +1,4 @@
-// @agent-core/tools-mcp — MCP client implementing ToolSource port
+// @volto/tools-mcp — MCP client implementing ToolSource port
 
 export { McpToolSource, parseMcpToolName, isMcpToolName } from "./mcp-tool-source.js";
 export type { McpServerConfig, McpToolSourceOptions } from "./mcp-tool-source.js";

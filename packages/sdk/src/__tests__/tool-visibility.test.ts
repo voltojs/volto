@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@agent-core/core";
-import type { ToolDefinition, ToolResult } from "@agent-core/core";
+import { createMockModelPort, textScript } from "@volto/core";
+import type { ToolDefinition, ToolResult } from "@volto/core";
 
 function makeTool(name: string): ToolDefinition {
   return {

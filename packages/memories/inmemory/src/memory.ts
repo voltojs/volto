@@ -10,7 +10,7 @@
  * Semantic layer requires an `Embedder` for vector similarity search.
  */
 
-import type { MemoryStore, MemoryEntry, Embedder } from "@agent-core/core";
+import type { MemoryStore, MemoryEntry, Embedder } from "@volto/core";
 
 export type MemoryTier = "working" | "episodic" | "semantic";
 

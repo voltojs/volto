@@ -4,8 +4,8 @@ import {
   textDelta,
   modelDone,
   modelError,
-} from "@agent-core/core";
-import type { ModelPort, ModelEvent } from "@agent-core/core";
+} from "@volto/core";
+import type { ModelPort, ModelEvent } from "@volto/core";
 
 /**
  * A model port whose stream yields events with explicit awaits between them

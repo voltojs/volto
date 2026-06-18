@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/ide-extension",
+  "name": "@volto/ide-extension",
   "version": "0.0.1",
   "private": true,
   "type": "module",

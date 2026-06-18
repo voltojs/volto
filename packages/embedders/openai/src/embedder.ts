@@ -6,7 +6,7 @@
  * Errors are normalized (no exceptions thrown).
  */
 
-import type { Embedder } from "@agent-core/core";
+import type { Embedder } from "@volto/core";
 
 export interface OpenAIEmbedderOptions {
   /** Base URL of the OpenAI-compatible API (default: https://api.openai.com) */

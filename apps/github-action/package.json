@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/github-action",
+  "name": "@volto/github-action",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,9 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/sdk": "workspace:*",
-    "@agent-core/provider-openai": "workspace:*",
-    "@agent-core/runtime-node": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/sdk": "workspace:*",
+    "@volto/provider-openai": "workspace:*",
+    "@volto/runtime-node": "workspace:*"
   }
 }

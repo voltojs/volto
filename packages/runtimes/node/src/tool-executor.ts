@@ -1,6 +1,6 @@
-import type { PendingToolCall, ToolResult, FileSystem } from "@agent-core/core";
-import { evaluateEditGate, evaluateOverwriteGate } from "@agent-core/core";
-import type { FileTool } from "@agent-core/tools-fs";
+import type { PendingToolCall, ToolResult, FileSystem } from "@volto/core";
+import { evaluateEditGate, evaluateOverwriteGate } from "@volto/core";
+import type { FileTool } from "@volto/tools-fs";
 import {
   createReadFileTool,
   createEditFileTool,
@@ -10,7 +10,7 @@ import {
   createLsTool,
   createGlobTool,
   createGrepTool,
-} from "@agent-core/tools-fs";
+} from "@volto/tools-fs";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateFsToolExecutorOptions {
@@ -22,7 +22,7 @@ export interface CreateFsToolExecutorOptions {
  *
  * Read-before-edit + staleness gating runs HERE, before any side effect, using
  * the serializable readFiles state threaded in via the executor context (so it
- * survives resume). The pure decision lives in @agent-core/core (evaluate*Gate);
+ * survives resume). The pure decision lives in @volto/core (evaluate*Gate);
  * this layer only supplies on-disk facts (existence, current mtime).
  *
  * NOTE: routeToolCall / capability gating is handled by the Runner before

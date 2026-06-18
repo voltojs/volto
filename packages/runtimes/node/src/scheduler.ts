@@ -7,7 +7,7 @@
  * to the main agent loop.
  */
 
-import type { Scheduler, Clock } from "@agent-core/core";
+import type { Scheduler, Clock } from "@volto/core";
 
 interface ScheduledTask {
   id: string;

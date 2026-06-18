@@ -7,7 +7,7 @@
  * Compactor threshold decisions.
  */
 
-import type { Tokenizer } from "@agent-core/core";
+import type { Tokenizer } from "@volto/core";
 
 /** Default chars-per-token ratio (English text approximation) */
 const DEFAULT_CHARS_PER_TOKEN = 4;

@@ -25,7 +25,7 @@ import type {
   Telemetry,
   Validator,
   MemoryStore,
-} from "@agent-core/core";
+} from "@volto/core";
 import {
   step,
   createInitialState,
@@ -37,10 +37,10 @@ import {
   annotateUntrusted,
   decideSelfCorrect,
   assembleContext,
-} from "@agent-core/core";
-import type { StepContext, ReducerState } from "@agent-core/core";
-import type { Hook } from "@agent-core/core";
-import { runHookPipeline } from "@agent-core/core";
+} from "@volto/core";
+import type { StepContext, ReducerState } from "@volto/core";
+import type { Hook } from "@volto/core";
+import { runHookPipeline } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Public types

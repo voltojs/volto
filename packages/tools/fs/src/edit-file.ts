@@ -1,9 +1,9 @@
-import type { FileSystem } from "@agent-core/core";
+import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
 import { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
-import { defineTool as defineFileTool } from "@agent-core/tools-common";
-import type { Tool as FileTool } from "@agent-core/tools-common";
+import { defineTool as defineFileTool } from "@volto/tools-common";
+import type { Tool as FileTool } from "@volto/tools-common";
 
 export { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
 

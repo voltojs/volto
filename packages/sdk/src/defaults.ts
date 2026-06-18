@@ -30,8 +30,8 @@ import type {
   Secrets,
   Scheduler,
   PolicyEngine,
-} from "@agent-core/core";
-import { createMemoryStore } from "@agent-core/store-memory";
+} from "@volto/core";
+import { createMemoryStore } from "@volto/store-memory";
 
 let idCounter = 0;
 

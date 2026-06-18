@@ -1,6 +1,6 @@
-import type { Network, ToolResult } from "@agent-core/core";
+import type { Network, ToolResult } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
 import { CAP_NETWORK_FETCH } from "./capabilities.js";
 
 const webSearchSchema = z.object({

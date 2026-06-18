@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../server.js";
 import type { WiringOptions } from "../wiring.js";
-import type { ModelPort } from "@agent-core/core";
+import type { ModelPort } from "@volto/core";
 
 const MOCK_MODEL: ModelPort = {
   async *stream() {

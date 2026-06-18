@@ -2,7 +2,7 @@
  * Node Network adapter — implements the Network port using globalThis.fetch.
  */
 
-import type { Network, NetworkRequest, NetworkResponse } from "@agent-core/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
 
 export interface NodeNetworkOptions {
   /** Default request timeout in milliseconds (default: 30_000) */

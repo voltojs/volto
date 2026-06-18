@@ -5,7 +5,7 @@
  * step-by-step, enabling deterministic replay and regression testing.
  */
 
-import type { AgentInput, AgentState } from "@agent-core/core";
+import type { AgentInput, AgentState } from "@volto/core";
 
 /** A single step's expected outcome */
 export interface ExpectedStep {

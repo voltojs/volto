@@ -1,4 +1,4 @@
-// @agent-core/sdk — facade: createAgent, run / stream / resume
+// @volto/sdk — facade: createAgent, run / stream / resume
 
 export { createAgent } from "./create-agent.js";
 export type { CreateAgentOptions, AgentInstance, ResolvedPorts } from "./create-agent.js";
@@ -10,8 +10,8 @@ export { createCostMeter } from "./cost-meter.js";
 export type { CostMeterOptions, PricingTable, PricingEntry, CostMeterResult } from "./cost-meter.js";
 
 // M12: Audit
-export { defaultAuditSink } from "@agent-core/runtime-node";
-export type { AuditEntry, AuditSink } from "@agent-core/runtime-node";
+export { defaultAuditSink } from "@volto/runtime-node";
+export type { AuditEntry, AuditSink } from "@volto/runtime-node";
 
 // Re-export commonly needed types
 export type {
@@ -25,10 +25,10 @@ export type {
   ReducerState,
   PermissionConfig,
   ToolScopeConfig,
-} from "@agent-core/core";
+} from "@volto/core";
 
 // Re-export runner types for advanced usage
-export type { Runner, RunnerOptions, ToolExecutor } from "@agent-core/runtime-node";
+export type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
 
 // Re-export default ports for customization
 export {
@@ -75,8 +75,8 @@ export type {
 } from "./plugin.js";
 
 // M13: Hooks (re-exported from core)
-export { runHookPipeline } from "@agent-core/core";
-export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@agent-core/core";
+export { runHookPipeline } from "@volto/core";
+export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@volto/core";
 
 // M13: Declarative agent spec
 export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";

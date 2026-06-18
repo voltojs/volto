@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/runtime-node",
+  "name": "@volto/runtime-node",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,14 +18,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/tools-browser": "workspace:*",
-    "@agent-core/tools-code": "workspace:*",
-    "@agent-core/tools-data": "workspace:*",
-    "@agent-core/tools-document": "workspace:*",
-    "@agent-core/tools-fs": "workspace:*",
-    "@agent-core/tools-shell": "workspace:*",
-    "@agent-core/tools-web": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/tools-browser": "workspace:*",
+    "@volto/tools-code": "workspace:*",
+    "@volto/tools-data": "workspace:*",
+    "@volto/tools-document": "workspace:*",
+    "@volto/tools-fs": "workspace:*",
+    "@volto/tools-shell": "workspace:*",
+    "@volto/tools-web": "workspace:*"
   },
   "peerDependencies": {
     "better-sqlite3": ">=9.0.0",

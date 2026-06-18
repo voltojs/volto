@@ -4,10 +4,10 @@
  * without modifying the SessionStore port.
  */
 
-import type { SessionStore, ReducerState } from "@agent-core/core";
-import { step, diffState, createInitialState } from "@agent-core/core";
-import type { StepContext } from "@agent-core/core";
-import type { StateDiff } from "@agent-core/core";
+import type { SessionStore, ReducerState } from "@volto/core";
+import { step, diffState, createInitialState } from "@volto/core";
+import type { StepContext } from "@volto/core";
+import type { StateDiff } from "@volto/core";
 
 export interface Checkpoint {
   seq: number;

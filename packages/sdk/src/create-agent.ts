@@ -39,27 +39,27 @@ import type {
   JSONSchema,
   ToolScopeConfig,
   Id,
-} from "@agent-core/core";
+} from "@volto/core";
 import {
   createDefaultPermissionConfig,
   extractPlainText,
   createInitialState,
   resetTurnForNextInput,
   filterByScope,
-} from "@agent-core/core";
-import type { StepContext, ReducerState } from "@agent-core/core";
-import { createRunner, type Runner, type ToolExecutor } from "@agent-core/runtime-node";
-import type { RunnerOptions } from "@agent-core/runtime-node";
+} from "@volto/core";
+import type { StepContext, ReducerState } from "@volto/core";
+import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
+import type { RunnerOptions } from "@volto/runtime-node";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
   createNetworkToolExecutor,
-} from "@agent-core/runtime-node";
-import { createAutoAllowGate } from "@agent-core/runtime-node";
-import { createSandboxedShell, type SandboxConfig } from "@agent-core/runtime-node";
-import type { Tool } from "@agent-core/tools-common";
-import type { SubAgentExecutor } from "@agent-core/tools-agent";
-import { createTaskTool } from "@agent-core/tools-agent";
+} from "@volto/runtime-node";
+import { createAutoAllowGate } from "@volto/runtime-node";
+import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
+import type { Tool } from "@volto/tools-common";
+import type { SubAgentExecutor } from "@volto/tools-agent";
+import { createTaskTool } from "@volto/tools-agent";
 import {
   createReadFileTool,
   createEditFileTool,
@@ -70,16 +70,16 @@ import {
   createGlobTool,
   createGrepTool,
   FS_TOOL_NAMES,
-} from "@agent-core/tools-fs";
-import { createBashTool, SHELL_TOOL_NAMES } from "@agent-core/tools-shell";
-import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@agent-core/tools-web";
+} from "@volto/tools-fs";
+import { createBashTool, SHELL_TOOL_NAMES } from "@volto/tools-shell";
+import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@volto/tools-web";
 import {
   createLspDefinitionTool,
   createLspReferencesTool,
   createLspRenameTool,
   createLspDiagnosticsTool,
   createLspHoverTool,
-} from "@agent-core/tools-code";
+} from "@volto/tools-code";
 import {
   createGitStatusTool,
   createGitDiffTool,
@@ -87,21 +87,21 @@ import {
   createGitPushTool,
   createRunTestsTool,
   createBuildTool,
-} from "@agent-core/tools-vcs";
-import { createAskUserTool } from "@agent-core/tools-ask";
-import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@agent-core/tools-data";
-import type { DatabaseAdapter } from "@agent-core/tools-data";
-import { createReadDocumentTool } from "@agent-core/tools-document";
-import type { DocumentParserAdapter } from "@agent-core/tools-document";
-import { createScheduleTool, createCancelScheduleTool } from "@agent-core/tools-schedule";
+} from "@volto/tools-vcs";
+import { createAskUserTool } from "@volto/tools-ask";
+import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@volto/tools-data";
+import type { DatabaseAdapter } from "@volto/tools-data";
+import { createReadDocumentTool } from "@volto/tools-document";
+import type { DocumentParserAdapter } from "@volto/tools-document";
+import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
 import {
   createBrowserNavigateTool,
   createBrowserClickTool,
   createBrowserTypeTool,
   createBrowserScreenshotTool,
   createBrowserGetPageTextTool,
-} from "@agent-core/tools-browser";
-import type { BrowserAdapter } from "@agent-core/tools-browser";
+} from "@volto/tools-browser";
+import type { BrowserAdapter } from "@volto/tools-browser";
 import {
   defaultEventSink,
   defaultTokenizer,
@@ -126,7 +126,7 @@ import {
   collectPlugins,
 } from "./plugin.js";
 import { renderCommand } from "./commands.js";
-import { type AuditSink, defaultAuditSink } from "@agent-core/runtime-node";
+import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
 
 // ──────────────────────────────────────────────
 // Config resolution helper
@@ -264,7 +264,7 @@ export interface CreateAgentOptions {
   network?: Network;
 
   /** LSP client adapter — when provided, LSP code intelligence tools are auto-created */
-  lspClient?: import("@agent-core/tools-code").LspClient;
+  lspClient?: import("@volto/tools-code").LspClient;
 
   /** Browser adapter — when provided, browser/computer-use tools are auto-created */
   browserAdapter?: BrowserAdapter;
@@ -363,7 +363,7 @@ export interface CreateAgentOptions {
    * preToolUse (after permission, before executor), postToolUse (after result).
    * Merged with any hooks registered by plugins. Serial execution, first deny short-circuits.
    */
-  hooks?: import("@agent-core/core").Hook[];
+  hooks?: import("@volto/core").Hook[];
 
   // ── M13: Slash commands ──
 
@@ -797,7 +797,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       : runnerEventSink;
 
     // M13: Merge hooks from opts + plugins (plugin hooks appended after opts hooks)
-    const allHooks: import("@agent-core/core").Hook[] = [
+    const allHooks: import("@volto/core").Hook[] = [
       ...(opts.hooks ?? []),
       ...pluginData.hooks.map((ph) => ({
         name: ph.name,

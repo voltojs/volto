@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/chat-adapter",
+  "name": "@volto/chat-adapter",
   "version": "0.0.1",
   "private": true,
   "type": "module",

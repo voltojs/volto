@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { replayTrajectory } from "../replay.js";
 import type { Trajectory } from "../trajectory.js";
-import type { StepContext } from "@agent-core/core";
+import type { StepContext } from "@volto/core";
 
 const ctx: StepContext = {
   tools: [],

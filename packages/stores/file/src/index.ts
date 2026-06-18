@@ -3,7 +3,7 @@
  * Persists snapshots as JSON files in a directory.
  */
 
-import type { SessionStore, SessionSnapshot } from "@agent-core/core";
+import type { SessionStore, SessionSnapshot } from "@volto/core";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 

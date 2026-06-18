@@ -14,8 +14,8 @@ import type {
   ToolSource,
   HookLifecycle,
   HookHandler,
-} from "@agent-core/core";
-import type { Tool } from "@agent-core/tools-common";
+} from "@volto/core";
+import type { Tool } from "@volto/tools-common";
 
 // ──────────────────────────────────────────────
 // Types

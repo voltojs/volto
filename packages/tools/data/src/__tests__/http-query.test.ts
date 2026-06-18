@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Network } from "@agent-core/core";
+import type { Network } from "@volto/core";
 import { createHttpQueryTool } from "../index.js";
 
 function createMockNetwork(statusCode: number, body: string, headers?: Record<string, string>): Network {

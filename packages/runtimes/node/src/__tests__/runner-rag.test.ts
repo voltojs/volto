@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import type { StepContext, ModelPort, ModelEvent, MemoryStore, MemoryEntry } from "@agent-core/core";
+import type { StepContext, ModelPort, ModelEvent, MemoryStore, MemoryEntry } from "@volto/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 

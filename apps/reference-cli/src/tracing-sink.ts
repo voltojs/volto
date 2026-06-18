@@ -13,7 +13,7 @@
 
 import { appendFileSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { dirname } from "node:path";
-import type { EventSink } from "@agent-core/core";
+import type { EventSink } from "@volto/core";
 
 export interface TracingSinkOptions {
   /** Inner sink that still receives every event (e.g. user-visible renderer). */

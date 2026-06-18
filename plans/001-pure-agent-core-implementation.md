@@ -3,14 +3,14 @@
 > **Status**: Draft
 > **Owner**: TBD
 > **Created**: 2026-06-03
-> **Depends on**: 架构设计文档 [docs/pure-agent-core.md](../docs/pure-agent-core.md)
+> **Depends on**: 架构设计文档 [docs/pure-volto.md](../docs/pure-volto.md)
 > **Target area**: 全新 monorepo —— `packages/core`、`packages/tools/*`、`packages/providers/*`、`packages/runtimes/*`、`packages/stores/*`、`packages/sdk`、`apps/reference-cli`
 
 ## 1. 背景
 
 ### 1.1 问题陈述
 
-[docs/pure-agent-core.md](../docs/pure-agent-core.md) 定义了一个"零环境耦合、零副作用核心、能力即注入"的通用 agent 内核架构,但仅停留在设计层面,尚无任何代码。本 Plan 的任务是把该架构文档落地为一个**可运行、可测试、可移植**的 TypeScript monorepo:从纯函数内核(M1)到子 Agent + SDK + 参考 CLI 宿主(M7)的完整实现。
+[docs/pure-volto.md](../docs/pure-volto.md) 定义了一个"零环境耦合、零副作用核心、能力即注入"的通用 agent 内核架构,但仅停留在设计层面,尚无任何代码。本 Plan 的任务是把该架构文档落地为一个**可运行、可测试、可移植**的 TypeScript monorepo:从纯函数内核(M1)到子 Agent + SDK + 参考 CLI 宿主(M7)的完整实现。
 
 核心设计约束(来自架构文档,不可妥协):
 
@@ -23,7 +23,7 @@
 
 | 维度 | 当前实现 | 目标状态 |
 |---|---|---|
-| 代码 | 仅有 `docs/pure-agent-core.md` 一份设计文档 | 完整 pnpm + Turborepo monorepo,M1–M7 全量落地 |
+| 代码 | 仅有 `docs/pure-volto.md` 一份设计文档 | 完整 pnpm + Turborepo monorepo,M1–M7 全量落地 |
 | 仓库 | 非 git 仓库(`git status` 报错) | 已 `git init`,有 feature 分支与 Phase 提交历史 |
 | 核心 | 无 | 纯函数 `step()` reducer + 全部 port 接口 + 重放测试 |
 | 工具 | 无 | 文件 / shell / web / planning / 子 agent 五类工具包,Zod 校验 + 能力门控 |
@@ -42,7 +42,7 @@
 ## 2. Goals
 
 1. 建立 pnpm + Turborepo monorepo 骨架,确立单向向下的包依赖边界并由工具强制(`packages/core` 无任何 `dependencies`)。
-2. 实现 `@agent-core/core`:`AgentState` / `AgentInput` / `Effect` 类型、`step()` reducer、ContextAssembler / Compactor / ToolRouter / PermissionPolicy 纯决策、全部 port 接口。
+2. 实现 `@volto/core`:`AgentState` / `AgentInput` / `Effect` 类型、`step()` reducer、ContextAssembler / Compactor / ToolRouter / PermissionPolicy 纯决策、全部 port 接口。
 3. 实现薄 Runner(effect 解释器),支持同步与异步执行、取消(AbortSignal)。
 4. 实现 OpenAI 兼容 ModelPort adapter,流式归一化 text / reasoning / tool_use / usage;附带 mock ModelPort。
 5. 实现文件工具包(read/edit/write/ls/glob/grep),`edit_file` 支持 str_replace + fuzzy fallback + 先读后改 + 版本比对;附 Node 文件 adapter(工作区边界)。
@@ -74,25 +74,25 @@
 
 ### 4.2 目录布局、包命名与依赖方向
 
-**决策 1 — 目录按类目分组,scope 统一为 `@agent-core/*`**。类目目录是"一堆兄弟包的集合",一律用**复数**;`core` / `sdk` 不属任何类目,留在 `packages/` 顶层:
+**决策 1 — 目录按类目分组,scope 统一为 `@volto/*`**。类目目录是"一堆兄弟包的集合",一律用**复数**;`core` / `sdk` 不属任何类目,留在 `packages/` 顶层:
 
 ```
 packages/
-  core/                @agent-core/core            零依赖,只导出类型 + 纯函数 + port 接口   ← 永不依赖兄弟包
-  sdk/                 @agent-core/sdk             依赖以下全部,拼装成门面
+  core/                @volto/core            零依赖,只导出类型 + 纯函数 + port 接口   ← 永不依赖兄弟包
+  sdk/                 @volto/sdk             依赖以下全部,拼装成门面
   tools/
-    fs/                @agent-core/tools-fs
-    shell/             @agent-core/tools-shell
-    web/               @agent-core/tools-web
-    plan/              @agent-core/tools-plan
-    agent/             @agent-core/tools-agent
+    fs/                @volto/tools-fs
+    shell/             @volto/tools-shell
+    web/               @volto/tools-web
+    plan/              @volto/tools-plan
+    agent/             @volto/tools-agent
   providers/
-    openai/            @agent-core/provider-openai
+    openai/            @volto/provider-openai
   runtimes/
-    node/              @agent-core/runtime-node
+    node/              @volto/runtime-node
   stores/
-    memory/            @agent-core/store-memory
-    file/             @agent-core/store-file
+    memory/            @volto/store-memory
+    file/             @volto/store-file
 apps/
   reference-cli/       仅依赖 sdk,做 wiring + 订阅事件
 ```
@@ -117,7 +117,7 @@ packages:
 
 **理由**:依赖倒置——core 定义接口,下游提供实现;按类目分组让未来扩展(`providers/anthropic`、`stores/postgres`、`runtimes/browser`)归属一目了然。`zod` 只允许出现在 tools-* 与 sdk;core 只认抽象的 `JSONSchema` 形态。Turborepo / tsconfig project references 按包名与 glob 工作,不关心目录嵌套,零额外成本。
 
-**强制手段**:CI 增加一步脚本校验 `packages/core/package.json` 的 `dependencies` 与 `peerDependencies` 均为空;ESLint `no-restricted-imports` 禁止 core 内 import 任何 `@agent-core/*` 实现包与 node 内置模块。
+**强制手段**:CI 增加一步脚本校验 `packages/core/package.json` 的 `dependencies` 与 `peerDependencies` 均为空;ESLint `no-restricted-imports` 禁止 core 内 import 任何 `@volto/*` 实现包与 node 内置模块。
 
 ### 4.3 核心形态:完整 reducer + effect
 
@@ -159,7 +159,7 @@ packages:
 
 ### Phase 1: Monorepo 脚手架与依赖边界
 
-**Goal**: 建立 pnpm + Turborepo monorepo 骨架,`@agent-core/core` 空包能被 build / typecheck,依赖边界由工具强制。
+**Goal**: 建立 pnpm + Turborepo monorepo 骨架,`@volto/core` 空包能被 build / typecheck,依赖边界由工具强制。
 
 **Files covered**:
 - `package.json`(root,`packageManager` + workspaces 脚本)
@@ -177,8 +177,8 @@ packages:
 - [x] 初始化 pnpm workspace(`pnpm-workspace.yaml` 用混合深度 glob:`packages/*`、`packages/*/*`、`apps/*`)
 - [x] 配置 Turborepo `turbo.json`:定义 `build` / `test` / `lint` / `typecheck` 任务及其 `dependsOn` 拓扑
 - [x] 配置 `tsconfig.base.json` + project references,启用 `strict` / `noUncheckedIndexedAccess`
-- [x] 配置 ESLint:`packages/core/**` 通过 `no-restricted-imports` 禁用 `node:*` 与所有 `@agent-core/*` 实现包,禁用 `Date.now` / `Math.random` / `crypto.randomUUID`
-- [x] 创建 `@agent-core/core` 空包(仅占位 `index.ts`),`dependencies` 字段为空
+- [x] 配置 ESLint:`packages/core/**` 通过 `no-restricted-imports` 禁用 `node:*` 与所有 `@volto/*` 实现包,禁用 `Date.now` / `Math.random` / `crypto.randomUUID`
+- [x] 创建 `@volto/core` 空包(仅占位 `index.ts`),`dependencies` 字段为空
 - [x] 编写 `scripts/check-core-zero-deps.mjs`:断言 core 包 `dependencies`/`peerDependencies` 为空,接入 `turbo run lint`
 - [x] 配置 Vitest workspace,跑通一个 smoke 测试
 
@@ -337,7 +337,7 @@ packages:
 **Tasks**:
 - [x] 实现 PermissionPolicy:依 `riskTier` + 配置输出 `allow` / `deny` / `ask`
 - [x] reducer/Runner 支持 `RequestApproval` 效果 → `ApprovalGate.ask` → `ApprovalDecision` 回喂;`ask` 时落 `Checkpoint` 暂停
-- [x] 实现内存 SessionStore 与 file SessionStore:`save` / `load` / `list`(`@agent-core/store-file` 为 file-based JSON 持久化,已通过合同测试)
+- [x] 实现内存 SessionStore 与 file SessionStore:`save` / `load` / `list`(`@volto/store-file` 为 file-based JSON 持久化,已通过合同测试)
 - [x] 抽取 SessionStore 共享行为测试套件,两种实现都跑通
 - [x] 实现 SDK 层 `resume(sessionId, decision)` 的核心支撑(从 checkpoint 重建 state 续跑)—— SDK 门面在 Phase 8 组装
 - [x] 实现 ApprovalGate:auto-allow(策略自动)+ 终端交互式
@@ -379,7 +379,7 @@ packages:
 
 **Reviewed**: 2026-06-04 by reviewer (code-reviewer subagent, 2nd pass)
 **Commit**: 6f597f6 fix(plan-001): phase 7 review 跟进 — P0/P1/P2 全量返工
-**Review 跟进**: 首轮 review 发现 6 项需返工：(1) Shell 串行读流死锁 → 改用事件监听并行消费 stdout/stderr（async queue + Promise resolver chain）；(2) Shell/Network tool executor 无 e2e 闭环测试 → 新增 shell-e2e + network-e2e + bash-ask-e2e 三组测试；(3) 工具类目互相依赖错位 → 提取 `@agent-core/tools-common`（`defineTool` / `Tool` 通用工厂），fs/shell/web/plan 均依赖 common 而非 fs；(4) `write_todos` 绕过 effect channel 直接调 EventSink → 改为 `displayMetadata.pendingEvents`，Runner 统一转发；(5) Network port 缺 `abortSignal` → `NetworkRequest` 增 `abortSignal?`，Node adapter + Runner ToolExecutorContext + web 工具全链路贯通；(6) network adapter test 用 `Map` 冒充 `Headers` → 改用 `new Headers()`。P2: bash riskTier 保持 `WRITE_HIGH`（首期所有 bash 一律 ask，依赖宿主 `toolOverrides` 细分），`write_todos` 保持 `WRITE_LOW`（工具更新内存状态）。复审 PASS。
+**Review 跟进**: 首轮 review 发现 6 项需返工：(1) Shell 串行读流死锁 → 改用事件监听并行消费 stdout/stderr（async queue + Promise resolver chain）；(2) Shell/Network tool executor 无 e2e 闭环测试 → 新增 shell-e2e + network-e2e + bash-ask-e2e 三组测试；(3) 工具类目互相依赖错位 → 提取 `@volto/tools-common`（`defineTool` / `Tool` 通用工厂），fs/shell/web/plan 均依赖 common 而非 fs；(4) `write_todos` 绕过 effect channel 直接调 EventSink → 改为 `displayMetadata.pendingEvents`，Runner 统一转发；(5) Network port 缺 `abortSignal` → `NetworkRequest` 增 `abortSignal?`，Node adapter + Runner ToolExecutorContext + web 工具全链路贯通；(6) network adapter test 用 `Map` 冒充 `Headers` → 改用 `new Headers()`。P2: bash riskTier 保持 `WRITE_HIGH`（首期所有 bash 一律 ask，依赖宿主 `toolOverrides` 细分），`write_todos` 保持 `WRITE_LOW`（工具更新内存状态）。复审 PASS。
 
 ---
 
@@ -403,7 +403,7 @@ packages:
 - [x] 测试:参考宿主仅 wiring 跑通完整流程;`task` 子 agent 上下文隔离;SDK 最小配置(仅 model)启动纯对话 agent
 
 **Acceptance Criteria**:
-1. 参考宿主仅通过 wiring(选 adapter)跑通完整流程,`@agent-core/core` 包零改动(git diff 在本 Phase 不含 core 包)。✅
+1. 参考宿主仅通过 wiring(选 adapter)跑通完整流程,`@volto/core` 包零改动(git diff 在本 Phase 不含 core 包)。✅
 2. `task` 子 agent 上下文隔离,主 agent 仅收到其最终输出。✅
 3. SDK 最小配置(仅 `model`)可启动一个纯对话 agent 并完成一轮对话。✅
 
@@ -495,7 +495,7 @@ packages:
 
 ## 执行须知(Branch Gate)
 
-本仓库当前**非 git 仓库**。Phase 1 首个任务即:`git init` → 创建 `.gitignore` → 建立主分支(`main`)→ 从 `main` 切出 feature 分支 `feat/plan-001-pure-agent-core`,所有 Phase 提交落在该分支。每个 Phase 完成后须经独立 review pass 通过,再做单独提交,方可进入下一 Phase。
+本仓库当前**非 git 仓库**。Phase 1 首个任务即:`git init` → 创建 `.gitignore` → 建立主分支(`main`)→ 从 `main` 切出 feature 分支 `feat/plan-001-pure-volto`,所有 Phase 提交落在该分支。每个 Phase 完成后须经独立 review pass 通过,再做单独提交,方可进入下一 Phase。
 
 ---
 
@@ -517,7 +517,7 @@ packages:
 **Preconditions**: 项目构建环境正常  
 **Steps**:
 1. 在 `packages/core/src` 任意 `.ts` 文件中添加 `import fs from "node:fs"`
-2. 运行 `pnpm turbo run lint --filter @agent-core/core`
+2. 运行 `pnpm turbo run lint --filter @volto/core`
 3. 观察 lint 报错（`no-restricted-imports`）  
 **Paths involved**: `packages/core/src/*.ts`  
 **Expected result**: lint 报错，退出码非 0
@@ -538,7 +538,7 @@ packages:
 **Title**: user → CallModel → tool_use → ExecuteTool → ToolResult → CallModel → Done  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/core`
+1. 运行 `pnpm turbo run test --filter @volto/core`
 2. 观察 `reducer.test.ts` 中 "full tool use loop" 用例通过  
 **Paths involved**: `packages/core/src/__tests__/reducer.test.ts`  
 **Expected result**: 单测通过，消息序列为 user → assistant(tool_use) → tool → assistant(text)
@@ -548,7 +548,7 @@ packages:
 **Title**: 相同 input 序列两次运行产生 deep-equal (state, effects) 序列  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/core`
+1. 运行 `pnpm turbo run test --filter @volto/core`
 2. 观察 `replay.test.ts` 用例通过  
 **Paths involved**: `packages/core/src/__tests__/replay.test.ts`  
 **Expected result**: 两次运行的 state 和 effects 序列完全一致
@@ -558,7 +558,7 @@ packages:
 **Title**: AbortSignal 中止进行中的 stream  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/runtime-node`
+1. 运行 `pnpm turbo run test --filter @volto/runtime-node`
 2. 观察 `runner.test.ts` 中 cancellation 相关用例通过  
 **Paths involved**: `packages/runtimes/node/src/__tests__/runner.test.ts`  
 **Expected result**: Runner 在 AbortSignal 触发后进入 done 状态，pending 被清理
@@ -568,7 +568,7 @@ packages:
 **Title**: 精确匹配失败时 fuzzy fallback 正确命中  
 **Preconditions**: Node FileSystem adapter 可用  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/tools-fs`
+1. 运行 `pnpm turbo run test --filter @volto/tools-fs`
 2. 观察 `tools.test.ts` 中 fuzzy match 相关用例通过  
 **Paths involved**: `packages/tools/fs/src/__tests__/tools.test.ts`、`packages/tools/fs/src/fuzzy-match.ts`  
 **Expected result**: fuzzy fallback 正确替换目标内容
@@ -578,7 +578,7 @@ packages:
 **Title**: 未 read_file 的文件被 edit_file 拒绝  
 **Preconditions**: Node FileSystem adapter 可用  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/tools-fs`
+1. 运行 `pnpm turbo run test --filter @volto/tools-fs`
 2. 观察 edit_file 未读拒绝用例通过  
 **Paths involved**: `packages/tools/fs/src/__tests__/tools.test.ts`  
 **Expected result**: 返回 `isError: true` 的 ToolResult，模型可自我修正
@@ -588,7 +588,7 @@ packages:
 **Title**: 超长 history 触发 Compactor 并保留近因/文件路径/未完成 todo  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/core`
+1. 运行 `pnpm turbo run test --filter @volto/core`
 2. 观察 `compactor.test.ts` 中 "preserves key messages" 用例通过  
 **Paths involved**: `packages/core/src/__tests__/compactor.test.ts`  
 **Expected result**: `preservedMessages` 包含关键消息，`compressibleMessages` 不含
@@ -598,7 +598,7 @@ packages:
 **Title**: ask → 中断落盘 → resume 续跑等价  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/runtime-node`
+1. 运行 `pnpm turbo run test --filter @volto/runtime-node`
 2. 观察 `runner-hitl.test.ts` 中 "resume equivalence" 用例通过  
 **Paths involved**: `packages/runtimes/node/src/__tests__/runner-hitl.test.ts`  
 **Expected result**: resume 后的 final state 与不中断路径的 final state 等价
@@ -608,7 +608,7 @@ packages:
 **Title**: 内存 store 与 file store 通过同一组行为测试  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/store-memory --filter @agent-core/store-file`
+1. 运行 `pnpm turbo run test --filter @volto/store-memory --filter @volto/store-file`
 2. 观察合同测试用例通过  
 **Paths involved**: `packages/core/src/testing/store-contract.ts`、`packages/stores/memory/src/__tests__/`、`packages/stores/file/src/__tests__/`  
 **Expected result**: 两种 store 实现均通过 save / load / list 行为测试
@@ -618,7 +618,7 @@ packages:
 **Title**: 未注入 Shell port 时 bash 工具不可见  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/tools-web`
+1. 运行 `pnpm turbo run test --filter @volto/tools-web`
 2. 观察 `capability-gating.test.ts` 用例通过  
 **Paths involved**: `packages/tools/web/src/__tests__/capability-gating.test.ts`  
 **Expected result**: `filterVisibleTools` 在缺少对应 capability 时摘除工具
@@ -638,7 +638,7 @@ packages:
 **Title**: 主 agent 仅收到子 agent 最终输出，子 agent 无 task 工具  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+1. 运行 `pnpm turbo run test --filter @volto/sdk`
 2. 观察 `sub-agent-isolation.test.ts` 中 "context isolation" 用例通过  
 **Paths involved**: `packages/sdk/src/__tests__/sub-agent-isolation.test.ts`、`packages/sdk/src/create-agent.ts`  
 **Expected result**: task tool 返回子 agent 的 `extractPlainText` 输出；子 agent 尝试调用 task 时返回 `Unknown tool` 错误
@@ -648,7 +648,7 @@ packages:
 **Title**: 仅传 `modelPort` 即可启动纯对话 agent 并完成一轮对话  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+1. 运行 `pnpm turbo run test --filter @volto/sdk`
 2. 观察 `create-agent.test.ts` 中 "minimal config" 用例通过  
 **Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`、`packages/sdk/src/create-agent.ts`  
 **Expected result**: `createAgent({ modelPort })` 返回的 agent 实例可 `run("Hi")` 并得到包含 assistant 文本的 final state
@@ -658,7 +658,7 @@ packages:
 **Title**: 多次 `run()` 调用之间对话历史正确保持  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+1. 运行 `pnpm turbo run test --filter @volto/sdk`
 2. 观察 `create-agent.test.ts` 中 "multiple turns" 用例通过  
 **Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`  
 **Expected result**: 第二轮 `run()` 后 `state.messages` 包含前一轮的 user/assistant 消息 + 新轮的消息
@@ -668,7 +668,7 @@ packages:
 **Title**: `stream()` 异步生成器正确 yield 事件  
 **Preconditions**: 项目构建环境正常  
 **Steps**:
-1. 运行 `pnpm turbo run test --filter @agent-core/sdk`
+1. 运行 `pnpm turbo run test --filter @volto/sdk`
 2. 观察 `create-agent.test.ts` 中 "stream()" 用例通过  
 **Paths involved**: `packages/sdk/src/__tests__/create-agent.test.ts`、`packages/sdk/src/stream-channel.ts`  
 **Expected result**: `for await (const event of agent.stream(...))` 收到 `text_delta` 和 `model_done` 事件
@@ -682,7 +682,7 @@ packages:
 ### TC-E1: Shell 取消全链路（AbortSignal 端到端）
 
 **Title**: Agent 取消时 Shell 命令被正确中止  
-**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Preconditions**: `@volto/runtime-node` 构建通过  
 **Steps**:
 1. 创建 mock ModelPort：第一轮返回 `tool_use(bash, "sleep 30")`，不返回 text
 2. 创建 Node Shell adapter + Node FileSystem adapter
@@ -696,7 +696,7 @@ packages:
 ### TC-E2: edit_file fuzzy 缩进保持端到端
 
 **Title**: Fuzzy 匹配替换后原始缩进不丢失  
-**Preconditions**: `@agent-core/tools-fs` 构建通过  
+**Preconditions**: `@volto/tools-fs` 构建通过  
 **Steps**:
 1. 创建 in-memory FileSystem，写入 `  function hello() {\n    return 1;\n  }`（4 空格缩进）
 2. 创建 `createEditFileTool(fs)`
@@ -710,7 +710,7 @@ packages:
 ### TC-E3: stream-normalize 非标准 provider tool call 缓冲
 
 **Title**: 首 chunk 无 id/name 的 tool call 不丢失  
-**Preconditions**: `@agent-core/provider-openai` 构建通过  
+**Preconditions**: `@volto/provider-openai` 构建通过  
 **Steps**:
 1. 构造 mock raw chunk 序列（模拟 vLLM/Azure 行为）：
    - chunk 1: `tool_calls[{index:0, function:{arguments:'{"path":'}}]`（无 id/name）
@@ -728,7 +728,7 @@ packages:
 ### TC-E4: FileStore atomic write 中断恢复
 
 **Title**: 写入中断后文件不损坏  
-**Preconditions**: `@agent-core/store-file` 构建通过  
+**Preconditions**: `@volto/store-file` 构建通过  
 **Steps**:
 1. 创建 FileStore，save 一个有效 snapshot
 2. 读取文件确认 JSON 可解析
@@ -743,7 +743,7 @@ packages:
 ### TC-E5: Retriable model error 后 streaming 累加器清零
 
 **Title**: 可重试错误后重试不产生重复内容  
-**Preconditions**: `@agent-core/core` 构建通过  
+**Preconditions**: `@volto/core` 构建通过  
 **Steps**:
 1. 构造 reducer 状态：`status: "calling_model"`，`_accumulatedText: "partial "`
 2. 输入 `model_error`（retriable: true）
@@ -757,7 +757,7 @@ packages:
 ### TC-E6: glob 工作区边界防逃逸
 
 **Title**: 符号链接或 `..` 模式无法逃逸工作区  
-**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Preconditions**: `@volto/runtime-node` 构建通过  
 **Steps**:
 1. 创建 NodeFileSystem（root = `/tmp/test-workspace`）
 2. 在工作区内创建符号链接 `link` → `/etc/passwd`
@@ -772,7 +772,7 @@ packages:
 ### TC-E7: Network AbortError 透传端到端
 
 **Title**: 取消网络请求时 AbortError 不被包装为通用错误  
-**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Preconditions**: `@volto/runtime-node` 构建通过  
 **Steps**:
 1. 创建 NodeNetwork adapter
 2. 创建 AbortController，立即 abort
@@ -785,7 +785,7 @@ packages:
 ### TC-E8: SDK + Runner Compaction 端到端
 
 **Title**: 超长对话自动触发上下文压缩  
-**Preconditions**: `@agent-core/sdk` 构建通过  
+**Preconditions**: `@volto/sdk` 构建通过  
 **Steps**:
 1. 创建 SDK agent，配置 `compaction: { maxTokens: 200, tokenizer: charTokenizer }`
 2. 注入 spy ModelPort：模拟多轮对话使 token 数超过 200
@@ -798,7 +798,7 @@ packages:
 ### TC-E9: ToolRouter 能力门控 + 权限策略联合
 
 **Title**: 缺失 capability 的工具不可见，可见工具受权限策略约束  
-**Preconditions**: `@agent-core/core` 构建通过  
+**Preconditions**: `@volto/core` 构建通过  
 **Steps**:
 1. 构造工具集：`read_file`（requires: filesystem:read）、`bash`（requires: shell:exec）、`edit_file`（requires: filesystem:write）
 2. 注入 capabilities：仅 `filesystem:read`、`filesystem:write`（无 `shell:exec`）
@@ -813,7 +813,7 @@ packages:
 ### TC-E10: Shell 高风险命令触发 ask + 输出截断
 
 **Title**: bash 高风险命令经 PermissionPolicy 触发 ask；超量输出被截断并声明  
-**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Preconditions**: `@volto/runtime-node` 构建通过  
 **Steps**:
 1. 创建 Runner，配置 `permissionConfig`（bash → ask）
 2. Mock ModelPort：第一轮返回 `tool_use(bash, "rm -rf /tmp/test")`，第二轮返回 text
@@ -829,7 +829,7 @@ packages:
 ### TC-E11: web_fetch 输出截断 + web_search 认证头
 
 **Title**: web_fetch 超量输出被截断；web_search 携带 API key  
-**Preconditions**: `@agent-core/tools-web` 构建通过  
+**Preconditions**: `@volto/tools-web` 构建通过  
 **Steps**:
 1. 创建 mock Network adapter：`fetch` 返回 200KB body
 2. 创建 `createWebFetchTool(network)`
@@ -845,7 +845,7 @@ packages:
 ### TC-E12: Runner tool executor 冗余 routeToolCall 已消除
 
 **Title**: tool executor 不再重复调用 routeToolCall  
-**Preconditions**: `@agent-core/runtime-node` 构建通过  
+**Preconditions**: `@volto/runtime-node` 构建通过  
 **Steps**:
 1. 创建 fs/shell/network tool executor
 2. 用 spy 包装 `routeToolCall`（统计调用次数）
@@ -856,13 +856,13 @@ packages:
 
 ### TC-E13: Core barrel 无 vitest 污染
 
-**Title**: 生产环境 import `@agent-core/core` 不触发 vitest 加载  
-**Preconditions**: `@agent-core/core` 构建通过  
+**Title**: 生产环境 import `@volto/core` 不触发 vitest 加载  
+**Preconditions**: `@volto/core` 构建通过  
 **Steps**:
-1. 在非测试环境（普通 Node 脚本）中 `import("@agent-core/core")`
+1. 在非测试环境（普通 Node 脚本）中 `import("@volto/core")`
 2. 断言：不抛出 vitest 相关错误
 3. 确认 `runStoreContractTests` 不在 barrel 导出中
-4. 确认可从 `@agent-core/core/testing` 独立导入 `runStoreContractTests`  
+4. 确认可从 `@volto/core/testing` 独立导入 `runStoreContractTests`  
 **Paths involved**: `packages/core/src/index.ts`、`packages/core/package.json`  
 **Expected result**: barrel 零 vitest 污染；测试工具通过独立 `./testing` 导出
 

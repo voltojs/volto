@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/tools-common",
+  "name": "@volto/tools-common",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "lint": "eslint src/"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
+    "@volto/core": "workspace:*",
     "zod": "^4.4.3"
   }
 }

@@ -11,7 +11,7 @@ import type {
   JSONSchema,
   ToolScopeConfig,
   ToolSource,
-} from "@agent-core/core";
+} from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Types

@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolResult } from "@agent-core/core";
+import type { ToolDefinition, ToolResult } from "@volto/core";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<ToolResult>;
 

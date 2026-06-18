@@ -4,7 +4,7 @@
 > **版本**：1.0
 > **日期**：2026-06-12
 > **状态**：Draft（待评审）
-> **关联**：路线图 [roadmap.md](./roadmap.md)、架构设计 [pure-agent-core.md](./pure-agent-core.md)
+> **关联**：路线图 [roadmap.md](./roadmap.md)、架构设计 [pure-volto.md](./pure-volto.md)
 
 ---
 
@@ -208,7 +208,7 @@
 
 **当前状态**：`runtimes/browser/` 提供 FileSystem/Network/Tokenizer adapter，但未验证核心包在纯 browser 环境下运行。
 
-**改进目标**：编写端到端测试，证明 `@agent-core/core` + browser adapter 在无 node 依赖下完整运行一个 turn。
+**改进目标**：编写端到端测试，证明 `@volto/core` + browser adapter 在无 node 依赖下完整运行一个 turn。
 
 **技术方案**：
 - 新建 `packages/runtimes/browser/src/__tests__/e2e.test.ts`
@@ -216,7 +216,7 @@
 - 组装：`createBrowserFileSystem` + `createBrowserNetwork` + `createBrowserTokenizer`
 - 创建 `createAgent({ modelPort: mockPort, fs, network, ... })`
 - 执行 `agent.run("list files")` → 验证完整 turn 完成
-- **验证 `@agent-core/core` 包的 import 中无 `node:*`**（可用 eslint/no-restricted-imports 规则自动化）
+- **验证 `@volto/core` 包的 import 中无 `node:*`**（可用 eslint/no-restricted-imports 规则自动化）
 
 **涉及文件**：
 - `packages/runtimes/browser/src/__tests__/e2e.test.ts`（新建）
@@ -314,7 +314,7 @@
 
 **技术方案**：
 - 使用 VS Code Extension API：
-  - `vscode.commands.registerCommand("agent-core.run", ...)` 注册命令
+  - `vscode.commands.registerCommand("volto.run", ...)` 注册命令
   - `vscode.window.createOutputChannel("Agent Core")` 用于日志
   - `vscode.window.createWebviewPanel` 用于聊天 UI
   - Language Server Protocol 集成用于 LSP 工具

@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
 import type { ToolExecutor } from "../runner.js";
-import type { Validator, ValidationResult, StepContext, ToolDefinition, PendingToolCall, ToolResult } from "@agent-core/core";
+import type { Validator, ValidationResult, StepContext, ToolDefinition, PendingToolCall, ToolResult } from "@volto/core";
 import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@agent-core/core";
+} from "@volto/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

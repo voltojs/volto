@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { normalizeStream } from "../stream-normalize.js";
 import type { RawAnthropicEvent } from "../stream-normalize.js";
-import type { ModelEvent } from "@agent-core/core";
+import type { ModelEvent } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Helpers

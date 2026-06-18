@@ -1,4 +1,4 @@
-import type { Telemetry, TelemetrySpan } from "@agent-core/core";
+import type { Telemetry, TelemetrySpan } from "@volto/core";
 
 export interface OtelTelemetryOptions {
   endpoint: string;
@@ -22,7 +22,7 @@ interface PendingMetric {
 }
 
 export function createOtelTelemetry(opts: OtelTelemetryOptions): Telemetry & { flush(): Promise<void>; shutdown(): Promise<void> } {
-  const { endpoint, serviceName = "agent-core", batchSize = 20, flushIntervalMs = 5000 } = opts;
+  const { endpoint, serviceName = "volto", batchSize = 20, flushIntervalMs = 5000 } = opts;
   const spans: PendingSpan[] = [];
   const metrics: PendingMetric[] = [];
   let flushTimer: ReturnType<typeof setInterval> | undefined;
@@ -45,7 +45,7 @@ export function createOtelTelemetry(opts: OtelTelemetryOptions): Telemetry & { f
         resourceSpans: [{
           resource: { attributes: resource },
           scopeSpans: [{
-            scope: { name: "agent-core" },
+            scope: { name: "volto" },
             spans: spansToSend.map((s) => ({
               name: s.name,
               startTimeUnixNano: String(s.startedAt * 1_000_000),
@@ -65,7 +65,7 @@ export function createOtelTelemetry(opts: OtelTelemetryOptions): Telemetry & { f
         resourceMetrics: [{
           resource: { attributes: resource },
           scopeMetrics: [{
-            scope: { name: "agent-core" },
+            scope: { name: "volto" },
             metrics: aggregateMetrics(metricsToSend),
           }],
         }],

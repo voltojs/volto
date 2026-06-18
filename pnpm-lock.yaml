@@ -37,34 +37,34 @@ importers:
 
   apps/github-action:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-core/provider-openai':
+      '@volto/provider-openai':
         specifier: workspace:*
         version: link:../../packages/providers/openai
-      '@agent-core/runtime-node':
+      '@volto/runtime-node':
         specifier: workspace:*
         version: link:../../packages/runtimes/node
-      '@agent-core/sdk':
+      '@volto/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
   apps/headless-server:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-core/provider-openai':
+      '@volto/provider-openai':
         specifier: workspace:*
         version: link:../../packages/providers/openai
-      '@agent-core/runtime-node':
+      '@volto/runtime-node':
         specifier: workspace:*
         version: link:../../packages/runtimes/node
-      '@agent-core/sdk':
+      '@volto/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
-      '@agent-core/store-sqlite':
+      '@volto/store-sqlite':
         specifier: workspace:*
         version: link:../../packages/stores/sqlite
       ws:
@@ -79,43 +79,43 @@ importers:
 
   apps/mcp-server:
     dependencies:
-      '@agent-core/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@agent-core/provider-openai':
-        specifier: workspace:*
-        version: link:../../packages/providers/openai
-      '@agent-core/runtime-node':
-        specifier: workspace:*
-        version: link:../../packages/runtimes/node
-      '@agent-core/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-      '@agent-core/store-sqlite':
-        specifier: workspace:*
-        version: link:../../packages/stores/sqlite
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.29.0(zod@4.4.3)
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@volto/provider-openai':
+        specifier: workspace:*
+        version: link:../../packages/providers/openai
+      '@volto/runtime-node':
+        specifier: workspace:*
+        version: link:../../packages/runtimes/node
+      '@volto/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@volto/store-sqlite':
+        specifier: workspace:*
+        version: link:../../packages/stores/sqlite
 
   apps/reference-cli:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-core/provider-openai':
+      '@volto/provider-openai':
         specifier: workspace:*
         version: link:../../packages/providers/openai
-      '@agent-core/runtime-node':
+      '@volto/runtime-node':
         specifier: workspace:*
         version: link:../../packages/runtimes/node
-      '@agent-core/sdk':
+      '@volto/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
-      '@agent-core/store-file':
+      '@volto/store-file':
         specifier: workspace:*
         version: link:../../packages/stores/file
-      '@agent-core/tools-plan':
+      '@volto/tools-plan':
         specifier: workspace:*
         version: link:../../packages/tools/plan
 
@@ -123,70 +123,70 @@ importers:
 
   packages/embedders/openai:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/eval:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../core
 
   packages/memories/inmemory:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/providers/anthropic:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/providers/openai:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/browser:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/edge:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/node:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-browser':
+      '@volto/tools-browser':
         specifier: workspace:*
         version: link:../../tools/browser
-      '@agent-core/tools-code':
+      '@volto/tools-code':
         specifier: workspace:*
         version: link:../../tools/code
-      '@agent-core/tools-data':
+      '@volto/tools-data':
         specifier: workspace:*
         version: link:../../tools/data
-      '@agent-core/tools-document':
+      '@volto/tools-document':
         specifier: workspace:*
         version: link:../../tools/document
-      '@agent-core/tools-fs':
+      '@volto/tools-fs':
         specifier: workspace:*
         version: link:../../tools/fs
-      '@agent-core/tools-shell':
+      '@volto/tools-shell':
         specifier: workspace:*
         version: link:../../tools/shell
-      '@agent-core/tools-web':
+      '@volto/tools-web':
         specifier: workspace:*
         version: link:../../tools/web
       better-sqlite3:
@@ -211,61 +211,61 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../core
-      '@agent-core/runtime-node':
+      '@volto/runtime-node':
         specifier: workspace:*
         version: link:../runtimes/node
-      '@agent-core/store-memory':
+      '@volto/store-memory':
         specifier: workspace:*
         version: link:../stores/memory
-      '@agent-core/tools-agent':
+      '@volto/tools-agent':
         specifier: workspace:*
         version: link:../tools/agent
-      '@agent-core/tools-ask':
+      '@volto/tools-ask':
         specifier: workspace:*
         version: link:../tools/ask
-      '@agent-core/tools-browser':
+      '@volto/tools-browser':
         specifier: workspace:*
         version: link:../tools/browser
-      '@agent-core/tools-code':
+      '@volto/tools-code':
         specifier: workspace:*
         version: link:../tools/code
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../tools/common
-      '@agent-core/tools-data':
+      '@volto/tools-data':
         specifier: workspace:*
         version: link:../tools/data
-      '@agent-core/tools-fs':
+      '@volto/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
-      '@agent-core/tools-shell':
+      '@volto/tools-shell':
         specifier: workspace:*
         version: link:../tools/shell
-      '@agent-core/tools-vcs':
+      '@volto/tools-vcs':
         specifier: workspace:*
         version: link:../tools/vcs
-      '@agent-core/tools-web':
+      '@volto/tools-web':
         specifier: workspace:*
         version: link:../tools/web
 
   packages/stores/file:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/stores/memory:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/stores/postgres:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
       pg:
@@ -278,7 +278,7 @@ importers:
 
   packages/stores/sqlite:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
       better-sqlite3:
@@ -291,19 +291,19 @@ importers:
 
   packages/tools/agent:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
 
   packages/tools/ask:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -312,10 +312,10 @@ importers:
 
   packages/tools/browser:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -324,10 +324,10 @@ importers:
 
   packages/tools/code:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -336,7 +336,7 @@ importers:
 
   packages/tools/common:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
       zod:
@@ -345,10 +345,10 @@ importers:
 
   packages/tools/data:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -357,10 +357,10 @@ importers:
 
   packages/tools/document:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -369,10 +369,10 @@ importers:
 
   packages/tools/fs:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -381,25 +381,25 @@ importers:
 
   packages/tools/mcp:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/tools/plan:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
 
   packages/tools/schedule:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -408,19 +408,19 @@ importers:
 
   packages/tools/shell:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
 
   packages/tools/vcs:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -429,10 +429,10 @@ importers:
 
   packages/tools/web:
     dependencies:
-      '@agent-core/core':
+      '@volto/core':
         specifier: workspace:*
         version: link:../../core
-      '@agent-core/tools-common':
+      '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
 

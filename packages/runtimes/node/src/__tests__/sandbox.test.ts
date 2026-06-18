@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import type { SandboxConfig } from "../sandbox.js";
-import type { Shell } from "@agent-core/core";
+import type { Shell } from "@volto/core";
 
 /** Minimal mock Shell for testing createSandboxedShell */
 function createMockShell(): Shell {

@@ -73,7 +73,7 @@ export class StdioTransport implements McpTransport {
       await this.request("initialize", {
         protocolVersion: "2025-03-26",
         capabilities: {},
-        clientInfo: { name: "agent-core-mcp-client", version: "0.0.1" },
+        clientInfo: { name: "volto-mcp-client", version: "0.0.1" },
       });
       // Send initialized notification
       await this.notify("notifications/initialized", {});

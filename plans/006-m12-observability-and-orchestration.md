@@ -3,7 +3,7 @@
 > **Status**: Draft
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M12；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8 内核引擎 + 9 端口契约，含 `Telemetry`）；Plan 001（M1–M7 已交付：EventSink / SessionStore / task 子 agent / 重放测试）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M12；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 002（M8 内核引擎 + 9 端口契约，含 `Telemetry`）；Plan 001（M1–M7 已交付：EventSink / SessionStore / task 子 agent / 重放测试）
 > **Target area**: `packages/runtimes/node/src/runner.ts`（span/指标埋点 + checkpoint 历史）、`packages/sdk/src/{create-agent,defaults}.ts`、`packages/sdk/src/{debugger,orchestration}/*`（新增）、`packages/stores/*`（checkpoint 历史只读扩展）、`apps/reference-cli`（消费 span/调试器/审计）
 
 ## 1. 背景
@@ -132,13 +132,13 @@ M8（Plan 002）已把内核升级为支持并行 / steering / 调速的编排�
 **Goal**: 实现 M8 `Telemetry` 端口的 OTel adapter；Runner 在每 turn / 工具调用 / 模型调用边界开关 span（含属性与错误状态），可导出到 OTel collector；核心零改动、未注入时行为不变。
 
 **Files covered**:
-- `packages/telemetry-otel/`（新增包 `@agent-core/telemetry-otel`：实现 `Telemetry`，依赖 `@opentelemetry/*`；type-import core）
+- `packages/telemetry-otel/`（新增包 `@volto/telemetry-otel`：实现 `Telemetry`，依赖 `@opentelemetry/*`；type-import core）
 - `packages/runtimes/node/src/runner.ts`（在 turn / `calling_model` / `execute_tool` 边界开关 span；注入 `telemetry?: Telemetry`）
 - `packages/sdk/src/{create-agent,defaults}.ts`（可选注入 `telemetry`，缺省 no-op 兜底）
 - 对应 `__tests__/`（用 in-memory / mock Telemetry 断言 span 序列）
 
 **Tasks**:
-- [x] 新建 `@agent-core/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
+- [x] 新建 `@volto/telemetry-otel`：以 `@opentelemetry/api` + SDK 实现 `Telemetry`（`startSpan(name, attrs)` 返回可结束/标错的 handle；`metric(...)` 占位，Phase 2 充实）；查官方文档确认 span/tracer 构造姿势
   > 实现说明：Phase 1 先在 `runtime-node` 内新建 `InMemoryTelemetry`（用于测试验证 span 结构），真实 OTel adapter 留 Phase 2 / 独立包追加；`Telemetry` 端口接口已在 core `ports.ts` 定义，Runner 侧注入不依赖具体 adapter 实现。
 - [x] Runner：注入可选 `telemetry`；turn 起止开关 `turn` span；进入 `calling_model` 开 `model_call` span（attrs：model、token in/out 于关闭时补）、`execute_tool` 派发处开 `tool_execute` span（attrs：toolName、riskTier、isError）
 - [x] Runner：模型/工具错误时把 span 标为 error 状态并附错误信息；span 嵌套关系（turn ⊃ model/tool）正确

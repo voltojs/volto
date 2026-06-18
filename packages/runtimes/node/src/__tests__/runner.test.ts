@@ -11,8 +11,8 @@ import {
   modelError,
   toolCallScript,
   textScript,
-} from "@agent-core/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink } from "@agent-core/core";
+} from "@volto/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

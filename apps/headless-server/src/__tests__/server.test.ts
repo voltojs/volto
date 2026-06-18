@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as http from "node:http";
 import { WebSocket } from "ws";
 import { createServer } from "../server.js";
-import type { ModelPort, ReducerState } from "@agent-core/core";
+import type { ModelPort, ReducerState } from "@volto/core";
 
 const MOCK_MODEL: ModelPort = {
   async *stream() {

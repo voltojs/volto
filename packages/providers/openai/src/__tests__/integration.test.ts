@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createOpenAIModelPort } from "../model-port.js";
-import type { ModelEvent, ModelRequest } from "@agent-core/core";
+import type { ModelEvent, ModelRequest } from "@volto/core";
 
 const apiKey = process.env.OPENAI_API_KEY;
 

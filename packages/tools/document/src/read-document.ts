@@ -3,8 +3,8 @@
  */
 
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
-import type { Tool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
+import type { Tool } from "@volto/tools-common";
 import type { DocumentParserAdapter } from "./document-parser.js";
 
 const CAP_DOCUMENT = "document:parse";

@@ -3,7 +3,7 @@
 > **Status**: Draft
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M13；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 001（M1–M7 已交付）；Plan 002（M8：内核引擎深化 + 9 个纯类型端口契约，含 `ToolSource` / `PolicyEngine`）；Plan 003（M9：模型层 + 项目指令分层加载 `@import`）；Plan 004（M10：MCP 客户端）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M13；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 001（M1–M7 已交付）；Plan 002（M8：内核引擎深化 + 9 个纯类型端口契约，含 `ToolSource` / `PolicyEngine`）；Plan 003（M9：模型层 + 项目指令分层加载 `@import`）；Plan 004（M10：MCP 客户端）
 > **Target area**: `packages/sdk/src/{create-agent,defaults}.ts`（插件装配 / 配置合并 / 规格 loader 接线）、`packages/runtimes/node/src/runner.ts`（生命周期 hook 事件点）、`packages/core/src/{reducer,input,effect,state}.ts`（hook 阻断的纯决策表达）、新增 `packages/sdk/src/{plugin,hooks,commands,skills,agent-spec,config}.ts`
 
 ## 1. 背景

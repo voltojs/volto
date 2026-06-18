@@ -16,8 +16,8 @@
  * All rejections are expressed as ShellEvents (stdout/stderr/exit), never thrown.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
-import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@agent-core/core";
+import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
+import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
 import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
@@ -224,7 +224,7 @@ export function createSandboxedShell(
 
             // Write profile to temp file (sandbox-exec requires a file path)
             const profileId = `${process.pid}-${++profileCounter}`;
-            profilePath = join(tmpdir(), `agent-core-sandbox-${profileId}.sb`);
+            profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
             writeFileSync(profilePath, profileContent, "utf-8");
 
             // Escape cmd for safe embedding in a bash -c string

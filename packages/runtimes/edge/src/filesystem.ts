@@ -11,7 +11,7 @@ import type {
   FileListResult,
   FileGlobResult,
   FileGrepResult,
-} from "@agent-core/core";
+} from "@volto/core";
 
 export interface ObjectStorageBackend {
   get(key: string): Promise<string | undefined>;

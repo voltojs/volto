@@ -3,7 +3,7 @@
 > **Status**: Complete
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M8；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 001（M1–M7 已交付）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M8；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 001（M1–M7 已交付）
 > **Target area**: `packages/core/src/{state,input,effect,reducer,ports,index}.ts`、`packages/runtimes/node/src/runner.ts`、`packages/sdk/src/{create-agent,defaults}.ts`
 
 ## 1. 背景
@@ -37,7 +37,7 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 
 ## 2. Goals
 
-1. 核心新增 9 个端口接口（纯类型），`@agent-core/core` 仍零运行时依赖；SDK 提供 no-op/内存兜底默认实现。
+1. 核心新增 9 个端口接口（纯类型），`@volto/core` 仍零运行时依赖；SDK 提供 no-op/内存兜底默认实现。
 2. 资源调速器：核心强制 token 预算 + 工具调用数 + 最大迭代数（确定性）；Runner 监控 wallclock + 成本$ 并在越限时回喂归一化终止 input。
 3. 并行工具执行：Runner 并行跑同一轮的多个 tool_use（HITL `ask` 工具仍正确串行化），reducer 按 `pendingTools` 规范顺序归并结果，重放等价。
 4. steering：turn 进行中的 `user_message` 入队，在 turn 边界注入，不打断进行中的工具；可重放。
@@ -118,7 +118,7 @@ M1–M7 交付的内核能跑通"对话 → 工具 → 结果回喂 → 最终�
 - [x] 测试：兜底实现 smoke（各方法可调用、语义正确）；最小配置（仅 model）仍可启动
 
 **Acceptance Criteria**:
-1. `@agent-core/core` 仍零运行时依赖（`check-core-zero-deps` 通过），新端口均为纯类型（core lint 纯度规则不破）。
+1. `@volto/core` 仍零运行时依赖（`check-core-zero-deps` 通过），新端口均为纯类型（core lint 纯度规则不破）。
 2. SDK 最小配置（仅 `modelPort`）可启动并完成一轮对话（既有用例不回归）。
 3. 9 个兜底实现各有 smoke 测试且通过。
 

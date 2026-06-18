@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition } from "@agent-core/core";
-import { filterVisibleTools } from "@agent-core/core";
+import type { ToolDefinition } from "@volto/core";
+import { filterVisibleTools } from "@volto/core";
 import { createBashTool, CAP_SHELL_EXEC } from "../index.js";
 
 describe("shell capability gating", () => {

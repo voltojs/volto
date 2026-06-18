@@ -1,7 +1,7 @@
-import type { Shell } from "@agent-core/core";
+import type { Shell } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
-import type { Tool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
+import type { Tool } from "@volto/tools-common";
 
 const CAP_SHELL_EXEC = "shell:exec";
 

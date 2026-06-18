@@ -7,7 +7,7 @@
  * prompt text (no throw).
  */
 
-import type { JSONSchema } from "@agent-core/core";
+import type { JSONSchema } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Types

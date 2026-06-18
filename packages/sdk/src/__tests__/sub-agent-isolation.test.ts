@@ -4,8 +4,8 @@ import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@agent-core/core";
-import type { ToolDefinition, ToolResult } from "@agent-core/core";
+} from "@volto/core";
+import type { ToolDefinition, ToolResult } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

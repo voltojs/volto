@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Network } from "@agent-core/core";
+import type { Network } from "@volto/core";
 import { createWebFetchTool, createWebSearchTool, CAP_NETWORK_FETCH } from "../index.js";
 
 function mockNetwork(responseBody: string, status = 200): Network {

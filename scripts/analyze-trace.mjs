@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * analyze-trace.mjs — Offline analyzer for agent-core trace JSONL files.
+ * analyze-trace.mjs — Offline analyzer for volto trace JSONL files.
  *
  * Reads a trace file produced by `createTracingEventSink({ jsonlPath })`
  * (see apps/reference-cli) and prints a structured human-readable report.

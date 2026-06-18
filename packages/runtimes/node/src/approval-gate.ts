@@ -5,7 +5,7 @@
  * - interactive: terminal-based y/n prompt
  */
 
-import type { ApprovalGate, PendingToolCall, RiskTier } from "@agent-core/core";
+import type { ApprovalGate, PendingToolCall, RiskTier } from "@volto/core";
 import * as readline from "node:readline";
 
 /**

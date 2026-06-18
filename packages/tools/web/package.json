@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/tools-web",
+  "name": "@volto/tools-web",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,7 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/tools-common": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/tools-common": "workspace:*"
   }
 }

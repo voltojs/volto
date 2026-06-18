@@ -3,7 +3,7 @@
  * Character-count heuristic (~4 chars per token), fully portable.
  */
 
-import type { Tokenizer } from "@agent-core/core";
+import type { Tokenizer } from "@volto/core";
 
 export interface BrowserTokenizerOptions {
   /** Characters per token estimate (default: 4) */

@@ -3,16 +3,16 @@
 > **Status**: Draft
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M14（WS-10）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)（尤其 §9 可移植性矩阵）；Plan 001（M1–M7 已交付：SDK run/stream/resume 门面、SessionStore 合同测试套件、参考 CLI 仅 wiring）；Plan 002（M8 已立 9 个纯类型端口契约，本 Plan 消费其中 `ToolSource` / `Sandbox` / `Secrets` / `PolicyEngine`）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M14（WS-10）；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)（尤其 §9 可移植性矩阵）；Plan 001（M1–M7 已交付：SDK run/stream/resume 门面、SessionStore 合同测试套件、参考 CLI 仅 wiring）；Plan 002（M8 已立 9 个纯类型端口契约，本 Plan 消费其中 `ToolSource` / `Sandbox` / `Secrets` / `PolicyEngine`）
 > **Target area**: `packages/stores/{sqlite,postgres}/`、`packages/runtimes/{browser,edge}/`、`apps/{headless-server,mcp-server,ide-extension,github-action,chat-adapter}/`（各宿主仅 wiring，**`packages/core/` 零改动**）
 
 ## 1. 背景
 
 ### 1.1 问题陈述
 
-M1–M7 交付了纯函数内核 + SDK（run/stream/resume）门面 + 参考 CLI（仅 wiring），M8（Plan 002）又立了 9 个纯类型端口契约。架构设计 [pure-agent-core.md](../docs/pure-agent-core.md) §9 列出了 7 类宿主（CLI / HTTP 服务 / 桌面 / 浏览器 / Edge / 嵌入库 / MCP server）的可移植性矩阵——"横行换 adapter，竖列（core + 工具包 + 决策逻辑）完全不动"。但当前仅 CLI 宿主与 memory/file 两个 store 落地，矩阵的其余横行尚是承诺而非证据。
+M1–M7 交付了纯函数内核 + SDK（run/stream/resume）门面 + 参考 CLI（仅 wiring），M8（Plan 002）又立了 9 个纯类型端口契约。架构设计 [pure-volto.md](../docs/pure-volto.md) §9 列出了 7 类宿主（CLI / HTTP 服务 / 桌面 / 浏览器 / Edge / 嵌入库 / MCP server）的可移植性矩阵——"横行换 adapter，竖列（core + 工具包 + 决策逻辑）完全不动"。但当前仅 CLI 宿主与 memory/file 两个 store 落地，矩阵的其余横行尚是承诺而非证据。
 
-M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"不变量**：把同一核心铺到多种宿主与持久化后端，并以 **browser/Edge runtime 终证可移植性承诺**（`@agent-core/core` 包零改动跑通）。本 Plan 落地 M14 的全部能力：
+M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"不变量**：把同一核心铺到多种宿主与持久化后端，并以 **browser/Edge runtime 终证可移植性承诺**（`@volto/core` 包零改动跑通）。本 Plan 落地 M14 的全部能力：
 
 - **持久化形态**：`store-sqlite`、`store-postgres`（须过既有 SessionStore 合同测试）。
 - **服务形态**：headless server（HTTP/SSE/WS，支持 run/stream/resume）。
@@ -37,7 +37,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 1. **核心零改动**：本 Plan 不触碰 `packages/core/`，所有能力靠"新增 store / runtime adapter / 宿主 app"实现；以 git diff 不含 `packages/core/**` 为硬验收。
 2. **合同复用**：新 store 一律消费 core `testing/store-contract` 的 `runStoreContractTests`，不另写一套断言，保证行为与 memory/file 严格一致。
-3. **门面单一**：所有宿主统一经 `@agent-core/sdk` 的 `createAgent` + run/stream/resume，宿主层不重新实现编排，只做协议转换（HTTP/WS/MCP/IPC ↔ SDK 调用 + EventSink）。
+3. **门面单一**：所有宿主统一经 `@volto/sdk` 的 `createAgent` + run/stream/resume，宿主层不重新实现编排，只做协议转换（HTTP/WS/MCP/IPC ↔ SDK 调用 + EventSink）。
 4. **形态可移植**：browser/Edge runtime 实现既有 `FileSystem` / `Network` / `Tokenizer` 等 port 接口（缺席能力经能力门控自动摘除工具），不引入 Node 专属 API 进可移植 adapter。
 5. **边界清晰**：只做 MCP **server** 暴露（客户端归 Plan 004 M10）；不新增端口类型（归 Plan 002 M8）；不实现具体工具（归 Plan 004 M10）。
 
@@ -45,7 +45,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 1. `store-sqlite` 与 `store-postgres` 落地，二者**通过既有 `runStoreContractTests` 合同测试套件**（与 memory/file 同一断言），各自补持久化/并发特化测试。
 2. headless server 落地：HTTP 端点驱动 `run`、SSE/WS 通道驱动 `stream`、resume 端点驱动 HITL 续跑；**SSE 与 WS 两种流式传输都经 EventSink 适配输出事件**。
-3. `runtime-browser` 落地：实现 `FileSystem`（OPFS / virtual-fs）+ `Network`（fetch 代理）+ `Tokenizer` adapter，**在浏览器环境跑通核心一轮对话，`@agent-core/core` 包零改动**（可移植性最终证明）。
+3. `runtime-browser` 落地：实现 `FileSystem`（OPFS / virtual-fs）+ `Network`（fetch 代理）+ `Tokenizer` adapter，**在浏览器环境跑通核心一轮对话，`@volto/core` 包零改动**（可移植性最终证明）。
 4. `runtime-edge` 落地：实现对象存储 `FileSystem` + fetch `Network` adapter，在 Edge/Worker 环境跑通核心（Shell 缺席经门控摘除）。
 5. agent **暴露为 MCP server**：把一次 agent run 暴露为一个 MCP tool，可被其它 MCP 客户端发现并作为工具调用，结果与流式事件经 MCP 协议回传。
 6. IDE 集成（VS Code 扩展，JetBrains 留 IPC 契约骨架）、GitHub Action（CI 宿主）、chat 适配（Slack/Discord）落地为薄 wiring 宿主，复用 headless server 或 SDK 门面。
@@ -126,9 +126,9 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 **Files covered**:
 - `packages/stores/sqlite/src/index.ts`（`createStore(opts)` → `SessionStore`，driver: `better-sqlite3` 或 `node:sqlite`）
-- `packages/stores/sqlite/package.json`（包名 `@agent-core/store-sqlite`，依赖隔离驱动）
+- `packages/stores/sqlite/package.json`（包名 `@volto/store-sqlite`，依赖隔离驱动）
 - `packages/stores/postgres/src/index.ts`（`createStore(opts)` → `SessionStore`，driver: `pg`，连接池）
-- `packages/stores/postgres/package.json`（包名 `@agent-core/store-postgres`）
+- `packages/stores/postgres/package.json`（包名 `@volto/store-postgres`）
 - `packages/stores/{sqlite,postgres}/src/__tests__/*.test.ts`（复用 `runStoreContractTests` + 特化）
 - `packages/sdk/src/defaults.ts`（可选导出 store 工厂便利封装，**不**改默认兜底，仍是 memory）
 
@@ -185,13 +185,13 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 ### Phase 3: 可移植终证 — runtime-browser / runtime-edge（core 零改动跑通）
 
-**Goal**: 新增 `runtime-browser`（OPFS/virtual-fs FileSystem + fetch Network + Tokenizer，无 Shell）与 `runtime-edge`（对象存储 FileSystem + fetch Network，无 Shell），在浏览器/Edge 环境跑通核心一轮对话，**`@agent-core/core` 包零改动**——可移植性的最终证明。
+**Goal**: 新增 `runtime-browser`（OPFS/virtual-fs FileSystem + fetch Network + Tokenizer，无 Shell）与 `runtime-edge`（对象存储 FileSystem + fetch Network，无 Shell），在浏览器/Edge 环境跑通核心一轮对话，**`@volto/core` 包零改动**——可移植性的最终证明。
 
 **Files covered**:
 - `packages/runtimes/browser/src/{filesystem,network,tokenizer,index}.ts`（实现既有 `FileSystem`/`Network`/`Tokenizer` port）
-- `packages/runtimes/browser/package.json`（包名 `@agent-core/runtime-browser`，无 `node:*` 依赖）
+- `packages/runtimes/browser/package.json`（包名 `@volto/runtime-browser`，无 `node:*` 依赖）
 - `packages/runtimes/edge/src/{filesystem,network,index}.ts`（对象存储 FileSystem + fetch Network）
-- `packages/runtimes/edge/package.json`（包名 `@agent-core/runtime-edge`）
+- `packages/runtimes/edge/package.json`（包名 `@volto/runtime-edge`）
 - `packages/runtimes/{browser,edge}/src/__tests__/*.test.ts`（port 行为 + 核心 e2e）
 
 **Tasks**:
@@ -204,7 +204,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - [x] **零改动断言**：在 e2e 测试或 CI 脚本中校验本 Phase 提交的 git diff 不含 `packages/core/**`
 
 **Acceptance Criteria**:
-1. **`runtime-browser` 在浏览器环境跑通核心一轮对话（read/write 经 OPFS/virtual-fs），`@agent-core/core` 包零改动**——可移植性最终证明。
+1. **`runtime-browser` 在浏览器环境跑通核心一轮对话（read/write 经 OPFS/virtual-fs），`@volto/core` 包零改动**——可移植性最终证明。
 2. `runtime-edge` 在 Edge/Worker 运行时跑通核心；二者均无 `node:*` import、Shell 缺席经门控自动摘除。
 3. 两 runtime 以 `import type` 消费 core port 接口；`check-core-zero-deps` 通过。
 4. git diff 不含 `packages/core/**`（以脚本/测试断言）。
@@ -294,7 +294,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 - **Preconditions**: store-sqlite 包已安装
 - **Steps**:
-  1. 运行 `pnpm turbo run test --filter @agent-core/store-sqlite`
+  1. 运行 `pnpm turbo run test --filter @volto/store-sqlite`
   2. 断言 7 个测试全部通过（5 合同 + 2 特化）
 - **Paths**: `packages/stores/sqlite/src/__tests__/store.test.ts`
 - **Expected**: runStoreContractTests 5 个用例全绿；跨实例持久化可见；目录自动创建
@@ -303,7 +303,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 
 - **Preconditions**: 无
 - **Steps**:
-  1. 运行 `pnpm turbo run test --filter @agent-core/store-postgres`
+  1. 运行 `pnpm turbo run test --filter @volto/store-postgres`
   2. 若 `DATABASE_URL` 可用：断言 8 个测试通过
   3. 若无 PG：断言 1 通过 + 7 跳过
 - **Paths**: `packages/stores/postgres/src/__tests__/store.test.ts`
@@ -314,7 +314,7 @@ M14 是路线图最后一个里程碑（P2），主题是**兑现"高可移植"�
 - **Preconditions**: store-sqlite / store-postgres 已安装
 - **Steps**:
   1. 运行 `node scripts/check-core-zero-deps.mjs`
-  2. 断言输出 `PASS: @agent-core/core has zero dependencies`
+  2. 断言输出 `PASS: @volto/core has zero dependencies`
   3. 检查 `packages/core/package.json` 不含 `better-sqlite3` 或 `pg`
 - **Paths**: `packages/core/package.json`, `scripts/check-core-zero-deps.mjs`
 - **Expected**: core 零运行时依赖不变

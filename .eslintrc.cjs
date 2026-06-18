@@ -21,7 +21,7 @@ module.exports = {
   ignorePatterns: ["dist/", "node_modules/", "*.js", "*.cjs"],
   overrides: [
     {
-      // @agent-core/core: purity rules — no node:*, no implementation packages, no implicit side effects
+      // @volto/core: purity rules — no node:*, no implementation packages, no implicit side effects
       files: ["packages/core/src/**/*.ts"],
       rules: {
         "no-restricted-imports": [
@@ -29,50 +29,50 @@ module.exports = {
           {
             paths: [
               {
-                name: "@agent-core/tools-fs",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/tools-fs",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/tools-shell",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/tools-shell",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/tools-web",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/tools-web",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/tools-plan",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/tools-plan",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/tools-agent",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/tools-agent",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/provider-openai",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/provider-openai",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/runtime-node",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/runtime-node",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/store-memory",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/store-memory",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/store-sqlite",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/store-sqlite",
+                message: "@volto/core must not import implementation packages.",
               },
               {
-                name: "@agent-core/sdk",
-                message: "@agent-core/core must not import implementation packages.",
+                name: "@volto/sdk",
+                message: "@volto/core must not import implementation packages.",
               },
             ],
             patterns: [
               {
                 group: ["node:*"],
-                message: "@agent-core/core must not import Node builtins. Use port injection instead.",
+                message: "@volto/core must not import Node builtins. Use port injection instead.",
               },
             ],
           },

@@ -8,7 +8,7 @@ import type {
   FileListResult,
   FileGlobResult,
   FileGrepResult,
-} from "@agent-core/core";
+} from "@volto/core";
 
 const MAX_GREP_LIMIT = 500;
 

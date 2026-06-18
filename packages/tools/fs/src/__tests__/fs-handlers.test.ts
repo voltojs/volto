@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem } from "@agent-core/core";
+import type { FileSystem } from "@volto/core";
 import { createLsTool } from "../ls.js";
 import { createGlobTool } from "../glob.js";
 import { createGrepTool } from "../grep.js";

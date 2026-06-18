@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createAgent } from "@agent-core/sdk";
-import { createMockModelPort, textScript } from "@agent-core/core";
+import { createAgent } from "@volto/sdk";
+import { createMockModelPort, textScript } from "@volto/core";
 import { createRenderingEventSink } from "../render.js";
 
 /**

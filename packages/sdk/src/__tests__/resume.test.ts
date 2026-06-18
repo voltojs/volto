@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMemoryStore } from "@agent-core/store-memory";
+import { createMemoryStore } from "@volto/store-memory";
 import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@agent-core/core";
+} from "@volto/core";
 import type {
   ToolDefinition,
   ToolResult,
   ApprovalGate,
-} from "@agent-core/core";
-import type { Tool } from "@agent-core/tools-common";
+} from "@volto/core";
+import type { Tool } from "@volto/tools-common";
 
 const dangerousTool: ToolDefinition = {
   name: "dangerous_op",

@@ -1,5 +1,5 @@
 /**
- * Browser runtime adapters for agent-core.
+ * Browser runtime adapters for volto.
  * Provides FileSystem (virtual), Network (fetch), and Tokenizer (heuristic)
  * implementations that work in browser environments without node:* dependencies.
  */

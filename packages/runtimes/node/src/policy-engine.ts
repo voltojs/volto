@@ -5,7 +5,7 @@
  * that consumes the M8 PolicyEngine port type.
  */
 
-import type { PolicyEngine, PolicyRequest } from "@agent-core/core";
+import type { PolicyEngine, PolicyRequest } from "@volto/core";
 
 /**
  * Allow-all policy engine — grants every request.

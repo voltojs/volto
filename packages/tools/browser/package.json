@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/tools-browser",
+  "name": "@volto/tools-browser",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -7,5 +7,5 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "scripts": { "build": "tsc --build", "typecheck": "tsc --noEmit", "lint": "eslint src/", "test": "vitest run" },
-  "dependencies": { "@agent-core/core": "workspace:*", "@agent-core/tools-common": "workspace:*", "zod": "^4.4.3" }
+  "dependencies": { "@volto/core": "workspace:*", "@volto/tools-common": "workspace:*", "zod": "^4.4.3" }
 }

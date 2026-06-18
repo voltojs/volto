@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem, FileReadResult, FileStat, StepContext, ToolDefinition } from "@agent-core/core";
-import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@agent-core/core";
-import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@agent-core/tools-fs";
+import type { FileSystem, FileReadResult, FileStat, StepContext, ToolDefinition } from "@volto/core";
+import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@volto/core";
+import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@volto/tools-fs";
 import { createRunner } from "../runner.js";
 import { createFsToolExecutor } from "../tool-executor.js";
 

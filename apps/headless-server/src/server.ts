@@ -1,5 +1,5 @@
 /**
- * Headless server — HTTP + SSE + WebSocket gateway for agent-core.
+ * Headless server — HTTP + SSE + WebSocket gateway for volto.
  *
  * Routes:
  *   POST /run      — one-shot run, returns final state

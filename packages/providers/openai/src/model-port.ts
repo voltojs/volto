@@ -6,7 +6,7 @@
  * Supports any OpenAI-compatible gateway via configurable baseURL.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest } from "@agent-core/core";
+import type { ModelPort, ModelEvent, ModelRequest } from "@volto/core";
 import { normalizeStream, type RawStreamChunk } from "./stream-normalize.js";
 
 export interface OpenAIModelPortOptions {

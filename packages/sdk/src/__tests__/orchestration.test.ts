@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { TopologySpec, ModelPort, ModelRequest } from "@agent-core/core";
-import { createMockModelPort, textDelta, modelDone } from "@agent-core/core";
+import type { TopologySpec, ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, textDelta, modelDone } from "@volto/core";
 import { createOrchestrator } from "../orchestration.js";
 import type { CreateAgentOptions } from "../create-agent.js";
 

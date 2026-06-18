@@ -1,5 +1,5 @@
 /**
- * Edge runtime adapters for agent-core.
+ * Edge runtime adapters for volto.
  * Provides FileSystem (object storage) and Network (fetch) implementations
  * that work in Cloudflare Workers, Deno Deploy, and other edge runtimes.
  * No node:* dependencies.

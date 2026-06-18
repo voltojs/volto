@@ -5,8 +5,8 @@ import {
   textScript,
   toolCallScript,
   UNTRUSTED_PREFIX,
-} from "@agent-core/core";
-import type { ToolSource, ToolDefinition, ToolResult } from "@agent-core/core";
+} from "@volto/core";
+import type { ToolSource, ToolDefinition, ToolResult } from "@volto/core";
 
 /**
  * Mock ToolSource that returns predefined tools and simulates calling them.

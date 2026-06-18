@@ -1,6 +1,6 @@
-import type { ToolResult } from "@agent-core/core";
+import type { ToolResult } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK } from "./capabilities.js";
 
 /**

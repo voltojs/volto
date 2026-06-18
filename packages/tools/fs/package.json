@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/tools-fs",
+  "name": "@volto/tools-fs",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,8 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/tools-common": "workspace:*",
+    "@volto/core": "workspace:*",
+    "@volto/tools-common": "workspace:*",
     "zod": "^4.4.3"
   }
 }

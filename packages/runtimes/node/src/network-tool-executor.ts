@@ -1,6 +1,6 @@
-import type { PendingToolCall, ToolResult, Network } from "@agent-core/core";
-import type { WebTool } from "@agent-core/tools-web";
-import { createWebFetchTool, createWebSearchTool } from "@agent-core/tools-web";
+import type { PendingToolCall, ToolResult, Network } from "@volto/core";
+import type { WebTool } from "@volto/tools-web";
+import { createWebFetchTool, createWebSearchTool } from "@volto/tools-web";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateNetworkToolExecutorOptions {

@@ -6,9 +6,9 @@ import {
   toolCallScript,
   textDelta,
   modelDone,
-} from "@agent-core/core";
-import type { ToolDefinition, ToolResult } from "@agent-core/core";
-import { createMemoryStore } from "@agent-core/store-memory";
+} from "@volto/core";
+import type { ToolDefinition, ToolResult } from "@volto/core";
+import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
 

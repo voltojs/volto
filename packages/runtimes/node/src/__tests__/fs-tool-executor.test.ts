@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { FileSystem, FileReadResult, FileStat, ReadFileRecord } from "@agent-core/core";
+import type { FileSystem, FileReadResult, FileStat, ReadFileRecord } from "@volto/core";
 import { createFsToolExecutor } from "../tool-executor.js";
 import { createNodeFileSystem } from "../filesystem.js";
 import fs from "node:fs/promises";
@@ -121,7 +121,7 @@ describe("node filesystem boundary", () => {
   let root: string;
 
   beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-core-fs-"));
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "volto-fs-"));
   });
 
   it("rejects paths that climb out of the workspace", async () => {

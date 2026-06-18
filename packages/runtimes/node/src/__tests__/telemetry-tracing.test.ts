@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition, StepContext } from "@agent-core/core";
+import type { ToolDefinition, StepContext } from "@volto/core";
 import {
   createMockModelPort,
   toolUseStart,
@@ -7,7 +7,7 @@ import {
   modelDone,
   textDelta,
   usage,
-} from "@agent-core/core";
+} from "@volto/core";
 import { createRunner } from "../runner.js";
 import { InMemoryTelemetry } from "../telemetry.js";
 

@@ -3,7 +3,7 @@
 > **Status**: Done
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M9；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 001（M1–M7 已交付）；Plan 002（M8 — 9 个端口契约 + SDK 兜底，本 Plan 消费其中 4 个）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M9；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 001（M1–M7 已交付）；Plan 002（M8 — 9 个端口契约 + SDK 兜底，本 Plan 消费其中 4 个）
 > **Target area**: `packages/providers/{anthropic,openai}/src/*`、`packages/embedders/*`、`packages/memories/*`（新的 `MemoryStore` 实现包，**区别于既有 `packages/stores/memory` 的 SessionStore**）、`packages/core/src/{context-assembler,compactor,instructions,retrieval,index}.ts`、`packages/sdk/src/{create-agent,defaults,model-router,cost-meter}.ts`
 
 ## 1. 背景
@@ -17,7 +17,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - **WS-3 模型与推理层**：原生 Anthropic provider（thinking / tool_use 块归一化）+ 多 provider 归一化复用既有 `ModelEvent` 形态；模型路由 / 回退；Prompt/上下文缓存接线（消费 M8 `Cache` 端口 + provider 侧 `cache_control` + `ContextAssembler` 缓存提示）；reasoning 透传；结构化 / JSON 输出模式；成本计量与定价表（账目 / 上报）。
 - **WS-4 上下文与记忆**：项目指令分层加载（`CLAUDE.md` / `AGENTS.md` 发现 + `@import` 递归展开，注入为可缓存静态前缀）；检索增强上下文（RAG）注入；分层记忆（工作 / 情景 / 语义，`MemoryStore` 真实实现）；上下文 pinning。
 
-全程守住立身之本：核心包内决策仍为纯函数（缓存标记 / pinning / RAG 选片在 `ContextAssembler` / `Compactor` 内只做**纯决策**，真实缓存读写与向量检索经 `Cache` / `Embedder` / `MemoryStore` 端口由 Runner / SDK 执行）；多 provider 一律归一化为既有 `ModelEvent`；`@agent-core/core` 仍零运行时依赖；`zod` 只出现在 `tools/*` 与 `sdk`。
+全程守住立身之本：核心包内决策仍为纯函数（缓存标记 / pinning / RAG 选片在 `ContextAssembler` / `Compactor` 内只做**纯决策**，真实缓存读写与向量检索经 `Cache` / `Embedder` / `MemoryStore` 端口由 Runner / SDK 执行）；多 provider 一律归一化为既有 `ModelEvent`；`@volto/core` 仍零运行时依赖；`zod` 只出现在 `tools/*` 与 `sdk`。
 
 ### 1.2 现状审计
 
@@ -46,7 +46,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ## 2. Goals
 
-1. 新增 `@agent-core/provider-anthropic`：原生 Messages API 流式，thinking / tool_use / usage（含 cache token）归一化为既有 `ModelEvent`，错误归一为 `ModelEventError`（不抛异常）。
+1. 新增 `@volto/provider-anthropic`：原生 Messages API 流式，thinking / tool_use / usage（含 cache token）归一化为既有 `ModelEvent`，错误归一为 `ModelEventError`（不抛异常）。
 2. SDK 侧 `ModelRouter`：按角色选 provider+model + 可配置回退链；归一化错误（`retriable`）驱动回退。
 3. Prompt/上下文缓存：`ContextAssembler` 纯产出缓存断点提示；provider 翻译为 `cache_control`；响应级缓存经 M8 `Cache` 端口；usage 暴露 cache hit / cache write token。
 4. reasoning 透传策略可配（EventSink / 历史 / 仅计费），跨 provider 一致。
@@ -56,7 +56,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 8. RAG：纯核心选片 + SDK 检索（Embedder→MemoryStore），注入不破坏前缀稳定性。
 9. 分层记忆：消费 `MemoryStore` + `Embedder` 端口的真实实现（工作 / 情景 / 语义）。
 10. 上下文 pinning：`ContextAssembler` / `Compactor` 纯决策保护 pinned 消息。
-11. `@agent-core/core` 仍零运行时依赖（`check-core-zero-deps` 通过）；`pnpm turbo run typecheck lint test` 全绿 + 既有重放测试不回归。
+11. `@volto/core` 仍零运行时依赖（`check-core-zero-deps` 通过）；`pnpm turbo run typecheck lint test` 全绿 + 既有重放测试不回归。
 
 ## 3. Non-Goals
 
@@ -103,7 +103,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### 4.6 分层记忆:三层语义,复用 MemoryStore + Embedder
 
-**决策**：新增独立包 `packages/memories/inmemory`（`@agent-core/memory-inmemory`，首个 `MemoryStore` 实现；后续可加向量/持久化实现于同一 `packages/memories/` 目录），实现三层：**工作记忆**（当前会话窗口，已由 state.messages 承载，记忆层只做摘要锚点）、**情景记忆**（按会话 / 时间归档的 turn 摘要）、**语义记忆**（embedding 索引的长期事实）。三层统一经 M8 `MemoryStore` 接口存取（`save` / `query` / `delete`），语义层额外消费 `Embedder`。层级是实现内部约定（如 entry 上的 `tier` 字段），不扩端口签名。
+**决策**：新增独立包 `packages/memories/inmemory`（`@volto/memory-inmemory`，首个 `MemoryStore` 实现；后续可加向量/持久化实现于同一 `packages/memories/` 目录），实现三层：**工作记忆**（当前会话窗口，已由 state.messages 承载，记忆层只做摘要锚点）、**情景记忆**（按会话 / 时间归档的 turn 摘要）、**语义记忆**（embedding 索引的长期事实）。三层统一经 M8 `MemoryStore` 接口存取（`save` / `query` / `delete`），语义层额外消费 `Embedder`。层级是实现内部约定（如 entry 上的 `tier` 字段），不扩端口签名。
 
 > **与 SessionStore 严格区分**：`MemoryStore`（语义召回）与既有 `packages/stores/memory` 的 `SessionStore`（会话快照 / checkpoint）是**两个不同端口、两个不同包**。本 Plan **不触碰** `packages/stores/memory`，分层记忆一律落在新的 `packages/memories/`，避免概念混淆与跨 Plan 包归属碰撞。
 
@@ -147,7 +147,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### Phase 1: 原生 Anthropic provider + 多 provider 归一化等价
 
-**Goal**: 新增 `@agent-core/provider-anthropic`，Messages API 流式 thinking / tool_use / usage 归一化为既有 `ModelEvent`；同一 mock 脚本切 provider 重放等价。
+**Goal**: 新增 `@volto/provider-anthropic`，Messages API 流式 thinking / tool_use / usage 归一化为既有 `ModelEvent`；同一 mock 脚本切 provider 重放等价。
 
 **Files covered**:
 - `packages/providers/anthropic/`（新包：`package.json` / `tsconfig` / `src/{index,model-port,stream-normalize}.ts`）
@@ -166,7 +166,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 1. Anthropic provider 把 thinking / tool_use（含 `input_json_delta` 分片累积）/ usage 正确归一化为既有 `ModelEvent`，无新事件类型，且不改 core（cache 字段由 M8 预置，仅填充）。
 2. 同一 mock 脚本切换 OpenAI / Anthropic provider，重放 (state, effects) 序列 deep-equal（**provider 切换重放等价**）。
 3. provider 错误 / abort 一律归一为 `ModelEventError`，**不抛异常中断主循环**。
-4. `@agent-core/core` 仍零依赖（`check-core-zero-deps` 通过）；既有 OpenAI 测试零回归。
+4. `@volto/core` 仍零依赖（`check-core-zero-deps` 通过）；既有 OpenAI 测试零回归。
 
 <!-- Backfill after execution:
 **Reviewed**: 2026-06-09 by reviewer
@@ -274,16 +274,16 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 **Goal**: 真实 `Embedder` 实现包；分层记忆（工作 / 情景 / 语义）消费 `MemoryStore` + `Embedder`；RAG 纯选片 + SDK 检索，注入不破坏前缀稳定性。
 
 **Files covered**:
-- `packages/embedders/`（新包 `@agent-core/embedder-openai`：消费 M8 `Embedder` 端口）
-- `packages/memories/inmemory/`（**新包** `@agent-core/memory-inmemory`：分层记忆三层 tier 元数据 + query；区别于既有 `stores/memory` 的 SessionStore，本 Plan 不碰后者）
+- `packages/embedders/`（新包 `@volto/embedder-openai`：消费 M8 `Embedder` 端口）
+- `packages/memories/inmemory/`（**新包** `@volto/memory-inmemory`：分层记忆三层 tier 元数据 + query；区别于既有 `stores/memory` 的 SessionStore，本 Plan 不碰后者）
 - `packages/core/src/retrieval.ts`（新增纯函数：RAG 片段排进稳定槽位的选片决策）
 - `packages/core/src/context-assembler.ts`（检索区槽位接入，断点之后）
 - `packages/sdk/src/create-agent.ts` / Runner（embed query → MemoryStore.query → 注入；记忆写入 turn 摘要）
 - 对应 `__tests__/`
 
 **Tasks**:
-- [x] `@agent-core/embedder-openai`：实现 M8 `Embedder.embed(texts)`（OpenAI 兼容 embeddings API），错误归一不抛异常
-- [x] 分层记忆：新包 `@agent-core/memory-inmemory` 实现 `MemoryStore`，entry 带 tier（工作 / 情景 / 语义）元数据；语义层经 `Embedder` 索引；`query(text, k)` 跨层检索；情景层归档 turn 摘要（**不修改 `stores/memory`**）
+- [x] `@volto/embedder-openai`：实现 M8 `Embedder.embed(texts)`（OpenAI 兼容 embeddings API），错误归一不抛异常
+- [x] 分层记忆：新包 `@volto/memory-inmemory` 实现 `MemoryStore`，entry 带 tier（工作 / 情景 / 语义）元数据；语义层经 `Embedder` 索引；`query(text, k)` 跨层检索；情景层归档 turn 摘要（**不修改 `stores/memory`**）
 - [x] `retrieval.ts` 纯函数：给定检索片段，产出注入位置 = 静态前缀缓存断点**之后**、对话变量之前的稳定槽位（不改写前缀字节）
 - [x] SDK / Runner：检索流程（embed query → `MemoryStore.query` → 纯选片 → 注入）；记忆写入（turn 结束写情景 / 语义）经端口
 - [x] 测试：Embedder smoke（5 tests: 创建 / 空输入 / 网络失败 / HTTP 错误 / 正常解析）；分层记忆 save/query/delete + tier 过滤（5 tests）;RAG 注入后静态前缀断点不变(联动 Phase 4 验收 2);检索为 I/O 在端口、选片为纯函数(5 tests);含 RAG 的重放等价(固定 mock embedding)
@@ -323,7 +323,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-001: Anthropic provider 流式归一化 — text / thinking / tool_use / usage
 
-- **Preconditions**: `@agent-core/provider-anthropic` 包已构建，vitest 可运行
+- **Preconditions**: `@volto/provider-anthropic` 包已构建，vitest 可运行
 - **Steps**:
   1. 构造 Anthropic SSE 事件序列（message_start → content_block_start(text) → content_block_delta(text_delta) → content_block_stop → message_delta(stop_reason) → message_stop）
   2. 调用 `normalizeStream()`，收集产出事件
@@ -345,7 +345,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-003: ModelRouter 透明回退 — retriable error 触发 fallback
 
-- **Preconditions**: `@agent-core/sdk` 已构建
+- **Preconditions**: `@volto/sdk` 已构建
 - **Steps**:
   1. 创建 primary ModelPort 返回 `{ type: "error", retriable: true }`
   2. 创建 fallback ModelPort 返回 `{ type: "text_delta", text: "fallback" }` + `{ type: "done" }`
@@ -357,7 +357,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-004: CostMeter 聚合 + 定价计算 — token 累加与 $ 折算
 
-- **Preconditions**: `@agent-core/sdk` 已构建
+- **Preconditions**: `@volto/sdk` 已构建
 - **Steps**:
   1. 创建 CostMeter，pricing 为 `test-model: { inputPer1M: 3, outputPer1M: 15, cacheReadPer1M: 0.3, cacheWritePer1M: 3.75 }`
   2. 调用 `meter.record()` 两次，分别注入 usage 事件
@@ -369,7 +369,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-005: `@import` 递归展开 — 防环 / 防越界 / 缺失降级
 
-- **Preconditions**: `@agent-core/core` 已构建
+- **Preconditions**: `@volto/core` 已构建
 - **Steps**:
   1. 构造 `fileContents` Map：`/a.md` 引用 `@./b.md`，`/b.md` 引用 `@./a.md`（循环）
   2. 调用 `expandInstructions(files, "/a.md", "/")`
@@ -381,7 +381,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-006: 上下文 pinning — pinned 消息永不压缩 + 前缀槽位稳定
 
-- **Preconditions**: `@agent-core/core` 已构建
+- **Preconditions**: `@volto/core` 已构建
 - **Steps**:
   1. 构造 6 条消息，pin index 2（`pinnedMessageIds: ["2"]`）
   2. 调用 `decideCompaction(messages, { maxTokens: 30, recentKeepCount: 2, pinnedMessageIds: ["2"] })`
@@ -393,7 +393,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-007: 分层记忆 — tier 过滤 + save/query/delete
 
-- **Preconditions**: `@agent-core/memory-inmemory` 已构建
+- **Preconditions**: `@volto/memory-inmemory` 已构建
 - **Steps**:
   1. 创建 `createInMemoryMemoryStore()`
   2. 调用 `saveWithTier(entry("episodic fact"), "episodic")` 和 `saveWithTier(entry("semantic fact"), "semantic")`
@@ -406,7 +406,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-008: cacheBreakpoints — 静态前缀产出 + Anthropic cache_control 翻译
 
-- **Preconditions**: `@agent-core/core` 已构建
+- **Preconditions**: `@volto/core` 已构建
 - **Steps**:
   1. 构造 messages：2 条 system + 3 条 user（无 pinned）
   2. 调用 `assembleContext({ messages, tools: [] })`
@@ -418,7 +418,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 
 ### TC-009: RAG 注入不破坏前缀稳定性
 
-- **Preconditions**: `@agent-core/core` 已构建
+- **Preconditions**: `@volto/core` 已构建
 - **Steps**:
   1. 构造 messages：system + 3 条 user
   2. 调用 `assembleContext()`，记录 `cacheBreakpoints` 和 `staticPrefixLength`
@@ -433,7 +433,7 @@ M1–M7 的模型层只有单一 OpenAI 兼容 `ModelPort`（`/v1/chat/completio
 - **Preconditions**: 所有包已安装依赖
 - **Steps**:
   1. 运行 `node scripts/check-core-zero-deps.mjs`
-  2. 运行 `pnpm turbo run typecheck lint test --filter @agent-core/core --filter @agent-core/sdk --filter @agent-core/provider-anthropic --filter @agent-core/provider-openai --filter @agent-core/runtime-node --filter @agent-core/memory-inmemory`
+  2. 运行 `pnpm turbo run typecheck lint test --filter @volto/core --filter @volto/sdk --filter @volto/provider-anthropic --filter @volto/provider-openai --filter @volto/runtime-node --filter @volto/memory-inmemory`
   3. 断言：所有任务成功，无 error TS 或 lint error
 - **Paths**: `scripts/check-core-zero-deps.mjs`, 全量 CI 管道
 - **Expected**: check-core-zero-deps PASS；30 tasks 全部 successful；0 个测试失败

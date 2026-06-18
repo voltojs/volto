@@ -11,7 +11,7 @@
  * - error → error event with retriable flag
  */
 
-import type { ModelEvent } from "@agent-core/core";
+import type { ModelEvent } from "@volto/core";
 
 /** Raw SSE event parsed from Anthropic Messages API stream */
 export interface RawAnthropicEvent {

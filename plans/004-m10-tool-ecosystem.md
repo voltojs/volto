@@ -3,7 +3,7 @@
 > **Status**: Completed
 > **Owner**: TBD
 > **Created**: 2026-06-09
-> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M10（WS-5）；架构设计 [docs/pure-agent-core.md](../docs/pure-agent-core.md)；Plan 002（M8：内核引擎深化 + 9 个纯类型端口契约，其中 **ToolSource** 是本 Plan 的关键消费点）；Plan 001（M1–M7 已交付）
+> **Depends on**: 演进路线图 [docs/roadmap.md](../docs/roadmap.md) M10（WS-5）；架构设计 [docs/pure-volto.md](../docs/pure-volto.md)；Plan 002（M8：内核引擎深化 + 9 个纯类型端口契约，其中 **ToolSource** 是本 Plan 的关键消费点）；Plan 001（M1–M7 已交付）
 > **Target area**: `packages/tools/{mcp,code,edit,vcs,browser,data,files,ask}`（新增工具包）、`packages/runtimes/node/src/*`（新增 adapter）、`packages/core/src/tool-router.ts`（可见集动态过滤）、`packages/sdk/src/{create-agent,defaults}.ts`（ToolSource 接线）、`apps/reference-cli`（wiring）
 
 ## 1. 背景
@@ -41,11 +41,11 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ## 2. Goals
 
-1. **MCP 客户端**：落地 `@agent-core/tools-mcp` —— 实现 M8 `ToolSource` 端口，连接外部 MCP server（stdio / HTTP-SSE 传输），把其 tools/resources/prompts 归一为内核 `ToolDefinition` + `ToolResult`，动态进出可见集，server 缺席自动摘除；SDK 侧接线动态工具源。
-2. **代码智能（LSP）**：落地 `@agent-core/tools-code` + LSP runtime adapter —— `lsp_definition` / `lsp_references` / `lsp_rename` / `lsp_diagnostics` / `lsp_hover` 返回结构化结果；缺 adapter 时不可见。
-3. **结构化编辑 + 扩展编辑格式**：扩展 `@agent-core/tools-fs`（或新增 `@agent-core/tools-edit`）落地 AST/tree-sitter 结构化编辑、`apply_patch`（diff）、`multi_edit`（单文件多处原子编辑）、`notebook` 编辑；编辑工具可按模型能力选格式，沿用"先读后改 + 版本比对"门控。
-4. **测试-构建-Git 结构化工具**：落地 `@agent-core/tools-vcs`（git）与测试/构建工具 —— 结构化 pass/fail / 失败用例 / diff / 提交摘要，非裸 bash 文本。
-5. **外设与数据工具**：落地 `@agent-core/tools-browser`（browser/computer-use，经 adapter）、`@agent-core/tools-data`（db / http）、`@agent-core/tools-document`（PDF/docx/xlsx/image 读取归一为结构化文本/多模态；命名避免与既有 `tools-fs` 文件系统工具混淆）、`ask_user`（经 ApprovalGate/EventSink 询问，归一回喂）。
+1. **MCP 客户端**：落地 `@volto/tools-mcp` —— 实现 M8 `ToolSource` 端口，连接外部 MCP server（stdio / HTTP-SSE 传输），把其 tools/resources/prompts 归一为内核 `ToolDefinition` + `ToolResult`，动态进出可见集，server 缺席自动摘除；SDK 侧接线动态工具源。
+2. **代码智能（LSP）**：落地 `@volto/tools-code` + LSP runtime adapter —— `lsp_definition` / `lsp_references` / `lsp_rename` / `lsp_diagnostics` / `lsp_hover` 返回结构化结果；缺 adapter 时不可见。
+3. **结构化编辑 + 扩展编辑格式**：扩展 `@volto/tools-fs`（或新增 `@volto/tools-edit`）落地 AST/tree-sitter 结构化编辑、`apply_patch`（diff）、`multi_edit`（单文件多处原子编辑）、`notebook` 编辑；编辑工具可按模型能力选格式，沿用"先读后改 + 版本比对"门控。
+4. **测试-构建-Git 结构化工具**：落地 `@volto/tools-vcs`（git）与测试/构建工具 —— 结构化 pass/fail / 失败用例 / diff / 提交摘要，非裸 bash 文本。
+5. **外设与数据工具**：落地 `@volto/tools-browser`（browser/computer-use，经 adapter）、`@volto/tools-data`（db / http）、`@volto/tools-document`（PDF/docx/xlsx/image 读取归一为结构化文本/多模态；命名避免与既有 `tools-fs` 文件系统工具混淆）、`ask_user`（经 ApprovalGate/EventSink 询问，归一回喂）。
 6. **可见集动态过滤**：核心引入按作用域/模式的可见集过滤策略（纯决策），默认可见 ≤ ~20；工具集变更尽量发生在 turn 边界（缓存友好，架构 §11）。
 7. 全程满足验收 + `pnpm turbo run typecheck lint test` 通过 + `check-core-zero-deps` 通过 + 既有重放/工具/HITL 测试不回归。
 
@@ -63,7 +63,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ### 4.1 MCP 客户端 = ToolSource 的一个 adapter（不新增端口）
 
-**决策**：`@agent-core/tools-mcp` 实现 M8 `ToolSource` 端口（`list()` 返回当前可用 `ToolDefinition[]`、`onChange(cb)` 在 server 连接/断开/工具列表变更时通知）。内部维护到一个或多个 MCP server 的连接（传输：stdio 子进程 / HTTP-SSE），把 server 暴露的 `tools` 映射为 `ToolDefinition`（input JSON Schema 直接透传到核心抽象 `JSONSchema`），把 `resources` / `prompts` 以受控工具（如 `mcp_read_resource` / `mcp_get_prompt`）形式暴露。工具调用经连接转发，server 返回结果归一为 `ToolResult`。
+**决策**：`@volto/tools-mcp` 实现 M8 `ToolSource` 端口（`list()` 返回当前可用 `ToolDefinition[]`、`onChange(cb)` 在 server 连接/断开/工具列表变更时通知）。内部维护到一个或多个 MCP server 的连接（传输：stdio 子进程 / HTTP-SSE），把 server 暴露的 `tools` 映射为 `ToolDefinition`（input JSON Schema 直接透传到核心抽象 `JSONSchema`），把 `resources` / `prompts` 以受控工具（如 `mcp_read_resource` / `mcp_get_prompt`）形式暴露。工具调用经连接转发，server 返回结果归一为 `ToolResult`。
 
 **理由**：roadmap 与归属边界图明确"MCP 客户端 = 实现 M8 ToolSource 的 MCP 适配"。把 MCP 做成 ToolSource adapter，复用既有能力门控（缺席自动摘除）与归一化结果链路，核心零改动；多个 ToolSource（未来插件 ←M13）可叠加，互不耦合。
 
@@ -128,14 +128,14 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ## 5. 实现计划
 
-> Phase 1（MCP 客户端 = ToolSource）是 M10 的核心一跳，最先做、独立价值最高；Phase 2 可见集治理为后续大批工具落地铺路（在工具激增前先建闸）；Phase 3 编辑格式与结构化编辑、Phase 4 代码智能 LSP、Phase 5 测试/构建/Git、Phase 6 外设/数据/文件/ask_user 依次叠加。每个新工具包遵循目录复数 / 包名单数命名（`tools/mcp` → `@agent-core/tools-mcp`）。严格串行、逐 Phase review + 单独 commit。
+> Phase 1（MCP 客户端 = ToolSource）是 M10 的核心一跳，最先做、独立价值最高；Phase 2 可见集治理为后续大批工具落地铺路（在工具激增前先建闸）；Phase 3 编辑格式与结构化编辑、Phase 4 代码智能 LSP、Phase 5 测试/构建/Git、Phase 6 外设/数据/文件/ask_user 依次叠加。每个新工具包遵循目录复数 / 包名单数命名（`tools/mcp` → `@volto/tools-mcp`）。严格串行、逐 Phase review + 单独 commit。
 
 ### Phase 1: MCP 客户端（实现 ToolSource 端口）
 
-**Goal**: `@agent-core/tools-mcp` 实现 M8 `ToolSource` 端口，连接外部 MCP server（stdio + HTTP-SSE 传输），把其 tools/resources/prompts 归一接入可见工具集、结果归一回喂；server 缺席/断线时工具自动摘除（复用能力门控）；SDK 接线动态工具源。
+**Goal**: `@volto/tools-mcp` 实现 M8 `ToolSource` 端口，连接外部 MCP server（stdio + HTTP-SSE 传输），把其 tools/resources/prompts 归一接入可见工具集、结果归一回喂；server 缺席/断线时工具自动摘除（复用能力门控）；SDK 接线动态工具源。
 
 **Files covered**:
-- `packages/tools/mcp/`（新增包 `@agent-core/tools-mcp`：MCP 连接管理、传输适配、`ToolSource` 实现、tools/resources/prompts → `ToolDefinition`/`ToolResult` 归一）
+- `packages/tools/mcp/`（新增包 `@volto/tools-mcp`：MCP 连接管理、传输适配、`ToolSource` 实现、tools/resources/prompts → `ToolDefinition`/`ToolResult` 归一）
 - `packages/sdk/src/create-agent.ts`（接受 `toolSources` 注入，turn 边界聚合可见工具）
 - `packages/sdk/src/defaults.ts`（空 ToolSource 兜底，沿用 Plan 002 兜底约定）
 - `packages/core/src/tool-router.ts`（必要时扩展可见集聚合入口，仍纯函数）
@@ -143,7 +143,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 - 对应 `__tests__/`（含 mock MCP server）
 
 **Tasks**:
-- [x] 新建 `@agent-core/tools-mcp` 包（依赖单向向下，type-import only 消费 core 的 `ToolSource` / `ToolDefinition` / `ToolResult` 接口类型，不值导入 core 实现）
+- [x] 新建 `@volto/tools-mcp` 包（依赖单向向下，type-import only 消费 core 的 `ToolSource` / `ToolDefinition` / `ToolResult` 接口类型，不值导入 core 实现）
 - [x] 实现 MCP 连接层：stdio（子进程）与 HTTP-SSE 两种传输；连接生命周期（connect / disconnect / 断线检测）
 - [x] 实现 `ToolSource.list()`：把在线 server 的 `tools` 映射为 `ToolDefinition`（input JSON Schema 透传为核心抽象 `JSONSchema`），统一声明 `mcp:<serverId>` 能力
 - [x] `resources` / `prompts` 以受控工具暴露（如 `mcp_list_resources` / `mcp_read_resource` / `mcp_get_prompt`）
@@ -155,7 +155,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 **Acceptance Criteria**:
 1. 配置一个 MCP server 后，其工具自动进入可见集、可被模型选用、结果归一回喂；**server 缺席（未连接/断线）时工具自动从可见集摘除**（复用能力门控，对应 roadmap M10 验收 1）。
 2. MCP 工具调用失败 / server 超时 / 断线一律归一为 `isError: true` 的 `ToolResult` 回喂，**不抛异常中断主循环**。
-3. `@agent-core/tools-mcp` 仅 `import type` 消费 core 接口（不值导入 core 实现）；`check-core-zero-deps` 仍通过。
+3. `@volto/tools-mcp` 仅 `import type` 消费 core 接口（不值导入 core 实现）；`check-core-zero-deps` 仍通过。
 4. SDK 不配置任何 ToolSource 时行为与 M7 一致（向后兼容）。
 
 <!-- Backfill after execution:
@@ -202,7 +202,7 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 **Goal**: 编辑工具域落地 `apply_patch`（diff）、`multi_edit`（单文件多处原子编辑）、`notebook` 编辑、`ast_edit`（AST/tree-sitter 结构化编辑）；沿用"先读后改 + 版本比对"门控；编辑格式按模型能力可选。
 
 **Files covered**:
-- `packages/tools/fs/`（扩展编辑工具）或新增 `packages/tools/edit/`（`@agent-core/tools-edit`）
+- `packages/tools/fs/`（扩展编辑工具）或新增 `packages/tools/edit/`（`@volto/tools-edit`）
 - `packages/runtimes/node/src/`（tree-sitter 解析 adapter，按需）
 - 对应 `__tests__/`
 
@@ -227,10 +227,10 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ### Phase 4: 代码智能（LSP 工具 + LSP runtime adapter）
 
-**Goal**: `@agent-core/tools-code` + LSP runtime adapter 落地 —— `lsp_definition` / `lsp_references` / `lsp_rename` / `lsp_diagnostics` / `lsp_hover` 返回结构化结果；缺 adapter 时不可见。
+**Goal**: `@volto/tools-code` + LSP runtime adapter 落地 —— `lsp_definition` / `lsp_references` / `lsp_rename` / `lsp_diagnostics` / `lsp_hover` 返回结构化结果；缺 adapter 时不可见。
 
 **Files covered**:
-- `packages/tools/code/`（新增 `@agent-core/tools-code`）
+- `packages/tools/code/`（新增 `@volto/tools-code`）
 - `packages/runtimes/node/src/lsp.ts`（LSP 客户端 adapter：拉起/连接 language server，LSP 协议归一）
 - 对应 `__tests__/`（mock LSP server）
 
@@ -253,10 +253,10 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 
 ### Phase 5: 测试-构建-Git 结构化工具
 
-**Goal**: `@agent-core/tools-vcs`（git）与测试/构建工具落地，返回结构化 pass/fail / 失败用例 / diff / 提交摘要（非裸 bash），底层可经既有 `Shell` port，归一在工具层完成。
+**Goal**: `@volto/tools-vcs`（git）与测试/构建工具落地，返回结构化 pass/fail / 失败用例 / diff / 提交摘要（非裸 bash），底层可经既有 `Shell` port，归一在工具层完成。
 
 **Files covered**:
-- `packages/tools/vcs/`（新增 `@agent-core/tools-vcs`：git 工具）
+- `packages/tools/vcs/`（新增 `@volto/tools-vcs`：git 工具）
 - `packages/tools/code/` 或新增测试/构建工具落点（`run_tests` / `build`）
 - 对应 `__tests__/`
 
@@ -283,10 +283,10 @@ M1–M7 交付的工具集偏基础（fs / shell / web / plan / agent），M8 �
 **Goal**: 落地 browser/computer-use、db、结构化 http、文件格式（PDF/docx/xlsx/image）、`ask_user` 工具及对应 adapter；各自 capability 门控，缺 adapter 自动不可见。
 
 **Files covered**:
-- `packages/tools/browser/`（`@agent-core/tools-browser`：browser/computer-use）
-- `packages/tools/data/`（`@agent-core/tools-data`：db / http）
-- `packages/tools/document/`（`@agent-core/tools-document`：PDF/docx/xlsx/image 读取）或扩展 `tools-fs` 的 `read_file` 多模态
-- `packages/tools/ask/`（`@agent-core/tools-ask`：`ask_user`）
+- `packages/tools/browser/`（`@volto/tools-browser`：browser/computer-use）
+- `packages/tools/data/`（`@volto/tools-data`：db / http）
+- `packages/tools/document/`（`@volto/tools-document`：PDF/docx/xlsx/image 读取）或扩展 `tools-fs` 的 `read_file` 多模态
+- `packages/tools/ask/`（`@volto/tools-ask`：`ask_user`）
 - `packages/runtimes/node/src/{browser.ts,database.ts,document-parser.ts}`（对应 adapter）
 - 对应 `__tests__/`
 

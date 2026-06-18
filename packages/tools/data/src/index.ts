@@ -1,14 +1,14 @@
 /**
- * @agent-core/tools-data — structured data tools: HTTP query + database
+ * @volto/tools-data — structured data tools: HTTP query + database
  *
  * http_query wraps the existing Network port with structured output.
  * db_query / db_exec provide SQL access via a DatabaseAdapter.
  */
 
-import type { Network } from "@agent-core/core";
+import type { Network } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@agent-core/tools-common";
-import type { Tool } from "@agent-core/tools-common";
+import { defineTool } from "@volto/tools-common";
+import type { Tool } from "@volto/tools-common";
 
 // ──────────────────────────────────────────────
 // DatabaseAdapter — abstract interface for SQL access

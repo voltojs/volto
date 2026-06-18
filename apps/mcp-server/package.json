@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/mcp-server",
+  "name": "@volto/mcp-server",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,11 +12,11 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/sdk": "workspace:*",
-    "@agent-core/provider-openai": "workspace:*",
-    "@agent-core/runtime-node": "workspace:*",
-    "@agent-core/store-sqlite": "workspace:*",
+    "@volto/core": "workspace:*",
+    "@volto/sdk": "workspace:*",
+    "@volto/provider-openai": "workspace:*",
+    "@volto/runtime-node": "workspace:*",
+    "@volto/store-sqlite": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.0"
   }
 }

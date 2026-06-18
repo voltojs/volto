@@ -1,5 +1,5 @@
 /**
- * MCP Server — exposes agent-core as an MCP tool.
+ * MCP Server — exposes volto as an MCP tool.
  *
  * Registers `agent_run` tool that can be discovered and called by any MCP client.
  * Uses stdio transport for communication.
@@ -19,7 +19,7 @@ export type McpServerOptions = WiringOptions;
 
 export function createMcpServer(opts: McpServerOptions = {}): Server {
   const server = new Server(
-    { name: "agent-core", version: "0.0.1" },
+    { name: "volto", version: "0.0.1" },
     { capabilities: { tools: {} } },
   );
 

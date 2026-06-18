@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { Network, ToolDefinition } from "@agent-core/core";
-import { filterVisibleTools } from "@agent-core/core";
+import type { Network, ToolDefinition } from "@volto/core";
+import { filterVisibleTools } from "@volto/core";
 import { createWebFetchTool, CAP_NETWORK_FETCH } from "../index.js";
 
 const stubNetwork: Network = {

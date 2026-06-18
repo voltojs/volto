@@ -11,7 +11,7 @@ import path from "node:path";
 import type {
   DocumentParserAdapter,
   DocumentParseResult,
-} from "@agent-core/tools-document";
+} from "@volto/tools-document";
 
 export interface NodeDocumentParserOptions {
   /** Maximum text length to return before truncation (default: 500000) */

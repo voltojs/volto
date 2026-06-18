@@ -34,7 +34,7 @@ let proxyCounter = 0;
 /** Generate a unique socket path for this proxy instance */
 function makeSocketPath(): string {
   const id = `${process.pid}-${++proxyCounter}`;
-  return join(tmpdir(), `agent-core-proxy-${id}.sock`);
+  return join(tmpdir(), `volto-proxy-${id}.sock`);
 }
 
 /**

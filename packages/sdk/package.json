@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/sdk",
+  "name": "@volto/sdk",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,18 +18,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*",
-    "@agent-core/tools-common": "workspace:*",
-    "@agent-core/tools-agent": "workspace:*",
-    "@agent-core/tools-ask": "workspace:*",
-    "@agent-core/tools-browser": "workspace:*",
-    "@agent-core/tools-code": "workspace:*",
-    "@agent-core/tools-data": "workspace:*",
-    "@agent-core/tools-fs": "workspace:*",
-    "@agent-core/tools-shell": "workspace:*",
-    "@agent-core/tools-vcs": "workspace:*",
-    "@agent-core/tools-web": "workspace:*",
-    "@agent-core/runtime-node": "workspace:*",
-    "@agent-core/store-memory": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/tools-common": "workspace:*",
+    "@volto/tools-agent": "workspace:*",
+    "@volto/tools-ask": "workspace:*",
+    "@volto/tools-browser": "workspace:*",
+    "@volto/tools-code": "workspace:*",
+    "@volto/tools-data": "workspace:*",
+    "@volto/tools-fs": "workspace:*",
+    "@volto/tools-shell": "workspace:*",
+    "@volto/tools-vcs": "workspace:*",
+    "@volto/tools-web": "workspace:*",
+    "@volto/runtime-node": "workspace:*",
+    "@volto/store-memory": "workspace:*"
   }
 }

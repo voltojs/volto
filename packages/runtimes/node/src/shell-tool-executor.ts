@@ -1,6 +1,6 @@
-import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@agent-core/core";
-import type { ShellTool } from "@agent-core/tools-shell";
-import { createBashTool } from "@agent-core/tools-shell";
+import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@volto/core";
+import type { ShellTool } from "@volto/tools-shell";
+import { createBashTool } from "@volto/tools-shell";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateShellToolExecutorOptions {

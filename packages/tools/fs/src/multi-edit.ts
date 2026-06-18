@@ -1,8 +1,8 @@
-import type { FileSystem } from "@agent-core/core";
+import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@agent-core/tools-common";
-import type { Tool as FileTool } from "@agent-core/tools-common";
+import { defineTool as defineFileTool } from "@volto/tools-common";
+import type { Tool as FileTool } from "@volto/tools-common";
 
 /**
  * Atomic multi-edit: apply multiple str_replace operations to a single file.

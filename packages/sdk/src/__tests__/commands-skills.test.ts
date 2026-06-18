@@ -7,7 +7,7 @@ import {
 } from "../commands.js";
 import { findTriggeredSkills, collectResources, type Skill } from "../skills.js";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@agent-core/core";
+import { createMockModelPort, textScript } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // parseArgs

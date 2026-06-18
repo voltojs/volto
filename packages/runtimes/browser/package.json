@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/runtime-browser",
+  "name": "@volto/runtime-browser",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,6 +18,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*"
+    "@volto/core": "workspace:*"
   }
 }

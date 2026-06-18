@@ -21,10 +21,10 @@
 
 ## 2. 核心纯度铁律（Functional Core Purity）— 本项目立身之本
 
-> 核心包 `@agent-core/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
+> 核心包 `@volto/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
 
 - **`packages/core/` 内禁止任何 I/O 与隐式副作用**：不得出现 `Date.now()` / `Math.random()` / `crypto.randomUUID()` / `node:*` import / 直接 `fs`。时间、随机、ID、token 计数一律走 `Clock` / `Random` / `Id` / `Tokenizer` port 注入。
-- **核心只 import port 接口类型，绝不 import 任何实现**。`@agent-core/core` 的 `dependencies` 与 `peerDependencies` 必须为空（CI 脚本 `check-core-zero-deps` 强制）。
+- **核心只 import port 接口类型，绝不 import 任何实现**。`@volto/core` 的 `dependencies` 与 `peerDependencies` 必须为空（CI 脚本 `check-core-zero-deps` 强制）。
 - **决策逻辑全部为纯函数** —— `step()` reducer、ContextAssembler、Compactor、ToolRouter、PermissionPolicy 不碰 I/O；真正的副作用只通过返回 `Effect[]` 表达，由 Runner 解释执行。
 - **重放纪律**：同一串 `AgentInput` 序列两次运行必须产生完全一致的 `(state, effects)` 序列。改动 reducer 后跑重放测试作为回归门。
 
@@ -45,7 +45,7 @@
 - **依赖单向向下** — `core ← tools-*/providers-*/runtimes-*/stores-* ← sdk ← apps/*`。**`zod` 只允许出现在 `tools/*` 与 `sdk`**，核心只认抽象 `JSONSchema`。
   - **type-import only（适用于 tools-* / providers-* / stores-*）**：这些包只消费 core 的**接口类型**（port 契约、`ToolDefinition` / `ModelEvent` 等），一律 `import type`，不得值导入 core，以免与具体实现耦合。
   - **Runner / sdk 例外**：薄解释器(`runtimes-*` 的 Runner)与 SDK 门面是内核的**执行者**，必须值导入纯函数内核（`step` / `createInitialState` 等)——这是 functional-core / imperative-shell 的本意，导入纯函数不破坏可移植性,不属违规。
-- **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@agent-core/tools-fs`（一包多工具，复数）、`@agent-core/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
+- **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@volto/tools-fs`（一包多工具，复数）、`@volto/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
 - **第三方库构造器参数必须查阅官方文档确认**，不得凭记忆臆测（尤其 OpenAI 兼容 streaming 的 `tool_calls` 分片累积、Zod schema 写法）。
 - **Plan 工作先建分支** — 提交前创建 `feat/plan-NNN-...`，禁止直接提交到 `dev` / `main`。
 
@@ -76,23 +76,23 @@
 ## Project Structure（目标态，详见 Plan 001 §4.2）
 
 ```
-agent-core/
+volto/
 ├── packages/
-│   ├── core/                 # @agent-core/core   纯函数内核 + ports 接口  ← 零依赖
-│   ├── sdk/                  # @agent-core/sdk     门面 run / stream / resume
+│   ├── core/                 # @volto/core   纯函数内核 + ports 接口  ← 零依赖
+│   ├── sdk/                  # @volto/sdk     门面 run / stream / resume
 │   ├── tools/
-│   │   ├── fs/               # @agent-core/tools-fs     read/edit/write/ls/glob/grep
-│   │   ├── shell/            # @agent-core/tools-shell  bash
-│   │   ├── web/              # @agent-core/tools-web    web_fetch / web_search
-│   │   ├── plan/             # @agent-core/tools-plan   write_todos
-│   │   └── agent/            # @agent-core/tools-agent  task 子 agent
+│   │   ├── fs/               # @volto/tools-fs     read/edit/write/ls/glob/grep
+│   │   ├── shell/            # @volto/tools-shell  bash
+│   │   ├── web/              # @volto/tools-web    web_fetch / web_search
+│   │   ├── plan/             # @volto/tools-plan   write_todos
+│   │   └── agent/            # @volto/tools-agent  task 子 agent
 │   ├── providers/
-│   │   └── openai/           # @agent-core/provider-openai
+│   │   └── openai/           # @volto/provider-openai
 │   ├── runtimes/
-│   │   └── node/             # @agent-core/runtime-node
+│   │   └── node/             # @volto/runtime-node
 │   └── stores/
-│       ├── memory/           # @agent-core/store-memory
-│       └── file/            # @agent-core/store-file
+│       ├── memory/           # @volto/store-memory
+│       └── file/            # @volto/store-file
 ├── apps/
 │   └── reference-cli/        # 参考宿主：仅 wiring + 订阅事件，核心零改动
 ├── plans/                    # 实施方案文档
@@ -109,13 +109,13 @@ pnpm turbo run build                      # 构建所有包
 pnpm turbo run typecheck                  # 类型检查 (tsc --noEmit)
 pnpm turbo run lint                       # 代码检查 (含 core 零依赖 / 纯度规则)
 pnpm turbo run test                       # 运行测试 (vitest)
-pnpm turbo run test --filter @agent-core/core   # 仅测受影响包
+pnpm turbo run test --filter @volto/core   # 仅测受影响包
 node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 ```
 
 ## Coding Conventions（细节）
 
-- **核心纯度** — 见 §2；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@agent-core/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
+- **核心纯度** — 见 §2；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@volto/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
 - **ToolResult 双层** — `modelContent`（给模型，精简，超量必截断且声明）+ `displayMetadata`（给 UI / 日志，diff / 行数 / 耗时，经 EventSink 流出）。
 - **`edit_file` 编辑格式** — 主格式 `str_replace`（`old_string` / `new_string` / `replace_all?`）；精确匹配失败时 fuzzy fallback（① 忽略行首尾空白 ② 忽略 token 间空白正则）；未 `read_file` 或版本过期的文件拒绝编辑；写回前版本比对。`apply_patch`(diff) 留扩展点，暂不实现。
 - **缓存友好** — ContextAssembler 把静态内容（system prompt / tool defs / 项目指令）前置，变量（user 输入 / tool result）后置；工具集变更尽量发生在 turn 边界。
@@ -131,8 +131,8 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 
 | 文档              | 路径                                          | 说明                                       |
 | ----------------- | --------------------------------------------- | ------------------------------------------ |
-| 架构设计文档      | `docs/pure-agent-core.md`                     | 纯 Agent 核心架构、模块分解、ports 契约、路线图 M1–M7 |
-| 实施方案 Plan 001 | `plans/001-pure-agent-core-implementation.md` | monorepo 落地方案、目录/包结构、8 个 Phase  |
+| 架构设计文档      | `docs/pure-volto.md`                     | 纯 Agent 核心架构、模块分解、ports 契约、路线图 M1–M7 |
+| 实施方案 Plan 001 | `plans/001-pure-volto-implementation.md` | monorepo 落地方案、目录/包结构、8 个 Phase  |
 | 演进路线图        | `docs/roadmap.md`                             | 内核平台化 M8–M14 路线、10 条能力工作流、依赖 DAG  |
 
 </details>

@@ -11,7 +11,7 @@ import type {
   FileListResult,
   FileGlobResult,
   FileGrepResult,
-} from "@agent-core/core";
+} from "@volto/core";
 
 interface VirtualNode {
   type: "file" | "directory";

@@ -1,5 +1,5 @@
 {
-  "name": "agent-core",
+  "name": "volto",
   "version": "0.0.1",
   "private": true,
   "description": "Pure agent core — zero I/O, zero env coupling, capability injection",

@@ -2,19 +2,19 @@
  * Plan 004 Test Cases Verification — 逐个 TC 验证
  *
  * 每个 TC 对应 plan 文档中的一个验收用例。
- * 运行: pnpm turbo run test --filter @agent-core/core --filter @agent-core/sdk -- --testPathPattern tc-plan004
+ * 运行: pnpm turbo run test --filter @volto/core --filter @volto/sdk -- --testPathPattern tc-plan004
  */
 
 import { describe, it, expect } from "vitest";
-import { createMockModelPort, textScript, toolCallScript, filterVisibleTools, filterByScope } from "@agent-core/core";
-import type { ToolDefinition, ToolResult, ToolSource } from "@agent-core/core";
-import type { LspClient } from "@agent-core/tools-code";
-import { createAgent } from "@agent-core/sdk";
-import { createAskUserTool } from "@agent-core/tools-ask";
-import { createApplyPatchTool, createMultiEditTool } from "@agent-core/tools-fs";
-import { createLspDefinitionTool, LSP_TOOL_NAMES } from "@agent-core/tools-code";
-import { createGitCommitTool, createGitPushTool } from "@agent-core/tools-vcs";
-import type { FileSystem } from "@agent-core/core";
+import { createMockModelPort, textScript, toolCallScript, filterVisibleTools, filterByScope } from "@volto/core";
+import type { ToolDefinition, ToolResult, ToolSource } from "@volto/core";
+import type { LspClient } from "@volto/tools-code";
+import { createAgent } from "@volto/sdk";
+import { createAskUserTool } from "@volto/tools-ask";
+import { createApplyPatchTool, createMultiEditTool } from "@volto/tools-fs";
+import { createLspDefinitionTool, LSP_TOOL_NAMES } from "@volto/tools-code";
+import { createGitCommitTool, createGitPushTool } from "@volto/tools-vcs";
+import type { FileSystem } from "@volto/core";
 
 // ── Helpers ──────────────────────────────────
 
@@ -328,7 +328,7 @@ describe("TC-011: browser 工具缺 adapter 不可见", () => {
 
     // 验证 capabilities 不含 browser:control（通过 ports 间接验证）
     // 注：完整验证需要访问内部状态，此处验证 agent 正常运行 + browser 工具名定义
-    const { BROWSER_TOOL_NAMES } = await import("@agent-core/tools-browser");
+    const { BROWSER_TOOL_NAMES } = await import("@volto/tools-browser");
     expect(BROWSER_TOOL_NAMES.size).toBe(5);
   });
 });

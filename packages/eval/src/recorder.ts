@@ -1,4 +1,4 @@
-import type { AgentInput, AgentState } from "@agent-core/core";
+import type { AgentInput, AgentState } from "@volto/core";
 import type { Trajectory, ExpectedStep } from "./trajectory.js";
 import { createTrajectory, addStep } from "./trajectory.js";
 

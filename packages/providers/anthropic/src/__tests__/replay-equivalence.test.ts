@@ -7,11 +7,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { normalizeStream as normalizeOpenAI } from "@agent-core/provider-openai/stream-normalize.js";
+import { normalizeStream as normalizeOpenAI } from "@volto/provider-openai/stream-normalize.js";
 import { normalizeStream as normalizeAnthropic } from "../stream-normalize.js";
-import type { RawStreamChunk } from "@agent-core/provider-openai/stream-normalize.js";
+import type { RawStreamChunk } from "@volto/provider-openai/stream-normalize.js";
 import type { RawAnthropicEvent } from "../stream-normalize.js";
-import type { ModelEvent } from "@agent-core/core";
+import type { ModelEvent } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Helpers

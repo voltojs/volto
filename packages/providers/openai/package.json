@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/provider-openai",
+  "name": "@volto/provider-openai",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,7 +22,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-core/core": "workspace:*"
+    "@volto/core": "workspace:*"
   },
   "devDependencies": {}
 }

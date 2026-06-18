@@ -1,9 +1,9 @@
 # Pure Agent Core 实现梳理与代码审查
 
-> **类型**：代码审查报告（基于 `docs/pure-agent-core.md` v1.0 对照实现）
+> **类型**：代码审查报告（基于 `docs/pure-volto.md` v1.0 对照实现）
 > **日期**：2026-06-18
 > **范围**：`packages/core` / `packages/sdk` / `packages/runtimes/node` 的关键决策与执行路径
-> **关联文档**：[架构设计](./pure-agent-core.md)、[演进路线图](./roadmap.md)、[M8–M14 改进计划](./m8-m14-improvement-plan.md)
+> **关联文档**：[架构设计](./pure-volto.md)、[演进路线图](./roadmap.md)、[M8–M14 改进计划](./m8-m14-improvement-plan.md)
 
 ---
 
@@ -309,7 +309,7 @@ opts 字段叫 `maxCostTokens`，但赋值给 `state.maxCostDollars`，runner �
 
 ### 4.4 明确 Reducer/Runner 责任分割文档
 
-代码里 Runner 实际承担了几处"决策"（permission policy 二次评估、self-correct 注入、untrusted 标注），文档却把这些列为 core 决策。建议在 `docs/pure-agent-core.md` §6 加一节"哪些决策在 Runner 上做，为什么"，列清边界。
+代码里 Runner 实际承担了几处"决策"（permission policy 二次评估、self-correct 注入、untrusted 标注），文档却把这些列为 core 决策。建议在 `docs/pure-volto.md` §6 加一节"哪些决策在 Runner 上做，为什么"，列清边界。
 
 ### 4.5 Budget 模型从"二选一"升为"向量预算"
 
@@ -376,13 +376,13 @@ agent.diagnoseTool(name): {
 2. `node scripts/check-core-zero-deps.mjs` 通过；
 3. 现有 `replay.test.ts` 与 `reducer-parallel.test.ts` 不破；
 4. 新增针对该批次问题的回归测试（如 P0-1 配套 self-correct 重放等价测试）；
-5. `docs/pure-agent-core.md` 与 `docs/roadmap.md` 中受影响章节同步更新。
+5. `docs/pure-volto.md` 与 `docs/roadmap.md` 中受影响章节同步更新。
 
 ---
 
 ## 附录 A：审查方法
 
-- 通读 `docs/pure-agent-core.md` v1.0 §1–§15 全部 15 节；
+- 通读 `docs/pure-volto.md` v1.0 §1–§15 全部 15 节；
 - 抽样阅读 packages/core/src 中 reducer.ts / ports.ts / state.ts / input.ts / effect.ts / context-assembler.ts / compactor.ts / permission-policy.ts / file-gate.ts / loop-detector.ts；
 - 抽样阅读 packages/runtimes/node/src/runner.ts 全文（约 1000 行）；
 - 抽样阅读 packages/sdk/src/create-agent.ts 全文（约 1070 行）；

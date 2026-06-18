@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem } from "@agent-core/core";
+import type { FileSystem } from "@volto/core";
 import { createReadFileTool } from "../read-file.js";
 import { createEditFileTool } from "../edit-file.js";
 import { computeFuzzyMatchRegex } from "../fuzzy-match.js";

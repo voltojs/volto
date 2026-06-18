@@ -14,8 +14,8 @@ import {
   textDelta,
   usage,
   modelDone,
-} from "@agent-core/core";
-import type { StepContext, ToolDefinition, EventSink } from "@agent-core/core";
+} from "@volto/core";
+import type { StepContext, ToolDefinition, EventSink } from "@volto/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

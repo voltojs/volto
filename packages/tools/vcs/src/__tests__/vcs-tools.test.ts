@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Shell, ShellEvent } from "@agent-core/core";
+import type { Shell, ShellEvent } from "@volto/core";
 import {
   createGitStatusTool,
   createGitDiffTool,

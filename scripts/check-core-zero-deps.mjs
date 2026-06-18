@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CI script: assert @agent-core/core has zero runtime and peer dependencies
+// CI script: assert @volto/core has zero runtime and peer dependencies
 
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -20,16 +20,16 @@ const deps = pkg.dependencies ? Object.keys(pkg.dependencies) : [];
 const peerDeps = pkg.peerDependencies ? Object.keys(pkg.peerDependencies) : [];
 
 if (deps.length > 0) {
-  console.error(`FAIL: @agent-core/core has runtime dependencies: ${deps.join(", ")}`);
+  console.error(`FAIL: @volto/core has runtime dependencies: ${deps.join(", ")}`);
   console.error("The core package must have zero runtime dependencies.");
   process.exit(1);
 }
 
 if (peerDeps.length > 0) {
-  console.error(`FAIL: @agent-core/core has peer dependencies: ${peerDeps.join(", ")}`);
+  console.error(`FAIL: @volto/core has peer dependencies: ${peerDeps.join(", ")}`);
   console.error("The core package must have zero peer dependencies.");
   process.exit(1);
 }
 
-console.log("PASS: @agent-core/core has zero dependencies (runtime + peer).");
+console.log("PASS: @volto/core has zero dependencies (runtime + peer).");
 process.exit(0);

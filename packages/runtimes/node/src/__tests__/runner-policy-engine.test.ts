@@ -9,8 +9,8 @@ import {
   usage,
   modelDone,
   createDefaultPermissionConfig,
-} from "@agent-core/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, PolicyEngine, ToolResultMessage } from "@agent-core/core";
+} from "@volto/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, PolicyEngine, ToolResultMessage } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

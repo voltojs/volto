@@ -6,10 +6,10 @@
  * output to stdout. The core package is never modified.
  */
 
-import { createAgent } from "@agent-core/sdk";
-import { createDefaultPermissionConfig } from "@agent-core/core";
-import type { EventSink } from "@agent-core/core";
-import { createOpenAIModelPort } from "@agent-core/provider-openai";
+import { createAgent } from "@volto/sdk";
+import { createDefaultPermissionConfig } from "@volto/core";
+import type { EventSink } from "@volto/core";
+import { createOpenAIModelPort } from "@volto/provider-openai";
 import * as path from "node:path";
 import {
   createNodeFileSystem,
@@ -22,10 +22,10 @@ import {
   createNodeLspClient,
   createFileAuditSink,
   InMemoryTelemetry,
-} from "@agent-core/runtime-node";
-import type { SandboxConfig } from "@agent-core/runtime-node";
-import { createWriteTodosTool } from "@agent-core/tools-plan";
-import { createStore } from "@agent-core/store-file";
+} from "@volto/runtime-node";
+import type { SandboxConfig } from "@volto/runtime-node";
+import { createWriteTodosTool } from "@volto/tools-plan";
+import { createStore } from "@volto/store-file";
 import { createRenderingEventSink } from "./render.js";
 import { createTracingEventSink } from "./tracing-sink.js";
 

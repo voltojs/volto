@@ -1,8 +1,8 @@
-// @agent-core/tools-fs — re-exports from tools-common for backward compatibility
+// @volto/tools-fs — re-exports from tools-common for backward compatibility
 // + fs-specific tool definitions
 
-export { defineTool as defineFileTool } from "@agent-core/tools-common";
-export type { Tool as FileTool, ToolHandler } from "@agent-core/tools-common";
+export { defineTool as defineFileTool } from "@volto/tools-common";
+export type { Tool as FileTool, ToolHandler } from "@volto/tools-common";
 export { createReadFileTool } from "./read-file.js";
 export { createEditFileTool, computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./edit-file.js";
 export { createWriteFileTool } from "./write-file.js";

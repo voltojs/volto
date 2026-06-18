@@ -3,7 +3,7 @@
  * Converts internal EventSink.emit() to SSE frames and WebSocket messages.
  */
 
-import type { EventSink } from "@agent-core/core";
+import type { EventSink } from "@volto/core";
 
 export function createSseEventSink(res: import("node:http").ServerResponse): EventSink {
   return {

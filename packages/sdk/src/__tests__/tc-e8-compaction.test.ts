@@ -3,13 +3,13 @@ import { createAgent } from "../create-agent.js";
 import {
   createCharTokenizer,
   textScript,
-} from "@agent-core/core";
+} from "@volto/core";
 import type {
   ModelPort,
   ModelRequest,
   ModelEvent,
-} from "@agent-core/core";
-import type { Message, UserMessage, AssistantMessage } from "@agent-core/core";
+} from "@volto/core";
+import type { Message, UserMessage, AssistantMessage } from "@volto/core";
 
 /**
  * Spy ModelPort that records every request's messages and replays a script.

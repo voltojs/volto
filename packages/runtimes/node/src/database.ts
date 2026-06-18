@@ -7,7 +7,7 @@
  * Types for better-sqlite3 are optional — the import is fully dynamic.
  */
 
-import type { DatabaseAdapter, SqlRow } from "@agent-core/tools-data";
+import type { DatabaseAdapter, SqlRow } from "@volto/tools-data";
 
 export interface SqliteDatabaseOptions {
   /** Path to the SQLite database file (":memory:" for in-memory) */

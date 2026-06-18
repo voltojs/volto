@@ -4,7 +4,7 @@
  * Persists snapshots in a PostgreSQL database table.
  */
 
-import type { SessionStore, SessionSnapshot } from "@agent-core/core";
+import type { SessionStore, SessionSnapshot } from "@volto/core";
 import pg from "pg";
 
 const { Pool } = pg;
