@@ -332,14 +332,24 @@ describe("step()", () => {
   });
 
   describe("invalid transitions", () => {
-    it("should throw on unexpected input type for current status", () => {
+    it("should emit error on unexpected input type for current status", () => {
       const state = createInitialState();
-      expect(() => step(state, { type: "model_chunk", chunk: { type: "text_delta", text: "hi" } }, ctx)).toThrow("idle: unexpected input type");
+      const result = step(state, { type: "model_chunk", chunk: { type: "text_delta", text: "hi" } }, ctx);
+      expect(result.state).toBe(state); // state unchanged
+      expect(result.effects).toHaveLength(1);
+      expect(result.effects[0]!.type).toBe("emit");
+      expect((result.effects[0] as import("../effect.js").EmitEffect).event.type).toBe("error");
+      expect((result.effects[0] as import("../effect.js").EmitEffect).event.data.error).toContain("idle: unexpected input type");
     });
 
-    it("should throw when called on done state", () => {
+    it("should emit error when called on done state", () => {
       const state = createInitialState({ status: "done" });
-      expect(() => step(state, { type: "cancel" }, ctx)).toThrow("done state");
+      const result = step(state, { type: "cancel" }, ctx);
+      expect(result.state).toBe(state); // state unchanged
+      expect(result.effects).toHaveLength(1);
+      expect(result.effects[0]!.type).toBe("emit");
+      expect((result.effects[0] as import("../effect.js").EmitEffect).event.type).toBe("error");
+      expect((result.effects[0] as import("../effect.js").EmitEffect).event.data.error).toContain("done state");
     });
   });
 });

@@ -195,9 +195,9 @@ export function step(
     case "cancelling":
       return handleCancelling(state, input);
     case "done":
-      throw new Error("step() called on done state — turn is already complete");
+      return errorResult(state, "step() called on done state — turn is already complete");
     default:
-      throw new Error(`Unknown status: ${state.status}`);
+      return errorResult(state, `Unknown status: ${state.status}`);
   }
 }
 
@@ -227,7 +227,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
     return { state: newState, effects };
   }
 
-  throw new Error(`idle: unexpected input type "${input.type}"`);
+  return errorResult(state, `idle: unexpected input type "${input.type}"`);
 }
 
 function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
@@ -415,7 +415,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     };
   }
 
-  throw new Error(`calling_model: unexpected input type "${input.type}"`);
+  return errorResult(state, `calling_model: unexpected input type "${input.type}"`);
 }
 
 function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
@@ -489,7 +489,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
   if (input.type === "request_approval") {
     const tool = state.pendingTools.find((t) => t.id === input.toolCallId);
     if (!tool) {
-      throw new Error(`request_approval: tool call "${input.toolCallId}" not found in pendingTools`);
+      return errorResult(state, `request_approval: tool call "${input.toolCallId}" not found in pendingTools`);
     }
     const toolDef = ctx.tools.find((td) => td.name === tool.name);
     const riskTier = toolDef?.riskTier ?? "WRITE_HIGH";
@@ -525,14 +525,14 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     };
   }
 
-  throw new Error(`executing_tools: unexpected input type "${input.type}"`);
+  return errorResult(state, `executing_tools: unexpected input type "${input.type}"`);
 }
 
 function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "approval_decision") {
     const approvedTool = state.pendingApprovalTool;
     if (!approvedTool || approvedTool.id !== input.toolCallId) {
-      throw new Error(`approval_decision: tool call "${input.toolCallId}" not found in pending approval`);
+      return errorResult(state, `approval_decision: tool call "${input.toolCallId}" not found in pending approval`);
     }
 
     if (input.decision === "allow") {
@@ -609,7 +609,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
     };
   }
 
-  throw new Error(`waiting_for_approval: unexpected input type "${input.type}"`);
+  return errorResult(state, `waiting_for_approval: unexpected input type "${input.type}"`);
 }
 
 function handleWaitingForInput(state: ReducerState, input: AgentInput): StepResult {
@@ -619,7 +619,7 @@ function handleWaitingForInput(state: ReducerState, input: AgentInput): StepResu
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
     };
   }
-  throw new Error(`waiting_for_input: unexpected input type "${input.type}"`);
+  return errorResult(state, `waiting_for_input: unexpected input type "${input.type}"`);
 }
 
 function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
@@ -629,12 +629,27 @@ function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
       effects: [{ type: "done" }],
     };
   }
-  throw new Error(`cancelling: unexpected input type "${input.type}"`);
+  return errorResult(state, `cancelling: unexpected input type "${input.type}"`);
 }
 
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/**
+ * Return a StepResult that emits an error event and leaves state unchanged.
+ * The reducer must NEVER throw — all error conditions are expressed as
+ * error events + state preservation, so the Runner's main loop is never
+ * interrupted by an unhandled exception.
+ */
+function errorResult(state: ReducerState, message: string): StepResult {
+  return {
+    state,
+    effects: [
+      { type: "emit", event: { type: "error", data: { error: message } } },
+    ],
+  };
+}
 
 /**
  * Runaway guard — returns an error message if the turn has hit its iteration

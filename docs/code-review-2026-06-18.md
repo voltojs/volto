@@ -346,18 +346,18 @@ agent.diagnoseTool(name): {
 
 | 优先级 | 问题 | 工作量估算 | 阻塞性 |
 |---|---|---|---|
-| **P0-1** | Runner mutate state | 2–4h | 阻塞重放承诺 |
-| **P0-2** | ContextAssembler 死代码 | 4–8h | 阻塞缓存承诺 |
-| **P0-3** | sessionId 非确定性 | 1–2h | 阻塞决定性承诺 |
-| P1-4 | Effect 类型与文档不一致 | 1–6h（视方案） | 影响心智模型一致性 |
-| P1-5 | trust 字段化 | 2–3h | 影响安全性 |
-| P1-6 | Compactor 路径正则误报 | 2–4h | 影响长上下文 |
-| P2-7 | self-correct 时序 | 与 P0-1 合修 | — |
-| P2-8 | reducer throw 归一 | 2h | — |
-| P2-9 | sub-agent budget 透传 | 3–4h | — |
-| P2-10 | auditSink 生产级实现 | 1–2h | — |
-| P2-11 | maxCostTokens 命名拆分 | 1h（破坏性） | — |
-| P2-12 | 死代码标注/清理 | 与 P0-2 合修 | — |
+| **P0-1** | Runner mutate state | 2–4h | ✅ 已修 (3ee1729) |
+| **P0-2** | ContextAssembler 死代码 | 4–8h | ✅ 已修 (3ee1729) |
+| **P0-3** | sessionId 非确定性 | 1–2h | ✅ 已修 (3ee1729) |
+| P1-4 | Effect 类型与文档不一致 | 1–6h（视方案） | ✅ 已修 (46808f2) |
+| P1-5 | trust 字段化 | 2–3h | ✅ 已修 (46808f2) |
+| P1-6 | Compactor 路径正则误报 | 2–4h | ✅ 已修 (46808f2) |
+| P2-7 | self-correct 时序 | 与 P0-1 合修 | ✅ 已修 (3ee1729) |
+| P2-8 | reducer throw 归一 | 2h | ✅ 已修 (本次) |
+| P2-9 | sub-agent budget 透传 | 3–4h | 待修 |
+| P2-10 | auditSink 生产级实现 | 1–2h | 待修 |
+| P2-11 | maxCostTokens 命名拆分 | 1h（破坏性） | 待修 |
+| P2-12 | 死代码标注/清理 | 与 P0-2 合修 | ✅ 已修 (3ee1729) |
 
 **推荐执行批次**：
 
