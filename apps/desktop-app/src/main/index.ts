@@ -1,6 +1,13 @@
+/**
+ * Electron 主进程入口
+ * 负责应用生命周期管理和 IPC 处理器注册
+ */
+
 import { app, shell, BrowserWindow } from "electron";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { createMainWindow } from "./window.js";
+import { registerIpcHandlers } from "./ipc/handlers.js";
+import { getStoreIpcHandlers } from "./ipc/store-handlers.js";
 
 function initApp(): void {
   electronApp.setAppUserModelId("com.volto.desktop-app");
@@ -10,6 +17,9 @@ function initApp(): void {
   });
 
   app.whenReady().then(() => {
+    // 注册 IPC 处理器
+    registerIpcHandlers(getStoreIpcHandlers());
+
     createMainWindow();
 
     // macOS: 点击 dock 图标时重新创建窗口
