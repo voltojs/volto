@@ -222,7 +222,15 @@ describe("Phase 2 — deterministic result merging", () => {
       const final1 = trace1[trace1.length - 1]!;
       const final2 = trace2[trace2.length - 1]!;
       expect(final1.state).toEqual(final2.state);
-      expect(final1.effects).toEqual(final2.effects);
+      // Filter out tool_result observability emits (they are intentionally
+      // ordered by arrival, so they differ across the two arrival orderings).
+      // The buildCallModelEffect that drives the next turn is what must match.
+      const nonObservability = (es: typeof final1.effects) =>
+        es.filter(
+          (e) =>
+            !(e.type === "emit" && (e.event as { type: string }).type === "tool_result"),
+        );
+      expect(nonObservability(final1.effects)).toEqual(nonObservability(final2.effects));
 
       // Key invariant: messages from the tool phase must be in pendingTools
       // order (A, B, C) regardless of arrival order

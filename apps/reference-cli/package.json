@@ -9,13 +9,16 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "vitest run",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "dev": "node --env-file-if-exists=.env dist/main.js",
+    "dev:strict": "node --env-file=.env dist/main.js"
   },
   "dependencies": {
     "@agent-core/core": "workspace:*",
     "@agent-core/sdk": "workspace:*",
     "@agent-core/provider-openai": "workspace:*",
     "@agent-core/runtime-node": "workspace:*",
+    "@agent-core/store-file": "workspace:*",
     "@agent-core/tools-plan": "workspace:*"
   }
 }

@@ -8,7 +8,9 @@
 
 import { createAgent } from "@agent-core/sdk";
 import { createDefaultPermissionConfig } from "@agent-core/core";
+import type { EventSink } from "@agent-core/core";
 import { createOpenAIModelPort } from "@agent-core/provider-openai";
+import * as path from "node:path";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -18,10 +20,14 @@ import {
   createNodeDocumentParser,
   createNodeBrowserAdapter,
   createNodeLspClient,
+  createFileAuditSink,
+  InMemoryTelemetry,
 } from "@agent-core/runtime-node";
 import type { SandboxConfig } from "@agent-core/runtime-node";
 import { createWriteTodosTool } from "@agent-core/tools-plan";
+import { createStore } from "@agent-core/store-file";
 import { createRenderingEventSink } from "./render.js";
+import { createTracingEventSink } from "./tracing-sink.js";
 
 // ── Config from environment ──
 const MODEL = process.env["AGENT_MODEL"] ?? "gpt-4o";
@@ -34,6 +40,17 @@ const LSP_ARGS = process.env["AGENT_LSP_ARGS"]?.split(",") ?? [];
 const ENABLE_DOCUMENT_PARSER = process.env["AGENT_DOCUMENT_PARSER"] === "true";
 const ENABLE_BROWSER = process.env["AGENT_BROWSER"] === "true";
 const PERMISSION_MODE = process.env["AGENT_PERMISSION_MODE"] ?? "auto-allow";
+
+// ── Observability config (Layer 4 of E2E test pyramid) ──
+const TRACE = process.env["AGENT_TRACE"] === "true";
+const TRACE_FILE = process.env["AGENT_TRACE_FILE"];
+const TRACE_INCLUDE = process.env["AGENT_TRACE_INCLUDE"]
+  ?.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const AUDIT_FILE = process.env["AGENT_AUDIT_FILE"];
+const TRACE_DUMP_TELEMETRY = process.env["AGENT_TRACE_TELEMETRY"] !== "false"; // default true when TRACE
+const NO_COLOR = process.env["NO_COLOR"] !== undefined || !process.stderr.isTTY;
 
 // ── Sandbox config (Plan 009) ──
 const SANDBOX_MODE = process.env["AGENT_SANDBOX_MODE"];
@@ -50,6 +67,12 @@ if (SANDBOX_MODE === "read-only" || SANDBOX_MODE === "workspace-write" || SANDBO
   process.stderr.write(`Sandbox enabled: mode=${SANDBOX_MODE}${SANDBOX_ALLOW_HOSTS ? `, allowedHosts=${SANDBOX_ALLOW_HOSTS}` : ""}\n`);
 }
 
+// ── Session store (file-backed) ──
+const SESSION_DIR = process.env["AGENT_SESSION_DIR"]
+  ?? path.join(CWD, ".agent-sessions");
+const sessionStore = createStore({ directory: SESSION_DIR });
+process.stderr.write(`Session store → ${SESSION_DIR}\n`);
+
 // ── Validate ──
 if (!API_KEY) {
   process.stderr.write(
@@ -60,10 +83,29 @@ if (!API_KEY) {
 }
 
 // ── Stdout event sink (streaming render) ──
-const stdoutEventSink = createRenderingEventSink({
+const renderingSink = createRenderingEventSink({
   stdout: (s) => process.stdout.write(s),
   stderr: (s) => process.stderr.write(s),
 });
+
+// Optionally wrap with tracing for full-pipeline observability.
+// Inner renderer still drives stdout; tracing decorates stderr + JSONL.
+const stdoutEventSink: EventSink = TRACE
+  ? createTracingEventSink({
+      inner: renderingSink,
+      write: (s) => process.stderr.write(s),
+      ...(TRACE_INCLUDE ? { include: TRACE_INCLUDE } : {}),
+      ...(TRACE_FILE ? { jsonlPath: TRACE_FILE } : {}),
+      noColor: NO_COLOR,
+    })
+  : renderingSink;
+
+if (TRACE) {
+  process.stderr.write(
+    `Tracing enabled${TRACE_FILE ? ` → ${TRACE_FILE}` : ""}` +
+    `${TRACE_INCLUDE ? ` (filter: ${TRACE_INCLUDE.join(",")})` : ""}\n`,
+  );
+}
 
 // ── Assemble core adapters ──
 const fs = createNodeFileSystem({ root: CWD });
@@ -139,6 +181,13 @@ if (LSP_COMMAND) {
   }
 }
 
+// ── Observability adapters (audit / telemetry) ──
+const auditSink = AUDIT_FILE ? createFileAuditSink(AUDIT_FILE) : undefined;
+if (AUDIT_FILE) {
+  process.stderr.write(`Audit log → ${AUDIT_FILE}\n`);
+}
+const telemetry = TRACE ? new InMemoryTelemetry() : undefined;
+
 // ── Create the agent (SDK wiring) ──
 const agent = createAgent({
   modelPort,
@@ -156,7 +205,31 @@ const agent = createAgent({
   documentParser,
   browserAdapter,
   lspClient,
+  auditSink,
+  telemetry,
+  sessionStore,
 });
+
+// On exit (Ctrl-D, exit, quit), dump telemetry summary if tracing was on.
+function dumpTelemetry(): void {
+  if (!TRACE || !telemetry || !TRACE_DUMP_TELEMETRY) return;
+  process.stderr.write("\n=== telemetry: spans ===\n");
+  for (const span of telemetry.spans) {
+    process.stderr.write(
+      `  ${span.name}  ${JSON.stringify(span.attributes)}\n`,
+    );
+  }
+  process.stderr.write("=== telemetry: metrics ===\n");
+  for (const m of telemetry.metrics) {
+    process.stderr.write(
+      `  ${m.name}=${m.value}  ${JSON.stringify(m.attributes)}\n`,
+    );
+  }
+  process.stderr.write(
+    `=== summary: ${telemetry.spans.length} spans, ${telemetry.metrics.length} metrics ===\n`,
+  );
+}
+process.on("exit", dumpTelemetry);
 
 // ── REPL ──
 async function repl(): Promise<void> {
