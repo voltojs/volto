@@ -8,6 +8,9 @@ import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { createMainWindow } from "./window.js";
 import { registerIpcHandlers } from "./ipc/handlers.js";
 import { getStoreIpcHandlers } from "./ipc/store-handlers.js";
+import { getAgentIpcHandlers } from "./ipc/agent-handlers.js";
+import { getAgentManager } from "./agent/agent-manager.js";
+import { createIpcEventSink } from "./agent/event-bridge.js";
 
 function initApp(): void {
   electronApp.setAppUserModelId("com.volto.desktop-app");
@@ -17,8 +20,17 @@ function initApp(): void {
   });
 
   app.whenReady().then(() => {
+    // 创建 EventSink
+    const eventSink = createIpcEventSink();
+
+    // 初始化 Agent Manager
+    getAgentManager(eventSink);
+
     // 注册 IPC 处理器
-    registerIpcHandlers(getStoreIpcHandlers());
+    registerIpcHandlers([
+      ...getStoreIpcHandlers(),
+      ...getAgentIpcHandlers(),
+    ]);
 
     createMainWindow();
 
