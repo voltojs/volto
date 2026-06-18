@@ -355,7 +355,7 @@ agent.diagnoseTool(name): {
 | P2-7 | self-correct 时序 | 与 P0-1 合修 | ✅ 已修 (3ee1729) |
 | P2-8 | reducer throw 归一 | 2h | ✅ 已修 (本次) |
 | P2-9 | sub-agent budget 透传 | 3–4h | ✅ 已修 (本次) |
-| P2-10 | auditSink 生产级实现 | 1–2h | 待修 |
+| P2-10 | auditSink 生产级实现 | 1–2h | ✅ 已修 (本次) |
 | P2-11 | maxCostTokens 命名拆分 | 1h（破坏性） | 待修 |
 | P2-12 | 死代码标注/清理 | 与 P0-2 合修 | ✅ 已修 (3ee1729) |
 
