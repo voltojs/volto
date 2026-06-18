@@ -73,6 +73,7 @@ describe("Runner — compaction wiring", () => {
       toolCallCount: 0,
       maxToolCalls: undefined,
       maxCostDollars: undefined,
+      maxTokensPerTurn: undefined,
       maxWallclockMs: undefined,
       maxLoopCount: undefined,
       selfCorrectionCount: 0,

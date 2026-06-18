@@ -136,8 +136,15 @@ export interface AgentState {
   /**
    * Maximum total cost ($) allowed per turn. When exceeded by the Runner,
    * a budget_exceeded input is fed to terminate the turn. Undefined = no limit.
+   * Requires pricing configuration to be meaningful.
    */
   maxCostDollars: number | undefined;
+  /**
+   * Maximum raw token count allowed per turn (input + output).
+   * Independent of pricing — always compares against raw token sums.
+   * Undefined = no limit.
+   */
+  maxTokensPerTurn: number | undefined;
   /**
    * Maximum wall-clock milliseconds allowed per turn. When exceeded by the
    * Runner, a budget_exceeded input is fed to terminate the turn. Undefined = no limit.

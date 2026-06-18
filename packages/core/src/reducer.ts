@@ -81,6 +81,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     toolCallCount: 0,
     maxToolCalls: undefined,
     maxCostDollars: undefined,
+    maxTokensPerTurn: undefined,
     maxWallclockMs: undefined,
     maxLoopCount: undefined,
     pinnedMessageIds: [],

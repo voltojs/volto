@@ -204,6 +204,7 @@ export function createRunner(opts: RunnerOptions): Runner {
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
+  let cumulativeTokens = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
   // M12 Phase 4: checkpoint history sequence counter
@@ -252,6 +253,11 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
       forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+      return true;
+    }
+
+    if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+      forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
       return true;
     }
 
@@ -432,6 +438,8 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Track raw tokens (always, regardless of pricing)
+          cumulativeTokens += event.inputTokens + event.outputTokens;
           // Accumulate cost: use dollar pricing when available, else token count fallback
           if (opts.pricing && stepContext.model) {
             const entry = opts.pricing[stepContext.model];
@@ -446,6 +454,11 @@ export function createRunner(opts: RunnerOptions): Runner {
           // Check cost budget immediately after accumulation
           if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
             forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+            return;
+          }
+          // Check raw token budget
+          if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+            forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
             return;
           }
           continue;
@@ -919,6 +932,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Reset budget tracking for this turn
         turnStartTime = Date.now();
         cumulativeCost = 0;
+        cumulativeTokens = 0;
         turnHadError = false;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {

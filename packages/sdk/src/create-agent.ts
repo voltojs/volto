@@ -199,8 +199,26 @@ export interface CreateAgentOptions {
   /** Max tool calls per turn (default: no limit) */
   maxToolCalls?: number;
 
-  /** Max cumulative token cost per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  /**
+   * @deprecated Use `maxDollarsPerTurn` (with pricing) or `maxTokensPerTurn` (raw tokens) instead.
+   * Max cumulative cost per turn — behavior depends on pricing config:
+   * - With pricing: compared against dollar cost
+   * - Without pricing: compared against raw token count
+   */
   maxCostTokens?: number;
+
+  /**
+   * Max raw token count per turn (input + output tokens combined).
+   * Independent of pricing — always compares against raw token sums.
+   * Runner feeds budget_exceeded when exceeded (default: no limit).
+   */
+  maxTokensPerTurn?: number;
+
+  /**
+   * Max cumulative dollar cost per turn (requires pricing configuration).
+   * Runner feeds budget_exceeded when exceeded (default: no limit).
+   */
+  maxDollarsPerTurn?: number;
 
   /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
   maxWallclockMs?: number;
@@ -822,12 +840,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     const resolvedTokenBudget = resolve(opts.tokenBudget, "tokenBudget");
     const resolvedMaxToolCalls = resolve(opts.maxToolCalls, "maxToolCalls");
     const resolvedMaxCostTokens = resolve(opts.maxCostTokens, "maxCostTokens");
+    const resolvedMaxTokensPerTurn = resolve(opts.maxTokensPerTurn, "maxTokensPerTurn");
+    const resolvedMaxDollarsPerTurn = resolve(opts.maxDollarsPerTurn, "maxDollarsPerTurn");
     const resolvedMaxWallclockMs = resolve(opts.maxWallclockMs, "maxWallclockMs");
+    // P2-11: maxCostTokens is deprecated; new fields take precedence
+    const effectiveMaxCostDollars = resolvedMaxDollarsPerTurn ?? resolvedMaxCostTokens;
     const initStateOverrides: Partial<ReducerState> = {
       ...(resolvedMaxIterations !== undefined ? { maxIterations: resolvedMaxIterations } : {}),
       ...(resolvedTokenBudget !== undefined ? { tokenBudget: resolvedTokenBudget } : {}),
       ...(resolvedMaxToolCalls !== undefined ? { maxToolCalls: resolvedMaxToolCalls } : {}),
-      ...(resolvedMaxCostTokens !== undefined ? { maxCostDollars: resolvedMaxCostTokens } : {}),
+      ...(effectiveMaxCostDollars !== undefined ? { maxCostDollars: effectiveMaxCostDollars } : {}),
+      ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
     };
@@ -1070,8 +1093,13 @@ function createSubAgentExecutor(
       sessionId: `sub-${idPort.next()}`,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
-        ...(opts.maxCostTokens !== undefined
-          ? { maxCostDollars: resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") }
+        ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined
+          ? { maxCostDollars: resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") }
+          : resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") !== undefined
+            ? { maxCostDollars: resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") }
+            : {}),
+        ...(resolveConfigValue(opts.maxTokensPerTurn, opts.config?.config, "maxTokensPerTurn") !== undefined
+          ? { maxTokensPerTurn: resolveConfigValue(opts.maxTokensPerTurn, opts.config?.config, "maxTokensPerTurn") }
           : {}),
         ...(opts.maxWallclockMs !== undefined
           ? { maxWallclockMs: resolveConfigValue(opts.maxWallclockMs, opts.config?.config, "maxWallclockMs") }

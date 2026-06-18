@@ -23,6 +23,7 @@ function makeSnapshot(id: string, overrides?: Partial<AgentState>): SessionSnaps
       toolCallCount: 0,
       maxToolCalls: undefined,
       maxCostDollars: undefined,
+      maxTokensPerTurn: undefined,
       maxWallclockMs: undefined,
       maxLoopCount: undefined,
       selfCorrectionCount: 0,
