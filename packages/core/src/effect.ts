@@ -16,6 +16,13 @@ export interface CallModelEffect {
     model?: string;
     maxTokens?: number;
     temperature?: number;
+    /**
+     * Cache breakpoints (message indices) computed by ContextAssembler.
+     * Providers translate these to native cache_control mechanisms
+     * (Anthropic: cache_control: ephemeral; OpenAI: diagnostic only).
+     * When omitted, providers fall back to their default cache behavior.
+     */
+    cacheBreakpoints?: number[];
   };
 }
 

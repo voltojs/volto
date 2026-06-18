@@ -10,6 +10,7 @@ import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
+import { assembleContext } from "./context-assembler.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -148,6 +149,38 @@ export function step(
     };
   }
 
+  // Unified self_correct handler — accepts in any active state. The Runner
+  // injects this after a validator fails against a tool result and (for
+  // active corrections) the self-correction budget allows. Keeping the
+  // mutation in the reducer (vs. Runner mutating state directly) preserves
+  // the determinism / replay contract.
+  if (input.type === "self_correct" && state.status !== "done") {
+    const repairMsg = { role: "user" as const, content: input.repairPrompt };
+    return {
+      state: {
+        ...state,
+        messages: [...state.messages, repairMsg],
+        selfCorrectionCount: input.consumesBudget
+          ? state.selfCorrectionCount + 1
+          : state.selfCorrectionCount,
+      },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "self_correct",
+            data: {
+              consumesBudget: input.consumesBudget,
+              correctionCount: input.consumesBudget
+                ? state.selfCorrectionCount + 1
+                : state.selfCorrectionCount,
+            },
+          },
+        },
+      ],
+    };
+  }
+
   switch (state.status) {
     case "idle":
       return handleIdle(state, input, ctx);
@@ -185,16 +218,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       iterationCount: 0,
     };
     const effects: Effect[] = [
-      {
-        type: "call_model",
-        request: {
-          messages: newState.messages,
-          tools: ctx.tools,
-          model: ctx.model,
-          maxTokens: ctx.maxTokens,
-          temperature: ctx.temperature,
-        },
-      },
+      buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
       {
         type: "emit",
         event: { type: "user_message", data: { content: input.content } },
@@ -342,16 +366,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: { ...baseState, status: "calling_model" },
         effects: [
           emitEffect,
-          {
-            type: "call_model",
-            request: {
-              messages: baseState.messages,
-              tools: ctx.tools,
-              model: ctx.model,
-              maxTokens: ctx.maxTokens,
-              temperature: ctx.temperature,
-            },
-          },
+          buildCallModelEffect(baseState.messages, baseState.pinnedMessageIds, ctx),
         ],
       };
     }
@@ -369,16 +384,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: { ...state, _accumulatedText: "", _accumulatedToolCalls: [] },
         effects: [
           { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
-          {
-            type: "call_model",
-            request: {
-              messages: state.messages,
-              tools: ctx.tools,
-              model: ctx.model,
-              maxTokens: ctx.maxTokens,
-              temperature: ctx.temperature,
-            },
-          },
+          buildCallModelEffect(state.messages, state.pinnedMessageIds, ctx),
         ],
       };
     }
@@ -475,16 +481,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     return {
       state: newState,
       effects: [
-        {
-          type: "call_model",
-          request: {
-            messages: newState.messages,
-            tools: ctx.tools,
-            model: ctx.model,
-            maxTokens: ctx.maxTokens,
-            temperature: ctx.temperature,
-          },
-        },
+        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
       ],
     };
   }
@@ -600,16 +597,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         status: "calling_model",
       },
       effects: [
-        {
-          type: "call_model",
-          request: {
-            messages: drainedMessages,
-            tools: ctx.tools,
-            model: ctx.model,
-            maxTokens: ctx.maxTokens,
-            temperature: ctx.temperature,
-          },
-        },
+        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx),
       ],
     };
   }
@@ -697,4 +685,35 @@ function extractToolCalls(msg: AssistantMessage): PendingToolCall[] {
   return msg.content
     .filter((c): c is import("./state.js").ToolUseContent => c.type === "tool_use")
     .map((c) => ({ id: c.id, name: c.name, input: c.input }));
+}
+
+/**
+ * Build a `call_model` effect with cache-friendly message ordering and
+ * provider-cache breakpoints derived from ContextAssembler.
+ *
+ * Centralized so every site that issues a model call gets identical
+ * static-prefix treatment (system / pinned messages first, breakpoints at
+ * boundaries). Pure — no I/O, no random.
+ */
+function buildCallModelEffect(
+  messages: Message[],
+  pinnedMessageIds: string[] | undefined,
+  ctx: StepContext,
+): Effect {
+  const assembled = assembleContext({
+    messages,
+    tools: ctx.tools,
+    pinnedMessageIds,
+  });
+  return {
+    type: "call_model",
+    request: {
+      messages: assembled.messages,
+      tools: ctx.tools,
+      model: ctx.model,
+      maxTokens: ctx.maxTokens,
+      temperature: ctx.temperature,
+      cacheBreakpoints: assembled.cacheBreakpoints,
+    },
+  };
 }

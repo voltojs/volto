@@ -36,6 +36,7 @@ import {
   classifyError,
   annotateUntrusted,
   decideSelfCorrect,
+  assembleContext,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 import type { Hook } from "@agent-core/core";
@@ -388,14 +389,27 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
     }
 
-    const req = {
+    // ContextAssembler: cache-friendly ordering + breakpoint computation.
+    // Same pure function the reducer uses for its `call_model` effect, so
+    // host-side compaction/RAG additions still get a stable static prefix
+    // and provider-cache breakpoints. Explicit `opts.cacheBreakpoints`
+    // (legacy / advanced override) wins when provided.
+    const assembled = assembleContext({
       messages,
+      tools: stepContext.tools,
+      pinnedMessageIds: state.pinnedMessageIds,
+    });
+    const finalMessages = assembled.messages;
+    const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
+
+    const req = {
+      messages: finalMessages,
       tools: stepContext.tools,
       model: stepContext.model,
       maxTokens: stepContext.maxTokens,
       temperature: stepContext.temperature,
       responseFormat: stepContext.responseFormat,
-      cacheBreakpoints: opts.cacheBreakpoints,
+      cacheBreakpoints: finalCacheBreakpoints,
       abortSignal: opts.abortSignal,
     };
 
@@ -727,6 +741,11 @@ export function createRunner(opts: RunnerOptions): Runner {
             }),
           );
 
+          // Defer self-correction injection until ALL tool_results have been
+          // fed. Injecting mid-batch would interleave a `user` repair message
+          // between sibling parallel results, breaking turn-boundary ordering.
+          const pendingSelfCorrects: Array<{ repairPrompt: string; consumesBudget: boolean }> = [];
+
           // Feed results one at a time — the reducer buffers and flushes
           // in pendingTools order for deterministic replay.
           for (const { toolCall, result } of results) {
@@ -771,19 +790,28 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
-            // Self-correction: validate tool result and inject repair prompt if needed
+            // Self-correction: validate tool result and queue repair prompt
+            // for post-batch injection. We must use the projected budget
+            // (state.selfCorrectionCount + already-queued consumers) so that
+            // multiple failures within the same batch see consistent budget
+            // accounting BEFORE any input is fed.
             if (opts.validators && opts.validators.length > 0 && !result.isError) {
               for (const validator of opts.validators) {
                 const vr = validator.validate(toolCall.name, result.modelContent);
                 if (!vr.passed) {
-                  const decision = decideSelfCorrect(vr, state.selfCorrectionCount, state.maxSelfCorrections ?? 0);
-                  if (decision.shouldCorrect) {
-                    state.selfCorrectionCount++;
-                  }
-                  // Always inject the repair/budget-exhausted prompt so the
-                  // model sees the correction instruction or exhaustion notice.
+                  const projectedCount =
+                    state.selfCorrectionCount +
+                    pendingSelfCorrects.filter((p) => p.consumesBudget).length;
+                  const decision = decideSelfCorrect(
+                    vr,
+                    projectedCount,
+                    state.maxSelfCorrections ?? 0,
+                  );
                   if (decision.repairPrompt) {
-                    state.messages.push({ role: "user", content: decision.repairPrompt });
+                    pendingSelfCorrects.push({
+                      repairPrompt: decision.repairPrompt,
+                      consumesBudget: decision.shouldCorrect,
+                    });
                   }
                   break;
                 }
@@ -791,6 +819,18 @@ export function createRunner(opts: RunnerOptions): Runner {
             }
 
             if (getStatus() !== "executing_tools") break;
+          }
+
+          // Flush queued self-correct inputs — they go through the reducer
+          // so the repair prompt becomes part of the canonical message
+          // history (replay-safe) and the counter bump is observable.
+          for (const sc of pendingSelfCorrects) {
+            if (cancelled || getStatus() === "done") break;
+            forwardEmit(feed({
+              type: "self_correct",
+              repairPrompt: sc.repairPrompt,
+              consumesBudget: sc.consumesBudget,
+            }));
           }
         }
 

@@ -31,6 +31,7 @@ export type {
   RequestApprovalInput,
   CancelInput,
   BudgetExceededInput,
+  SelfCorrectInput,
   AgentInput,
 } from "./input.js";
 

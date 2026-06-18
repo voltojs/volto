@@ -38,6 +38,7 @@ import type {
   PolicyEngine,
   JSONSchema,
   ToolScopeConfig,
+  Id,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
@@ -114,6 +115,7 @@ import {
   defaultSecrets,
   defaultScheduler,
   defaultPolicyEngine,
+  defaultId,
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
@@ -310,6 +312,13 @@ export interface CreateAgentOptions {
   policyEngine?: PolicyEngine;
 
   /**
+   * Identifier port — generates session IDs and any other agent-scoped
+   * identifiers. Inject a deterministic implementation (seeded counter)
+   * for replay equivalence; defaults to a counter + wallclock fallback.
+   */
+  id?: Id;
+
+  /**
    * Structured audit sink for approval decisions and high-risk tool executions.
    * When provided, Runner records audit entries for HITL decisions and
    * WRITE_HIGH/IRREVERSIBLE tool executions. Defaults to no-op (entries discarded).
@@ -420,6 +429,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const effectiveShell: Shell | undefined = opts.shell
     ? (opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)
     : undefined;
+
+  // ── Identifier port ───────────────────────
+  // Use injected Id port for sessionId generation; deterministic replays
+  // require a seeded Id (e.g. counter-based) — the default falls back to
+  // counter + wallclock for uniqueness in real runs.
+  const idPort: Id = opts.id ?? defaultId;
 
   // ── Resolve layered config defaults ─────────
   // Config layer values fill in defaults for opts not explicitly set.
@@ -548,7 +563,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell),
+      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell, idPort),
     );
     allCustomTools.push(taskTool);
   }
@@ -784,7 +799,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       sessionStore,
       compaction: compactionConfig,
       abortSignal,
-      sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: `session-${idPort.next()}`,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
@@ -1001,6 +1016,7 @@ function createSubAgentExecutor(
   compactionConfig?: CompactionConfig,
   depth: number = 1,
   shellOverride?: Shell,
+  idPort: Id = defaultId,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const subCustomTools = parentCustomTools.filter(
@@ -1051,7 +1067,7 @@ function createSubAgentExecutor(
       eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
-      sessionId: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: `sub-${idPort.next()}`,
     });
 
     const finalState = await subRunner.run({
