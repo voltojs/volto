@@ -49,6 +49,7 @@ const greetDef: ToolDefinition = {
   },
   requires: ["mcp:srv"],
   riskTier: "READ_ONLY",
+  trust: "untrusted",
 };
 
 describe("createAgent — ToolSource integration", () => {

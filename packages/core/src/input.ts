@@ -80,6 +80,30 @@ export interface BudgetExceededInput {
   reason: string;
 }
 
+/**
+ * Self-correction injection — fed by the Runner when a validator fails
+ * against a tool result and the self-correction budget allows.
+ *
+ * The reducer is responsible for:
+ *  - Appending the repair prompt as a `user` message (so it's part of the
+ *    canonical message history and survives replay/checkpoint).
+ *  - Bumping `selfCorrectionCount` when `consumesBudget` is true.
+ *
+ * Keeping this as an explicit input (vs. Runner mutating state) preserves
+ * the determinism contract: replaying the same input sequence reproduces
+ * the same (state, effects) sequence.
+ */
+export interface SelfCorrectInput {
+  type: "self_correct";
+  repairPrompt: string;
+  /**
+   * Whether this correction consumes one budget slot.
+   * `true` for active repair attempts; `false` for terminal
+   * "budget exhausted" notices that should not bump the counter again.
+   */
+  consumesBudget: boolean;
+}
+
 /** Runner requests HITL approval for a pending tool call (ask tier) */
 export interface RequestApprovalInput {
   type: "request_approval";
@@ -96,4 +120,5 @@ export type AgentInput =
   | ApprovalDecisionInput
   | RequestApprovalInput
   | CancelInput
-  | BudgetExceededInput;
+  | BudgetExceededInput
+  | SelfCorrectInput;

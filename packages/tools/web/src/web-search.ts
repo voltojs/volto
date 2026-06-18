@@ -31,6 +31,7 @@ export function createWebSearchTool(network: Network, opts?: WebSearchOptions) {
     schema: webSearchSchema,
     requires: [CAP_NETWORK_FETCH],
     riskTier: "READ_ONLY",
+    trust: "untrusted",
     run: async (input): Promise<ToolResult> => {
       const { query, numResults } = input;
       // abortSignal is injected by the Runner via the tool executor (not exposed to the model).

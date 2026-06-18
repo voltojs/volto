@@ -38,11 +38,14 @@ describe("reducer: request_approval flow", () => {
     expect(result.effects[1]!.type).toBe("checkpoint");
   });
 
-  it("throws when request_approval references unknown tool", () => {
+  it("emits error when request_approval references unknown tool", () => {
     const state = stateWithPendingTools();
-    expect(() =>
-      step(state, { type: "request_approval", toolCallId: "unknown" }, ctx),
-    ).toThrow('not found in pendingTools');
+    const result = step(state, { type: "request_approval", toolCallId: "unknown" }, ctx);
+    expect(result.state).toBe(state); // state unchanged
+    expect(result.effects).toHaveLength(1);
+    expect(result.effects[0]!.type).toBe("emit");
+    expect((result.effects[0] as import("../effect.js").EmitEffect).event.type).toBe("error");
+    expect((result.effects[0] as import("../effect.js").EmitEffect).event.data.error).toContain("not found in pendingTools");
   });
 
   it("allow decision moves tool back to pendingTools", () => {
@@ -105,14 +108,17 @@ describe("reducer: request_approval flow", () => {
     expect(r2.state.pendingApprovalTool).toBeUndefined();
   });
 
-  it("throws when approval_decision references wrong tool", () => {
+  it("emits error when approval_decision references wrong tool", () => {
     let state = stateWithPendingTools();
     const r1 = step(state, { type: "request_approval", toolCallId: "t1" }, ctx);
     state = r1.state;
 
-    expect(() =>
-      step(state, { type: "approval_decision", toolCallId: "wrong-id", decision: "allow" }, ctx),
-    ).toThrow("not found in pending approval");
+    const result = step(state, { type: "approval_decision", toolCallId: "wrong-id", decision: "allow" }, ctx);
+    expect(result.state).toBe(state); // state unchanged
+    expect(result.effects).toHaveLength(1);
+    expect(result.effects[0]!.type).toBe("emit");
+    expect((result.effects[0] as import("../effect.js").EmitEffect).event.type).toBe("error");
+    expect((result.effects[0] as import("../effect.js").EmitEffect).event.data.error).toContain("not found in pending approval");
   });
 
   it("cancel during waiting_for_approval transitions to cancelling", () => {

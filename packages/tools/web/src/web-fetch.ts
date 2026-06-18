@@ -21,6 +21,7 @@ export function createWebFetchTool(network: Network) {
     schema: webFetchSchema,
     requires: [CAP_NETWORK_FETCH],
     riskTier: "READ_ONLY",
+    trust: "untrusted",
     run: async (input): Promise<ToolResult> => {
       const { url, method, headers } = input;
       // abortSignal is injected by the Runner via the tool executor (not exposed to the model).

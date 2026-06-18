@@ -16,13 +16,14 @@ export interface CallModelEffect {
     model?: string;
     maxTokens?: number;
     temperature?: number;
+    /**
+     * Cache breakpoints (message indices) computed by ContextAssembler.
+     * Providers translate these to native cache_control mechanisms
+     * (Anthropic: cache_control: ephemeral; OpenAI: diagnostic only).
+     * When omitted, providers fall back to their default cache behavior.
+     */
+    cacheBreakpoints?: number[];
   };
-}
-
-/** Execute a single tool call */
-export interface ExecuteToolEffect {
-  type: "execute_tool";
-  toolCall: PendingToolCall;
 }
 
 /** Request human approval for a tool call */
@@ -47,12 +48,6 @@ export interface CheckpointEffect {
   state: AgentState;
 }
 
-/** Pause execution and wait for external input */
-export interface WaitForInputEffect {
-  type: "wait_for_input";
-  reason: string;
-}
-
 /** Signal that the turn is complete */
 export interface DoneEffect {
   type: "done";
@@ -61,9 +56,7 @@ export interface DoneEffect {
 /** All possible effects emitted by the step() reducer */
 export type Effect =
   | CallModelEffect
-  | ExecuteToolEffect
   | RequestApprovalEffect
   | EmitEffect
   | CheckpointEffect
-  | WaitForInputEffect
   | DoneEffect;

@@ -36,6 +36,7 @@ import {
   classifyError,
   annotateUntrusted,
   decideSelfCorrect,
+  assembleContext,
 } from "@agent-core/core";
 import type { StepContext, ReducerState } from "@agent-core/core";
 import type { Hook } from "@agent-core/core";
@@ -203,6 +204,7 @@ export function createRunner(opts: RunnerOptions): Runner {
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
+  let cumulativeTokens = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
   // M12 Phase 4: checkpoint history sequence counter
@@ -251,6 +253,11 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
       forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+      return true;
+    }
+
+    if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+      forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
       return true;
     }
 
@@ -388,14 +395,27 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
     }
 
-    const req = {
+    // ContextAssembler: cache-friendly ordering + breakpoint computation.
+    // Same pure function the reducer uses for its `call_model` effect, so
+    // host-side compaction/RAG additions still get a stable static prefix
+    // and provider-cache breakpoints. Explicit `opts.cacheBreakpoints`
+    // (legacy / advanced override) wins when provided.
+    const assembled = assembleContext({
       messages,
+      tools: stepContext.tools,
+      pinnedMessageIds: state.pinnedMessageIds,
+    });
+    const finalMessages = assembled.messages;
+    const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
+
+    const req = {
+      messages: finalMessages,
       tools: stepContext.tools,
       model: stepContext.model,
       maxTokens: stepContext.maxTokens,
       temperature: stepContext.temperature,
       responseFormat: stepContext.responseFormat,
-      cacheBreakpoints: opts.cacheBreakpoints,
+      cacheBreakpoints: finalCacheBreakpoints,
       abortSignal: opts.abortSignal,
     };
 
@@ -418,6 +438,8 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Track raw tokens (always, regardless of pricing)
+          cumulativeTokens += event.inputTokens + event.outputTokens;
           // Accumulate cost: use dollar pricing when available, else token count fallback
           if (opts.pricing && stepContext.model) {
             const entry = opts.pricing[stepContext.model];
@@ -432,6 +454,11 @@ export function createRunner(opts: RunnerOptions): Runner {
           // Check cost budget immediately after accumulation
           if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
             forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
+            return;
+          }
+          // Check raw token budget
+          if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+            forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
             return;
           }
           continue;
@@ -727,6 +754,11 @@ export function createRunner(opts: RunnerOptions): Runner {
             }),
           );
 
+          // Defer self-correction injection until ALL tool_results have been
+          // fed. Injecting mid-batch would interleave a `user` repair message
+          // between sibling parallel results, breaking turn-boundary ordering.
+          const pendingSelfCorrects: Array<{ repairPrompt: string; consumesBudget: boolean }> = [];
+
           // Feed results one at a time — the reducer buffers and flushes
           // in pendingTools order for deterministic replay.
           for (const { toolCall, result } of results) {
@@ -741,9 +773,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
-            // Annotate untrusted content from web/MCP tools
-            const isExternal = toolCall.name.startsWith("web_") || toolCall.name.startsWith("mcp__");
-            const annotatedResult = isExternal && !result.isError
+            // Annotate untrusted content from tools declared as untrusted
+            const toolDef = visibleTools.find((t) => t.name === toolCall.name);
+            const isUntrusted = toolDef?.trust === "untrusted";
+            const annotatedResult = isUntrusted && !result.isError
               ? { ...result, modelContent: annotateUntrusted(result.modelContent) }
               : result;
 
@@ -771,19 +804,28 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
-            // Self-correction: validate tool result and inject repair prompt if needed
+            // Self-correction: validate tool result and queue repair prompt
+            // for post-batch injection. We must use the projected budget
+            // (state.selfCorrectionCount + already-queued consumers) so that
+            // multiple failures within the same batch see consistent budget
+            // accounting BEFORE any input is fed.
             if (opts.validators && opts.validators.length > 0 && !result.isError) {
               for (const validator of opts.validators) {
                 const vr = validator.validate(toolCall.name, result.modelContent);
                 if (!vr.passed) {
-                  const decision = decideSelfCorrect(vr, state.selfCorrectionCount, state.maxSelfCorrections ?? 0);
-                  if (decision.shouldCorrect) {
-                    state.selfCorrectionCount++;
-                  }
-                  // Always inject the repair/budget-exhausted prompt so the
-                  // model sees the correction instruction or exhaustion notice.
+                  const projectedCount =
+                    state.selfCorrectionCount +
+                    pendingSelfCorrects.filter((p) => p.consumesBudget).length;
+                  const decision = decideSelfCorrect(
+                    vr,
+                    projectedCount,
+                    state.maxSelfCorrections ?? 0,
+                  );
                   if (decision.repairPrompt) {
-                    state.messages.push({ role: "user", content: decision.repairPrompt });
+                    pendingSelfCorrects.push({
+                      repairPrompt: decision.repairPrompt,
+                      consumesBudget: decision.shouldCorrect,
+                    });
                   }
                   break;
                 }
@@ -791,6 +833,18 @@ export function createRunner(opts: RunnerOptions): Runner {
             }
 
             if (getStatus() !== "executing_tools") break;
+          }
+
+          // Flush queued self-correct inputs — they go through the reducer
+          // so the repair prompt becomes part of the canonical message
+          // history (replay-safe) and the counter bump is observable.
+          for (const sc of pendingSelfCorrects) {
+            if (cancelled || getStatus() === "done") break;
+            forwardEmit(feed({
+              type: "self_correct",
+              repairPrompt: sc.repairPrompt,
+              consumesBudget: sc.consumesBudget,
+            }));
           }
         }
 
@@ -878,6 +932,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Reset budget tracking for this turn
         turnStartTime = Date.now();
         cumulativeCost = 0;
+        cumulativeTokens = 0;
         turnHadError = false;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {

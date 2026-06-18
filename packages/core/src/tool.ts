@@ -50,6 +50,8 @@ export interface ToolDefinition {
   requires: Capability[];
   /** Risk tier for permission policy */
   riskTier: RiskTier;
+  /** Output trust level — untrusted output is annotated for prompt-injection defense */
+  trust?: "trusted" | "untrusted";
 }
 
 // ──────────────────────────────────────────────

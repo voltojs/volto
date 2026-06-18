@@ -48,8 +48,14 @@ export interface ConfigLayer {
   /** Max tool calls per turn */
   maxToolCalls?: number;
 
-  /** Max cumulative token cost */
+  /** @deprecated Use maxDollarsPerTurn or maxTokensPerTurn */
   maxCostTokens?: number;
+
+  /** Max raw token count per turn (input + output) */
+  maxTokensPerTurn?: number;
+
+  /** Max dollar cost per turn (requires pricing) */
+  maxDollarsPerTurn?: number;
 
   /** Max wallclock milliseconds per turn */
   maxWallclockMs?: number;
@@ -140,6 +146,8 @@ const LAYER_KEYS = [
   "tokenBudget",
   "maxToolCalls",
   "maxCostTokens",
+  "maxTokensPerTurn",
+  "maxDollarsPerTurn",
   "maxWallclockMs",
   "maxLoopCount",
   "permissionConfig",

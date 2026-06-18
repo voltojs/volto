@@ -38,6 +38,7 @@ import type {
   PolicyEngine,
   JSONSchema,
   ToolScopeConfig,
+  Id,
 } from "@agent-core/core";
 import {
   createDefaultPermissionConfig,
@@ -114,6 +115,7 @@ import {
   defaultSecrets,
   defaultScheduler,
   defaultPolicyEngine,
+  defaultId,
 } from "./defaults.js";
 import { createStreamChannel } from "./stream-channel.js";
 import { createCostMeter, type PricingTable } from "./cost-meter.js";
@@ -197,8 +199,26 @@ export interface CreateAgentOptions {
   /** Max tool calls per turn (default: no limit) */
   maxToolCalls?: number;
 
-  /** Max cumulative token cost per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
+  /**
+   * @deprecated Use `maxDollarsPerTurn` (with pricing) or `maxTokensPerTurn` (raw tokens) instead.
+   * Max cumulative cost per turn — behavior depends on pricing config:
+   * - With pricing: compared against dollar cost
+   * - Without pricing: compared against raw token count
+   */
   maxCostTokens?: number;
+
+  /**
+   * Max raw token count per turn (input + output tokens combined).
+   * Independent of pricing — always compares against raw token sums.
+   * Runner feeds budget_exceeded when exceeded (default: no limit).
+   */
+  maxTokensPerTurn?: number;
+
+  /**
+   * Max cumulative dollar cost per turn (requires pricing configuration).
+   * Runner feeds budget_exceeded when exceeded (default: no limit).
+   */
+  maxDollarsPerTurn?: number;
 
   /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
   maxWallclockMs?: number;
@@ -308,6 +328,13 @@ export interface CreateAgentOptions {
 
   /** External authorization decision engine. Defaults to allow-all. */
   policyEngine?: PolicyEngine;
+
+  /**
+   * Identifier port — generates session IDs and any other agent-scoped
+   * identifiers. Inject a deterministic implementation (seeded counter)
+   * for replay equivalence; defaults to a counter + wallclock fallback.
+   */
+  id?: Id;
 
   /**
    * Structured audit sink for approval decisions and high-risk tool executions.
@@ -420,6 +447,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const effectiveShell: Shell | undefined = opts.shell
     ? (opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)
     : undefined;
+
+  // ── Identifier port ───────────────────────
+  // Use injected Id port for sessionId generation; deterministic replays
+  // require a seeded Id (e.g. counter-based) — the default falls back to
+  // counter + wallclock for uniqueness in real runs.
+  const idPort: Id = opts.id ?? defaultId;
 
   // ── Resolve layered config defaults ─────────
   // Config layer values fill in defaults for opts not explicitly set.
@@ -548,7 +581,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell),
+      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell, idPort),
     );
     allCustomTools.push(taskTool);
   }
@@ -784,7 +817,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       sessionStore,
       compaction: compactionConfig,
       abortSignal,
-      sessionId: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: `session-${idPort.next()}`,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
@@ -807,12 +840,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     const resolvedTokenBudget = resolve(opts.tokenBudget, "tokenBudget");
     const resolvedMaxToolCalls = resolve(opts.maxToolCalls, "maxToolCalls");
     const resolvedMaxCostTokens = resolve(opts.maxCostTokens, "maxCostTokens");
+    const resolvedMaxTokensPerTurn = resolve(opts.maxTokensPerTurn, "maxTokensPerTurn");
+    const resolvedMaxDollarsPerTurn = resolve(opts.maxDollarsPerTurn, "maxDollarsPerTurn");
     const resolvedMaxWallclockMs = resolve(opts.maxWallclockMs, "maxWallclockMs");
+    // P2-11: maxCostTokens is deprecated; new fields take precedence
+    const effectiveMaxCostDollars = resolvedMaxDollarsPerTurn ?? resolvedMaxCostTokens;
     const initStateOverrides: Partial<ReducerState> = {
       ...(resolvedMaxIterations !== undefined ? { maxIterations: resolvedMaxIterations } : {}),
       ...(resolvedTokenBudget !== undefined ? { tokenBudget: resolvedTokenBudget } : {}),
       ...(resolvedMaxToolCalls !== undefined ? { maxToolCalls: resolvedMaxToolCalls } : {}),
-      ...(resolvedMaxCostTokens !== undefined ? { maxCostDollars: resolvedMaxCostTokens } : {}),
+      ...(effectiveMaxCostDollars !== undefined ? { maxCostDollars: effectiveMaxCostDollars } : {}),
+      ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
     };
@@ -1001,6 +1039,7 @@ function createSubAgentExecutor(
   compactionConfig?: CompactionConfig,
   depth: number = 1,
   shellOverride?: Shell,
+  idPort: Id = defaultId,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const subCustomTools = parentCustomTools.filter(
@@ -1051,7 +1090,21 @@ function createSubAgentExecutor(
       eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
-      sessionId: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: `sub-${idPort.next()}`,
+      // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
+      initialState: createInitialState({
+        ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined
+          ? { maxCostDollars: resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") }
+          : resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") !== undefined
+            ? { maxCostDollars: resolveConfigValue(opts.maxCostTokens, opts.config?.config, "maxCostTokens") }
+            : {}),
+        ...(resolveConfigValue(opts.maxTokensPerTurn, opts.config?.config, "maxTokensPerTurn") !== undefined
+          ? { maxTokensPerTurn: resolveConfigValue(opts.maxTokensPerTurn, opts.config?.config, "maxTokensPerTurn") }
+          : {}),
+        ...(opts.maxWallclockMs !== undefined
+          ? { maxWallclockMs: resolveConfigValue(opts.maxWallclockMs, opts.config?.config, "maxWallclockMs") }
+          : {}),
+      }),
     });
 
     const finalState = await subRunner.run({
