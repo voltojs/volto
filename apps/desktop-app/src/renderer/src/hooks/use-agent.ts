@@ -4,35 +4,9 @@
  */
 
 import { useState, useCallback } from "react";
+import type { AgentStatus, AgentResult } from "@/renderer/src/types/agent";
 
-/** Agent 状态 */
-export type AgentStatus = "idle" | "running" | "streaming" | "error";
-
-/** Agent 操作结果 */
-export interface AgentResult {
-  success: boolean;
-  error?: string;
-}
-
-/** Electron API 类型声明 */
-interface ElectronAPI {
-  agent: {
-    create: () => Promise<AgentResult>;
-    sendMessage: (message: string) => Promise<AgentResult>;
-    resume: (sessionId: string, decision: "allow" | "deny") => Promise<AgentResult>;
-    getStatus: () => Promise<AgentStatus>;
-    getState: () => Promise<unknown>;
-    destroy: () => Promise<void>;
-    onEvent: (callback: (event: unknown) => void) => () => void;
-  };
-}
-
-/** 扩展 Window 接口 */
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
+export type { AgentStatus, AgentResult };
 
 /**
  * useAgent hook

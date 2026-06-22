@@ -6,7 +6,7 @@
 import { type IpcMainInvokeEvent } from "electron";
 import { getStore } from "../store/index.js";
 import type { StoreSchema } from "../store/schema.js";
-import { createIpcChannel, type IpcChannel } from "./handlers.js";
+import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
 
 /** Store get 请求参数 */
 export interface StoreGetArgs {
@@ -69,7 +69,7 @@ function createStoreClearHandler(): IpcChannel<void, void> {
 }
 
 /** 获取所有 store 相关的 IPC 处理器 */
-export function getStoreIpcHandlers(): IpcChannel[] {
+export function getStoreIpcHandlers(): AnyIpcChannel[] {
   return [
     createStoreGetHandler(),
     createStoreSetHandler(),

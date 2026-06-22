@@ -1,6 +1,9 @@
 /**
  * Agent 相关类型定义
  * 为渲染进程提供 Agent 操作的类型安全
+ *
+ * 这里只导出**值/数据**类型，不 augment Window。Window.electronAPI 的
+ * 类型声明唯一来源是 `./electron.d.ts`。
  */
 
 /** Agent 状态 */
@@ -48,45 +51,4 @@ export interface SessionInfo {
 export interface AgentResult {
   success: boolean;
   error?: string;
-}
-
-/** Agent API 类型 */
-export interface AgentAPI {
-  /** 创建 agent 实例 */
-  create(): Promise<AgentResult>;
-
-  /** 发送消息 */
-  sendMessage(message: string): Promise<AgentResult>;
-
-  /** 恢复会话 */
-  resume(sessionId: string, decision: "allow" | "deny"): Promise<AgentResult>;
-
-  /** 获取 agent 状态 */
-  getStatus(): Promise<AgentStatus>;
-
-  /** 获取 agent 状态 */
-  getState(): Promise<unknown>;
-
-  /** 销毁 agent 实例 */
-  destroy(): Promise<void>;
-
-  /** 订阅 agent 事件 */
-  onEvent(callback: (event: AgentEvent) => void): () => void;
-}
-
-/** 全局 Window 接口扩展 */
-declare global {
-  interface Window {
-    /** Electron API */
-    electronAPI: {
-      /** Store API */
-      store: import("./electron.d.ts").StoreAPI;
-
-      /** Agent API */
-      agent: AgentAPI;
-
-      /** 应用信息 API */
-      app: import("./electron.d.ts").AppAPI;
-    };
-  }
 }

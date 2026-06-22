@@ -11,8 +11,6 @@ export function createStore(): Store<StoreSchema> {
   return new Store<StoreSchema>({
     name: "volto-config",
     defaults: STORE_DEFAULTS,
-    // 开发模式下使用 prettier 格式化 JSON
-    prettify: process.env.NODE_ENV === "development",
   });
 }
 

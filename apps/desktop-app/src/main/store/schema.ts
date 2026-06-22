@@ -41,6 +41,32 @@ export interface SessionMeta {
   model?: string;
 }
 
+/**
+ * 已持久化的工具调用快照
+ * 与渲染端 `chat-store` 的 ToolCall 保持结构兼容。
+ */
+export interface PersistedToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  duration?: number;
+}
+
+/**
+ * 已持久化的消息
+ * 与渲染端 `chat-store` 的 Message 保持结构兼容；
+ * `isStreaming` 故意不持久化（重启后未完成的流应当视为已结束）。
+ */
+export interface PersistedMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: number;
+  toolCalls?: PersistedToolCall[];
+}
+
 /** 完整的 Store Schema */
 export interface StoreSchema {
   /** 窗口边界 */
@@ -49,6 +75,11 @@ export interface StoreSchema {
   settings: AppSettings;
   /** 会话列表 */
   sessions: SessionMeta[];
+  /**
+   * 会话消息：sessionId -> messages。
+   * 与 sessions 分开存以便单会话写入时不必序列化全量历史。
+   */
+  sessionMessages: Record<string, PersistedMessage[]>;
   /** 最后活跃的会话 ID */
   lastActiveSessionId: string | null;
   /** API Key（加密存储） */
@@ -75,6 +106,7 @@ export const STORE_DEFAULTS: StoreSchema = {
     autoCheckUpdates: true,
   },
   sessions: [],
+  sessionMessages: {},
   lastActiveSessionId: null,
   apiKey: null,
   modelName: "gpt-4",

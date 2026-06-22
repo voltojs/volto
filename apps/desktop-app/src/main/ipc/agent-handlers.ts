@@ -5,7 +5,7 @@
 
 import { type IpcMainInvokeEvent } from "electron";
 import { getAgentManager } from "../agent/agent-manager.js";
-import { createIpcChannel, type IpcChannel } from "./handlers.js";
+import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
 
 /** 发送消息请求参数 */
 export interface SendMessageArgs {
@@ -114,7 +114,7 @@ function createAgentDestroyHandler(): IpcChannel<void, void> {
 }
 
 /** 获取所有 agent 相关的 IPC 处理器 */
-export function getAgentIpcHandlers(): IpcChannel[] {
+export function getAgentIpcHandlers(): AnyIpcChannel[] {
   return [
     createAgentCreateHandler(),
     createAgentSendMessageHandler(),

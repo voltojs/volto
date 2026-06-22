@@ -4,26 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-
-/** Electron API 类型声明 */
-interface ElectronAPI {
-  store: {
-    get: (key: string) => Promise<unknown>;
-    set: (key: string, value: unknown) => Promise<void>;
-    delete: (key: string) => Promise<void>;
-    clear: () => Promise<void>;
-  };
-  app: {
-    platform: string;
-  };
-}
-
-/** 扩展 Window 接口 */
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
+import type { ElectronAPI } from "@/renderer/src/types/electron";
 
 /** 获取 electron API */
 function getElectronAPI(): ElectronAPI {

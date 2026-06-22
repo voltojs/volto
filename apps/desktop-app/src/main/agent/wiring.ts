@@ -56,9 +56,36 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const clock = { now: () => Date.now() };
   const scheduler = createNodeScheduler({ clock });
 
-  // 权限配置
+  // 权限配置 — 把 store 里的 "auto" / "ask" / "deny" 显式映射到 core 的
+  // PermissionConfig。core 的 mode 字段只接受 "default" / "plan" / "auto-accept"，
+  // 没有 "deny" 这种 mode，因此 "deny" 必须通过把 tier defaults 全部改成 deny 来实现，
+  // 否则会静默退化成 "auto-accept" 这种安全级 bug。
   const permissionConfig = createDefaultPermissionConfig();
-  permissionConfig.mode = permissionMode === "ask" ? "plan" : "auto-accept";
+  switch (permissionMode) {
+    case "auto":
+      permissionConfig.mode = "auto-accept";
+      break;
+    case "ask":
+      permissionConfig.mode = "plan";
+      break;
+    case "deny":
+      // 全部 tier 一律 deny；mode 保持 "default" 以便 rules/overrides 生效优先级
+      permissionConfig.mode = "default";
+      permissionConfig.defaults = {
+        READ_ONLY: "deny",
+        WRITE_LOW: "deny",
+        WRITE_HIGH: "deny",
+        IRREVERSIBLE: "deny",
+      };
+      break;
+    default: {
+      // 永远不应到达——schema 已经把 permissionMode 收紧到上述三种之一。
+      // 出现意外值时 fail-closed 到 "ask"（plan mode）。
+      const _exhaustive: never = permissionMode;
+      void _exhaustive;
+      permissionConfig.mode = "plan";
+    }
+  }
 
   // 创建 agent
   const agent = createAgent({
