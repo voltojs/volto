@@ -5,6 +5,7 @@
 
 import { type IpcMainInvokeEvent } from "electron";
 import { getAgentManager } from "../agent/agent-manager.js";
+import type { ApprovalRequestPayload } from "../agent/approval-gate.js";
 import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
 
 /** 发送消息请求参数 */
@@ -20,6 +21,12 @@ export interface StreamMessageArgs {
 /** 恢复会话请求参数 */
 export interface ResumeSessionArgs {
   sessionId: string;
+  decision: "allow" | "deny";
+}
+
+/** 审批决策请求参数 */
+export interface ApprovalDecisionArgs {
+  requestId: string;
   decision: "allow" | "deny";
 }
 
@@ -113,6 +120,35 @@ function createAgentDestroyHandler(): IpcChannel<void, void> {
   );
 }
 
+/** 创建 agent:approval-decide 处理器 — 渲染端写回 ApprovalDialog 的结果 */
+function createApprovalDecideHandler(): IpcChannel<
+  ApprovalDecisionArgs,
+  { handled: boolean }
+> {
+  return createIpcChannel<ApprovalDecisionArgs, { handled: boolean }>(
+    "agent:approval-decide",
+    (_event: IpcMainInvokeEvent, args: ApprovalDecisionArgs) => {
+      const manager = getAgentManager();
+      const handled = manager.getApproval().decide(args.requestId, args.decision);
+      return { handled };
+    },
+  );
+}
+
+/**
+ * 创建 agent:approval-list 处理器 — 列出当前挂起的审批请求。
+ * 新窗口打开或对话框重挂载时用来一次性补齐已有的待决审批。
+ */
+function createApprovalListHandler(): IpcChannel<void, ApprovalRequestPayload[]> {
+  return createIpcChannel<void, ApprovalRequestPayload[]>(
+    "agent:approval-list",
+    (_event: IpcMainInvokeEvent) => {
+      const manager = getAgentManager();
+      return manager.getApproval().inspect();
+    },
+  );
+}
+
 /** 获取所有 agent 相关的 IPC 处理器 */
 export function getAgentIpcHandlers(): AnyIpcChannel[] {
   return [
@@ -122,5 +158,7 @@ export function getAgentIpcHandlers(): AnyIpcChannel[] {
     createAgentGetStatusHandler(),
     createAgentGetStateHandler(),
     createAgentDestroyHandler(),
+    createApprovalDecideHandler(),
+    createApprovalListHandler(),
   ];
 }

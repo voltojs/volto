@@ -51,6 +51,25 @@ const agentAPI = {
       ipcRenderer.removeListener("agent:event", handler);
     };
   },
+
+  /**
+   * 订阅审批请求事件 — 主进程 ApprovalGate 通过 `agent:approval-request`
+   * 把 PendingToolCall + RiskTier 推给渲染端，由 ApprovalDialog 决策。
+   */
+  onApprovalRequest: (callback: (payload: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data);
+    ipcRenderer.on("agent:approval-request", handler);
+    return () => {
+      ipcRenderer.removeListener("agent:approval-request", handler);
+    };
+  },
+
+  /** 回写审批决策 */
+  decideApproval: (requestId: string, decision: "allow" | "deny") =>
+    ipcRenderer.invoke("agent:approval-decide", { requestId, decision }),
+
+  /** 拉取当前所有挂起的审批请求（窗口重挂载时补齐） */
+  listApprovals: () => ipcRenderer.invoke("agent:approval-list"),
 };
 
 /** 应用信息 API */

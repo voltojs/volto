@@ -3,9 +3,18 @@
  * 会话列表 + 新建会话按钮
  */
 
-import { Plus, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import { Plus, MessageSquare, Settings } from "lucide-react";
 import { Button } from "@/renderer/src/components/ui/button";
 import { ScrollArea } from "@/renderer/src/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/renderer/src/components/ui/dialog";
+import { PermissionEditor } from "@/renderer/src/components/approval/PermissionEditor";
 import { cn } from "@/renderer/src/lib/utils";
 import { useChatStore, type Session } from "@/renderer/src/stores/chat-store";
 
@@ -21,6 +30,7 @@ export interface SidebarProps {
  */
 export function Sidebar({ className }: SidebarProps) {
   const { sessions, currentSessionId, createSession, switchSession } = useChatStore();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   /** 转换 Map 为数组 */
   const sessionList = Array.from(sessions.values()).sort(
@@ -40,9 +50,19 @@ export function Sidebar({ className }: SidebarProps) {
   return (
     <div className={cn("flex flex-col h-full", className)}>
       {/* 头部 */}
-      <div className="p-4 border-b">
-        <h2 className="text-lg font-semibold">Volto Desktop</h2>
-        <p className="text-xs text-muted-foreground mt-1">AI Agent 桌面应用</p>
+      <div className="p-4 border-b flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Volto Desktop</h2>
+          <p className="text-xs text-muted-foreground mt-1">AI Agent 桌面应用</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="打开设置"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* 新建会话按钮 */}
@@ -78,6 +98,21 @@ export function Sidebar({ className }: SidebarProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* 设置弹窗：当前仅含权限模式编辑器；后续可在此扩展 ApiKey / Model 等 */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>设置</DialogTitle>
+            <DialogDescription>
+              修改后将在下次 Agent 创建时生效。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="pt-2">
+            <PermissionEditor />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

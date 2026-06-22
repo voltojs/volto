@@ -8,6 +8,19 @@
 
 import type { AgentEvent, AgentStatus, AgentResult } from "./agent";
 
+/** 风险等级（与 core 的 RiskTier 同义，单独复制一份避免 type-only 跨包依赖） */
+export type RiskTier = "READ_ONLY" | "WRITE_LOW" | "WRITE_HIGH" | "IRREVERSIBLE";
+
+/** 审批请求载荷 — 主进程通过 `agent:approval-request` 推送给渲染端 */
+export interface ApprovalRequest {
+  requestId: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  riskTier: RiskTier;
+  requestedAt: number;
+}
+
 /** Store API 类型 */
 export interface StoreAPI {
   /** 获取 store 值 */
@@ -51,6 +64,18 @@ export interface AgentAPI {
 
   /** 订阅 agent 事件 */
   onEvent(callback: (event: AgentEvent) => void): () => void;
+
+  /** 订阅审批请求事件 */
+  onApprovalRequest(callback: (payload: ApprovalRequest) => void): () => void;
+
+  /** 写回审批决策；返回值的 handled 字段为 false 时表示请求已超时/被替换 */
+  decideApproval(
+    requestId: string,
+    decision: "allow" | "deny",
+  ): Promise<{ handled: boolean }>;
+
+  /** 拉取当前所有挂起的审批请求 */
+  listApprovals(): Promise<ApprovalRequest[]>;
 }
 
 /** Electron API 类型 */

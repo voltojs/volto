@@ -110,5 +110,8 @@ export const STORE_DEFAULTS: StoreSchema = {
   lastActiveSessionId: null,
   apiKey: null,
   modelName: "gpt-4",
-  permissionMode: "auto",
+  // 默认开启 "ask" 模式：高风险写入与不可逆操作弹窗确认。"auto" 会绕过审批，
+  // 一旦默认值上去，用户在 UI 看不见 ApprovalDialog 就会以为审批没接通；"ask"
+  // 让 Phase 5 的审批流程开箱即用，用户可在设置里降级为 "auto"。
+  permissionMode: "ask",
 };

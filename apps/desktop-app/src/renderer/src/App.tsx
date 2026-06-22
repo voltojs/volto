@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { AppLayout } from "@/renderer/src/components/layout/AppLayout";
 import { Sidebar } from "@/renderer/src/components/layout/Sidebar";
 import { ChatPanel } from "@/renderer/src/components/chat/ChatPanel";
+import { ApprovalDialog } from "@/renderer/src/components/approval/ApprovalDialog";
 import { useChatStore } from "@/renderer/src/stores/chat-store";
 import { useStream } from "@/renderer/src/hooks/use-stream";
 
@@ -59,6 +60,8 @@ function App() {
       }
     >
       <ChatPanel />
+      {/* 全局审批弹窗：用 ApprovalGate 推来的请求驱动，挂在 App 根以确保任意路由下都能弹出 */}
+      <ApprovalDialog />
     </AppLayout>
   );
 }

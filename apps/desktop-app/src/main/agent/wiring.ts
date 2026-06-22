@@ -6,7 +6,7 @@
 
 import { createAgent } from "@volto/sdk";
 import { createDefaultPermissionConfig } from "@volto/core";
-import type { EventSink } from "@volto/core";
+import type { ApprovalGate, EventSink } from "@volto/core";
 import { createOpenAIModelPort } from "@volto/provider-openai";
 import {
   createNodeFileSystem,
@@ -21,6 +21,12 @@ import type { StoreSchema } from "../store/schema.js";
 export interface AgentWiringOptions {
   /** 事件接收器 */
   eventSink: EventSink;
+  /**
+   * 人机确认网关 — 当 permissionConfig 产生 "ask" 决策时由内核回调。
+   * 缺失时 SDK 会 fallback 到 auto-allow，等价于关闭审批；为了让 "ask"
+   * 模式真正生效，本应用应当总是注入一个真实的 gate。
+   */
+  approvalGate?: ApprovalGate;
   /** 工作目录 */
   cwd?: string;
 }
@@ -30,7 +36,7 @@ export interface AgentWiringOptions {
  * 基于 store 中的配置组装 agent
  */
 export function createAgentInstance(options: AgentWiringOptions) {
-  const { eventSink, cwd = process.cwd() } = options;
+  const { eventSink, approvalGate, cwd = process.cwd() } = options;
   const store = getStore();
 
   // 从 store 读取配置
@@ -97,6 +103,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
     eventSink,
     scheduler,
     permissionConfig,
+    approvalGate,
   });
 
   return agent;
