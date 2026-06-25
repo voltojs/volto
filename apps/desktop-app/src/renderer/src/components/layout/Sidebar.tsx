@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/renderer/src/components/ui/dialog";
-import { PermissionEditor } from "@/renderer/src/components/approval/PermissionEditor";
+import { SettingsPanel } from "@/renderer/src/components/settings/SettingsPanel";
 import { DebugPanel } from "@/renderer/src/components/debug/DebugPanel";
 import { cn } from "@/renderer/src/lib/utils";
 import { useChatStore, type Session } from "@/renderer/src/stores/chat-store";
@@ -111,17 +111,17 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
       </ScrollArea>
 
-      {/* 设置弹窗：当前仅含权限模式编辑器；后续可在此扩展 ApiKey / Model 等 */}
+      {/* 设置弹窗：Tabs 化的 SettingsPanel（通用 + 权限），含"应用并重建 Agent"按钮 */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>设置</DialogTitle>
             <DialogDescription>
-              修改后将在下次 Agent 创建时生效。
+              修改的字段立即写入 electron-store；Agent 行为在下次创建时生效。
             </DialogDescription>
           </DialogHeader>
           <div className="pt-2">
-            <PermissionEditor />
+            <SettingsPanel />
           </div>
         </DialogContent>
       </Dialog>
