@@ -54,6 +54,25 @@ export class AgentManager {
     this.status = status;
   }
 
+  /**
+   * 把内部错误归一化为 EventSink 上的 `error` 事件，转交给渲染端处理。
+   * 这是 plan-execution-gate / AGENTS.md 的"错误不中断主循环"纪律在 app 层的体现：
+   * 内部边界仍然可以向上 throw，但同时必须把错误以事件形式让 UI 拿到，
+   * 不能只让错误悄悄落到 IPC 返回值的 `{success:false}` 里。
+   */
+  private emitError(source: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      this.eventSink.emit({
+        type: "error",
+        data: { error: message, source },
+      });
+    } catch (sinkErr) {
+      // EventSink 自身报错绝不能反过来打断主循环，记日志即可
+      console.error("[agent-manager] eventSink.emit failed:", sinkErr);
+    }
+  }
+
   /** 创建 Agent 实例 */
   create(): AgentInstance {
     if (this.agent) {
@@ -70,6 +89,7 @@ export class AgentManager {
       return this.agent;
     } catch (error) {
       this.setStatus("error");
+      this.emitError("agent:create", error);
       throw error;
     }
   }
@@ -82,7 +102,9 @@ export class AgentManager {
   /** 运行 Agent（单次对话） */
   async run(input: string): Promise<ReturnType<AgentInstance["run"]>> {
     if (!this.agent) {
-      throw new Error("Agent not created. Call create() first.");
+      const err = new Error("Agent not created. Call create() first.");
+      this.emitError("agent:run", err);
+      throw err;
     }
 
     this.setStatus("running");
@@ -92,6 +114,7 @@ export class AgentManager {
       return result;
     } catch (error) {
       this.setStatus("error");
+      this.emitError("agent:run", error);
       throw error;
     }
   }
@@ -101,7 +124,9 @@ export class AgentManager {
     input: string,
   ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
     if (!this.agent) {
-      throw new Error("Agent not created. Call create() first.");
+      const err = new Error("Agent not created. Call create() first.");
+      this.emitError("agent:stream", err);
+      throw err;
     }
 
     this.setStatus("streaming");
@@ -110,6 +135,7 @@ export class AgentManager {
       this.setStatus("idle");
     } catch (error) {
       this.setStatus("error");
+      this.emitError("agent:stream", error);
       throw error;
     }
   }
@@ -120,7 +146,9 @@ export class AgentManager {
     decision: "allow" | "deny",
   ): Promise<ReturnType<AgentInstance["resume"]>> {
     if (!this.agent) {
-      throw new Error("Agent not created. Call create() first.");
+      const err = new Error("Agent not created. Call create() first.");
+      this.emitError("agent:resume", err);
+      throw err;
     }
 
     this.setStatus("running");
@@ -130,6 +158,7 @@ export class AgentManager {
       return result;
     } catch (error) {
       this.setStatus("error");
+      this.emitError("agent:resume", error);
       throw error;
     }
   }
