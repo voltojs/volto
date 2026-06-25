@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { Plus, MessageSquare, Settings } from "lucide-react";
+import { Plus, MessageSquare, Settings, Bug } from "lucide-react";
 import { Button } from "@/renderer/src/components/ui/button";
 import { ScrollArea } from "@/renderer/src/components/ui/scroll-area";
 import {
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/renderer/src/components/ui/dialog";
 import { PermissionEditor } from "@/renderer/src/components/approval/PermissionEditor";
+import { DebugPanel } from "@/renderer/src/components/debug/DebugPanel";
 import { cn } from "@/renderer/src/lib/utils";
 import { useChatStore, type Session } from "@/renderer/src/stores/chat-store";
 
@@ -31,6 +32,7 @@ export interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const { sessions, currentSessionId, createSession, switchSession } = useChatStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   /** 转换 Map 为数组 */
   const sessionList = Array.from(sessions.values()).sort(
@@ -55,14 +57,24 @@ export function Sidebar({ className }: SidebarProps) {
           <h2 className="text-lg font-semibold">Volto Desktop</h2>
           <p className="text-xs text-muted-foreground mt-1">AI Agent 桌面应用</p>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="打开设置"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Settings className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="打开调试面板"
+            onClick={() => setDebugOpen(true)}
+          >
+            <Bug className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="打开设置"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* 新建会话按钮 */}
@@ -113,6 +125,9 @@ export function Sidebar({ className }: SidebarProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 调试面板：Sheet 抽屉，与 Sidebar 共享开关 state */}
+      <DebugPanel open={debugOpen} onOpenChange={setDebugOpen} />
     </div>
   );
 }

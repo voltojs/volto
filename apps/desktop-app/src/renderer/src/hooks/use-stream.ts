@@ -21,6 +21,7 @@ import {
   type Message,
   type ToolCall,
 } from "@/renderer/src/stores/chat-store";
+import { useDebugStore } from "@/renderer/src/stores/debug-store";
 
 export type { AgentEvent };
 
@@ -54,9 +55,12 @@ export function useStream() {
    */
   const streamingMessageIdRef = useRef<string | null>(null);
 
-  /** 把事件按类型分发到 chat-store */
+  /** 把事件按类型分发到 chat-store；同时镜像到 debug-store 供调试视图使用 */
   const handleEvent = useCallback((event: AgentEvent) => {
     setEvents((prev) => [...prev, event]);
+    // debug-store 是瞬态镜像，先 push 再 dispatch 到业务 store，确保即使后续逻辑
+    // 抛错（虽然这里不会），事件本身一定能进入调试时间轴
+    useDebugStore.getState().pushEvent(event);
 
     const store = useChatStore.getState();
     const sessionId = store.currentSessionId;
