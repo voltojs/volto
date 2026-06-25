@@ -4,20 +4,12 @@
  */
 
 import type { AgentInstance } from "@volto/sdk";
-import type { ApprovalGate, EventSink } from "@volto/core";
+import type { EventSink } from "@volto/core";
 import { createAgentInstance } from "./wiring.js";
-import { createApprovalGate, type ApprovalRequestPayload } from "./approval-gate.js";
+import { createApprovalGate } from "./approval-gate.js";
 
 /** Agent 状态 */
 export type AgentStatus = "idle" | "running" | "streaming" | "error";
-
-/** Agent Manager 事件 */
-export interface AgentManagerEvents {
-  /** Agent 状态变化 */
-  onStatusChange: (status: AgentStatus) => void;
-  /** Agent 错误 */
-  onError: (error: Error) => void;
-}
 
 /**
  * Agent Manager
@@ -39,8 +31,14 @@ export class AgentManager {
     this.approval = createApprovalGate();
   }
 
-  /** 暴露 approval gate 句柄给 IPC handler 用（decide / inspect） */
-  getApproval(): { gate: ApprovalGate; decide: (id: string, d: "allow" | "deny") => boolean; inspect: () => ApprovalRequestPayload[] } {
+  /**
+   * 暴露 approval gate 句柄给 IPC handler 用。`dispose` 故意不外暴 —— 只能由
+   * Manager 在 `destroy()` 内部调用，避免渲染端不小心把全部挂起请求顶掉。
+   */
+  getApproval(): Pick<
+    ReturnType<typeof createApprovalGate>,
+    "gate" | "decide" | "inspect"
+  > {
     return this.approval;
   }
 
