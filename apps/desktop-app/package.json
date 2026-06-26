@@ -10,10 +10,10 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint src/",
-    "package:dir": "electron-vite build && electron-builder --dir --config electron-builder.yml",
-    "package:mac": "electron-vite build && electron-builder --mac --config electron-builder.yml",
-    "package:win": "electron-vite build && electron-builder --win --config electron-builder.yml",
-    "package:linux": "electron-vite build && electron-builder --linux --config electron-builder.yml"
+    "package:dir": "electron-vite build && electron-builder --dir --publish never --config electron-builder.yml",
+    "package:mac": "electron-vite build && electron-builder --mac --publish never --config electron-builder.yml",
+    "package:win": "electron-vite build && electron-builder --win --publish never --config electron-builder.yml",
+    "package:linux": "electron-vite build && electron-builder --linux --publish never --config electron-builder.yml"
   },
   "dependencies": {
     "@volto/sdk": "workspace:*",
