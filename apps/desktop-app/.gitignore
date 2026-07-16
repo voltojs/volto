@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+# electron-builder 输出（即使被误移到根目录也忽略）
+*.dmg
+*.zip
+*.exe
+*.AppImage
+*.deb
+*.snap
+.env
+.env.*
+!.env.example

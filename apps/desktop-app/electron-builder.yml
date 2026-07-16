@@ -1,0 +1,91 @@
+# electron-builder configuration for @volto/desktop-app
+#
+# 说明：
+# - 本应用为 Electron + electron-vite 项目，构建产物在 ./out（main / preload / renderer 各自子目录）
+# - `pnpm package:dir` 走 --dir 模式，输出 unpacked app 到 ./dist/<platform>-unpacked，
+#   不签名、不出 installer，是 phase 验收门
+# - `pnpm package:mac` / `package:win` / `package:linux` 生成对应平台的 installer
+# - 签名 / 公证字段留空：由发布工作流（Apple Developer ID、Windows Code Signing 证书）填入
+#   环境变量后启用
+
+appId: com.volto.desktop-app
+productName: Volto Desktop
+copyright: Copyright © 2026 Volto
+
+# 构建产物输入：electron-vite 产物 + 应用本身的 node_modules / package.json
+# (electron-builder 默认会包含 main 入口指向的文件 + 显式列出的)
+files:
+  - out/**/*
+  - package.json
+  - "!**/{.eslintrc.cjs,tsconfig*.json,electron.vite.config.ts}"
+
+# asar 打包：除了原生模块外都塞进 app.asar，减小体积 + 防止用户手动改源码
+asar: true
+asarUnpack:
+  # electron-store 在某些平台需要原生 fs 操作；保留 unpacked 形态更稳
+  - "**/node_modules/electron-store/**"
+
+# 产物根目录
+directories:
+  output: dist
+  buildResources: resources
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  # 签名相关字段留空：由发布工作流通过环境变量注入 (CSC_LINK / CSC_KEY_PASSWORD)
+  # hardenedRuntime: true
+  # gatekeeperAssess: false
+  # notarize: false
+  icon: resources/icon.icns  # 文件不存在时 electron-builder 会告警但仍能 --dir build
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ── Windows ──────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# ── Linux ────────────────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Development
+  icon: resources/icon.png
+
+# ── 自动更新（留作发布工作流） ──────────────────────────────────────────────
+# publish:
+#   provider: github
+#   owner: <org>
+#   repo: <repo>
