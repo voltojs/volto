@@ -181,6 +181,15 @@ export interface CreateAgentOptions {
    */
   systemPrompt?: string;
 
+  /**
+   * 首轮种子历史消息 —— 追加在 systemPrompt 消息之后，作为第一轮
+   * ReducerState.messages 的初始内容。仅影响"第一轮"（lastFinalState 为空
+   * 时）；一旦有过完成的轮次，后续轮次由内部的 lastFinalState 续接，不再
+   * 读取这个选项。典型用途：宿主应用重建 Agent 实例时，把此前持久化的
+   * 对话历史重新灌入，让上下文不因实例重建而丢失。
+   */
+  initialMessages?: Message[];
+
   /** Model name override (sent to the provider) */
   model?: string;
 
@@ -747,9 +756,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Build initial messages (system prompt) ──
   const resolvedSystemPrompt = resolve(opts.systemPrompt, "systemPrompt");
-  const initialMessages: Message[] = [];
+  const seedMessages: Message[] = [];
   if (resolvedSystemPrompt) {
-    initialMessages.push({ role: "system", content: resolvedSystemPrompt });
+    seedMessages.push({ role: "system", content: resolvedSystemPrompt });
+  }
+  if (opts.initialMessages && opts.initialMessages.length > 0) {
+    seedMessages.push(...opts.initialMessages);
   }
 
   // ── M9: Cost meter (created per-run via wrapping EventSink) ──
@@ -852,7 +864,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ...(effectiveMaxCostDollars !== undefined ? { maxCostDollars: effectiveMaxCostDollars } : {}),
       ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
-      ...(initialMessages.length > 0 ? { messages: [...initialMessages] } : {}),
+      ...(seedMessages.length > 0 ? { messages: [...seedMessages] } : {}),
     };
     const initState = createInitialState(
       Object.keys(initStateOverrides).length > 0 ? initStateOverrides : undefined,
