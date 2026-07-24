@@ -37,8 +37,32 @@ export interface SessionMeta {
   updatedAt: number;
   /** 消息数量 */
   messageCount: number;
-  /** 模型名称 */
-  model?: string;
+  /** 绑定的供应商 id（未绑定时为 undefined，比如 providers 为空时新建的会话） */
+  providerId?: string;
+  /** 绑定的模型 id */
+  modelId?: string;
+}
+
+/** 单个模型配置 */
+export interface ModelConfig {
+  /** 稳定唯一 id（crypto.randomUUID()） */
+  id: string;
+  /** 展示名，用户自定义 */
+  name: string;
+  /** 实际发给 API 的模型标识（如 "gpt-4o-mini"） */
+  code: string;
+  /** 上下文长度，仅展示，不接入 core 的 token 预算/压缩逻辑 */
+  contextLength?: number;
+}
+
+/** 单个供应商配置 */
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  /** 留空则由 provider 走 @volto/provider-openai 内置默认地址 */
+  baseURL: string | null;
+  apiKey: string | null;
+  models: ModelConfig[];
 }
 
 /**
@@ -82,12 +106,8 @@ export interface StoreSchema {
   sessionMessages: Record<string, PersistedMessage[]>;
   /** 最后活跃的会话 ID */
   lastActiveSessionId: string | null;
-  /** API Key（加密存储） */
-  apiKey: string | null;
-  /** 模型名称 */
-  modelName: string;
-  /** 自定义 baseURL；留空则由 provider 走内置官方地址 */
-  baseURL: string | null;
+  /** 供应商列表，每个供应商下含自己的模型列表 */
+  providers: ProviderConfig[];
   /** 权限模式 */
   permissionMode: "auto" | "ask" | "deny";
 }
@@ -110,9 +130,7 @@ export const STORE_DEFAULTS: StoreSchema = {
   sessions: [],
   sessionMessages: {},
   lastActiveSessionId: null,
-  apiKey: null,
-  modelName: "",
-  baseURL: null,
+  providers: [],
   // 默认开启 "ask" 模式：高风险写入与不可逆操作弹窗确认。"auto" 会绕过审批，
   // 一旦默认值上去，用户在 UI 看不见 ApprovalDialog 就会以为审批没接通；"ask"
   // 让 Phase 5 的审批流程开箱即用，用户可在设置里降级为 "auto"。
