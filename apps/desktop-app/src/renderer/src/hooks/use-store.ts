@@ -3,7 +3,7 @@
  * 提供类型安全的 store 访问 hook
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ElectronAPI } from "@/renderer/src/types/electron";
 
 /** 获取 electron API */
@@ -76,12 +76,20 @@ export function useStoreValue<T = unknown>(key: string, defaultValue: T) {
   const [value, setValue] = useState<T>(defaultValue);
   const [loading, setLoading] = useState(true);
   const { get, set } = useStore();
+  /** 标记本次 key 生命周期内是否已收到过 notify —— 用于丢弃比它更旧的初始加载结果 */
+  const receivedNotifyRef = useRef(false);
 
   /** 加载初始值 */
   useEffect(() => {
+    receivedNotifyRef.current = false;
+
     const loadValue = async () => {
       try {
         const stored = await get<T>(key);
+        // 加载期间已经收到过更新的 notify，说明这次 get() 拿到的值已过期，丢弃它避免覆盖更新的值
+        if (receivedNotifyRef.current) {
+          return;
+        }
         if (stored !== undefined && stored !== null) {
           setValue(stored);
         }
@@ -98,6 +106,7 @@ export function useStoreValue<T = unknown>(key: string, defaultValue: T) {
   /** 订阅同一 key 的跨实例更新，收到通知后同步刷新本地 state */
   useEffect(() => {
     const unsubscribe = subscribe(key, (newValue) => {
+      receivedNotifyRef.current = true;
       setValue(newValue as T);
     });
     return unsubscribe;
