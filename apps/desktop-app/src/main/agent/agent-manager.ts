@@ -138,10 +138,14 @@ export class AgentManager {
     this.setStatus(sessionId, "running");
     try {
       const result = await agent.run(input);
-      this.setStatus(sessionId, "idle");
+      if (this.agents.get(sessionId) === agent) {
+        this.setStatus(sessionId, "idle");
+      }
       return result;
     } catch (error) {
-      this.setStatus(sessionId, "error");
+      if (this.agents.get(sessionId) === agent) {
+        this.setStatus(sessionId, "error");
+      }
       this.emitError("agent:run", error, sessionId);
       throw error;
     }
@@ -160,9 +164,13 @@ export class AgentManager {
     this.setStatus(sessionId, "streaming");
     try {
       yield* agent.stream(input);
-      this.setStatus(sessionId, "idle");
+      if (this.agents.get(sessionId) === agent) {
+        this.setStatus(sessionId, "idle");
+      }
     } catch (error) {
-      this.setStatus(sessionId, "error");
+      if (this.agents.get(sessionId) === agent) {
+        this.setStatus(sessionId, "error");
+      }
       this.emitError("agent:stream", error, sessionId);
       throw error;
     }
