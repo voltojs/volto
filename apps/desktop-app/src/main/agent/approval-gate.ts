@@ -30,6 +30,8 @@ export interface ApprovalRequestPayload {
   riskTier: RiskTier;
   /** 主进程墙钟，仅供 UI 展示；不入内核 */
   requestedAt: number;
+  /** 发起这次审批请求的聊天会话 id，供渲染端按会话路由/展示 */
+  sessionId: string;
 }
 
 export interface ApprovalGateOptions {
@@ -44,7 +46,8 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** 创建一个 ApprovalGate 实例（与 IPC handlers 共享一个 pendingApprovals 表） */
 export function createApprovalGate(options: ApprovalGateOptions = {}): {
-  gate: ApprovalGate;
+  /** 按 sessionId 生成一个 ApprovalGate 包装——ask() 内部自动带上该 sessionId */
+  gateFor: (sessionId: string) => ApprovalGate;
   /** 渲染端写回决策 */
   decide: (requestId: string, decision: "allow" | "deny") => boolean;
   /** 关闭所有挂起请求（自动 deny），用于 app quit / agent destroy 路径 */
@@ -73,6 +76,7 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): {
   const ask = async (
     call: PendingToolCall,
     riskTier: RiskTier,
+    sessionId: string,
   ): Promise<"allow" | "deny"> => {
     const requestId = nextRequestId();
     const payload: ApprovalRequestPayload = {
@@ -82,6 +86,7 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): {
       args: call.input ?? {},
       riskTier,
       requestedAt: Date.now(),
+      sessionId,
     };
     payloads.set(requestId, payload);
 
@@ -132,7 +137,9 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): {
   };
 
   return {
-    gate: { ask },
+    gateFor: (sessionId: string) => ({
+      ask: (call, riskTier) => ask(call, riskTier, sessionId),
+    }),
     decide,
     dispose,
     inspect,
