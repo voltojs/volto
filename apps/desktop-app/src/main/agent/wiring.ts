@@ -6,7 +6,7 @@
 
 import { createAgent } from "@volto/sdk";
 import { createDefaultPermissionConfig } from "@volto/core";
-import type { ApprovalGate, EventSink } from "@volto/core";
+import type { ApprovalGate, EventSink, Message } from "@volto/core";
 import { createOpenAIModelPort } from "@volto/provider-openai";
 import {
   createNodeFileSystem,
@@ -29,29 +29,42 @@ export interface AgentWiringOptions {
   approvalGate?: ApprovalGate;
   /** 工作目录 */
   cwd?: string;
+  /** OpenAI 兼容服务的 API Key（由调用方按会话绑定的供应商解析后传入） */
+  apiKey: string | null;
+  /** 自定义 baseURL；null/undefined 时走 provider 内置默认地址 */
+  baseURL: string | null;
+  /** 实际发给 API 的模型代码 */
+  modelName: string;
+  /** 该会话此前的历史消息（用于重建时恢复上下文），无历史则传空数组 */
+  initialMessages: Message[];
 }
 
 /**
  * 创建 Agent 实例
- * 基于 store 中的配置组装 agent
+ * 基于调用方传入的（已按会话解析好的）模型配置组装 agent；
+ * permissionMode 仍然是全局设置，从 store 读取。
  */
 export function createAgentInstance(options: AgentWiringOptions) {
-  const { eventSink, approvalGate, cwd = process.cwd() } = options;
+  const {
+    eventSink,
+    approvalGate,
+    cwd = process.cwd(),
+    apiKey,
+    baseURL,
+    modelName,
+    initialMessages,
+  } = options;
   const store = getStore();
 
-  // 从 store 读取配置
-  const apiKey = store.get("apiKey") as string | null;
-  const modelName = (store.get("modelName") as string) ?? "";
-  const baseURL = (store.get("baseURL") as string | null) ?? undefined;
   const permissionMode = (store.get("permissionMode") as StoreSchema["permissionMode"]) ?? "auto";
 
-  // 验证 API Key
+  // 验证 API Key / 模型名称——调用方（agent-manager）应已从 providers 列表
+  // 解析出具体值；这里仍然兜底校验，避免传空值静默进入 provider 请求。
   if (!apiKey) {
-    throw new Error("API Key not configured. Please set it in Settings.");
+    throw new Error("API Key not configured. Please select a model with a valid provider.");
   }
-  // 验证模型名称（不再预设默认模型，留空需在创建阶段显式报错，避免静默传空串给 provider）
   if (!modelName) {
-    throw new Error("Model name not configured. Please set it in Settings.");
+    throw new Error("Model not configured. Please select a model in the chat page.");
   }
 
   // 创建核心适配器
@@ -61,7 +74,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const modelPort = createOpenAIModelPort({
     apiKey,
     defaultModel: modelName,
-    baseURL,
+    baseURL: baseURL ?? undefined,
   });
 
   // 创建调度器
@@ -131,6 +144,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
     scheduler,
     permissionConfig,
     approvalGate,
+    initialMessages,
   });
 
   return agent;
