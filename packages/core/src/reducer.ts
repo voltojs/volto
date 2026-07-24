@@ -418,11 +418,31 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
   if (input.type === "model_error") {
     if (input.retriable) {
+      // Retries count against the same runaway guard as completed turns —
+      // otherwise a persistently failing endpoint (bad baseURL, DNS failure)
+      // retries forever with no backoff, spinning the host process.
+      const retryState: ReducerState = {
+        ...state,
+        iterationCount: state.iterationCount + 1,
+        _accumulatedText: "",
+        _accumulatedToolCalls: [],
+      };
+      const limit = limitReached(retryState);
+      if (limit) {
+        return {
+          state: { ...retryState, status: "done" },
+          effects: [
+            { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
+            { type: "emit", event: { type: "error", data: { error: limit } } },
+            { type: "done" },
+          ],
+        };
+      }
       return {
-        state: { ...state, _accumulatedText: "", _accumulatedToolCalls: [] },
+        state: retryState,
         effects: [
           { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
-          buildCallModelEffect(state.messages, state.pinnedMessageIds, ctx),
+          buildCallModelEffect(retryState.messages, retryState.pinnedMessageIds, ctx),
         ],
       };
     }
