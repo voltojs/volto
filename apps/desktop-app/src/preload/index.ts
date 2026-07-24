@@ -24,24 +24,24 @@ const storeAPI = {
 /** Agent API */
 const agentAPI = {
   /** 创建 agent 实例 */
-  create: () => ipcRenderer.invoke("agent:create"),
+  create: (sessionId: string) => ipcRenderer.invoke("agent:create", { sessionId }),
 
   /** 发送消息 */
-  sendMessage: (message: string) =>
-    ipcRenderer.invoke("agent:send-message", { message }),
+  sendMessage: (sessionId: string, message: string) =>
+    ipcRenderer.invoke("agent:send-message", { sessionId, message }),
 
   /** 恢复会话 */
-  resume: (sessionId: string, decision: "allow" | "deny") =>
-    ipcRenderer.invoke("agent:resume", { sessionId, decision }),
+  resume: (sessionId: string, resumeId: string, decision: "allow" | "deny") =>
+    ipcRenderer.invoke("agent:resume", { sessionId, resumeId, decision }),
 
   /** 获取 agent 状态 */
-  getStatus: () => ipcRenderer.invoke("agent:get-status"),
+  getStatus: (sessionId: string) => ipcRenderer.invoke("agent:get-status", { sessionId }),
 
   /** 获取 agent 状态 */
-  getState: () => ipcRenderer.invoke("agent:get-state"),
+  getState: (sessionId: string) => ipcRenderer.invoke("agent:get-state", { sessionId }),
 
   /** 销毁 agent 实例 */
-  destroy: () => ipcRenderer.invoke("agent:destroy"),
+  destroy: (sessionId: string) => ipcRenderer.invoke("agent:destroy", { sessionId }),
 
   /** 订阅 agent 事件 */
   onEvent: (callback: (event: unknown) => void) => {

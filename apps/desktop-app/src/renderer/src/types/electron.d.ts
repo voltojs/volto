@@ -19,6 +19,8 @@ export interface ApprovalRequest {
   args: Record<string, unknown>;
   riskTier: RiskTier;
   requestedAt: number;
+  /** 发起这次审批请求的聊天会话 id */
+  sessionId: string;
 }
 
 /** Store API 类型 */
@@ -45,22 +47,22 @@ export interface AppAPI {
 /** Agent API 类型 */
 export interface AgentAPI {
   /** 创建 agent 实例 */
-  create(): Promise<AgentResult>;
+  create(sessionId: string): Promise<AgentResult>;
 
   /** 发送消息 */
-  sendMessage(message: string): Promise<AgentResult>;
+  sendMessage(sessionId: string, message: string): Promise<AgentResult>;
 
   /** 恢复会话 */
-  resume(sessionId: string, decision: "allow" | "deny"): Promise<AgentResult>;
+  resume(sessionId: string, resumeId: string, decision: "allow" | "deny"): Promise<AgentResult>;
 
   /** 获取 agent 状态 */
-  getStatus(): Promise<AgentStatus>;
+  getStatus(sessionId: string): Promise<AgentStatus>;
 
   /** 获取 agent 内部 state */
-  getState(): Promise<unknown>;
+  getState(sessionId: string): Promise<unknown>;
 
   /** 销毁 agent 实例 */
-  destroy(): Promise<void>;
+  destroy(sessionId: string): Promise<void>;
 
   /** 订阅 agent 事件 */
   onEvent(callback: (event: AgentEvent) => void): () => void;

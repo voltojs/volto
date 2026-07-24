@@ -8,20 +8,27 @@ import { getAgentManager } from "../agent/agent-manager.js";
 import type { ApprovalRequestPayload } from "../agent/approval-gate.js";
 import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
 
-/** 发送消息请求参数 */
-export interface SendMessageArgs {
-  message: string;
+/** 创建 agent 请求参数 */
+export interface CreateAgentArgs {
+  sessionId: string;
 }
 
-/** 流式消息请求参数 */
-export interface StreamMessageArgs {
+/** 发送消息请求参数 */
+export interface SendMessageArgs {
+  sessionId: string;
   message: string;
 }
 
 /** 恢复会话请求参数 */
 export interface ResumeSessionArgs {
   sessionId: string;
+  resumeId: string;
   decision: "allow" | "deny";
+}
+
+/** 获取状态/state/销毁的通用参数 */
+export interface SessionScopedArgs {
+  sessionId: string;
 }
 
 /** 审批决策请求参数 */
@@ -31,13 +38,13 @@ export interface ApprovalDecisionArgs {
 }
 
 /** 创建 agent:create 处理器 */
-function createAgentCreateHandler(): IpcChannel<void, { success: boolean; error?: string }> {
-  return createIpcChannel<void, { success: boolean; error?: string }>(
+function createAgentCreateHandler(): IpcChannel<CreateAgentArgs, { success: boolean; error?: string }> {
+  return createIpcChannel<CreateAgentArgs, { success: boolean; error?: string }>(
     "agent:create",
-    async (_event: IpcMainInvokeEvent) => {
+    async (_event: IpcMainInvokeEvent, args: CreateAgentArgs) => {
       try {
         const manager = getAgentManager();
-        manager.create();
+        manager.create(args.sessionId);
         return { success: true };
       } catch (error) {
         return {
@@ -56,7 +63,7 @@ function createAgentSendMessageHandler(): IpcChannel<SendMessageArgs, { success:
     async (_event: IpcMainInvokeEvent, args: SendMessageArgs) => {
       try {
         const manager = getAgentManager();
-        await manager.run(args.message);
+        await manager.run(args.sessionId, args.message);
         return { success: true };
       } catch (error) {
         return {
@@ -75,7 +82,7 @@ function createAgentResumeHandler(): IpcChannel<ResumeSessionArgs, { success: bo
     async (_event: IpcMainInvokeEvent, args: ResumeSessionArgs) => {
       try {
         const manager = getAgentManager();
-        await manager.resume(args.sessionId, args.decision);
+        await manager.resume(args.sessionId, args.resumeId, args.decision);
         return { success: true };
       } catch (error) {
         return {
@@ -88,34 +95,34 @@ function createAgentResumeHandler(): IpcChannel<ResumeSessionArgs, { success: bo
 }
 
 /** 创建 agent:get-status 处理器 */
-function createAgentGetStatusHandler(): IpcChannel<void, string> {
-  return createIpcChannel<void, string>(
+function createAgentGetStatusHandler(): IpcChannel<SessionScopedArgs, string> {
+  return createIpcChannel<SessionScopedArgs, string>(
     "agent:get-status",
-    (_event: IpcMainInvokeEvent) => {
+    (_event: IpcMainInvokeEvent, args: SessionScopedArgs) => {
       const manager = getAgentManager();
-      return manager.getStatus();
+      return manager.getStatus(args.sessionId);
     },
   );
 }
 
 /** 创建 agent:get-state 处理器 */
-function createAgentGetStateHandler(): IpcChannel<void, unknown> {
-  return createIpcChannel<void, unknown>(
+function createAgentGetStateHandler(): IpcChannel<SessionScopedArgs, unknown> {
+  return createIpcChannel<SessionScopedArgs, unknown>(
     "agent:get-state",
-    (_event: IpcMainInvokeEvent) => {
+    (_event: IpcMainInvokeEvent, args: SessionScopedArgs) => {
       const manager = getAgentManager();
-      return manager.getState();
+      return manager.getState(args.sessionId);
     },
   );
 }
 
 /** 创建 agent:destroy 处理器 */
-function createAgentDestroyHandler(): IpcChannel<void, void> {
-  return createIpcChannel<void, void>(
+function createAgentDestroyHandler(): IpcChannel<SessionScopedArgs, void> {
+  return createIpcChannel<SessionScopedArgs, void>(
     "agent:destroy",
-    (_event: IpcMainInvokeEvent) => {
+    (_event: IpcMainInvokeEvent, args: SessionScopedArgs) => {
       const manager = getAgentManager();
-      manager.destroy();
+      manager.destroy(args.sessionId);
     },
   );
 }
