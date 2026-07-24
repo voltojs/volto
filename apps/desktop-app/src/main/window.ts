@@ -11,7 +11,7 @@ export function createMainWindow(): BrowserWindow {
     title: "Volto Agent",
     show: false,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.mjs"),
       sandbox: false,
     },
   });
