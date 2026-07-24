@@ -21,11 +21,11 @@ export function useAgent() {
   const getAPI = useCallback(() => window.electronAPI.agent, []);
 
   /** 创建 agent */
-  const create = useCallback(async (): Promise<AgentResult> => {
+  const create = useCallback(async (sessionId: string): Promise<AgentResult> => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await getAPI().create();
+      const result = await getAPI().create(sessionId);
       if (!result.success) {
         setError(result.error ?? "Failed to create agent");
       }
@@ -40,11 +40,11 @@ export function useAgent() {
   }, [getAPI]);
 
   /** 发送消息 */
-  const sendMessage = useCallback(async (message: string): Promise<AgentResult> => {
+  const sendMessage = useCallback(async (sessionId: string, message: string): Promise<AgentResult> => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await getAPI().sendMessage(message);
+      const result = await getAPI().sendMessage(sessionId, message);
       if (!result.success) {
         setError(result.error ?? "Failed to send message");
       }
@@ -61,12 +61,13 @@ export function useAgent() {
   /** 恢复会话 */
   const resume = useCallback(async (
     sessionId: string,
+    resumeId: string,
     decision: "allow" | "deny",
   ): Promise<AgentResult> => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await getAPI().resume(sessionId, decision);
+      const result = await getAPI().resume(sessionId, resumeId, decision);
       if (!result.success) {
         setError(result.error ?? "Failed to resume session");
       }
@@ -81,9 +82,9 @@ export function useAgent() {
   }, [getAPI]);
 
   /** 获取状态 */
-  const getStatus = useCallback(async (): Promise<AgentStatus> => {
+  const getStatus = useCallback(async (sessionId: string): Promise<AgentStatus> => {
     try {
-      const currentStatus = await getAPI().getStatus();
+      const currentStatus = await getAPI().getStatus(sessionId);
       setStatus(currentStatus);
       return currentStatus;
     } catch {
@@ -92,9 +93,9 @@ export function useAgent() {
   }, [getAPI]);
 
   /** 销毁 agent */
-  const destroy = useCallback(async (): Promise<void> => {
+  const destroy = useCallback(async (sessionId: string): Promise<void> => {
     try {
-      await getAPI().destroy();
+      await getAPI().destroy(sessionId);
       setStatus("idle");
       setError(null);
     } catch (err) {

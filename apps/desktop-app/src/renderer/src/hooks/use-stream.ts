@@ -48,12 +48,8 @@ export function useStream() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  /**
-   * 当前正在累计的 assistant 流消息 id。
-   * 用 ref 而不是 store 状态，是为了在事件回调里同步读到最新值；
-   * 由 `model_done` 事件清空。
-   */
-  const streamingMessageIdRef = useRef<string | null>(null);
+  /** 每个 session 独立累计自己的"当前流式 assistant 消息 id"，避免多会话并发时互相覆盖 */
+  const streamingMessageIdsRef = useRef<Map<string, string>>(new Map());
 
   /** 把事件按类型分发到 chat-store；同时镜像到 debug-store 供调试视图使用 */
   const handleEvent = useCallback((event: AgentEvent) => {
@@ -62,19 +58,21 @@ export function useStream() {
     // 抛错（虽然这里不会），事件本身一定能进入调试时间轴
     useDebugStore.getState().pushEvent(event);
 
+    const sessionId = typeof event.data["sessionId"] === "string" ? (event.data["sessionId"] as string) : null;
+    if (!sessionId) return; // 老事件/无会话上下文的事件，丢弃
+
     const store = useChatStore.getState();
-    const sessionId = store.currentSessionId;
-    if (!sessionId) return; // 没有当前会话，丢弃（不应发生：UI 在第一条消息时已 createSession）
+    if (!store.sessions.has(sessionId)) return; // 会话已被删除，丢弃
 
     switch (event.type) {
       case "text_delta": {
         const delta = typeof event.data["text"] === "string" ? (event.data["text"] as string) : "";
         if (!delta) return;
-        let msgId = streamingMessageIdRef.current;
+        let msgId = streamingMessageIdsRef.current.get(sessionId);
         if (!msgId) {
           // 新开一条 assistant streaming 消息
           msgId = genId("asst");
-          streamingMessageIdRef.current = msgId;
+          streamingMessageIdsRef.current.set(sessionId, msgId);
           const msg: Message = {
             id: msgId,
             role: "assistant",
@@ -93,11 +91,11 @@ export function useStream() {
       }
 
       case "model_done": {
-        const msgId = streamingMessageIdRef.current;
+        const msgId = streamingMessageIdsRef.current.get(sessionId);
         if (msgId) {
           store.updateMessage(sessionId, msgId, { isStreaming: false });
         }
-        streamingMessageIdRef.current = null;
+        streamingMessageIdsRef.current.delete(sessionId);
         return;
       }
 
@@ -106,11 +104,11 @@ export function useStream() {
         const args = (event.data["args"] ?? {}) as Record<string, unknown>;
         const toolCallId = takeId(event.data, genId("tool"));
 
-        let msgId = streamingMessageIdRef.current;
+        let msgId = streamingMessageIdsRef.current.get(sessionId);
         // 若 assistant 流消息尚未创建（例如模型直接 emit tool_use 而无 text），先建一条占位
         if (!msgId) {
           msgId = genId("asst");
-          streamingMessageIdRef.current = msgId;
+          streamingMessageIdsRef.current.set(sessionId, msgId);
           store.addMessage(sessionId, {
             id: msgId,
             role: "assistant",
@@ -172,9 +170,9 @@ export function useStream() {
           timestamp: event.timestamp,
         });
         // 出错后关闭可能挂着的 streaming 标志
-        const msgId = streamingMessageIdRef.current;
+        const msgId = streamingMessageIdsRef.current.get(sessionId);
         if (msgId) store.updateMessage(sessionId, msgId, { isStreaming: false });
-        streamingMessageIdRef.current = null;
+        streamingMessageIdsRef.current.delete(sessionId);
         return;
       }
 
