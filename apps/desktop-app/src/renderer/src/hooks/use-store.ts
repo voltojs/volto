@@ -44,6 +44,31 @@ export function useStore() {
 }
 
 /**
+ * 模块级、进程内的按 key 发布订阅。
+ * 让监听同一个 key 的多个 useStoreValue(key) 实例保持同步，
+ * 无需完整的 IPC 往返或重新挂载 —— 例如在设置里编辑 "providers"，
+ * 必须立即反映到同一运行中应用内聊天页的模型选择器上。
+ */
+const listeners = new Map<string, Set<(value: unknown) => void>>();
+
+function subscribe(key: string, cb: (value: unknown) => void): () => void {
+  let set = listeners.get(key);
+  if (!set) {
+    set = new Set();
+    listeners.set(key, set);
+  }
+  set.add(cb);
+  return () => {
+    set!.delete(cb);
+    if (set!.size === 0) listeners.delete(key);
+  };
+}
+
+function notify(key: string, value: unknown): void {
+  listeners.get(key)?.forEach((cb) => cb(value));
+}
+
+/**
  * useStoreValue hook
  * 获取 store 中的单个值，并提供更新方法
  */
@@ -70,12 +95,21 @@ export function useStoreValue<T = unknown>(key: string, defaultValue: T) {
     loadValue();
   }, [key, get]);
 
+  /** 订阅同一 key 的跨实例更新，收到通知后同步刷新本地 state */
+  useEffect(() => {
+    const unsubscribe = subscribe(key, (newValue) => {
+      setValue(newValue as T);
+    });
+    return unsubscribe;
+  }, [key]);
+
   /** 更新值 */
   const updateValue = useCallback(
     async (newValue: T) => {
       try {
         await set(key, newValue);
         setValue(newValue);
+        notify(key, newValue);
       } catch (error) {
         console.error(`Failed to update store value for key "${key}":`, error);
         throw error;
