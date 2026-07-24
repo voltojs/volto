@@ -151,7 +151,16 @@ async function persistAll(sessions: Map<string, Session>, currentSessionId: stri
 
 /** 创建 Chat Store */
 export const useChatStore = create<ChatState & ChatActions>((set, get) => {
-  /** mutation 完成后 schedule 一次持久化 */
+  /**
+   * mutation 完成后 schedule 一次持久化。
+   *
+   * 契约（勿改成 debounce）：尽管叫 schedulePersist，`persistAll` 内部
+   * `store.set("sessions", ...)` 这次 IPC 派发是同步发起的（只是不等待其
+   * resolve）。SessionModelPicker 的 `bindSessionModel()` → `create(sessionId)`
+   * 时序正确性依赖这一点——`create()` 在主进程里读 `store.get("sessions")`
+   * 拿最新的 providerId/modelId 绑定，必须晚于这次 sessions 写入才能读到新值。
+   * 如果这里改成真正的 debounce（如 setTimeout 合并），绑定切换会静默失效。
+   */
   const schedulePersist = (): void => {
     if (!get().hydrated) return; // hydration 之前不要回写覆盖
     const { sessions, currentSessionId } = get();
