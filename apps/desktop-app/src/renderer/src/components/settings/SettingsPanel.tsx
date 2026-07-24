@@ -22,6 +22,7 @@ import {
 import { Button } from "@/renderer/src/components/ui/button";
 import { Separator } from "@/renderer/src/components/ui/separator";
 import { ApiKeyInput } from "./ApiKeyInput";
+import { BaseUrlInput } from "./BaseUrlInput";
 import { ModelSelector } from "./ModelSelector";
 import { PermissionEditor } from "@/renderer/src/components/approval/PermissionEditor";
 
@@ -66,6 +67,8 @@ export function SettingsPanel() {
 
         <TabsContent value="general" className="space-y-5 pt-3">
           <ModelSelector />
+          <Separator />
+          <BaseUrlInput />
           <Separator />
           <ApiKeyInput />
         </TabsContent>

@@ -41,12 +41,17 @@ export function createAgentInstance(options: AgentWiringOptions) {
 
   // 从 store 读取配置
   const apiKey = store.get("apiKey") as string | null;
-  const modelName = (store.get("modelName") as string) ?? "gpt-4";
+  const modelName = (store.get("modelName") as string) ?? "";
+  const baseURL = (store.get("baseURL") as string | null) ?? undefined;
   const permissionMode = (store.get("permissionMode") as StoreSchema["permissionMode"]) ?? "auto";
 
   // 验证 API Key
   if (!apiKey) {
     throw new Error("API Key not configured. Please set it in Settings.");
+  }
+  // 验证模型名称（不再预设默认模型，留空需在创建阶段显式报错，避免静默传空串给 provider）
+  if (!modelName) {
+    throw new Error("Model name not configured. Please set it in Settings.");
   }
 
   // 创建核心适配器
@@ -56,6 +61,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const modelPort = createOpenAIModelPort({
     apiKey,
     defaultModel: modelName,
+    baseURL,
   });
 
   // 创建调度器
