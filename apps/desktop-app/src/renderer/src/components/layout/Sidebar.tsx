@@ -18,6 +18,8 @@ import { SettingsPanel } from "@/renderer/src/components/settings/SettingsPanel"
 import { DebugPanel } from "@/renderer/src/components/debug/DebugPanel";
 import { cn } from "@/renderer/src/lib/utils";
 import { useChatStore, type Session } from "@/renderer/src/stores/chat-store";
+import { useStoreValue } from "@/renderer/src/hooks/use-store";
+import type { ProviderConfig } from "@/renderer/src/components/settings/ProvidersPanel";
 
 /** Sidebar 属性 */
 export interface SidebarProps {
@@ -33,15 +35,18 @@ export function Sidebar({ className }: SidebarProps) {
   const { sessions, currentSessionId, createSession, switchSession } = useChatStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const { value: providers } = useStoreValue<ProviderConfig[]>("providers", []);
 
   /** 转换 Map 为数组 */
   const sessionList = Array.from(sessions.values()).sort(
     (a, b) => b.updatedAt - a.updatedAt,
   );
 
-  /** 创建新会话 */
+  /** 创建新会话；若已有供应商配置，默认绑定第一个供应商的第一个模型 */
   const handleCreateSession = () => {
-    createSession();
+    const firstProvider = providers[0];
+    const firstModel = firstProvider?.models[0];
+    createSession(firstProvider?.id, firstModel?.id);
   };
 
   /** 切换会话 */
