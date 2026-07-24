@@ -11,7 +11,10 @@ import { ScrollArea } from "@/renderer/src/components/ui/scroll-area";
 import { cn } from "@/renderer/src/lib/utils";
 import { useChatStore } from "@/renderer/src/stores/chat-store";
 import { useAgent } from "@/renderer/src/hooks/use-agent";
+import { useStoreValue } from "@/renderer/src/hooks/use-store";
 import { MessageBubble } from "./MessageBubble";
+import { SessionModelPicker } from "./SessionModelPicker";
+import type { ProviderConfig } from "@/renderer/src/components/settings/ProvidersPanel";
 
 /** ChatPanel 属性 */
 export interface ChatPanelProps {
@@ -29,6 +32,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
   const { currentSessionId, getCurrentMessages, addMessage, createSession, isLoading, setLoading, setError } =
     useChatStore();
   const { sendMessage } = useAgent();
+  const { value: providers } = useStoreValue<ProviderConfig[]>("providers", []);
 
   /** 获取当前消息 */
   const messages = getCurrentMessages();
@@ -50,10 +54,13 @@ export function ChatPanel({ className }: ChatPanelProps) {
     const trimmedInput = input.trim();
     if (!trimmedInput || isLoading) return;
 
-    // 确保有当前会话
+    // 确保有当前会话；新建时若已有供应商配置，默认绑定第一个供应商的
+    // 第一个模型（还没配置任何供应商时留空，SessionModelPicker 会提示）。
     let sessionId = currentSessionId;
     if (!sessionId) {
-      sessionId = createSession();
+      const firstProvider = providers[0];
+      const firstModel = firstProvider?.models[0];
+      sessionId = createSession(firstProvider?.id, firstModel?.id);
     }
 
     // 添加用户消息
@@ -72,7 +79,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      await sendMessage(trimmedInput);
+      await sendMessage(sessionId, trimmedInput);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setError(errorMessage);
@@ -100,6 +107,8 @@ export function ChatPanel({ className }: ChatPanelProps) {
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
+      {currentSessionId && <SessionModelPicker sessionId={currentSessionId} />}
+
       {/* 消息列表 */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4 max-w-3xl mx-auto">
