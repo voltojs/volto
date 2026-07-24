@@ -41,15 +41,21 @@ export interface Session {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+  /** 绑定的供应商 id；未绑定（比如还没配置任何供应商）时为 undefined */
+  providerId?: string;
+  /** 绑定的模型 id */
+  modelId?: string;
 }
 
-/** 持久化端的会话元数据（与 store/schema.ts 同步） */
+/** 持久化端的会话元数据（与 store/schema.ts 的 SessionMeta 同步） */
 interface PersistedSessionMeta {
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  providerId?: string;
+  modelId?: string;
 }
 
 /** Chat Store 状态 */
@@ -70,14 +76,16 @@ export interface ChatState {
 export interface ChatActions {
   /** 从持久层加载（启动时调用一次） */
   hydrateFromStore: () => Promise<void>;
-  /** 创建新会话 */
-  createSession: () => string;
+  /** 创建新会话；providers 非空时默认绑定第一个供应商的第一个模型 */
+  createSession: (providerId?: string, modelId?: string) => string;
   /** 切换会话 */
   switchSession: (sessionId: string) => void;
   /** 删除会话 */
   deleteSession: (sessionId: string) => void;
   /** 重命名会话 */
   renameSession: (sessionId: string, title: string) => void;
+  /** 切换某个会话绑定的供应商/模型；持久化后由调用方另行触发 Agent 重建 */
+  bindSessionModel: (sessionId: string, providerId: string, modelId: string) => void;
   /** 添加消息 */
   addMessage: (sessionId: string, message: Message) => void;
   /** 更新消息 */
@@ -128,6 +136,8 @@ async function persistAll(sessions: Map<string, Session>, currentSessionId: stri
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         messageCount: session.messages.length,
+        providerId: session.providerId,
+        modelId: session.modelId,
       });
       messagesMap[id] = session.messages.map(toPersistedMessage);
     }
@@ -176,6 +186,8 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => {
             createdAt: meta.createdAt,
             updatedAt: meta.updatedAt,
             messages,
+            providerId: meta.providerId,
+            modelId: meta.modelId,
           });
         }
         const resolvedCurrent = lastId && newSessions.has(lastId) ? lastId : null;
@@ -190,8 +202,8 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => {
       }
     },
 
-    // 创建新会话
-    createSession: () => {
+    // 创建新会话；providers 非空时默认绑定第一个供应商的第一个模型
+    createSession: (providerId?: string, modelId?: string) => {
       const id = generateId();
       const session: Session = {
         id,
@@ -199,6 +211,8 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => {
         messages: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        providerId,
+        modelId,
       };
 
       set((state) => {
@@ -241,6 +255,11 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => {
         };
       });
       schedulePersist();
+      // 级联清理主进程侧对应的 Agent 实例，避免残留状态/内存泄漏。
+      // fire-and-forget：删除会话是本地操作，不应该因为 IPC 失败而回滚 UI。
+      if (typeof window !== "undefined" && window.electronAPI?.agent) {
+        void window.electronAPI.agent.destroy(sessionId);
+      }
     },
 
     // 重命名会话
@@ -250,6 +269,19 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => {
         const session = newSessions.get(sessionId);
         if (session) {
           newSessions.set(sessionId, { ...session, title, updatedAt: Date.now() });
+        }
+        return { sessions: newSessions };
+      });
+      schedulePersist();
+    },
+
+    // 绑定会话的供应商/模型
+    bindSessionModel: (sessionId: string, providerId: string, modelId: string) => {
+      set((state) => {
+        const newSessions = new Map(state.sessions);
+        const session = newSessions.get(sessionId);
+        if (session) {
+          newSessions.set(sessionId, { ...session, providerId, modelId, updatedAt: Date.now() });
         }
         return { sessions: newSessions };
       });
