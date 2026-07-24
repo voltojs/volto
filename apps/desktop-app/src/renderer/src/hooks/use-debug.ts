@@ -22,10 +22,10 @@ export function useDebug() {
    * 主动从主进程拉取最新 agent state 快照。
    * 失败时记日志但不抛——调试视图刷新失败不应该传染到主路径。
    */
-  const refreshState = useCallback(async () => {
+  const refreshState = useCallback(async (sessionId: string) => {
     if (typeof window === "undefined" || !window.electronAPI?.agent) return;
     try {
-      const state = await window.electronAPI.agent.getState();
+      const state = await window.electronAPI.agent.getState(sessionId);
       setLatestState(state);
     } catch (err) {
       console.error("[use-debug] refreshState failed:", err);

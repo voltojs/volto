@@ -14,6 +14,7 @@ import { Button } from "@/renderer/src/components/ui/button";
 import { Input } from "@/renderer/src/components/ui/input";
 import { useDebugStore } from "@/renderer/src/stores/debug-store";
 import { useDebug } from "@/renderer/src/hooks/use-debug";
+import { useChatStore } from "@/renderer/src/stores/chat-store";
 import { cn } from "@/renderer/src/lib/utils";
 
 const MAX_CHILDREN_PER_NODE = 200;
@@ -124,13 +125,16 @@ function JsonNode({ name, value, depth, path, needle, defaultOpen }: NodeProps) 
 
 export function StateInspector() {
   const latestState = useDebugStore((s) => s.latestState);
+  const currentSessionId = useChatStore((s) => s.currentSessionId);
   const { refreshState } = useDebug();
   const [needle, setNeedle] = useState("");
 
   // 面板打开时主动拉一次；之后由用户点刷新
   useEffect(() => {
-    void refreshState();
-  }, [refreshState]);
+    if (currentSessionId !== null) {
+      void refreshState(currentSessionId);
+    }
+  }, [refreshState, currentSessionId]);
 
   return (
     <div className="flex flex-col h-full gap-2">
@@ -144,7 +148,11 @@ export function StateInspector() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void refreshState()}
+          onClick={() => {
+            if (currentSessionId !== null) {
+              void refreshState(currentSessionId);
+            }
+          }}
           className="shrink-0"
         >
           <RefreshCw className="h-3 w-3 mr-1" />
