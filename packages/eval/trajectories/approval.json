@@ -1,0 +1,735 @@
+{
+  "name": "approval",
+  "stepContext": {
+    "model": "fixture-model",
+    "maxTokens": 100,
+    "tools": [
+      {
+        "name": "write_file",
+        "description": "Write a file",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
+        "requires": [
+          "filesystem:write"
+        ],
+        "riskTier": "IRREVERSIBLE"
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "type": "user_message",
+      "content": "把 hello 写入 output.txt"
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "tool_use_delta",
+        "toolCallId": "call_1",
+        "toolCallName": "write_file",
+        "argumentsDelta": "{\"path\":\"output.txt\",\"content\":\"hello\"}"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "tool_use"
+    },
+    {
+      "type": "request_approval",
+      "toolCallId": "call_1"
+    },
+    {
+      "type": "approval_decision",
+      "toolCallId": "call_1",
+      "decision": "allow"
+    },
+    {
+      "type": "tool_result",
+      "toolCallId": "call_1",
+      "toolName": "write_file",
+      "result": {
+        "modelContent": "wrote 5 bytes to output.txt"
+      }
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "text_delta",
+        "text": "已写入 output.txt。"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "end_turn"
+    }
+  ],
+  "expected": [
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "call_model",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "把 hello 写入 output.txt"
+              }
+            ],
+            "tools": [
+              {
+                "name": "write_file",
+                "description": "Write a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ]
+                },
+                "requires": [
+                  "filesystem:write"
+                ],
+                "riskTier": "IRREVERSIBLE"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "把 hello 写入 output.txt"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [
+          {
+            "id": "call_1",
+            "name": "write_file",
+            "argumentsText": "{\"path\":\"output.txt\",\"content\":\"hello\"}"
+          }
+        ],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_delta",
+            "data": {
+              "phase": "start",
+              "toolCallId": "call_1",
+              "toolName": "write_file",
+              "argumentsDelta": "{\"path\":\"output.txt\",\"content\":\"hello\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "executing_tools"
+      },
+      "effects": [
+        "emit",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          }
+        ],
+        "pendingTools": [
+          {
+            "id": "call_1",
+            "name": "write_file",
+            "input": {
+              "path": "output.txt",
+              "content": "hello"
+            }
+          }
+        ],
+        "status": "executing_tools",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "tool_use"
+            }
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_complete",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "write_file",
+              "input": {
+                "path": "output.txt",
+                "content": "hello"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "waiting_for_approval"
+      },
+      "effects": [
+        "request_approval",
+        "checkpoint"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          }
+        ],
+        "pendingTools": [],
+        "status": "waiting_for_approval",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {},
+        "pendingApprovalTool": {
+          "id": "call_1",
+          "name": "write_file",
+          "input": {
+            "path": "output.txt",
+            "content": "hello"
+          }
+        }
+      },
+      "fullEffects": [
+        {
+          "type": "request_approval",
+          "toolCall": {
+            "id": "call_1",
+            "name": "write_file",
+            "input": {
+              "path": "output.txt",
+              "content": "hello"
+            }
+          },
+          "riskTier": "IRREVERSIBLE"
+        },
+        {
+          "type": "checkpoint",
+          "state": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "把 hello 写入 output.txt"
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "write_file",
+                    "input": {
+                      "path": "output.txt",
+                      "content": "hello"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use"
+              }
+            ],
+            "pendingTools": [],
+            "status": "waiting_for_approval",
+            "tokensUsed": 0,
+            "maxIterations": 20,
+            "iterationCount": 1,
+            "readFiles": [],
+            "queuedUserInputs": [],
+            "toolCallCount": 1,
+            "pinnedMessageIds": [],
+            "selfCorrectionCount": 0,
+            "_accumulatedText": "",
+            "_accumulatedToolCalls": [],
+            "_toolResultBuffer": {},
+            "pendingApprovalTool": {
+              "id": "call_1",
+              "name": "write_file",
+              "input": {
+                "path": "output.txt",
+                "content": "hello"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "executing_tools"
+      },
+      "effects": [],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          }
+        ],
+        "pendingTools": [
+          {
+            "id": "call_1",
+            "name": "write_file",
+            "input": {
+              "path": "output.txt",
+              "content": "hello"
+            }
+          }
+        ],
+        "status": "executing_tools",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": []
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit",
+        "call_model"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "wrote 5 bytes to output.txt"
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_result",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "write_file",
+              "isError": false
+            }
+          }
+        },
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "把 hello 写入 output.txt"
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "write_file",
+                    "input": {
+                      "path": "output.txt",
+                      "content": "hello"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use"
+              },
+              {
+                "role": "tool",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "toolUseId": "call_1",
+                    "content": "wrote 5 bytes to output.txt"
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "write_file",
+                "description": "Write a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ]
+                },
+                "requires": [
+                  "filesystem:write"
+                ],
+                "riskTier": "IRREVERSIBLE"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "wrote 5 bytes to output.txt"
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "已写入 output.txt。",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "text_delta",
+            "data": {
+              "text": "已写入 output.txt。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "done"
+      },
+      "effects": [
+        "emit",
+        "done"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "把 hello 写入 output.txt"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "write_file",
+                "input": {
+                  "path": "output.txt",
+                  "content": "hello"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "wrote 5 bytes to output.txt"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "已写入 output.txt。"
+              }
+            ],
+            "stopReason": "end_turn"
+          }
+        ],
+        "pendingTools": [],
+        "status": "done",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 2,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "end_turn"
+            }
+          }
+        },
+        {
+          "type": "done"
+        }
+      ]
+    }
+  ]
+}

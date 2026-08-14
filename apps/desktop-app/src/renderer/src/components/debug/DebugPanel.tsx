@@ -23,6 +23,7 @@ import {
 } from "@/renderer/src/components/ui/tabs";
 import { ReplayControls } from "./ReplayControls";
 import { StateInspector } from "./StateInspector";
+import { StateTimeTravel } from "./StateTimeTravel";
 import { EventTimeline } from "./EventTimeline";
 import { ToolTracer } from "./ToolTracer";
 import { LogViewer } from "./LogViewer";
@@ -53,6 +54,7 @@ export function DebugPanel({ open, onOpenChange }: DebugPanelProps) {
             <TabsTrigger value="timeline">事件时间轴</TabsTrigger>
             <TabsTrigger value="tools">工具追踪</TabsTrigger>
             <TabsTrigger value="state">State 检视</TabsTrigger>
+            <TabsTrigger value="travel">时间旅行</TabsTrigger>
             <TabsTrigger value="logs">日志</TabsTrigger>
           </TabsList>
 
@@ -64,6 +66,9 @@ export function DebugPanel({ open, onOpenChange }: DebugPanelProps) {
           </TabsContent>
           <TabsContent value="state" className="flex-1 min-h-0 overflow-hidden pt-2">
             <StateInspector />
+          </TabsContent>
+          <TabsContent value="travel" className="flex-1 min-h-0 overflow-hidden pt-2">
+            <StateTimeTravel />
           </TabsContent>
           <TabsContent value="logs" className="flex-1 min-h-0 overflow-hidden pt-2">
             <LogViewer />

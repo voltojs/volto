@@ -7,7 +7,7 @@
  */
 
 import { step, createInitialState } from "@volto/core";
-import type { AgentInput, AgentState } from "@volto/core";
+import type { AgentInput, AgentState, Effect } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
 import type { Trajectory, ExpectedStep } from "./trajectory.js";
 
@@ -38,15 +38,30 @@ export interface ReplayResult {
   summary: string;
 }
 
+/** Options controlling how replay compares actual vs expected */
+export interface ReplayOptions {
+  /**
+   * Strict mode — assert FULL (state, effects) consistency, the M11 eval
+   * acceptance: the same input sequence must produce the same (state, effects).
+   * - effects are compared as complete objects (type + payload), in order
+   * - state is deep-compared via `expected.fullState` when present, falling
+   *   back to the partial projection for legacy trajectories
+   * Default false = legacy comparison (state projection + effect type names).
+   */
+  strict?: boolean;
+}
+
 /**
  * Replay a trajectory through the step() reducer and compare results.
  *
  * @param trajectory - the recorded trajectory to replay
  * @param ctx - the step context (tools, model, etc.) to use for replay
+ * @param opts - replay options (strict mode)
  */
 export function replayTrajectory(
   trajectory: Trajectory,
   ctx: StepContext,
+  opts?: ReplayOptions,
 ): ReplayResult {
   let state: ReducerState = createInitialState();
   const stepResults: StepReplayResult[] = [];
@@ -69,7 +84,9 @@ export function replayTrajectory(
     const actualEffects = result.effects.map((e) => e.type);
 
     // Compare
-    const diff = compareStep(actualState, actualEffects, expected);
+    const diff = opts?.strict
+      ? compareStepStrict(state, result.effects, expected)
+      : compareStep(actualState, actualEffects, expected);
     const passed = diff === null;
 
     const stepResult: StepReplayResult = {
@@ -101,6 +118,113 @@ export function replayTrajectory(
     steps: stepResults,
     summary,
   };
+}
+
+/**
+ * Strict comparison — deep-equal on the FULL (state, effects) pair.
+ * Returns null if match, or a diff description string locating the first
+ * divergence.
+ */
+function compareStepStrict(
+  actualState: ReducerState,
+  actualEffects: readonly Effect[],
+  expected: ExpectedStep,
+): string | null {
+  const diffs: string[] = [];
+
+  // 1. Effects: full objects (type + payload) in order when the recording
+  // carried them; otherwise fall back to type-name comparison (legacy).
+  const actualEffectsFull = actualEffects.map((e) => ({ ...e }));
+  if (expected.fullEffects !== undefined) {
+    if (actualEffectsFull.length !== expected.fullEffects.length) {
+      diffs.push(
+        `effects length: expected ${expected.fullEffects.length}, got ${actualEffectsFull.length}`,
+      );
+    } else {
+      for (let i = 0; i < expected.fullEffects.length; i++) {
+        if (!deepEqual(actualEffectsFull[i], expected.fullEffects[i])) {
+          diffs.push(
+            `effects[${i}]: expected ${safeStringify(expected.fullEffects[i])}, got ${safeStringify(actualEffectsFull[i])}`,
+          );
+          break; // first divergence point only
+        }
+      }
+    }
+  } else {
+    const expectedTypes = expected.effects;
+    const actualTypes = actualEffectsFull.map((e) => e.type);
+    if (actualTypes.length !== expectedTypes.length) {
+      diffs.push(`effects length: expected ${expectedTypes.length}, got ${actualTypes.length}`);
+    } else {
+      for (let i = 0; i < expectedTypes.length; i++) {
+        if (actualTypes[i] !== expectedTypes[i]) {
+          diffs.push(`effects[${i}]: expected type "${expectedTypes[i]}", got "${actualTypes[i]}"`);
+          break;
+        }
+      }
+    }
+  }
+
+  // 2. State: full deep-equal when the recording carries fullState.
+  if (expected.fullState !== undefined) {
+    const actualFull = { ...(actualState as unknown as Record<string, unknown>) };
+    const keys = Object.keys(expected.fullState).sort();
+    for (const key of keys) {
+      const expectedVal = expected.fullState[key];
+      const actualVal = actualFull[key];
+      if (!deepEqual(actualVal, expectedVal)) {
+        diffs.push(
+          `state.${key}: expected ${safeStringify(expectedVal)}, got ${safeStringify(actualVal)}`,
+        );
+        break; // first divergence point only
+      }
+    }
+  }
+
+  return diffs.length > 0 ? diffs.join("; ") : null;
+}
+
+/** JSON-safe stringify with undefined/function fallback */
+function safeStringify(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    return json ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Structural deep equality (order-insensitive keys, undefined-aware).
+ *
+ * Keys whose value is `undefined` are treated as absent — this matches JSON
+ * serialization semantics, so recorded trajectories (serialized to JSON) stay
+ * comparable against live reducer output that may carry explicitly-undefined
+ * optional fields (e.g. `temperature: undefined` in a ModelRequest).
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, (b as unknown[])[i]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const keyOf = (o: object): string[] =>
+      Object.keys(o)
+        .filter((k) => (o as Record<string, unknown>)[k] !== undefined)
+        .sort();
+    const aKeys = keyOf(a as Record<string, unknown>);
+    const bKeys = keyOf(b as Record<string, unknown>);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every((k) =>
+      deepEqual(
+        (a as Record<string, unknown>)[k],
+        (b as Record<string, unknown>)[k],
+      ),
+    );
+  }
+  return false;
 }
 
 /**

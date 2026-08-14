@@ -7,6 +7,8 @@ import { type IpcMainInvokeEvent } from "electron";
 import { getAgentManager } from "../agent/agent-manager.js";
 import type { ApprovalRequestPayload } from "../agent/approval-gate.js";
 import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
+import { diffState } from "@volto/sdk";
+import type { ReducerState, StateDiff } from "@volto/sdk";
 
 /** 创建 agent 请求参数 */
 export interface CreateAgentArgs {
@@ -35,6 +37,31 @@ export interface SessionScopedArgs {
 export interface ApprovalDecisionArgs {
   requestId: string;
   decision: "allow" | "deny";
+}
+
+/** 时间旅行：列出某 session 的 checkpoint 历史 */
+export interface ListCheckpointsArgs {
+  sessionId: string;
+}
+
+/** 单个 checkpoint 的摘要（渲染端列表用，避免整包状态过 IPC） */
+export interface CheckpointSummary {
+  seq: number;
+  status: string;
+  messageCount: number;
+  createdAt: number;
+}
+
+/** 时间旅行：回退到指定 checkpoint */
+export interface RewindCheckpointArgs {
+  sessionId: string;
+  seq: number;
+}
+
+/** 时间旅行：回退结果 = checkpoint 状态 + 与当前 agent 状态的 diff */
+export interface RewindCheckpointResult {
+  state: ReducerState;
+  diff: StateDiff;
 }
 
 /** 创建 agent:create 处理器 */
@@ -156,6 +183,83 @@ function createApprovalListHandler(): IpcChannel<void, ApprovalRequestPayload[]>
   );
 }
 
+/**
+ * 创建 debug:checkpoints 处理器 — 列出某 session 的 checkpoint 历史
+ * （M12 时间旅行调试器：每个 turn 边界 + HITL 暂停都会写 sessionId#seq）。
+ */
+function createDebugListCheckpointsHandler(): IpcChannel<
+  ListCheckpointsArgs,
+  { success: boolean; checkpoints?: CheckpointSummary[]; error?: string }
+> {
+  return createIpcChannel<ListCheckpointsArgs, { success: boolean; checkpoints?: CheckpointSummary[]; error?: string }>(
+    "debug:checkpoints",
+    async (_event: IpcMainInvokeEvent, args: ListCheckpointsArgs) => {
+      try {
+        const manager = getAgentManager();
+        const agent = manager.getAgent(args.sessionId);
+        if (!agent) {
+          return { success: false, error: `No agent instance for session ${args.sessionId}` };
+        }
+        const all = await agent.sessionStore.list();
+        const prefix = `${args.sessionId}#`;
+        const checkpoints = all
+          .filter((s) => s.id.startsWith(prefix))
+          .map((s) => {
+            const seq = Number.parseInt(s.id.slice(prefix.length), 10);
+            return {
+              seq,
+              status: s.state.status,
+              messageCount: s.state.messages.length,
+              createdAt: s.createdAt,
+            };
+          })
+          .sort((a, b) => a.seq - b.seq);
+        return { success: true, checkpoints };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+}
+
+/**
+ * 创建 debug:rewind 处理器 — 加载指定 checkpoint 状态，并给出它与当前
+ * agent 状态的 diff（只读回退，不改变 agent 运行状态；"回退后继续跑"
+ * 由渲染端把状态经 SDK 的 resetTurnForNextInput + initialState 完成）。
+ */
+function createDebugRewindHandler(): IpcChannel<
+  RewindCheckpointArgs,
+  { success: boolean; result?: RewindCheckpointResult; error?: string }
+> {
+  return createIpcChannel<RewindCheckpointArgs, { success: boolean; result?: RewindCheckpointResult; error?: string }>(
+    "debug:rewind",
+    async (_event: IpcMainInvokeEvent, args: RewindCheckpointArgs) => {
+      try {
+        const manager = getAgentManager();
+        const agent = manager.getAgent(args.sessionId);
+        if (!agent) {
+          return { success: false, error: `No agent instance for session ${args.sessionId}` };
+        }
+        const snapshot = await agent.sessionStore.load(`${args.sessionId}#${args.seq}`);
+        if (!snapshot) {
+          return { success: false, error: `Checkpoint ${args.sessionId}#${args.seq} not found` };
+        }
+        const rewound = snapshot.state as ReducerState;
+        const current = agent.getState();
+        return { success: true, result: { state: rewound, diff: diffState(rewound, current) } };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+}
+
 /** 获取所有 agent 相关的 IPC 处理器 */
 export function getAgentIpcHandlers(): AnyIpcChannel[] {
   return [
@@ -167,5 +271,7 @@ export function getAgentIpcHandlers(): AnyIpcChannel[] {
     createAgentDestroyHandler(),
     createApprovalDecideHandler(),
     createApprovalListHandler(),
+    createDebugListCheckpointsHandler(),
+    createDebugRewindHandler(),
   ];
 }

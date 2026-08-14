@@ -70,6 +70,20 @@ const agentAPI = {
 
   /** 拉取当前所有挂起的审批请求（窗口重挂载时补齐） */
   listApprovals: () => ipcRenderer.invoke("agent:approval-list"),
+
+  /**
+   * 时间旅行（M12）— 列出会话的 checkpoint 历史。
+   * 返回 [{ seq, status, messageCount, createdAt }] 摘要。
+   */
+  listCheckpoints: (sessionId: string) =>
+    ipcRenderer.invoke("debug:checkpoints", { sessionId }),
+
+  /**
+   * 时间旅行 — 回退到指定 checkpoint：返回 { state, diff }。
+   * 只读回退，不改变 agent 运行状态。
+   */
+  rewindCheckpoint: (sessionId: string, seq: number) =>
+    ipcRenderer.invoke("debug:rewind", { sessionId, seq }),
 };
 
 /** 应用信息 API */

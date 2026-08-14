@@ -2,6 +2,12 @@
  * Time-travel debugger — API for listing, rewinding, stepping, and diffing
  * checkpoint history. Uses SessionStore's multi-key ability (sessionId#seq)
  * without modifying the SessionStore port.
+ *
+ * NOTE on "rewind & continue": a checkpoint state is typically a terminal
+ * `done` state, which the reducer rejects inputs on. To resume running from
+ * a rewound state, apply `resetTurnForNextInput` (from @volto/core) — the
+ * same primitive createAgent uses to carry history across turns — and pass
+ * the result as the runner's `initialState`. See runner-time-travel tests.
  */
 
 import type { SessionStore, ReducerState } from "@volto/core";
@@ -85,3 +91,7 @@ export function createTimeTravelDebugger(opts: DebuggerOptions): TimeTravelDebug
 
 /** Create an empty initial state for debugger seeding */
 export { createInitialState };
+
+/** Re-exported for hosts that want to diff states without importing core */
+export { diffState };
+export type { StateDiff } from "@volto/core";

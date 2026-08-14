@@ -12,7 +12,7 @@ import {
   toolCallScript,
   textScript,
 } from "@volto/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink } from "@volto/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink, Hook } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures
@@ -160,6 +160,66 @@ describe("Runner", () => {
 
       expect(finalState.status).toBe("done");
       expect(finalState.messages).toHaveLength(5); // user, assistant(2 tool_use), tool(a), tool(b), assistant(text)
+    });
+
+    it("should not short-circuit the parallel batch when one tool execution rejects", async () => {
+      const mockModel = createMockModelPort([
+        [
+          toolUseStart("call_1", "read_file"),
+          toolUseDelta("call_1", '{"path":"a.ts"}'),
+          toolUseStart("call_2", "read_file"),
+          toolUseDelta("call_2", '{"path":"b.ts"}'),
+          toolUseStart("call_3", "read_file"),
+          toolUseDelta("call_3", '{"path":"bad.ts"}'),
+          modelDone("tool_use"),
+        ],
+        textScript("Two read, one failed."),
+      ]);
+
+      const toolExecutor = createMockToolExecutor({
+        read_file: { modelContent: "file content" },
+      });
+
+      // preToolUse hooks run OUTSIDE executeTool's try/catch — a throwing
+      // hook rejects executeTool itself, exercising the allSettled fallback
+      // that must normalize it into an error tool_result instead of losing
+      // the whole parallel batch.
+      const hooks: Hook[] = [
+        {
+          name: "flaky-hook",
+          lifecycle: "preToolUse",
+          handler: (ctx) => {
+            if (ctx.toolCall?.input["path"] === "bad.ts") throw new Error("Hook crash");
+            return { action: "continue" };
+          },
+        },
+      ];
+
+      const runner = createRunner({
+        modelPort: mockModel,
+        stepContext: ctx,
+        toolExecutor,
+        availableCapabilities: capabilities,
+        hooks,
+      });
+
+      const finalState = await runner.run({ type: "user_message", content: "Read all three files" });
+
+      expect(finalState.status).toBe("done");
+      // user, assistant(3 tool_use), tool(a), tool(b), tool(error), assistant(text)
+      expect(finalState.messages).toHaveLength(6);
+
+      const toolMessages = finalState.messages.filter((m) => m.role === "tool");
+      expect(toolMessages).toHaveLength(3);
+      // Both healthy results were fed back normally…
+      expect(toolMessages.filter((m) => !m.content[0]?.isError)).toHaveLength(2);
+      // …and the rejected one was normalized to an error result, not dropped.
+      const rejected = toolMessages.find((m) => m.content[0]?.isError);
+      expect(rejected).toBeDefined();
+      expect(rejected!.content[0]).toMatchObject({
+        content: expect.stringContaining("Hook crash"),
+        isError: true,
+      });
     });
 
     it("should feed tool error results back to the model", async () => {

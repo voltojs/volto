@@ -2,7 +2,7 @@
 
 > Volto agent 的 Electron 桌面客户端 —— 提供可视化对话、调试、权限审批与配置面板。
 
-基于 `@volto/sdk` 构建，主进程承载 agent 内核与工具栈（FS / Shell / Network / OpenAI Provider），渲染进程通过 IPC 与之通信。所有可观测事件均经统一的 EventSink 桥接到渲染端，用于实时聊天与调试视图。
+基于 `@volto/sdk` 构建，主进程承载 agent 内核与工具栈（FS / Shell / Network / OpenAI Provider），渲染进程通过 IPC 与之通信。所有可观测事件均经统一的 EventSink 桥接到渲染端，用于实时聊天与调试视图。调试面板（🐛）含事件时间轴、工具追踪、State 检视、**时间旅行**（checkpoint 列表 + 回退 diff）与日志五个 Tab。
 
 ## 项目布局
 
@@ -50,7 +50,7 @@ pnpm --filter @volto/desktop-app dev
 pnpm turbo run typecheck lint --filter @volto/desktop-app
 ```
 
-启动后会弹出 Electron 窗口。首次使用前请打开右上 ⚙ 设置弹窗，填入 API Key 并选择模型。
+启动后会弹出 Electron 窗口。首次使用前请打开右上 ⚙ 设置弹窗，在「模型」Tab 中**新增供应商**（填写 OpenAI 兼容服务的 API Key，可选自定义 baseURL）并为其添加至少一个模型；然后在对话页左上角选择该模型即可开始。
 
 ## 配置
 
@@ -58,12 +58,11 @@ pnpm turbo run typecheck lint --filter @volto/desktop-app
 
 | 字段 | 含义 | 入口 |
 |---|---|---|
-| `apiKey` | OpenAI 兼容服务的 API Key | 设置 → 通用 → API Key |
-| `modelName` | 模型名（预设 + 自定义） | 设置 → 通用 → 模型 |
+| `providers` | 供应商列表，每项含 `name` / `baseURL` / `apiKey` / `models[]`（模型为 `{name, code, contextLength?}`） | 设置 → 模型 |
 | `permissionMode` | 权限策略 `auto` / `ask` / `deny` | 设置 → 权限 |
-| `sessions` / `sessionMessages` | 会话历史 | 由 Sidebar 自动写入 |
+| `sessions` / `sessionMessages` | 会话历史；每个会话绑定 `providerId` / `modelId` | 由 Sidebar 自动写入 |
 
-变更字段会**立即写盘**，但 agent 运行实例只在 `agent:create` 时一次性读取。需要立即生效，请使用设置面板底部的「应用并重建 Agent」按钮。
+变更字段会**立即写盘**。模型选择是**会话级**的：对话页左上角切换模型后，该会话的 agent 实例立即重建生效，无需全局重建按钮。
 
 ### 权限模式语义
 
@@ -109,7 +108,7 @@ pnpm --filter @volto/desktop-app package:linux   # .AppImage + .deb
 | 现象 | 排查 |
 |---|---|
 | 启动后窗口空白 | 检查 `userData/volto-config.json` 是否损坏，必要时删除该文件重置 |
-| Agent 不响应 / "API Key not configured" | 在 ⚙ 设置 → 通用 → API Key 中填入有效 Key，并点 "应用并重建 Agent" |
+| Agent 不响应 / "API Key not configured" | 在 ⚙ 设置 → 模型 中新增供应商并填入有效 API Key；确认对话页左上角已为该会话选择模型 |
 | 工具调用永远 deny / 没弹审批 | 权限模式可能是 `deny`，切到 `ask` 或 `auto` |
 | 流式消息不显示 | 打开 🐛 调试面板的"事件时间轴"看 `text_delta` 是否到达；不到达说明主进程 EventSink 桥接异常 |
 | 重启后会话丢失 | 检查 electron-store 写入权限，DevTools 跑 `await window.electronAPI.store.get("sessions")` 验证 |

@@ -55,8 +55,8 @@ export { createStreamChannel } from "./stream-channel.js";
 export type { StreamChannel } from "./stream-channel.js";
 
 // M12: Time-travel debugger
-export { createTimeTravelDebugger, createInitialState } from "./debugger.js";
-export type { Checkpoint, DebuggerOptions, TimeTravelDebugger } from "./debugger.js";
+export { createTimeTravelDebugger, createInitialState, diffState } from "./debugger.js";
+export type { Checkpoint, DebuggerOptions, TimeTravelDebugger, StateDiff } from "./debugger.js";
 
 // M13: Layered config
 export { mergeConfig } from "./config.js";

@@ -1,0 +1,598 @@
+{
+  "name": "tool-use",
+  "stepContext": {
+    "model": "fixture-model",
+    "maxTokens": 100,
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a file",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "requires": [
+          "filesystem:read"
+        ],
+        "riskTier": "READ_ONLY"
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "type": "user_message",
+      "content": "读取 foo.ts 的内容"
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "tool_use_delta",
+        "toolCallId": "call_1",
+        "toolCallName": "read_file",
+        "argumentsDelta": "{\"path\":"
+      }
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "tool_use_delta",
+        "toolCallId": "call_1",
+        "argumentsDelta": "\"foo.ts\"}"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "tool_use"
+    },
+    {
+      "type": "tool_result",
+      "toolCallId": "call_1",
+      "toolName": "read_file",
+      "result": {
+        "modelContent": "const x = 1;"
+      }
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "text_delta",
+        "text": "文件内容是 const x = 1。"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "end_turn"
+    }
+  ],
+  "expected": [
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "call_model",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "读取 foo.ts 的内容"
+              }
+            ],
+            "tools": [
+              {
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                },
+                "requires": [
+                  "filesystem:read"
+                ],
+                "riskTier": "READ_ONLY"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "读取 foo.ts 的内容"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [
+          {
+            "id": "call_1",
+            "name": "read_file",
+            "argumentsText": "{\"path\":"
+          }
+        ],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_delta",
+            "data": {
+              "phase": "start",
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "argumentsDelta": "{\"path\":"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [
+          {
+            "id": "call_1",
+            "name": "read_file",
+            "argumentsText": "{\"path\":\"foo.ts\"}"
+          }
+        ],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_delta",
+            "data": {
+              "phase": "args",
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "argumentsDelta": "\"foo.ts\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "executing_tools"
+      },
+      "effects": [
+        "emit",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "foo.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          }
+        ],
+        "pendingTools": [
+          {
+            "id": "call_1",
+            "name": "read_file",
+            "input": {
+              "path": "foo.ts"
+            }
+          }
+        ],
+        "status": "executing_tools",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "tool_use"
+            }
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_complete",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "input": {
+                "path": "foo.ts"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit",
+        "call_model"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "foo.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "const x = 1;"
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_result",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "isError": false
+            }
+          }
+        },
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "读取 foo.ts 的内容"
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read_file",
+                    "input": {
+                      "path": "foo.ts"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use"
+              },
+              {
+                "role": "tool",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "toolUseId": "call_1",
+                    "content": "const x = 1;"
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                },
+                "requires": [
+                  "filesystem:read"
+                ],
+                "riskTier": "READ_ONLY"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "foo.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "const x = 1;"
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "文件内容是 const x = 1。",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "text_delta",
+            "data": {
+              "text": "文件内容是 const x = 1。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "done"
+      },
+      "effects": [
+        "emit",
+        "done"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 foo.ts 的内容"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "foo.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "const x = 1;"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "文件内容是 const x = 1。"
+              }
+            ],
+            "stopReason": "end_turn"
+          }
+        ],
+        "pendingTools": [],
+        "status": "done",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 2,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "end_turn"
+            }
+          }
+        },
+        {
+          "type": "done"
+        }
+      ]
+    }
+  ]
+}

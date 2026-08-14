@@ -43,7 +43,7 @@
 
 ---
 
-### 2.2 Eval 轨迹录制器
+### 2.2 Eval 轨迹录制器　【✅ 已实现；2026-07-24 增强：strict 模式 + CLI + CI 回归门】
 
 **当前状态**：`trajectory.ts` 仅有 `createTrajectory` + `addStep` 手动接口，无法从真实会话自动录制。
 
@@ -68,6 +68,13 @@
 - `createTrajectoryRecorder()` + `capture()` 生成的 Trajectory 可直接传入 `replayTrajectory()` 并通过
 - 支持 JSON 序列化/反序列化（录制 → 保存文件 → 加载 → 重放）
 - 测试覆盖：录制一个含 user_message → model_done → tool_result → model_done 的完整 turn，验证轨迹完整性
+
+**2026-07-24 增强（M11 eval harness 落地）**：
+- `replayTrajectory(trajectory, ctx, { strict: true })`：完整 (state, effects) deep-equal 断言（`fullState` / `fullEffects` 快照，undefined 字段按 JSON 语义忽略），失败时报告首分歧点（`effects[i]` / `state.key`）
+- `recorder.capture(input, state, effects, { fullState, fullEffects })`：录制完整快照
+- CLI `volto-eval-replay`（`packages/eval/src/cli.ts`）：扫描 `trajectories/*.json` 重放 + 汇总报告，失败退出码 1
+- 5 条确定性 fixtures（`packages/eval/trajectories/`，33 步：simple-text / tool-use / tool-error / approval / steering），由 `scripts/generate-fixtures.mjs` 生成
+- CI 回归门：`.github/workflows/ci.yml` 中 `pnpm --filter @volto/eval replay`
 
 ---
 
@@ -326,19 +333,20 @@
 
 ---
 
-### 4.6 Promise.allSettled 替换
+### 4.6 Promise.allSettled 替换　【✅ 已实现 2026-07-24】
 
 **目标**：并行工具执行使用 `Promise.allSettled` 确保所有结果收集。
 
 **技术方案**：
-- `runner.ts:601` `Promise.all(parallelBatch.map(...))` → `Promise.allSettled(parallelBatch.map(...))`
-- 遍历结果时，`rejected` 的标记为 `isError: true`
+- `runner.ts:769` `Promise.all(parallelBatch.map(...))` → `Promise.allSettled(parallelBatch.map(...))`
+- 遍历结果时，`rejected` 的标记为 `isError: true`（执行器已归一化的错误不受影响；该路径兜底 hook/路由等执行器外抛出的异常）
 
 **涉及文件**：
-- `packages/runtimes/node/src/runner.ts`（6 行改动）
+- `packages/runtimes/node/src/runner.ts`（并行批执行改为 allSettled，rejected 归一化为 error tool_result 回喂）
+- `packages/runtimes/node/src/__tests__/runner.test.ts`（新增"一个并行工具 reject 不短路整批"测试）
 
 **验收标准**：
-- 3 个并行工具中 1 个 reject → 其余 2 个结果正常回喂，reject 的标记为 error
+- 3 个并行工具中 1 个 reject → 其余 2 个结果正常回喂，reject 的标记为 error　✅（`runner.test.ts` "should not short-circuit the parallel batch when one tool execution rejects" 覆盖）
 
 ---
 

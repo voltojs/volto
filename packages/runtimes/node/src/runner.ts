@@ -766,13 +766,34 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         // ── Parallel batch: execute all allow tools concurrently ──
         if (parallelBatch.length > 0 && getStatus() === "executing_tools" && !cancelled) {
-          const results = await Promise.all(
+          // allSettled: one rejected sibling must not short-circuit the batch.
+          // executeTool already normalizes executor failures into isError
+          // ToolResults, so a rejection here is a last-resort guard (e.g. an
+          // unexpected abort) — normalize it into an error tool_result and
+          // feed it back to the reducer like any other failure.
+          const settledResults = await Promise.allSettled(
             parallelBatch.map(async (toolCall) => {
               const result = await executeTool(toolCall);
               approvedToolCallIds.delete(toolCall.id);
               return { toolCall, result };
             }),
           );
+          // settledResults mirrors parallelBatch 1:1, so the non-null
+          // assertion below is safe (noUncheckedIndexedAccess).
+          const results = settledResults.map((settled, index): { toolCall: PendingToolCall; result: ToolResult } => {
+            const toolCall = parallelBatch[index]!;
+            if (settled.status === "fulfilled") return settled.value;
+            approvedToolCallIds.delete(toolCall.id);
+            turnHadError = true;
+            const reason = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
+            return {
+              toolCall,
+              result: {
+                modelContent: `Tool "${toolCall.name}" execution rejected unexpectedly: ${reason}`,
+                isError: true,
+              },
+            };
+          });
 
           // Defer self-correction injection until ALL tool_results have been
           // fed. Injecting mid-batch would interleave a `user` repair message

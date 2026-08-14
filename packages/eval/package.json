@@ -9,13 +9,21 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
     }
+  },
+  "bin": {
+    "volto-eval-replay": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
-    "test": "vitest run"
+    "test": "vitest run",
+    "replay": "node dist/cli.js"
   },
   "dependencies": {
     "@volto/core": "workspace:*"

@@ -1,0 +1,546 @@
+{
+  "name": "tool-error",
+  "stepContext": {
+    "model": "fixture-model",
+    "maxTokens": 100,
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a file",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "requires": [
+          "filesystem:read"
+        ],
+        "riskTier": "READ_ONLY"
+      }
+    ]
+  },
+  "inputs": [
+    {
+      "type": "user_message",
+      "content": "读取 missing.ts"
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "tool_use_delta",
+        "toolCallId": "call_1",
+        "toolCallName": "read_file",
+        "argumentsDelta": "{\"path\":\"missing.ts\"}"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "tool_use"
+    },
+    {
+      "type": "tool_result",
+      "toolCallId": "call_1",
+      "toolName": "read_file",
+      "result": {
+        "modelContent": "File not found: missing.ts",
+        "isError": true
+      }
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "text_delta",
+        "text": "文件不存在，我无法读取。"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "end_turn"
+    }
+  ],
+  "expected": [
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "call_model",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "读取 missing.ts"
+              }
+            ],
+            "tools": [
+              {
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                },
+                "requires": [
+                  "filesystem:read"
+                ],
+                "riskTier": "READ_ONLY"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "读取 missing.ts"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [
+          {
+            "id": "call_1",
+            "name": "read_file",
+            "argumentsText": "{\"path\":\"missing.ts\"}"
+          }
+        ],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_delta",
+            "data": {
+              "phase": "start",
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "argumentsDelta": "{\"path\":\"missing.ts\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "executing_tools"
+      },
+      "effects": [
+        "emit",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "missing.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          }
+        ],
+        "pendingTools": [
+          {
+            "id": "call_1",
+            "name": "read_file",
+            "input": {
+              "path": "missing.ts"
+            }
+          }
+        ],
+        "status": "executing_tools",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "tool_use"
+            }
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_use_complete",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "input": {
+                "path": "missing.ts"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit",
+        "call_model"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "missing.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "File not found: missing.ts",
+                "isError": true
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "tool_result",
+            "data": {
+              "toolCallId": "call_1",
+              "toolName": "read_file",
+              "isError": true
+            }
+          }
+        },
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "读取 missing.ts"
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read_file",
+                    "input": {
+                      "path": "missing.ts"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use"
+              },
+              {
+                "role": "tool",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "toolUseId": "call_1",
+                    "content": "File not found: missing.ts",
+                    "isError": true
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                },
+                "requires": [
+                  "filesystem:read"
+                ],
+                "riskTier": "READ_ONLY"
+              }
+            ],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "missing.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "File not found: missing.ts",
+                "isError": true
+              }
+            ]
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "文件不存在，我无法读取。",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "text_delta",
+            "data": {
+              "text": "文件不存在，我无法读取。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "done"
+      },
+      "effects": [
+        "emit",
+        "done"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "读取 missing.ts"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read_file",
+                "input": {
+                  "path": "missing.ts"
+                }
+              }
+            ],
+            "stopReason": "tool_use"
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool_result",
+                "toolUseId": "call_1",
+                "content": "File not found: missing.ts",
+                "isError": true
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "文件不存在，我无法读取。"
+              }
+            ],
+            "stopReason": "end_turn"
+          }
+        ],
+        "pendingTools": [],
+        "status": "done",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 2,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 1,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "end_turn"
+            }
+          }
+        },
+        {
+          "type": "done"
+        }
+      ]
+    }
+  ]
+}

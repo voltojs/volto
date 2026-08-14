@@ -83,6 +83,43 @@ describe("TrajectoryRecorder", () => {
     expect(result.firstFailureIndex).toBe(-1);
   });
 
+  it("records full state + full effects for strict-mode replay", () => {
+    const recorder = createTrajectoryRecorder();
+    recorder.start("strict-replay", { model: "test" });
+
+    recorder.capture(
+      { type: "user_message", content: "hello" },
+      { status: "calling_model", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      ["call_model", "emit"],
+      {
+        fullState: {
+          status: "calling_model",
+          messages: [{ role: "user", content: "hello" }],
+          pendingTools: [],
+          tokensUsed: 0,
+        },
+        fullEffects: [
+          { type: "call_model", request: { messages: [{ role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0] } },
+          { type: "emit", event: { type: "user_message", data: { content: "hello" } } },
+        ],
+      },
+    );
+
+    const traj = recorder.stop();
+    expect(traj.expected[0]!.fullState).toBeDefined();
+    expect(traj.expected[0]!.fullEffects).toHaveLength(2);
+
+    // The recorded full snapshots must survive JSON round-trip (trajectory
+    // files are stored on disk and replayed later).
+    const recorder2 = createTrajectoryRecorder();
+    recorder2.fromJSON(recorder.toJSON());
+    const restored = recorder2.stop();
+
+    const result = replayTrajectory(restored, ctx, { strict: true });
+    expect(result.passed).toBe(true);
+    expect(result.totalSteps).toBe(1);
+  });
+
   it("throws when capturing without start", () => {
     const recorder = createTrajectoryRecorder();
     expect(() =>

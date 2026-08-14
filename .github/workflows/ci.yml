@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm turbo run typecheck
+
+      - name: Lint
+        run: pnpm turbo run lint
+
+      - name: Test
+        run: pnpm turbo run test
+
+      # M11 "重放式 eval" acceptance as a CI gate: replay the recorded
+      # trajectories through the pure reducer and assert full (state, effects)
+      # consistency. The live provider integration tests skip automatically
+      # when no OPENAI_API_KEY is present (see provider vitest configs).
+      - name: Replay regression (eval trajectories)
+        run: |
+          pnpm --filter @volto/eval build
+          pnpm --filter @volto/eval replay
+
+      - name: Core zero-deps check
+        run: node scripts/check-core-zero-deps.mjs

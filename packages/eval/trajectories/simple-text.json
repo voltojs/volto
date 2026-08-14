@@ -1,0 +1,187 @@
+{
+  "name": "simple-text",
+  "stepContext": {
+    "model": "fixture-model",
+    "maxTokens": 100,
+    "tools": []
+  },
+  "inputs": [
+    {
+      "type": "user_message",
+      "content": "你好，介绍一下你自己"
+    },
+    {
+      "type": "model_chunk",
+      "chunk": {
+        "type": "text_delta",
+        "text": "我是 Volto Agent 内核。"
+      }
+    },
+    {
+      "type": "model_done",
+      "stopReason": "end_turn",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 9
+      }
+    }
+  ],
+  "expected": [
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "call_model",
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "你好，介绍一下你自己"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "call_model",
+          "request": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "你好，介绍一下你自己"
+              }
+            ],
+            "tools": [],
+            "model": "fixture-model",
+            "maxTokens": 100,
+            "cacheBreakpoints": [
+              0
+            ]
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "你好，介绍一下你自己"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "calling_model"
+      },
+      "effects": [
+        "emit"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "你好，介绍一下你自己"
+          }
+        ],
+        "pendingTools": [],
+        "status": "calling_model",
+        "tokensUsed": 0,
+        "maxIterations": 20,
+        "iterationCount": 0,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "我是 Volto Agent 内核。",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "text_delta",
+            "data": {
+              "text": "我是 Volto Agent 内核。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "status": "done"
+      },
+      "effects": [
+        "emit",
+        "done"
+      ],
+      "fullState": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "你好，介绍一下你自己"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "我是 Volto Agent 内核。"
+              }
+            ],
+            "stopReason": "end_turn"
+          }
+        ],
+        "pendingTools": [],
+        "status": "done",
+        "tokensUsed": 21,
+        "maxIterations": 20,
+        "iterationCount": 1,
+        "readFiles": [],
+        "queuedUserInputs": [],
+        "toolCallCount": 0,
+        "pinnedMessageIds": [],
+        "selfCorrectionCount": 0,
+        "_accumulatedText": "",
+        "_accumulatedToolCalls": [],
+        "_toolResultBuffer": {}
+      },
+      "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "model_done",
+            "data": {
+              "stopReason": "end_turn",
+              "usage": {
+                "inputTokens": 12,
+                "outputTokens": 9
+              }
+            }
+          }
+        },
+        {
+          "type": "done"
+        }
+      ]
+    }
+  ]
+}

@@ -78,6 +78,43 @@ export interface AgentAPI {
 
   /** 拉取当前所有挂起的审批请求 */
   listApprovals(): Promise<ApprovalRequest[]>;
+
+  /**
+   * 时间旅行 — 列出会话的 checkpoint 历史。
+   * 返回 { success, checkpoints? }，checkpoints 为按 seq 升序的摘要。
+   */
+  listCheckpoints(sessionId: string): Promise<{
+    success: boolean;
+    checkpoints?: Array<{
+      seq: number;
+      status: string;
+      messageCount: number;
+      createdAt: number;
+    }>;
+    error?: string;
+  }>;
+
+  /**
+   * 时间旅行 — 回退到指定 checkpoint（只读）。
+   * 返回 { success, result? }，result 含 checkpoint 状态 + 与当前状态的 diff。
+   */
+  rewindCheckpoint(sessionId: string, seq: number): Promise<{
+    success: boolean;
+    result?: {
+      state: Record<string, unknown>;
+      diff: {
+        hasChanges: boolean;
+        statusChanged?: { from: string; to: string };
+        tokensDelta?: number;
+        iterationsDelta?: number;
+        messagesAdded?: number;
+        messagesRemoved?: number;
+        readFilesAdded?: string[];
+        readFilesRemoved?: string[];
+      };
+    };
+    error?: string;
+  }>;
 }
 
 /** Electron API 类型 */

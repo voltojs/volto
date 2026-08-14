@@ -426,6 +426,14 @@ export interface AgentInstance {
   /** Read the latest runner state */
   getState(): ReducerState;
 
+  /**
+   * Session store backing checkpoint/resume for this agent instance.
+   * Checkpoints are saved under `<sessionId>#<seq>` (plus a canonical
+   * `<sessionId>` key) at every turn boundary and HITL pause — hosts can
+   * list / rewind them with @volto/sdk's createTimeTravelDebugger.
+   */
+  sessionStore: SessionStore;
+
   /** Resolved M8 port instances (for advanced usage / testing) */
   ports: ResolvedPorts;
 }
@@ -997,6 +1005,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       if (lastRunner) return lastRunner.getState();
       throw new Error("No active session. Run a turn first.");
     },
+
+    // Expose the backing session store so hosts can inspect checkpoint
+    // history (time-travel debugger) and drive rewind/resume themselves.
+    sessionStore,
   };
 }
 
