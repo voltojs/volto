@@ -53,7 +53,6 @@
 
 # 工作流与质量门
 
-- **Plan 生成 / 执行 / Phase Review** → 全局 skill `plan-execution-gate`（每个 Phase 完成后须经独立 review pass 通过 + 单独 git commit，方可进入下一 Phase）。
 - **能力门控 vs 权限策略** 职责分离：门控（ToolRouter）决定"工具是否对模型可见"，权限（PermissionPolicy）决定"可见工具是否放行（allow / deny / ask）"。改动二者之一时勿混淆职责。
 - 静态门:`pnpm turbo run typecheck`、`pnpm turbo run lint`、`pnpm turbo run test`。
 
@@ -120,12 +119,6 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 - **`edit_file` 编辑格式** — 主格式 `str_replace`（`old_string` / `new_string` / `replace_all?`）；精确匹配失败时 fuzzy fallback（① 忽略行首尾空白 ② 忽略 token 间空白正则）；未 `read_file` 或版本过期的文件拒绝编辑；写回前版本比对。`apply_patch`(diff) 留扩展点，暂不实现。
 - **缓存友好** — ContextAssembler 把静态内容（system prompt / tool defs / 项目指令）前置，变量（user 输入 / tool result）后置；工具集变更尽量发生在 turn 边界。
 - **确定性** — 时间 / 随机 / ID 全部经 port 注入，支持离线重放与快照测试。
-
-## Skills Index
-
-| Skill                 | 用途                                                    |
-| --------------------- | ------------------------------------------------------- |
-| `plan-execution-gate` | Plan 生成、落地执行、Phase-by-Phase Review、Test Cases  |
 
 ## Documentation Index
 
