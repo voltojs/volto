@@ -19,6 +19,8 @@ function createMockEventSource(): EventSourceLike & {
   emitEvent(type: string, data: unknown, lastEventId?: string): void;
   /** Trigger the error callback. */
   emitError(): void;
+  /** Raw listener map for direct event injection in tests. */
+  _listeners: Map<string, Array<(event: MessageEvent) => void>>;
 } {
   const instance: EventSourceLike & {
     emitOpen(): void;
@@ -60,6 +62,14 @@ function createMockEventSource(): EventSourceLike & {
       const list = this._listeners.get(type) ?? [];
       list.push(listener);
       this._listeners.set(type, list);
+    },
+
+    removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+      const list = this._listeners.get(type);
+      if (list) {
+        const idx = list.indexOf(listener);
+        if (idx >= 0) list.splice(idx, 1);
+      }
     },
 
     close() {
@@ -259,7 +269,7 @@ describe("SSEClient", () => {
       client.disconnect();
     });
 
-    it("should ignore messages without an event field", () => {
+    it("should ignore messages with unparseable JSON data", () => {
       const client = createClient();
       const handler = vi.fn();
 
@@ -267,13 +277,13 @@ describe("SSEClient", () => {
       client.connect();
       instances[0]!.emitOpen();
 
-      // Malformed: no event field
-      instances[0]!.emitEvent("token", undefined);
+      // Create a MessageEvent with raw non-JSON data directly
+      const badEvent = new MessageEvent("token", { data: "not-valid-json" });
+      for (const listener of instances[0]!._listeners.get("token") ?? []) {
+        listener(badEvent);
+      }
 
-      // The mock emitEvent sends JSON.stringify(undefined) = "undefined"
-      // which won't parse as JSON with an event field, so listener won't fire
-      // via the named-event path. The onmessage path parses the raw data.
-      // Either way, the handler should not receive a valid SSEMessage.
+      expect(handler).not.toHaveBeenCalled();
 
       client.disconnect();
     });
@@ -454,30 +464,34 @@ describe("SSEClient", () => {
     });
 
     it("should append lastEventId as query param on reconnect", () => {
-      const client = createClient("http://localhost:3000/sse", {
+      const factoryUrls: string[] = [];
+      const client = createSSEClient("http://localhost:3000/sse", {
         reconnectDelay: 100,
         maxReconnectAttempts: 3,
       });
+      client.setEventSourceFactory((u: string) => {
+        factoryUrls.push(u);
+        const mock = createMockEventSource();
+        instances.push(mock);
+        return mock;
+      });
 
       client.connect();
+      expect(factoryUrls[0]).toBe("http://localhost:3000/sse");
+
       instances[0]!.emitOpen();
 
       // Simulate receiving an event with id "5"
-      instances[0]!.emitEvent(
-        "token",
-        { content: "x", delta: "x" },
-        "5"
-      );
+      instances[0]!.emitEvent("token", { content: "x", delta: "x" }, "5");
 
       // Disconnect and wait for reconnect
       instances[0]!.emitError();
       vi.advanceTimersByTime(100);
 
       expect(instances.length).toBe(2);
+      // Verify the reconnect URL contains the lastEventId
+      expect(factoryUrls[1]).toContain("last-event-id=5");
 
-      // The second instance was created with the factory; we can't directly
-      // inspect the URL passed to EventSource in this mock setup, but we
-      // verified the reconnect happened.
       client.disconnect();
     });
   });

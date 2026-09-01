@@ -9,7 +9,7 @@
  * - Connection state management
  */
 
-import { type SSEMessage, type ConnectionState } from "./types.js";
+import { SSEEventType, type SSEMessage, type ConnectionState } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -38,51 +38,12 @@ export interface EventSourceLike {
   onmessage: ((event: MessageEvent) => void) | null;
   onerror: (() => void) | null;
   addEventListener(type: string, listener: (event: MessageEvent) => void): void;
+  removeEventListener(type: string, listener: (event: MessageEvent) => void): void;
   close(): void;
 }
 
 /** Factory function that creates an EventSource for a given URL. */
 export type EventSourceFactory = (url: string) => EventSourceLike;
-
-// ---------------------------------------------------------------------------
-// SSE wire-format parser
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a single SSE data block into an SSEMessage.
- *
- * Expected wire format per event:
- * ```
- * id: <string>
- * event: <string>
- * data: <json-string>
- * ```
- */
-function parseSSEData(raw: string): SSEMessage | null {
-  const lines = raw.split("\n");
-  let id = "";
-  let event = "";
-  let data = "";
-
-  for (const line of lines) {
-    if (line.startsWith("id: ")) {
-      id = line.slice(4);
-    } else if (line.startsWith("event: ")) {
-      event = line.slice(7);
-    } else if (line.startsWith("data: ")) {
-      data = line.slice(6);
-    }
-  }
-
-  if (!event) return null;
-
-  try {
-    const parsed: unknown = data ? JSON.parse(data) : {};
-    return { id, event: event as SSEMessage["event"], data: parsed, timestamp: Date.now() };
-  } catch {
-    return null;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -122,7 +83,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
           );
         };
 
-  const listeners = new Map<string, Set<(msg: SSEMessage) => void>>();
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const stateListeners = new Set<(state: ConnectionState) => void>();
 
   // -- internal helpers -----------------------------------------------------
@@ -136,14 +97,14 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
   }
 
   function notifyListeners(message: SSEMessage): void {
-    // Type-specific listeners
+    // Typed listeners receive data only
     const handlers = listeners.get(message.event);
     if (handlers) {
       for (const handler of handlers) {
-        handler(message);
+        handler(message.data);
       }
     }
-    // Wildcard listeners (receive the full SSEMessage)
+    // Wildcard listeners receive the full SSEMessage envelope
     const wildcards = listeners.get("*");
     if (wildcards) {
       for (const handler of wildcards) {
@@ -155,40 +116,6 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
   function handleOpen(): void {
     reconnectAttempts = 0;
     setState("connected");
-  }
-
-  function handleMessage(event: MessageEvent): void {
-    // If the server sends raw SSE wire format via the browser EventSource,
-    // each event already has .data populated by the browser parser.
-    // For browser EventSource: event.data is the raw "data:" line content.
-    // For our wire format we pack id+event+data into a JSON envelope,
-    // so try parsing JSON first, then fall back to wire-format parsing.
-    let message: SSEMessage | null = null;
-
-    try {
-      const parsed: unknown = JSON.parse(event.data as string);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "event" in parsed &&
-        "data" in parsed
-      ) {
-        message = parsed as SSEMessage;
-      }
-    } catch {
-      // Not JSON — try wire-format parsing
-    }
-
-    if (!message) {
-      message = parseSSEData(event.data as string);
-    }
-
-    if (message) {
-      if (message.id) {
-        lastEventId = message.id;
-      }
-      notifyListeners(message);
-    }
   }
 
   function handleError(): void {
@@ -237,23 +164,9 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
 
       eventSource.onopen = () => handleOpen();
 
-      // Browser EventSource fires named events; also listen to the default
-      // "message" handler for JSON-envelope payloads.
-      eventSource.onmessage = (event: MessageEvent) => handleMessage(event);
-
       // Register listeners for each SSEEventType so browser-dispatched
-      // named events are also captured.
-      for (const eventType of [
-        "token",
-        "tool_call",
-        "tool_result",
-        "approval_req",
-        "approval_res",
-        "state_change",
-        "error",
-        "heartbeat",
-        "done",
-      ]) {
+      // named events are captured. This is the primary message path.
+      for (const eventType of Object.values(SSEEventType)) {
         eventSource.addEventListener(eventType, (event: MessageEvent) => {
           try {
             const data: unknown = JSON.parse(event.data as string);
@@ -308,15 +221,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     if (!listeners.has(eventType)) {
       listeners.set(eventType, new Set());
     }
-
-    let wrapped: (msg: SSEMessage) => void;
-    if (eventType === "*") {
-      // Wildcard: pass the full message envelope
-      wrapped = (msg: SSEMessage) => handler(msg as T);
-    } else {
-      // Typed: pass data only
-      wrapped = (msg: SSEMessage) => handler(msg.data as T);
-    }
+    const wrapped = (payload: unknown) => handler(payload as T);
     listeners.get(eventType)!.add(wrapped);
 
     return () => {
