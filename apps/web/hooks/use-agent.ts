@@ -27,25 +27,16 @@ function destroyAgent(agent: AgentReturn | null): void {
 /**
  * Hook that manages agent instance lifecycle.
  *
- * Creates a `createWebAgent` on mount (when `autoConnect` is true) and
- * tears it down on unmount. The returned `agent` reference updates on
- * config changes.
+ * Creates a `createWebAgent` inside useEffect (Safe for StrictMode:
+ * React calls effect + cleanup + effect; the cleanup destroys the
+ * first instance, and the second effect creates a fresh one).
  */
 export function useAgent({ config, autoConnect = true }: UseAgentOptions): UseAgentReturn {
-  // Lazy initializer: only create the agent when autoConnect is true.
-  const agentRef = useRef<AgentReturn | null>(
-    autoConnect ? createWebAgent(config) : null,
-  );
+  const agentRef = useRef<AgentReturn | null>(null);
 
   useEffect(() => {
-    if (!autoConnect) {
-      destroyAgent(agentRef.current);
-      disconnectSSEClient();
-      agentRef.current = null;
-      return;
-    }
+    if (!autoConnect) return;
 
-    destroyAgent(agentRef.current);
     agentRef.current = createWebAgent(config);
 
     return () => {
@@ -57,7 +48,7 @@ export function useAgent({ config, autoConnect = true }: UseAgentOptions): UseAg
   }, [config.mode, config.serverUrl, autoConnect]);
 
   return {
-    // Read from ref for external callers (not rendered, so no lint issue).
+    // Read from ref — not rendered, so no lint issue.
     get agent(): AgentReturn | null {
       return agentRef.current;
     },
