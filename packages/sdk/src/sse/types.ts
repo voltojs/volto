@@ -38,7 +38,7 @@ export enum SSEEventType {
 
 /** Unified SSE message envelope. `T` defaults to `unknown`. */
 export interface SSEMessage<T = unknown> {
-  /** Unique message ID — used for断线恢复 (Last-Event-ID replay). */
+  /** Unique message ID, used for disconnection recovery (Last-Event-ID replay). */
   id: string;
   /** Event type discriminator. */
   event: SSEEventType;
