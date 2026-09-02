@@ -24,9 +24,15 @@ import { isUiPermissionMode } from "./permission-modes.js";
 export interface ServerOptions extends WiringOptions {
   port?: number;
   /**
-   * Value for `Access-Control-Allow-Origin`. Defaults to `*` so a local
-   * `apps/web` dev server (a different port, therefore a different origin) can
-   * talk to this gateway without a proxy.
+   * Allowed browser origin, reflected as `Access-Control-Allow-Origin` and
+   * enforced against every request's `Origin` header. Defaults to the
+   * `apps/web` dev server's own origin — a browser is the threat surface a
+   * local gateway needs to worry about (it can enumerate providers, drive
+   * the agent with `permissionMode: "auto-accept"`, and read the response
+   * cross-origin if this were `"*"`). Non-browser clients (`apps/ide-extension`,
+   * `apps/chat-adapter`, curl) send no `Origin` header at all and are never
+   * subject to this check. Set to `"*"` to deliberately expose the gateway
+   * to any origin, or to a different origin for another trusted deployment.
    */
   corsOrigin?: string;
   /** SSE heartbeat interval in ms. @default 15000 */
@@ -42,6 +48,9 @@ export interface ServerOptions extends WiringOptions {
 /** Session id used when a client does not supply one. */
 const DEFAULT_SESSION_ID = "default";
 
+/** The web app's own dev origin — see `ServerOptions.corsOrigin`. */
+const DEFAULT_CORS_ORIGIN = "http://localhost:6100";
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -53,25 +62,49 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 export function createServer(opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3100;
-  const corsOrigin = opts.corsOrigin ?? "*";
+  const corsOrigin = opts.corsOrigin ?? DEFAULT_CORS_ORIGIN;
   const agent = createWiredAgent(opts);
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
   const registry = createSessionRegistry({ ...opts, projectStore, providerStore });
 
-  const corsHeaders: Record<string, string> = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
-  };
+  /**
+   * Only a browser attaches an `Origin` header; a non-browser client (curl,
+   * `apps/ide-extension`, `apps/chat-adapter`) sends none and is never
+   * subject to this check — there is nothing for CORS to protect there.
+   */
+  function isOriginAllowed(origin: string | undefined): boolean {
+    if (origin === undefined) return true;
+    return corsOrigin === "*" || origin === corsOrigin;
+  }
 
-  function jsonResponse(res: http.ServerResponse, status: number, body: unknown): void {
-    res.writeHead(status, { "Content-Type": "application/json", ...corsHeaders });
-    res.end(JSON.stringify(body));
+  function corsHeadersFor(origin: string | undefined): Record<string, string> {
+    return {
+      // Echo the request's own origin rather than the configured value so a
+      // single fixed `corsOrigin` still behaves like a normal allow-list
+      // entry; "*" is sent verbatim since it authorizes every origin anyway.
+      "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
+    };
   }
 
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+
+    if (!isOriginAllowed(originHeader)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `Origin not allowed: ${originHeader}` }));
+      return;
+    }
+
+    const corsHeaders = corsHeadersFor(originHeader);
+
+    function jsonResponse(res: http.ServerResponse, status: number, body: unknown): void {
+      res.writeHead(status, { "Content-Type": "application/json", ...corsHeaders });
+      res.end(JSON.stringify(body));
+    }
 
     // CORS preflight
     if (req.method === "OPTIONS") {

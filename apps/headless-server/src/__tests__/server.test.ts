@@ -271,6 +271,8 @@ describe("Headless server", () => {
   });
 
   it("OPTIONS preflight is answered with CORS headers", async () => {
+    // No Origin header on this request (a non-browser client), so the
+    // default origin restriction (see cors.test.ts) does not reject it.
     const headers = await new Promise<http.IncomingHttpHeaders>((resolve, reject) => {
       const req = http.request(new URL("/messages", baseUrl), { method: "OPTIONS" }, (res) => {
         res.resume();
@@ -280,7 +282,8 @@ describe("Headless server", () => {
       req.end();
     });
 
-    expect(headers["access-control-allow-origin"]).toBe("*");
+    // Default corsOrigin is now the web app's own origin, not "*" — see F3.
+    expect(headers["access-control-allow-origin"]).toBe("http://localhost:6100");
     expect(headers["access-control-allow-headers"]).toContain("Content-Type");
     expect(headers["access-control-allow-methods"]).toContain("DELETE");
     expect(headers["access-control-allow-methods"]).toContain("PUT");
