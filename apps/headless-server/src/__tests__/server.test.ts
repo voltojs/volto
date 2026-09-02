@@ -140,6 +140,21 @@ function getJson(path: string): Promise<{ status: number; data: unknown }> {
   });
 }
 
+function del(path: string): Promise<{ status: number; data: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(new URL(path, baseUrl), { method: "DELETE" }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () =>
+        resolve({ status: res.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString()) }),
+      );
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 describe("Headless server", () => {
   it("GET /health returns ok", async () => {
     const url = new URL("/health", baseUrl);
@@ -212,6 +227,8 @@ describe("Headless server", () => {
 
     expect(headers["access-control-allow-origin"]).toBe("*");
     expect(headers["access-control-allow-headers"]).toContain("Content-Type");
+    expect(headers["access-control-allow-methods"]).toContain("DELETE");
+    expect(headers["access-control-allow-methods"]).toContain("PUT");
   });
 
   it("POST /messages without an open channel is rejected", async () => {
@@ -269,6 +286,11 @@ describe("Headless server", () => {
 
   it("POST /projects rejects a non-existent path", async () => {
     const { status } = await post("/projects", { name: "ghost", path: "/definitely/not/here" });
+    expect(status).toBe(400);
+  });
+
+  it("DELETE /projects/:id with a malformed id returns 400 instead of crashing", async () => {
+    const { status } = await del("/projects/%");
     expect(status).toBe(400);
   });
 });

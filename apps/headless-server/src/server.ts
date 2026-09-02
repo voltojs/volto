@@ -52,7 +52,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
   };
 
@@ -212,9 +212,13 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
     // DELETE /projects/:id
     if (req.method === "DELETE" && url.pathname.startsWith("/projects/")) {
-      const id = decodeURIComponent(url.pathname.slice("/projects/".length));
-      const removed = await projectStore.remove(id);
-      jsonResponse(res, removed ? 200 : 404, { removed });
+      try {
+        const id = decodeURIComponent(url.pathname.slice("/projects/".length));
+        const removed = await projectStore.remove(id);
+        jsonResponse(res, removed ? 200 : 404, { removed });
+      } catch (err: unknown) {
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 
