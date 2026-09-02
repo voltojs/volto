@@ -36,6 +36,16 @@ function toDraftModels(models: Model[]): DraftModel[] {
 export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
   const providers = useConfigStore((s) => s.providers);
   const addProvider = useConfigStore((s) => s.addProvider);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAddProvider = async () => {
+    setError(null);
+    try {
+      await addProvider({ name: '新供应商', baseURL: null, apiKey: null, models: [] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '新增供应商失败');
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,12 +66,12 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
           )}
         </div>
 
+        {error && <p className="text-xs text-red-600">{error}</p>}
+
         <Button
           variant="outline"
           className="w-full gap-2"
-          onClick={() =>
-            void addProvider({ name: '新供应商', baseURL: null, apiKey: null, models: [] })
-          }
+          onClick={() => void handleAddProvider()}
         >
           <Plus className="h-4 w-4" />
           新增供应商
@@ -99,6 +109,15 @@ function ProviderCard({ provider }: { provider: Provider }) {
     setModels(toDraftModels(provider.models));
   }
 
+  const remove = async () => {
+    setError(null);
+    try {
+      await removeProvider(provider.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除供应商失败');
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -135,7 +154,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
           variant="ghost"
           size="icon"
           className="text-red-500"
-          onClick={() => void removeProvider(provider.id)}
+          onClick={() => void remove()}
         >
           <Trash2 className="h-4 w-4" />
         </Button>

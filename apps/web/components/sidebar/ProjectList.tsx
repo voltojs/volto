@@ -18,6 +18,27 @@ export function ProjectList() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRemoveProject = async (projectId: string, name: string, sessionCount: number) => {
+    // projectId is immutable and a fresh add gets a new UUID, so deleting a
+    // project permanently orphans every session under it (still in
+    // localStorage, but unreachable from the sidebar) — confirm first and
+    // say how many sessions are affected.
+    const confirmed = window.confirm(
+      sessionCount > 0
+        ? `确定删除项目「${name}」吗？其下的 ${sessionCount} 个会话也将从侧栏消失，且无法恢复。`
+        : `确定删除项目「${name}」吗？此操作无法撤销。`,
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    try {
+      await removeProject(projectId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除项目失败');
+    }
+  };
 
   const openSession = (sessionId: string) => {
     useSessionStore.getState().setCurrentSession(sessionId);
@@ -31,6 +52,7 @@ export function ProjectList() {
 
   return (
     <div className="space-y-1">
+      {error && <p className="px-2 py-1 text-xs text-red-600">{error}</p>}
       {projects.map((project) => {
         const expanded = expandedId === project.id;
         const projectSessions = sessions.filter((s) => s.projectId === project.id);
@@ -58,7 +80,7 @@ export function ProjectList() {
                 className="hidden h-6 w-6 text-red-500 group-hover:flex"
                 onClick={(e) => {
                   e.stopPropagation();
-                  void removeProject(project.id);
+                  void handleRemoveProject(project.id, project.name, projectSessions.length);
                 }}
               >
                 <Trash2 className="h-3 w-3" />
