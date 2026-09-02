@@ -106,8 +106,18 @@ function parseFrames(raw: string): ProtocolFrame[] {
 /**
  * Open an /events channel, trigger one turn via POST /messages, and collect
  * every protocol frame up to and including `done`.
+ *
+ * `config` is merged into the /messages body. `resolveConfig` (F2) now
+ * requires a real, resolvable projectId/providerId/modelId for every turn
+ * requested through /messages, so any caller that needs a turn to actually
+ * run (rather than immediately error) must supply one — see
+ * `createTestProjectAndModel` below.
  */
-function collectProtocolTurn(sessionId: string, message: string): Promise<ProtocolFrame[]> {
+function collectProtocolTurn(
+  sessionId: string,
+  message: string,
+  config: Record<string, unknown> = {},
+): Promise<ProtocolFrame[]> {
   return new Promise((resolve, reject) => {
     const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl);
     const timer = setTimeout(() => reject(new Error("timed out waiting for done")), 10_000);
@@ -124,13 +134,36 @@ function collectProtocolTurn(sessionId: string, message: string): Promise<Protoc
       res.on("error", reject);
 
       // The channel must be attached before the turn is triggered.
-      post("/messages", { sessionId, message }).catch(reject);
+      post("/messages", { sessionId, message, ...config }).catch(reject);
     });
     req.on("error", (err) => {
       // destroy() after resolving surfaces here; ignore once we already resolved.
       if (!req.destroyed) reject(err);
     });
   });
+}
+
+/**
+ * Create a project (rooted at the current working directory) and a
+ * single-model provider, and return the ids a `/messages` body needs to
+ * pass `resolveConfig`'s completeness check.
+ */
+async function createTestProjectAndModel(): Promise<{
+  projectId: string;
+  providerId: string;
+  modelId: string;
+}> {
+  const project = await post("/projects", { name: "turn-test", path: process.cwd() });
+  const provider = await post("/providers", {
+    name: "turn-test-provider",
+    models: [{ name: "test-model", code: "test-model" }],
+  });
+  const providerData = provider.data as { id: string; models: Array<{ id: string }> };
+  return {
+    projectId: (project.data as { id: string }).id,
+    providerId: providerData.id,
+    modelId: providerData.models[0]!.id,
+  };
 }
 
 function getJson(path: string): Promise<{ status: number; data: unknown }> {
@@ -175,6 +208,22 @@ describe("Headless server", () => {
     });
     expect(status).toBe(200);
     expect(data).toEqual({ status: "ok" });
+  });
+
+  // Runs before any other test creates a project — later tests in this file
+  // (turn tests, F2 coverage) create their own projects via
+  // `createTestProjectAndModel`, which would make this assertion vacuous if
+  // it ran after them.
+  it("GET /projects starts empty and POST adds one", async () => {
+    const before = await getJson("/projects");
+    expect(before.status).toBe(200);
+    expect(before.data).toEqual([]);
+
+    const created = await post("/projects", { name: "tmp", path: process.cwd() });
+    expect(created.status).toBe(201);
+
+    const after = await getJson("/projects");
+    expect((after.data as unknown[]).length).toBe(1);
   });
 
   it("POST /run returns final state", async () => {
@@ -253,7 +302,8 @@ describe("Headless server", () => {
 
   it("GET /events + POST /messages streams a turn in protocol format", async () => {
     const sessionId = "session-protocol";
-    const frames = await collectProtocolTurn(sessionId, "hi");
+    const config = await createTestProjectAndModel();
+    const frames = await collectProtocolTurn(sessionId, "hi", config);
 
     const tokens = frames.filter((f) => f.event === "token");
     expect(tokens.length).toBeGreaterThan(0);
@@ -267,15 +317,35 @@ describe("Headless server", () => {
 
   it("keeps conversation history per session across turns", async () => {
     const sessionId = "session-multi-turn";
-    await collectProtocolTurn(sessionId, "first");
-    await collectProtocolTurn(sessionId, "second");
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "first", config);
+    await collectProtocolTurn(sessionId, "second", config);
 
     // The mock model replies identically each turn; what matters is that the
     // second turn streams a complete, independent response over the same
     // channel rather than erroring or replaying the first turn's text.
-    const frames = await collectProtocolTurn(sessionId, "third");
+    const frames = await collectProtocolTurn(sessionId, "third", config);
     const tokens = frames.filter((f) => f.event === "token");
     expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
+  });
+
+  it("POST /messages errors over SSE when projectId is missing (F2)", async () => {
+    const sessionId = "session-missing-project";
+    const frames = await collectProtocolTurn(sessionId, "hi");
+
+    expect(frames.some((f) => f.event === "error")).toBe(true);
+    expect(frames.at(-1)?.event).toBe("done");
+    // Never silently ran the turn — no token was streamed.
+    expect(frames.some((f) => f.event === "token")).toBe(false);
+  });
+
+  it("POST /messages errors over SSE when only providerId is given without modelId (F2)", async () => {
+    const sessionId = "session-partial-model";
+    const { projectId, providerId } = await createTestProjectAndModel();
+    const frames = await collectProtocolTurn(sessionId, "hi", { projectId, providerId });
+
+    expect(frames.some((f) => f.event === "error")).toBe(true);
+    expect(frames.some((f) => f.event === "token")).toBe(false);
   });
 
   it("POST /resume returns state", async () => {
@@ -285,18 +355,6 @@ describe("Headless server", () => {
     });
     // Resume of nonexistent session should error or return gracefully
     expect(status === 200 || status === 500).toBe(true);
-  });
-
-  it("GET /projects starts empty and POST adds one", async () => {
-    const before = await getJson("/projects");
-    expect(before.status).toBe(200);
-    expect(before.data).toEqual([]);
-
-    const created = await post("/projects", { name: "tmp", path: process.cwd() });
-    expect(created.status).toBe(201);
-
-    const after = await getJson("/projects");
-    expect((after.data as unknown[]).length).toBe(1);
   });
 
   it("POST /projects rejects a non-existent path", async () => {

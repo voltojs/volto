@@ -215,4 +215,55 @@ describe("session agent lifecycle", () => {
 
     expect(written.some((chunk) => chunk.includes("sk-super-secret-token"))).toBe(false);
   });
+
+  // -- F2: resolveConfig must reject an incomplete config instead of ------
+  // -- silently falling back to the gateway's own process cwd / env model --
+
+  it("rejects a turn with no projectId instead of falling back to the process cwd", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry, written } = makeRegistry(factory);
+
+    // No projectId at all — this is exactly what a session migrated from a
+    // pre-project-binding schema sends (see session-store.ts's migrate()).
+    await registry.runTurn("s1", "one", { providerId: "v1", modelId: "m1", permissionMode: "plan" });
+
+    // No agent was ever built for this (non-)config, so the cwd fallback in
+    // wiring.ts is never reached.
+    expect(builds).toHaveLength(0);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+    expect(written.some((chunk) => chunk.includes("event: done"))).toBe(true);
+    expect(registry.get("s1").running).toBe(false);
+  });
+
+  it("rejects a turn with providerId but no modelId instead of falling back to env config", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry, written } = makeRegistry(factory);
+
+    await registry.runTurn("s1", "one", { projectId: "p1", providerId: "v1", permissionMode: "plan" });
+
+    expect(builds).toHaveLength(0);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+  });
+
+  it("rejects a turn with modelId but no providerId", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry, written } = makeRegistry(factory);
+
+    await registry.runTurn("s1", "one", { projectId: "p1", modelId: "m1", permissionMode: "plan" });
+
+    expect(builds).toHaveLength(0);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+  });
+
+  it("rejects a turn with an unknown projectId rather than defaulting", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry, written } = makeRegistry(factory, {
+      projectStore: { findById: async () => null },
+    });
+
+    await registry.runTurn("s1", "one", { projectId: "ghost", providerId: "v1", modelId: "m1" });
+
+    expect(builds).toHaveLength(0);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+  });
 });

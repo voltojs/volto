@@ -65,6 +65,16 @@ export function ChatPanel() {
   // to create one first, via startSession.
   const handleSubmit = (content: string) => sendMessage(content);
 
+  // A session persisted before project-binding shipped can have projectId/
+  // providerId/modelId as null (see migrate() in session-store.ts).
+  // use-chat-agent guards against actually dispatching in that case, but the
+  // input should also be disabled up front so the user sees why instead of
+  // typing into a box that silently does nothing.
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+  const missingBinding =
+    currentSessionId !== null &&
+    (!currentSession?.projectId || !currentSession.providerId || !currentSession.modelId);
+
   // Only worth surfacing once a session exists — before that there is nothing
   // to connect to yet.
   const showOffline = currentSessionId !== null && connectionState !== 'connected';
@@ -121,7 +131,8 @@ export function ChatPanel() {
       <MessageList />
       <InputBar
         onSubmit={handleSubmit}
-        disabled={isGenerating}
+        disabled={isGenerating || missingBinding}
+        placeholder={missingBinding ? '此会话缺少绑定的项目或模型，无法发送消息' : undefined}
         toolbar={
           currentSessionId ? (
             <>

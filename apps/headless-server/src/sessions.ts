@@ -200,41 +200,54 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   /**
    * Turn the ids sent by the client into concrete construction inputs.
    *
+   * This is reached exclusively through `runTurn()`, i.e. `POST /messages` —
+   * the legacy `/run`, `/stream` and `/ws` routes never build a `TurnConfig`
+   * and keep using the gateway's own `cwd`/env model config in `wiring.ts`.
+   * `POST /messages` is the project-scoped web app's only entry point, so a
+   * turn requested through it must resolve to a real project and a real
+   * model; silently falling back here (e.g. a session with a null
+   * `projectId` from `session-store`'s pre-project-binding migration) would
+   * run the agent against this process's own cwd instead of the directory
+   * the user believes they are working in.
+   *
    * Also returns the raw credentials (if any) so `rebuild()` doesn't have to
    * call `resolveModel` a second time.
    */
   async function resolveConfig(
     requested: TurnConfig,
   ): Promise<{ config: ResolvedConfig; credentials: ResolvedCredentials | null }> {
-    let projectPath: string | undefined;
-    if (requested.projectId) {
-      if (!projectStore) {
-        throw new Error("Project store is not configured on this session registry");
-      }
-      const project = await projectStore.findById(requested.projectId);
-      if (!project) throw new Error(`Unknown project: ${requested.projectId}`);
-      projectPath = project.path;
+    if (!requested.projectId) {
+      throw new Error("projectId is required: a turn must run inside a bound project");
     }
+    if (!projectStore) {
+      throw new Error("Project store is not configured on this session registry");
+    }
+    const project = await projectStore.findById(requested.projectId);
+    if (!project) throw new Error(`Unknown project: ${requested.projectId}`);
+    const projectPath = project.path;
 
-    let credentials: ResolvedCredentials | null = null;
-    if (requested.providerId && requested.modelId) {
-      if (!providerStore) {
-        throw new Error("Provider store is not configured on this session registry");
-      }
-      const resolved = await providerStore.resolveModel(requested.providerId, requested.modelId);
-      if (!resolved) {
-        throw new Error(`Unknown model: ${requested.providerId}/${requested.modelId}`);
-      }
-      credentials = resolved;
+    // A lone providerId or modelId is a broken reference, not "no
+    // selection" — previously this was silently ignored and fell back to
+    // the env-configured model just like the projectId case above.
+    if (!requested.providerId || !requested.modelId) {
+      throw new Error("providerId and modelId are required together: a turn must run against a bound model");
     }
+    if (!providerStore) {
+      throw new Error("Provider store is not configured on this session registry");
+    }
+    const resolved = await providerStore.resolveModel(requested.providerId, requested.modelId);
+    if (!resolved) {
+      throw new Error(`Unknown model: ${requested.providerId}/${requested.modelId}`);
+    }
+    const credentials: ResolvedCredentials = resolved;
 
     const config: ResolvedConfig = {
       projectPath,
       providerId: requested.providerId,
       modelId: requested.modelId,
-      baseURL: credentials?.baseURL,
-      code: credentials?.code,
-      keyFingerprint: credentials?.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
+      baseURL: credentials.baseURL,
+      code: credentials.code,
+      keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
     };
 

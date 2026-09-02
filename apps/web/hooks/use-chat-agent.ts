@@ -190,6 +190,23 @@ export function useChatAgent(): UseChatAgentReturn {
         return;
       }
       const session = sessionStore.sessions.find((s) => s.id === sessionId);
+      if (!session?.projectId || !session.providerId || !session.modelId) {
+        // A session persisted before project-binding shipped can have these
+        // fields as null (see migrate() in session-store.ts). Dispatching
+        // anyway would let the gateway silently fall back to its own
+        // process cwd and env-configured model instead of erroring — the
+        // exact fallback resolveConfig on the server now rejects. Guard
+        // here too (the conversation-branch InputBar only disables on
+        // isGenerating) so the user gets an explanation instead of the
+        // agent silently running against the wrong directory/model.
+        useChatStore.getState().addMessage({
+          id: newId(),
+          role: 'assistant',
+          content: '⚠️ 此会话缺少绑定的项目或模型，无法发送消息。请新建会话并完成选择。',
+          timestamp: Date.now(),
+        });
+        return;
+      }
 
       const assistantId = newId();
       useChatStore.getState().addMessage({
