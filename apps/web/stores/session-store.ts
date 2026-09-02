@@ -54,6 +54,61 @@ interface SessionState {
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
+// ---------------------------------------------------------------------------
+// Persistence migration
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape a persisted session may have taken under any prior schema version:
+ * the removed `workspaceId`, and no guarantee that the project/model/
+ * permission fields introduced by project-binding are present at all.
+ */
+type LegacySession = Partial<Session> & { workspaceId?: string };
+
+interface PersistedSessionState {
+  sessions: Session[];
+  currentSessionId: string | null;
+  sidebarOpen: boolean;
+}
+
+/**
+ * Normalises one persisted session (from any prior schema version) into the
+ * current `Session` shape: drops the removed `workspaceId`, and defaults the
+ * fields introduced by project-binding so they read as `null`/`'plan'`
+ * rather than `undefined` — an `undefined` projectId would match no project
+ * in the sidebar, and an `undefined` permissionMode would leak into the
+ * gateway request the permission picker sends later.
+ */
+function migrateSession(raw: LegacySession): Session {
+  return {
+    id: raw.id ?? generateId(),
+    title: raw.title ?? '',
+    messages: raw.messages ?? [],
+    createdAt: raw.createdAt ?? Date.now(),
+    updatedAt: raw.updatedAt ?? Date.now(),
+    projectId: raw.projectId ?? null,
+    providerId: raw.providerId ?? null,
+    modelId: raw.modelId ?? null,
+    permissionMode: raw.permissionMode ?? 'plan',
+  };
+}
+
+/**
+ * Migrates a persisted store of any prior schema version to the current
+ * shape. Exported so tests can exercise it directly — the node test
+ * environment has no localStorage to round-trip a persisted payload through.
+ */
+export function migrate(persistedState: unknown): PersistedSessionState {
+  const state = (persistedState ?? {}) as Partial<PersistedSessionState> & {
+    sessions?: LegacySession[];
+  };
+  return {
+    sessions: (state.sessions ?? []).map(migrateSession),
+    currentSessionId: state.currentSessionId ?? null,
+    sidebarOpen: state.sidebarOpen ?? true,
+  };
+}
+
 export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
@@ -132,6 +187,8 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: 'volto-sessions',
+      version: 1,
+      migrate,
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
