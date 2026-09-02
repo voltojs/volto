@@ -1,6 +1,7 @@
-import { sse } from "@volto/sdk";
+// Subpath import keeps Node-only SDK dependencies out of the browser bundle.
+import { createSSEClient } from "@volto/sdk/sse";
 
-type SSEClientInstance = ReturnType<typeof sse.createSSEClient>;
+type SSEClientInstance = ReturnType<typeof createSSEClient>;
 
 let client: SSEClientInstance | null = null;
 let currentUrl: string | null = null;
@@ -19,7 +20,7 @@ export function getSSEClient(url: string): SSEClientInstance {
     client.destroy();
   }
 
-  client = sse.createSSEClient(url);
+  client = createSSEClient(url);
   currentUrl = url;
   return client;
 }

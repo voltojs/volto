@@ -2,6 +2,7 @@
 
 import type { Message } from '@/stores/chat-store';
 import { StreamRenderer } from './StreamRenderer';
+import { ToolCallCard } from './ToolCallCard';
 import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
@@ -32,8 +33,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           <div className="whitespace-pre-wrap">{message.content}</div>
         )}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mt-2 text-xs opacity-70">
-            {message.toolCalls.length} tool call(s)
+          <div className="mt-2 space-y-1">
+            {message.toolCalls.map((call) => (
+              <ToolCallCard key={call.id} call={call} />
+            ))}
           </div>
         )}
       </div>

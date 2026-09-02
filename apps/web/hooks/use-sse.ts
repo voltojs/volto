@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { sse } from "@volto/sdk";
+// Subpath import keeps Node-only SDK dependencies out of the browser bundle.
+import { createSSEClient } from "@volto/sdk/sse";
+import type { SSEEventType, SSEMessage, ConnectionState } from "@volto/sdk/sse";
 
-type SSEClientInstance = ReturnType<typeof sse.createSSEClient>;
-type SSEEventType = sse.SSEEventType;
-type SSEMessage = sse.SSEMessage;
-type ConnectionState = sse.ConnectionState;
+type SSEClientInstance = ReturnType<typeof createSSEClient>;
 
 interface UseSSEOptions {
   url: string;
@@ -39,7 +38,7 @@ export function useSSE({ url, autoConnect = true }: UseSSEOptions): UseSSEReturn
   const [lastMessage, setLastMessage] = useState<SSEMessage | null>(null);
 
   useEffect(() => {
-    const client = sse.createSSEClient(url);
+    const client = createSSEClient(url);
     clientRef.current = client;
 
     const unsubState = client.onStateChange(setState);
