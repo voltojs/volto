@@ -106,4 +106,33 @@ describe("createProviderStore", () => {
     expect(await store.remove(created.id)).toBe(true);
     expect(await store.remove(created.id)).toBe(false);
   });
+
+  // -- F5: a corrupt file must surface an error, not be treated as empty --
+
+  it("throws instead of treating a corrupt file as empty", async () => {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "providers.json"), "{not valid json", "utf-8");
+    await expect(createProviderStore(dir).listPublic()).rejects.toThrow();
+  });
+
+  it("does not silently discard existing providers (and their apiKeys) when the file is corrupt", async () => {
+    const store = createProviderStore(dir);
+    await store.create(INPUT);
+
+    // Simulate corruption (e.g. a crash mid-write under the old
+    // non-atomic writeAll) rather than the code under test producing it.
+    const file = path.join(dir, "providers.json");
+    await fs.writeFile(file, "{not valid json", "utf-8");
+
+    // Before the fix, create() would read the corrupt file as `[]` and
+    // persist only the new provider, discarding the encrypted apiKey above.
+    await expect(store.create({ name: "second", models: [] })).rejects.toThrow();
+    expect(await fs.readFile(file, "utf-8")).toBe("{not valid json");
+  });
+
+  it("writes atomically: no leftover temp file after a successful write", async () => {
+    await createProviderStore(dir).create(INPUT);
+    const entries = (await fs.readdir(dir)).filter((name) => name !== "key");
+    expect(entries).toEqual(["providers.json"]);
+  });
 });

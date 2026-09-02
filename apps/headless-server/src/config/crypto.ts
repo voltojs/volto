@@ -24,14 +24,26 @@ export function createCipher(dir: string = getConfigDir()) {
     if (cached) return cached;
 
     const keyPath = getConfigPath("key", dir);
+    let existing: Buffer | null = null;
     try {
-      const existing = await fs.readFile(keyPath);
-      if (existing.length === KEY_BYTES) {
-        cached = existing;
-        return cached;
-      }
-    } catch {
+      existing = await fs.readFile(keyPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       // Missing key file — fall through and generate one.
+    }
+
+    if (existing) {
+      if (existing.length !== KEY_BYTES) {
+        // A key file of the wrong size is corrupt, not "missing". Silently
+        // regenerating it would produce a new key that can never decrypt
+        // any ciphertext written with the old one, destroying every stored
+        // provider apiKey — surface this instead of guessing.
+        throw new Error(
+          `Encryption key file is corrupt (expected ${KEY_BYTES} bytes, got ${existing.length}): ${keyPath}`,
+        );
+      }
+      cached = existing;
+      return cached;
     }
 
     await ensureConfigDir(dir);

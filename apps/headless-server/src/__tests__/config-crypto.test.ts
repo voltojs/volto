@@ -57,4 +57,32 @@ describe("createCipher", () => {
   it("masks a short key without exposing it", () => {
     expect(createCipher(dir).mask("abc")).toBe("…");
   });
+
+  // -- F5: a key file of the wrong size is corrupt, not "missing" --
+
+  it("throws instead of silently regenerating a key file of the wrong size", async () => {
+    await fs.mkdir(dir, { recursive: true });
+    // A 32-byte key is expected; write something else in its place.
+    await fs.writeFile(path.join(dir, "key"), Buffer.from("too-short"));
+
+    await expect(createCipher(dir).encrypt("x")).rejects.toThrow();
+  });
+
+  it("does not overwrite an existing ciphertext's decryptability when the key file is wrong-sized", async () => {
+    // Encrypt with a real key first.
+    const original = createCipher(dir);
+    const enc = await original.encrypt("sk-secret-value");
+
+    // Corrupt the key file (e.g. a partial write) — must not silently
+    // regenerate it, since that would strand `enc` as undecryptable.
+    await fs.writeFile(path.join(dir, "key"), Buffer.alloc(16));
+
+    const afterCorruption = createCipher(dir);
+    await expect(afterCorruption.decrypt(enc)).rejects.toThrow();
+
+    // The key file itself must be untouched by the failed attempt, so a
+    // human fixing it manually (or restoring a backup) still has a chance.
+    const stat = await fs.stat(path.join(dir, "key"));
+    expect(stat.size).toBe(16);
+  });
 });

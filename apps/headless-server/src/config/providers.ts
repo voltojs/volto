@@ -8,9 +8,9 @@
  */
 
 import * as crypto from "node:crypto";
-import * as fs from "node:fs/promises";
 import { createCipher } from "./crypto.js";
 import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
+import { readJsonFile, writeJsonFileAtomic } from "./io.js";
 
 export interface Model {
   id: string;
@@ -46,16 +46,16 @@ export function createProviderStore(dir: string = getConfigDir()) {
   const cipher = createCipher(dir);
 
   async function readAll(): Promise<Provider[]> {
-    try {
-      return JSON.parse(await fs.readFile(file, "utf-8")) as Provider[];
-    } catch {
-      return [];
-    }
+    // Missing file means "no providers yet"; a present-but-corrupt file
+    // throws instead of being treated as empty — see config/io.ts. Treating
+    // it as empty here would have meant the next create()/update() call
+    // silently discarded every provider (and every apiKey with it).
+    return readJsonFile<Provider[]>(file, []);
   }
 
   async function writeAll(providers: Provider[]): Promise<void> {
     await ensureConfigDir(dir);
-    await fs.writeFile(file, JSON.stringify(providers, null, 2), "utf-8");
+    await writeJsonFileAtomic(file, providers);
   }
 
   async function toPublic(provider: Provider): Promise<PublicProvider> {

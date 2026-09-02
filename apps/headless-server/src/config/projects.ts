@@ -7,6 +7,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
+import { readJsonFile, writeJsonFileAtomic } from "./io.js";
 
 export interface Project {
   id: string;
@@ -22,17 +23,14 @@ export function createProjectStore(dir: string = getConfigDir()) {
   const file = getConfigPath("projects.json", dir);
 
   async function readAll(): Promise<Project[]> {
-    try {
-      return JSON.parse(await fs.readFile(file, "utf-8")) as Project[];
-    } catch {
-      // Missing or unreadable file means "no projects yet".
-      return [];
-    }
+    // Missing file means "no projects yet"; a present-but-corrupt file
+    // throws instead of being treated as empty — see config/io.ts.
+    return readJsonFile<Project[]>(file, []);
   }
 
   async function writeAll(projects: Project[]): Promise<void> {
     await ensureConfigDir(dir);
-    await fs.writeFile(file, JSON.stringify(projects, null, 2), "utf-8");
+    await writeJsonFileAtomic(file, projects);
   }
 
   return {

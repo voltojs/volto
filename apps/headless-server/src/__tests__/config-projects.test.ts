@@ -67,4 +67,33 @@ describe("createProjectStore", () => {
     expect((await store.findById(created.id))?.path).toBe(workdir);
     expect(await store.findById("missing")).toBeNull();
   });
+
+  // -- F5: a corrupt file must surface an error, not be treated as empty --
+
+  it("throws instead of treating a corrupt file as empty", async () => {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "projects.json"), "{not valid json", "utf-8");
+    await expect(createProjectStore(dir).list()).rejects.toThrow();
+  });
+
+  it("does not silently discard existing projects when the file is corrupt", async () => {
+    const store = createProjectStore(dir);
+    await store.create({ name: "demo", path: workdir });
+
+    // Simulate corruption (e.g. a crash mid-write under the old
+    // non-atomic writeAll) rather than the code under test producing it.
+    const file = path.join(dir, "projects.json");
+    await fs.writeFile(file, "{not valid json", "utf-8");
+
+    // Before the fix, create() would read the corrupt file as `[]` and
+    // persist only the new project, discarding "demo" for good.
+    await expect(store.create({ name: "second", path: workdir })).rejects.toThrow();
+    expect(await fs.readFile(file, "utf-8")).toBe("{not valid json");
+  });
+
+  it("writes atomically: no leftover temp file after a successful write", async () => {
+    await createProjectStore(dir).create({ name: "demo", path: workdir });
+    const entries = await fs.readdir(dir);
+    expect(entries).toEqual(["projects.json"]);
+  });
 });
