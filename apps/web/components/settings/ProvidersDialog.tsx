@@ -11,11 +11,26 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useConfigStore, type Provider } from '@/stores/config-store';
+import { useConfigStore, type Provider, type Model } from '@/stores/config-store';
 
 interface ProvidersDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+/**
+ * A draft model row needs a React key that stays stable for the row's whole
+ * lifetime, including while `id` is still `''` (a newly-added, unsaved row).
+ * `clientKey` exists only for that purpose and is stripped before the draft
+ * is sent to the server — the server-side contract (empty/omitted `id` means
+ * "assign a new UUID") is unchanged.
+ */
+interface DraftModel extends Model {
+  clientKey: string;
+}
+
+function toDraftModels(models: Model[]): DraftModel[] {
+  return models.map((m) => ({ ...m, clientKey: m.id || crypto.randomUUID() }));
 }
 
 export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
@@ -64,9 +79,25 @@ function ProviderCard({ provider }: { provider: Provider }) {
   const [name, setName] = useState(provider.name);
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [models, setModels] = useState(provider.models);
+  const [models, setModels] = useState<DraftModel[]>(() => toDraftModels(provider.models));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tracks whether the user has touched this draft since it was last synced
+  // with the server. `useState` only seeds from `provider` on mount, so
+  // without this an external refresh (e.g. the sidebar's `load()`) would
+  // never be reflected — but re-syncing unconditionally would blow away
+  // whatever the user is mid-typing. We only re-seed while untouched.
+  const [dirty, setDirty] = useState(false);
+  // "Adjusting state when a prop changes" (see react.dev): comparing against
+  // the previous render and calling setState directly in the render body —
+  // rather than in a useEffect — avoids an extra commit/paint cycle.
+  const [syncedProvider, setSyncedProvider] = useState(provider);
+  if (provider !== syncedProvider && !dirty) {
+    setSyncedProvider(provider);
+    setName(provider.name);
+    setBaseURL(provider.baseURL ?? '');
+    setModels(toDraftModels(provider.models));
+  }
 
   const save = async () => {
     setSaving(true);
@@ -78,9 +109,10 @@ function ProviderCard({ provider }: { provider: Provider }) {
         // Empty means "leave the stored key alone" — the server treats an
         // omitted apiKey as unchanged.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-        models,
+        models: models.map((m) => ({ id: m.id, name: m.name, code: m.code })),
       });
       setApiKey('');
+      setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -91,7 +123,14 @@ function ProviderCard({ provider }: { provider: Provider }) {
   return (
     <div className="space-y-2 rounded-lg border p-3">
       <div className="flex items-center gap-2">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="供应商名称" />
+        <Input
+          value={name}
+          onChange={(e) => {
+            setDirty(true);
+            setName(e.target.value);
+          }}
+          placeholder="供应商名称"
+        />
         <Button
           variant="ghost"
           size="icon"
@@ -104,40 +143,51 @@ function ProviderCard({ provider }: { provider: Provider }) {
 
       <Input
         value={baseURL}
-        onChange={(e) => setBaseURL(e.target.value)}
+        onChange={(e) => {
+          setDirty(true);
+          setBaseURL(e.target.value);
+        }}
         placeholder="baseURL，留空使用默认地址"
       />
       <Input
         type="password"
         value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
+        onChange={(e) => {
+          setDirty(true);
+          setApiKey(e.target.value);
+        }}
         placeholder={provider.apiKeyMasked ? `已保存 ${provider.apiKeyMasked}，留空则不修改` : 'apiKey'}
       />
 
       <div className="space-y-1">
         {models.map((model, index) => (
-          <div key={model.id ?? index} className="flex items-center gap-2">
+          <div key={model.clientKey} className="flex items-center gap-2">
             <Input
               className="flex-1"
               value={model.name}
               placeholder="展示名"
-              onChange={(e) =>
-                setModels(models.map((m, i) => (i === index ? { ...m, name: e.target.value } : m)))
-              }
+              onChange={(e) => {
+                setDirty(true);
+                setModels(models.map((m, i) => (i === index ? { ...m, name: e.target.value } : m)));
+              }}
             />
             <Input
               className="flex-1"
               value={model.code}
               placeholder="模型代码"
-              onChange={(e) =>
-                setModels(models.map((m, i) => (i === index ? { ...m, code: e.target.value } : m)))
-              }
+              onChange={(e) => {
+                setDirty(true);
+                setModels(models.map((m, i) => (i === index ? { ...m, code: e.target.value } : m)));
+              }}
             />
             <Button
               variant="ghost"
               size="icon"
               className="text-red-500"
-              onClick={() => setModels(models.filter((_, i) => i !== index))}
+              onClick={() => {
+                setDirty(true);
+                setModels(models.filter((_, i) => i !== index));
+              }}
             >
               <Trash2 className="h-3 w-3" />
             </Button>
@@ -147,7 +197,10 @@ function ProviderCard({ provider }: { provider: Provider }) {
           variant="ghost"
           size="sm"
           className="gap-1"
-          onClick={() => setModels([...models, { id: '', name: '', code: '' }])}
+          onClick={() => {
+            setDirty(true);
+            setModels([...models, { id: '', name: '', code: '', clientKey: crypto.randomUUID() }]);
+          }}
         >
           <Plus className="h-3 w-3" />
           新增模型
