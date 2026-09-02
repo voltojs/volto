@@ -134,7 +134,10 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     if (req.method === "POST" && url.pathname === "/run") {
       try {
         const body = JSON.parse(await readBody(req)) as { message: string; sessionId?: string };
-        const target = body.sessionId ? registry.get(body.sessionId).agent : agent;
+        // A session's agent is only constructed lazily by runTurn, so a session
+        // that has never taken a turn (or was rebuilt via /messages) has none
+        // yet — fall back to the shared default agent in that case.
+        const target = (body.sessionId ? registry.get(body.sessionId).agent : null) ?? agent;
         const state = await target.run(body.message);
         jsonResponse(res, 200, { state });
       } catch (err: unknown) {

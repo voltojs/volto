@@ -10,7 +10,12 @@
 
 import type * as http from "node:http";
 import { sse } from "@volto/sdk";
+import type { Message } from "@volto/core";
+import { createOpenAIModelPort } from "@volto/provider-openai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
+import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
+import type { createProjectStore } from "./config/projects.js";
+import type { createProviderStore } from "./config/providers.js";
 
 export interface SessionRegistryOptions extends WiringOptions {
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
@@ -19,6 +24,25 @@ export interface SessionRegistryOptions extends WiringOptions {
   replayBufferSize?: number;
   /** SSE heartbeat interval in ms. @default 15000 */
   heartbeatInterval?: number;
+  projectStore?: ReturnType<typeof createProjectStore>;
+  providerStore?: ReturnType<typeof createProviderStore>;
+  /** Overridable agent constructor — production uses createWiredAgent. */
+  agentFactory?: typeof createWiredAgent;
+}
+
+export interface TurnConfig {
+  projectId?: string;
+  providerId?: string;
+  modelId?: string;
+  permissionMode?: UiPermissionMode;
+}
+
+/** Snapshot of what an agent instance was built from. */
+interface ResolvedConfig {
+  projectPath: string | undefined;
+  providerId: string | undefined;
+  modelId: string | undefined;
+  permissionMode: UiPermissionMode | undefined;
 }
 
 interface Connection {
@@ -28,7 +52,9 @@ interface Connection {
 
 interface Session {
   id: string;
-  agent: ReturnType<typeof createWiredAgent>;
+  agent: ReturnType<typeof createWiredAgent> | null;
+  config: ResolvedConfig | null;
+  history: Message[];
   mapper: ReturnType<typeof sse.createEventMapper>;
   connection: Connection | null;
   buffer: sse.SSEMessage[];
@@ -41,8 +67,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     maxSessions = 100,
     replayBufferSize = 200,
     heartbeatInterval = 15_000,
+    projectStore,
+    providerStore,
+    agentFactory,
     ...wiring
   } = opts;
+
+  const buildAgent = agentFactory ?? createWiredAgent;
 
   const sessions = new Map<string, Session>();
 
@@ -61,7 +92,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     if (!session) {
       session = {
         id: sessionId,
-        agent: createWiredAgent(wiring),
+        agent: null,
+        config: null,
+        history: [],
         mapper: sse.createEventMapper(),
         connection: null,
         buffer: [],
@@ -131,13 +164,83 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return sessions.get(sessionId)?.connection != null;
   }
 
+  /** Turn the ids sent by the client into concrete construction inputs. */
+  async function resolveConfig(requested: TurnConfig): Promise<ResolvedConfig> {
+    let projectPath: string | undefined;
+    if (requested.projectId) {
+      const project = await projectStore?.findById(requested.projectId);
+      if (!project) throw new Error(`Unknown project: ${requested.projectId}`);
+      projectPath = project.path;
+    }
+
+    if (requested.providerId && requested.modelId) {
+      const resolved = await providerStore?.resolveModel(requested.providerId, requested.modelId);
+      if (!resolved) {
+        throw new Error(`Unknown model: ${requested.providerId}/${requested.modelId}`);
+      }
+    }
+
+    return {
+      projectPath,
+      providerId: requested.providerId,
+      modelId: requested.modelId,
+      permissionMode: requested.permissionMode,
+    };
+  }
+
+  function sameConfig(a: ResolvedConfig | null, b: ResolvedConfig): boolean {
+    return (
+      a !== null &&
+      a.projectPath === b.projectPath &&
+      a.providerId === b.providerId &&
+      a.modelId === b.modelId &&
+      a.permissionMode === b.permissionMode
+    );
+  }
+
+  /** Construct an agent for the resolved config, seeding prior history. */
+  async function rebuild(session: Session, config: ResolvedConfig): Promise<void> {
+    const credentials =
+      config.providerId && config.modelId
+        ? await providerStore?.resolveModel(config.providerId, config.modelId)
+        : null;
+
+    session.agent = buildAgent({
+      ...wiring,
+      ...(config.projectPath ? { cwd: config.projectPath } : {}),
+      ...(credentials
+        ? {
+            model: credentials.code,
+            modelPort: wiring.modelPort ?? createOpenAIModelPort({
+              apiKey: credentials.apiKey ?? "",
+              ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
+              defaultModel: credentials.code,
+            }),
+          }
+        : {}),
+      ...(config.permissionMode
+        ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
+        : {}),
+      ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
+    });
+    session.config = config;
+  }
+
   /**
    * Run one turn for a session, streaming every event onto its SSE channel.
    *
    * Errors are delivered as protocol `error` events rather than thrown, so a
-   * failed turn never kills the connection or the process.
+   * failed turn never kills the connection or the process. The session's
+   * agent is only rebuilt when its resolved config (project path, model,
+   * permission tier) differs from the one it was last built with — a
+   * rebuild re-seeds conversation history since a fresh `createAgent`
+   * instance starts with none.
    */
-  async function runTurn(sessionId: string, message: string): Promise<void> {
+  async function runTurn(
+    sessionId: string,
+    message: string,
+    requested: TurnConfig = {},
+  ): Promise<void> {
     const session = get(sessionId);
     if (session.running) {
       push(session, session.mapper.error("A turn is already running for this session", "BUSY", true));
@@ -148,7 +251,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     session.mapper.resetTurn();
 
     try {
-      for await (const event of session.agent.stream(message)) {
+      const config = await resolveConfig(requested);
+      if (!session.agent || !sameConfig(session.config, config)) {
+        await rebuild(session, config);
+      }
+
+      for await (const event of session.agent!.stream(message)) {
         const mapped = session.mapper.map(event);
         if (mapped) push(session, mapped);
       }
@@ -159,6 +267,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // Still terminate the turn so the client leaves its streaming state.
       push(session, session.mapper.done());
     } finally {
+      // Capture history even on failure so a partial turn is not lost.
+      if (session.agent) {
+        try {
+          session.history = session.agent.getState().messages;
+        } catch {
+          // A never-run agent has no state yet; keep the previous history.
+        }
+      }
       session.running = false;
     }
   }
