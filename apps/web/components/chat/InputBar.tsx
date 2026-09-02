@@ -1,37 +1,65 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { ArrowUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface InputBarProps {
   onSubmit?: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
+  /** Controls rendered under the textarea (model / permission pickers). */
+  toolbar?: ReactNode;
 }
 
-export function InputBar({ onSubmit, disabled }: InputBarProps) {
+export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarProps) {
   const [input, setInput] = useState('');
+
+  const submit = () => {
+    if (!input.trim() || disabled) return;
+    onSubmit?.(input.trim());
+    setInput('');
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (input.trim() && !disabled) {
-      onSubmit?.(input.trim());
-      setInput('');
+    submit();
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends; Shift+Enter inserts a newline. A textarea has no implicit
+    // form submission, so this has to be explicit.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 p-4 border-t">
-      <input
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="Type a message..."
-        disabled={disabled}
-        className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      />
-      <Button type="submit" disabled={!input.trim() || disabled}>
-        Send
-      </Button>
+    <form onSubmit={handleSubmit} className="p-4">
+      <div className="rounded-xl border focus-within:ring-2 focus-within:ring-blue-500">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder ?? '描述你想要构建的内容…'}
+          disabled={disabled}
+          rows={2}
+          className="w-full resize-none bg-transparent px-4 py-3 text-sm outline-none disabled:opacity-50"
+        />
+        <div className="flex items-center gap-2 px-2 pb-2">
+          {toolbar}
+          <Button
+            type="submit"
+            size="icon"
+            className="ml-auto h-8 w-8 rounded-full"
+            disabled={!input.trim() || disabled}
+            aria-label="发送"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
