@@ -175,8 +175,13 @@ export function useChatAgent(): UseChatAgentReturn {
       if (useChatStore.getState().isGenerating) return;
 
       const sessionStore = useSessionStore.getState();
-      const sessionId =
-        sessionStore.currentSessionId ?? sessionStore.createSession({});
+      const sessionId = sessionStore.currentSessionId;
+      if (!sessionId) {
+        // The welcome screen creates the session once a project is chosen;
+        // reaching here without one means the UI let a send through too early.
+        return;
+      }
+      const session = sessionStore.sessions.find((s) => s.id === sessionId);
 
       const assistantId = newId();
       useChatStore.getState().addMessage({
@@ -205,7 +210,12 @@ export function useChatAgent(): UseChatAgentReturn {
 
       try {
         await ensureConnection(sessionId);
-        await postMessage(sessionId, content);
+        await postMessage(sessionId, content, {
+          projectId: session?.projectId ?? null,
+          providerId: session?.providerId ?? null,
+          modelId: session?.modelId ?? null,
+          permissionMode: session?.permissionMode,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : '发送失败，请稍后重试';

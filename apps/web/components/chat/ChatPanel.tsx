@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
+import { ProjectPicker } from './ProjectPicker';
+import { ModelPicker } from './ModelPicker';
+import { PermissionPicker } from './PermissionPicker';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
+import { useConfigStore } from '@/stores/config-store';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { Bot } from 'lucide-react';
 
@@ -15,6 +19,22 @@ export function ChatPanel() {
   const sessions = useSessionStore((s) => s.sessions);
   const prevSessionIdRef = useRef<string | null>(null);
   const { sendMessage, connectionState } = useChatAgent();
+  const projects = useConfigStore((s) => s.projects);
+  const providers = useConfigStore((s) => s.providers);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+
+  const hasModel = providers.some((p) => p.models.length > 0);
+
+  const startSession = (content: string) => {
+    const firstProvider = providers.find((p) => p.models.length > 0);
+    const id = useSessionStore.getState().createSession({
+      projectId: pendingProjectId,
+      providerId: firstProvider?.id ?? null,
+      modelId: firstProvider?.models[0]?.id ?? null,
+    });
+    useSessionStore.getState().setCurrentSession(id);
+    void sendMessage(content);
+  };
 
   // Load messages when session changes
   useEffect(() => {
@@ -40,8 +60,9 @@ export function ChatPanel() {
     return () => clearTimeout(timeoutId);
   }, [messages, currentSessionId]);
 
-  // sendMessage creates the session itself when there is none, so the panel
-  // does not need to pre-create one (doing so would race the SSE channel).
+  // Once a session exists (the conversation branch below), sendMessage can
+  // dispatch directly — the welcome screen is the only place that still needs
+  // to create one first, via startSession.
   const handleSubmit = (content: string) => sendMessage(content);
 
   // Only worth surfacing once a session exists — before that there is nothing
@@ -70,7 +91,25 @@ export function ChatPanel() {
           </p>
         </div>
         <div className="w-full max-w-2xl px-4">
-          <InputBar onSubmit={handleSubmit} disabled={isGenerating} />
+          <div className="mb-2 flex items-center justify-center gap-2">
+            <ProjectPicker value={pendingProjectId} onChange={setPendingProjectId} />
+          </div>
+
+          {projects.length === 0 ? (
+            <p className="text-center text-sm text-gray-500">
+              请先在左侧「工作区」添加一个项目
+            </p>
+          ) : !hasModel ? (
+            <p className="text-center text-sm text-gray-500">
+              请先在「设置」中添加供应商与模型
+            </p>
+          ) : (
+            <InputBar
+              onSubmit={startSession}
+              disabled={isGenerating || !pendingProjectId}
+              placeholder={pendingProjectId ? '描述你想要构建的内容…' : '请先选择项目'}
+            />
+          )}
         </div>
       </div>
     );
@@ -80,7 +119,18 @@ export function ChatPanel() {
     <div className="flex flex-col h-full">
       {statusBar}
       <MessageList />
-      <InputBar onSubmit={handleSubmit} disabled={isGenerating} />
+      <InputBar
+        onSubmit={handleSubmit}
+        disabled={isGenerating}
+        toolbar={
+          currentSessionId ? (
+            <>
+              <PermissionPicker sessionId={currentSessionId} />
+              <ModelPicker sessionId={currentSessionId} />
+            </>
+          ) : null
+        }
+      />
     </div>
   );
 }

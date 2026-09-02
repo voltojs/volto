@@ -36,6 +36,13 @@ export function eventsUrl(sessionId: string): string {
   return `${SERVER_URL}/events?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
+export interface TurnConfig {
+  projectId?: string | null;
+  providerId?: string | null;
+  modelId?: string | null;
+  permissionMode?: string;
+}
+
 /**
  * Ask the server to run one turn. The response only acknowledges the request —
  * the actual output arrives on the session's SSE channel.
@@ -43,11 +50,19 @@ export function eventsUrl(sessionId: string): string {
 export async function postMessage(
   sessionId: string,
   message: string,
+  config: TurnConfig = {},
 ): Promise<void> {
   const response = await fetch(`${SERVER_URL}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, message }),
+    body: JSON.stringify({
+      sessionId,
+      message,
+      ...(config.projectId ? { projectId: config.projectId } : {}),
+      ...(config.providerId ? { providerId: config.providerId } : {}),
+      ...(config.modelId ? { modelId: config.modelId } : {}),
+      ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
+    }),
   });
 
   if (!response.ok) {
