@@ -167,6 +167,14 @@ export function useChatAgent(): UseChatAgentReturn {
       connectionRef.current?.client.destroy();
       connectionRef.current = null;
       setConnectionState('disconnected');
+      // Tearing down the channel (session switch or unmount) can happen
+      // mid-turn. `client.destroy()` above only disconnects — it never
+      // emits DONE/ERROR — so without this, `isGenerating` would stay true
+      // forever and (since chat-store is a global singleton) disable the
+      // input box in every session, not just this one. Idempotent: a no-op
+      // when the turn already finished normally via DONE/ERROR.
+      useChatStore.getState().cancelStreaming();
+      streamingIdRef.current = null;
     };
   }, [currentSessionId, ensureConnection]);
 

@@ -175,4 +175,58 @@ describe("useChatStore", () => {
       expect(useChatStore.getState().currentSessionId).toBeNull();
     });
   });
+
+  // ---------------------------------------------------------------------
+  // cancelStreaming (F1) — tearing down the SSE channel mid-turn (e.g.
+  // switching sessions while tokens are still arriving) must not leave
+  // isGenerating stuck true forever, which would disable every session's
+  // input box since this store is a global singleton.
+  // ---------------------------------------------------------------------
+
+  describe("cancelStreaming", () => {
+    it("clears isGenerating", () => {
+      useChatStore.getState().setGenerating(true);
+      useChatStore.getState().cancelStreaming();
+      expect(useChatStore.getState().isGenerating).toBe(false);
+    });
+
+    it("clears isStreaming on the in-flight assistant message", () => {
+      useChatStore.getState().addMessage(
+        makeMessage({ id: "msg-1", role: "assistant", content: "partial", isStreaming: true }),
+      );
+      useChatStore.getState().setGenerating(true);
+
+      useChatStore.getState().cancelStreaming();
+
+      const { messages, isGenerating } = useChatStore.getState();
+      expect(isGenerating).toBe(false);
+      expect(messages[0]?.isStreaming).toBe(false);
+      // Content already received is preserved rather than discarded.
+      expect(messages[0]?.content).toBe("partial");
+    });
+
+    it("leaves other messages untouched", () => {
+      useChatStore.getState().addMessage(makeMessage({ id: "msg-1", content: "done", isStreaming: false }));
+      useChatStore.getState().addMessage(
+        makeMessage({ id: "msg-2", role: "assistant", content: "partial", isStreaming: true }),
+      );
+
+      useChatStore.getState().cancelStreaming();
+
+      const { messages } = useChatStore.getState();
+      expect(messages[0]).toEqual(makeMessage({ id: "msg-1", content: "done", isStreaming: false }));
+      expect(messages[1]?.isStreaming).toBe(false);
+    });
+
+    it("is a no-op when no turn is in flight (idempotent, e.g. after a normal DONE already cleared state)", () => {
+      useChatStore.getState().addMessage(makeMessage({ id: "msg-1", content: "final", isStreaming: false }));
+      useChatStore.getState().setGenerating(false);
+
+      expect(() => useChatStore.getState().cancelStreaming()).not.toThrow();
+
+      const { messages, isGenerating } = useChatStore.getState();
+      expect(isGenerating).toBe(false);
+      expect(messages[0]?.content).toBe("final");
+    });
+  });
 });

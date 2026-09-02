@@ -36,6 +36,16 @@ interface ChatState {
   clearMessages: () => void;
   setGenerating: (isGenerating: boolean) => void;
   setSessionId: (sessionId: string | null) => void;
+  /**
+   * Force-clear generation state: stops the "generating" flag and marks any
+   * still-streaming message as no longer streaming, without requiring the
+   * caller to know which message id was in flight. Used when the transport
+   * is torn down mid-turn (e.g. switching sessions while tokens are still
+   * arriving) — the SSE client's `destroy()` disconnects silently and never
+   * emits a DONE/ERROR event, so nothing else would ever clear this state.
+   * Idempotent: a no-op when no turn is in flight.
+   */
+  cancelStreaming: () => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -67,4 +77,12 @@ export const useChatStore = create<ChatState>((set) => ({
   setGenerating: (isGenerating) => set({ isGenerating }),
 
   setSessionId: (sessionId) => set({ currentSessionId: sessionId }),
+
+  cancelStreaming: () =>
+    set((state) => ({
+      isGenerating: false,
+      messages: state.messages.map((m) =>
+        m.isStreaming ? { ...m, isStreaming: false } : m,
+      ),
+    })),
 }));
