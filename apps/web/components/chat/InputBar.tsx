@@ -29,7 +29,11 @@ export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarP
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter inserts a newline. A textarea has no implicit
     // form submission, so this has to be explicit.
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Skip while an IME composition is active: confirming a candidate word
+    // (e.g. Chinese/Japanese/Korean input methods) also fires a keydown with
+    // key === 'Enter', and without this guard it would send the
+    // half-composed text instead of just confirming the candidate.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
     }
