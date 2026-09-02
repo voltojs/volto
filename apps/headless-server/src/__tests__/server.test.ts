@@ -293,4 +293,23 @@ describe("Headless server", () => {
     const { status } = await del("/projects/%");
     expect(status).toBe(400);
   });
+
+  it("GET /providers never returns a plaintext apiKey", async () => {
+    await post("/providers", {
+      name: "MiMo",
+      baseURL: "https://example.com/v1",
+      apiKey: "sk-abcdefgh3f2a",
+      models: [{ name: "MiMo-V2.5-Pro", code: "mimo-v2.5" }],
+    });
+
+    const { status, data } = await getJson("/providers");
+    expect(status).toBe(200);
+    expect(JSON.stringify(data)).not.toContain("sk-abcdefgh3f2a");
+    expect(JSON.stringify(data)).toContain("sk-…3f2a");
+  });
+
+  it("DELETE /providers/:id with a malformed id returns 400 instead of crashing", async () => {
+    const { status } = await del("/providers/%");
+    expect(status).toBe(400);
+  });
 });

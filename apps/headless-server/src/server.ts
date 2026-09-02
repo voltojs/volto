@@ -18,6 +18,7 @@ import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
 import { createProjectStore, InvalidPathError } from "./config/projects.js";
+import { createProviderStore } from "./config/providers.js";
 
 export interface ServerOptions extends WiringOptions {
   port?: number;
@@ -49,6 +50,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const agent = createWiredAgent(opts);
   const registry = createSessionRegistry(opts);
   const projectStore = createProjectStore();
+  const providerStore = createProviderStore();
 
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": corsOrigin,
@@ -215,6 +217,52 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       try {
         const id = decodeURIComponent(url.pathname.slice("/projects/".length));
         const removed = await projectStore.remove(id);
+        jsonResponse(res, removed ? 200 : 404, { removed });
+      } catch (err: unknown) {
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /providers
+    if (req.method === "GET" && url.pathname === "/providers") {
+      jsonResponse(res, 200, await providerStore.listPublic());
+      return;
+    }
+
+    // POST /providers
+    if (req.method === "POST" && url.pathname === "/providers") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { name?: string };
+        if (!body.name) {
+          jsonResponse(res, 400, { error: "name is required" });
+          return;
+        }
+        jsonResponse(res, 201, await providerStore.create(body as Parameters<typeof providerStore.create>[0]));
+      } catch (err: unknown) {
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // PUT /providers/:id
+    if (req.method === "PUT" && url.pathname.startsWith("/providers/")) {
+      try {
+        const id = decodeURIComponent(url.pathname.slice("/providers/".length));
+        const body = JSON.parse(await readBody(req)) as Parameters<typeof providerStore.update>[1];
+        const updated = await providerStore.update(id, body);
+        jsonResponse(res, updated ? 200 : 404, updated ?? { error: "Not found" });
+      } catch (err: unknown) {
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // DELETE /providers/:id
+    if (req.method === "DELETE" && url.pathname.startsWith("/providers/")) {
+      try {
+        const id = decodeURIComponent(url.pathname.slice("/providers/".length));
+        const removed = await providerStore.remove(id);
         jsonResponse(res, removed ? 200 : 404, { removed });
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
