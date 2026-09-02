@@ -19,6 +19,7 @@ import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
 import { createProjectStore, InvalidPathError } from "./config/projects.js";
 import { createProviderStore } from "./config/providers.js";
+import { isUiPermissionMode } from "./permission-modes.js";
 
 export interface ServerOptions extends WiringOptions {
   port?: number;
@@ -30,6 +31,12 @@ export interface ServerOptions extends WiringOptions {
   corsOrigin?: string;
   /** SSE heartbeat interval in ms. @default 15000 */
   heartbeatInterval?: number;
+  /**
+   * Interface to bind. Defaults to loopback: the client may name any absolute
+   * path as a project root, so binding all interfaces would expose this
+   * machine's filesystem to the local network.
+   */
+  host?: string;
 }
 
 /** Session id used when a client does not supply one. */
@@ -105,11 +112,21 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         const body = JSON.parse(await readBody(req)) as {
           message?: string;
           sessionId?: string;
+          projectId?: string;
+          providerId?: string;
+          modelId?: string;
+          permissionMode?: string;
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
         if (!body.message) {
           jsonResponse(res, 400, { error: "message is required" });
+          return;
+        }
+        // A malformed request must be rejected before the connection-state
+        // check below, so an invalid body is never masked by a 409.
+        if (body.permissionMode !== undefined && !isUiPermissionMode(body.permissionMode)) {
+          jsonResponse(res, 400, { error: `Unsupported permissionMode: ${body.permissionMode}` });
           return;
         }
         if (!registry.hasConnection(sessionId)) {
@@ -122,7 +139,12 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         // Ack immediately; the turn streams over SSE. runTurn never rejects —
         // failures are delivered to the client as protocol `error` events.
         jsonResponse(res, 202, { sessionId, accepted: true });
-        void registry.runTurn(sessionId, body.message);
+        void registry.runTurn(sessionId, body.message, {
+          ...(body.projectId ? { projectId: body.projectId } : {}),
+          ...(body.providerId ? { providerId: body.providerId } : {}),
+          ...(body.modelId ? { modelId: body.modelId } : {}),
+          ...(isUiPermissionMode(body.permissionMode) ? { permissionMode: body.permissionMode } : {}),
+        });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });
@@ -322,8 +344,10 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
   httpServer.on("close", () => registry.closeAll());
 
-  httpServer.listen(port, () => {
-    console.log(`Headless server listening on http://localhost:${port}`);
+  const host = opts.host ?? "127.0.0.1";
+
+  httpServer.listen(port, host, () => {
+    console.log(`Headless server listening on http://${host}:${port}`);
   });
 
   return httpServer;

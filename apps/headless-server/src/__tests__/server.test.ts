@@ -24,13 +24,19 @@ let baseUrl: string;
 beforeAll(async () => {
   process.env["VOLTO_CONFIG_DIR"] = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
   server = createServer({ port: 0, modelPort: MOCK_MODEL });
-  // Wait for server to start
+  // Wait for the server to start. Binding to an explicit host (as opposed to
+  // the previous no-host call, which bound synchronously) routes through
+  // Node's async listen path even for a literal IP, so `address()` is only
+  // populated once "listening" actually fires — read it inside the handler,
+  // not synchronously right after `.listen()`.
   await new Promise<void>((resolve) => {
-    const addr = server.address();
-    if (addr && typeof addr === "object") {
-      baseUrl = `http://localhost:${addr.port}`;
-    }
-    server.on("listening", resolve);
+    server.on("listening", () => {
+      const addr = server.address();
+      if (addr && typeof addr === "object") {
+        baseUrl = `http://localhost:${addr.port}`;
+      }
+      resolve();
+    });
   });
 });
 
@@ -234,6 +240,15 @@ describe("Headless server", () => {
   it("POST /messages without an open channel is rejected", async () => {
     const { status } = await post("/messages", { sessionId: "no-channel", message: "hi" });
     expect(status).toBe(409);
+  });
+
+  it("POST /messages rejects an unsupported permission mode", async () => {
+    const { status } = await post("/messages", {
+      sessionId: "bad-mode",
+      message: "hi",
+      permissionMode: "default",
+    });
+    expect(status).toBe(400);
   });
 
   it("GET /events + POST /messages streams a turn in protocol format", async () => {
