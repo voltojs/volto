@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as http from "node:http";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { WebSocket } from "ws";
 import { createServer } from "../server.js";
 import type { ModelPort, ReducerState } from "@volto/core";
@@ -19,6 +22,7 @@ let server: http.Server;
 let baseUrl: string;
 
 beforeAll(async () => {
+  process.env["VOLTO_CONFIG_DIR"] = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
   server = createServer({ port: 0, modelPort: MOCK_MODEL });
   // Wait for server to start
   await new Promise<void>((resolve) => {
@@ -119,6 +123,19 @@ function collectProtocolTurn(sessionId: string, message: string): Promise<Protoc
     req.on("error", (err) => {
       // destroy() after resolving surfaces here; ignore once we already resolved.
       if (!req.destroyed) reject(err);
+    });
+  });
+}
+
+function getJson(path: string): Promise<{ status: number; data: unknown }> {
+  return new Promise((resolve, reject) => {
+    http.get(new URL(path, baseUrl), (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () =>
+        resolve({ status: res.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString()) }),
+      );
+      res.on("error", reject);
     });
   });
 }
@@ -236,5 +253,22 @@ describe("Headless server", () => {
     });
     // Resume of nonexistent session should error or return gracefully
     expect(status === 200 || status === 500).toBe(true);
+  });
+
+  it("GET /projects starts empty and POST adds one", async () => {
+    const before = await getJson("/projects");
+    expect(before.status).toBe(200);
+    expect(before.data).toEqual([]);
+
+    const created = await post("/projects", { name: "tmp", path: process.cwd() });
+    expect(created.status).toBe(201);
+
+    const after = await getJson("/projects");
+    expect((after.data as unknown[]).length).toBe(1);
+  });
+
+  it("POST /projects rejects a non-existent path", async () => {
+    const { status } = await post("/projects", { name: "ghost", path: "/definitely/not/here" });
+    expect(status).toBe(400);
   });
 });

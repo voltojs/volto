@@ -17,6 +17,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
+import { createProjectStore, InvalidPathError } from "./config/projects.js";
 
 export interface ServerOptions extends WiringOptions {
   port?: number;
@@ -47,6 +48,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const corsOrigin = opts.corsOrigin ?? "*";
   const agent = createWiredAgent(opts);
   const registry = createSessionRegistry(opts);
+  const projectStore = createProjectStore();
 
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": corsOrigin,
@@ -183,6 +185,36 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       } finally {
         res.end();
       }
+      return;
+    }
+
+    // GET /projects
+    if (req.method === "GET" && url.pathname === "/projects") {
+      jsonResponse(res, 200, await projectStore.list());
+      return;
+    }
+
+    // POST /projects
+    if (req.method === "POST" && url.pathname === "/projects") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { name?: string; path?: string };
+        if (!body.name || !body.path) {
+          jsonResponse(res, 400, { error: "name and path are required" });
+          return;
+        }
+        jsonResponse(res, 201, await projectStore.create({ name: body.name, path: body.path }));
+      } catch (err: unknown) {
+        const status = err instanceof InvalidPathError ? 400 : 500;
+        jsonResponse(res, status, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // DELETE /projects/:id
+    if (req.method === "DELETE" && url.pathname.startsWith("/projects/")) {
+      const id = decodeURIComponent(url.pathname.slice("/projects/".length));
+      const removed = await projectStore.remove(id);
+      jsonResponse(res, removed ? 200 : 404, { removed });
       return;
     }
 
