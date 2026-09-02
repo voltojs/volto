@@ -9,6 +9,7 @@
  */
 
 import type * as http from "node:http";
+import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
 import type { Message } from "@volto/core";
 import { createOpenAIModelPort } from "@volto/provider-openai";
@@ -42,7 +43,39 @@ interface ResolvedConfig {
   projectPath: string | undefined;
   providerId: string | undefined;
   modelId: string | undefined;
+  /** Resolved from the provider record so an in-place edit is detected too. */
+  baseURL: string | null | undefined;
+  code: string | undefined;
+  /**
+   * SHA-256 hex digest of the resolved apiKey — never the plaintext. Lets a
+   * rotated key be distinguished from an unchanged one without storing the
+   * secret on the session.
+   */
+  keyFingerprint: string | undefined;
   permissionMode: UiPermissionMode | undefined;
+}
+
+/** Shape returned by providerStore.resolveModel — see config/providers.ts. */
+interface ResolvedCredentials {
+  baseURL: string | null;
+  apiKey: string | null;
+  code: string;
+}
+
+/** A session with no project/model/permission selection yet. */
+const EMPTY_CONFIG: ResolvedConfig = {
+  projectPath: undefined,
+  providerId: undefined,
+  modelId: undefined,
+  baseURL: undefined,
+  code: undefined,
+  keyFingerprint: undefined,
+  permissionMode: undefined,
+};
+
+/** SHA-256 hex digest of an apiKey, for change detection without storing the secret. */
+function fingerprintApiKey(apiKey: string): string {
+  return crypto.createHash("sha256").update(apiKey).digest("hex");
 }
 
 interface Connection {
@@ -164,28 +197,48 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return sessions.get(sessionId)?.connection != null;
   }
 
-  /** Turn the ids sent by the client into concrete construction inputs. */
-  async function resolveConfig(requested: TurnConfig): Promise<ResolvedConfig> {
+  /**
+   * Turn the ids sent by the client into concrete construction inputs.
+   *
+   * Also returns the raw credentials (if any) so `rebuild()` doesn't have to
+   * call `resolveModel` a second time.
+   */
+  async function resolveConfig(
+    requested: TurnConfig,
+  ): Promise<{ config: ResolvedConfig; credentials: ResolvedCredentials | null }> {
     let projectPath: string | undefined;
     if (requested.projectId) {
-      const project = await projectStore?.findById(requested.projectId);
+      if (!projectStore) {
+        throw new Error("Project store is not configured on this session registry");
+      }
+      const project = await projectStore.findById(requested.projectId);
       if (!project) throw new Error(`Unknown project: ${requested.projectId}`);
       projectPath = project.path;
     }
 
+    let credentials: ResolvedCredentials | null = null;
     if (requested.providerId && requested.modelId) {
-      const resolved = await providerStore?.resolveModel(requested.providerId, requested.modelId);
+      if (!providerStore) {
+        throw new Error("Provider store is not configured on this session registry");
+      }
+      const resolved = await providerStore.resolveModel(requested.providerId, requested.modelId);
       if (!resolved) {
         throw new Error(`Unknown model: ${requested.providerId}/${requested.modelId}`);
       }
+      credentials = resolved;
     }
 
-    return {
+    const config: ResolvedConfig = {
       projectPath,
       providerId: requested.providerId,
       modelId: requested.modelId,
+      baseURL: credentials?.baseURL,
+      code: credentials?.code,
+      keyFingerprint: credentials?.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
     };
+
+    return { config, credentials };
   }
 
   function sameConfig(a: ResolvedConfig | null, b: ResolvedConfig): boolean {
@@ -194,17 +247,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.projectPath === b.projectPath &&
       a.providerId === b.providerId &&
       a.modelId === b.modelId &&
+      a.baseURL === b.baseURL &&
+      a.code === b.code &&
+      a.keyFingerprint === b.keyFingerprint &&
       a.permissionMode === b.permissionMode
     );
   }
 
   /** Construct an agent for the resolved config, seeding prior history. */
-  async function rebuild(session: Session, config: ResolvedConfig): Promise<void> {
-    const credentials =
-      config.providerId && config.modelId
-        ? await providerStore?.resolveModel(config.providerId, config.modelId)
-        : null;
-
+  async function rebuild(
+    session: Session,
+    config: ResolvedConfig,
+    credentials: ResolvedCredentials | null,
+  ): Promise<void> {
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
@@ -224,6 +279,20 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
     });
     session.config = config;
+  }
+
+  /**
+   * Build (or reuse) a session-scoped agent without a `TurnConfig` — used by
+   * the legacy `/run` route so a session id still gets its own isolated
+   * agent instance instead of falling back to the process-wide shared agent
+   * and leaking one session's history into another's.
+   */
+  async function ensureAgent(sessionId: string): Promise<NonNullable<Session["agent"]>> {
+    const session = get(sessionId);
+    if (!session.agent) {
+      await rebuild(session, EMPTY_CONFIG, null);
+    }
+    return session.agent!;
   }
 
   /**
@@ -251,9 +320,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     session.mapper.resetTurn();
 
     try {
-      const config = await resolveConfig(requested);
+      const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config)) {
-        await rebuild(session, config);
+        await rebuild(session, config, credentials);
       }
 
       for await (const event of session.agent!.stream(message)) {
@@ -267,10 +336,17 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // Still terminate the turn so the client leaves its streaming state.
       push(session, session.mapper.done());
     } finally {
-      // Capture history even on failure so a partial turn is not lost.
+      // Capture history even on failure so a partial turn is not lost — but
+      // only when it grew or held steady. After a failed turn the SDK's
+      // getState() can fall back to the agent's build-time seed on the next
+      // turn (no `lastFinalState` to carry forward), which would otherwise
+      // silently truncate history that was already captured.
       if (session.agent) {
         try {
-          session.history = session.agent.getState().messages;
+          const captured = session.agent.getState().messages;
+          if (captured.length >= session.history.length) {
+            session.history = captured;
+          }
         } catch {
           // A never-run agent has no state yet; keep the previous history.
         }
@@ -287,5 +363,5 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     sessions.clear();
   }
 
-  return { get, attach, detachById, hasConnection, runTurn, closeAll, size: () => sessions.size };
+  return { get, attach, detachById, hasConnection, runTurn, ensureAgent, closeAll, size: () => sessions.size };
 }

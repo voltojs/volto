@@ -48,9 +48,9 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3100;
   const corsOrigin = opts.corsOrigin ?? "*";
   const agent = createWiredAgent(opts);
-  const registry = createSessionRegistry(opts);
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
+  const registry = createSessionRegistry({ ...opts, projectStore, providerStore });
 
   const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": corsOrigin,
@@ -134,10 +134,12 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     if (req.method === "POST" && url.pathname === "/run") {
       try {
         const body = JSON.parse(await readBody(req)) as { message: string; sessionId?: string };
-        // A session's agent is only constructed lazily by runTurn, so a session
-        // that has never taken a turn (or was rebuilt via /messages) has none
-        // yet — fall back to the shared default agent in that case.
-        const target = (body.sessionId ? registry.get(body.sessionId).agent : null) ?? agent;
+        // A session's agent is only constructed lazily. `ensureAgent` builds
+        // (or reuses) a session-scoped instance so a sessionId still gets
+        // isolated history instead of falling back to the single process-wide
+        // `agent`, which would otherwise leak one session's context into
+        // another's. Only the no-sessionId case uses the shared agent.
+        const target = body.sessionId ? await registry.ensureAgent(body.sessionId) : agent;
         const state = await target.run(body.message);
         jsonResponse(res, 200, { state });
       } catch (err: unknown) {
