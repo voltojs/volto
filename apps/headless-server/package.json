@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "vitest run",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "dev": "tsc --build && node --env-file-if-exists=../../.env dist/server.js"
   },
   "dependencies": {
     "@volto/core": "workspace:*",

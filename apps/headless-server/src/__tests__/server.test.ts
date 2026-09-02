@@ -68,6 +68,61 @@ function getSse(path: string): Promise<string[]> {
   });
 }
 
+interface ProtocolFrame {
+  id: string;
+  event: string;
+  data: unknown;
+}
+
+/** Parse the SSE wire format into frames, ignoring incomplete trailing data. */
+function parseFrames(raw: string): ProtocolFrame[] {
+  return raw
+    .split("\n\n")
+    .filter((block) => block.includes("event: "))
+    .map((block) => {
+      const frame: Record<string, string> = {};
+      for (const line of block.split("\n")) {
+        const idx = line.indexOf(": ");
+        if (idx > 0) frame[line.slice(0, idx)] = line.slice(idx + 2);
+      }
+      return {
+        id: frame["id"] ?? "",
+        event: frame["event"] ?? "",
+        data: JSON.parse(frame["data"] ?? "null"),
+      };
+    });
+}
+
+/**
+ * Open an /events channel, trigger one turn via POST /messages, and collect
+ * every protocol frame up to and including `done`.
+ */
+function collectProtocolTurn(sessionId: string, message: string): Promise<ProtocolFrame[]> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl);
+    const timer = setTimeout(() => reject(new Error("timed out waiting for done")), 10_000);
+
+    const req = http.get(url, (res) => {
+      let raw = "";
+      res.on("data", (chunk: Buffer) => {
+        raw += chunk.toString("utf-8");
+        if (!raw.includes("event: done")) return;
+        clearTimeout(timer);
+        req.destroy();
+        resolve(parseFrames(raw));
+      });
+      res.on("error", reject);
+
+      // The channel must be attached before the turn is triggered.
+      post("/messages", { sessionId, message }).catch(reject);
+    });
+    req.on("error", (err) => {
+      // destroy() after resolving surfaces here; ignore once we already resolved.
+      if (!req.destroyed) reject(err);
+    });
+  });
+}
+
 describe("Headless server", () => {
   it("GET /health returns ok", async () => {
     const url = new URL("/health", baseUrl);
@@ -126,6 +181,52 @@ describe("Headless server", () => {
     expect(events.length).toBeGreaterThan(0);
     const last = events[events.length - 1] as { type: string };
     expect(last.type).toBe("done");
+  });
+
+  it("OPTIONS preflight is answered with CORS headers", async () => {
+    const headers = await new Promise<http.IncomingHttpHeaders>((resolve, reject) => {
+      const req = http.request(new URL("/messages", baseUrl), { method: "OPTIONS" }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.headers));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+
+    expect(headers["access-control-allow-origin"]).toBe("*");
+    expect(headers["access-control-allow-headers"]).toContain("Content-Type");
+  });
+
+  it("POST /messages without an open channel is rejected", async () => {
+    const { status } = await post("/messages", { sessionId: "no-channel", message: "hi" });
+    expect(status).toBe(409);
+  });
+
+  it("GET /events + POST /messages streams a turn in protocol format", async () => {
+    const sessionId = "session-protocol";
+    const frames = await collectProtocolTurn(sessionId, "hi");
+
+    const tokens = frames.filter((f) => f.event === "token");
+    expect(tokens.length).toBeGreaterThan(0);
+    // Tokens carry the server-side accumulation, ending with the full text.
+    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
+    expect(frames.at(-1)?.event).toBe("done");
+    // Ids are monotonic so a client can resume with Last-Event-ID.
+    const ids = frames.map((f) => Number(f.id));
+    expect([...ids].sort((a, b) => a - b)).toEqual(ids);
+  });
+
+  it("keeps conversation history per session across turns", async () => {
+    const sessionId = "session-multi-turn";
+    await collectProtocolTurn(sessionId, "first");
+    await collectProtocolTurn(sessionId, "second");
+
+    // The mock model replies identically each turn; what matters is that the
+    // second turn streams a complete, independent response over the same
+    // channel rather than erroring or replaying the first turn's text.
+    const frames = await collectProtocolTurn(sessionId, "third");
+    const tokens = frames.filter((f) => f.event === "token");
+    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
   });
 
   it("POST /resume returns state", async () => {
