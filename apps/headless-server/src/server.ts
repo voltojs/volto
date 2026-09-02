@@ -33,6 +33,10 @@ export interface ServerOptions extends WiringOptions {
    * `apps/chat-adapter`, curl) send no `Origin` header at all and are never
    * subject to this check. Set to `"*"` to deliberately expose the gateway
    * to any origin, or to a different origin for another trusted deployment.
+   * Falls back to the `VOLTO_CORS_ORIGIN` env var, then to the dev default —
+   * a production `next start` build serves on a different port (3000) than
+   * the `next dev` default this hardcodes, and has no other way to configure
+   * around the 403 that would otherwise produce.
    */
   corsOrigin?: string;
   /** SSE heartbeat interval in ms. @default 15000 */
@@ -62,7 +66,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 export function createServer(opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3100;
-  const corsOrigin = opts.corsOrigin ?? DEFAULT_CORS_ORIGIN;
+  const corsOrigin = opts.corsOrigin ?? process.env["VOLTO_CORS_ORIGIN"] ?? DEFAULT_CORS_ORIGIN;
   const agent = createWiredAgent(opts);
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
@@ -252,7 +256,16 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
     // GET /projects
     if (req.method === "GET" && url.pathname === "/projects") {
-      jsonResponse(res, 200, await projectStore.list());
+      try {
+        jsonResponse(res, 200, await projectStore.list());
+      } catch (err: unknown) {
+        // A corrupt projects.json throws ConfigCorruptError from list() —
+        // without this try/catch it escaped as an unhandled rejection: no
+        // response was ever written (the client hung until timeout) and,
+        // under Node's default --unhandled-rejections=throw, the whole
+        // process exited. Surface it as a normal 500 instead.
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 
@@ -286,7 +299,12 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
     // GET /providers
     if (req.method === "GET" && url.pathname === "/providers") {
-      jsonResponse(res, 200, await providerStore.listPublic());
+      try {
+        jsonResponse(res, 200, await providerStore.listPublic());
+      } catch (err: unknown) {
+        // Same corrupt-file failure mode as GET /projects above.
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 

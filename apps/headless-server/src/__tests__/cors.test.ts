@@ -124,4 +124,49 @@ describe("CORS origin handling", () => {
       expect(rejected.status).toBe(403);
     });
   });
+
+  describe("VOLTO_CORS_ORIGIN env var", () => {
+    // A production `next start` build serves on a different port than the
+    // hardcoded `next dev` default (6100), and corsOrigin previously had no
+    // way to be configured around that other than editing code — this env
+    // var (following the OPENAI_*/VOLTO_CONFIG_DIR naming already used in
+    // this codebase) closes that gap.
+    const originalEnv = process.env["VOLTO_CORS_ORIGIN"];
+
+    afterAll(() => {
+      if (originalEnv === undefined) delete process.env["VOLTO_CORS_ORIGIN"];
+      else process.env["VOLTO_CORS_ORIGIN"] = originalEnv;
+    });
+
+    it("is used when no explicit corsOrigin option is given", async () => {
+      process.env["VOLTO_CORS_ORIGIN"] = "https://from-env.example";
+      const { server, baseUrl } = await startServer();
+      try {
+        const allowed = await getHealth(baseUrl, "https://from-env.example");
+        expect(allowed.status).toBe(200);
+        expect(allowed.headers["access-control-allow-origin"]).toBe("https://from-env.example");
+
+        const rejected = await getHealth(baseUrl, "http://localhost:6100");
+        expect(rejected.status).toBe(403);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        delete process.env["VOLTO_CORS_ORIGIN"];
+      }
+    });
+
+    it("is overridden by an explicit corsOrigin option", async () => {
+      process.env["VOLTO_CORS_ORIGIN"] = "https://from-env.example";
+      const { server, baseUrl } = await startServer({ corsOrigin: "https://explicit.example" });
+      try {
+        const allowed = await getHealth(baseUrl, "https://explicit.example");
+        expect(allowed.status).toBe(200);
+
+        const rejected = await getHealth(baseUrl, "https://from-env.example");
+        expect(rejected.status).toBe(403);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        delete process.env["VOLTO_CORS_ORIGIN"];
+      }
+    });
+  });
 });
