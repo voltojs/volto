@@ -81,7 +81,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
 
   function normalizeModels(models: ProviderInput["models"]): Model[] {
     return (models ?? []).map((m) => ({
-      id: m.id ?? crypto.randomUUID(),
+      id: m.id || crypto.randomUUID(),
       name: m.name,
       code: m.code,
     }));

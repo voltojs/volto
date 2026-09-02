@@ -91,6 +91,15 @@ describe("createProviderStore", () => {
     expect(updated?.models[1]!.id).toBeTruthy();
   });
 
+  it("treats an empty model id as a new model", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create(INPUT);
+    const updated = await store.update(created.id, {
+      models: [{ id: "", name: "Fresh", code: "fresh" }],
+    });
+    expect(updated?.models[0]!.id).toBeTruthy();
+  });
+
   it("removes a provider and reports whether it existed", async () => {
     const store = createProviderStore(dir);
     const created = await store.create(INPUT);
