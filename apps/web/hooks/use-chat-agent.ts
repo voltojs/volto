@@ -176,7 +176,7 @@ export function useChatAgent(): UseChatAgentReturn {
 
       const sessionStore = useSessionStore.getState();
       const sessionId =
-        sessionStore.currentSessionId ?? sessionStore.createSession();
+        sessionStore.currentSessionId ?? sessionStore.createSession({});
 
       const assistantId = newId();
       useChatStore.getState().addMessage({

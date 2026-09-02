@@ -6,47 +6,48 @@ import type { Message } from './chat-store';
 // Types
 // ---------------------------------------------------------------------------
 
+export type PermissionMode = 'plan' | 'auto-accept';
+
 export interface Session {
   id: string;
   title: string;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
-  workspaceId?: string;
-}
-
-export interface Workspace {
-  id: string;
-  name: string;
-  createdAt: number;
+  /** Project this session runs against. Fixed at creation time. */
+  projectId: string | null;
+  providerId: string | null;
+  modelId: string | null;
+  permissionMode: PermissionMode;
 }
 
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
+interface CreateSessionOptions {
+  title?: string;
+  projectId?: string | null;
+  providerId?: string | null;
+  modelId?: string | null;
+}
+
 interface SessionState {
   sessions: Session[];
-  workspaces: Workspace[];
   currentSessionId: string | null;
-  currentWorkspaceId: string | null;
   sidebarOpen: boolean;
 
-  // Session actions
-  createSession: (title?: string, workspaceId?: string) => string;
+  createSession: (options?: CreateSessionOptions) => string;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setCurrentSession: (id: string | null) => void;
   getSessionMessages: (id: string) => Message[];
   updateSessionMessages: (id: string, messages: Message[]) => void;
 
-  // Workspace actions
-  createWorkspace: (name: string) => string;
-  deleteWorkspace: (id: string) => void;
-  setCurrentWorkspace: (id: string | null) => void;
-  getWorkspaceSessions: (workspaceId: string) => Session[];
+  setSessionModel: (id: string, providerId: string, modelId: string) => void;
+  setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
+  getProjectSessions: (projectId: string) => Session[];
 
-  // Sidebar actions
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
 }
@@ -57,22 +58,23 @@ export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
       sessions: [],
-      workspaces: [],
       currentSessionId: null,
-      currentWorkspaceId: null,
       sidebarOpen: true,
 
-      // Session actions
-      createSession: (title, workspaceId) => {
+      createSession: (options = {}) => {
         const id = generateId();
         const now = Date.now();
         const session: Session = {
           id,
-          title: title || `会话 ${new Date(now).toLocaleDateString('zh-CN')}`,
+          title: options.title || `会话 ${new Date(now).toLocaleDateString('zh-CN')}`,
           messages: [],
           createdAt: now,
           updatedAt: now,
-          workspaceId,
+          projectId: options.projectId ?? null,
+          providerId: options.providerId ?? null,
+          modelId: options.modelId ?? null,
+          // Start in the restrictive tier; widening it is an explicit choice.
+          permissionMode: 'plan',
         };
         set((state) => ({
           sessions: [session, ...state.sessions],
@@ -97,50 +99,33 @@ export const useSessionStore = create<SessionState>()(
 
       setCurrentSession: (id) => set({ currentSessionId: id }),
 
-      getSessionMessages: (id) => {
-        const session = get().sessions.find((s) => s.id === id);
-        return session?.messages || [];
-      },
+      getSessionMessages: (id) =>
+        get().sessions.find((s) => s.id === id)?.messages ?? [],
 
       updateSessionMessages: (id, messages) =>
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === id
-              ? { ...s, messages, updatedAt: Date.now() }
-              : s,
+            s.id === id ? { ...s, messages, updatedAt: Date.now() } : s,
           ),
         })),
 
-      // Workspace actions
-      createWorkspace: (name) => {
-        const id = generateId();
-        const workspace: Workspace = {
-          id,
-          name,
-          createdAt: Date.now(),
-        };
+      setSessionModel: (id, providerId, modelId) =>
         set((state) => ({
-          workspaces: [...state.workspaces, workspace],
-          currentWorkspaceId: id,
-        }));
-        return id;
-      },
-
-      deleteWorkspace: (id) =>
-        set((state) => ({
-          workspaces: state.workspaces.filter((w) => w.id !== id),
-          sessions: state.sessions.filter((s) => s.workspaceId !== id),
-          currentWorkspaceId:
-            state.currentWorkspaceId === id ? null : state.currentWorkspaceId,
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, providerId, modelId, updatedAt: Date.now() } : s,
+          ),
         })),
 
-      setCurrentWorkspace: (id) => set({ currentWorkspaceId: id }),
+      setSessionPermissionMode: (id, permissionMode) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, permissionMode, updatedAt: Date.now() } : s,
+          ),
+        })),
 
-      getWorkspaceSessions: (workspaceId) => {
-        return get().sessions.filter((s) => s.workspaceId === workspaceId);
-      },
+      getProjectSessions: (projectId) =>
+        get().sessions.filter((s) => s.projectId === projectId),
 
-      // Sidebar actions
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -149,9 +134,7 @@ export const useSessionStore = create<SessionState>()(
       name: 'volto-sessions',
       partialize: (state) => ({
         sessions: state.sessions,
-        workspaces: state.workspaces,
         currentSessionId: state.currentSessionId,
-        currentWorkspaceId: state.currentWorkspaceId,
         sidebarOpen: state.sidebarOpen,
       }),
     },
