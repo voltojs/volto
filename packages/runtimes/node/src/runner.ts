@@ -41,6 +41,7 @@ import {
 import type { StepContext, ReducerState } from "@volto/core";
 import type { Hook } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
+import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -362,38 +363,7 @@ export function createRunner(opts: RunnerOptions): Runner {
    */
   async function runModelStream(): Promise<void> {
     // Apply compaction before building the main request
-    let messages = await applyCompaction(state.messages);
-
-    // RAG pipeline: query memory store and inject retrieved fragments
-    if (opts.rag) {
-      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
-      const queryText = queryBuilder
-        ? queryBuilder(messages)
-        : extractLastUserMessage(messages);
-      if (queryText) {
-        try {
-          const fragments = await memoryStore.query(queryText, topK);
-          if (fragments.length > 0) {
-            const ragText = fragments
-              .map((f, i) => `[${i + 1}] ${f.text}`)
-              .join("\n\n");
-            const ragMessage: Message = {
-              role: "user",
-              content: `# Retrieved Context\n\n${ragText}`,
-            };
-            // Inject after the last system message (preserving static prefix)
-            let insertIndex = 0;
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i]!.role === "system") insertIndex = i + 1;
-              else break;
-            }
-            messages = [...messages.slice(0, insertIndex), ragMessage, ...messages.slice(insertIndex)];
-          }
-        } catch {
-          // Memory query failure is non-fatal — proceed without RAG
-        }
-      }
-    }
+    const messages = await applyCompaction(state.messages);
 
     // ContextAssembler: cache-friendly ordering + breakpoint computation.
     // Same pure function the reducer uses for its `call_model` effect, so
@@ -404,9 +374,30 @@ export function createRunner(opts: RunnerOptions): Runner {
       messages,
       tools: stepContext.tools,
       pinnedMessageIds: state.pinnedMessageIds,
+      contextLayers: stepContext.contextLayers,
     });
-    const finalMessages = assembled.messages;
+    let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
+
+    if (opts.rag) {
+      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
+      const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
+      if (queryText) {
+        try {
+          const fragments = await memoryStore.query(queryText, topK);
+          if (fragments.length > 0) {
+            const index = computeRAGInjectionIndex(finalCacheBreakpoints, finalMessages.length);
+            const ragMessage: Message = {
+              role: "user",
+              content: buildRAGMessage(fragments.map((f) => f.text)),
+            };
+            finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
+          }
+        } catch {
+          /* Memory query failure is non-fatal */
+        }
+      }
+    }
 
     const req = {
       messages: finalMessages,

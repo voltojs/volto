@@ -84,4 +84,18 @@ describe("Runner RAG pipeline", () => {
     const ragMsg = msgs.find((m) => typeof m.content === "string" && m.content.includes("Retrieved Context"));
     expect(ragMsg).toBeUndefined();
   });
+
+  it("includes contextLayers from stepContext in the assembled prompt", async () => {
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model", contextLayers: [{ id: "user-memory", text: "Be terse" }] },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const msgs = model.lastMessages as Array<{ role: string; content: string }>;
+    expect(msgs.some((m) => m.role === "system" && m.content === "Be terse")).toBe(true);
+  });
 });
