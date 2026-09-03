@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import type { Message } from '@/stores/chat-store';
+import type { Message, MessageBlock } from '@/stores/chat-store';
 import { StreamRenderer } from './StreamRenderer';
 import { Markdown } from './Markdown';
 import { ToolCallCard } from './ToolCallCard';
@@ -17,9 +17,16 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
 });
 
+/** A message with no blocks yet (nothing streamed in) falls back to its plain `content`, if any. */
+function resolveBlocks(message: Message): MessageBlock[] {
+  if (message.blocks) return message.blocks;
+  return message.content ? [{ type: 'text', text: message.content }] : [];
+}
+
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
+  const blocks = resolveBlocks(message);
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -70,17 +77,21 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           <div className="text-foreground text-sm whitespace-pre-wrap">
             {message.content}
           </div>
-        ) : message.isStreaming ? (
-          <StreamRenderer content={message.content} />
+        ) : blocks.length === 0 ? (
+          // Nothing streamed in yet — still show the caret so the bubble
+          // isn't empty while the first token is in flight.
+          <StreamRenderer content="" />
         ) : (
-          <Markdown content={message.content} />
-        )}
-
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {message.toolCalls.map((call) => (
-              <ToolCallCard key={call.id} call={call} />
-            ))}
+          <div className="space-y-2">
+            {blocks.map((block, index) =>
+              block.type === 'tool_call' ? (
+                <ToolCallCard key={block.call.id} call={block.call} />
+              ) : index === blocks.length - 1 && message.isStreaming ? (
+                <StreamRenderer key={index} content={block.text} />
+              ) : (
+                <Markdown key={index} content={block.text} />
+              ),
+            )}
           </div>
         )}
       </div>

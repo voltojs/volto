@@ -139,6 +139,106 @@ describe('useChatStore', () => {
   });
 
   // -----------------------------------------------------------------------
+  // setLastTextBlock / pushToolCallBlock / updateToolCallBlock — the ordered
+  // blocks sequence that lets a tool call render where it actually happened
+  // instead of after all the message's text.
+  // -----------------------------------------------------------------------
+
+  describe('setLastTextBlock', () => {
+    it('appends a text block when there are none yet', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+
+      useChatStore.getState().setLastTextBlock('msg-1', 'hello');
+
+      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
+        { type: 'text', text: 'hello' },
+      ]);
+    });
+
+    it('overwrites the trailing text block rather than appending a second one', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+      useChatStore.getState().setLastTextBlock('msg-1', 'hel');
+      useChatStore.getState().setLastTextBlock('msg-1', 'hello');
+
+      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
+        { type: 'text', text: 'hello' },
+      ]);
+    });
+
+    it('starts a new text block when the trailing block is a tool call', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+      useChatStore
+        .getState()
+        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
+
+      useChatStore.getState().setLastTextBlock('msg-1', 'after the call');
+
+      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
+        { type: 'tool_call', call: { id: 'c1', name: 'read_file', args: {} } },
+        { type: 'text', text: 'after the call' },
+      ]);
+    });
+
+    it('does not create an empty placeholder block for an empty string', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+
+      useChatStore.getState().setLastTextBlock('msg-1', '');
+
+      expect(useChatStore.getState().messages[0]?.blocks).toBeUndefined();
+    });
+  });
+
+  describe('pushToolCallBlock', () => {
+    it('appends after an existing text block, closing it off', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+      useChatStore.getState().setLastTextBlock('msg-1', 'checking...');
+
+      useChatStore
+        .getState()
+        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: { path: '/a.ts' } });
+
+      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
+        { type: 'text', text: 'checking...' },
+        { type: 'tool_call', call: { id: 'c1', name: 'read_file', args: { path: '/a.ts' } } },
+      ]);
+    });
+  });
+
+  describe('updateToolCallBlock', () => {
+    it('merges result/isError into the matching tool_call block', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+      useChatStore
+        .getState()
+        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
+
+      useChatStore
+        .getState()
+        .updateToolCallBlock('msg-1', 'c1', { result: 'file contents', isError: false });
+
+      const blocks = useChatStore.getState().messages[0]?.blocks;
+      expect(blocks?.[0]).toEqual({
+        type: 'tool_call',
+        call: { id: 'c1', name: 'read_file', args: {}, result: 'file contents', isError: false },
+      });
+    });
+
+    it('is a no-op when no tool_call block matches the id', () => {
+      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
+      useChatStore
+        .getState()
+        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
+
+      useChatStore.getState().updateToolCallBlock('msg-1', 'nonexistent', { result: 'x' });
+
+      const blocks = useChatStore.getState().messages[0]?.blocks;
+      expect(blocks?.[0]).toEqual({
+        type: 'tool_call',
+        call: { id: 'c1', name: 'read_file', args: {} },
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // clearMessages
   // -----------------------------------------------------------------------
 

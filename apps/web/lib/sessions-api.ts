@@ -25,12 +25,16 @@ export interface ServerToolCall {
   isError?: boolean;
 }
 
+export type ServerMessageBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_call'; call: ServerToolCall };
+
 export interface ServerMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  blocks: ServerMessageBlock[];
   timestamp: number;
-  toolCalls?: ServerToolCall[];
 }
 
 export interface ServerSessionDetail {

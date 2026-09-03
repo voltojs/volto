@@ -56,7 +56,15 @@ describe('fetchServerSessionDetail', () => {
       providerId: 'v1',
       modelId: 'm1',
       permissionMode: 'plan',
-      messages: [{ id: 's1-0', role: 'user', content: 'hi', timestamp: 1 }],
+      messages: [
+        {
+          id: 's1-0',
+          role: 'user',
+          content: 'hi',
+          blocks: [{ type: 'text', text: 'hi' }],
+          timestamp: 1,
+        },
+      ],
       createdAt: 1,
       updatedAt: 2,
     };

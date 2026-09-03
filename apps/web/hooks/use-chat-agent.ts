@@ -45,17 +45,35 @@ export function useChatAgent(): UseChatAgentReturn {
   const connectionRef = useRef<Connection | null>(null);
   /** Id of the assistant message currently being streamed into. */
   const streamingIdRef = useRef<string | null>(null);
+  /**
+   * How much of the turn's cumulative text (the `content` a TOKEN/DONE event
+   * carries) belongs to already-closed text blocks — everything up to and
+   * including the segment that ended at the last tool call. Reset to 0 each
+   * time a new streaming message starts. Without this, every TOKEN event
+   * would overwrite the message's single `content` field and every tool
+   * call would land in a flat side array, losing which text came before or
+   * after which tool call.
+   */
+  const frozenTextLengthRef = useRef(0);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('disconnected');
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
 
-  const finishStreaming = useCallback((updates?: { content?: string }) => {
+  /**
+   * Applies the turn's cumulative text: keeps `content` as the full text for
+   * copy-to-clipboard, and writes only the portion since the last tool call
+   * into the trailing (currently open) text block.
+   */
+  const applyAccumulatedText = useCallback((id: string, fullContent: string) => {
+    const newText = fullContent.slice(frozenTextLengthRef.current);
+    useChatStore.getState().updateMessage(id, { content: fullContent });
+    useChatStore.getState().setLastTextBlock(id, newText);
+  }, []);
+
+  const finishStreaming = useCallback(() => {
     const id = streamingIdRef.current;
     if (id) {
-      useChatStore.getState().updateMessage(id, {
-        ...updates,
-        isStreaming: false,
-      });
+      useChatStore.getState().updateMessage(id, { isStreaming: false });
       streamingIdRef.current = null;
     }
     useChatStore.getState().setGenerating(false);
@@ -81,55 +99,56 @@ export function useChatAgent(): UseChatAgentReturn {
         if (!id) return;
         // `content` is the server-side accumulation, so a dropped or replayed
         // frame cannot desync the rendered text the way appending deltas can.
-        useChatStore.getState().updateMessage(id, { content: data.content });
+        applyAccumulatedText(id, data.content);
       });
 
       client.on<ToolCallData>(SSEEventType.TOOL_CALL, (data) => {
         const id = streamingIdRef.current;
         if (!id) return;
+        // Close off whatever text block was open — this tool call happened
+        // after it, so later text must start a new block rather than
+        // continuing to append onto text that came before the call.
         const message = useChatStore
           .getState()
           .messages.find((m) => m.id === id);
+        const lastBlock = message?.blocks?.[message.blocks.length - 1];
+        if (lastBlock?.type === 'text') {
+          frozenTextLengthRef.current += lastBlock.text.length;
+        }
         const toolCall: ToolCall = {
           id: data.id,
           name: data.name,
           args: data.args ?? {},
         };
-        useChatStore.getState().updateMessage(id, {
-          toolCalls: [...(message?.toolCalls ?? []), toolCall],
-        });
+        useChatStore.getState().pushToolCallBlock(id, toolCall);
       });
 
       client.on<ToolResultData>(SSEEventType.TOOL_RESULT, (data) => {
         const id = streamingIdRef.current;
         if (!id) return;
-        const message = useChatStore
-          .getState()
-          .messages.find((m) => m.id === id);
-        if (!message?.toolCalls) return;
-        useChatStore.getState().updateMessage(id, {
-          toolCalls: message.toolCalls.map((call) =>
-            call.id === data.id
-              ? { ...call, result: data.result, isError: data.isError }
-              : call,
-          ),
+        useChatStore.getState().updateToolCallBlock(id, data.id, {
+          result: data.result,
+          isError: data.isError,
         });
       });
 
       client.on<{ content?: string }>(SSEEventType.DONE, (data) => {
         // Trust the server's final accumulation if it sent one.
-        finishStreaming(data?.content ? { content: data.content } : undefined);
+        const id = streamingIdRef.current;
+        if (id && data?.content) applyAccumulatedText(id, data.content);
+        finishStreaming();
       });
 
       client.on<ErrorData>(SSEEventType.ERROR, (data) => {
         const id = streamingIdRef.current;
-        const current = id
-          ? useChatStore.getState().messages.find((m) => m.id === id)?.content
-          : '';
         const notice = `⚠️ ${data.message}`;
-        finishStreaming({
-          content: current ? `${current}\n\n${notice}` : notice,
-        });
+        if (id) {
+          const current =
+            useChatStore.getState().messages.find((m) => m.id === id)
+              ?.content ?? '';
+          applyAccumulatedText(id, current ? `${current}\n\n${notice}` : notice);
+        }
+        finishStreaming();
       });
 
       const ready = new Promise<void>((resolve, reject) => {
@@ -157,7 +176,7 @@ export function useChatAgent(): UseChatAgentReturn {
       connectionRef.current = { sessionId, client, ready };
       return ready;
     },
-    [finishStreaming],
+    [finishStreaming, applyAccumulatedText],
   );
 
   // Keep the channel bound to the active session.
@@ -228,6 +247,7 @@ export function useChatAgent(): UseChatAgentReturn {
         isStreaming: true,
       });
       streamingIdRef.current = assistantId;
+      frozenTextLengthRef.current = 0;
       useChatStore.getState().setGenerating(true);
 
       // Attach the new messages to the session synchronously. When this send
@@ -249,10 +269,11 @@ export function useChatAgent(): UseChatAgentReturn {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : '发送失败，请稍后重试';
-        finishStreaming({ content: `⚠️ ${message}` });
+        applyAccumulatedText(assistantId, `⚠️ ${message}`);
+        finishStreaming();
       }
     },
-    [ensureConnection, finishStreaming],
+    [ensureConnection, finishStreaming, applyAccumulatedText],
   );
 
   return { sendMessage, connectionState };

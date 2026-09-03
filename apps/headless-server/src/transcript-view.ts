@@ -1,10 +1,11 @@
 /**
  * Translates core's structured `Message[]` (content blocks, separate
- * tool_use / tool_result messages) into the flattened shape `apps/web`
- * renders (one entry per turn step, tool calls carrying their own result
- * inline). This is the only place that shape conversion happens — the wire
- * contract for `GET /sessions/:id` is web-ready JSON, not a leak of core's
- * internal message representation.
+ * tool_use / tool_result messages) into the shape `apps/web` renders — an
+ * ordered `blocks` sequence per message, so a tool call lands at the point
+ * in the reply where it actually happened rather than after all the text.
+ * This is the only place that shape conversion happens — the wire contract
+ * for `GET /sessions/:id` is web-ready JSON, not a leak of core's internal
+ * message representation.
  */
 
 import type { Message } from "@volto/core";
@@ -17,12 +18,17 @@ export interface UiToolCall {
   isError?: boolean;
 }
 
+export type UiMessageBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; call: UiToolCall };
+
 export interface UiMessage {
   id: string;
   role: "user" | "assistant" | "system";
+  /** Full text, all segments concatenated — kept for copy-to-clipboard. */
   content: string;
+  blocks: UiMessageBlock[];
   timestamp: number;
-  toolCalls?: UiToolCall[];
 }
 
 function textOf(content: string | Array<{ type: string; text?: string }>): string {
@@ -39,7 +45,9 @@ function textOf(content: string | Array<{ type: string; text?: string }>): strin
  * the chat feed. A tool's result arrives as a separate, later message in the
  * core stream (`role: "tool"`); it is matched back to the assistant's
  * `tool_use` block by id and folded into that call's `result`/`isError`
- * rather than appearing as its own entry.
+ * rather than appearing as its own entry. Adjacent text content blocks are
+ * merged into one text block — core can emit several in a row (e.g. around
+ * an image block), but the UI only needs segment boundaries at tool calls.
  */
 export function toUiMessages(
   sessionId: string,
@@ -56,26 +64,40 @@ export function toUiMessages(
     if (message.role === "system") return;
 
     if (message.role === "user") {
-      result.push({ id, role: "user", content: textOf(message.content), timestamp });
+      const text = textOf(message.content);
+      result.push({
+        id,
+        role: "user",
+        content: text,
+        blocks: text ? [{ type: "text", text }] : [],
+        timestamp,
+      });
       return;
     }
 
     if (message.role === "assistant") {
-      const toolCalls: UiToolCall[] = [];
+      const blocks: UiMessageBlock[] = [];
+      let textBuffer = "";
+      const flushText = () => {
+        if (textBuffer) {
+          blocks.push({ type: "text", text: textBuffer });
+          textBuffer = "";
+        }
+      };
       for (const block of message.content) {
-        if (block.type === "tool_use") {
+        if (block.type === "text") {
+          textBuffer += block.text;
+        } else if (block.type === "tool_use") {
+          flushText();
           const call: UiToolCall = { id: block.id, name: block.name, args: block.input };
-          toolCalls.push(call);
+          blocks.push({ type: "tool_call", call });
           pendingByToolUseId.set(block.id, call);
         }
+        // Image blocks have no UI representation yet — dropped, same as
+        // the flattened `content` string already did.
       }
-      result.push({
-        id,
-        role: "assistant",
-        content: textOf(message.content),
-        timestamp,
-        ...(toolCalls.length > 0 ? { toolCalls } : {}),
-      });
+      flushText();
+      result.push({ id, role: "assistant", content: textOf(message.content), blocks, timestamp });
       return;
     }
 
