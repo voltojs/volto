@@ -13,13 +13,14 @@ import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
 import type { Message } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
+import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createOpenAIModelPort } from "@volto/provider-openai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
 import type { createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 
-export interface SessionRegistryOptions extends WiringOptions {
+export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
   maxSessions?: number;
   /** Events retained per session for Last-Event-ID replay. @default 200 */
@@ -49,6 +50,8 @@ export interface TurnConfig {
 /** Snapshot of what an agent instance was built from. */
 interface ResolvedConfig {
   projectPath: string | undefined;
+  /** The bound project's id — distinct from `projectPath`, needed verbatim for chatMeta's config binding. */
+  projectId: string | undefined;
   providerId: string | undefined;
   modelId: string | undefined;
   /** Resolved from the provider record so an in-place edit is detected too. */
@@ -73,6 +76,7 @@ interface ResolvedCredentials {
 /** A session with no project/model/permission selection yet. */
 const EMPTY_CONFIG: ResolvedConfig = {
   projectPath: undefined,
+  projectId: undefined,
   providerId: undefined,
   modelId: undefined,
   baseURL: undefined,
@@ -252,6 +256,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
     const config: ResolvedConfig = {
       projectPath,
+      projectId: requested.projectId,
       providerId: requested.providerId,
       modelId: requested.modelId,
       baseURL: credentials.baseURL,
@@ -267,6 +272,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return (
       a !== null &&
       a.projectPath === b.projectPath &&
+      a.projectId === b.projectId &&
       a.providerId === b.providerId &&
       a.modelId === b.modelId &&
       a.baseURL === b.baseURL &&
@@ -299,6 +305,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
         : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
+      ...(chatStore
+        ? {
+            chatStore: scopeToWorkspace(chatStore, config.projectPath ?? null),
+            chatSessionId: session.id,
+            chatMeta: {
+              projectId: config.projectId ?? null,
+              providerId: config.providerId ?? null,
+              modelId: config.modelId ?? null,
+              permissionMode: config.permissionMode ?? null,
+            },
+          }
+        : {}),
     });
     session.config = config;
   }
@@ -350,17 +368,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
     session.running = true;
     session.mapper.resetTurn();
-    const historyLengthBeforeTurn = session.history.length;
 
-    // Captures whatever history this turn produced (success or failure) and
-    // persists exactly the new messages, before `done` is pushed — a client
-    // that observes `done` on the wire must be able to trust the transcript
-    // already reflects the turn, not "will shortly, once this fire-and-forget
-    // write lands". Comparing against the length captured before the turn ran
-    // (rather than re-diffing session.history) means the guarded shrink below
-    // — the SDK's build-time-seed fallback after a failed turn — never
-    // re-appends messages the transcript already has.
-    async function captureAndPersistHistory(): Promise<void> {
+    // Captures whatever history this turn produced (success or failure)
+    // before `done` is pushed. Durable persistence of messages/errors is now
+    // handled inside createAgent() itself (via chatStore/chatSessionId), so
+    // this only keeps the in-memory carry-forward history up to date.
+    async function captureHistory(): Promise<void> {
       if (session.agent) {
         try {
           const captured = session.agent.getState().messages;
@@ -371,48 +384,27 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           // A never-run agent has no state yet; keep the previous history.
         }
       }
-      if (chatStore && session.history.length > historyLengthBeforeTurn) {
-        await chatStore
-          .appendMessages(
-            session.config?.projectPath ?? null,
-            sessionId,
-            session.history.slice(historyLengthBeforeTurn),
-          )
-          .catch(() => {});
-      }
     }
 
     try {
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config)) {
         await rebuild(session, config, credentials);
-        // Only the ids/mode — never the resolved credentials (baseURL,
-        // apiKey fingerprint) — belong in a durable transcript. Awaited (not
-        // fire-and-forget) so the write is durable before the turn streams
-        // any further — a crash mid-turn should not lose a binding change
-        // that already took effect.
-        await chatStore?.appendMeta(config.projectPath ?? null, sessionId, {
-          projectId: requested.projectId ?? null,
-          providerId: requested.providerId ?? null,
-          modelId: requested.modelId ?? null,
-          permissionMode: requested.permissionMode ?? null,
-        }).catch(() => {});
       }
 
       for await (const event of session.agent!.stream(message)) {
         const mapped = session.mapper.map(event);
         if (mapped) push(session, mapped);
       }
-      await captureAndPersistHistory();
+      await captureHistory();
       push(session, session.mapper.done());
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
-      await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.
-      await captureAndPersistHistory();
+      await captureHistory();
       push(session, session.mapper.done());
     } finally {
       session.running = false;

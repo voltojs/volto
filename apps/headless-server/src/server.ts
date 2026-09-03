@@ -31,7 +31,7 @@ import {
 } from "./fs/directory-picker.js";
 import { CommandTimeoutError } from "./fs/command-runner.js";
 
-export interface ServerOptions extends WiringOptions {
+export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
   /**
    * Allowed browser origin, reflected as `Access-Control-Allow-Origin` and
@@ -81,7 +81,14 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 export function createServer(opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3100;
   const corsOrigin = opts.corsOrigin ?? process.env["VOLTO_CORS_ORIGIN"] ?? DEFAULT_CORS_ORIGIN;
-  const agent = createWiredAgent(opts);
+  // The legacy shared agent (used by /resume, /stream, /ws when no sessionId is
+  // given) has no per-session scoping, so it never gets the durable transcript
+  // store — `opts.chatStore` here is the unscoped, whole-workspace store type
+  // (JsonlSessionStore), not the already-scoped TranscriptStore createWiredAgent
+  // expects. Only `registry` (below) wires chatStore in, per-session, via
+  // scopeToWorkspace() inside sessions.ts's rebuild().
+  const { chatStore: _rawChatStore, ...agentOpts } = opts;
+  const agent = createWiredAgent(agentOpts);
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
   const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();

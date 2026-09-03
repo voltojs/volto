@@ -14,7 +14,7 @@ import {
 } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import { expandInstructions, type ContextLayer } from "@volto/core";
-import type { ModelPort, PermissionConfig, Message } from "@volto/core";
+import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import type { Skill } from "@volto/sdk";
 import { findTriggeredSkills } from "@volto/sdk";
 import { getConfigDir } from "./config/paths.js";
@@ -206,6 +206,12 @@ export interface WiringOptions {
   permissionConfig?: PermissionConfig;
   /** Conversation history to seed when rebuilding an instance. */
   initialMessages?: Message[];
+  /** Durable transcript/trajectory store, already scoped to this workspace via scopeToWorkspace(). */
+  chatStore?: TranscriptStore;
+  /** The chatStore's stable, whole-conversation session id. */
+  chatSessionId?: string;
+  /** Config binding recorded once via chatStore.appendMeta() when the agent is (re)built. */
+  chatMeta?: ChatSessionMeta;
 }
 
 export function createWiredAgent(opts: WiringOptions = {}) {
@@ -246,5 +252,8 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     resolveContextLayers,
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
+    ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
+    ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
+    ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
   });
 }
