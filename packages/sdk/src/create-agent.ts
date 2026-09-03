@@ -798,10 +798,6 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     abortSignal: AbortSignal | undefined,
     inputText: string,
   ): Promise<Runner> {
-    const previousState = lastFinalState;
-    lastRunner = null;
-    lastFinalState = null;
-
     // Wrap EventSink to intercept usage events for cost metering
     // and filter reasoning_delta based on reasoningStrategy.
     const reasoningStrategy = resolve(opts.reasoningStrategy, "reasoningStrategy") ?? "emit";
@@ -844,6 +840,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     const turnStepContext: StepContext = opts.resolveContextLayers
       ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
       : stepContext;
+
+    // Reset only after resolveContextLayers has succeeded — if it rejects,
+    // lastRunner/lastFinalState must remain untouched so a subsequent retry
+    // still carries forward the prior turn's state instead of silently
+    // starting a fresh conversation.
+    const previousState = lastFinalState;
+    lastRunner = null;
+    lastFinalState = null;
 
     const runnerOpts: RunnerOptions = {
       modelPort,

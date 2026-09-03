@@ -267,5 +267,36 @@ describe("createAgent — SDK facade", () => {
       const state = await agent.run("hello");
       expect(state.status).toBe("done");
     });
+
+    it("preserves prior turn state when resolveContextLayers rejects, so a retry still carries forward history", async () => {
+      const mockModel = createMockModelPort([
+        textScript("First reply"),
+        textScript("Second reply"),
+      ]);
+
+      let callCount = 0;
+      const agent = createAgent({
+        modelPort: mockModel,
+        resolveContextLayers: async () => {
+          callCount++;
+          if (callCount === 2) {
+            throw new Error("resolveContextLayers failed");
+          }
+          return [];
+        },
+      });
+
+      const state1 = await agent.run("Turn 1");
+      expect(state1.messages).toHaveLength(2);
+
+      await expect(agent.run("Turn 2 (fails)")).rejects.toThrow("resolveContextLayers failed");
+
+      const state2 = await agent.run("Turn 2 (retry)");
+      expect(state2.messages).toHaveLength(4);
+      expect(state2.messages[3]).toMatchObject({
+        role: "assistant",
+        content: [{ type: "text", text: "Second reply" }],
+      });
+    });
   });
 });
