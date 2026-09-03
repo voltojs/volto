@@ -30,8 +30,36 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tempDir, { recursive: true, force: true });
+  await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
 });
+
+/**
+ * Runner.recordTrajectory() fires appendTrajectoryEntry() without awaiting
+ * it ("best-effort, never throws into the main loop") — so agent.run()
+ * resolving does not guarantee every trajectory write has landed on disk
+ * yet. Poll the raw file until all four expected event types show up (or
+ * time out), rather than asserting immediately after run() returns.
+ */
+async function readTrajectoryEventTypesEventually(
+  filePath: string,
+  expected: string[],
+  timeoutMs = 2000,
+): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  let lastSeen: string[] = [];
+  for (;;) {
+    const raw = await fs.readFile(filePath, "utf-8").catch(() => "");
+    const lines = raw
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; entry?: { eventType: string } });
+    lastSeen = lines.filter((line) => line.type === "trajectory").map((line) => line.entry!.eventType);
+    if (expected.every((type) => lastSeen.includes(type))) return lastSeen;
+    if (Date.now() > deadline) return lastSeen;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 
 const echoToolDef: ToolDefinition = {
   name: "echo",
@@ -84,15 +112,8 @@ describe("trajectory capture — real chatStore end to end", () => {
     // Raw JSONL file: workspacePath is null, so the file lives at the top
     // level of `directory` (mirrors packages/stores/jsonl/src/__tests__/store.test.ts).
     const filePath = path.join(tempDir, "e2e-s1.jsonl");
-    const raw = await fs.readFile(filePath, "utf-8");
-    const lines = raw
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as { type: string; entry?: { eventType: string } });
-
-    const trajectoryEventTypes = lines
-      .filter((line) => line.type === "trajectory")
-      .map((line) => line.entry!.eventType);
+    const expectedTypes = ["tool_use_complete", "tool_result", "context_assembled", "model_done"];
+    const trajectoryEventTypes = await readTrajectoryEventTypesEventually(filePath, expectedTypes);
 
     expect(trajectoryEventTypes).toContain("tool_use_complete");
     expect(trajectoryEventTypes).toContain("tool_result");
