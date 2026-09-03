@@ -49,8 +49,12 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const close = () => {
     attemptRef.current += 1;
     // Reset so reopening the dialog does not show the previous selection.
+    // Also clear `picking`: the abandoned attempt's own `finally` will see
+    // its attempt id is stale and skip touching this flag, so nothing else
+    // would ever flip it back off, leaving 选择目录 disabled forever.
     setPath(null);
     setError(null);
+    setPicking(false);
     onOpenChange(false);
   };
 
