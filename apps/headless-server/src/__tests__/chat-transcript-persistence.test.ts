@@ -11,13 +11,28 @@ afterEach(() => {
   created.length = 0;
 });
 
-/** Minimal JsonlSessionStore stand-in — only what scopeToWorkspace() needs to forward calls to. */
-function makeFakeChatStore(): JsonlSessionStore {
+/**
+ * Minimal JsonlSessionStore stand-in — records the `workspacePath` each
+ * method receives so a test can verify `scopeToWorkspace()` actually
+ * threaded the resolved project path through, rather than just checking
+ * that the scoped store is callable.
+ */
+function makeFakeChatStore(): JsonlSessionStore & { workspacePaths: Array<string | null> } {
+  const workspacePaths: Array<string | null> = [];
   return {
-    async appendMeta() {},
-    async appendMessages() {},
-    async appendError() {},
-    async appendTrajectoryEntry() {},
+    workspacePaths,
+    async appendMeta(workspacePath) {
+      workspacePaths.push(workspacePath);
+    },
+    async appendMessages(workspacePath) {
+      workspacePaths.push(workspacePath);
+    },
+    async appendError(workspacePath) {
+      workspacePaths.push(workspacePath);
+    },
+    async appendTrajectoryEntry(workspacePath) {
+      workspacePaths.push(workspacePath);
+    },
     async readSession() {
       return undefined;
     },
@@ -74,9 +89,10 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(built["chatSessionId"]).toBe("s1");
     expect(built["chatStore"]).toBeDefined();
     const scoped = built["chatStore"] as TranscriptStore;
-    // The scoped store forwards to the underlying fake — a smoke check that
-    // it's callable with the TranscriptStore (no workspacePath) shape.
     await expect(scoped.appendMessages("s1", [])).resolves.toBeUndefined();
+    // Proves scopeToWorkspace() actually threaded the resolved project path
+    // through, rather than always passing null.
+    expect(chatStore.workspacePaths).toContain("/tmp");
   });
 
   it("passes chatMeta built from the resolved config, never the resolved apiKey", async () => {
