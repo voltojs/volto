@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FolderOpen } from 'lucide-react';
 import {
   Dialog,
@@ -37,7 +37,17 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // The dialog stays mounted while hidden (see Sidebar), and a pick in flight
+  // has no cancellation hook on the server side — the native dialog keeps
+  // running regardless of what the client does. So an abandoned attempt
+  // (closed via 取消 / ESC / overlay click, or superseded by a fresh pick)
+  // can still resolve later. Bumping this on every attempt and closing lets
+  // the resolution handler recognise it no longer belongs to the current
+  // attempt and skip writing stale state into a possibly-reopened dialog.
+  const attemptRef = useRef(0);
+
   const close = () => {
+    attemptRef.current += 1;
     // Reset so reopening the dialog does not show the previous selection.
     setPath(null);
     setError(null);
@@ -45,16 +55,19 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   };
 
   const choose = async () => {
+    const attempt = ++attemptRef.current;
     setPicking(true);
     setError(null);
     try {
       const result = await pickDirectory();
+      if (attempt !== attemptRef.current) return; // abandoned — ignore
       // A cancelled dialog is an ordinary outcome, not something to report.
       if (result.path) setPath(result.path);
     } catch (err) {
+      if (attempt !== attemptRef.current) return; // abandoned — ignore
       setError(err instanceof Error ? err.message : '无法打开目录选择器');
     } finally {
-      setPicking(false);
+      if (attempt === attemptRef.current) setPicking(false);
     }
   };
 
