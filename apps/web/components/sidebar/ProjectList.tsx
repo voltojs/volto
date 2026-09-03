@@ -6,7 +6,11 @@ import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { SessionItem } from './SessionItem';
 
@@ -23,7 +27,11 @@ export function ProjectList() {
   const [editingTitle, setEditingTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const handleRemoveProject = async (projectId: string, name: string, sessionCount: number) => {
+  const handleRemoveProject = async (
+    projectId: string,
+    name: string,
+    sessionCount: number,
+  ) => {
     // projectId is immutable and a fresh add gets a new UUID, so deleting a
     // project permanently orphans every session under it (still in
     // localStorage, but unreachable from the sidebar) — confirm first and
@@ -57,36 +65,39 @@ export function ProjectList() {
 
   if (projects.length === 0) {
     return (
-      <div className="mx-1 mt-2 rounded-md border border-dashed border-sidebar-border px-3 py-6 text-center text-xs text-muted-foreground">
+      <div className="border-sidebar-border text-muted-foreground mx-1 mt-2 rounded-md border border-dashed px-3 py-6 text-center text-xs">
         暂无项目
         <br />
-        点击右上角 <FolderGit2 className="inline h-3 w-3 align-[-1px]" /> 添加一个目录
+        点击右上角 <FolderGit2 className="inline h-3 w-3 align-[-1px]" />{' '}
+        添加一个目录
       </div>
     );
   }
 
   return (
     <div className="space-y-0.5">
-      {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
+      {error && <p className="text-destructive px-2 py-1 text-xs">{error}</p>}
       {projects.map((project) => {
         const expanded = expandedId === project.id;
-        const projectSessions = sessions.filter((s) => s.projectId === project.id);
+        const projectSessions = sessions.filter(
+          (s) => s.projectId === project.id,
+        );
 
         return (
           <div key={project.id}>
             <div
               className={cn(
-                'group relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                'group text-sidebar-foreground hover:bg-sidebar-accent relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors',
               )}
               onClick={() => setExpandedId(expanded ? null : project.id)}
             >
               <ChevronRight
                 className={cn(
-                  'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+                  'text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150',
                   expanded && 'rotate-90',
                 )}
               />
-              <FolderGit2 className="h-4 w-4 shrink-0 text-primary/80" />
+              <FolderGit2 className="text-primary/80 h-4 w-4 shrink-0" />
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -98,14 +109,14 @@ export function ProjectList() {
                 <TooltipContent side="right">{project.path}</TooltipContent>
               </Tooltip>
               {projectSessions.length > 0 && (
-                <span className="font-mono text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground font-mono text-[10px]">
                   {projectSessions.length}
                 </span>
               )}
               {/* Absolutely positioned so appearing on hover never pushes the
                   name/count above — a plain `hidden group-hover:flex` sibling
                   would grow the flex row and jitter the whole item. */}
-              <div className="absolute right-1 hidden items-center gap-0.5 bg-sidebar-accent pl-1 group-hover:flex">
+              <div className="bg-sidebar-accent absolute right-1 hidden items-center gap-0.5 pl-1 group-hover:flex">
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -130,7 +141,11 @@ export function ProjectList() {
                   className="text-muted-foreground hover:text-destructive"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void handleRemoveProject(project.id, project.name, projectSessions.length);
+                    void handleRemoveProject(
+                      project.id,
+                      project.name,
+                      projectSessions.length,
+                    );
                   }}
                   aria-label="删除项目"
                 >
@@ -140,9 +155,9 @@ export function ProjectList() {
             </div>
 
             {expanded && (
-              <div className="ml-2.5 space-y-0.5 border-l border-sidebar-border/70 py-0.5 pl-2.5">
+              <div className="border-sidebar-border/70 ml-2.5 space-y-0.5 border-l py-0.5 pl-2.5">
                 {projectSessions.length === 0 && (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground italic">
+                  <div className="text-muted-foreground px-2 py-1.5 text-xs italic">
                     暂无会话
                   </div>
                 )}

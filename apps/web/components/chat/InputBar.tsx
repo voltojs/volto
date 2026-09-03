@@ -1,6 +1,11 @@
 'use client';
 
-import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { ArrowUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,7 +19,12 @@ interface InputBarProps {
   toolbar?: ReactNode;
 }
 
-export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarProps) {
+export function InputBar({
+  onSubmit,
+  disabled,
+  placeholder,
+  toolbar,
+}: InputBarProps) {
   const [input, setInput] = useState('');
 
   const submit = () => {
@@ -42,8 +52,11 @@ export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarP
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-4">
-      <div className="rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+    <form
+      onSubmit={handleSubmit}
+      className="mx-auto w-full max-w-3xl px-6 pb-4"
+    >
+      <div className="bg-card focus-within:border-ring focus-within:ring-ring/30 rounded-xl border shadow-sm transition-shadow focus-within:ring-3">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -55,7 +68,7 @@ export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarP
         />
         <div className="flex items-center gap-2 px-2.5 pb-2.5">
           {toolbar}
-          <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex">
+          <span className="text-muted-foreground ml-auto hidden items-center gap-1 text-[11px] sm:flex">
             <Kbd>Enter</Kbd> 发送 <Kbd>Shift+Enter</Kbd> 换行
           </span>
           <Button

@@ -58,7 +58,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+    const detail = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
     throw new ApiError(
       detail?.error ?? `Request failed with HTTP ${response.status}`,
       response.status,
@@ -70,7 +72,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchProjects = () => request<Project[]>('/projects');
 
 export const createProject = (input: { name: string; path: string }) =>
-  request<Project>('/projects', { method: 'POST', body: JSON.stringify(input) });
+  request<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 
 export const deleteProject = (id: string) =>
   request<void>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -78,7 +83,10 @@ export const deleteProject = (id: string) =>
 export const fetchProviders = () => request<Provider[]>('/providers');
 
 export const createProvider = (input: ProviderInput) =>
-  request<Provider>('/providers', { method: 'POST', body: JSON.stringify(input) });
+  request<Provider>('/providers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 
 export const updateProvider = (id: string, input: Partial<ProviderInput>) =>
   request<Provider>(`/providers/${encodeURIComponent(id)}`, {

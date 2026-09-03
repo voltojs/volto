@@ -13,7 +13,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { useConfigStore, type Provider, type Model } from '@/stores/config-store';
+import {
+  useConfigStore,
+  type Provider,
+  type Model,
+} from '@/stores/config-store';
 
 interface ProvidersDialogProps {
   open: boolean;
@@ -43,7 +47,12 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
   const handleAddProvider = async () => {
     setError(null);
     try {
-      await addProvider({ name: '新供应商', baseURL: null, apiKey: null, models: [] });
+      await addProvider({
+        name: '新供应商',
+        baseURL: null,
+        apiKey: null,
+        models: [],
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : '新增供应商失败');
     }
@@ -54,11 +63,12 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <KeyRound className="h-4 w-4 text-primary" />
+            <KeyRound className="text-primary h-4 w-4" />
             模型配置
           </DialogTitle>
           <DialogDescription>
-            供应商的 apiKey 加密保存在服务端 <code className="font-mono">~/.volto</code>，不会存入浏览器。
+            供应商的 apiKey 加密保存在服务端{' '}
+            <code className="font-mono">~/.volto</code>，不会存入浏览器。
           </DialogDescription>
         </DialogHeader>
 
@@ -67,13 +77,13 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
             <ProviderCard key={provider.id} provider={provider} />
           ))}
           {providers.length === 0 && (
-            <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+            <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
               还没有配置供应商
             </div>
           )}
         </div>
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && <p className="text-destructive text-xs">{error}</p>}
 
         <Button
           variant="outline"
@@ -96,7 +106,9 @@ function ProviderCard({ provider }: { provider: Provider }) {
   const [name, setName] = useState(provider.name);
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [models, setModels] = useState<DraftModel[]>(() => toDraftModels(provider.models));
+  const [models, setModels] = useState<DraftModel[]>(() =>
+    toDraftModels(provider.models),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Tracks whether the user has touched this draft since it was last synced
@@ -147,7 +159,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
   };
 
   return (
-    <div className="space-y-3 rounded-lg border bg-card/50 p-3">
+    <div className="bg-card/50 space-y-3 rounded-lg border p-3">
       <div className="flex items-center gap-2">
         <Input
           value={name}
@@ -166,7 +178,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
         <Button
           variant="ghost"
           size="icon"
-          className="shrink-0 text-muted-foreground hover:text-destructive"
+          className="text-muted-foreground hover:text-destructive shrink-0"
           onClick={() => void remove()}
           aria-label="删除供应商"
         >
@@ -199,7 +211,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
       <Separator />
 
       <div className="space-y-1.5">
-        <div className="font-mono text-[10px] font-medium tracking-widest text-muted-foreground uppercase">
+        <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
           模型
         </div>
         {models.map((model, index) => (
@@ -210,7 +222,11 @@ function ProviderCard({ provider }: { provider: Provider }) {
               placeholder="展示名"
               onChange={(e) => {
                 setDirty(true);
-                setModels(models.map((m, i) => (i === index ? { ...m, name: e.target.value } : m)));
+                setModels(
+                  models.map((m, i) =>
+                    i === index ? { ...m, name: e.target.value } : m,
+                  ),
+                );
               }}
             />
             <Input
@@ -219,13 +235,17 @@ function ProviderCard({ provider }: { provider: Provider }) {
               placeholder="模型代码"
               onChange={(e) => {
                 setDirty(true);
-                setModels(models.map((m, i) => (i === index ? { ...m, code: e.target.value } : m)));
+                setModels(
+                  models.map((m, i) =>
+                    i === index ? { ...m, code: e.target.value } : m,
+                  ),
+                );
               }}
             />
             <Button
               variant="ghost"
               size="icon-sm"
-              className="shrink-0 text-muted-foreground hover:text-destructive"
+              className="text-muted-foreground hover:text-destructive shrink-0"
               onClick={() => {
                 setDirty(true);
                 setModels(models.filter((_, i) => i !== index));
@@ -239,10 +259,13 @@ function ProviderCard({ provider }: { provider: Provider }) {
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1 text-muted-foreground"
+          className="text-muted-foreground gap-1"
           onClick={() => {
             setDirty(true);
-            setModels([...models, { id: '', name: '', code: '', clientKey: crypto.randomUUID() }]);
+            setModels([
+              ...models,
+              { id: '', name: '', code: '', clientKey: crypto.randomUUID() },
+            ]);
           }}
         >
           <Plus className="h-3 w-3" />
@@ -250,9 +273,14 @@ function ProviderCard({ provider }: { provider: Provider }) {
         </Button>
       </div>
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-xs">{error}</p>}
 
-      <Button size="sm" onClick={() => void save()} disabled={saving} className="w-full">
+      <Button
+        size="sm"
+        onClick={() => void save()}
+        disabled={saving}
+        className="w-full"
+      >
         {saving ? '保存中…' : '保存'}
       </Button>
     </div>

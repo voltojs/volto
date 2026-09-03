@@ -3,7 +3,11 @@
 import { useTheme } from 'next-themes';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Kbd } from '@/components/ui/kbd';
 
 export function ThemeToggle() {
@@ -17,7 +21,9 @@ export function ThemeToggle() {
             variant="ghost"
             size="icon"
             aria-label="切换主题"
-            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            onClick={() =>
+              setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+            }
           />
         }
       >

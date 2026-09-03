@@ -23,7 +23,10 @@ interface ConfigState {
   editProvider: (id: string, input: Partial<ProviderInput>) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
 
-  findModel: (providerId: string | null, modelId: string | null) => Model | null;
+  findModel: (
+    providerId: string | null,
+    modelId: string | null,
+  ) => Model | null;
   isProjectValid: (id: string | null) => boolean;
   isModelValid: (providerId: string | null, modelId: string | null) => boolean;
 }
@@ -42,7 +45,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       ]);
       set({ projects, providers, loaded: true, error: null });
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err), loaded: false });
+      set({
+        error: err instanceof Error ? err.message : String(err),
+        loaded: false,
+      });
     }
   },
 
@@ -80,7 +86,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     return provider?.models.find((m) => m.id === modelId) ?? null;
   },
 
-  isProjectValid: (id) => (id ? get().projects.some((p) => p.id === id) : false),
+  isProjectValid: (id) =>
+    id ? get().projects.some((p) => p.id === id) : false,
 
-  isModelValid: (providerId, modelId) => get().findModel(providerId, modelId) !== null,
+  isModelValid: (providerId, modelId) =>
+    get().findModel(providerId, modelId) !== null,
 }));

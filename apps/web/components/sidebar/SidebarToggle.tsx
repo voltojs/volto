@@ -2,7 +2,11 @@
 
 import { useSessionStore } from '@/stores/session-store';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Kbd } from '@/components/ui/kbd';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 

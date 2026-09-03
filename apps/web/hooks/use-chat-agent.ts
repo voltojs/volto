@@ -127,13 +127,17 @@ export function useChatAgent(): UseChatAgentReturn {
           ? useChatStore.getState().messages.find((m) => m.id === id)?.content
           : '';
         const notice = `⚠️ ${data.message}`;
-        finishStreaming({ content: current ? `${current}\n\n${notice}` : notice });
+        finishStreaming({
+          content: current ? `${current}\n\n${notice}` : notice,
+        });
       });
 
       const ready = new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           unsubscribe();
-          reject(new Error('连接 agent 服务超时，请确认 headless-server 已启动'));
+          reject(
+            new Error('连接 agent 服务超时，请确认 headless-server 已启动'),
+          );
         }, CONNECT_TIMEOUT_MS);
 
         const unsubscribe = client.onStateChange((state) => {
@@ -202,7 +206,8 @@ export function useChatAgent(): UseChatAgentReturn {
         useChatStore.getState().addMessage({
           id: newId(),
           role: 'assistant',
-          content: '⚠️ 此会话缺少绑定的项目或模型，无法发送消息。请新建会话并完成选择。',
+          content:
+            '⚠️ 此会话缺少绑定的项目或模型，无法发送消息。请新建会话并完成选择。',
           timestamp: Date.now(),
         });
         return;

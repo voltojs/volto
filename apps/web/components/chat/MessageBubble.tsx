@@ -38,18 +38,18 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         >
           {isUser ? 'user' : 'agent'}
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground/70">
+        <span className="text-muted-foreground/70 font-mono text-[10px]">
           {timeFormatter.format(message.timestamp)}
         </span>
         {!isUser && !message.isStreaming && message.content && (
           <button
             type="button"
             onClick={() => void copy()}
-            className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground ml-auto flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
           >
             {copied ? (
               <>
-                <Check className="h-3 w-3 text-success" /> 已复制
+                <Check className="text-success h-3 w-3" /> 已复制
               </>
             ) : (
               <>
@@ -67,7 +67,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       >
         {isUser ? (
-          <div className="text-sm whitespace-pre-wrap text-foreground">{message.content}</div>
+          <div className="text-foreground text-sm whitespace-pre-wrap">
+            {message.content}
+          </div>
         ) : message.isStreaming ? (
           <StreamRenderer content={message.content} />
         ) : (

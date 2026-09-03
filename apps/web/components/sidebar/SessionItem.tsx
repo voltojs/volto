@@ -34,8 +34,8 @@ export function SessionItem({
   return (
     <div
       className={cn(
-        'group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground',
-        isActive && 'bg-sidebar-accent font-medium text-sidebar-foreground',
+        'group text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-foreground relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors',
+        isActive && 'bg-sidebar-accent text-sidebar-foreground font-medium',
       )}
       onClick={onClick}
       onMouseEnter={() => setShowActions(true)}
@@ -65,7 +65,7 @@ export function SessionItem({
       )}
 
       {showActions && !isEditing && (
-        <div className="absolute right-1 flex items-center gap-0.5 bg-sidebar-accent pl-1">
+        <div className="bg-sidebar-accent absolute right-1 flex items-center gap-0.5 pl-1">
           <Button
             variant="ghost"
             size="icon-xs"

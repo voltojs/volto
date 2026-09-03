@@ -12,7 +12,7 @@ export function StreamRenderer({ content }: StreamRendererProps) {
       <Markdown content={content} />
       <span
         aria-hidden="true"
-        className="caret-blink mt-0.5 inline-block h-3.5 w-[3px] rounded-full bg-primary align-middle"
+        className="caret-blink bg-primary mt-0.5 inline-block h-3.5 w-[3px] rounded-full align-middle"
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { ShieldCheck, ShieldAlert } from 'lucide-react';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -35,18 +36,20 @@ export function PermissionPicker({ value, onChange }: PermissionPickerProps) {
     >
       <SelectTrigger size="sm" className="font-mono">
         {value === 'auto-accept' ? (
-          <ShieldAlert className="h-3.5 w-3.5 text-destructive/80" />
+          <ShieldAlert className="text-destructive/80 h-3.5 w-3.5" />
         ) : (
-          <ShieldCheck className={cn('h-3.5 w-3.5 text-muted-foreground')} />
+          <ShieldCheck className={cn('text-muted-foreground h-3.5 w-3.5')} />
         )}
         <SelectValue />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
-        {OPTIONS.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   );

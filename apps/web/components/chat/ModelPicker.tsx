@@ -19,7 +19,8 @@ interface ModelPickerProps {
 }
 
 /** Value encoding: providerId and modelId joined, since Select carries one value. */
-const encode = (providerId: string, modelId: string) => `${providerId}:${modelId}`;
+const encode = (providerId: string, modelId: string) =>
+  `${providerId}:${modelId}`;
 
 /**
  * Pure display + callback — has no opinion on whether it is picking a model
@@ -28,7 +29,11 @@ const encode = (providerId: string, modelId: string) => `${providerId}:${modelId
  * change goes (a session, via `setSessionModel`, or local "pending" state on
  * the welcome screen).
  */
-export function ModelPicker({ providerId, modelId, onChange }: ModelPickerProps) {
+export function ModelPicker({
+  providerId,
+  modelId,
+  onChange,
+}: ModelPickerProps) {
   const providers = useConfigStore((s) => s.providers);
   const isModelValid = useConfigStore((s) => s.isModelValid);
   const valid = isModelValid(providerId, modelId);
@@ -40,7 +45,9 @@ export function ModelPicker({ providerId, modelId, onChange }: ModelPickerProps)
   return (
     <Select
       items={items}
-      value={valid && providerId && modelId ? encode(providerId, modelId) : null}
+      value={
+        valid && providerId && modelId ? encode(providerId, modelId) : null
+      }
       onValueChange={(next) => {
         const [nextProvider, nextModel] = String(next).split(':');
         if (nextProvider && nextModel) {
@@ -49,10 +56,12 @@ export function ModelPicker({ providerId, modelId, onChange }: ModelPickerProps)
       }}
     >
       <SelectTrigger size="sm" className="font-mono">
-        <Cpu className="h-3.5 w-3.5 text-primary/80" />
+        <Cpu className="text-primary/80 h-3.5 w-3.5" />
         {/* A session may reference a model that was since deleted; say so
             rather than silently falling back to some other model. */}
-        <SelectValue placeholder={providerId && !valid ? '模型已失效，请重选' : '选择模型'} />
+        <SelectValue
+          placeholder={providerId && !valid ? '模型已失效，请重选' : '选择模型'}
+        />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         {providers.map((provider) => (

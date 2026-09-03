@@ -19,11 +19,17 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
 
   const codeElement = Array.isArray(children) ? children[0] : children;
-  const codeProps = isValidElement<{ className?: string; children?: ReactNode }>(codeElement)
+  const codeProps = isValidElement<{
+    className?: string;
+    children?: ReactNode;
+  }>(codeElement)
     ? codeElement.props
     : undefined;
   const language = codeProps?.className?.match(/language-(\w+)/)?.[1];
-  const text = typeof codeProps?.children === 'string' ? codeProps.children.replace(/\n$/, '') : '';
+  const text =
+    typeof codeProps?.children === 'string'
+      ? codeProps.children.replace(/\n$/, '')
+      : '';
 
   const copy = async () => {
     await navigator.clipboard.writeText(text);
@@ -32,19 +38,19 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border bg-card">
-      <div className="flex items-center justify-between border-b bg-muted/50 px-3 py-1">
-        <span className="font-mono text-[11px] tracking-wide text-muted-foreground">
+    <div className="bg-card my-2 overflow-hidden rounded-lg border">
+      <div className="bg-muted/50 flex items-center justify-between border-b px-3 py-1">
+        <span className="text-muted-foreground font-mono text-[11px] tracking-wide">
           {language ?? 'text'}
         </span>
         <button
           type="button"
           onClick={() => void copy()}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] transition-colors"
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-success" /> 已复制
+              <Check className="text-success h-3 w-3" /> 已复制
             </>
           ) : (
             <>
@@ -63,7 +69,7 @@ const components: Components = {
   code: ({ className, children, ...props }) => (
     <code
       className={cn(
-        'rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]',
+        'bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]',
         className,
       )}
       {...props}
@@ -73,34 +79,55 @@ const components: Components = {
   ),
   a: ({ className, ...props }) => (
     <a
-      className={cn('text-primary underline-offset-2 hover:underline', className)}
+      className={cn(
+        'text-primary underline-offset-2 hover:underline',
+        className,
+      )}
       target="_blank"
       rel="noreferrer noopener"
       {...props}
     />
   ),
   ul: ({ className, ...props }) => (
-    <ul className={cn('my-1 ml-4 list-disc space-y-0.5', className)} {...props} />
+    <ul
+      className={cn('my-1 ml-4 list-disc space-y-0.5', className)}
+      {...props}
+    />
   ),
   ol: ({ className, ...props }) => (
-    <ol className={cn('my-1 ml-4 list-decimal space-y-0.5', className)} {...props} />
+    <ol
+      className={cn('my-1 ml-4 list-decimal space-y-0.5', className)}
+      {...props}
+    />
   ),
   p: ({ className, ...props }) => (
-    <p className={cn('leading-relaxed [&:not(:first-child)]:mt-2', className)} {...props} />
+    <p
+      className={cn('leading-relaxed [&:not(:first-child)]:mt-2', className)}
+      {...props}
+    />
   ),
   table: ({ className, ...props }) => (
     <div className="my-2 overflow-x-auto rounded-md border">
-      <table className={cn('w-full border-collapse text-sm', className)} {...props} />
+      <table
+        className={cn('w-full border-collapse text-sm', className)}
+        {...props}
+      />
     </div>
   ),
   th: ({ className, ...props }) => (
     <th
-      className={cn('border-b bg-muted/50 px-2 py-1 text-left font-medium', className)}
+      className={cn(
+        'bg-muted/50 border-b px-2 py-1 text-left font-medium',
+        className,
+      )}
       {...props}
     />
   ),
   td: ({ className, ...props }) => (
-    <td className={cn('border-b px-2 py-1 last:border-0', className)} {...props} />
+    <td
+      className={cn('border-b px-2 py-1 last:border-0', className)}
+      {...props}
+    />
   ),
 };
 

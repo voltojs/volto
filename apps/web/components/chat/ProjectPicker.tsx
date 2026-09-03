@@ -4,6 +4,7 @@ import { Folder, FolderPlus, Loader2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectSeparator,
   SelectTrigger,
@@ -40,24 +41,26 @@ export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
   return (
     <Select items={items} value={value} onValueChange={handleValueChange}>
       <SelectTrigger size="sm" className="font-mono">
-        <Folder className="h-3.5 w-3.5 text-primary/80" />
+        <Folder className="text-primary/80 h-3.5 w-3.5" />
         <SelectValue placeholder="选择工作区" />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
-        {projects.map((project) => (
-          <SelectItem key={project.id} value={project.id}>
-            {project.name}
+        <SelectGroup>
+          {projects.map((project) => (
+            <SelectItem key={project.id} value={project.id}>
+              {project.name}
+            </SelectItem>
+          ))}
+          {projects.length > 0 && <SelectSeparator />}
+          <SelectItem value={ADD_PROJECT_VALUE} disabled={pending}>
+            {pending ? (
+              <Loader2 className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FolderPlus className="text-muted-foreground h-3.5 w-3.5" />
+            )}
+            {pending ? '正在等待系统对话框…' : '添加工作区'}
           </SelectItem>
-        ))}
-        {projects.length > 0 && <SelectSeparator />}
-        <SelectItem value={ADD_PROJECT_VALUE} disabled={pending}>
-          {pending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          ) : (
-            <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
-          {pending ? '正在等待系统对话框…' : '添加工作区'}
-        </SelectItem>
+        </SelectGroup>
       </SelectContent>
     </Select>
   );

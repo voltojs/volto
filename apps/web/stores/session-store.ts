@@ -141,7 +141,9 @@ export const useSessionStore = create<SessionState>()(
         const now = Date.now();
         const session: Session = {
           id,
-          title: options.title || `会话 ${new Date(now).toLocaleDateString('zh-CN')}`,
+          title:
+            options.title ||
+            `会话 ${new Date(now).toLocaleDateString('zh-CN')}`,
           messages: [],
           createdAt: now,
           updatedAt: now,
@@ -189,7 +191,9 @@ export const useSessionStore = create<SessionState>()(
       setSessionModel: (id, providerId, modelId) =>
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === id ? { ...s, providerId, modelId, updatedAt: Date.now() } : s,
+            s.id === id
+              ? { ...s, providerId, modelId, updatedAt: Date.now() }
+              : s,
           ),
         })),
 
@@ -203,7 +207,8 @@ export const useSessionStore = create<SessionState>()(
       getProjectSessions: (projectId) =>
         get().sessions.filter((s) => s.projectId === projectId),
 
-      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+      toggleSidebar: () =>
+        set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
     }),

@@ -61,14 +61,18 @@ export async function postMessage(
       ...(config.projectId ? { projectId: config.projectId } : {}),
       ...(config.providerId ? { providerId: config.providerId } : {}),
       ...(config.modelId ? { modelId: config.modelId } : {}),
-      ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
+      ...(config.permissionMode
+        ? { permissionMode: config.permissionMode }
+        : {}),
     }),
   });
 
   if (!response.ok) {
-    const detail = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(detail?.error ?? `Request failed with HTTP ${response.status}`);
+    const detail = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      detail?.error ?? `Request failed with HTTP ${response.status}`,
+    );
   }
 }

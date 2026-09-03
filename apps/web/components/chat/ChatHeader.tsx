@@ -3,7 +3,11 @@
 import { FolderGit2 } from 'lucide-react';
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 import type { ConnectionState } from '@/lib/agent-config';
@@ -34,8 +38,8 @@ export function ChatHeader({ projectName, connectionState }: ChatHeaderProps) {
       <div className="flex min-w-0 items-center gap-1.5">
         {projectName ? (
           <>
-            <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-primary/80" />
-            <span className="truncate font-mono text-[13px] text-foreground/90">
+            <FolderGit2 className="text-primary/80 h-3.5 w-3.5 shrink-0" />
+            <span className="text-foreground/90 truncate font-mono text-[13px]">
               {projectName}
             </span>
           </>
