@@ -228,6 +228,71 @@ describe("createAgent — SDK facade", () => {
       const state = await agent.run("hi");
       expect(state.status).toBe("done");
     });
+
+    it("appends only the new messages produced by each turn, never re-sending prior turns", async () => {
+      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+      const chatStore = {
+        async appendMeta() {},
+        async appendMessages(sessionId: string, messages: unknown[]) {
+          appended.push({ sessionId, messages: [...messages] });
+        },
+        async appendError() {},
+        async appendTrajectoryEntry() {},
+      };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("first"), textScript("second")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+      });
+
+      await agent.run("one");
+      await agent.run("two");
+
+      expect(appended).toHaveLength(2);
+      expect(appended[0]!.sessionId).toBe("chat-s1");
+      // Second call's messages must not include anything from the first call.
+      const firstIds = JSON.stringify(appended[0]!.messages);
+      const secondIds = JSON.stringify(appended[1]!.messages);
+      expect(secondIds).not.toContain(firstIds.slice(1, -1));
+    });
+
+    it("appends an error via chatStore when the runner rejects", async () => {
+      const errors: Array<{ sessionId: string; message: string }> = [];
+      const chatStore = {
+        async appendMeta() {},
+        async appendMessages() {},
+        async appendError(sessionId: string, message: string) {
+          errors.push({ sessionId, message });
+        },
+        async appendTrajectoryEntry() {},
+      };
+      // A modelPort that throws is normalized by the runner into a reducer
+      // "model_error" input (see stream-early-break.test.ts) and does NOT
+      // reject runner.run() — that's the documented, tested behavior of this
+      // codebase's error-handling architecture ("errors never interrupt the
+      // main loop"). To exercise the actual reject path that
+      // persistTurnToChatStore's error branch guards, we use a session:start
+      // hook that throws — hook handler exceptions propagate straight out of
+      // runner.run() uncaught, which is a real (if rarer) rejection source.
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("unreachable")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        hooks: [
+          {
+            name: "boom-hook",
+            lifecycle: "session:start",
+            handler: async () => {
+              throw new Error("boom");
+            },
+          },
+        ],
+      });
+
+      await expect(agent.run("hi")).rejects.toThrow("boom");
+      expect(errors).toEqual([{ sessionId: "chat-s1", message: expect.stringContaining("boom") }]);
+    });
   });
 
   describe("with layered config (M13)", () => {

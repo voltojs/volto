@@ -820,6 +820,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // instance runs, whether via run() or stream(). Not incremented by
   // resume(), which continues the same turn rather than starting a new one.
   let turnCounter = 0;
+  // How many of lastFinalState.messages have already been appended to
+  // chatStore — only the slice past this index is new for the next call.
+  let chatStorePersistedCount = 0;
 
   async function createNextRunner(
     runnerEventSink: EventSink,
@@ -940,6 +943,21 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     });
   }
 
+  /** Best-effort: persists this turn's new messages (or an error) via chatStore. Never throws into the caller. */
+  async function persistTurnToChatStore(finalState: ReducerState | undefined, error: unknown): Promise<void> {
+    if (!opts.chatStore || !opts.chatSessionId) return;
+    if (error !== undefined) {
+      const message = error instanceof Error ? error.message : String(error);
+      await chatStore.appendError(opts.chatSessionId, message).catch(() => {});
+      return;
+    }
+    if (!finalState) return;
+    const newMessages = finalState.messages.slice(chatStorePersistedCount);
+    if (newMessages.length === 0) return;
+    chatStorePersistedCount = finalState.messages.length;
+    await chatStore.appendMessages(opts.chatSessionId, newMessages).catch(() => {});
+  }
+
   // ── M13: Slash command resolution ──────────────
   const commands = opts.commands ?? [];
 
@@ -964,9 +982,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         extractInputText(agentInput),
       );
       lastRunner = runner;
-      const finalState = await runner.run(agentInput);
-      lastFinalState = finalState;
-      return finalState;
+      try {
+        const finalState = await runner.run(agentInput);
+        lastFinalState = finalState;
+        await persistTurnToChatStore(finalState, undefined);
+        return finalState;
+      } catch (err: unknown) {
+        await persistTurnToChatStore(undefined, err);
+        throw err;
+      }
     },
 
     async *stream(
@@ -988,12 +1012,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
       let runError: unknown;
       const runPromise = runner.run(agentInput).then(
-        (finalState) => {
+        async (finalState) => {
           lastFinalState = finalState;
+          await persistTurnToChatStore(finalState, undefined);
           channel.done();
         },
-        (err) => {
+        async (err) => {
           runError = err;
+          await persistTurnToChatStore(undefined, err);
           channel.done();
         },
       );
