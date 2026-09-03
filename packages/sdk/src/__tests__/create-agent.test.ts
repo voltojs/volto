@@ -297,6 +297,46 @@ describe("createAgent — SDK facade", () => {
       });
     });
 
+    it("does not double-count the seed when both systemPrompt and initialMessages are set (off-by-one regression)", async () => {
+      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+      const chatStore = {
+        async appendMeta() {},
+        async appendMessages(sessionId: string, messages: unknown[]) {
+          appended.push({ sessionId, messages: [...messages] });
+        },
+        async appendError() {},
+        async appendTrajectoryEntry() {},
+      };
+
+      // seedMessages becomes [systemPromptMessage, msgA, msgB] — the counter
+      // must account for the WHOLE seed (systemPrompt included), not just
+      // opts.initialMessages.length, or the last seeded message (msgB) gets
+      // re-sent to chatStore as if it were new turn output.
+      const msgA: Message = { role: "user", content: "earlier turn" };
+      const msgB: Message = { role: "assistant", content: [{ type: "text", text: "earlier reply" }] };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("new reply")]),
+        systemPrompt: "Be terse",
+        chatStore,
+        chatSessionId: "chat-s1",
+        initialMessages: [msgA, msgB],
+      });
+
+      await agent.run("new turn");
+
+      expect(appended).toHaveLength(1);
+      // Only the genuinely new turn output — never msgB (or the synthesized
+      // system-prompt message) re-sent as if it were new.
+      expect(appended[0]!.messages).toHaveLength(2);
+      expect(appended[0]!.messages).not.toContainEqual(msgB);
+      expect(appended[0]!.messages[0]).toMatchObject({ role: "user", content: "new turn" });
+      expect(appended[0]!.messages[1]).toMatchObject({
+        role: "assistant",
+        content: [{ type: "text", text: "new reply" }],
+      });
+    });
+
     it("appends an error via chatStore when the runner rejects", async () => {
       const errors: Array<{ sessionId: string; message: string }> = [];
       const chatStore = {

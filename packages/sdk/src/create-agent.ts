@@ -832,15 +832,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   let turnCounter = 0;
   // How many of lastFinalState.messages have already been appended to
   // chatStore — only the slice past this index is new for the next call.
+  // seedMessages (declared above) is exactly what becomes this instance's
+  // starting ReducerState.messages — both a synthesized systemPrompt message
+  // (if any) and any seeded initialMessages are "already accounted for" and
+  // must never be re-sent to chatStore as if they were new turn output.
   // Seeded initialMessages are exactly what apps/headless-server re-supplies
   // on a mid-conversation agent rebuild (model/permission switch) — they are
   // already durably in chatStore from before the rebuild, so the counter must
   // start past them, or the next persist would re-send them and duplicate
-  // the transcript. A synthesized systemPrompt message (if any) is NOT
-  // counted here — it was never part of any caller's durable transcript, so
-  // it's treated as new content, consistent with how the pre-existing
-  // headless-server orchestration never persisted a system-prompt line either.
-  let chatStorePersistedCount = opts.initialMessages?.length ?? 0;
+  // the transcript.
+  let chatStorePersistedCount = seedMessages.length;
   // The EventSink actually in use for the turn currently running — read by
   // createSubAgentExecutor at call time, since the task tool is built once
   // at construction but each turn's real sink (channel.eventSink for
