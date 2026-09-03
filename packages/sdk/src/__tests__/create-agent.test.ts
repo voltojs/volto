@@ -7,7 +7,7 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelRequest } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
@@ -232,6 +232,38 @@ describe("createAgent — SDK facade", () => {
     it("backward compat — no config, createAgent works as before", async () => {
       const mockModel = createMockModelPort([textScript("no config")]);
       const agent = createAgent({ modelPort: mockModel });
+      const state = await agent.run("hello");
+      expect(state.status).toBe("done");
+    });
+  });
+
+  describe("resolveContextLayers", () => {
+    it("passes resolveContextLayers' result into the turn's model request", async () => {
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("ok")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        resolveContextLayers: async (input) => [{ id: "test-layer", text: `layer for: ${input}` }],
+      });
+
+      await agent.run("hello");
+
+      expect(capturedRequests).toHaveLength(1);
+      const systemMessages = capturedRequests[0]!.messages.filter((m) => m.role === "system");
+      expect(systemMessages.some((m) => (m as { content: string }).content === "layer for: hello")).toBe(true);
+    });
+
+    it("defaults contextLayers to empty when resolveContextLayers is not provided", async () => {
+      const mockModel = createMockModelPort([textScript("ok")]);
+      const agent = createAgent({ modelPort: mockModel });
+
       const state = await agent.run("hello");
       expect(state.status).toBe("done");
     });

@@ -39,6 +39,7 @@ import type {
   JSONSchema,
   ToolScopeConfig,
   Id,
+  ContextLayer,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -180,6 +181,16 @@ export interface CreateAgentOptions {
    * Persists across turns and survives compaction.
    */
   systemPrompt?: string;
+
+  /**
+   * Called once per turn with that turn's user-message text; returns the
+   * static content layers (memory files, triggered skill resources) for that
+   * turn's StepContext.contextLayers. No default — packages/sdk stays
+   * host-agnostic and does not know about `~/.volto` or any skills directory
+   * convention (that is apps/headless-server's job). Omitted means
+   * contextLayers is always empty, identical to today's behavior.
+   */
+  resolveContextLayers?: (input: string) => Promise<ContextLayer[]>;
 
   /**
    * 首轮种子历史消息 —— 追加在 systemPrompt 消息之后，作为第一轮
@@ -782,7 +793,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
 
-  function createNextRunner(runnerEventSink: EventSink, abortSignal?: AbortSignal): Runner {
+  async function createNextRunner(
+    runnerEventSink: EventSink,
+    abortSignal: AbortSignal | undefined,
+    inputText: string,
+  ): Promise<Runner> {
     const previousState = lastFinalState;
     lastRunner = null;
     lastFinalState = null;
@@ -826,9 +841,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       })),
     ];
 
+    const turnStepContext: StepContext = opts.resolveContextLayers
+      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
+      : stepContext;
+
     const runnerOpts: RunnerOptions = {
       modelPort,
-      stepContext,
+      stepContext: turnStepContext,
       eventSink: effectiveSink,
       toolExecutor,
       availableCapabilities: capabilities,
@@ -902,7 +921,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
       const agentInput = resolveInput(input);
-      const runner = createNextRunner(opts.eventSink ?? defaultEventSink);
+      const runner = await createNextRunner(
+        opts.eventSink ?? defaultEventSink,
+        undefined,
+        extractInputText(agentInput),
+      );
       lastRunner = runner;
       const finalState = await runner.run(agentInput);
       lastFinalState = finalState;
@@ -919,7 +942,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // out of `for await` early. Without it, the detached runner would
       // keep going and any error it threw would be swallowed silently.
       const abortController = new AbortController();
-      const runner = createNextRunner(channel.eventSink, abortController.signal);
+      const runner = await createNextRunner(
+        channel.eventSink,
+        abortController.signal,
+        extractInputText(agentInput),
+      );
       lastRunner = runner;
 
       let runError: unknown;
@@ -1021,6 +1048,16 @@ function normalizeInput(input: string | AgentInput): AgentInput {
     return { type: "user_message", content: input };
   }
   return input;
+}
+
+/** Extracts the plain text of a user_message input; empty string for any other input type. */
+function extractInputText(input: AgentInput): string {
+  if (input.type !== "user_message") return "";
+  if (typeof input.content === "string") return input.content;
+  return input.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("");
 }
 
 /**
