@@ -123,6 +123,52 @@ describe("createWiredAgent memory file layers", () => {
     expect(systemContents.some((c) => c.includes("Follow these debugging steps."))).toBe(true);
   });
 
+  it("degrades gracefully instead of failing the turn when a triggered skill's resource file goes missing after discovery", async () => {
+    const skillsDir = path.join(tempProjectDir, ".volto", "skills", "debugging");
+    await fs.mkdir(skillsDir, { recursive: true });
+    const skillPath = path.join(skillsDir, "SKILL.md");
+    await fs.writeFile(
+      skillPath,
+      [
+        "---",
+        "name: debugging",
+        "description: Systematic debugging",
+        "trigger: bug",
+        "---",
+        "Follow these debugging steps.",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const requests: ModelRequest[] = [];
+    const inner = createMockModelPort([textScript("ok"), textScript("still ok")]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+
+    // First turn: skills get discovered and cached for the agent instance's
+    // lifetime (not triggered by this input, so the resource is not read yet).
+    await agent.run("hello");
+
+    // Resource file goes missing mid-session — the cached skill list still
+    // references this path.
+    await fs.rm(skillPath);
+
+    // Second turn triggers the skill; loading its now-missing resource must
+    // degrade gracefully (skip that layer) instead of rejecting agent.run().
+    await expect(agent.run("there is a bug in my code")).resolves.toBeDefined();
+
+    const lastRequest = requests[requests.length - 1]!;
+    const systemContents = lastRequest.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Follow these debugging steps."))).toBe(false);
+  });
+
   it("does not include a skill's resource when its trigger does not match", async () => {
     const skillsDir = path.join(tempProjectDir, ".volto", "skills", "debugging");
     await fs.mkdir(skillsDir, { recursive: true });

@@ -19,15 +19,12 @@ import type { Skill } from "@volto/sdk";
 import { findTriggeredSkills } from "@volto/sdk";
 import { getConfigDir } from "./config/paths.js";
 
-/** Reads one AGENTS.md file if it exists; returns undefined (not an error) if it doesn't. */
+/** Reads one AGENTS.md file if it exists and is readable; returns undefined (not an error) for any failure — context layers are best-effort. */
 async function readAgentsFile(dir: string): Promise<string | undefined> {
   try {
     return await fs.readFile(path.join(dir, "AGENTS.md"), "utf-8");
-  } catch (err: unknown) {
-    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-      return undefined;
-    }
-    throw err;
+  } catch {
+    return undefined;
   }
 }
 
@@ -173,13 +170,27 @@ async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
 async function loadSkillResourceText(skill: Skill, rootDirByResource: Map<string, string>): Promise<string> {
   const parts: string[] = [];
   for (const resourcePath of skill.resources ?? []) {
-    const rootDir = rootDirByResource.get(resourcePath) ?? getConfigDir();
-    const fileContents = await loadInstructionFileTree(resourcePath);
-    const expanded = expandInstructions(fileContents, resourcePath, rootDir);
-    // SKILL.md's own frontmatter isn't meant to be replayed into the model —
-    // only the body after it. Re-parse to strip it.
-    const parsed = parseSkillFile(expanded.text);
-    parts.push(parsed ? parsed.body : expanded.text);
+    try {
+      // Read the resource's own entry file directly (unguarded) so a
+      // missing/unreadable resource throws here and is caught below.
+      // loadInstructionFileTree() further down swallows *transitive*
+      // @import failures on purpose (a missing imported file degrades to a
+      // visible placeholder) — but the skill's own entry file failing to
+      // exist (e.g. deleted mid-session, after the skills list was cached)
+      // should skip this layer entirely instead of injecting a
+      // "[missing instruction file: ...]" placeholder into the prompt.
+      await fs.readFile(resourcePath, "utf-8");
+      const rootDir = rootDirByResource.get(resourcePath) ?? getConfigDir();
+      const fileContents = await loadInstructionFileTree(resourcePath);
+      const expanded = expandInstructions(fileContents, resourcePath, rootDir);
+      // SKILL.md's own frontmatter isn't meant to be replayed into the model —
+      // only the body after it. Re-parse to strip it.
+      const parsed = parseSkillFile(expanded.text);
+      parts.push(parsed ? parsed.body : expanded.text);
+    } catch {
+      // Best-effort: a resource file that's unreadable or has gone missing
+      // since discovery contributes nothing, instead of failing the turn.
+    }
   }
   return parts.join("\n\n");
 }
