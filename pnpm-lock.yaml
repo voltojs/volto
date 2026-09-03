@@ -134,6 +134,9 @@ importers:
       '@volto/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@volto/store-jsonl':
+        specifier: workspace:*
+        version: link:../../packages/stores/jsonl
       '@volto/store-sqlite':
         specifier: workspace:*
         version: link:../../packages/stores/sqlite
