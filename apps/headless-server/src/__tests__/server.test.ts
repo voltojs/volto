@@ -5,7 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocket } from "ws";
 import { createServer } from "../server.js";
-import { PickerUnsupportedError } from "../fs/directory-picker.js";
+import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
+import { CommandTimeoutError } from "../fs/command-runner.js";
 import type { ModelPort, ReducerState } from "@volto/core";
 
 const MOCK_MODEL: ModelPort = {
@@ -440,6 +441,48 @@ describe("Headless server", () => {
 
     const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
     expect(response.status).toBe(501);
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/pick-directory maps a busy picker to 409", async () => {
+    const picker = createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      directoryPicker: {
+        pick: async () => {
+          throw new PickerBusyError("A directory picker is already open");
+        },
+      },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "A directory picker is already open" });
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/pick-directory maps a timeout to 504", async () => {
+    const picker = createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      directoryPicker: {
+        pick: async () => {
+          throw new CommandTimeoutError("osascript timed out after 120000ms");
+        },
+      },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    expect(response.status).toBe(504);
+    expect(await response.json()).toEqual({ error: "osascript timed out after 120000ms" });
 
     await new Promise<void>((resolve) => picker.close(() => resolve()));
   });
