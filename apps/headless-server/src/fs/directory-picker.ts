@@ -6,8 +6,15 @@
  * path at all. So the gateway opens the dialog on the machine it runs on and
  * returns the absolute path itself.
  *
- * Consequence: this only works where the gateway has a graphical session.
- * Headless environments get PickerUnsupportedError, never a hang.
+ * Consequence: this only works where the gateway has a graphical session. A
+ * headless environment never hangs — that guarantee holds regardless — but
+ * what it reports depends on whether a dialog binary is installed: an
+ * unknown platform, or a platform with no candidate binary present, throws
+ * `PickerUnsupportedError`; a platform where the binary IS installed (e.g. an
+ * SSH session into a Linux box with `zenity`) but has no graphical session to
+ * attach to typically has that binary exit non-zero with no output, which
+ * `pick()` cannot distinguish from a real cancellation — see the note beside
+ * that branch below.
  */
 
 import {
@@ -120,7 +127,14 @@ export function createDirectoryPicker(
               continue;
             }
             // A non-zero exit with nothing on stdout is how every one of these
-            // dialogs reports "the user closed me without choosing".
+            // dialogs reports "the user closed me without choosing". This is
+            // a heuristic, not a certainty: the same signature (non-zero,
+            // empty stdout) is also what the binary produces when it is
+            // installed but fails to open at all (e.g. no graphical session
+            // to attach to, such as a plain SSH login). We cannot tell those
+            // two apart from here, so a dialog that never appeared is
+            // reported to the caller as `{ path: null }`, indistinguishable
+            // from a genuine cancellation.
             if (error instanceof CommandFailedError && error.stdout.trim() === "") {
               return null;
             }
