@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
@@ -10,7 +10,7 @@ import { ModelPicker } from './ModelPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { Button } from '@/components/ui/button';
 import { useChatStore } from '@/stores/chat-store';
-import { useSessionStore } from '@/stores/session-store';
+import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
@@ -29,6 +29,13 @@ export function ChatPanel() {
   const setPendingProjectId = useSessionStore((s) => s.setPendingProjectId);
   const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
 
+  // Model and permission choices for a session that doesn't exist yet.
+  // Unlike `pendingProjectId`, nothing outside this component ever needs to
+  // set these, so plain local state is enough — no store round-trip needed.
+  const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
+  const [pendingPermissionMode, setPendingPermissionMode] = useState<PermissionMode>('plan');
+
   const hasModel = providers.some((p) => p.models.length > 0);
 
   // Defaults the welcome screen's project picker to the first workspace.
@@ -42,12 +49,21 @@ export function ChatPanel() {
     }
   }, [pendingProjectId, firstProjectId, setPendingProjectId]);
 
+  // Same default-to-first idea for model, but as a plain derived value rather
+  // than an effect: `pendingProviderId`/`pendingModelId` are only ever both
+  // null (no choice made yet) or both set together (by `ModelPicker`'s
+  // `onChange` below), so falling back to the first provider's first model
+  // while they're null cannot produce a mismatched provider/model pair.
+  const firstProviderWithModels = providers.find((p) => p.models.length > 0);
+  const effectiveProviderId = pendingProviderId ?? firstProviderWithModels?.id ?? null;
+  const effectiveModelId = pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
+
   const startSession = (content: string) => {
-    const firstProvider = providers.find((p) => p.models.length > 0);
     const id = useSessionStore.getState().createSession({
       projectId: pendingProjectId,
-      providerId: firstProvider?.id ?? null,
-      modelId: firstProvider?.models[0]?.id ?? null,
+      providerId: effectiveProviderId,
+      modelId: effectiveModelId,
+      permissionMode: pendingPermissionMode,
     });
     useSessionStore.getState().setCurrentSession(id);
     void sendMessage(content);
@@ -149,7 +165,23 @@ export function ChatPanel() {
                 onSubmit={startSession}
                 disabled={isGenerating || !pendingProjectId}
                 placeholder={pendingProjectId ? '描述你想要构建的内容…' : '请先选择工作区'}
-                toolbar={<ProjectPicker value={pendingProjectId} onChange={setPendingProjectId} />}
+                toolbar={
+                  <>
+                    <ProjectPicker value={pendingProjectId} onChange={setPendingProjectId} />
+                    <PermissionPicker
+                      value={pendingPermissionMode}
+                      onChange={setPendingPermissionMode}
+                    />
+                    <ModelPicker
+                      providerId={effectiveProviderId}
+                      modelId={effectiveModelId}
+                      onChange={(providerId, modelId) => {
+                        setPendingProviderId(providerId);
+                        setPendingModelId(modelId);
+                      }}
+                    />
+                  </>
+                }
               />
             )}
           </div>
@@ -181,10 +213,21 @@ export function ChatPanel() {
         disabled={isGenerating || missingBinding}
         placeholder={missingBinding ? '此会话缺少绑定的项目或模型，无法发送消息' : undefined}
         toolbar={
-          currentSessionId ? (
+          currentSessionId && currentSession ? (
             <>
-              <PermissionPicker sessionId={currentSessionId} />
-              <ModelPicker sessionId={currentSessionId} />
+              <PermissionPicker
+                value={currentSession.permissionMode}
+                onChange={(mode) =>
+                  useSessionStore.getState().setSessionPermissionMode(currentSessionId, mode)
+                }
+              />
+              <ModelPicker
+                providerId={currentSession.providerId}
+                modelId={currentSession.modelId}
+                onChange={(providerId, modelId) =>
+                  useSessionStore.getState().setSessionModel(currentSessionId, providerId, modelId)
+                }
+              />
             </>
           ) : null
         }

@@ -20,10 +20,21 @@ describe("useSessionStore", () => {
     expect(session?.projectId).toBe("p1");
   });
 
-  it("defaults permissionMode to plan", () => {
+  it("defaults permissionMode to plan when none is given", () => {
     const id = useSessionStore.getState().createSession({ projectId: "p1" });
     const session = useSessionStore.getState().sessions.find((s) => s.id === id);
     expect(session?.permissionMode).toBe("plan");
+  });
+
+  it("starts a session in the requested permission mode when one is given", () => {
+    // The welcome screen lets the user pick a tier before the session
+    // exists; that choice must actually take effect from the first turn
+    // rather than being silently forced back to 'plan'.
+    const id = useSessionStore
+      .getState()
+      .createSession({ projectId: "p1", permissionMode: "auto-accept" });
+    const session = useSessionStore.getState().sessions.find((s) => s.id === id);
+    expect(session?.permissionMode).toBe("auto-accept");
   });
 
   it("carries the initial model binding", () => {

@@ -8,11 +8,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useSessionStore, type PermissionMode } from '@/stores/session-store';
+import type { PermissionMode } from '@/stores/session-store';
 import { cn } from '@/lib/utils';
 
 interface PermissionPickerProps {
-  sessionId: string;
+  value: PermissionMode;
+  onChange: (mode: PermissionMode) => void;
 }
 
 const OPTIONS: Array<{ value: PermissionMode; label: string }> = [
@@ -20,30 +21,27 @@ const OPTIONS: Array<{ value: PermissionMode; label: string }> = [
   { value: 'auto-accept', label: '完全权限' },
 ];
 
-export function PermissionPicker({ sessionId }: PermissionPickerProps) {
-  const mode = useSessionStore(
-    (s) => s.sessions.find((x) => x.id === sessionId)?.permissionMode ?? 'plan',
-  );
-
+/**
+ * Pure display + callback, same reasoning as `ModelPicker`: the caller
+ * decides whether `value` comes from a session or from local "pending"
+ * state on the welcome screen, and where a change goes.
+ */
+export function PermissionPicker({ value, onChange }: PermissionPickerProps) {
   return (
     <Select
       items={OPTIONS}
-      value={mode}
-      onValueChange={(next) =>
-        useSessionStore
-          .getState()
-          .setSessionPermissionMode(sessionId, next as PermissionMode)
-      }
+      value={value}
+      onValueChange={(next) => onChange(next as PermissionMode)}
     >
       <SelectTrigger size="sm" className="font-mono">
-        {mode === 'auto-accept' ? (
+        {value === 'auto-accept' ? (
           <ShieldAlert className="h-3.5 w-3.5 text-destructive/80" />
         ) : (
           <ShieldCheck className={cn('h-3.5 w-3.5 text-muted-foreground')} />
         )}
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent alignItemWithTrigger={false}>
         {OPTIONS.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}

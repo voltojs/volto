@@ -30,6 +30,15 @@ interface CreateSessionOptions {
   projectId?: string | null;
   providerId?: string | null;
   modelId?: string | null;
+  /**
+   * Defaults to `'plan'` when omitted. Callers that let the user choose a
+   * permission tier before the session exists (the welcome screen's picker)
+   * can pass it through directly — nothing downstream forces a session to
+   * start restrictive; that used to be a hardcoded rule here, deliberately
+   * lifted so the pre-creation picker's choice actually takes effect from
+   * the first turn instead of being silently overridden.
+   */
+  permissionMode?: PermissionMode;
 }
 
 interface SessionState {
@@ -139,8 +148,10 @@ export const useSessionStore = create<SessionState>()(
           projectId: options.projectId ?? null,
           providerId: options.providerId ?? null,
           modelId: options.modelId ?? null,
-          // Start in the restrictive tier; widening it is an explicit choice.
-          permissionMode: 'plan',
+          // 'plan' is the default when the caller doesn't specify one — not
+          // a floor. A caller that lets the user pick a tier up front (the
+          // welcome screen) passes it straight through.
+          permissionMode: options.permissionMode ?? 'plan',
         };
         set((state) => ({
           sessions: [session, ...state.sessions],
