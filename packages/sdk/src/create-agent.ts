@@ -48,7 +48,7 @@ import {
   resetTurnForNextInput,
   filterByScope,
 } from "@volto/core";
-import type { StepContext, ReducerState } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions } from "@volto/runtime-node";
 import {
@@ -107,6 +107,7 @@ import {
   defaultEventSink,
   defaultTokenizer,
   createDefaultSessionStore,
+  defaultChatStore,
   defaultToolSource,
   createDefaultMemoryStore,
   defaultEmbedder,
@@ -253,6 +254,19 @@ export interface CreateAgentOptions {
 
   /** Session store for HITL checkpoint/resume */
   sessionStore?: SessionStore;
+
+  /** Durable transcript/trajectory store. Optional — omitted means no durable record is kept (mirrors sessionStore's optionality). */
+  chatStore?: TranscriptStore;
+
+  /**
+   * The chatStore's stable, whole-conversation session id — set once at
+   * construction. Distinct from the SDK's internal per-turn `sessionId`
+   * (used only for HITL checkpointing), which is regenerated every turn.
+   */
+  chatSessionId?: string;
+
+  /** Config binding recorded once via chatStore.appendMeta() at construction, when both this and chatStore are provided. */
+  chatMeta?: ChatSessionMeta;
 
   /**
    * Approval gate for HITL `ask` decisions. Defaults to auto-allow.
@@ -759,6 +773,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Session store ─────────────────────────
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
+  const chatStore = opts.chatStore ?? defaultChatStore;
+  if (opts.chatStore && opts.chatMeta && opts.chatSessionId) {
+    void chatStore.appendMeta(opts.chatSessionId, opts.chatMeta).catch(() => {});
+  }
 
   // ── M8: Resolve new ports ────────────────
   const resolvedPorts: ResolvedPorts = {
@@ -798,6 +816,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // resume in a fresh process after this one exits has no prior turn's
   // resolved layers to fall back on.
   let lastTurnContextLayers: ContextLayer[] | undefined;
+  // Incremented once per createNextRunner() call — every new turn this
+  // instance runs, whether via run() or stream(). Not incremented by
+  // resume(), which continues the same turn rather than starting a new one.
+  let turnCounter = 0;
 
   async function createNextRunner(
     runnerEventSink: EventSink,
@@ -847,6 +869,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
       : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
+    turnCounter++;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
     // lastRunner/lastFinalState must remain untouched so a subsequent retry
@@ -868,6 +891,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       compaction: compactionConfig,
       abortSignal,
       sessionId: `session-${idPort.next()}`,
+      chatStore: opts.chatStore ? chatStore : undefined,
+      chatSessionId: opts.chatSessionId,
+      turn: turnCounter,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,

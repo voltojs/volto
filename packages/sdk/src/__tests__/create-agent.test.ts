@@ -177,6 +177,59 @@ describe("createAgent — SDK facade", () => {
     });
   });
 
+  describe("with chat store", () => {
+    it("calls appendMeta once at construction when chatStore and chatMeta are provided", async () => {
+      const calls: Array<{ sessionId: string; meta: unknown }> = [];
+      const chatStore = {
+        async appendMeta(sessionId: string, meta: unknown) {
+          calls.push({ sessionId, meta });
+        },
+        async appendMessages() {},
+        async appendError() {},
+        async appendTrajectoryEntry() {},
+      };
+
+      createAgent({
+        modelPort: createMockModelPort([textScript("ok")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        chatMeta: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" },
+      });
+
+      expect(calls).toEqual([
+        { sessionId: "chat-s1", meta: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" } },
+      ]);
+    });
+
+    it("does not call appendMeta when chatMeta is omitted", async () => {
+      const calls: unknown[] = [];
+      const chatStore = {
+        async appendMeta(...args: unknown[]) {
+          calls.push(args);
+        },
+        async appendMessages() {},
+        async appendError() {},
+        async appendTrajectoryEntry() {},
+      };
+
+      createAgent({
+        modelPort: createMockModelPort([textScript("ok")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+      });
+
+      expect(calls).toEqual([]);
+    });
+
+    it("accepts createAgent without a chatStore, unchanged behavior", async () => {
+      const mockModel = createMockModelPort([textScript("ok")]);
+      const agent = createAgent({ modelPort: mockModel });
+
+      const state = await agent.run("hi");
+      expect(state.status).toBe("done");
+    });
+  });
+
   describe("with layered config (M13)", () => {
     it("should use config layer values as defaults when opts omit them", async () => {
       const mockModel = createMockModelPort([textScript("config works")]);
