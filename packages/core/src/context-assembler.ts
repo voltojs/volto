@@ -16,6 +16,13 @@ import { extractMessageText } from "./text-extract.js";
 // Types
 // ──────────────────────────────────────────────
 
+export interface ContextLayer {
+  /** Diagnostic label, e.g. "user-memory" | "project-memory" | "skill:<name>" */
+  id: string;
+  /** Host-resolved plain text — core never reads files, queries memory, or talks to MCP. */
+  text: string;
+}
+
 export interface AssembleContextOptions {
   /** All messages in chronological order */
   messages: Message[];
@@ -29,6 +36,8 @@ export interface AssembleContextOptions {
    * so they are never displaced by compaction or rearrangement.
    */
   pinnedMessageIds?: string[];
+  /** Optional context layers to inject as system messages after existing system messages */
+  contextLayers?: ContextLayer[];
 }
 
 export interface AssembledContext {
@@ -48,6 +57,8 @@ export interface AssembledContext {
    * - OpenAI: automatic prefix caching (breakpoints are diagnostic only)
    */
   cacheBreakpoints: number[];
+  /** Mapping of each context layer id to its message index in the assembled context */
+  layerOrigins: Array<{ id: string; messageIndex: number }>;
 }
 
 // ──────────────────────────────────────────────
@@ -59,15 +70,17 @@ export interface AssembledContext {
  *
  * Ordering strategy:
  * 1. System message (static) — stable across turns unless tools change
- * 2. Tool definitions are NOT embedded in messages; they go via ModelRequest.tools
+ * 2. Context layers (static) — injected as additional system messages after existing system messages
+ * 3. Tool definitions are NOT embedded in messages; they go via ModelRequest.tools
  *    (this keeps the message array clean and avoids re-serializing tools into content)
- * 3. User messages + tool results (variable) — chronological order preserved
+ * 4. Pinned messages (static) — placed in the prefix slot before variable content
+ * 5. User messages + tool results (variable) — chronological order preserved
  *
  * The key insight: the system prompt is the cacheable prefix. Tool definitions
  * are sent separately in ModelRequest.tools, so they don't pollute the message
  * array ordering. This function focuses on ordering messages such that the
- * system message (if present) is always first, and all other messages follow
- * in their original chronological order.
+ * system messages (and context layers) are always first, followed by pinned
+ * messages, and all other messages follow in their original chronological order.
  */
 export function assembleContext(opts: AssembleContextOptions): AssembledContext {
   const { messages } = opts;
@@ -88,9 +101,17 @@ export function assembleContext(opts: AssembleContextOptions): AssembledContext 
     }
   }
 
-  // System messages → pinned messages → everything else (stable prefix includes pinned)
-  const assembled = [...systemMessages, ...pinnedMessages, ...otherMessages];
-  const prefixLen = systemMessages.length + pinnedMessages.length;
+  const layers = opts.contextLayers ?? [];
+  const layerMessages: Message[] = layers.map((layer) => ({ role: "system", content: layer.text }));
+
+  // System messages → layer messages → pinned messages → everything else (stable prefix includes all three)
+  const assembled = [...systemMessages, ...layerMessages, ...pinnedMessages, ...otherMessages];
+  const prefixLen = systemMessages.length + layerMessages.length + pinnedMessages.length;
+
+  const layerOrigins = layers.map((layer, i) => ({
+    id: layer.id,
+    messageIndex: systemMessages.length + i,
+  }));
 
   // Cache breakpoints: indices where provider-side prompt cache should anchor.
   // Always include index 0 (first message) and the boundary after the static prefix.
@@ -103,6 +124,7 @@ export function assembleContext(opts: AssembleContextOptions): AssembledContext 
     messages: assembled,
     staticPrefixLength: prefixLen,
     cacheBreakpoints,
+    layerOrigins,
   };
 }
 
