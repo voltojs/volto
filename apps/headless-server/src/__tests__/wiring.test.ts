@@ -56,6 +56,34 @@ describe("createWiredAgent memory file layers", () => {
     expect(systemContents.filter((c) => c.includes("rule"))).toHaveLength(2);
   });
 
+  it("expands an @import line to the referenced file's real content", async () => {
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "@shared-rules.md", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "shared-rules.md"), "Shared team rule", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Shared team rule"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("[missing instruction file"))).toBe(false);
+  });
+
+  it("falls back to the missing-instruction-file placeholder for an @import that does not resolve", async () => {
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "@does-not-exist.md", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("[missing instruction file:"))).toBe(true);
+  });
+
   it("omits a layer entirely when its file does not exist, without erroring", async () => {
     // Neither AGENTS.md file is created in this test.
     const { modelPort, requests } = captureModelPort();
