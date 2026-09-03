@@ -68,4 +68,49 @@ describe("createWiredAgent memory file layers", () => {
       .map((m) => (m as { content: string }).content);
     expect(systemContents.some((c) => c.includes("missing instruction file"))).toBe(false);
   });
+
+  it("includes a triggered skill's resource content as its own layer", async () => {
+    const skillsDir = path.join(tempProjectDir, ".volto", "skills", "debugging");
+    await fs.mkdir(skillsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillsDir, "SKILL.md"),
+      [
+        "---",
+        "name: debugging",
+        "description: Systematic debugging",
+        "trigger: bug",
+        "---",
+        "Follow these debugging steps.",
+      ].join("\n"),
+      "utf-8",
+    );
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("there is a bug in my code");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Follow these debugging steps."))).toBe(true);
+  });
+
+  it("does not include a skill's resource when its trigger does not match", async () => {
+    const skillsDir = path.join(tempProjectDir, ".volto", "skills", "debugging");
+    await fs.mkdir(skillsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillsDir, "SKILL.md"),
+      ["---", "name: debugging", "description: Systematic debugging", "trigger: bug", "---", "Debug steps."].join("\n"),
+      "utf-8",
+    );
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("what's the weather today");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Debug steps."))).toBe(false);
+  });
 });
