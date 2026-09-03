@@ -1,16 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import type { StepContext, ModelPort, ModelEvent, MemoryStore, MemoryEntry } from "@volto/core";
+import type { StepContext, ModelPort, ModelRequest, ModelEvent, MemoryStore, MemoryEntry } from "@volto/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 
-function createMockModelPort(): ModelPort & { lastMessages?: unknown[] } {
+function createMockModelPort(): ModelPort & { lastMessages?: unknown[]; lastRequest?: ModelRequest } {
   let capturedMessages: unknown[] = [];
   return {
     lastMessages: undefined,
-    async *stream(req: { messages: unknown[] }): AsyncGenerator<ModelEvent> {
+    lastRequest: undefined,
+    async *stream(req: ModelRequest): AsyncGenerator<ModelEvent> {
       capturedMessages = req.messages;
-      (this as unknown as { lastMessages: unknown[] }).lastMessages = capturedMessages;
+      (this as unknown as { lastMessages: unknown[]; lastRequest: ModelRequest }).lastMessages = capturedMessages;
+      (this as unknown as { lastMessages: unknown[]; lastRequest: ModelRequest }).lastRequest = req;
       yield { type: "text_delta", text: "response" };
       yield { type: "done", stopReason: "end_turn" };
     },
@@ -102,5 +104,19 @@ describe("Runner RAG pipeline", () => {
 
     const msgs = model.lastMessages as Array<{ role: string; content: string }>;
     expect(msgs.some((m) => m.role === "system" && m.content === "Be terse")).toBe(true);
+  });
+
+  it("includes layerOrigins in the live model request", async () => {
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model", contextLayers: [{ id: "user-memory", text: "Be terse" }] },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect(model.lastRequest).toBeDefined();
+    expect(model.lastRequest!.layerOrigins).toContainEqual({ id: "user-memory", messageIndex: 0 });
   });
 });

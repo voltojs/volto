@@ -408,6 +408,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       responseFormat: stepContext.responseFormat,
       cacheBreakpoints: finalCacheBreakpoints,
       abortSignal: opts.abortSignal,
+      layerOrigins: assembled.layerOrigins,
     };
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
