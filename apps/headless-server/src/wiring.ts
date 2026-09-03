@@ -78,15 +78,21 @@ function parseSkillFile(raw: string): ParsedSkillFile | undefined {
   return { name: fields["name"], description: fields["description"], trigger: fields["trigger"], body: body!.trim() };
 }
 
-/** Scans a skills directory (one subdirectory per skill, each containing SKILL.md) and loads them. */
-async function loadSkillsFromDir(dir: string): Promise<Skill[]> {
+interface LoadedSkills {
+  skills: Skill[];
+  rootDirByResource: Map<string, string>;
+}
+
+/** Scans a skills directory (one subdirectory per skill, each containing SKILL.md) and loads them, tagging each skill's resource path with the rootDir @import expansion should use for it. */
+async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSkills> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
   } catch {
-    return [];
+    return { skills: [], rootDirByResource: new Map() };
   }
   const skills: Skill[] = [];
+  const rootDirByResource = new Map<string, string>();
   for (const entry of entries) {
     const skillPath = path.join(dir, entry, "SKILL.md");
     try {
@@ -99,29 +105,33 @@ async function loadSkillsFromDir(dir: string): Promise<Skill[]> {
           trigger: parsed.trigger,
           resources: [skillPath],
         });
+        rootDirByResource.set(skillPath, rootDir);
       }
     } catch {
       // Not a skill directory (no SKILL.md) — skip.
     }
   }
-  return skills;
+  return { skills, rootDirByResource };
 }
 
 /** In-memory cache: skills directories are scanned once per agent instance, not once per turn. */
-async function loadAllSkills(cwd: string): Promise<Skill[]> {
-  const [userSkills, projectSkills] = await Promise.all([
-    loadSkillsFromDir(path.join(getConfigDir(), "skills")),
-    loadSkillsFromDir(path.join(cwd, ".volto", "skills")),
+async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
+  const [userResult, projectResult] = await Promise.all([
+    loadSkillsFromDir(path.join(getConfigDir(), "skills"), getConfigDir()),
+    loadSkillsFromDir(path.join(cwd, ".volto", "skills"), cwd),
   ]);
-  return [...userSkills, ...projectSkills];
+  return {
+    skills: [...userResult.skills, ...projectResult.skills],
+    rootDirByResource: new Map([...userResult.rootDirByResource, ...projectResult.rootDirByResource]),
+  };
 }
 
 /** Loads a skill's resource files (each already-expanded via @import) and joins them. */
-async function loadSkillResourceText(skill: Skill, cwd: string): Promise<string> {
+async function loadSkillResourceText(skill: Skill, rootDirByResource: Map<string, string>): Promise<string> {
   const parts: string[] = [];
   for (const resourcePath of skill.resources ?? []) {
     const raw = await fs.readFile(resourcePath, "utf-8");
-    const rootDir = path.dirname(resourcePath).startsWith(cwd) ? cwd : getConfigDir();
+    const rootDir = rootDirByResource.get(resourcePath) ?? getConfigDir();
     const expanded = expandInstructions(new Map([[resourcePath, raw]]), resourcePath, rootDir);
     // SKILL.md's own frontmatter isn't meant to be replayed into the model —
     // only the body after it. Re-parse to strip it.
@@ -158,14 +168,14 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   });
   const sessionStore = createSqliteStore({ path: dbPath });
 
-  let skillsPromise: Promise<Skill[]> | undefined;
+  let skillsPromise: Promise<LoadedSkills> | undefined;
   async function resolveContextLayers(input: string): Promise<ContextLayer[]> {
     const layers = await resolveMemoryLayers(cwd);
     skillsPromise ??= loadAllSkills(cwd);
-    const skills = await skillsPromise;
+    const { skills, rootDirByResource } = await skillsPromise;
     const triggered = findTriggeredSkills(skills, input);
     for (const skill of triggered) {
-      const text = await loadSkillResourceText(skill, cwd);
+      const text = await loadSkillResourceText(skill, rootDirByResource);
       if (text) layers.push({ id: `skill:${skill.name}`, text });
     }
     return layers;
