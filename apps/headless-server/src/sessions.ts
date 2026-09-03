@@ -386,12 +386,22 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
     }
 
+    // Tracks whether this turn reached session.agent!.stream() — once it
+    // does, the agent was successfully constructed and createAgent()'s own
+    // internal appendError (inside persistTurnToChatStore) is already
+    // responsible for recording a rejection from that point on. Only a
+    // throw BEFORE this point (resolveConfig()/rebuild() — no agent ever
+    // built) is this catch block's own responsibility to record, or a
+    // runner rejection during an established turn would be double-written
+    // to the same chatStore.
+    let turnReachedStream = false;
     try {
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config)) {
         await rebuild(session, config, credentials);
       }
 
+      turnReachedStream = true;
       for await (const event of session.agent!.stream(message)) {
         const mapped = session.mapper.map(event);
         if (mapped) push(session, mapped);
@@ -404,8 +414,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // config-resolution failures (e.g. an unknown project id) throw before
       // any agent is ever constructed, so createAgent()'s own internal
       // appendError (which only fires once a runner exists) never sees them.
-      // This is the only place left that can record that failure mode.
-      await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
+      // This is the only place left that can record that failure mode. A
+      // throw from stream() itself (agent already built) is skipped here —
+      // createAgent() already recorded it internally.
+      if (!turnReachedStream) {
+        await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
+      }
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.

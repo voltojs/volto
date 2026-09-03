@@ -66,6 +66,35 @@ function makeFactory() {
   return { builds, factory };
 }
 
+/**
+ * Agent stub whose stream() rejects mid-iteration, AFTER first recording the
+ * error to chatStore itself — mirroring what createAgent()'s own internal
+ * persistTurnToChatStore() really does (record via chatStore, then let the
+ * rejection propagate to the caller). Used to prove sessions.ts's own
+ * manual appendError call is skipped once the agent was already built,
+ * instead of double-writing the same error.
+ */
+function makeThrowingStreamFactory() {
+  const builds: Array<Record<string, unknown>> = [];
+  const factory = (opts: Record<string, unknown>) => {
+    builds.push(opts);
+    return {
+      async *stream() {
+        yield { type: "text_delta", data: { text: "partial" } };
+        const err = new Error("runner exploded");
+        const chatStore = opts["chatStore"] as TranscriptStore | undefined;
+        const chatSessionId = opts["chatSessionId"] as string | undefined;
+        if (chatStore && chatSessionId) {
+          await chatStore.appendError(chatSessionId, err.message).catch(() => {});
+        }
+        throw err;
+      },
+      getState: () => ({ messages: [] }) as unknown as ReducerState,
+    };
+  };
+  return { builds, factory };
+}
+
 function makeRegistry(
   factory: ReturnType<typeof makeFactory>["factory"],
   chatStore?: JsonlSessionStore,
@@ -177,5 +206,21 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(chatStore.errorCalls).toHaveLength(1);
     expect(chatStore.errorCalls[0]!.sessionId).toBe("s1");
     expect(chatStore.errorCalls[0]!.message).toContain("Project store is not configured");
+  });
+
+  it("does not double-record an error when stream() rejects after the agent was already built", async () => {
+    const chatStore = makeFakeChatStore();
+    const { factory, builds } = makeThrowingStreamFactory();
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "one", config);
+
+    // The agent WAS built (unlike the config-resolution-failure case above),
+    // so createAgent()'s own internal error handling already recorded the
+    // error — sessions.ts's own catch block must not record it a second time.
+    expect(builds).toHaveLength(1);
+    expect(chatStore.errorCalls).toHaveLength(1);
+    expect(chatStore.errorCalls[0]!.sessionId).toBe("s1");
+    expect(chatStore.errorCalls[0]!.message).toContain("runner exploded");
   });
 });
