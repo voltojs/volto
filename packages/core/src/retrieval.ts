@@ -20,19 +20,21 @@ export function computeRAGInjectionIndex(
   cacheBreakpoints: number[],
   totalMessages: number,
 ): number {
-  // RAG content goes after the last cache breakpoint (static prefix boundary)
-  // but before variable content. If no breakpoints, inject at the end of
-  // the prefix (typically after system messages).
+  // RAG content goes at the last cache breakpoint (the boundary right after
+  // the static prefix, before variable content). If no breakpoints, inject
+  // at the beginning.
   if (cacheBreakpoints.length === 0) {
     // Fallback: inject at the beginning (after any system messages)
     return 0;
   }
 
-  // The last breakpoint marks the end of the static prefix
+  // The last breakpoint already marks the boundary right before variable
+  // content (see AssembledContext.cacheBreakpoints' doc in
+  // context-assembler.ts) — no +1 needed.
   const lastBreakpoint = cacheBreakpoints[cacheBreakpoints.length - 1] ?? 0;
 
-  // Inject right after the last breakpoint, clamped to message count
-  return Math.min(lastBreakpoint + 1, totalMessages);
+  // Clamp to message count in case the breakpoint is out of range.
+  return Math.min(lastBreakpoint, totalMessages);
 }
 
 /**

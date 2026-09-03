@@ -2,13 +2,13 @@ import { describe, it, expect } from "vitest";
 import { computeRAGInjectionIndex, buildRAGMessage } from "../retrieval.js";
 
 describe("computeRAGInjectionIndex", () => {
-  it("should inject after the last cache breakpoint", () => {
+  it("should inject at the last cache breakpoint", () => {
     const index = computeRAGInjectionIndex([0, 3], 10);
-    expect(index).toBe(4); // after breakpoint 3
+    expect(index).toBe(3); // breakpoint 3 already marks the boundary before variable content
   });
 
   it("should clamp to totalMessages", () => {
-    const index = computeRAGInjectionIndex([0, 9], 10);
+    const index = computeRAGInjectionIndex([0, 15], 10);
     expect(index).toBe(10); // clamped to totalMessages
   });
 

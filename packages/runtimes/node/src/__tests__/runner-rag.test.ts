@@ -50,6 +50,11 @@ describe("Runner RAG pipeline", () => {
     expect(ragMsg).toBeDefined();
     expect(ragMsg!.content).toContain("relevant fact A");
     expect(ragMsg!.content).toContain("relevant fact B");
+
+    // With no system messages, the RAG fragment must precede the user's
+    // question — it augments the query, not follows it.
+    expect(msgs[0]!.content).toContain("Retrieved Context");
+    expect(msgs[1]!.content).toBe("question");
   });
 
   it("does not inject RAG when memory store returns empty", async () => {
