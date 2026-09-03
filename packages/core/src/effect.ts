@@ -23,6 +23,8 @@ export interface CallModelEffect {
      * When omitted, providers fall back to their default cache behavior.
      */
     cacheBreakpoints?: number[];
+    /** Mapping of context layer IDs to their message indices in the assembled context */
+    layerOrigins?: Array<{ id: string; messageIndex: number }>;
   };
 }
 

@@ -84,6 +84,20 @@ describe("step()", () => {
         content: [{ type: "text", text: "Hello world!" }],
       });
     });
+
+    it("passes contextLayers through to the call_model effect's request", () => {
+      const ctxWithLayers: StepContext = {
+        ...ctx,
+        contextLayers: [{ id: "user-memory", text: "Be concise" }],
+      };
+      const { effects } = step(createInitialState(), { type: "user_message", content: "hi" }, ctxWithLayers);
+      const callModel = effects.find((e) => e.type === "call_model");
+
+      expect(callModel).toBeDefined();
+      if (callModel?.type !== "call_model") throw new Error("expected call_model effect");
+      expect(callModel.request.messages.some((m) => m.role === "system" && m.content === "Be concise")).toBe(true);
+      expect(callModel.request.layerOrigins).toEqual([{ id: "user-memory", messageIndex: 0 }]);
+    });
   });
 
   describe("tool use chain", () => {

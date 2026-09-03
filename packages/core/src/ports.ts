@@ -77,6 +77,8 @@ export interface ModelRequest {
    * should be anchored. Provider translates to native cache_control mechanism.
    */
   cacheBreakpoints?: number[];
+  /** Mapping of context layer IDs to their message indices in the assembled context */
+  layerOrigins?: Array<{ id: string; messageIndex: number }>;
 }
 
 export interface ModelPort {

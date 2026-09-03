@@ -8,6 +8,7 @@ import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, 
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
+import type { ContextLayer } from "./context-assembler.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
@@ -31,6 +32,8 @@ export interface StepContext {
   maxLoopCount?: number;
   /** Structured / JSON output mode (passed through to ModelPort.stream) */
   responseFormat?: { type: "json"; schema?: JSONSchema };
+  /** Optional context layers to inject as system messages */
+  contextLayers?: ContextLayer[];
 }
 
 // ──────────────────────────────────────────────
@@ -795,6 +798,7 @@ function buildCallModelEffect(
     messages,
     tools: ctx.tools,
     pinnedMessageIds,
+    contextLayers: ctx.contextLayers,
   });
   return {
     type: "call_model",
@@ -805,6 +809,7 @@ function buildCallModelEffect(
       maxTokens: ctx.maxTokens,
       temperature: ctx.temperature,
       cacheBreakpoints: assembled.cacheBreakpoints,
+      layerOrigins: assembled.layerOrigins,
     },
   };
 }
