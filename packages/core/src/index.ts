@@ -134,7 +134,7 @@ export {
   buildToolPrompt,
   computeStaticPrefixTokens,
 } from "./context-assembler.js";
-export type { AssembleContextOptions, AssembledContext } from "./context-assembler.js";
+export type { ContextLayer, AssembleContextOptions, AssembledContext } from "./context-assembler.js";
 
 // Compactor — compression decision logic
 export {
