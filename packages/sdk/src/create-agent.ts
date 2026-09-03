@@ -792,6 +792,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
+  // Most recently resolved per-turn contextLayers, cached for resume()'s
+  // fallback branch (see below). Only covers same-process resume
+  // (lastRunner.resume() throwing but the agent instance still alive) — a
+  // resume in a fresh process after this one exits has no prior turn's
+  // resolved layers to fall back on.
+  let lastTurnContextLayers: ContextLayer[] | undefined;
 
   async function createNextRunner(
     runnerEventSink: EventSink,
@@ -840,6 +846,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     const turnStepContext: StepContext = opts.resolveContextLayers
       ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
       : stepContext;
+    lastTurnContextLayers = turnStepContext.contextLayers;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
     // lastRunner/lastFinalState must remain untouched so a subsequent retry
@@ -1013,7 +1020,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
       const resumeRunner = createRunner({
         modelPort,
-        stepContext,
+        stepContext: lastTurnContextLayers
+          ? { ...stepContext, contextLayers: lastTurnContextLayers }
+          : stepContext,
         eventSink: opts.eventSink ?? defaultEventSink,
         toolExecutor,
         availableCapabilities: capabilities,

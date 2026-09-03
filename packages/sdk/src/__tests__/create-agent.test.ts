@@ -7,10 +7,11 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelRequest } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelRequest, ApprovalGate, SessionStore } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
+import type { Tool } from "@volto/tools-common";
 
 // ──────────────────────────────────────────────
 // Fixtures
@@ -297,6 +298,95 @@ describe("createAgent — SDK facade", () => {
         role: "assistant",
         content: [{ type: "text", text: "Second reply" }],
       });
+    });
+
+    it("resume()'s fallback branch (lastRunner.resume() throwing) still carries the turn's resolved contextLayers", async () => {
+      const dangerousToolDef: ToolDefinition = {
+        name: "dangerous_op",
+        description: "A tool gated by HITL approval",
+        inputSchema: { type: "object", properties: {}, required: [] },
+        requires: ["test:danger"],
+        riskTier: "WRITE_HIGH",
+      };
+      const dangerousTool: Tool = {
+        definition: dangerousToolDef,
+        handler: async (): Promise<ToolResult> => ({ modelContent: "operation completed" }),
+      };
+
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([
+        toolCallScript("c1", "dangerous_op", "{}"),
+        textScript("resumed after approval"),
+      ]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      // Gate that never resolves — forces the runner to park in
+      // waiting_for_approval so a checkpoint gets persisted.
+      const gate: ApprovalGate = {
+        ask: () => new Promise<"allow" | "deny">(() => {}),
+      };
+
+      // Wraps a real store but makes the FIRST load() call throw, simulating
+      // a transient failure inside lastRunner.resume() (which loads the
+      // checkpoint via the same sessionStore). The SDK's own fallback load()
+      // call (the second one) succeeds normally.
+      const innerStore = createMemoryStore();
+      let loadCallCount = 0;
+      const flakyStore: SessionStore = {
+        save: (snapshot) => innerStore.save(snapshot),
+        load: async (id: string) => {
+          loadCallCount++;
+          if (loadCallCount === 1) throw new Error("simulated transient store failure");
+          return innerStore.load(id);
+        },
+        list: () => innerStore.list(),
+      };
+
+      const agent = createAgent({
+        modelPort,
+        tools: [dangerousTool],
+        capabilities: new Set(["test:danger"]),
+        approvalGate: gate,
+        sessionStore: flakyStore,
+        resolveContextLayers: async () => [{ id: "user-memory", text: "LAYER MARKER TEXT" }],
+        permissionConfig: {
+          defaults: {
+            READ_ONLY: "allow",
+            WRITE_LOW: "allow",
+            WRITE_HIGH: "ask",
+            IRREVERSIBLE: "deny",
+          },
+        },
+      });
+
+      // Fire the turn but don't await — the runner parks in
+      // waiting_for_approval because the gate never resolves.
+      const runPromise = agent.run("do it");
+      await new Promise((r) => setTimeout(r, 30));
+
+      const saved = await innerStore.list();
+      expect(saved.length).toBeGreaterThanOrEqual(1);
+      const sessionId = saved[0]!.id;
+
+      const finalState = await agent.resume(sessionId, "allow");
+      expect(finalState.status).toBe("done");
+      // Fallback branch was actually exercised (load() called at least twice:
+      // once (throwing) inside lastRunner.resume(), once inside the SDK's
+      // own fallback).
+      expect(loadCallCount).toBeGreaterThanOrEqual(2);
+
+      // The rebuilt fallback runner's model request must still include the
+      // turn's resolved context layer as a system message.
+      const lastRequest = capturedRequests[capturedRequests.length - 1]!;
+      const systemMessages = lastRequest.messages.filter((m) => m.role === "system");
+      expect(systemMessages.some((m) => (m as { content: string }).content === "LAYER MARKER TEXT")).toBe(true);
+
+      void runPromise;
     });
   });
 });
