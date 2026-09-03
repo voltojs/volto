@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useAddProject } from '@/hooks/use-add-project';
+import { useRecoverServerSessions } from '@/hooks/use-recover-server-sessions';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -37,6 +38,8 @@ export function Sidebar() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useRecoverServerSessions();
 
   // ⌘B / Ctrl+B toggles the sidebar — the tooltip on SidebarToggle advertises
   // this, so the shortcut has to actually exist.

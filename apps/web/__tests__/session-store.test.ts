@@ -114,6 +114,44 @@ describe('useSessionStore', () => {
     expect(useSessionStore.getState().pendingProjectId).toBeNull();
   });
 
+  it('hydrateFromServer adds a session recovered from the server', () => {
+    const recovered = {
+      id: 's1',
+      title: '会话 1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 1,
+      projectId: 'p1',
+      providerId: 'v1',
+      modelId: 'm1',
+      permissionMode: 'plan' as const,
+    };
+    useSessionStore.getState().hydrateFromServer(recovered);
+    expect(useSessionStore.getState().sessions).toEqual([recovered]);
+  });
+
+  it('hydrateFromServer never overwrites a session already known locally', () => {
+    const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+    useSessionStore.getState().updateSessionTitle(id, 'local edit');
+
+    useSessionStore.getState().hydrateFromServer({
+      id,
+      title: 'server version',
+      messages: [],
+      createdAt: 0,
+      updatedAt: 0,
+      projectId: 'p1',
+      providerId: null,
+      modelId: null,
+      permissionMode: 'plan',
+    });
+
+    const session = useSessionStore
+      .getState()
+      .sessions.find((s) => s.id === id);
+    expect(session?.title).toBe('local edit');
+  });
+
   it('groups sessions by project', () => {
     const a = useSessionStore.getState().createSession({ projectId: 'p1' });
     useSessionStore.getState().createSession({ projectId: 'p2' });

@@ -12,6 +12,7 @@ import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
 import type { Message } from "@volto/core";
+import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { createOpenAIModelPort } from "@volto/provider-openai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
@@ -29,6 +30,13 @@ export interface SessionRegistryOptions extends WiringOptions {
   providerStore?: ReturnType<typeof createProviderStore>;
   /** Overridable agent constructor — production uses createWiredAgent. */
   agentFactory?: typeof createWiredAgent;
+  /**
+   * Durable transcript of every chat session's config bindings and messages.
+   * Optional: when absent, sessions still work, just without a durable
+   * record — this is a recorder, not something the turn's correctness
+   * depends on, so a missing store degrades silently rather than failing.
+   */
+  chatStore?: JsonlSessionStore;
 }
 
 export interface TurnConfig {
@@ -103,6 +111,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     projectStore,
     providerStore,
     agentFactory,
+    chatStore,
     ...wiring
   } = opts;
 
@@ -329,31 +338,29 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       return;
     }
 
+    // Cold start (server restart, or first turn after this Session object was
+    // just created by get()): the in-memory history is empty, but a durable
+    // transcript from a prior process may still exist. Without this, a
+    // restart silently truncates multi-turn context back to zero even though
+    // it was recorded on disk.
+    if (chatStore && session.history.length === 0) {
+      const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
+      if (persisted) session.history = persisted.messages;
+    }
+
     session.running = true;
     session.mapper.resetTurn();
+    const historyLengthBeforeTurn = session.history.length;
 
-    try {
-      const { config, credentials } = await resolveConfig(requested);
-      if (!session.agent || !sameConfig(session.config, config)) {
-        await rebuild(session, config, credentials);
-      }
-
-      for await (const event of session.agent!.stream(message)) {
-        const mapped = session.mapper.map(event);
-        if (mapped) push(session, mapped);
-      }
-      push(session, session.mapper.done());
-    } catch (err: unknown) {
-      const text = err instanceof Error ? err.message : String(err);
-      push(session, session.mapper.error(text));
-      // Still terminate the turn so the client leaves its streaming state.
-      push(session, session.mapper.done());
-    } finally {
-      // Capture history even on failure so a partial turn is not lost — but
-      // only when it grew or held steady. After a failed turn the SDK's
-      // getState() can fall back to the agent's build-time seed on the next
-      // turn (no `lastFinalState` to carry forward), which would otherwise
-      // silently truncate history that was already captured.
+    // Captures whatever history this turn produced (success or failure) and
+    // persists exactly the new messages, before `done` is pushed — a client
+    // that observes `done` on the wire must be able to trust the transcript
+    // already reflects the turn, not "will shortly, once this fire-and-forget
+    // write lands". Comparing against the length captured before the turn ran
+    // (rather than re-diffing session.history) means the guarded shrink below
+    // — the SDK's build-time-seed fallback after a failed turn — never
+    // re-appends messages the transcript already has.
+    async function captureAndPersistHistory(): Promise<void> {
       if (session.agent) {
         try {
           const captured = session.agent.getState().messages;
@@ -364,6 +371,50 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           // A never-run agent has no state yet; keep the previous history.
         }
       }
+      if (chatStore && session.history.length > historyLengthBeforeTurn) {
+        await chatStore
+          .appendMessages(
+            session.config?.projectPath ?? null,
+            sessionId,
+            session.history.slice(historyLengthBeforeTurn),
+          )
+          .catch(() => {});
+      }
+    }
+
+    try {
+      const { config, credentials } = await resolveConfig(requested);
+      if (!session.agent || !sameConfig(session.config, config)) {
+        await rebuild(session, config, credentials);
+        // Only the ids/mode — never the resolved credentials (baseURL,
+        // apiKey fingerprint) — belong in a durable transcript. Awaited (not
+        // fire-and-forget) so the write is durable before the turn streams
+        // any further — a crash mid-turn should not lose a binding change
+        // that already took effect.
+        await chatStore?.appendMeta(config.projectPath ?? null, sessionId, {
+          projectId: requested.projectId ?? null,
+          providerId: requested.providerId ?? null,
+          modelId: requested.modelId ?? null,
+          permissionMode: requested.permissionMode ?? null,
+        }).catch(() => {});
+      }
+
+      for await (const event of session.agent!.stream(message)) {
+        const mapped = session.mapper.map(event);
+        if (mapped) push(session, mapped);
+      }
+      await captureAndPersistHistory();
+      push(session, session.mapper.done());
+    } catch (err: unknown) {
+      const text = err instanceof Error ? err.message : String(err);
+      push(session, session.mapper.error(text));
+      await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
+      // Capture whatever partial progress this failed turn made before
+      // terminating it, so the client leaves its streaming state only once
+      // the transcript is caught up.
+      await captureAndPersistHistory();
+      push(session, session.mapper.done());
+    } finally {
       session.running = false;
     }
   }

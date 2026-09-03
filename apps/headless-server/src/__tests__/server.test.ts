@@ -334,6 +334,44 @@ describe("Headless server", () => {
     expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
   });
 
+  it("GET /sessions lists a session after a turn has run", async () => {
+    const sessionId = "session-list-after-turn";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi", config);
+
+    const { status, data } = await getJson("/sessions");
+    expect(status).toBe(200);
+    const summaries = data as Array<{ id: string; projectId: string; messageCount: number }>;
+    const summary = summaries.find((s) => s.id === sessionId);
+    expect(summary).toBeDefined();
+    expect(summary!.projectId).toBe(config.projectId);
+    // One user message + one assistant message from the mock model's reply.
+    expect(summary!.messageCount).toBe(2);
+  });
+
+  it("GET /sessions/:id returns the transcript in the web app's Message shape", async () => {
+    const sessionId = "session-detail";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi there", config);
+
+    const { status, data } = await getJson(`/sessions/${sessionId}`);
+    expect(status).toBe(200);
+    const detail = data as {
+      id: string;
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(detail.id).toBe(sessionId);
+    expect(detail.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "hi there" }),
+      expect.objectContaining({ role: "assistant", content: "Hello world" }),
+    ]);
+  });
+
+  it("GET /sessions/:id returns 404 for an unknown session", async () => {
+    const { status } = await getJson("/sessions/no-such-session");
+    expect(status).toBe(404);
+  });
+
   it("POST /messages errors over SSE when projectId is missing (F2)", async () => {
     const sessionId = "session-missing-project";
     const frames = await collectProtocolTurn(sessionId, "hi");

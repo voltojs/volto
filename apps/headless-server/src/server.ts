@@ -13,12 +13,16 @@
  */
 
 import * as http from "node:http";
+import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { createStore as createJsonlStore, type JsonlSessionStore } from "@volto/store-jsonl";
+import { toUiMessages } from "./transcript-view.js";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
 import { createProjectStore, InvalidPathError } from "./config/projects.js";
 import { createProviderStore } from "./config/providers.js";
+import { getConfigDir } from "./config/paths.js";
 import { isUiPermissionMode } from "./permission-modes.js";
 import {
   createDirectoryPicker,
@@ -55,6 +59,8 @@ export interface ServerOptions extends WiringOptions {
   host?: string;
   /** Overridable directory picker — production uses the native dialog. */
   directoryPicker?: ReturnType<typeof createDirectoryPicker>;
+  /** Overridable chat transcript store — production writes to ~/.volto/sessions. */
+  chatStore?: JsonlSessionStore;
 }
 
 /** Session id used when a client does not supply one. */
@@ -79,7 +85,8 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
   const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
-  const registry = createSessionRegistry({ ...opts, projectStore, providerStore });
+  const chatStore = opts.chatStore ?? createJsonlStore({ directory: path.join(getConfigDir(), "sessions") });
+  const registry = createSessionRegistry({ ...opts, projectStore, providerStore, chatStore });
 
   /**
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
@@ -353,6 +360,55 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         jsonResponse(res, removed ? 200 : 404, { removed });
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /sessions — lightweight list for the web app's session recovery
+    if (req.method === "GET" && url.pathname === "/sessions") {
+      try {
+        const records = await chatStore.listSessions();
+        jsonResponse(
+          res,
+          200,
+          records.map((record) => ({
+            id: record.sessionId,
+            projectId: record.meta.projectId,
+            providerId: record.meta.providerId,
+            modelId: record.meta.modelId,
+            permissionMode: record.meta.permissionMode,
+            messageCount: record.messages.length,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          })),
+        );
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /sessions/:id — full transcript, translated to the web app's Message shape
+    if (req.method === "GET" && url.pathname.startsWith("/sessions/")) {
+      try {
+        const id = decodeURIComponent(url.pathname.slice("/sessions/".length));
+        const record = await chatStore.readSession(id);
+        if (!record) {
+          jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+          return;
+        }
+        jsonResponse(res, 200, {
+          id: record.sessionId,
+          projectId: record.meta.projectId,
+          providerId: record.meta.providerId,
+          modelId: record.meta.modelId,
+          permissionMode: record.meta.permissionMode,
+          messages: toUiMessages(record.sessionId, record.messages, record.messageTimestamps),
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        });
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }

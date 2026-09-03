@@ -54,6 +54,14 @@ interface SessionState {
   pendingProjectId: string | null;
 
   createSession: (options?: CreateSessionOptions) => string;
+  /**
+   * Adds a session recovered from the server's durable transcript — never
+   * overwrites a session already known locally, since local state may be
+   * more current (e.g. a message sent while offline from the server's view).
+   * Used to recover history after localStorage was cleared or this is a
+   * fresh browser profile, while the headless-server process kept running.
+   */
+  hydrateFromServer: (session: Session) => void;
   setPendingProjectId: (id: string | null) => void;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
@@ -161,6 +169,13 @@ export const useSessionStore = create<SessionState>()(
         }));
         return id;
       },
+
+      hydrateFromServer: (session) =>
+        set((state) =>
+          state.sessions.some((s) => s.id === session.id)
+            ? state
+            : { sessions: [session, ...state.sessions] },
+        ),
 
       deleteSession: (id) =>
         set((state) => ({
