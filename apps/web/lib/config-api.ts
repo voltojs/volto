@@ -36,6 +36,21 @@ export interface ProviderInput {
   models?: Array<{ id?: string; name: string; code: string }>;
 }
 
+/**
+ * An error response from the gateway. Carries the HTTP status so callers can
+ * branch on specific conditions (e.g. 409) without matching on message text,
+ * which is server-generated English and not meant to be parsed.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${SERVER_URL}${path}`, {
     ...init,
@@ -44,7 +59,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(detail?.error ?? `Request failed with HTTP ${response.status}`);
+    throw new ApiError(
+      detail?.error ?? `Request failed with HTTP ${response.status}`,
+      response.status,
+    );
   }
   return (await response.json()) as T;
 }

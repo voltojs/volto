@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useConfigStore } from '@/stores/config-store';
-import { pickDirectory } from '@/lib/config-api';
+import { pickDirectory, ApiError } from '@/lib/config-api';
 import { deriveProjectName } from '@/lib/project-name';
 
 interface AddProjectDialogProps {
@@ -59,7 +59,14 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
       if (result.path) setPath(result.path);
     } catch (err) {
       if (attempt !== attemptRef.current) return; // abandoned — ignore
-      setError(err instanceof Error ? err.message : '无法打开目录选择器');
+      // The gateway has no cancel hook, so a second pick while one dialog is
+      // still open comes back as a 409 — give the user something actionable
+      // instead of the raw English error text from the server.
+      if (err instanceof ApiError && err.status === 409) {
+        setError('系统目录对话框已打开，请先完成或关闭它');
+      } else {
+        setError(err instanceof Error ? err.message : '无法打开目录选择器');
+      }
     } finally {
       if (attempt === attemptRef.current) setPicking(false);
     }
