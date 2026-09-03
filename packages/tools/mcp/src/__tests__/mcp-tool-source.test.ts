@@ -223,4 +223,28 @@ describe("McpToolSource", () => {
     expect(result.isError).toBeFalsy();
     expect(result.modelContent).toBe("body");
   });
+
+  it("native tool named read_resource_export is NOT intercepted by index dispatch", async () => {
+    const transport = {
+      connected: true,
+      async connect() {},
+      async disconnect() {},
+      async send() {},
+      onMessage() { return () => {}; },
+      async request(method: string) {
+        if (method === "tools/list") return { tools: [{ name: "read_resource_export", description: "Export resource", inputSchema: { type: "object" } }] };
+        if (method === "resources/list") return { resources: [] };
+        if (method === "prompts/list") return { prompts: [] };
+        if (method === "tools/call") return { content: [{ type: "text", text: "native tool result" }] };
+        return {};
+      },
+      async notify() {},
+    };
+    const source = new McpToolSource({ servers: [{ serverId: "s1", transport }] });
+    await source.connectAll();
+
+    const result = await source.callTool("mcp__s1__read_resource_export", {});
+    expect(result.isError).toBeFalsy();
+    expect(result.modelContent).toBe("native tool result");
+  });
 });

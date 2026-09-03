@@ -118,16 +118,16 @@ export class McpToolSource implements ToolSource {
       return { modelContent: `Unknown MCP server: ${serverId}`, isError: true };
     }
 
-    if (toolName.startsWith("read_resource_")) {
-      const index = Number(toolName.slice("read_resource_".length));
-      return connection.readResourceByIndex(index);
+    const resourceMatch = /^read_resource_(\d+)$/.exec(toolName);
+    if (resourceMatch) {
+      return connection.readResourceByIndex(Number(resourceMatch[1]));
     }
-    if (toolName.startsWith("get_prompt_")) {
-      const index = Number(toolName.slice("get_prompt_".length));
+    const promptMatch = /^get_prompt_(\d+)$/.exec(toolName);
+    if (promptMatch) {
       const stringArgs = Object.fromEntries(
         Object.entries(args).map(([k, v]) => [k, String(v)]),
       );
-      return connection.getPromptByIndex(index, stringArgs);
+      return connection.getPromptByIndex(Number(promptMatch[1]), stringArgs);
     }
 
     return connection.callTool(toolName, args);
