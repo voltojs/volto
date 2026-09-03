@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
-import type { ReducerState, Message } from "@volto/core";
-import type { ChatSessionMeta, ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
+import type { ReducerState, Message, TranscriptStore } from "@volto/core";
+import type { JsonlSessionStore } from "@volto/store-jsonl";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
 const created: Array<{ closeAll: () => void }> = [];
@@ -11,62 +11,24 @@ afterEach(() => {
   created.length = 0;
 });
 
-/** In-memory JsonlSessionStore stand-in that records every call it received. */
-function makeFakeChatStore() {
-  const files = new Map<
-    string,
-    { meta: ChatSessionMeta | null; messages: Message[]; errors: string[]; workspacePaths: Array<string | null> }
-  >();
-
-  function record(sessionId: string) {
-    let entry = files.get(sessionId);
-    if (!entry) {
-      entry = { meta: null, messages: [], errors: [], workspacePaths: [] };
-      files.set(sessionId, entry);
-    }
-    return entry;
-  }
-
-  const store: JsonlSessionStore = {
-    async appendMeta(workspacePath, sessionId, meta) {
-      const entry = record(sessionId);
-      entry.meta = meta;
-      entry.workspacePaths.push(workspacePath);
-    },
-    async appendMessages(workspacePath, sessionId, messages) {
-      const entry = record(sessionId);
-      entry.messages.push(...messages);
-      entry.workspacePaths.push(workspacePath);
-    },
-    async appendError(workspacePath, sessionId, message) {
-      const entry = record(sessionId);
-      entry.errors.push(message);
-      entry.workspacePaths.push(workspacePath);
-    },
-    async readSession(sessionId): Promise<ChatSessionRecord | undefined> {
-      const entry = files.get(sessionId);
-      if (!entry) return undefined;
-      return {
-        sessionId,
-        meta: entry.meta ?? { projectId: null, providerId: null, modelId: null, permissionMode: null },
-        messages: entry.messages,
-        messageTimestamps: entry.messages.map(() => 0),
-        errors: entry.errors.map((message) => ({ message, timestamp: 0 })),
-        createdAt: 0,
-        updatedAt: 0,
-      };
+/** Minimal JsonlSessionStore stand-in — only what scopeToWorkspace() needs to forward calls to. */
+function makeFakeChatStore(): JsonlSessionStore {
+  return {
+    async appendMeta() {},
+    async appendMessages() {},
+    async appendError() {},
+    async appendTrajectoryEntry() {},
+    async readSession() {
+      return undefined;
     },
     async listSessions() {
-      return Promise.all([...files.keys()].map((id) => store.readSession(id) as Promise<ChatSessionRecord>));
+      return [];
     },
-    async deleteSession(sessionId) {
-      files.delete(sessionId);
-    },
+    async deleteSession() {},
   };
-  return { store, files };
 }
 
-/** Agent stub reporting a growing message history across turns. */
+/** Agent stub reporting a growing message history across turns; captures every options object it was built with. */
 function makeFactory() {
   const builds: Array<Record<string, unknown>> = [];
   const cumulative: Message[] = [];
@@ -100,68 +62,66 @@ function makeRegistry(
 
 const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" as const };
 
-describe("chat transcript persistence (jsonl)", () => {
-  it("appends meta once per config binding and messages produced by the turn", async () => {
-    const { factory } = makeFactory();
-    const { store, files } = makeFakeChatStore();
-    const registry = makeRegistry(factory, store);
+describe("chat transcript wiring (jsonl)", () => {
+  it("builds the agent with a chatStore scoped to the resolved project path and a stable chatSessionId", async () => {
+    const { factory, builds } = makeFactory();
+    const chatStore = makeFakeChatStore();
+    const registry = makeRegistry(factory, chatStore);
 
     await registry.runTurn("s1", "one", config);
 
-    const entry = files.get("s1")!;
-    expect(entry.meta).toEqual({ projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" });
-    expect(entry.messages).toHaveLength(1);
-    expect(entry.messages[0]).toEqual({ role: "assistant", content: [{ type: "text", text: "m1" }] });
-    // The resolved project's absolute path (from the stub projectStore),
-    // not the raw projectId, is what locates the session's file on disk.
-    expect(entry.workspacePaths).toEqual(["/tmp", "/tmp"]);
+    const built = builds[0]!;
+    expect(built["chatSessionId"]).toBe("s1");
+    expect(built["chatStore"]).toBeDefined();
+    const scoped = built["chatStore"] as TranscriptStore;
+    // The scoped store forwards to the underlying fake — a smoke check that
+    // it's callable with the TranscriptStore (no workspacePath) shape.
+    await expect(scoped.appendMessages("s1", [])).resolves.toBeUndefined();
   });
 
-  it("only persists meta again when the resolved config actually changes", async () => {
-    const { factory } = makeFactory();
-    const { store, files } = makeFakeChatStore();
-    const registry = makeRegistry(factory, store);
+  it("passes chatMeta built from the resolved config, never the resolved apiKey", async () => {
+    const { factory, builds } = makeFactory();
+    const chatStore = makeFakeChatStore();
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "one", config);
+
+    const built = builds[0]!;
+    expect(built["chatMeta"]).toEqual({ projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" });
+    expect(JSON.stringify(built["chatMeta"])).not.toContain("sk-secret");
+  });
+
+  it("only rebuilds (and re-derives chatMeta) when the resolved config actually changes", async () => {
+    const { factory, builds } = makeFactory();
+    const chatStore = makeFakeChatStore();
+    const registry = makeRegistry(factory, chatStore);
 
     await registry.runTurn("s1", "one", config);
     await registry.runTurn("s1", "two", config);
 
-    // Two turns, same config: one meta write, two accumulated messages.
-    expect(files.get("s1")!.messages).toHaveLength(2);
-  });
-
-  it("never leaks the resolved apiKey into the transcript's meta record", async () => {
-    const { factory } = makeFactory();
-    const { store, files } = makeFakeChatStore();
-    const registry = makeRegistry(factory, store);
-
-    await registry.runTurn("s1", "one", config);
-
-    expect(JSON.stringify(files.get("s1")!.meta)).not.toContain("sk-secret");
-  });
-
-  it("records a turn-level error without touching message history", async () => {
-    const { factory } = makeFactory();
-    const { store, files } = makeFakeChatStore();
-    // No projectStore/providerStore -> resolveConfig throws before any agent runs.
-    const registry = createSessionRegistry({ agentFactory: factory as never, chatStore: store });
-    registry.attach("s1", { write: () => {}, on: () => {} } as never);
-    created.push(registry);
-
-    await registry.runTurn("s1", "one", { projectId: "p1" });
-
-    const entry = files.get("s1")!;
-    expect(entry.errors).toHaveLength(1);
-    expect(entry.messages).toHaveLength(0);
+    // Same config both turns -> the agent (and its chatMeta) is only built once.
+    expect(builds).toHaveLength(1);
   });
 
   it("hydrates history from the transcript on a cold start", async () => {
-    const { store } = makeFakeChatStore();
-    await store.appendMessages("/tmp", "s1", [{ role: "user", content: "earlier turn" }]);
+    const chatStore = makeFakeChatStore();
+    chatStore.readSession = async (sessionId: string) =>
+      sessionId === "s1"
+        ? {
+            sessionId: "s1",
+            meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+            messages: [{ role: "user", content: "earlier turn" }],
+            messageTimestamps: [0],
+            errors: [],
+            createdAt: 0,
+            updatedAt: 0,
+          }
+        : undefined;
 
     const { factory, builds } = makeFactory();
     // A brand-new registry has no in-memory session — this simulates a
     // server restart with the same on-disk transcript still present.
-    const registry = makeRegistry(factory, store);
+    const registry = makeRegistry(factory, chatStore);
 
     await registry.runTurn("s1", "continue", config);
 
@@ -169,9 +129,10 @@ describe("chat transcript persistence (jsonl)", () => {
   });
 
   it("works without a chatStore configured (persistence is optional)", async () => {
-    const { factory } = makeFactory();
+    const { factory, builds } = makeFactory();
     const registry = makeRegistry(factory);
 
     await expect(registry.runTurn("s1", "one", config)).resolves.toBeUndefined();
+    expect(builds[0]!["chatStore"]).toBeUndefined();
   });
 });
