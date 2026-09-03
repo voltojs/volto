@@ -13,21 +13,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { useConfigStore } from '@/stores/config-store';
 import { pickDirectory } from '@/lib/config-api';
+import { deriveProjectName } from '@/lib/project-name';
 
 interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-/**
- * Derive the project name from the directory.
- *
- * The filesystem root has no basename; falling back to the path itself keeps
- * the name non-empty, which the gateway requires.
- */
-function deriveName(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? path;
 }
 
 export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) {
@@ -80,7 +70,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
     setSaving(true);
     setError(null);
     try {
-      await addProject({ name: deriveName(path), path });
+      await addProject({ name: deriveProjectName(path), path });
       close();
     } catch (err) {
       setError(err instanceof Error ? err.message : '添加失败');
@@ -112,7 +102,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
 
           {path && (
             <div className="rounded-md border px-3 py-2 text-sm">
-              <div className="font-medium">{deriveName(path)}</div>
+              <div className="font-medium">{deriveProjectName(path)}</div>
               <div className="mt-0.5 break-all font-mono text-xs text-gray-500">{path}</div>
             </div>
           )}
