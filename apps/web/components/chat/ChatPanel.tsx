@@ -32,9 +32,12 @@ export function ChatPanel() {
   // Model and permission choices for a session that doesn't exist yet.
   // Unlike `pendingProjectId`, nothing outside this component ever needs to
   // set these, so plain local state is enough — no store round-trip needed.
-  const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
+  const [pendingProviderId, setPendingProviderId] = useState<string | null>(
+    null,
+  );
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
-  const [pendingPermissionMode, setPendingPermissionMode] = useState<PermissionMode>('plan');
+  const [pendingPermissionMode, setPendingPermissionMode] =
+    useState<PermissionMode>('plan');
 
   const hasModel = providers.some((p) => p.models.length > 0);
 
@@ -55,8 +58,10 @@ export function ChatPanel() {
   // `onChange` below), so falling back to the first provider's first model
   // while they're null cannot produce a mismatched provider/model pair.
   const firstProviderWithModels = providers.find((p) => p.models.length > 0);
-  const effectiveProviderId = pendingProviderId ?? firstProviderWithModels?.id ?? null;
-  const effectiveModelId = pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
+  const effectiveProviderId =
+    pendingProviderId ?? firstProviderWithModels?.id ?? null;
+  const effectiveModelId =
+    pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
 
   const startSession = (content: string) => {
     const id = useSessionStore.getState().createSession({
@@ -88,7 +93,9 @@ export function ChatPanel() {
   useEffect(() => {
     if (!currentSessionId) return;
     const timeoutId = setTimeout(() => {
-      useSessionStore.getState().updateSessionMessages(currentSessionId, messages);
+      useSessionStore
+        .getState()
+        .updateSessionMessages(currentSessionId, messages);
     }, 100);
     return () => clearTimeout(timeoutId);
   }, [messages, currentSessionId]);
@@ -99,7 +106,9 @@ export function ChatPanel() {
   const handleSubmit = (content: string) => sendMessage(content);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const currentProject = projects.find((p) => p.id === currentSession?.projectId);
+  const currentProject = projects.find(
+    (p) => p.id === currentSession?.projectId,
+  );
 
   // A session persisted before project-binding shipped can have projectId/
   // providerId/modelId as null (see migrate() in session-store.ts).
@@ -108,11 +117,14 @@ export function ChatPanel() {
   // typing into a box that silently does nothing.
   const missingBinding =
     currentSessionId !== null &&
-    (!currentSession?.projectId || !currentSession.providerId || !currentSession.modelId);
+    (!currentSession?.projectId ||
+      !currentSession.providerId ||
+      !currentSession.modelId);
 
   // Only worth surfacing once a session exists — before that there is nothing
   // to connect to yet.
-  const showOffline = currentSessionId !== null && connectionState !== 'connected';
+  const showOffline =
+    currentSessionId !== null && connectionState !== 'connected';
 
   // Show welcome screen when no messages
   if (messages.length === 0) {
@@ -122,7 +134,11 @@ export function ChatPanel() {
         <div className="bg-grain flex flex-1 flex-col items-center justify-center px-4">
           <div className="mb-8 max-w-2xl text-center">
             <div className="mb-5 flex items-center justify-center gap-3">
-              <svg viewBox="0 0 24 24" className="h-9 w-9 text-primary" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                className="text-primary h-9 w-9"
+                aria-hidden="true"
+              >
                 <path
                   d="M4 5 L11 19 L13 19 L20 5 L17.2 5 L12 15.5 L6.8 5 Z"
                   fill="currentColor"
@@ -140,11 +156,15 @@ export function ChatPanel() {
           <div className="w-full max-w-2xl">
             {projects.length === 0 ? (
               <div className="flex flex-col items-center gap-3">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   还没有工作区，添加一个开始吧
                 </p>
                 <Button
-                  onClick={() => void addProjectViaPicker().then((p) => p && setPendingProjectId(p.id))}
+                  onClick={() =>
+                    void addProjectViaPicker().then(
+                      (p) => p && setPendingProjectId(p.id),
+                    )
+                  }
                   disabled={addingProject}
                   className="gap-2"
                 >
@@ -157,32 +177,43 @@ export function ChatPanel() {
                 </Button>
               </div>
             ) : !hasModel ? (
-              <p className="text-center text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-center text-sm">
                 请先在「设置」中添加供应商与模型
               </p>
             ) : (
-              <InputBar
-                onSubmit={startSession}
-                disabled={isGenerating || !pendingProjectId}
-                placeholder={pendingProjectId ? '描述你想要构建的内容…' : '请先选择工作区'}
-                toolbar={
-                  <>
-                    <ProjectPicker value={pendingProjectId} onChange={setPendingProjectId} />
-                    <PermissionPicker
-                      value={pendingPermissionMode}
-                      onChange={setPendingPermissionMode}
-                    />
-                    <ModelPicker
-                      providerId={effectiveProviderId}
-                      modelId={effectiveModelId}
-                      onChange={(providerId, modelId) => {
-                        setPendingProviderId(providerId);
-                        setPendingModelId(modelId);
-                      }}
-                    />
-                  </>
-                }
-              />
+              <>
+                <div className="mb-2 px-6">
+                  <ProjectPicker
+                    value={pendingProjectId}
+                    onChange={setPendingProjectId}
+                  />
+                </div>
+                <InputBar
+                  onSubmit={startSession}
+                  disabled={isGenerating || !pendingProjectId}
+                  placeholder={
+                    pendingProjectId
+                      ? '描述你想要构建的内容…'
+                      : '请先选择工作区'
+                  }
+                  toolbar={
+                    <>
+                      <PermissionPicker
+                        value={pendingPermissionMode}
+                        onChange={setPendingPermissionMode}
+                      />
+                      <ModelPicker
+                        providerId={effectiveProviderId}
+                        modelId={effectiveModelId}
+                        onChange={(providerId, modelId) => {
+                          setPendingProviderId(providerId);
+                          setPendingModelId(modelId);
+                        }}
+                      />
+                    </>
+                  }
+                />
+              </>
             )}
           </div>
         </div>
@@ -192,7 +223,10 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader projectName={currentProject?.name} connectionState={connectionState} />
+      <ChatHeader
+        projectName={currentProject?.name}
+        connectionState={connectionState}
+      />
       {showOffline && (
         <div
           className={cn(
@@ -211,21 +245,29 @@ export function ChatPanel() {
       <InputBar
         onSubmit={handleSubmit}
         disabled={isGenerating || missingBinding}
-        placeholder={missingBinding ? '此会话缺少绑定的项目或模型，无法发送消息' : undefined}
+        placeholder={
+          missingBinding
+            ? '此会话缺少绑定的项目或模型，无法发送消息'
+            : undefined
+        }
         toolbar={
           currentSessionId && currentSession ? (
             <>
               <PermissionPicker
                 value={currentSession.permissionMode}
                 onChange={(mode) =>
-                  useSessionStore.getState().setSessionPermissionMode(currentSessionId, mode)
+                  useSessionStore
+                    .getState()
+                    .setSessionPermissionMode(currentSessionId, mode)
                 }
               />
               <ModelPicker
                 providerId={currentSession.providerId}
                 modelId={currentSession.modelId}
                 onChange={(providerId, modelId) =>
-                  useSessionStore.getState().setSessionModel(currentSessionId, providerId, modelId)
+                  useSessionStore
+                    .getState()
+                    .setSessionModel(currentSessionId, providerId, modelId)
                 }
               />
             </>
