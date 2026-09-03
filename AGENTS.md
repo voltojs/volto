@@ -8,18 +8,7 @@
 
 > 以下规则违反成本高、最易被忽略。**开始任何任务前先确认这一节，回复前再自检一次。**
 
-## 1. 语言规范（Language Convention）— 最高优先级
-
-- **对话回复 / 思考输出：默认中文。** 除非用户用其它语言提问或明确要求。
-- **文档默认中文** — `docs/`、`plans/` 下的 Markdown、commit message、PR description 一律中文撰写。
-- **代码与标识符永远英文** — 变量、函数、类型、文件名、分支名、CLI flag、log key 不得使用中文。
-- **仅以下情形保留英文**：引用英文原文、专有名词、API / 库 / 命令名称。
-- 用户显式指定语言时，以用户指令为准（覆盖以上默认）。
-
-✅ 正确：回复用中文 + 代码 `function step(state, input)` + commit `feat(plan-001): phase 2 - 纯内核状态机`
-❌ 错误：回复用英文 / commit 用英文 / 变量名 `状态机`
-
-## 2. 核心纯度铁律（Functional Core Purity）— 本项目立身之本
+## 1. 核心纯度铁律（Functional Core Purity）— 本项目立身之本
 
 > 核心包 `@volto/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
 
@@ -28,7 +17,7 @@
 - **决策逻辑全部为纯函数** —— `step()` reducer、ContextAssembler、Compactor、ToolRouter、PermissionPolicy 不碰 I/O；真正的副作用只通过返回 `Effect[]` 表达，由 Runner 解释执行。
 - **重放纪律**：同一串 `AgentInput` 序列两次运行必须产生完全一致的 `(state, effects)` 序列。改动 reducer 后跑重放测试作为回归门。
 
-## 3. 完成标准（Execution Quality Gate）
+## 2. 完成标准（Execution Quality Gate）
 
 > "完成任务" ≠ "完成类型、接口、文档、骨架或 TODO"
 
@@ -39,7 +28,7 @@
 3. **错误不中断循环** — 工具 / 模型错误一律归一化为 `isError: true` 的 `ToolResult` 或 `ModelError` input 回喂，**绝不抛异常中断主循环**。
 4. **可验证** — `pnpm turbo run typecheck lint test` 通过 + 给出手工验收步骤（或对应 Phase 的 Acceptance Criteria 全绿）。
 
-## 4. 代码改动硬性约束
+## 3. 代码改动硬性约束
 
 - **每次代码改动后必须运行 `pnpm turbo run typecheck lint test`**（受影响包即可，用 `--filter`），通过才算完成。
 - **依赖单向向下** — `core ← tools-*/providers-*/runtimes-*/stores-* ← sdk ← apps/*`。**`zod` 只允许出现在 `tools/*` 与 `sdk`**，核心只认抽象 `JSONSchema`。
@@ -114,7 +103,7 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 
 ## Coding Conventions（细节）
 
-- **核心纯度** — 见 §2；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@volto/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
+- **核心纯度** — 见 §1；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@volto/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
 - **ToolResult 双层** — `modelContent`（给模型，精简，超量必截断且声明）+ `displayMetadata`（给 UI / 日志，diff / 行数 / 耗时，经 EventSink 流出）。
 - **`edit_file` 编辑格式** — 主格式 `str_replace`（`old_string` / `new_string` / `replace_all?`）；精确匹配失败时 fuzzy fallback（① 忽略行首尾空白 ② 忽略 token 间空白正则）；未 `read_file` 或版本过期的文件拒绝编辑；写回前版本比对。`apply_patch`(diff) 留扩展点，暂不实现。
 - **缓存友好** — ContextAssembler 把静态内容（system prompt / tool defs / 项目指令）前置，变量（user 输入 / tool result）后置；工具集变更尽量发生在 turn 边界。

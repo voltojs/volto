@@ -19,14 +19,20 @@ export interface OpenAIModelPortOptions {
 }
 
 export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
-  const baseURL = (opts.baseURL ?? "https://api.openai.com").replace(/\/+$/, "");
+  const trimmed = (opts.baseURL ?? "https://api.openai.com").replace(/\/+$/, "");
+  // Gateways are commonly published with the version segment already included
+  // (that is what the official OpenAI SDK expects in `baseURL`). Appending our
+  // own would produce `/v1/v1/chat/completions`, so only add it when missing.
+  const endpoint = /\/v\d+$/.test(trimmed)
+    ? `${trimmed}/chat/completions`
+    : `${trimmed}/v1/chat/completions`;
 
   return {
     async *stream(req: ModelRequest): AsyncIterable<ModelEvent> {
       const model = req.model ?? opts.defaultModel ?? "gpt-4o";
 
       const body = buildRequestBody(req, model);
-      const url = `${baseURL}/v1/chat/completions`;
+      const url = endpoint;
 
       let response: Response;
       try {

@@ -11,7 +11,7 @@ import {
   createNodeNetwork,
 } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
-import type { ModelPort } from "@volto/core";
+import type { ModelPort, PermissionConfig, Message } from "@volto/core";
 
 export interface WiringOptions {
   modelPort?: ModelPort;
@@ -20,6 +20,10 @@ export interface WiringOptions {
   baseUrl?: string;
   cwd?: string;
   dbPath?: string;
+  /** Permission policy for this agent instance. */
+  permissionConfig?: PermissionConfig;
+  /** Conversation history to seed when rebuilding an instance. */
+  initialMessages?: Message[];
 }
 
 export function createWiredAgent(opts: WiringOptions = {}) {
@@ -44,5 +48,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     network,
     sessionStore,
     enableTaskTool: true,
+    ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
+    ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
   });
 }
