@@ -18,20 +18,14 @@
  * durable transcript, not a resumable execution checkpoint.
  */
 
-import type { Message } from "@volto/core";
+import type { Message, ChatSessionMeta, RawTrajectoryEntry, TranscriptStore } from "@volto/core";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
 const SCHEMA_VERSION = 1 as const;
 
-export interface ChatSessionMeta {
-  title?: string;
-  projectId: string | null;
-  providerId: string | null;
-  modelId: string | null;
-  permissionMode: string | null;
-}
+export type { ChatSessionMeta };
 
 interface RecordBase {
   uuid: string;
@@ -56,7 +50,12 @@ interface ErrorLine extends RecordBase {
   message: string;
 }
 
-type JsonlLine = MetaLine | MessageLine | ErrorLine;
+interface TrajectoryLine extends RecordBase {
+  type: "trajectory";
+  entry: RawTrajectoryEntry;
+}
+
+type JsonlLine = MetaLine | MessageLine | ErrorLine | TrajectoryLine;
 
 export interface ChatSessionRecord {
   sessionId: string;
@@ -90,6 +89,8 @@ export interface JsonlSessionStore {
   appendMessages(workspacePath: string | null, sessionId: string, messages: Message[]): Promise<void>;
   /** Appends a turn-level error, without disturbing message history. */
   appendError(workspacePath: string | null, sessionId: string, message: string): Promise<void>;
+  /** Appends one raw trajectory entry. Never folded into `ChatSessionRecord` — read separately when the trajectory-review feature resumes. */
+  appendTrajectoryEntry(workspacePath: string | null, sessionId: string, entry: RawTrajectoryEntry): Promise<void>;
   /** Replays a session's file into its current meta + full history — searches every workspace directory. */
   readSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
   /** Replays every session file across every workspace directory (plus any unbound sessions at the top level). */
@@ -303,6 +304,12 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
       ]);
     },
 
+    async appendTrajectoryEntry(workspacePath, sessionId, entry) {
+      await appendLines(workspacePath, sessionId, (parentUuid) => [
+        { ...makeBase(sessionId, parentUuid), type: "trajectory", entry },
+      ]);
+    },
+
     async readSession(sessionId) {
       const target = await findExistingFilePath(sessionId);
       if (!target) return undefined;
@@ -334,5 +341,20 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
       const target = await findExistingFilePath(sessionId);
       if (target) await fs.unlink(target);
     },
+  };
+}
+
+/**
+ * Narrows a full, workspace-routing `JsonlSessionStore` instance into a
+ * `TranscriptStore` bound to one fixed `workspacePath` — the shape
+ * `createAgent({ chatStore })` accepts. One underlying store instance /
+ * one directory tree; this is a view over it, not a second instance.
+ */
+export function scopeToWorkspace(store: JsonlSessionStore, workspacePath: string | null): TranscriptStore {
+  return {
+    appendMeta: (sessionId, meta) => store.appendMeta(workspacePath, sessionId, meta),
+    appendMessages: (sessionId, messages) => store.appendMessages(workspacePath, sessionId, messages),
+    appendError: (sessionId, message) => store.appendError(workspacePath, sessionId, message),
+    appendTrajectoryEntry: (sessionId, entry) => store.appendTrajectoryEntry(workspacePath, sessionId, entry),
   };
 }

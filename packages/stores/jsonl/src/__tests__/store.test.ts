@@ -194,4 +194,40 @@ describe("JsonlSessionStore", () => {
       expect(() => JSON.parse(line)).not.toThrow();
     }
   });
+
+  it("round-trips a trajectory entry alongside meta/message lines", async () => {
+    const store = createStore({ directory: tempDir });
+    await store.appendMessages(WORKSPACE, "s1", [userMsg]);
+    await store.appendTrajectoryEntry(WORKSPACE, "s1", {
+      sessionId: "s1",
+      turn: 1,
+      step: 1,
+      timestamp: 123,
+      eventType: "tool_result",
+      data: { toolCallId: "t1", toolName: "read_file", isError: false, durationMs: 42 },
+    });
+
+    const raw = await fs.readFile(
+      path.join(tempDir, encodeWorkspaceName(WORKSPACE), "s1.jsonl"),
+      "utf-8",
+    );
+    const lines = raw.trim().split("\n").map((l) => JSON.parse(l) as { type: string });
+    expect(lines.map((l) => l.type)).toEqual(["message", "trajectory"]);
+  });
+
+  it("keeps trajectory entries out of the reduced message/meta view", async () => {
+    const store = createStore({ directory: tempDir });
+    await store.appendMessages(WORKSPACE, "s1", [userMsg]);
+    await store.appendTrajectoryEntry(WORKSPACE, "s1", {
+      sessionId: "s1",
+      turn: 1,
+      step: 1,
+      timestamp: 123,
+      eventType: "tool_result",
+      data: { toolCallId: "t1" },
+    });
+
+    const record = await store.readSession("s1");
+    expect(record!.messages).toEqual([userMsg]);
+  });
 });
