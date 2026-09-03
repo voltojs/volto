@@ -91,11 +91,9 @@ export class McpToolSource implements ToolSource {
     for (const [, connection] of this.connections) {
       if (!connection.connected) continue;
 
-      // MCP native tools
       tools.push(...connection.toToolDefinitions());
-
-      // Controlled tools for resources (if any resources exist)
-      // Resource tools are generated dynamically based on discovered resources
+      tools.push(...connection.toResourceToolDefinitions());
+      tools.push(...connection.toPromptToolDefinitions());
     }
 
     return tools;
@@ -119,6 +117,19 @@ export class McpToolSource implements ToolSource {
     if (!connection) {
       return { modelContent: `Unknown MCP server: ${serverId}`, isError: true };
     }
+
+    if (toolName.startsWith("read_resource_")) {
+      const index = Number(toolName.slice("read_resource_".length));
+      return connection.readResourceByIndex(index);
+    }
+    if (toolName.startsWith("get_prompt_")) {
+      const index = Number(toolName.slice("get_prompt_".length));
+      const stringArgs = Object.fromEntries(
+        Object.entries(args).map(([k, v]) => [k, String(v)]),
+      );
+      return connection.getPromptByIndex(index, stringArgs);
+    }
+
     return connection.callTool(toolName, args);
   }
 

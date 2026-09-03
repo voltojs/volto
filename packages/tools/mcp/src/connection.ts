@@ -34,6 +34,14 @@ export class McpConnection {
     return this._tools;
   }
 
+  get resources(): McpResource[] {
+    return this._resources;
+  }
+
+  get prompts(): McpPrompt[] {
+    return this._prompts;
+  }
+
   /** Connect the transport, perform MCP handshake, and discover tools/resources/prompts */
   async connect(): Promise<void> {
     const { transport } = this.options;
@@ -176,5 +184,53 @@ export class McpConnection {
       riskTier: "READ_ONLY" as const,
       trust: "untrusted" as const,
     }));
+  }
+
+  /** Convert discovered resources into one read-only, index-addressed tool per resource. */
+  toResourceToolDefinitions(): ToolDefinition[] {
+    const capability = `mcp:${this.serverId}`;
+    return this._resources.map((resource, i) => ({
+      name: `mcp__${this.serverId}__read_resource_${i}`,
+      description: `Read MCP resource "${resource.name}"${resource.description ? `: ${resource.description}` : ""} (${resource.uri})`,
+      inputSchema: { type: "object", properties: {} } as unknown as JSONSchema,
+      requires: [capability],
+      riskTier: "READ_ONLY" as const,
+      trust: "untrusted" as const,
+    }));
+  }
+
+  /** Convert discovered prompts into one index-addressed tool per prompt, with the prompt's declared arguments as the tool's input schema. */
+  toPromptToolDefinitions(): ToolDefinition[] {
+    const capability = `mcp:${this.serverId}`;
+    return this._prompts.map((prompt, i) => {
+      const properties: Record<string, unknown> = {};
+      const required: string[] = [];
+      for (const arg of prompt.arguments ?? []) {
+        properties[arg.name] = { type: "string", description: arg.description };
+        if (arg.required) required.push(arg.name);
+      }
+      return {
+        name: `mcp__${this.serverId}__get_prompt_${i}`,
+        description: `Get MCP prompt "${prompt.name}"${prompt.description ? `: ${prompt.description}` : ""}`,
+        inputSchema: { type: "object", properties, ...(required.length > 0 ? { required } : {}) } as unknown as JSONSchema,
+        requires: [capability],
+        riskTier: "READ_ONLY" as const,
+        trust: "untrusted" as const,
+      };
+    });
+  }
+
+  /** Read a resource by its index in the last discover() result. */
+  async readResourceByIndex(index: number): Promise<ToolResult> {
+    const resource = this._resources[index];
+    if (!resource) return { modelContent: `Unknown resource index: ${index}`, isError: true };
+    return this.readResource(resource.uri);
+  }
+
+  /** Get a prompt by its index in the last discover() result. */
+  async getPromptByIndex(index: number, args?: Record<string, string>): Promise<ToolResult> {
+    const prompt = this._prompts[index];
+    if (!prompt) return { modelContent: `Unknown prompt index: ${index}`, isError: true };
+    return this.getPrompt(prompt.name, args);
   }
 }

@@ -175,4 +175,52 @@ describe("McpToolSource", () => {
     expect(result.isError).toBe(true);
     expect(result.modelContent).toContain("Unknown MCP server");
   });
+
+  it("list() includes resource and prompt tools alongside native tools", async () => {
+    const transport = {
+      connected: true,
+      async connect() {},
+      async disconnect() {},
+      async send() {},
+      onMessage() { return () => {}; },
+      async request(method: string) {
+        if (method === "tools/list") return { tools: [] };
+        if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
+        if (method === "prompts/list") return { prompts: [{ name: "greet" }] };
+        return {};
+      },
+      async notify() {},
+    };
+    const source = new McpToolSource({ servers: [{ serverId: "s1", transport }] });
+    await source.connectAll();
+
+    const tools = await source.list();
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(["mcp__s1__read_resource_0", "mcp__s1__get_prompt_0"]),
+    );
+  });
+
+  it("callTool dispatches a resource tool name to readResourceByIndex", async () => {
+    const transport = {
+      connected: true,
+      async connect() {},
+      async disconnect() {},
+      async send() {},
+      onMessage() { return () => {}; },
+      async request(method: string) {
+        if (method === "tools/list") return { tools: [] };
+        if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
+        if (method === "prompts/list") return { prompts: [] };
+        if (method === "resources/read") return { contents: [{ text: "body" }] };
+        return {};
+      },
+      async notify() {},
+    };
+    const source = new McpToolSource({ servers: [{ serverId: "s1", transport }] });
+    await source.connectAll();
+
+    const result = await source.callTool("mcp__s1__read_resource_0", {});
+    expect(result.isError).toBeFalsy();
+    expect(result.modelContent).toBe("body");
+  });
 });
