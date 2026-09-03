@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocket } from "ws";
 import { createServer } from "../server.js";
+import { PickerUnsupportedError } from "../fs/directory-picker.js";
 import type { ModelPort, ReducerState } from "@volto/core";
 
 const MOCK_MODEL: ModelPort = {
@@ -387,5 +388,59 @@ describe("Headless server", () => {
   it("DELETE /providers/:id with a malformed id returns 400 instead of crashing", async () => {
     const { status } = await del("/providers/%");
     expect(status).toBe(400);
+  });
+
+  it("POST /fs/pick-directory returns the chosen path", async () => {
+    const picker = createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      directoryPicker: { pick: async () => "/tmp/chosen" },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ path: "/tmp/chosen" });
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/pick-directory reports a cancellation as a null path", async () => {
+    const picker = createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      directoryPicker: { pick: async () => null },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ path: null });
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/pick-directory maps an unsupported platform to 501", async () => {
+    const picker = createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      directoryPicker: {
+        pick: async () => {
+          throw new PickerUnsupportedError("no dialog here");
+        },
+      },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    expect(response.status).toBe(501);
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
   });
 });

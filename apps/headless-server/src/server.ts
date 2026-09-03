@@ -20,6 +20,12 @@ import { createSessionRegistry } from "./sessions.js";
 import { createProjectStore, InvalidPathError } from "./config/projects.js";
 import { createProviderStore } from "./config/providers.js";
 import { isUiPermissionMode } from "./permission-modes.js";
+import {
+  createDirectoryPicker,
+  PickerBusyError,
+  PickerUnsupportedError,
+} from "./fs/directory-picker.js";
+import { CommandTimeoutError } from "./fs/command-runner.js";
 
 export interface ServerOptions extends WiringOptions {
   port?: number;
@@ -47,6 +53,8 @@ export interface ServerOptions extends WiringOptions {
    * machine's filesystem to the local network.
    */
   host?: string;
+  /** Overridable directory picker — production uses the native dialog. */
+  directoryPicker?: ReturnType<typeof createDirectoryPicker>;
 }
 
 /** Session id used when a client does not supply one. */
@@ -70,6 +78,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const agent = createWiredAgent(opts);
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
+  const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
   const registry = createSessionRegistry({ ...opts, projectStore, providerStore });
 
   /**
@@ -344,6 +353,28 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         jsonResponse(res, removed ? 200 : 404, { removed });
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // POST /fs/pick-directory — open the OS directory dialog on this machine
+    if (req.method === "POST" && url.pathname === "/fs/pick-directory") {
+      try {
+        // No request body is read: the dialog prompt is a server-side constant
+        // and the caller has nothing to contribute.
+        const path = await directoryPicker.pick();
+        jsonResponse(res, 200, { path });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof PickerBusyError) {
+          jsonResponse(res, 409, { error: message });
+        } else if (err instanceof PickerUnsupportedError) {
+          jsonResponse(res, 501, { error: message });
+        } else if (err instanceof CommandTimeoutError) {
+          jsonResponse(res, 504, { error: message });
+        } else {
+          jsonResponse(res, 500, { error: message });
+        }
       }
       return;
     }
