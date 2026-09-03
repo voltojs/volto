@@ -17,6 +17,7 @@ import type {
   ReadFileRecord,
   PermissionConfig,
   SessionStore,
+  TranscriptStore,
   ApprovalGate,
   CompactionConfig,
   Message,
@@ -73,6 +74,12 @@ export interface RunnerOptions {
   sessionStore?: SessionStore;
   /** Session ID for checkpoint persistence */
   sessionId?: string;
+  /** Durable transcript/trajectory store — mirrors sessionStore's optionality; a missing chatStore just means no durable record is kept. */
+  chatStore?: TranscriptStore;
+  /** The chatStore's session id — distinct from `sessionId` above, which is regenerated per turn for HITL checkpointing. This one is the host's stable, whole-conversation id. */
+  chatSessionId?: string;
+  /** This turn's ordinal within the whole conversation (tracked by the SDK across turns). Defaults to 0 when omitted. */
+  turn?: number;
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
@@ -210,6 +217,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let turnHadError = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
+  // Sequential step counter for this turn's trajectory entries (Task 3 of
+  // the pluggable-session-storage plan). Resets naturally each turn since a
+  // fresh Runner instance is created per turn.
+  let trajectoryStep = 0;
   // Retry state for retriable model errors
   let consecutiveModelErrors = 0;
 
@@ -265,10 +276,32 @@ export function createRunner(opts: RunnerOptions): Runner {
     return false;
   }
 
+  const TRAJECTORY_EVENT_TYPES = new Set(["tool_use_complete", "tool_result", "model_done", "context_assembled"]);
+
+  /** Best-effort: records a raw trajectory entry for a subset of significant event types. Never throws into the main loop. */
+  function recordTrajectory(eventType: string, data: Record<string, unknown>): void {
+    if (!TRAJECTORY_EVENT_TYPES.has(eventType)) return;
+    if (!opts.chatStore || !opts.chatSessionId) return;
+    trajectoryStep++;
+    void opts.chatStore
+      .appendTrajectoryEntry(opts.chatSessionId, {
+        sessionId: opts.chatSessionId,
+        turn: opts.turn ?? 0,
+        step: trajectoryStep,
+        timestamp: opts.clock?.now() ?? Date.now(),
+        eventType,
+        data,
+      })
+      .catch(() => {});
+  }
+
   /** Forward emit effects to EventSink. */
   function forwardEmit(effects: Effect[]): void {
     for (const e of effects) {
-      if (e.type === "emit") opts.eventSink?.emit(e.event);
+      if (e.type === "emit") {
+        opts.eventSink?.emit(e.event);
+        recordTrajectory(e.event.type, e.event.data);
+      }
     }
   }
 
@@ -378,6 +411,12 @@ export function createRunner(opts: RunnerOptions): Runner {
     });
     let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
+
+    if (assembled.layerOrigins.length > 0) {
+      const contextAssembledEvent = { type: "context_assembled", data: { layerOrigins: assembled.layerOrigins } };
+      opts.eventSink?.emit(contextAssembledEvent);
+      recordTrajectory(contextAssembledEvent.type, contextAssembledEvent.data);
+    }
 
     if (opts.rag) {
       const { memoryStore, topK = 5, queryBuilder } = opts.rag;
