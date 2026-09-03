@@ -7,7 +7,7 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
@@ -255,6 +255,46 @@ describe("createAgent — SDK facade", () => {
       const firstIds = JSON.stringify(appended[0]!.messages);
       const secondIds = JSON.stringify(appended[1]!.messages);
       expect(secondIds).not.toContain(firstIds.slice(1, -1));
+    });
+
+    it("does not re-append seeded initialMessages to chatStore (simulates a post-rebuild agent instance)", async () => {
+      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+      const chatStore = {
+        async appendMeta() {},
+        async appendMessages(sessionId: string, messages: unknown[]) {
+          appended.push({ sessionId, messages: [...messages] });
+        },
+        async appendError() {},
+        async appendTrajectoryEntry() {},
+      };
+
+      // Simulates apps/headless-server rebuilding an agent instance mid-conversation
+      // (e.g. model/permission switch) and re-seeding the messages that were already
+      // durably persisted to chatStore before the rebuild.
+      const seededHistory: Message[] = [
+        { role: "user", content: "earlier turn" },
+        { role: "assistant", content: [{ type: "text", text: "earlier reply" }] },
+      ];
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("new reply")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        initialMessages: seededHistory,
+      });
+
+      await agent.run("new turn");
+
+      expect(appended).toHaveLength(1);
+      expect(appended[0]!.sessionId).toBe("chat-s1");
+      // Only the new turn's messages (user input + assistant reply) must be appended —
+      // the seeded initialMessages must not be re-sent.
+      expect(appended[0]!.messages).toHaveLength(2);
+      expect(appended[0]!.messages[0]).toMatchObject({ role: "user", content: "new turn" });
+      expect(appended[0]!.messages[1]).toMatchObject({
+        role: "assistant",
+        content: [{ type: "text", text: "new reply" }],
+      });
     });
 
     it("appends an error via chatStore when the runner rejects", async () => {
