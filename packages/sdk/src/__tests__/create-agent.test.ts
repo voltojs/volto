@@ -7,7 +7,7 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelRequest, ApprovalGate, SessionStore } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
@@ -505,6 +505,45 @@ describe("createAgent — SDK facade", () => {
       expect(systemMessages.some((m) => (m as { content: string }).content === "LAYER MARKER TEXT")).toBe(true);
 
       void runPromise;
+    });
+  });
+
+  describe("sub-agent event forwarding", () => {
+    it("forwards sub-agent events to the eventSink actually used for the current turn, not a construction-time-only one", async () => {
+      const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+      let callCount = 0;
+      const modelPort: ModelPort = {
+        async *stream(): AsyncGenerator<ModelEvent> {
+          callCount++;
+          if (callCount === 1) {
+            // Parent turn: call the task tool.
+            yield { type: "tool_use_start", toolCallId: "t1", toolName: "task" };
+            yield { type: "tool_use_delta", toolCallId: "t1", argumentsDelta: JSON.stringify({ message: "sub task" }) };
+            yield { type: "done", stopReason: "tool_use" };
+          } else if (callCount === 2) {
+            // Sub-agent's own turn.
+            yield { type: "text_delta", text: "sub done" };
+            yield { type: "done", stopReason: "end_turn" };
+          } else {
+            // Parent turn resumes after the tool result.
+            yield { type: "text_delta", text: "parent done" };
+            yield { type: "done", stopReason: "end_turn" };
+          }
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        enableTaskTool: true,
+        // No top-level eventSink here on purpose — this is exactly the shape
+        // apps/headless-server's wiring uses, which reproduces the bug.
+      });
+
+      for await (const event of agent.stream("please delegate")) {
+        events.push(event);
+      }
+
+      expect(events.some((e) => e.type === "text_delta" && e.data["agentDepth"] === 1)).toBe(true);
     });
   });
 });

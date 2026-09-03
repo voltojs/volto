@@ -623,7 +623,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell, idPort),
+      createSubAgentExecutor(
+        opts,
+        allCustomTools,
+        adapterTools,
+        capabilities,
+        compactionConfig,
+        1,
+        effectiveShell,
+        idPort,
+        () => currentTurnEventSink,
+      ),
     );
     allCustomTools.push(taskTool);
   }
@@ -823,6 +833,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // How many of lastFinalState.messages have already been appended to
   // chatStore — only the slice past this index is new for the next call.
   let chatStorePersistedCount = 0;
+  // The EventSink actually in use for the turn currently running — read by
+  // createSubAgentExecutor at call time, since the task tool is built once
+  // at construction but each turn's real sink (channel.eventSink for
+  // stream(), or whatever run() was given) is only known per-call.
+  let currentTurnEventSink: EventSink | undefined;
 
   async function createNextRunner(
     runnerEventSink: EventSink,
@@ -857,6 +872,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           },
         }
       : runnerEventSink;
+
+    currentTurnEventSink = effectiveSink;
 
     // M13: Merge hooks from opts + plugins (plugin hooks appended after opts hooks)
     const allHooks: import("@volto/core").Hook[] = [
@@ -1166,6 +1183,7 @@ function createSubAgentExecutor(
   depth: number = 1,
   shellOverride?: Shell,
   idPort: Id = defaultId,
+  getCurrentEventSink: () => EventSink | undefined = () => undefined,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const subCustomTools = parentCustomTools.filter(
@@ -1202,8 +1220,9 @@ function createSubAgentExecutor(
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
     };
 
-    const taggedSink = opts.eventSink
-      ? tagEventSink(opts.eventSink, depth, "task")
+    const currentSink = getCurrentEventSink();
+    const taggedSink = currentSink
+      ? tagEventSink(currentSink, depth, "task")
       : undefined;
 
     const subRunner = createRunner({
