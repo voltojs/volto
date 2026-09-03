@@ -70,3 +70,10 @@ export const updateProvider = (id: string, input: Partial<ProviderInput>) =>
 
 export const deleteProvider = (id: string) =>
   request<void>(`/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+/**
+ * Ask the gateway to open a native directory dialog on the machine it runs on.
+ * A null path means the user cancelled — that is not an error.
+ */
+export const pickDirectory = () =>
+  request<{ path: string | null }>('/fs/pick-directory', { method: 'POST' });
