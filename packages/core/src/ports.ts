@@ -198,6 +198,50 @@ export interface SessionStore {
 }
 
 // ──────────────────────────────────────────────
+// TranscriptStore — durable chat transcript + raw trajectory log
+// ──────────────────────────────────────────────
+
+export interface ChatSessionMeta {
+  title?: string;
+  projectId: string | null;
+  providerId: string | null;
+  modelId: string | null;
+  permissionMode: string | null;
+}
+
+/**
+ * One raw, unshaped record of a significant event during a turn — a tool
+ * call, a tool result, the assembled system-prompt layers, or the model's
+ * final response. Deliberately not classified by role or linked into a
+ * hierarchy: `data` mirrors the originating EventSink event's `data` field
+ * verbatim (already carries `agentDepth`/`agentLabel` for sub-agent events,
+ * `durationMs` for tool results). Turning these into a role-classified,
+ * hierarchy-aware view is future read-side work, not part of this port.
+ */
+export interface RawTrajectoryEntry {
+  sessionId: string;
+  turn: number;
+  step: number;
+  timestamp: number;
+  eventType: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Durable, append-only record of a chat session's lifetime: config
+ * bindings, messages, turn-level errors, and raw trajectory events.
+ * Distinct from `SessionStore` — that port is a whole-`AgentState` snapshot
+ * for HITL checkpoint/resume; this one is a durable log for display and
+ * (later) audit, never read back into a running turn.
+ */
+export interface TranscriptStore {
+  appendMeta(sessionId: string, meta: ChatSessionMeta): Promise<void>;
+  appendMessages(sessionId: string, messages: Message[]): Promise<void>;
+  appendError(sessionId: string, message: string): Promise<void>;
+  appendTrajectoryEntry(sessionId: string, entry: RawTrajectoryEntry): Promise<void>;
+}
+
+// ──────────────────────────────────────────────
 // EventSink — observable event output
 // ──────────────────────────────────────────────
 
