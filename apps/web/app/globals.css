@@ -5,8 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
+    --font-heading: var(--font-display);
+    --font-display: var(--font-display);
     --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -15,6 +17,8 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);
@@ -38,8 +42,8 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
+    --radius-sm: calc(var(--radius) * 0.5);
+    --radius-md: calc(var(--radius) * 0.75);
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) * 1.4);
     --radius-2xl: calc(var(--radius) * 1.8);
@@ -47,73 +51,84 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * "Terminal Ledger" — a warm, precise, instrument-panel aesthetic. Amber is
+ * the single accent color (a phosphor/brass tone), used sparingly against a
+ * warm charcoal/paper base rather than the generic blue-on-white AI-chat
+ * look. Both themes share the same hue family so switching never feels like
+ * a different product.
+ */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --background: oklch(0.985 0.004 80);
+    --foreground: oklch(0.2 0.014 60);
+    --card: oklch(0.995 0.003 80);
+    --card-foreground: oklch(0.2 0.014 60);
+    --popover: oklch(0.995 0.003 80);
+    --popover-foreground: oklch(0.2 0.014 60);
+    --primary: oklch(0.6 0.15 45);
+    --primary-foreground: oklch(0.99 0.01 90);
+    --secondary: oklch(0.94 0.008 65);
+    --secondary-foreground: oklch(0.28 0.014 60);
+    --muted: oklch(0.95 0.007 65);
+    --muted-foreground: oklch(0.48 0.014 55);
+    --accent: oklch(0.92 0.025 55);
+    --accent-foreground: oklch(0.28 0.03 45);
+    --destructive: oklch(0.55 0.2 25);
+    --success: oklch(0.55 0.11 155);
+    --success-foreground: oklch(0.98 0.01 150);
+    --border: oklch(0.89 0.01 60);
+    --input: oklch(0.89 0.01 60);
+    --ring: oklch(0.6 0.15 45);
+    --chart-1: oklch(0.6 0.15 45);
+    --chart-2: oklch(0.55 0.11 155);
+    --chart-3: oklch(0.5 0.02 60);
+    --chart-4: oklch(0.65 0.12 80);
+    --chart-5: oklch(0.4 0.02 60);
+    --radius: 0.5rem;
+    --sidebar: oklch(0.965 0.006 65);
+    --sidebar-foreground: oklch(0.24 0.014 60);
+    --sidebar-primary: oklch(0.6 0.15 45);
+    --sidebar-primary-foreground: oklch(0.99 0.01 90);
+    --sidebar-accent: oklch(0.91 0.025 55);
+    --sidebar-accent-foreground: oklch(0.24 0.014 60);
+    --sidebar-border: oklch(0.89 0.01 60);
+    --sidebar-ring: oklch(0.6 0.15 45);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: oklch(0.17 0.009 50);
+    --foreground: oklch(0.94 0.011 75);
+    --card: oklch(0.205 0.01 50);
+    --card-foreground: oklch(0.94 0.011 75);
+    --popover: oklch(0.225 0.011 50);
+    --popover-foreground: oklch(0.94 0.011 75);
+    --primary: oklch(0.76 0.15 60);
+    --primary-foreground: oklch(0.16 0.02 50);
+    --secondary: oklch(0.27 0.011 50);
+    --secondary-foreground: oklch(0.94 0.011 75);
+    --muted: oklch(0.245 0.011 50);
+    --muted-foreground: oklch(0.65 0.018 65);
+    --accent: oklch(0.3 0.035 55);
+    --accent-foreground: oklch(0.94 0.011 75);
+    --destructive: oklch(0.65 0.19 25);
+    --success: oklch(0.68 0.14 155);
+    --success-foreground: oklch(0.14 0.02 150);
+    --border: oklch(1 0 0 / 9%);
+    --input: oklch(1 0 0 / 14%);
+    --ring: oklch(0.76 0.15 60);
+    --chart-1: oklch(0.76 0.15 60);
+    --chart-2: oklch(0.68 0.14 155);
+    --chart-3: oklch(0.65 0.018 65);
+    --chart-4: oklch(0.72 0.13 80);
+    --chart-5: oklch(0.5 0.018 65);
+    --sidebar: oklch(0.14 0.009 50);
+    --sidebar-foreground: oklch(0.94 0.011 75);
+    --sidebar-primary: oklch(0.76 0.15 60);
+    --sidebar-primary-foreground: oklch(0.16 0.02 50);
+    --sidebar-accent: oklch(0.26 0.04 55);
+    --sidebar-accent-foreground: oklch(0.94 0.011 75);
+    --sidebar-border: oklch(1 0 0 / 9%);
+    --sidebar-ring: oklch(0.76 0.15 60);
 }
 
 @layer base {
@@ -125,5 +140,44 @@
     }
   html {
     @apply font-sans;
+    }
+  ::selection {
+    background: color-mix(in oklch, var(--primary), transparent 70%);
+    color: var(--foreground);
+    }
+}
+
+@layer utilities {
+  /* A faint fixed-position noise field for atmosphere — used behind the
+     welcome screen and empty states, never under readable text. */
+  .bg-grain {
+    position: relative;
+    isolation: isolate;
+    }
+  .bg-grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.5;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    }
+
+  /* A blinking terminal caret for the active streaming turn. */
+  .caret-blink {
+    animation: caret-blink 1s step-end infinite;
+    }
+  @keyframes caret-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+    }
+
+  .animate-in-stagger {
+    animation: fade-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+  @keyframes fade-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
     }
 }

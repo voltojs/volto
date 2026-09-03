@@ -1,5 +1,6 @@
 'use client';
 
+import { Cpu } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -43,7 +44,8 @@ export function ModelPicker({ sessionId }: ModelPickerProps) {
         }
       }}
     >
-      <SelectTrigger size="sm">
+      <SelectTrigger size="sm" className="font-mono">
+        <Cpu className="h-3.5 w-3.5 text-primary/80" />
         {/* A session may reference a model that was since deleted; say so
             rather than silently falling back to some other model. */}
         <SelectValue placeholder={providerId && !valid ? '模型已失效，请重选' : '选择模型'} />

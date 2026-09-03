@@ -73,10 +73,11 @@ describe("useConfigStore", () => {
     expect(state.isModelValid("v1", "gone")).toBe(false);
   });
 
-  it("appends a created project to local state", async () => {
+  it("appends a created project to local state and returns it", async () => {
     stubFetch({ "POST /projects": PROJECT });
-    await useConfigStore.getState().addProject({ name: "demo", path: "/tmp/demo" });
+    const created = await useConfigStore.getState().addProject({ name: "demo", path: "/tmp/demo" });
     expect(useConfigStore.getState().projects).toEqual([PROJECT]);
+    expect(created).toEqual(PROJECT);
   });
 
   it("drops a removed provider from local state", async () => {

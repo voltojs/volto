@@ -36,8 +36,16 @@ interface SessionState {
   sessions: Session[];
   currentSessionId: string | null;
   sidebarOpen: boolean;
+  /**
+   * The project a new session will bind to, shown by the welcome screen's
+   * `ProjectPicker`. Lives here (rather than as local component state) so
+   * the sidebar's per-project "new conversation" action can set it directly —
+   * not persisted, since a stale default from a prior visit isn't meaningful.
+   */
+  pendingProjectId: string | null;
 
   createSession: (options?: CreateSessionOptions) => string;
+  setPendingProjectId: (id: string | null) => void;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setCurrentSession: (id: string | null) => void;
@@ -115,6 +123,9 @@ export const useSessionStore = create<SessionState>()(
       sessions: [],
       currentSessionId: null,
       sidebarOpen: true,
+      pendingProjectId: null,
+
+      setPendingProjectId: (id) => set({ pendingProjectId: id }),
 
       createSession: (options = {}) => {
         const id = generateId();

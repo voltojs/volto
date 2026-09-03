@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { MessageSquare, Trash2, MoreHorizontal } from 'lucide-react';
+import { MessageSquareText, Trash2, Pencil } from 'lucide-react';
 
 interface SessionItemProps {
   session: { id: string; title: string; updatedAt: number };
@@ -34,14 +34,19 @@ export function SessionItem({
   return (
     <div
       className={cn(
-        'group relative flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-200',
-        isActive && 'bg-gray-200',
+        'group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground',
+        isActive && 'bg-sidebar-accent font-medium text-sidebar-foreground',
       )}
       onClick={onClick}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      <MessageSquare className="h-4 w-4 shrink-0 text-gray-400" />
+      <MessageSquareText
+        className={cn(
+          'h-3.5 w-3.5 shrink-0',
+          isActive ? 'text-primary' : 'text-muted-foreground',
+        )}
+      />
       {isEditing ? (
         <Input
           value={editingTitle}
@@ -51,32 +56,33 @@ export function SessionItem({
             if (e.key === 'Enter') onFinishEdit();
             if (e.key === 'Escape') onFinishEdit();
           }}
-          className="h-6 text-sm"
+          className="h-6 text-xs"
           autoFocus
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="flex-1 truncate text-sm">{session.title}</span>
+        <span className="flex-1 truncate text-[13px]">{session.title}</span>
       )}
 
       {showActions && !isEditing && (
-        <div className="absolute right-1 flex items-center gap-1">
+        <div className="absolute right-1 flex items-center gap-0.5 bg-sidebar-accent pl-1">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-6"
+            size="icon-xs"
             onClick={(e) => {
               e.stopPropagation();
               onStartEdit();
             }}
+            aria-label="重命名"
           >
-            <MoreHorizontal className="h-3 w-3" />
+            <Pencil className="h-3 w-3" />
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-red-500 hover:text-red-600"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-destructive"
             onClick={onDelete}
+            aria-label="删除会话"
           >
             <Trash2 className="h-3 w-3" />
           </Button>

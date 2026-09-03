@@ -3,6 +3,8 @@
 import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Kbd } from '@/components/ui/kbd';
 
 interface InputBarProps {
   onSubmit?: (message: string) => void;
@@ -40,23 +42,26 @@ export function InputBar({ onSubmit, disabled, placeholder, toolbar }: InputBarP
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4">
-      <div className="rounded-xl border focus-within:ring-2 focus-within:ring-blue-500">
-        <textarea
+    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-4">
+      <div className="rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+        <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder ?? '描述你想要构建的内容…'}
           disabled={disabled}
-          rows={2}
-          className="w-full resize-none bg-transparent px-4 py-3 text-sm outline-none disabled:opacity-50"
+          rows={1}
+          className="max-h-48 min-h-11 resize-none border-0 px-3.5 py-3 text-sm shadow-none focus-visible:ring-0"
         />
-        <div className="flex items-center gap-2 px-2 pb-2">
+        <div className="flex items-center gap-2 px-2.5 pb-2.5">
           {toolbar}
+          <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex">
+            <Kbd>Enter</Kbd> 发送 <Kbd>Shift+Enter</Kbd> 换行
+          </span>
           <Button
             type="submit"
             size="icon"
-            className="ml-auto h-8 w-8 rounded-full"
+            className="h-8 w-8 shrink-0 rounded-full"
             disabled={!input.trim() || disabled}
             aria-label="发送"
           >

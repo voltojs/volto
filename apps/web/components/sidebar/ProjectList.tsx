@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Folder, FolderOpen, Trash2 } from 'lucide-react';
+import { ChevronRight, FolderGit2, Plus, Trash2 } from 'lucide-react';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { SessionItem } from './SessionItem';
 
@@ -15,7 +16,9 @@ export function ProjectList() {
   const sessions = useSessionStore((s) => s.sessions);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(
+    projects[0]?.id ?? null,
+  );
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +49,25 @@ export function ProjectList() {
     useChatStore.setState({ messages: session?.messages ?? [] });
   };
 
+  const startSessionForProject = (projectId: string) => {
+    useSessionStore.getState().setCurrentSession(null);
+    useChatStore.getState().clearMessages();
+    useSessionStore.getState().setPendingProjectId(projectId);
+  };
+
   if (projects.length === 0) {
-    return <div className="py-8 text-center text-sm text-gray-400">暂无项目</div>;
+    return (
+      <div className="mx-1 mt-2 rounded-md border border-dashed border-sidebar-border px-3 py-6 text-center text-xs text-muted-foreground">
+        暂无项目
+        <br />
+        点击右上角 <FolderGit2 className="inline h-3 w-3 align-[-1px]" /> 添加一个目录
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-1">
-      {error && <p className="px-2 py-1 text-xs text-red-600">{error}</p>}
+    <div className="space-y-0.5">
+      {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
       {projects.map((project) => {
         const expanded = expandedId === project.id;
         const projectSessions = sessions.filter((s) => s.projectId === project.id);
@@ -61,36 +76,75 @@ export function ProjectList() {
           <div key={project.id}>
             <div
               className={cn(
-                'group flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-200',
-                expanded && 'bg-gray-200',
+                'group relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
               )}
               onClick={() => setExpandedId(expanded ? null : project.id)}
             >
-              {expanded ? (
-                <FolderOpen className="h-4 w-4 shrink-0 text-gray-500" />
-              ) : (
-                <Folder className="h-4 w-4 shrink-0 text-gray-500" />
+              <ChevronRight
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+                  expanded && 'rotate-90',
+                )}
+              />
+              <FolderGit2 className="h-4 w-4 shrink-0 text-primary/80" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="flex-1 truncate font-mono text-[13px]">
+                      {project.name}
+                    </span>
+                  }
+                />
+                <TooltipContent side="right">{project.path}</TooltipContent>
+              </Tooltip>
+              {projectSessions.length > 0 && (
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {projectSessions.length}
+                </span>
               )}
-              <span className="flex-1 truncate text-sm" title={project.path}>
-                {project.name}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden h-6 w-6 text-red-500 group-hover:flex"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleRemoveProject(project.id, project.name, projectSessions.length);
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
+              {/* Absolutely positioned so appearing on hover never pushes the
+                  name/count above — a plain `hidden group-hover:flex` sibling
+                  would grow the flex row and jitter the whole item. */}
+              <div className="absolute right-1 hidden items-center gap-0.5 bg-sidebar-accent pl-1 group-hover:flex">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startSessionForProject(project.id);
+                        }}
+                        aria-label="新建对话"
+                      />
+                    }
+                  >
+                    <Plus className="h-3 w-3" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">新建对话</TooltipContent>
+                </Tooltip>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleRemoveProject(project.id, project.name, projectSessions.length);
+                  }}
+                  aria-label="删除项目"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
 
             {expanded && (
-              <div className="ml-4 mt-1 space-y-0.5">
+              <div className="ml-2.5 space-y-0.5 border-l border-sidebar-border/70 py-0.5 pl-2.5">
                 {projectSessions.length === 0 && (
-                  <div className="px-2 py-1 text-xs text-gray-400">暂无会话</div>
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground italic">
+                    暂无会话
+                  </div>
                 )}
                 {projectSessions.map((session) => (
                   <SessionItem

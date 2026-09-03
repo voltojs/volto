@@ -1,7 +1,7 @@
 /**
- * `deriveProjectName` lives in its own module (rather than inline in
- * AddProjectDialog.tsx) specifically so it can be tested here without
- * rendering — `apps/web`'s vitest setup has no jsdom.
+ * `deriveProjectName` lives in its own module (rather than inline in a
+ * component) specifically so it can be tested here without rendering —
+ * `apps/web`'s vitest setup has no jsdom.
  */
 
 import { describe, it, expect } from "vitest";

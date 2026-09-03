@@ -1,6 +1,6 @@
 'use client';
 
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, ShieldAlert } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
+import { cn } from '@/lib/utils';
 
 interface PermissionPickerProps {
   sessionId: string;
@@ -34,8 +35,12 @@ export function PermissionPicker({ sessionId }: PermissionPickerProps) {
           .setSessionPermissionMode(sessionId, next as PermissionMode)
       }
     >
-      <SelectTrigger size="sm">
-        <ShieldCheck className="h-3.5 w-3.5 text-gray-500" />
+      <SelectTrigger size="sm" className="font-mono">
+        {mode === 'auto-accept' ? (
+          <ShieldAlert className="h-3.5 w-3.5 text-destructive/80" />
+        ) : (
+          <ShieldCheck className={cn('h-3.5 w-3.5 text-muted-foreground')} />
+        )}
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

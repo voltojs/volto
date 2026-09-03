@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useSessionStore, migrate } from "../stores/session-store.js";
 
 beforeEach(() => {
-  useSessionStore.setState({ sessions: [], currentSessionId: null });
+  useSessionStore.setState({ sessions: [], currentSessionId: null, pendingProjectId: null });
 });
 
 describe("useSessionStore", () => {
@@ -71,6 +71,14 @@ describe("useSessionStore", () => {
     const session = useSessionStore.getState().sessions.find((s) => s.id === id);
     expect(session?.messages).toHaveLength(1);
     expect(session?.projectId).toBe("p1");
+  });
+
+  it("sets the pending project for the next new session", () => {
+    expect(useSessionStore.getState().pendingProjectId).toBeNull();
+    useSessionStore.getState().setPendingProjectId("p1");
+    expect(useSessionStore.getState().pendingProjectId).toBe("p1");
+    useSessionStore.getState().setPendingProjectId(null);
+    expect(useSessionStore.getState().pendingProjectId).toBeNull();
   });
 
   it("groups sessions by project", () => {

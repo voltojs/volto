@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, KeyRound } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { useConfigStore, type Provider, type Model } from '@/stores/config-store';
 
 interface ProvidersDialogProps {
@@ -51,26 +53,31 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>模型配置</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-primary" />
+            模型配置
+          </DialogTitle>
           <DialogDescription>
-            供应商的 apiKey 加密保存在服务端 ~/.volto，不会存入浏览器。
+            供应商的 apiKey 加密保存在服务端 <code className="font-mono">~/.volto</code>，不会存入浏览器。
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+        <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
           {providers.map((provider) => (
             <ProviderCard key={provider.id} provider={provider} />
           ))}
           {providers.length === 0 && (
-            <p className="py-6 text-center text-sm text-gray-400">还没有配置供应商</p>
+            <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+              还没有配置供应商
+            </div>
           )}
         </div>
 
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
 
         <Button
           variant="outline"
-          className="w-full gap-2"
+          className="w-full gap-2 border-dashed"
           onClick={() => void handleAddProvider()}
         >
           <Plus className="h-4 w-4" />
@@ -140,7 +147,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
   };
 
   return (
-    <div className="space-y-2 rounded-lg border p-3">
+    <div className="space-y-3 rounded-lg border bg-card/50 p-3">
       <div className="flex items-center gap-2">
         <Input
           value={name}
@@ -149,36 +156,52 @@ function ProviderCard({ provider }: { provider: Provider }) {
             setName(e.target.value);
           }}
           placeholder="供应商名称"
+          className="font-medium"
         />
+        {provider.apiKeyMasked && (
+          <Badge variant="outline" className="font-mono">
+            {provider.apiKeyMasked}
+          </Badge>
+        )}
         <Button
           variant="ghost"
           size="icon"
-          className="text-red-500"
+          className="shrink-0 text-muted-foreground hover:text-destructive"
           onClick={() => void remove()}
+          aria-label="删除供应商"
         >
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
 
-      <Input
-        value={baseURL}
-        onChange={(e) => {
-          setDirty(true);
-          setBaseURL(e.target.value);
-        }}
-        placeholder="baseURL，留空使用默认地址"
-      />
-      <Input
-        type="password"
-        value={apiKey}
-        onChange={(e) => {
-          setDirty(true);
-          setApiKey(e.target.value);
-        }}
-        placeholder={provider.apiKeyMasked ? `已保存 ${provider.apiKeyMasked}，留空则不修改` : 'apiKey'}
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          value={baseURL}
+          onChange={(e) => {
+            setDirty(true);
+            setBaseURL(e.target.value);
+          }}
+          placeholder="baseURL，留空使用默认地址"
+          className="font-mono text-xs"
+        />
+        <Input
+          type="password"
+          value={apiKey}
+          onChange={(e) => {
+            setDirty(true);
+            setApiKey(e.target.value);
+          }}
+          placeholder={provider.apiKeyMasked ? '留空则不修改 apiKey' : 'apiKey'}
+          className="font-mono text-xs"
+        />
+      </div>
 
-      <div className="space-y-1">
+      <Separator />
+
+      <div className="space-y-1.5">
+        <div className="font-mono text-[10px] font-medium tracking-widest text-muted-foreground uppercase">
+          模型
+        </div>
         {models.map((model, index) => (
           <div key={model.clientKey} className="flex items-center gap-2">
             <Input
@@ -191,7 +214,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
               }}
             />
             <Input
-              className="flex-1"
+              className="flex-1 font-mono text-xs"
               value={model.code}
               placeholder="模型代码"
               onChange={(e) => {
@@ -201,12 +224,13 @@ function ProviderCard({ provider }: { provider: Provider }) {
             />
             <Button
               variant="ghost"
-              size="icon"
-              className="text-red-500"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => {
                 setDirty(true);
                 setModels(models.filter((_, i) => i !== index));
               }}
+              aria-label="删除模型"
             >
               <Trash2 className="h-3 w-3" />
             </Button>
@@ -215,7 +239,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1"
+          className="gap-1 text-muted-foreground"
           onClick={() => {
             setDirty(true);
             setModels([...models, { id: '', name: '', code: '', clientKey: crypto.randomUUID() }]);
@@ -226,9 +250,9 @@ function ProviderCard({ provider }: { provider: Provider }) {
         </Button>
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
-      <Button size="sm" onClick={save} disabled={saving}>
+      <Button size="sm" onClick={() => void save()} disabled={saving} className="w-full">
         {saving ? '保存中…' : '保存'}
       </Button>
     </div>
