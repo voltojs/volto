@@ -17,18 +17,24 @@ afterEach(() => {
  * threaded the resolved project path through, rather than just checking
  * that the scoped store is callable.
  */
-function makeFakeChatStore(): JsonlSessionStore & { workspacePaths: Array<string | null> } {
+function makeFakeChatStore(): JsonlSessionStore & {
+  workspacePaths: Array<string | null>;
+  errorCalls: Array<{ workspacePath: string | null; sessionId: string; message: string }>;
+} {
   const workspacePaths: Array<string | null> = [];
+  const errorCalls: Array<{ workspacePath: string | null; sessionId: string; message: string }> = [];
   return {
     workspacePaths,
+    errorCalls,
     async appendMeta(workspacePath) {
       workspacePaths.push(workspacePath);
     },
     async appendMessages(workspacePath) {
       workspacePaths.push(workspacePath);
     },
-    async appendError(workspacePath) {
+    async appendError(workspacePath, sessionId, message) {
       workspacePaths.push(workspacePath);
+      errorCalls.push({ workspacePath, sessionId, message });
     },
     async appendTrajectoryEntry(workspacePath) {
       workspacePaths.push(workspacePath);
@@ -150,5 +156,26 @@ describe("chat transcript wiring (jsonl)", () => {
 
     await expect(registry.runTurn("s1", "one", config)).resolves.toBeUndefined();
     expect(builds[0]!["chatStore"]).toBeUndefined();
+  });
+
+  it("records a config-resolution failure to chatStore even though no agent was ever built", async () => {
+    const { factory, builds } = makeFactory();
+    const chatStore = makeFakeChatStore();
+    // No projectStore/providerStore configured — resolveConfig() throws
+    // before rebuild() (and therefore before any createAgent() instance)
+    // ever runs, so createAgent()'s own internal appendError never fires.
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      chatStore,
+    });
+    registry.attach("s1", { write: () => {}, on: () => {} } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "one", { projectId: "p1" });
+
+    expect(builds).toHaveLength(0);
+    expect(chatStore.errorCalls).toHaveLength(1);
+    expect(chatStore.errorCalls[0]!.sessionId).toBe("s1");
+    expect(chatStore.errorCalls[0]!.message).toContain("Project store is not configured");
   });
 });

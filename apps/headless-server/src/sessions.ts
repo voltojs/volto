@@ -401,6 +401,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
+      // config-resolution failures (e.g. an unknown project id) throw before
+      // any agent is ever constructed, so createAgent()'s own internal
+      // appendError (which only fires once a runner exists) never sees them.
+      // This is the only place left that can record that failure mode.
+      await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.
