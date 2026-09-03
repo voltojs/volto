@@ -12,16 +12,18 @@ import {
   type CommandRunner,
 } from "../fs/command-runner.js";
 
-/** A runner that records its calls and returns a scripted result. */
+/** A runner that records its calls (and the timeout it was given) and returns a scripted result. */
 function stubRunner(
-  impl: (command: string, args: string[]) => Promise<string>,
-): { runner: CommandRunner; calls: string[] } {
+  impl: (command: string, args: string[], timeoutMs?: number) => Promise<string>,
+): { runner: CommandRunner; calls: string[]; timeouts: Array<number> } {
   const calls: string[] = [];
-  const runner: CommandRunner = async (command, args) => {
+  const timeouts: Array<number> = [];
+  const runner: CommandRunner = async (command, args, timeoutMs) => {
     calls.push(command);
-    return impl(command, args);
+    timeouts.push(timeoutMs);
+    return impl(command, args, timeoutMs);
   };
-  return { runner, calls };
+  return { runner, calls, timeouts };
 }
 
 describe("normalizeDirectoryPath", () => {
@@ -59,6 +61,25 @@ describe("createDirectoryPicker", () => {
     const picker = createDirectoryPicker({ runner, platform: "darwin" });
 
     expect(await picker.pick()).toBeNull();
+  });
+
+  it("returns null when Windows cancels (exit 0, empty stdout)", async () => {
+    // Unlike macOS/Linux, PowerShell's FolderBrowserDialog exits 0 on cancel
+    // and prints nothing — the runner resolves rather than rejecting, so this
+    // must be caught on the success path, not the CommandFailedError branch.
+    const { runner } = stubRunner(async () => "");
+    const picker = createDirectoryPicker({ runner, platform: "win32" });
+
+    expect(await picker.pick()).toBeNull();
+  });
+
+  it("passes the configured timeout through to the runner", async () => {
+    const { runner, timeouts } = stubRunner(async () => "/Users/leo/demo/");
+    const picker = createDirectoryPicker({ runner, platform: "darwin", timeoutMs: 5_000 });
+
+    await picker.pick();
+
+    expect(timeouts).toEqual([5_000]);
   });
 
   it("falls back to kdialog when zenity is not installed", async () => {

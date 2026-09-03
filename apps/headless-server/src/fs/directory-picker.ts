@@ -42,6 +42,10 @@ const PROMPT = "选择项目目录";
 const WINDOWS_SCRIPT = [
   "Add-Type -AssemblyName System.Windows.Forms;",
   "$d = New-Object System.Windows.Forms.FolderBrowserDialog;",
+  // PROMPT is interpolated into a PowerShell single-quoted string literal: a
+  // future PROMPT containing `'` would break the script's syntax. Safe today
+  // because PROMPT is a module constant with no quote in it (see the comment
+  // on PROMPT above) — same constraint as the AppleScript branch below.
   `$d.Description = '${PROMPT}';`,
   "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
 ].join(" ");
@@ -120,7 +124,13 @@ export function createDirectoryPicker(
         for (const candidate of candidates) {
           try {
             const stdout = await runner(candidate.command, candidate.args, timeoutMs);
-            return normalizeDirectoryPath(stdout);
+            const normalized = normalizeDirectoryPath(stdout);
+            // Windows' FolderBrowserDialog exits 0 with empty stdout on
+            // cancel (unlike macOS/Linux, which exit non-zero — see the
+            // CommandFailedError branch below). Without this, a cancel would
+            // resolve here as `{ path: "" }` instead of the documented
+            // `{ path: null }`.
+            return normalized === "" ? null : normalized;
           } catch (error) {
             if (error instanceof CommandNotFoundError) {
               missing += 1;
