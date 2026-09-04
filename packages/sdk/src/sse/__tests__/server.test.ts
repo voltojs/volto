@@ -103,55 +103,33 @@ describe("SSE Server", () => {
       expect(hasEvent(res.written, "heartbeat")).toBe(true);
     });
 
-    it("should map text_delta events to TOKEN type", async () => {
+    it("should frame channel events verbatim as authoritative EVENT frames", async () => {
       const server = createSSEServer();
       const res = createMockResponse();
       const req: SSERequest = { headers: {} };
       const channel = createChannel([
         { type: "text_delta", data: { text: "hello" } },
-      ]);
-
-      server.handleRequest(req, res, channel);
-      await vi.advanceTimersByTimeAsync(50);
-
-      expect(hasEvent(res.written, "token")).toBe(true);
-    });
-
-    it("should map tool_use_delta events to TOOL_CALL type", async () => {
-      const server = createSSEServer();
-      const res = createMockResponse();
-      const req: SSERequest = { headers: {} };
-      const channel = createChannel([
         {
-          type: "tool_use_delta",
-          data: { id: "call-1", name: "fs_read", args: {} },
+          type: "tool_use_complete",
+          data: { toolCallId: "call-1", toolName: "fs_read" },
         },
       ]);
 
       server.handleRequest(req, res, channel);
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(hasEvent(res.written, "tool_call")).toBe(true);
+      const joined = res.written.join("");
+      // Every channel event rides an `event` frame with its payload untouched —
+      // the transcript-level type lives inside the data.
+      expect(joined).toContain("event: event");
+      expect(joined).toContain('"text":"hello"');
+      expect(joined).toContain('"toolCallId":"call-1"');
+      // No v1 per-type frames remain on the wire.
+      expect(hasEvent(res.written, "token")).toBe(false);
+      expect(hasEvent(res.written, "tool_call")).toBe(false);
     });
 
-    it("should map tool_result events to TOOL_RESULT type", async () => {
-      const server = createSSEServer();
-      const res = createMockResponse();
-      const req: SSERequest = { headers: {} };
-      const channel = createChannel([
-        {
-          type: "tool_result",
-          data: { id: "call-1", result: "ok", isError: false },
-        },
-      ]);
-
-      server.handleRequest(req, res, channel);
-      await vi.advanceTimersByTimeAsync(50);
-
-      expect(hasEvent(res.written, "tool_result")).toBe(true);
-    });
-
-    it("should send DONE event when stream ends", async () => {
+    it("should end the stream without a terminal frame", async () => {
       const server = createSSEServer();
       const res = createMockResponse();
       const req: SSERequest = { headers: {} };
@@ -162,7 +140,8 @@ describe("SSE Server", () => {
       server.handleRequest(req, res, channel);
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(hasEvent(res.written, "done")).toBe(true);
+      // Protocol v2 has no DONE frame — completion is a transcript event.
+      expect(hasEvent(res.written, "done")).toBe(false);
     });
 
     it("should send ERROR event when stream throws", async () => {
@@ -230,7 +209,7 @@ describe("SSE Server", () => {
       );
       await vi.advanceTimersByTimeAsync(50);
 
-      // Count replayed events (excluding heartbeat and the new DONE)
+      // Count replayed events (excluding any heartbeat frames)
       const replayedIds: number[] = res2.written
         .filter((w: string) => w.startsWith("id:"))
         .map((w: string) => parseInt(w.replace("id:", "").trim(), 10))

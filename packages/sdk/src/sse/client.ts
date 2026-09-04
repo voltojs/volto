@@ -1,6 +1,11 @@
 /**
  * SSE Client — connects to an SSE server, parses the wire format, and
- * delivers typed messages through an event-subscription API.
+ * delivers frames through an event-subscription API.
+ *
+ * Protocol v2 has two subscription channels for payload frames — `onEvent`
+ * for authoritative transcript events and `onDelta` for streaming increments.
+ * Heartbeat and transport-error frames are handled by the connection layer
+ * and never surfaced to subscribers.
  *
  * Supports:
  * - Auto-reconnect with exponential back-off
@@ -9,7 +14,8 @@
  * - Connection state management
  */
 
-import { SSEEventType, type SSEMessage, type ConnectionState } from "./types.js";
+import { SSEFrameType, type SSEMessage, type ConnectionState } from "./types.js";
+import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -55,7 +61,8 @@ export type EventSourceFactory = (url: string) => EventSourceLike;
  * @example
  * ```ts
  * const client = createSSEClient("http://localhost:3000/sse");
- * client.on("token", (data) => console.log(data.delta));
+ * client.onEvent((event) => store.pushEvent(event));
+ * client.onDelta((delta) => store.pushDelta(delta));
  * client.connect();
  * // later...
  * client.disconnect();
@@ -83,7 +90,8 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
           );
         };
 
-  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const eventHandlers = new Set<(event: TranscriptEventInput) => void>();
+  const deltaHandlers = new Set<(delta: TranscriptDelta) => void>();
   const stateListeners = new Set<(state: ConnectionState) => void>();
 
   // -- internal helpers -----------------------------------------------------
@@ -96,19 +104,15 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     }
   }
 
-  function notifyListeners(message: SSEMessage): void {
-    // Typed listeners receive data only
-    const handlers = listeners.get(message.event);
-    if (handlers) {
-      for (const handler of handlers) {
-        handler(message.data);
+  /** Route a parsed frame to the matching subscription channel. */
+  function notify(message: SSEMessage): void {
+    if (message.event === SSEFrameType.EVENT) {
+      for (const handler of eventHandlers) {
+        handler(message.data as TranscriptEventInput);
       }
-    }
-    // Wildcard listeners receive the full SSEMessage envelope
-    const wildcards = listeners.get("*");
-    if (wildcards) {
-      for (const handler of wildcards) {
-        handler(message);
+    } else if (message.event === SSEFrameType.DELTA) {
+      for (const handler of deltaHandlers) {
+        handler(message.data as TranscriptDelta);
       }
     }
   }
@@ -164,10 +168,10 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
 
       eventSource.onopen = () => handleOpen();
 
-      // Register listeners for each SSEEventType so browser-dispatched
-      // named events are captured. This is the primary message path.
-      for (const eventType of Object.values(SSEEventType)) {
-        eventSource.addEventListener(eventType, (event: MessageEvent) => {
+      // Register listeners for each SSEFrameType so browser-dispatched named
+      // frames are captured. This is the primary message path.
+      for (const frameType of Object.values(SSEFrameType)) {
+        eventSource.addEventListener(frameType, (event: MessageEvent) => {
           try {
             const data: unknown = JSON.parse(event.data as string);
             // Browser EventSource sets lastEventId from the wire "id:" field
@@ -176,13 +180,13 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
             }
             const message: SSEMessage = {
               id: lastEventId,
-              event: eventType as SSEMessage["event"],
+              event: frameType,
               data,
               timestamp: Date.now(),
             };
-            notifyListeners(message);
+            notify(message);
           } catch {
-            // ignore parse errors on named events
+            // ignore parse errors on named frames
           }
         });
       }
@@ -208,24 +212,19 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     lastEventId = "";
   }
 
-  /**
-   * Subscribe to a specific event type. Returns an unsubscribe function.
-   *
-   * - Typed event (e.g. `SSEEventType.TOKEN`): handler receives `data` only.
-   * - Wildcard `"*"`: handler receives the full `SSEMessage` envelope.
-   */
-  function on<T = unknown>(
-    eventType: SSEMessage["event"] | "*",
-    handler: (payload: T) => void
-  ): () => void {
-    if (!listeners.has(eventType)) {
-      listeners.set(eventType, new Set());
-    }
-    const wrapped = (payload: unknown) => handler(payload as T);
-    listeners.get(eventType)!.add(wrapped);
-
+  /** Subscribe to authoritative transcript events. Returns an unsubscribe function. */
+  function onEvent(handler: (event: TranscriptEventInput) => void): () => void {
+    eventHandlers.add(handler);
     return () => {
-      listeners.get(eventType)?.delete(wrapped);
+      eventHandlers.delete(handler);
+    };
+  }
+
+  /** Subscribe to streaming increments. Returns an unsubscribe function. */
+  function onDelta(handler: (delta: TranscriptDelta) => void): () => void {
+    deltaHandlers.add(handler);
+    return () => {
+      deltaHandlers.delete(handler);
     };
   }
 
@@ -250,14 +249,16 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
   /** Tear down all listeners and cancel reconnect. */
   function destroy(): void {
     disconnect();
-    listeners.clear();
+    eventHandlers.clear();
+    deltaHandlers.clear();
     stateListeners.clear();
   }
 
   return {
     connect,
     disconnect,
-    on,
+    onEvent,
+    onDelta,
     onStateChange,
     getState,
     getLastEventId,

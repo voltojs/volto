@@ -1,117 +1,69 @@
 import { describe, it, expect } from "vitest";
 import { createEventMapper, formatSSEFrame } from "../event-mapper.js";
-import { SSEEventType } from "../types.js";
-import type { TokenData, ToolCallData, ToolResultData, ErrorData } from "../types.js";
+import { SSEFrameType } from "../types.js";
+import type { TranscriptEventInput } from "@volto/core";
+
+const ASSISTANT: TranscriptEventInput = {
+  time: 200,
+  type: "assistant_message",
+  data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 80 },
+  turn: 1,
+  step: 1,
+};
 
 describe("createEventMapper", () => {
-  it("accumulates text across token events", () => {
-    const mapper = createEventMapper();
+  it("wraps a transcript event verbatim, converting nothing", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    const frame = mapper.event(ASSISTANT);
 
-    const first = mapper.map({ type: "text_delta", data: { text: "Hello" } });
-    const second = mapper.map({ type: "text_delta", data: { text: " world" } });
-
-    expect(first?.event).toBe(SSEEventType.TOKEN);
-    expect(first?.data).toEqual<TokenData>({ content: "Hello", delta: "Hello" });
-    expect(second?.data).toEqual<TokenData>({
-      content: "Hello world",
-      delta: " world",
-    });
+    expect(frame.event).toBe(SSEFrameType.EVENT);
+    expect(frame.data).toEqual(ASSISTANT);
   });
 
-  it("assigns monotonic ids usable for Last-Event-ID recovery", () => {
-    const mapper = createEventMapper();
-
-    const ids = [
-      mapper.map({ type: "text_delta", data: { text: "a" } })!.id,
-      mapper.map({ type: "text_delta", data: { text: "b" } })!.id,
-      mapper.done().id,
-    ];
-
-    expect(ids).toEqual(["1", "2", "3"]);
+  it("assigns monotonic ids to event frames for Last-Event-ID replay", () => {
+    const mapper = createEventMapper({ startId: 10, now: () => 1 });
+    expect(mapper.event(ASSISTANT).id).toBe("11");
+    expect(mapper.event(ASSISTANT).id).toBe("12");
   });
 
-  it("maps tool_use_complete to a tool_call message", () => {
-    const mapper = createEventMapper();
+  it("wraps a delta without consuming an id", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    mapper.event(ASSISTANT);
+    const delta = mapper.delta({ kind: "text", text: "hi" });
 
-    const message = mapper.map({
-      type: "tool_use_complete",
-      data: { toolCallId: "call-1", toolName: "read_file", input: { path: "a.ts" } },
-    });
-
-    expect(message?.event).toBe(SSEEventType.TOOL_CALL);
-    expect(message?.data).toEqual<ToolCallData>({
-      id: "call-1",
-      name: "read_file",
-      args: { path: "a.ts" },
-    });
+    expect(delta.event).toBe(SSEFrameType.DELTA);
+    expect(delta.data).toEqual({ kind: "text", text: "hi" });
+    // Deltas are not replayable — they must not advance the replay cursor.
+    expect(mapper.event(ASSISTANT).id).toBe("2");
   });
 
-  it("maps tool_result and preserves the error flag", () => {
-    const mapper = createEventMapper();
-
-    const message = mapper.map({
-      type: "tool_result",
-      data: { toolCallId: "call-1", toolName: "read_file", isError: true, durationMs: 12 },
-    });
-
-    expect(message?.event).toBe(SSEEventType.TOOL_RESULT);
-    const data = message?.data as ToolResultData;
-    expect(data.id).toBe("call-1");
-    expect(data.isError).toBe(true);
+  it("keeps no accumulated text of its own", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    expect("getAccumulatedText" in mapper).toBe(false);
+    expect("resetTurn" in mapper).toBe(false);
   });
 
-  it("maps agent errors onto the error event", () => {
-    const mapper = createEventMapper();
+  it("builds a transport-level error frame", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    const frame = mapper.error("connection lost", "STREAM_ERROR");
 
-    const message = mapper.map({
-      type: "error",
-      data: { error: "model exploded", retriable: true },
-    });
-
-    expect(message?.event).toBe(SSEEventType.ERROR);
-    expect(message?.data).toEqual<ErrorData>({
-      code: "AGENT_ERROR",
-      message: "model exploded",
-      retryable: true,
-    });
+    expect(frame.event).toBe(SSEFrameType.ERROR);
+    expect(frame.data).toMatchObject({ code: "STREAM_ERROR", message: "connection lost" });
   });
 
-  it("drops events that carry no meaning for a chat client", () => {
-    const mapper = createEventMapper();
-
-    expect(mapper.map({ type: "tool_use_delta", data: { partial: "{" } })).toBeNull();
-    expect(mapper.map({ type: "user_message", data: { content: "hi" } })).toBeNull();
-    expect(mapper.map({ type: "text_delta", data: { text: "" } })).toBeNull();
-  });
-
-  it("surfaces unknown events as state changes rather than dropping them", () => {
-    const mapper = createEventMapper();
-
-    const message = mapper.map({ type: "model_done", data: { stopReason: "end_turn" } });
-
-    expect(message?.event).toBe(SSEEventType.STATE_CHANGE);
-    expect((message?.data as { state: string }).state).toBe("model_done");
-  });
-
-  it("carries the full turn text on done, and resets for the next turn", () => {
-    const mapper = createEventMapper();
-
-    mapper.map({ type: "text_delta", data: { text: "turn one" } });
-    expect(mapper.done().data).toEqual({ content: "turn one" });
-
-    mapper.resetTurn();
-    mapper.map({ type: "text_delta", data: { text: "turn two" } });
-    expect(mapper.getAccumulatedText()).toBe("turn two");
+  it("builds a heartbeat frame", () => {
+    const mapper = createEventMapper({ now: () => 42 });
+    expect(mapper.heartbeat().data).toEqual({ timestamp: 42 });
   });
 });
 
 describe("formatSSEFrame", () => {
-  it("emits id, event and data lines terminated by a blank line", () => {
-    const mapper = createEventMapper();
-    const message = mapper.map({ type: "text_delta", data: { text: "hi" } })!;
+  it("serialises id, event and data", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    const wire = formatSSEFrame(mapper.event(ASSISTANT));
 
-    expect(formatSSEFrame(message)).toBe(
-      'id: 1\nevent: token\ndata: {"content":"hi","delta":"hi"}\n\n',
-    );
+    expect(wire).toContain("id: 1\n");
+    expect(wire).toContain(`event: ${SSEFrameType.EVENT}\n`);
+    expect(wire.endsWith("\n\n")).toBe(true);
   });
 });
