@@ -7,12 +7,14 @@
  *
  * This mirrors two reducer subtleties exactly (see reducer.ts):
  *
- * 1. Parallel tool results flush in `pendingTools` order (the `tool_result`
- *    event's `orderInBatch`), not arrival order — but ONLY when the batch is
- *    completed by a `tool_result`. A batch completed by a denial flushes in
- *    raw arrival order instead (`Object.values(_toolResultBuffer)`,
- *    reducer.ts:678), because the reducer's deny path never reorders by
- *    `pendingTools`.
+ * 1. A batch flushes in `pendingTools` order, not arrival order, whichever
+ *    path completes it. The projection tracks a `roster` mirroring
+ *    `pendingTools`: it starts as the assistant message's `tool_use` ids, and
+ *    an approval moves its tool to the end (the reducer pulls the tool out on
+ *    `request_approval` and appends it back on the decision, for both allow
+ *    and deny). `orderInBatch` is therefore NOT a sort key — an approval can
+ *    leave two entries carrying the same value — only a signal that a result
+ *    the reducer could not have flushed (`-1`) must be dropped.
  * 2. The steering queue (`queuedUserInputs`) is turn-scoped: it flushes at
  *    exactly one point — the next tool batch completing — and lands after
  *    that batch's tool results. If the turn ends before any batch completes,
@@ -40,26 +42,48 @@ interface ResolvedEntry {
   entry: ProjectedMessage;
   /**
    * Position within `pendingTools` at the moment this id resolved (the
-   * event's `orderInBatch`). `undefined` for a denial, which the reducer
-   * reconstructs from `approval_decision` rather than a `tool_result` and
-   * never places through `pendingTools` ordering — see `flushBatch`.
+   * event's `orderInBatch`), or `undefined` for a denial — which the reducer
+   * synthesizes from `approval_decision` rather than from a `tool_result`.
+   *
+   * Only its sign is read, to drop a result the reducer could never have
+   * flushed (`-1` = the id was not in `pendingTools`). Placement comes from
+   * `roster`, not from this number: an approval reshuffles `pendingTools`, so
+   * two entries can legitimately carry the same `orderInBatch`.
    */
   order: number | undefined;
 }
 
 /**
- * Tracks one in-flight tool batch: the ids it must resolve before it can
- * flush, and what has resolved so far (by both id, for lookup/dedup, and
- * arrival order, for the denial flush path).
+ * Tracks one in-flight tool batch.
+ *
+ * `roster` mirrors the reducer's `pendingTools` for this batch, because
+ * `pendingTools` is what the reducer flushes in. It starts as the assistant
+ * message's `tool_use` ids and is re-ordered by approvals exactly as the
+ * reducer re-orders it (see the `approval_decision` case below).
  */
 interface PendingBatch {
   expected: Set<string>;
-  resolvedOrder: string[];
+  roster: string[];
   resolved: Map<string, ResolvedEntry>;
 }
 
 function startBatch(ids: readonly string[]): PendingBatch {
-  return { expected: new Set(ids), resolvedOrder: [], resolved: new Map() };
+  return { expected: new Set(ids), roster: [...ids], resolved: new Map() };
+}
+
+/**
+ * Mirrors what an approval does to `pendingTools`: `request_approval` pulls
+ * the tool out (reducer.ts:594) and the decision puts it back at the end —
+ * the allow branch to be executed, the deny branch already resolved. The net
+ * effect either way is "move this id to the end of the roster", which is
+ * derivable from `approval_decision` alone; `approval_asked` is not needed
+ * and, unlike the decision, is not guaranteed to be in the log.
+ */
+function moveToRosterEnd(batch: PendingBatch, id: string): void {
+  const at = batch.roster.indexOf(id);
+  if (at < 0) return;
+  batch.roster.splice(at, 1);
+  batch.roster.push(id);
 }
 
 /**
@@ -74,7 +98,6 @@ function startBatch(ids: readonly string[]): PendingBatch {
  */
 function resolveInBatch(batch: PendingBatch, id: string, entry: ProjectedMessage, order: number | undefined): boolean {
   if (!batch.expected.has(id)) return false;
-  if (!batch.resolved.has(id)) batch.resolvedOrder.push(id);
   batch.resolved.set(id, { entry, order });
   return batch.resolved.size === batch.expected.size;
 }
@@ -84,36 +107,26 @@ function resolveInBatch(batch: PendingBatch, id: string, entry: ProjectedMessage
  * up while the batch was in flight (the reducer's
  * `[...orderedResultMsgs, ...queuedUserInputs]`, reducer.ts:562-566).
  *
- * `mode: "ordered"` mirrors the tool_result completion path: sort by
- * `orderInBatch`, dropping any entry without a valid (>= 0) order — an
- * unmatched id (reducer.ts:518 `matchingIndex === -1`) is never in
- * `pendingTools` at flush time, so `pendingTools.map(...)` never picks it up
- * either.
+ * Order is `roster` order, mirroring both of the reducer's completion paths —
+ * they now agree, each mapping over `pendingTools`.
  *
- * `mode: "arrival"` mirrors the denial completion path (reducer.ts:678):
- * `Object.values(buffer)` with no reordering and no filtering — every
- * resolved entry ships, in the order it resolved.
+ * An entry whose `order` is negative is dropped: `matchingIndex === -1`
+ * (reducer.ts:518) means the id was not in `pendingTools` when the result
+ * arrived, so `pendingTools.map(...)` could never have picked it up either.
+ * A denial carries no `order` at all and always ships — the reducer keeps it
+ * on the roster precisely so that it does.
  */
 function flushBatch(
   batch: PendingBatch,
-  mode: "ordered" | "arrival",
   steering: readonly ProjectedMessage[],
   out: ProjectedMessage[],
 ): void {
-  const entries = batch.resolvedOrder.map((id) => {
+  for (const id of batch.roster) {
     const resolved = batch.resolved.get(id);
-    if (!resolved) throw new Error(`transcript-projection: missing resolved entry for "${id}"`);
-    return resolved;
-  });
-
-  const ordered =
-    mode === "ordered"
-      ? entries
-          .filter((r) => r.order !== undefined && r.order >= 0)
-          .sort((a, b) => a.order! - b.order!)
-      : entries;
-
-  for (const r of ordered) out.push(r.entry);
+    if (!resolved) continue;
+    if (resolved.order !== undefined && resolved.order < 0) continue;
+    out.push(resolved.entry);
+  }
   for (const s of steering) out.push(s);
 }
 
@@ -183,7 +196,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
 
         if (batch && resolveInBatch(batch, data.callId, entry, data.orderInBatch)) {
-          flushBatch(batch, "ordered", steering, messages);
+          flushBatch(batch, steering, messages);
           batch = undefined;
           steering = [];
         }
@@ -198,9 +211,13 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
       case "approval_decision": {
         const data = event.data as TranscriptEventMap["approval_decision"];
-        // "allow" puts the tool back into pendingTools to execute normally —
-        // its eventual tool_result event resolves the batch. Only "deny"
-        // synthesizes a result here, mirroring reducer.ts:650-660.
+        // Either decision moves the tool to the end of pendingTools, so the
+        // roster has to follow suit before anything flushes.
+        if (batch) moveToRosterEnd(batch, data.callId);
+
+        // "allow" puts the tool back to execute normally — its eventual
+        // tool_result event resolves the batch. Only "deny" synthesizes a
+        // result here, mirroring reducer.ts:650-660.
         if (data.decision !== "deny") break;
 
         const name = toolNamesById.get(data.callId) ?? "tool";
@@ -212,10 +229,10 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         };
         const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
 
-        // No orderInBatch: the reducer's deny path never reorders by
-        // pendingTools (reducer.ts:678), so this entry carries no order.
+        // No orderInBatch: a denial has no tool_result event to carry one.
+        // Its position comes from the roster, restored above.
         if (batch && resolveInBatch(batch, data.callId, entry, undefined)) {
-          flushBatch(batch, "arrival", steering, messages);
+          flushBatch(batch, steering, messages);
           batch = undefined;
           steering = [];
         }

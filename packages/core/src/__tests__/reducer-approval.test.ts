@@ -103,9 +103,14 @@ describe("reducer: request_approval flow", () => {
     // deny t1
     const r2 = step(r1.state, { type: "approval_decision", toolCallId: "t1", decision: "deny" }, ctx);
     expect(r2.state.status).toBe("executing_tools");
-    expect(r2.state.pendingTools).toHaveLength(1);
-    expect(r2.state.pendingTools[0]!.id).toBe("t2");
     expect(r2.state.pendingApprovalTool).toBeUndefined();
+
+    // t1 goes back onto the roster even though it will never execute: the
+    // roster is what the completion path flushes in, so a denied tool left
+    // off it loses its buffered message when t2 reports. t2 — the tool still
+    // actually running — is untouched.
+    expect(r2.state.pendingTools.map((t) => t.id)).toEqual(["t2", "t1"]);
+    expect(r2.state._toolResultBuffer["t1"]).toBeDefined();
   });
 
   it("emits error when approval_decision references wrong tool", () => {
@@ -128,5 +133,90 @@ describe("reducer: request_approval flow", () => {
 
     const r2 = step(state, { type: "cancel", reason: "user abort" }, ctx);
     expect(r2.state.status).toBe("cancelling");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Mixed batch: one tool denied, a sibling still executing
+// ──────────────────────────────────────────────
+
+const readTool: ToolDefinition = {
+  name: "read_file",
+  description: "Read a file",
+  inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+  requires: ["filesystem:read"],
+  riskTier: "READ_ONLY",
+};
+
+const mixedCtx: StepContext = { tools: [writeTool, readTool], model: "test-model" };
+
+/**
+ * The Runner drains its approval queue before running the auto-allowed
+ * parallel batch (runner.ts:788), so a batch containing one "ask" tool and
+ * one "allow" tool produces exactly this input order.
+ */
+function mixedBatchState(): ReducerState {
+  return createInitialState({
+    status: "executing_tools",
+    messages: [{ role: "user", content: "go" }],
+    pendingTools: [
+      { id: "c1", name: "edit_file", input: { path: "/a.ts" } },
+      { id: "c2", name: "read_file", input: { path: "/b.ts" } },
+    ],
+  });
+}
+
+function toolResultIds(state: ReducerState): string[] {
+  return state.messages
+    .filter((m): m is Extract<typeof m, { role: "tool" }> => m.role === "tool")
+    .flatMap((m) => m.content.map((b) => b.toolUseId));
+}
+
+describe("reducer: denial inside a mixed batch", () => {
+  it("keeps the denied tool's message when a sibling reports afterwards", () => {
+    let state = mixedBatchState();
+
+    state = step(state, { type: "request_approval", toolCallId: "c1" }, mixedCtx).state;
+    expect(state.status).toBe("waiting_for_approval");
+
+    state = step(state, { type: "approval_decision", toolCallId: "c1", decision: "deny" }, mixedCtx).state;
+    expect(state.status).toBe("executing_tools");
+
+    const result = step(
+      state,
+      { type: "tool_result", toolCallId: "c2", toolName: "read_file", result: { modelContent: "b contents" } },
+      mixedCtx,
+    );
+
+    // Both results must reach history. Losing the denial leaves the assistant's
+    // tool_use block for c1 unanswered, which providers reject outright.
+    expect(toolResultIds(result.state)).toEqual(expect.arrayContaining(["c1", "c2"]));
+    expect(result.state.status).toBe("calling_model");
+  });
+
+  it("still flushes immediately when the denied tool is the only one", () => {
+    let state = createInitialState({
+      status: "executing_tools",
+      messages: [{ role: "user", content: "go" }],
+      pendingTools: [{ id: "c1", name: "edit_file", input: { path: "/a.ts" } }],
+    });
+
+    state = step(state, { type: "request_approval", toolCallId: "c1" }, mixedCtx).state;
+    const result = step(state, { type: "approval_decision", toolCallId: "c1", decision: "deny" }, mixedCtx);
+
+    expect(toolResultIds(result.state)).toEqual(["c1"]);
+    expect(result.state.status).toBe("calling_model");
+  });
+
+  it("keeps both messages when every tool in the batch is denied", () => {
+    let state = mixedBatchState();
+
+    state = step(state, { type: "request_approval", toolCallId: "c1" }, mixedCtx).state;
+    state = step(state, { type: "approval_decision", toolCallId: "c1", decision: "deny" }, mixedCtx).state;
+    state = step(state, { type: "request_approval", toolCallId: "c2" }, mixedCtx).state;
+    const result = step(state, { type: "approval_decision", toolCallId: "c2", decision: "deny" }, mixedCtx);
+
+    expect(toolResultIds(result.state)).toEqual(expect.arrayContaining(["c1", "c2"]));
+    expect(result.state.status).toBe("calling_model");
   });
 });

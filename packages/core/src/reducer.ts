@@ -661,10 +661,32 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
 
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: denyResultMsg };
 
-    if (state.pendingTools.length > 0) {
+    // Put the tool back on the batch roster. `request_approval` took it out of
+    // pendingTools (above), but pendingTools is also what the completion path
+    // uses as the batch's *full* roster when it flushes — see
+    // handleExecutingTools' `state.pendingTools.map(...)`. A denied tool left
+    // off the roster has its buffered message silently dropped the moment a
+    // sibling reports, and `_toolResultBuffer` is cleared right after, losing
+    // it for good. The allow branch above restores the tool for the same
+    // reason; a denial has to as well — it simply arrives already resolved.
+    //
+    // Appending (rather than restoring the original index, which the filtered
+    // list no longer knows) mirrors what the allow branch does. Ordering among
+    // a batch's results is not load-bearing — providers pair tool_result to
+    // tool_use by id — and it stays deterministic under replay.
+    const rosterWithDenied = [...state.pendingTools, approvedTool];
+
+    // Flush only once every tool on the roster has resolved. Testing the
+    // roster rather than "are there other pending tools" is what makes the
+    // single-tool case still flush immediately: the denied tool is the whole
+    // roster, and its result is already buffered.
+    const allResolved = rosterWithDenied.every((t) => t.id in newBuffer);
+
+    if (!allResolved) {
       return {
         state: {
           ...state,
+          pendingTools: rosterWithDenied,
           _toolResultBuffer: newBuffer,
           pendingApprovalTool: undefined,
           status: "executing_tools",
@@ -673,9 +695,10 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // All tools processed (denied was the last one) — flush buffer in order
-    // pendingTools is empty, so use buffered keys in insertion order
-    const orderedResultMsgs = Object.values(newBuffer);
+    // Every tool in the batch has resolved — flush in roster order.
+    const orderedResultMsgs = rosterWithDenied
+      .map((t) => newBuffer[t.id])
+      .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
     // Drain steering queue at turn boundary
     const drainedMessages: Message[] = [

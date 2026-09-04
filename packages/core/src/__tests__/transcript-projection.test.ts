@@ -303,6 +303,31 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
     const lastMsg = finalState.messages.at(-1)!;
     expect((lastMsg.content as ToolResultContent[])[0]!.isError).toBe(true);
   });
+
+  it("10. one tool denied while a sibling in the same batch is still executing", () => {
+    // The Runner drains its approval queue before running the auto-allowed
+    // parallel batch (runner.ts:788), so a batch mixing one "ask" tool with
+    // one "allow" tool produces exactly this input order.
+    const { events, finalState } = driveAndRecord([
+      { type: "user_message", content: "go" },
+      toolUseDelta("c1", "bash", '{"command":"rm -rf /"}'),
+      toolUseDelta("c2", "read_file", '{"path":"a.ts"}'),
+      { type: "model_done", stopReason: "tool_use" },
+      { type: "request_approval", toolCallId: "c1" },
+      { type: "approval_decision", toolCallId: "c1", decision: "deny" },
+      { type: "tool_result", toolCallId: "c2", toolName: "read_file", result: { modelContent: "file contents" } },
+    ]);
+
+    // Both results must survive: an unanswered tool_use block makes the next
+    // request malformed, and providers reject it outright.
+    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "tool"]);
+    const toolIds = finalState.messages
+      .filter((m): m is Extract<typeof m, { role: "tool" }> => m.role === "tool")
+      .flatMap((m) => m.content.map((b) => b.toolUseId));
+    expect(toolIds).toEqual(expect.arrayContaining(["c1", "c2"]));
+
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+  });
 });
 
 describe("projectMessages", () => {
