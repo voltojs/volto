@@ -4,7 +4,11 @@ import {
   composeChatEntries,
   mergeStoredAndLive,
 } from '@/lib/projection';
-import type { ConversationMessage, TranscriptEventInput } from '@volto/sdk/sse';
+import type {
+  ConversationMessage,
+  TranscriptDelta,
+  TranscriptEventInput,
+} from '@volto/sdk/sse';
 
 const EVENTS: TranscriptEventInput[] = [
   { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
@@ -178,6 +182,104 @@ describe('composeChatEntries', () => {
     expect(entries).toEqual([
       { kind: 'message', message: emptyAssistant('1:1', true) },
     ]);
+  });
+
+  // A turn that streams a reply and then fails mid-stream (model_error, no
+  // assistant_message) mirrors the real provider-error path: text deltas are
+  // buffered while the turn is open, and chat-store only clears them on
+  // assistant_message, so the step's streaming partial stays alive. Without
+  // the terminal-error rule below that partial would keep blinking forever.
+  const erroredTurnEvents = (withTurnEnd: boolean): TranscriptEventInput[] => [
+    { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+    { time: 110, type: 'user_message', data: { content: 'hi' }, turn: 1 },
+    {
+      time: 120,
+      type: 'model_call_start',
+      data: { headerHash: 'h1' },
+      turn: 1,
+      step: 1,
+    },
+    {
+      time: 200,
+      type: 'model_error',
+      data: { error: 'provider down', errorKind: 'provider', retriable: false },
+      turn: 1,
+      step: 1,
+    },
+    ...(withTurnEnd
+      ? [
+          {
+            time: 300,
+            type: 'turn_end' as const,
+            data: { turn: 1, reason: 'error' as const },
+            turn: 1,
+          },
+        ]
+      : []),
+  ];
+  const TEXT_DELTAS: TranscriptDelta[] = [
+    { kind: 'text', text: 'he' },
+    { kind: 'text', text: 'llo' },
+  ];
+
+  it('stops the perpetual streaming caret when an open step errored mid-stream', () => {
+    // No closing turn_end in the buffer yet — the delta partial lives on and
+    // would previously render as a permanent caret with no error notice.
+    const { view, records } = projectConversation(
+      erroredTurnEvents(false),
+      TEXT_DELTAS,
+    );
+    const assistant = view.messages.find((m) => m.role === 'assistant')!;
+    // Precondition: the partial text is present and still flagged streaming.
+    expect(assistant.content).toBe('hello');
+    expect(assistant.isStreaming).toBe(true);
+
+    const entries = composeChatEntries(view.messages, records);
+    const messageEntries = entries.filter(
+      (e): e is { kind: 'message'; message: ConversationMessage } =>
+        e.kind === 'message',
+    );
+    const erroredText = messageEntries.find(
+      (e) => e.message.role === 'assistant',
+    );
+    // The streamed text stays visible but is no longer presented as streaming.
+    expect(erroredText?.message.content).toBe('hello');
+    expect(erroredText?.message.isStreaming).not.toBe(true);
+    // The failure surfaces as an error notice right after the text.
+    expect(
+      entries.some(
+        (e) =>
+          e.kind === 'error' &&
+          e.text === 'provider down' &&
+          e.key === '1:1:error',
+      ),
+    ).toBe(true);
+  });
+
+  it('shows no streaming entries and an error notice once the errored turn closes', () => {
+    const { view, records } = projectConversation(
+      erroredTurnEvents(true),
+      TEXT_DELTAS,
+    );
+    const entries = composeChatEntries(view.messages, records);
+    // Nothing in the rendered feed is still flagged as streaming.
+    for (const entry of entries) {
+      if (entry.kind === 'message') {
+        expect(entry.message.isStreaming).not.toBe(true);
+      }
+    }
+    // The user message survives and the failure is visible.
+    expect(
+      entries.some((e) => e.kind === 'message' && e.message.role === 'user'),
+    ).toBe(true);
+    expect(
+      entries.some(
+        (e) =>
+          e.kind === 'error' &&
+          e.text === 'provider down' &&
+          e.key === '1:1:error',
+      ),
+    ).toBe(true);
   });
 
   it('appends a trailing notice for a turn-level error with no message', () => {

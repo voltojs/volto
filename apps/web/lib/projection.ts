@@ -86,12 +86,17 @@ export type ChatEntry =
  * Composes the feed a UI renders from a merged message list plus the live
  * turn records the projection produced.
  *
- * Two rules keep the conversation honest around failures:
- * - An assistant step that closed with an error before producing any content
- *   (a `model_error` after `model_call_start`, no `assistant_message`) would
- *   otherwise render as a permanently empty bubble. When the step's error is
- *   known it becomes an error notice in that bubble's place; a closed empty
- *   bubble with no recorded error is dropped entirely.
+ * Three rules keep the conversation honest around failures:
+ * - A step that errored before producing an authoritative `assistant_message`
+ *   (`model_error` after `model_call_start`) is terminal: a mid-stream failure
+ *   can leave the step's streaming partial alive (the chat-store deltas are
+ *   only cleared by `assistant_message`, and the partial is what carries the
+ *   already-streamed text). Such a step must stop presenting its message as
+ *   streaming — no permanent caret — while keeping the streamed text, and its
+ *   error surfaces as a notice right after the text (or in the bubble's place
+ *   when nothing streamed at all).
+ * - A closed empty assistant bubble with no recorded error has nothing to
+ *   show and is dropped rather than rendered blank.
  * - Turn-level errors (local send failures, protocol error events) have no
  *   message of their own — they surface as a trailing error notice rather
  *   than being swallowed. A turn whose step already surfaced its error skips
@@ -114,23 +119,37 @@ export function composeChatEntries(
 
   const entries: ChatEntry[] = [];
   for (const message of messages) {
-    const emptyClosed =
-      message.blocks.length === 0 &&
-      message.content === '' &&
-      message.isStreaming !== true;
-    if (message.role === 'assistant' && emptyClosed) {
+    if (message.role === 'assistant') {
       const errorText = stepErrorText.get(message.id);
       if (errorText !== undefined) {
+        // A step that errored before an authoritative assistant_message is
+        // terminal: nothing more will stream into it, so it must not keep
+        // blinking as if still in flight. The streamed text stays (the deltas
+        // are deliberately left in the chat-store buffer, so it does not
+        // vanish), but the message is no longer presented as streaming, and
+        // the failure surfaces as an error notice in the bubble's place.
+        const hasContent = message.blocks.length > 0 || message.content !== '';
+        if (hasContent) {
+          entries.push({
+            kind: 'message',
+            message: { ...message, isStreaming: false },
+          });
+        }
         entries.push({
           kind: 'error',
           key: `${message.id}:error`,
           text: errorText,
           time: message.timestamp,
         });
+        continue;
       }
-      // No record of an error: nothing to show, nothing to hide behind — the
-      // bubble would be blank, so it is simply not rendered.
-      continue;
+      // Closed empty assistant bubbles with no recorded error have nothing to
+      // show — the bubble would be blank, so it is simply not rendered.
+      const emptyClosed =
+        message.blocks.length === 0 &&
+        message.content === '' &&
+        message.isStreaming !== true;
+      if (emptyClosed) continue;
     }
     entries.push({ kind: 'message', message });
   }
