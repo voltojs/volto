@@ -96,3 +96,6 @@ export type { OrchestratorOptions } from "./orchestration.js";
 
 // SSE protocol layer (import as: import { sse } from '@volto/sdk')
 export * as sse from "./sse/index.js";
+
+// Transcript read facade
+export { readConversation, readTrajectory } from "./transcript-reader.js";

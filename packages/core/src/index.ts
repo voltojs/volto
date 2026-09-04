@@ -82,6 +82,7 @@ export type {
   TranscriptEventInput,
   TranscriptEvent,
   TranscriptStore,
+  TranscriptReader,
   EventSink,
   ApprovalGate,
   Clock,

@@ -23,6 +23,7 @@ import type {
   ChatSessionMeta,
   TranscriptEvent,
   TranscriptEventInput,
+  TranscriptReader,
   TranscriptStore,
 } from "@volto/core";
 import * as fs from "node:fs/promises";
@@ -348,4 +349,12 @@ export function scopeToWorkspace(
   return {
     appendEvents: (sessionId, events) => store.appendEvents(workspacePath, sessionId, events),
   };
+}
+
+/**
+ * Narrows a full store instance into the read-side port shape.
+ * One underlying directory tree; this is a view over it.
+ */
+export function asTranscriptReader(store: JsonlSessionStore): TranscriptReader {
+  return { readEvents: (sessionId) => store.readEvents(sessionId) };
 }

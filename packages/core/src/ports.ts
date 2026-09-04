@@ -333,6 +333,15 @@ export interface TranscriptStore {
   appendEvents(sessionId: string, events: TranscriptEventInput[]): Promise<void>;
 }
 
+/**
+ * The read half of the transcript seam. Separate from `TranscriptStore`
+ * because the responsibilities differ and not every implementation needs
+ * both — a write-only audit sink is a legitimate `TranscriptStore`.
+ */
+export interface TranscriptReader {
+  readEvents(sessionId: string): Promise<TranscriptEvent[]>;
+}
+
 // ──────────────────────────────────────────────
 // EventSink — observable event output
 // ──────────────────────────────────────────────
