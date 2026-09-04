@@ -128,9 +128,72 @@ describe("Runner transcript capture", () => {
     });
     await runner.run({ type: "user_message", content: "hi" });
 
+    // The stepping clock advances exactly 100ms per read and every read this
+    // scenario makes is deterministic (turn_start, user_message,
+    // request_header, model_call_start's callStartedAt, the text delta, the
+    // model_done that closes the call) — so these aren't just "positive",
+    // they're the exact values. A stale firstDeltaAt/callStartedAt carried
+    // over from elsewhere would still happen to be positive but would not
+    // land on these numbers.
     const data = firstOf<{ ttftMs?: number; durationMs: number }>(events, "assistant_message");
-    expect(data!.ttftMs).toBeGreaterThan(0);
-    expect(data!.durationMs).toBeGreaterThanOrEqual(data!.ttftMs!);
+    expect(data!.ttftMs).toBe(300);
+    expect(data!.durationMs).toBe(400);
+  });
+
+  it("measures the second model call's ttftMs from its own model_call_start, not a stale reading from the first", async () => {
+    // First call streams a reasoning delta before calling a tool (so it has
+    // its own firstDeltaAt); second call streams a text delta (so it has its
+    // own too). If callStartedAt/firstDeltaAt were not reset between calls
+    // (see the "hoist to createRunner() scope, reset per runModelStream()
+    // call" contract), the second call's ttftMs would be computed against a
+    // stale reading from the first call — which, since the second call's
+    // own callStartedAt is chronologically later, comes out negative.
+    const model = createMockModelPort([
+      [
+        reasoningDelta("thinking"),
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [textDelta("done"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY",
+          },
+        ],
+        model: "test-model",
+      },
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(1000, 100),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const assistantMessages = events.filter((e) => e.type === "assistant_message");
+    expect(assistantMessages).toHaveLength(2);
+    const [first, second] = assistantMessages as Array<
+      TranscriptEventInput & { data: { ttftMs?: number } }
+    >;
+    expect(first!.step).toBe(1);
+    expect(second!.step).toBe(2);
+    expect(first!.data.ttftMs).toBe(300);
+    // Exact, not just positive: a leaked callStartedAt/firstDeltaAt from the
+    // first call would make this negative (the first call's reading is
+    // chronologically earlier than the second call's own callStartedAt).
+    expect(second!.data.ttftMs).toBe(200);
+    expect(second!.data.ttftMs).toBeGreaterThan(0);
   });
 
   it("omits ttftMs when the stream produced no delta", async () => {
@@ -305,6 +368,40 @@ describe("Runner transcript capture", () => {
     await runner.run({ type: "user_message", content: "hi" });
 
     expect(typesOf(events)).toContain("steering_queued");
+  });
+
+  it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
+    // Real providers (packages/providers/anthropic|openai's model-port.ts)
+    // yield {type:"error"} for non-2xx responses, aborts, and empty bodies —
+    // they do not throw. That path goes through the stream loop, never
+    // through runModelStream's catch block, so model_error must be recorded
+    // there too or it is silently lost (and turnHadError, only ever set in
+    // the catch block before this fix, never gets set either — leaving
+    // turn_end lying about how the turn ended). Non-retriable here keeps the
+    // test deterministic: a retriable error loops the reducer's own
+    // iteration-limited retry (separate from the Runner's retryPolicy, which
+    // only applies to thrown exceptions), which is exercised by the
+    // provider/runner error-taxonomy tests, not this one.
+    const model = createMockModelPort([[{ type: "error", error: "HTTP 500", retriable: false }]]);
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const modelError = firstOf<{ error: string; retriable: boolean }>(events, "model_error");
+    expect(modelError).toBeDefined();
+    expect(modelError!.error).toBe("HTTP 500");
+    expect(modelError!.retriable).toBe(false);
+
+    const turnEnd = firstOf<{ reason: string }>(events, "turn_end");
+    expect(turnEnd!.reason).toBe("error");
   });
 
   it("records nothing when no chatStore is configured", async () => {

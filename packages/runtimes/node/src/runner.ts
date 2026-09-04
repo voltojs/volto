@@ -230,6 +230,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let cumulativeTokens = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
+  // Track whether this turn ended because a budget was exceeded — a more
+  // specific turn_end reason than "error", checked first when both could
+  // apply (the budget check can fire after a turn has already seen an error).
+  let turnHadBudgetExceeded = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
   // Retry state for retriable model errors
@@ -338,6 +342,9 @@ export function createRunner(opts: RunnerOptions): Runner {
       if (e.event.type === "model_done") {
         const message = e.event.data["message"] as AssistantMessage | undefined;
         if (!message) continue;
+        // Read once and reuse as this event's own `time` — same reasoning
+        // as callStartedAt above: durationMs anchors on this exact reading,
+        // and the recorded event's `time` field must match it.
         const endedAt = nowMs();
         recorder.record(
           "assistant_message",
@@ -349,7 +356,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
             durationMs: endedAt - callStartedAt,
           },
-          { step: stepCounter },
+          { step: stepCounter, time: endedAt },
         );
         continue;
       }
@@ -385,14 +392,18 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
 
       if (e.event.type === "budget_exceeded") {
+        turnHadBudgetExceeded = true;
         recorder.record("budget_exceeded", { reason: e.event.data["reason"] as string });
       }
       // Note: the reducer's model_error AgentInput produces a generic "error"
       // emit (see reducer.ts handleCallingModel), not an emit literally typed
       // "model_error" — there is nothing of that shape to intercept here.
-      // model_error transcript events are recorded directly in
-      // runModelStream's catch block, where the Runner already has the
-      // classified error, retriable flag, and errorKind in scope.
+      // model_error transcript events are instead recorded directly at every
+      // site that constructs a model_error AgentInput: the stream loop
+      // (provider yields {type:"error"} without throwing — this is the path
+      // real providers take, see runModelStream's `for await` loop) and
+      // runModelStream's catch block (the ModelPort itself threw). Both have
+      // the classified error, retriable flag, and errorKind already in scope.
     }
   }
 
@@ -511,46 +522,77 @@ export function createRunner(opts: RunnerOptions): Runner {
       recorder.record("context_assembled", { layerOrigins: assembled.layerOrigins }, { step });
     }
 
-    // Static-prefix snapshot: system layers + tool catalogue + sampling
-    // params. Written only when its hash changes, so a long conversation
-    // does not store the same header once per model call.
-    const headerPayload = {
-      systemLayers: (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text })),
-      tools: stepContext.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        schema: t.inputSchema,
-      })),
-      params: {
-        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
-        ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
-        ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
-      },
-    };
-    const headerHash = crypto
-      .createHash("sha256")
-      .update(JSON.stringify(headerPayload))
-      .digest("hex")
-      .slice(0, 16);
-    if (headerHash !== lastHeaderHash) {
-      recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step });
-      lastHeaderHash = headerHash;
-    }
+    // Read once, before anything else below — reused both as the anchor
+    // ttftMs/durationMs are computed from and as model_call_start's own
+    // `time` (via the recorder's `time` override). A second, independent
+    // now() read for either purpose would disagree with this one under a
+    // clock that advances per call (real wall-clock jitter is negligible,
+    // but an injected stepping clock makes the drift visible and
+    // load-bearing for anyone reconstructing durations from event `time`
+    // fields instead of the ttftMs/durationMs fields).
+    callStartedAt = nowMs();
 
-    recorder.record(
-      "model_call_start",
-      {
-        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
-        ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
-        ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
-        headerHash,
-      },
-      { step },
-    );
+    // Static-prefix snapshot: system layers + tool catalogue + sampling
+    // params. In practice this is written exactly once per turn: stepContext
+    // is fixed when createRunner() is called and a fresh Runner is created
+    // per turn, so the payload — and therefore its hash — never changes
+    // within a turn. The hash comparison below is what actually enforces
+    // "write once"; it also means a future caller with a mutable stepContext
+    // gets deduping for free instead of a silent behavior change here.
+    //
+    // Skip the computation entirely when nothing is recording — JSON.stringify
+    // + sha256 over the whole tool catalogue on every model call is wasted
+    // work with chatStore unconfigured. Guarded in its own try/catch: a tool
+    // whose inputSchema is self-referential (e.g. built from z.lazy) or
+    // carries a non-JSON value (e.g. a BigInt default) makes JSON.stringify
+    // throw, and that must not fail the turn just because the header can't
+    // be hashed — transcript writes are best-effort, never a precondition.
+    if (recorder.enabled) {
+      let headerHash: string | undefined;
+      try {
+        const headerPayload = {
+          systemLayers: (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text })),
+          tools: stepContext.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            schema: t.inputSchema,
+          })),
+          params: {
+            ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+            ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+            ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+          },
+        };
+        headerHash = crypto
+          .createHash("sha256")
+          .update(JSON.stringify(headerPayload))
+          .digest("hex")
+          .slice(0, 16);
+        if (headerHash !== lastHeaderHash) {
+          recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step });
+          lastHeaderHash = headerHash;
+        }
+      } catch {
+        // Nothing to point model_call_start's (required) headerHash field at.
+        headerHash = undefined;
+      }
+
+      if (headerHash !== undefined) {
+        recorder.record(
+          "model_call_start",
+          {
+            ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+            ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+            ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+            headerHash,
+          },
+          { step, time: callStartedAt },
+        );
+      }
+    }
     // Reset per-call timing/aggregation state — these live at createRunner()
     // scope (see the comment there) so forwardEmit() can read them when it
     // intercepts model_done.
-    callStartedAt = nowMs();
     firstDeltaAt = undefined;
     reasoningText = "";
 
@@ -643,6 +685,25 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Mark terminal events (done or error)
         if (event.type === "done" || event.type === "error") {
           receivedTerminal = true;
+        }
+
+        // A provider that yields {type:"error"} instead of throwing — the
+        // path real providers take (see providers/anthropic|openai's
+        // model-port.ts for non-2xx responses, aborts, and empty bodies)
+        // never reaches the catch block below, so model_error must be
+        // recorded here or it is silently lost. This is a record of what
+        // the provider actually said, independent of what happens next:
+        // the reducer may retry in place (its own iteration-limited loop,
+        // separate from the Runner-level retryPolicy used for thrown
+        // exceptions) or end the turn — either way the turn saw an error.
+        if (event.type === "error") {
+          modelError = true;
+          turnHadError = true;
+          recorder.record(
+            "model_error",
+            { error: event.error, retriable: event.retriable ?? false },
+            { step: stepCounter },
+          );
         }
 
         // Convert and feed model events
@@ -1192,6 +1253,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         cumulativeCost = 0;
         cumulativeTokens = 0;
         turnHadError = false;
+        turnHadBudgetExceeded = false;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
@@ -1220,7 +1282,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // branch above returned or threw.
         recorder.record("turn_end", {
           turn: opts.turn ?? 0,
-          reason: turnHadError ? "error" : cancelled ? "cancelled" : "done",
+          reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
         });
         await recorder.flush();
 
@@ -1268,8 +1330,17 @@ export function createRunner(opts: RunnerOptions): Runner {
         toolCallId: approvedId,
         decision,
       }));
-      recorder.record("approval_decision", { callId: approvedId, decision }, { step: stepCounter });
+      // No `step` here: this Runner instance is typically fresh for a
+      // resume (see the SDK's cross-process resume path), so stepCounter is
+      // still 0 — and 0 is not a valid step (ports.ts documents step as
+      // 1-based). Omitting it is correct, not just a fallback.
+      recorder.record("approval_decision", { callId: approvedId, decision });
       await runLoop();
+      // Unlike run(), resume() has no turn-end bracket to flush from —
+      // flush explicitly so a caller that reads chatStore right after
+      // resume() resolves sees this batch's writes (assistant_message
+      // included) on disk, not still sitting in the recorder's buffer.
+      await recorder.flush();
       return state;
     },
   };

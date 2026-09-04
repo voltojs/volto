@@ -26,6 +26,16 @@ export interface TranscriptRecorderOptions {
 export interface RecordMeta {
   /** Which model call within the turn (1-based). Omit for turn-level events. */
   step?: number;
+  /**
+   * Explicit timestamp override. Use when the caller already read the clock
+   * for this exact instant (e.g. model_call_start reusing the same reading
+   * it stamps its own call-timing anchor with) — a second, independent
+   * `now()` read here would diverge from it under a clock that advances per
+   * call (real wall-clock jitter is negligible, but an injected stepping
+   * clock makes the drift visible and load-bearing for anyone reconstructing
+   * durations purely from event `time` fields). Omit to use `now()`.
+   */
+  time?: number;
 }
 
 export interface TranscriptRecorder {
@@ -52,7 +62,7 @@ export function createTranscriptRecorder(opts: TranscriptRecorderOptions): Trans
     record(type, data, meta) {
       if (!enabled) return;
       buffer.push({
-        time: now(),
+        time: meta?.time ?? now(),
         type,
         data,
         turn,
