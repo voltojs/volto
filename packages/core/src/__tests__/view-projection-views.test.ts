@@ -158,3 +158,178 @@ describe("toConversationView", () => {
     expect(ids).toEqual(["1:u0", "1:1", "1:2"]);
   });
 });
+
+import { applyPartial, toTrajectoryView } from "../view-projection.js";
+
+describe("applyPartial", () => {
+  const OPEN_STEP = log([
+    { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+    { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+  ]);
+
+  it("accumulates text deltas onto the open step", () => {
+    let records = buildTurnRecords(OPEN_STEP);
+    records = applyPartial(records, { kind: "text", text: "he" });
+    records = applyPartial(records, { kind: "text", text: "llo" });
+
+    expect(records[0]!.steps[0]!.partial!.text).toBe("hello");
+  });
+
+  it("accumulates reasoning separately from text", () => {
+    let records = buildTurnRecords(OPEN_STEP);
+    records = applyPartial(records, { kind: "reasoning", text: "hmm" });
+    records = applyPartial(records, { kind: "text", text: "answer" });
+
+    expect(records[0]!.steps[0]!.partial).toMatchObject({ text: "answer", reasoning: "hmm" });
+  });
+
+  it("collects streaming tool-call arguments", () => {
+    let records = buildTurnRecords(OPEN_STEP);
+    records = applyPartial(records, { kind: "tool_use", callId: "c1", name: "read_file", argumentsDelta: '{"p' });
+    records = applyPartial(records, { kind: "tool_use", callId: "c1", argumentsDelta: '":1}' });
+
+    expect(records[0]!.steps[0]!.partial!.pendingCalls).toEqual([
+      { callId: "c1", name: "read_file", argumentsDelta: '{"p":1}' },
+    ]);
+  });
+
+  it("is a no-op when there is no open step", () => {
+    const closed = buildTurnRecords(EQUIVALENT_LOG);
+    expect(applyPartial(closed, { kind: "text", text: "late" })).toEqual(closed);
+  });
+
+  it("is cleared once the authoritative assistant_message arrives", () => {
+    let records = buildTurnRecords(OPEN_STEP);
+    records = applyPartial(records, { kind: "text", text: "partial" });
+    expect(records[0]!.steps[0]!.partial).toBeDefined();
+
+    const completed = buildTurnRecords(
+      log([
+        ...OPEN_STEP.map(({ seq: _seq, ...rest }) => rest),
+        {
+          time: 200,
+          type: "assistant_message",
+          data: { content: [{ type: "text", text: "final" }], stopReason: "end_turn", durationMs: 90 },
+          turn: 1,
+          step: 1,
+        },
+      ]),
+    );
+    expect(completed[0]!.steps[0]!.partial).toBeUndefined();
+    expect(completed[0]!.steps[0]!.assistant!.content).toEqual([{ type: "text", text: "final" }]);
+  });
+});
+
+describe("toTrajectoryView", () => {
+  it("numbers rows from 1 and covers every kind that occurred", () => {
+    const view = toTrajectoryView(buildTurnRecords(EQUIVALENT_LOG), EQUIVALENT_LOG);
+
+    expect(view.rows[0]!.index).toBe(1);
+    expect(view.rows.map((r) => r.index)).toEqual(view.rows.map((_, i) => i + 1));
+    expect(new Set(view.rows.map((r) => r.kind))).toEqual(new Set(["user", "assistant", "tool"]));
+  });
+
+  it("puts thinking, timing and usage on the assistant row", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 200,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "text", text: "answer" }],
+          reasoning: "deep thought",
+          stopReason: "end_turn",
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, reasoningTokens: 2 },
+          ttftMs: 30,
+          durationMs: 90,
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "assistant")!;
+    expect(row.thinkingDetail).toBe("deep thought");
+    expect(row.outputDetail).toBe("answer");
+    expect(row.metrics).toEqual({
+      ttftMs: 30,
+      durationMs: 90,
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, reasoningTokens: 2 },
+    });
+  });
+
+  it("puts the call arguments and real output on the tool row", () => {
+    const row = toTrajectoryView(buildTurnRecords(EQUIVALENT_LOG), EQUIVALENT_LOG).rows.find(
+      (r) => r.kind === "tool",
+    )!;
+
+    expect(row.inputDetail).toContain("a.txt");
+    expect(row.outputDetail).toBe("file body");
+    expect(row.durationMs).toBe(40);
+    expect(row.isError).toBe(false);
+  });
+
+  it("attaches the call-time tool schema from request_header", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      {
+        time: 105,
+        type: "request_header",
+        data: {
+          hash: "h1",
+          systemLayers: [{ id: "base", text: "be helpful" }],
+          tools: [{ name: "read_file", description: "reads", schema: { type: "object", properties: {} } }],
+          params: { model: "m1" },
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 120, type: "assistant_message", data: { content: [], stopReason: "tool_use", durationMs: 5 }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
+    ]);
+
+    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "tool")!;
+    expect(row.schemaDetail).toContain("read_file");
+  });
+
+  it("emits a context row per request_header and a compaction row per compaction", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      {
+        time: 105,
+        type: "request_header",
+        data: { hash: "h1", systemLayers: [{ id: "base", text: "be helpful" }], tools: [], params: {} },
+        turn: 1,
+        step: 1,
+      },
+      { time: 106, type: "compaction", data: { replacedCount: 4, summaryText: "earlier stuff" }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+    ]);
+
+    const kinds = toTrajectoryView(buildTurnRecords(events), events).rows.map((r) => r.kind);
+    expect(kinds).toContain("context");
+    expect(kinds).toContain("compaction");
+  });
+
+  it("marks a sub-agent row with its child session and does not inline it", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 120, type: "assistant_message", data: { content: [], stopReason: "tool_use", durationMs: 5 }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 135, type: "subagent_started", data: { childSessionId: "s1-sub-9", label: "task", depth: 1 }, turn: 1, step: 1 },
+    ]);
+
+    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "subagent")!;
+    expect(row.childSessionId).toBe("s1-sub-9");
+    expect(row.outputDetail).toBeUndefined();
+  });
+
+  it("gives every row a unique, index-independent id", () => {
+    const rows = toTrajectoryView(buildTurnRecords(EQUIVALENT_LOG), EQUIVALENT_LOG).rows;
+    expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
+    expect(rows.some((r) => r.id === "c1")).toBe(true);
+  });
+});

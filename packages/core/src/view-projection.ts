@@ -475,3 +475,247 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
 
   return { messages };
 }
+
+// ──────────────────────────────────────────────
+// Streaming partial
+// ──────────────────────────────────────────────
+
+/**
+ * A streaming increment. Never persisted — its only job is to give the UI a
+ * typewriter effect between `model_call_start` and `assistant_message`.
+ * Losing one is self-healing: the authoritative event replaces the partial
+ * wholesale when it lands.
+ */
+export type TranscriptDelta =
+  | { kind: "text"; text: string }
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool_use"; callId: string; name?: string; argumentsDelta: string };
+
+function emptyPartial(): PartialAssistant {
+  return { text: "", reasoning: "", pendingCalls: [] };
+}
+
+/**
+ * Folds one delta into the open step — the last step of the last turn that
+ * has started but not yet produced its `assistant_message`. A no-op when no
+ * such step exists, so a delta arriving after the turn closed is harmless.
+ *
+ * Only the turn and step being written are new objects; every earlier turn
+ * keeps its identity so a memoising consumer does not re-render the history.
+ */
+export function applyPartial(
+  records: readonly TurnRecord[],
+  delta: TranscriptDelta,
+): TurnRecord[] {
+  const turnIndex = records.length - 1;
+  const turn = records[turnIndex];
+  if (!turn || turn.endedAt !== undefined) return records as TurnRecord[];
+
+  const stepIndex = turn.steps.length - 1;
+  const step = turn.steps[stepIndex];
+  if (!step || step.assistant !== undefined) return records as TurnRecord[];
+
+  const previous = step.partial ?? emptyPartial();
+  let partial: PartialAssistant;
+
+  if (delta.kind === "text") {
+    partial = { ...previous, text: previous.text + delta.text };
+  } else if (delta.kind === "reasoning") {
+    partial = { ...previous, reasoning: previous.reasoning + delta.text };
+  } else {
+    const calls = [...previous.pendingCalls];
+    const existing = calls.findIndex((c) => c.callId === delta.callId);
+    if (existing >= 0) {
+      calls[existing] = {
+        ...calls[existing]!,
+        argumentsDelta: calls[existing]!.argumentsDelta + delta.argumentsDelta,
+        ...(delta.name !== undefined ? { name: delta.name } : {}),
+      };
+    } else {
+      calls.push({ callId: delta.callId, name: delta.name ?? "", argumentsDelta: delta.argumentsDelta });
+    }
+    partial = { ...previous, pendingCalls: calls };
+  }
+
+  const nextSteps = [...turn.steps];
+  nextSteps[stepIndex] = { ...step, partial };
+  const nextTurns = [...records];
+  nextTurns[turnIndex] = { ...turn, steps: nextSteps };
+  return nextTurns;
+}
+
+// ──────────────────────────────────────────────
+// TrajectoryView
+// ──────────────────────────────────────────────
+
+export interface TrajectoryRow {
+  /** 1-based, rendered as `#N`. */
+  index: number;
+  /** Stable across incremental rebuilds — never an array index. */
+  id: string;
+  kind: "user" | "context" | "assistant" | "tool" | "subagent" | "compaction" | "error";
+  turn: number;
+  step?: number;
+  /** Single-line, non-Markdown summary; the UI ellipsises overflow. */
+  summary: string;
+  startedAt: number;
+  durationMs?: number;
+  isError?: boolean;
+  inputDetail?: string;
+  outputDetail?: string;
+  thinkingDetail?: string;
+  /** The model-visible tool schema as it stood at call time. */
+  schemaDetail?: string;
+  metrics?: { ttftMs?: number; durationMs: number; usage?: TokenUsage };
+  /** Present on a sub-agent row; the child's own session, read separately. */
+  childSessionId?: string;
+}
+
+export interface TrajectoryView {
+  rows: TrajectoryRow[];
+}
+
+/** First line, trimmed to `max` characters, for a one-line row summary. */
+function summarise(text: string, max = 120): string {
+  const firstLine = text.split("\n", 1)[0] ?? "";
+  return firstLine.length > max ? `${firstLine.slice(0, max - 1)}…` : firstLine;
+}
+
+/**
+ * Derives the audit ledger.
+ *
+ * Takes the raw `events` alongside the records because a few rows are pure
+ * log detail that never enters a turn record — `request_header` (the prompt
+ * and tool catalogue as sent) and `compaction`. Their detail would otherwise
+ * have to be duplicated into `TurnRecord`, widening it for one consumer.
+ */
+export function toTrajectoryView(
+  records: readonly TurnRecord[],
+  events: readonly TranscriptEvent[],
+): TrajectoryView {
+  const rows: TrajectoryRow[] = [];
+
+  const headersByHash = new Map<string, TranscriptEventMap["request_header"]>();
+  for (const event of events) {
+    if (event.type === "request_header") {
+      const data = event.data as TranscriptEventMap["request_header"];
+      headersByHash.set(data.hash, data);
+    }
+  }
+
+  const contextEvents = events.filter((e) => e.type === "request_header" || e.type === "compaction");
+
+  for (const turn of records) {
+    for (const event of contextEvents) {
+      if ((event.turn ?? 0) !== turn.turn) continue;
+      if (event.type === "request_header") {
+        const data = event.data as TranscriptEventMap["request_header"];
+        rows.push({
+          index: 0,
+          id: `${turn.turn}:header:${event.seq}`,
+          kind: "context",
+          turn: turn.turn,
+          summary: `system prompt (${data.systemLayers.length} layers), ${data.tools.length} tools`,
+          startedAt: event.time,
+          inputDetail: data.systemLayers.map((l) => `## ${l.id}\n${l.text}`).join("\n\n"),
+          schemaDetail: JSON.stringify(data.tools, null, 2),
+        });
+      } else {
+        const data = event.data as TranscriptEventMap["compaction"];
+        rows.push({
+          index: 0,
+          id: `${turn.turn}:compaction:${event.seq}`,
+          kind: "compaction",
+          turn: turn.turn,
+          summary: `compacted ${data.replacedCount} messages`,
+          startedAt: event.time,
+          outputDetail: data.summaryText,
+        });
+      }
+    }
+
+    turn.userInput.forEach((input, i) => {
+      const text = textOf(input.content);
+      rows.push({
+        index: 0,
+        id: `${turn.turn}:${input.origin === "queued" ? "q" : "u"}${i}`,
+        kind: "user",
+        turn: turn.turn,
+        summary: summarise(text),
+        startedAt: input.time,
+        inputDetail: text,
+      });
+    });
+
+    for (const step of turn.steps) {
+      const assistant = step.assistant;
+      const header = headersByHash.get(step.headerHash);
+      const outputText = assistant ? textOf(assistant.content) : (step.partial?.text ?? "");
+
+      rows.push({
+        index: 0,
+        id: `${turn.turn}:${step.step}`,
+        kind: "assistant",
+        turn: turn.turn,
+        step: step.step,
+        summary: summarise(outputText) || (step.error ? step.error.message : "(no text)"),
+        startedAt: step.startedAt,
+        ...(assistant !== undefined ? { durationMs: assistant.durationMs } : {}),
+        ...(step.error !== undefined ? { isError: true } : {}),
+        ...(outputText ? { outputDetail: outputText } : {}),
+        ...(assistant?.reasoning !== undefined ? { thinkingDetail: assistant.reasoning } : {}),
+        ...(assistant !== undefined
+          ? {
+              metrics: {
+                ...(assistant.ttftMs !== undefined ? { ttftMs: assistant.ttftMs } : {}),
+                durationMs: assistant.durationMs,
+                ...(assistant.usage !== undefined ? { usage: assistant.usage } : {}),
+              },
+            }
+          : {}),
+      });
+
+      for (const call of step.toolCalls) {
+        rows.push({
+          index: 0,
+          id: call.callId,
+          kind: call.childSessionId !== undefined ? "subagent" : "tool",
+          turn: turn.turn,
+          step: step.step,
+          summary: `${call.name}(${summarise(JSON.stringify(call.input), 60)})`,
+          startedAt: call.startedAt,
+          ...(call.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+          ...(call.isError !== undefined ? { isError: call.isError } : {}),
+          inputDetail: JSON.stringify(call.input, null, 2),
+          // A sub-agent row links out rather than inlining: the child is its
+          // own session file, and recursing would pull a whole task tree into
+          // memory for one row.
+          ...(call.childSessionId !== undefined
+            ? { childSessionId: call.childSessionId }
+            : call.content !== undefined
+              ? { outputDetail: call.content }
+              : {}),
+          ...(header !== undefined
+            ? { schemaDetail: JSON.stringify(header.tools.filter((t) => t.name === call.name), null, 2) }
+            : {}),
+        });
+      }
+    }
+
+    if (turn.error !== undefined) {
+      rows.push({
+        index: 0,
+        id: `${turn.turn}:error`,
+        kind: "error",
+        turn: turn.turn,
+        summary: summarise(turn.error),
+        startedAt: turn.endedAt ?? turn.startedAt,
+        isError: true,
+        outputDetail: turn.error,
+      });
+    }
+  }
+
+  rows.sort((a, b) => a.startedAt - b.startedAt);
+  return { rows: rows.map((row, i) => ({ ...row, index: i + 1 })) };
+}

@@ -139,6 +139,10 @@ export type {
   ConversationToolCall,
 } from "./view-projection.js";
 
+// View projection — streaming partials + trajectory audit ledger
+export { applyPartial, toTrajectoryView } from "./view-projection.js";
+export type { TranscriptDelta, TrajectoryView, TrajectoryRow } from "./view-projection.js";
+
 // Reducer
 export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
