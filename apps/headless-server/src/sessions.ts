@@ -120,8 +120,6 @@ interface Session {
   agent: ReturnType<typeof createWiredAgent> | null;
   config: ResolvedConfig | null;
   history: Message[];
-  /** Ordinal of the last turn already in the durable transcript, hydrated on cold start; see highestTurnStart(). */
-  initialTurn: number | undefined;
   mapper: ReturnType<typeof sse.createEventMapper>;
   connection: Connection | null;
   buffer: sse.SSEMessage[];
@@ -163,7 +161,6 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         agent: null,
         config: null,
         history: [],
-        initialTurn: undefined,
         mapper: sse.createEventMapper(),
         connection: null,
         buffer: [],
@@ -305,12 +302,36 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     );
   }
 
+  /**
+   * Reads a session's persisted transcript fresh and returns the highest
+   * `turn_start` seen, or `undefined` when there is no chatStore, no
+   * persisted session, or no `turn_start` events at all.
+   *
+   * Deliberately NOT cached on `Session` — a rebuild can happen mid-
+   * conversation (any config change, not just a process restart), and by
+   * then turns may already have completed since the last time this was
+   * computed. A value cached at cold-start hydration and never refreshed
+   * goes stale the moment a turn completes, so every subsequent rebuild
+   * would forward a number lower than what is actually on disk and collide
+   * with a turn that already exists in the transcript. Re-reading here
+   * instead of trusting in-memory bookkeeping keeps it always derived from
+   * the transcript itself. Rebuilds only happen on a config change (not
+   * every turn), so the extra read stays off the hot path.
+   */
+  async function resolveInitialTurn(sessionId: string): Promise<number | undefined> {
+    if (!chatStore) return undefined;
+    const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
+    if (!persisted) return undefined;
+    return highestTurnStart(persisted.events);
+  }
+
   /** Construct an agent for the resolved config, seeding prior history. */
   async function rebuild(
     session: Session,
     config: ResolvedConfig,
     credentials: ResolvedCredentials | null,
   ): Promise<void> {
+    const initialTurn = await resolveInitialTurn(session.id);
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
@@ -328,7 +349,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
         : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
-      ...(session.initialTurn !== undefined ? { initialTurn: session.initialTurn } : {}),
+      ...(initialTurn !== undefined ? { initialTurn } : {}),
       ...(chatStore
         ? {
             chatStore: scopeToWorkspace(chatStore, config.projectPath ?? null),
@@ -387,10 +408,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // it was recorded on disk.
     if (chatStore && session.history.length === 0) {
       const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-      if (persisted) {
-        session.history = projectMessages(persisted.events);
-        session.initialTurn = highestTurnStart(persisted.events);
-      }
+      if (persisted) session.history = projectMessages(persisted.events);
     }
 
     session.running = true;

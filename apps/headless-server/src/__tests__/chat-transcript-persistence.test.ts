@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
-import type { ReducerState, Message, TranscriptStore, TranscriptEventInput } from "@volto/core";
+import type { ReducerState, Message, TranscriptStore, TranscriptEvent, TranscriptEventInput } from "@volto/core";
 import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
@@ -90,6 +90,80 @@ function makeThrowingStreamFactory() {
         throw err;
       },
       getState: () => ({ messages: [] }) as unknown as ReducerState,
+    };
+  };
+  return { builds, factory };
+}
+
+/**
+ * A stateful JsonlSessionStore stand-in — actually accumulates appended
+ * events per session so `readSession()` reflects what was really written,
+ * unlike `makeFakeChatStore()` above (which only records calls). Needed to
+ * exercise `resolveInitialTurn()`'s hot-process rebuild path: it re-reads
+ * the transcript via `readSession()`, so the read has to see writes made by
+ * earlier turns in the same test.
+ */
+function makeStatefulChatStore(): JsonlSessionStore {
+  const bySession = new Map<string, TranscriptEvent[]>();
+  let seq = 0;
+  return {
+    async appendEvents(_workspacePath, sessionId, events) {
+      const arr = bySession.get(sessionId) ?? [];
+      for (const event of events) arr.push({ ...event, seq: seq++ });
+      bySession.set(sessionId, arr);
+    },
+    async readEvents(sessionId) {
+      return bySession.get(sessionId) ?? [];
+    },
+    async readSession(sessionId) {
+      const events = bySession.get(sessionId);
+      if (!events) return undefined;
+      return {
+        sessionId,
+        meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+        events,
+        createdAt: 0,
+        updatedAt: 0,
+      };
+    },
+    async listSessions() {
+      return { records: [], skipped: [] };
+    },
+    async deleteSession() {},
+  };
+}
+
+/**
+ * Agent stub that mimics the one piece of real `createAgent()` behavior this
+ * suite cares about: seeding its own turn counter from `opts.initialTurn`
+ * and recording a `turn_start` event (via the `chatStore`/`chatSessionId` it
+ * was actually built with) on every turn. Each `factory(opts)` call is a
+ * fresh "agent instance" with its own counter, exactly like a real rebuild
+ * constructing a brand-new `createAgent()` — so this stub can only report
+ * correct turn numbers across a rebuild if the registry passed it the right
+ * `initialTurn` each time.
+ */
+function makeTurnRecordingFactory() {
+  const builds: Array<Record<string, unknown>> = [];
+  const factory = (opts: Record<string, unknown>) => {
+    builds.push(opts);
+    let turnCounter = (opts["initialTurn"] as number | undefined) ?? 0;
+    const scopedChatStore = opts["chatStore"] as TranscriptStore | undefined;
+    const chatSessionId = opts["chatSessionId"] as string | undefined;
+    const cumulative: Message[] = [];
+    return {
+      async *stream() {
+        turnCounter += 1;
+        const turn = turnCounter;
+        if (scopedChatStore && chatSessionId) {
+          await scopedChatStore.appendEvents(chatSessionId, [
+            { time: 0, type: "turn_start", data: { turn }, turn },
+          ]);
+        }
+        cumulative.push({ role: "assistant", content: [{ type: "text", text: `m${turn}` }] });
+        yield { type: "text_delta", data: { text: "hi" } };
+      },
+      getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,
     };
   };
   return { builds, factory };
@@ -305,5 +379,39 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(builds).toHaveLength(1);
     expect(chatStore.appendCalls).toHaveLength(1);
     expect(chatStore.appendCalls[0]!.sessionId).toBe("s1");
+  });
+
+  it("continues turn numbering across a hot-process rebuild (config change), not just a cold start", async () => {
+    // Two turns on the first agent instance, then a modelId change forces a
+    // rebuild, then a third turn on the NEW instance. The persisted
+    // turn_start values must be [1, 2, 3] — a rebuild mid-conversation must
+    // see the two turns already on disk, not restart at 1 or (if it used a
+    // value cached only at cold start) collide by recording turn 1 again.
+    const chatStore = makeStatefulChatStore();
+    const { factory, builds } = makeTurnRecordingFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: { resolveModel: async () => ({ baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
+      chatStore,
+    });
+    registry.attach("s1", { write: () => {}, on: () => {} } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "one", config);
+    await registry.runTurn("s1", "two", config);
+    // modelId change -> sameConfig() is false -> rebuild().
+    await registry.runTurn("s1", "three", { ...config, modelId: "m2" });
+
+    expect(builds).toHaveLength(2); // one initial build, one rebuild
+    // The rebuild must see both turns already on disk, not the value cached
+    // (and never refreshed) at whatever cold-start hydration last ran.
+    expect(builds[1]!["initialTurn"]).toBe(2);
+
+    const persisted = await chatStore.readSession("s1");
+    const turnStarts = persisted!.events
+      .filter((e) => e.type === "turn_start")
+      .map((e) => (e.data as { turn: number }).turn);
+    expect(turnStarts).toEqual([1, 2, 3]);
   });
 });
