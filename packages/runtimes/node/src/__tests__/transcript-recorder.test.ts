@@ -148,4 +148,49 @@ describe("createTranscriptRecorder", () => {
     expect(written).toHaveLength(1);
     expect(written[0]!.map((e) => e.type)).toEqual(["turn_start", "turn_end"]);
   });
+
+  it("does not reject or poison later flushes when appendEvents throws synchronously", async () => {
+    // A plain (non-async) implementation that throws directly, not an async
+    // function that would convert the throw into a rejected promise — those
+    // are different code paths. Calling `store!.appendEvents(...)` directly
+    // inside a `.then()` callback lets a synchronous throw propagate as an
+    // exception out of that callback, which rejects the `inFlight` chain
+    // with no handler attached (a `.catch()` on the call's return value
+    // never runs, because the call itself never returns).
+    const appendEvents = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("sync boom");
+      })
+      .mockResolvedValue(undefined);
+    const recorder = createTranscriptRecorder({ store: { appendEvents }, sessionId: "s1", turn: 1, now: () => 1 });
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      recorder.record("turn_start", { turn: 1 });
+      await expect(recorder.flush()).resolves.toBeUndefined();
+
+      recorder.record("turn_end", { turn: 1, reason: "done" });
+      await expect(recorder.flush()).resolves.toBeUndefined();
+
+      // Give a poisoned chain's unhandledRejection a turn of the event loop
+      // to surface before asserting none did.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(unhandled).toHaveLength(0);
+    expect(appendEvents).toHaveBeenCalledTimes(2);
+    // The first (throwing) batch is dropped, not requeued — the second call
+    // only carries turn_end.
+    const secondBatch = appendEvents.mock.calls[1]![1] as TranscriptEventInput[];
+    expect(secondBatch).toHaveLength(1);
+    expect(secondBatch[0]).toMatchObject({ type: "turn_end" });
+  });
 });

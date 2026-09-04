@@ -129,12 +129,14 @@ describe("Runner transcript capture", () => {
     await runner.run({ type: "user_message", content: "hi" });
 
     // The stepping clock advances exactly 100ms per read and every read this
-    // scenario makes is deterministic (turn_start, user_message,
-    // request_header, model_call_start's callStartedAt, the text delta, the
-    // model_done that closes the call) — so these aren't just "positive",
-    // they're the exact values. A stale firstDeltaAt/callStartedAt carried
-    // over from elsewhere would still happen to be positive but would not
-    // land on these numbers.
+    // scenario makes is deterministic: turn_start, user_message,
+    // callStartedAt (shared by request_header and model_call_start — they no
+    // longer take independent readings, see runner.ts), the telemetry
+    // model-span anchor (unused here, no telemetry configured, but it still
+    // consumes a read), the text delta, and the model_done that closes the
+    // call. So these aren't just "positive", they're the exact values. A
+    // stale firstDeltaAt/callStartedAt carried over from elsewhere would
+    // still happen to be positive but would not land on these numbers.
     const data = firstOf<{ ttftMs?: number; durationMs: number }>(events, "assistant_message");
     expect(data!.ttftMs).toBe(200);
     expect(data!.durationMs).toBe(300);

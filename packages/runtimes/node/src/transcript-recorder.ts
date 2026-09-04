@@ -88,13 +88,22 @@ export function createTranscriptRecorder(opts: TranscriptRecorderOptions): Trans
         // batch queued for the next flush, or a transient error would
         // duplicate every event.
         buffer = [];
-        inFlight = inFlight.then(() =>
-          store!.appendEvents(sessionId!, batch).catch(() => {
+        inFlight = inFlight.then(async () => {
+          try {
+            // Awaited inside its own try/catch rather than chained via
+            // `.catch()` on the call's return value: a store that throws
+            // synchronously (a plain, non-async implementation) never
+            // produces a promise for `.catch()` to attach to — the throw
+            // would instead propagate out of this `.then()` callback and
+            // reject `inFlight` with no handler, permanently poisoning
+            // every later flush() call's wait.
+            await store!.appendEvents(sessionId!, batch);
+          } catch {
             // Best-effort by contract — see the module comment. Swallowed
             // here (rather than left to propagate through the chain) so one
             // batch's failure can't poison every later batch's wait.
-          }),
-        );
+          }
+        });
       }
       // Always wait on the chain, even when this call added nothing new —
       // that's what lets a later flush() observe an earlier one's write.
