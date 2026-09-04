@@ -114,6 +114,10 @@ export type {
   ToolResult,
 } from "./tool.js";
 
+// Transcript projection — event log → Message[] for session resume
+export { projectMessages, projectMessageEntries } from "./transcript-projection.js";
+export type { ProjectedMessage } from "./transcript-projection.js";
+
 // Reducer
 export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
