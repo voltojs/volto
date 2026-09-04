@@ -3,8 +3,9 @@
  *
  * Modeled on the append-only transcript convention used by CLI agent
  * harnesses (Claude Code, DeepSeek's coding agent): one `.jsonl` file per
- * session, one JSON object per line, each line linked to the previous via
- * `parentUuid` so the file is a chain rather than an unordered bag of facts.
+ * session, one JSON object per line, each line carrying a store-assigned
+ * `seq` that is monotonic and contiguous from 0, so the file's line order is
+ * verifiably a total order rather than an unordered bag of facts.
  * Sessions are further grouped one directory per workspace — same convention
  * Claude Code uses for its own per-project transcript directories — with the
  * workspace's absolute path encoded into a filesystem-safe directory name
@@ -117,8 +118,10 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
   const { directory } = opts;
 
   // Per-file write queues so concurrent appends to the same session's file
-  // never interleave their lines, and so each append sees the previous
-  // line's uuid (for parentUuid) even when calls race.
+  // never interleave their lines. This is also what makes seq assignment
+  // atomic: appendEventBatch reads the last-assigned seq and writes its
+  // batch inside this queue's callback, so no other append can read the
+  // same "last seq" before this one's write lands.
   const writeQueues = new Map<string, Promise<void>>();
 
   function enqueue(filePath: string, task: () => Promise<void>): Promise<void> {
