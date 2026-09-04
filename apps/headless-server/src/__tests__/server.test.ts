@@ -105,15 +105,22 @@ function parseFrames(raw: string): ProtocolFrame[] {
     });
 }
 
+/** Quiet window after the last frame at which a turn is considered complete. */
+const TURN_IDLE_MS = 400;
+
 /**
  * Open an /events channel, trigger one turn via POST /messages, and collect
- * every protocol frame up to and including `done`.
+ * every protocol frame the turn produced.
  *
  * `config` is merged into the /messages body. `resolveConfig` (F2) now
  * requires a real, resolvable projectId/providerId/modelId for every turn
  * requested through /messages, so any caller that needs a turn to actually
  * run (rather than immediately error) must supply one — see
  * `createTestProjectAndModel` below.
+ *
+ * The v2 protocol has no terminal `done` frame — turn end is expressed by
+ * `turn_end` events in the transcript — so completion is detected as a quiet
+ * period once the turn's frames have drained.
  */
 function collectProtocolTurn(
   sessionId: string,
@@ -122,16 +129,22 @@ function collectProtocolTurn(
 ): Promise<ProtocolFrame[]> {
   return new Promise((resolve, reject) => {
     const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl);
-    const timer = setTimeout(() => reject(new Error("timed out waiting for done")), 10_000);
+    const timer = setTimeout(() => reject(new Error("timed out waiting for turn frames")), 10_000);
 
     const req = http.get(url, (res) => {
       let raw = "";
+      let idle: ReturnType<typeof setTimeout> | undefined;
+      const scheduleIdle = (): void => {
+        if (idle) clearTimeout(idle);
+        idle = setTimeout(() => {
+          clearTimeout(timer);
+          req.destroy();
+          resolve(parseFrames(raw));
+        }, TURN_IDLE_MS);
+      };
       res.on("data", (chunk: Buffer) => {
         raw += chunk.toString("utf-8");
-        if (!raw.includes("event: done")) return;
-        clearTimeout(timer);
-        req.destroy();
-        resolve(parseFrames(raw));
+        scheduleIdle();
       });
       res.on("error", reject);
 
@@ -305,19 +318,36 @@ describe("Headless server", () => {
     expect(status).toBe(400);
   });
 
-  it("GET /events + POST /messages streams a turn in protocol format", async () => {
+  it("GET /events + POST /messages streams a turn as event and delta frames", async () => {
     const sessionId = "session-protocol";
     const config = await createTestProjectAndModel();
     const frames = await collectProtocolTurn(sessionId, "hi", config);
 
-    const tokens = frames.filter((f) => f.event === "token");
-    expect(tokens.length).toBeGreaterThan(0);
-    // Tokens carry the server-side accumulation, ending with the full text.
-    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
-    expect(frames.at(-1)?.event).toBe("done");
-    // Ids are monotonic so a client can resume with Last-Event-ID.
+    // Every frame rides one of the four v2 kinds.
+    const kinds = new Set(frames.map((f) => f.event));
+    expect([...kinds].every((k) => ["event", "delta", "heartbeat", "error"].includes(k))).toBe(true);
+
+    // Text flows as delta frames carrying TranscriptDelta increments...
+    const textPieces = frames
+      .filter((f) => f.event === "delta")
+      .map((f) => f.data as { kind: string; text?: string })
+      .filter((d) => d.kind === "text")
+      .map((d) => d.text ?? "");
+    expect(textPieces.join("")).toBe("Hello world");
+
+    // ...bookended by an authoritative user_message event frame.
+    const eventPayloads = frames
+      .filter((f) => f.event === "event")
+      .map((f) => f.data as { type: string });
+    expect(eventPayloads.some((e) => e.type === "user_message")).toBe(true);
+
+    // Ids are monotonic so a client can resume with Last-Event-ID. Delta
+    // frames share the last event's id (they are not replayable), so ids are
+    // non-decreasing rather than strictly increasing.
     const ids = frames.map((f) => Number(f.id));
-    expect([...ids].sort((a, b) => a - b)).toEqual(ids);
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i]!).toBeGreaterThanOrEqual(ids[i - 1]!);
+    }
   });
 
   it("keeps conversation history per session across turns", async () => {
@@ -326,12 +356,16 @@ describe("Headless server", () => {
     await collectProtocolTurn(sessionId, "first", config);
     await collectProtocolTurn(sessionId, "second", config);
 
-    // The mock model replies identically each turn; what matters is that the
-    // second turn streams a complete, independent response over the same
-    // channel rather than erroring or replaying the first turn's text.
     const frames = await collectProtocolTurn(sessionId, "third", config);
-    const tokens = frames.filter((f) => f.event === "token");
-    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
+    const textPieces = frames
+      .filter((f) => f.event === "delta")
+      .map((f) => f.data as { kind: string; text?: string })
+      .filter((d) => d.kind === "text")
+      .map((d) => d.text ?? "");
+    // The mock model replies identically each turn; a fresh, complete
+    // response proves the turn ran independently rather than erroring or
+    // replaying an earlier turn's text.
+    expect(textPieces.join("")).toBe("Hello world");
   });
 
   it("GET /sessions lists a session after a turn has run", async () => {
@@ -402,9 +436,10 @@ describe("Headless server", () => {
     const frames = await collectProtocolTurn(sessionId, "hi");
 
     expect(frames.some((f) => f.event === "error")).toBe(true);
-    expect(frames.at(-1)?.event).toBe("done");
-    // Never silently ran the turn — no token was streamed.
-    expect(frames.some((f) => f.event === "token")).toBe(false);
+    // The transport error frame is the whole turn — nothing follows it.
+    expect(frames.at(-1)?.event).toBe("error");
+    // Never silently ran the turn — no delta was streamed.
+    expect(frames.some((f) => f.event === "delta")).toBe(false);
   });
 
   it("POST /messages errors over SSE when only providerId is given without modelId (F2)", async () => {
@@ -413,7 +448,7 @@ describe("Headless server", () => {
     const frames = await collectProtocolTurn(sessionId, "hi", { projectId, providerId });
 
     expect(frames.some((f) => f.event === "error")).toBe(true);
-    expect(frames.some((f) => f.event === "token")).toBe(false);
+    expect(frames.some((f) => f.event === "delta")).toBe(false);
   });
 
   it("POST /resume returns state", async () => {

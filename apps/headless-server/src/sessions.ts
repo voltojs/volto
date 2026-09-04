@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core";
 import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -127,6 +127,17 @@ interface Session {
   lastUsed: number;
 }
 
+/** An event as an agent's stream() yields it — the raw EventSink vocabulary. */
+interface ChannelEvent {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+/** A delta payload field that is optional on the wire reads as "" when absent. */
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   const {
     maxSessions = 100,
@@ -174,9 +185,45 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return session;
   }
 
+  /**
+   * Frame one channel event for the wire. The EventSink's streaming
+   * increments — text / reasoning / tool-use deltas — ride `delta` frames
+   * carrying a `TranscriptDelta`, so a client can render a typewriter effect
+   * between authoritative events. Everything else rides an `event` frame
+   * whose payload keeps the channel event's type discriminator (the subset
+   * whose types mirror the persisted transcript vocabulary is projected like
+   * a stored event by the client). Turn boundaries need no mapper-side
+   * bookkeeping: they are expressed by `turn_end` events, so `done()` and
+   * `resetTurn()` no longer exist on the mapper.
+   */
+  function frame(session: Session, event: ChannelEvent): sse.SSEMessage {
+    switch (event.type) {
+      case "text_delta":
+        return session.mapper.delta({ kind: "text", text: asString(event.data["text"]) });
+      case "reasoning_delta":
+        return session.mapper.delta({ kind: "reasoning", text: asString(event.data["text"]) });
+      case "tool_use_delta":
+        return session.mapper.delta({
+          kind: "tool_use",
+          callId: asString(event.data["toolCallId"]),
+          // The "args" phase of a call omits the name; TranscriptDelta keeps
+          // it optional so applyPartial folds in what is present.
+          ...(typeof event.data["toolName"] === "string" ? { name: event.data["toolName"] as string } : {}),
+          argumentsDelta: asString(event.data["argumentsDelta"]),
+        });
+      default:
+        return session.mapper.event(event as unknown as TranscriptEventInput);
+    }
+  }
+
   function push(session: Session, message: sse.SSEMessage): void {
-    session.buffer.push(message);
-    if (session.buffer.length > replayBufferSize) session.buffer.shift();
+    // Deltas are not replayable: they carry no seq, and a client that missed
+    // one is corrected by the next authoritative event. Keeping them out of
+    // the buffer also stops a long reply from evicting real events from it.
+    if (message.event !== sse.SSEFrameType.DELTA) {
+      session.buffer.push(message);
+      if (session.buffer.length > replayBufferSize) session.buffer.shift();
+    }
     session.connection?.res.write(sse.formatSSEFrame(message));
   }
 
@@ -412,10 +459,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     }
 
     session.running = true;
-    session.mapper.resetTurn();
 
     // Captures whatever history this turn produced (success or failure)
-    // before `done` is pushed. Durable persistence of messages/errors is now
+    // before the turn closes. Durable persistence of messages/errors is now
     // handled inside createAgent() itself (via chatStore/chatSessionId), so
     // this only keeps the in-memory carry-forward history up to date.
     async function captureHistory(): Promise<void> {
@@ -449,11 +495,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
       turnReachedStream = true;
       for await (const event of session.agent!.stream(message)) {
-        const mapped = session.mapper.map(event);
-        if (mapped) push(session, mapped);
+        push(session, frame(session, event));
       }
       await captureHistory();
-      push(session, session.mapper.done());
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
@@ -489,7 +533,6 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.
       await captureHistory();
-      push(session, session.mapper.done());
     } finally {
       session.running = false;
     }

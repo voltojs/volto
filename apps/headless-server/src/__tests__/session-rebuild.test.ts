@@ -187,7 +187,7 @@ describe("session agent lifecycle", () => {
     expect(seeded.some((m) => m.content === "m1")).toBe(true);
   });
 
-  it("emits error then done and clears running when resolveConfig throws", async () => {
+  it("emits an error frame and clears running when resolveConfig throws", async () => {
     const { factory } = makeFactory();
     const written: string[] = [];
     // No projectStore/providerStore configured — resolveConfig must throw.
@@ -202,7 +202,10 @@ describe("session agent lifecycle", () => {
 
     expect(registry.get("s1").running).toBe(false);
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
-    expect(written.some((chunk) => chunk.includes("event: done"))).toBe(true);
+    // A config-resolution failure precedes any stream, so no turn_end exists
+    // to express — the transport error frame is the whole turn, and v2 has
+    // no terminal `done` frame.
+    expect(written.some((chunk) => chunk.includes("event: done"))).toBe(false);
   });
 
   it("never leaks the plaintext apiKey into an SSE frame", async () => {
@@ -231,7 +234,6 @@ describe("session agent lifecycle", () => {
     // wiring.ts is never reached.
     expect(builds).toHaveLength(0);
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
-    expect(written.some((chunk) => chunk.includes("event: done"))).toBe(true);
     expect(registry.get("s1").running).toBe(false);
   });
 

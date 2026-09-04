@@ -16,12 +16,14 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries } from "@volto/core";
+import { readConversation, readTrajectory } from "@volto/sdk";
 import {
   createStore as createJsonlStore,
   TranscriptFormatError,
+  asTranscriptReader,
+  type ChatSessionMeta,
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
-import { toUiMessages } from "./transcript-view.js";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
@@ -118,6 +120,18 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
+    };
+  }
+
+  /** Flattens a session's persisted chatMeta into the response's binding fields. */
+  function bindingsOf(
+    meta: ChatSessionMeta,
+  ): Pick<ChatSessionMeta, "projectId" | "providerId" | "modelId" | "permissionMode"> {
+    return {
+      projectId: meta.projectId,
+      providerId: meta.providerId,
+      modelId: meta.modelId,
+      permissionMode: meta.permissionMode,
     };
   }
 
@@ -403,7 +417,28 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       return;
     }
 
-    // GET /sessions/:id — full transcript, translated to the web app's Message shape
+    // GET /sessions/:id/trajectory — the projected audit ledger for one session
+    if (req.method === "GET") {
+      const trajectoryMatch = url.pathname.match(/^\/sessions\/([^/]+)\/trajectory$/);
+      if (trajectoryMatch) {
+        const id = decodeURIComponent(trajectoryMatch[1]!);
+        try {
+          const view = await readTrajectory(asTranscriptReader(chatStore), id);
+          jsonResponse(res, 200, view);
+        } catch (err: unknown) {
+          if (err instanceof TranscriptFormatError) {
+            jsonResponse(res, 410, {
+              error: "This session was written by an older version and cannot be read by this build.",
+            });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+    }
+
+    // GET /sessions/:id — full transcript, projected to the web app's chat feed
     if (req.method === "GET" && url.pathname.startsWith("/sessions/")) {
       try {
         const id = decodeURIComponent(url.pathname.slice("/sessions/".length));
@@ -412,20 +447,13 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           jsonResponse(res, 404, { error: `Unknown session: ${id}` });
           return;
         }
-        // The store hands over raw events; projecting them is this layer's
+        // The store hands over raw events; projecting them is the SDK facade's
         // job (apps/* may value-import core, stores-* may not).
-        const entries = projectMessageEntries(record.events);
+        const view = await readConversation(asTranscriptReader(chatStore), id);
         jsonResponse(res, 200, {
-          id: record.sessionId,
-          projectId: record.meta.projectId,
-          providerId: record.meta.providerId,
-          modelId: record.meta.modelId,
-          permissionMode: record.meta.permissionMode,
-          messages: toUiMessages(
-            record.sessionId,
-            entries.map((e) => e.message),
-            entries.map((e) => e.time),
-          ),
+          id,
+          ...bindingsOf(record.meta),
+          messages: view.messages,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         });
