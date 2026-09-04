@@ -136,8 +136,8 @@ describe("Runner transcript capture", () => {
     // over from elsewhere would still happen to be positive but would not
     // land on these numbers.
     const data = firstOf<{ ttftMs?: number; durationMs: number }>(events, "assistant_message");
-    expect(data!.ttftMs).toBe(300);
-    expect(data!.durationMs).toBe(400);
+    expect(data!.ttftMs).toBe(200);
+    expect(data!.durationMs).toBe(300);
   });
 
   it("measures the second model call's ttftMs from its own model_call_start, not a stale reading from the first", async () => {
@@ -188,10 +188,16 @@ describe("Runner transcript capture", () => {
     >;
     expect(first!.step).toBe(1);
     expect(second!.step).toBe(2);
-    expect(first!.data.ttftMs).toBe(300);
-    // Exact, not just positive: a leaked callStartedAt/firstDeltaAt from the
-    // first call would make this negative (the first call's reading is
-    // chronologically earlier than the second call's own callStartedAt).
+    // Both calls happen to land on the same ttftMs (200) with this exact
+    // clock schedule — that's a coincidence of the tick count before each
+    // call's own delta, not evidence of a shared/leaked reading: each is
+    // computed against a different callStartedAt (1200 for call 1, 2200 for
+    // call 2). The real regression guard is what a *leaked* reading would
+    // produce: if call 2 reused call 1's firstDeltaAt (the `??=` guard
+    // skipping its reset), ttftMs would be computed against a reading from
+    // BEFORE call 2's own callStartedAt and come out negative — so "exact
+    // and positive" together rule that out, "positive" alone would not.
+    expect(first!.data.ttftMs).toBe(200);
     expect(second!.data.ttftMs).toBe(200);
     expect(second!.data.ttftMs).toBeGreaterThan(0);
   });

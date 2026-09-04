@@ -120,4 +120,32 @@ describe("createTranscriptRecorder", () => {
     await recorder.flush();
     expect(batches).toHaveLength(0);
   });
+
+  it("awaiting flush() waits for an earlier, un-awaited flush()'s write to land, even with an empty buffer of its own", async () => {
+    // Models the exact Runner.resume() defect: an earlier `void recorder.flush()`
+    // (e.g. runModelStream's per-call flush) drains the buffer and starts a
+    // real, slow write; resume() then calls `flush()` again to make sure
+    // everything is durable before it returns, but by then there is nothing
+    // left in the buffer for that second call to take — so it must wait on
+    // the *first* call's write instead of returning as soon as it sees an
+    // empty buffer.
+    const written: TranscriptEventInput[][] = [];
+    const store = {
+      async appendEvents(_sessionId: string, events: TranscriptEventInput[]) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        written.push(events);
+      },
+    };
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+
+    recorder.record("turn_start", { turn: 1 });
+    recorder.record("turn_end", { turn: 1, reason: "done" });
+    void recorder.flush(); // fire-and-forget — takes the whole buffer, write still in flight
+
+    // Nothing new recorded in between — buffer is empty for this call.
+    await recorder.flush();
+
+    expect(written).toHaveLength(1);
+    expect(written[0]!.map((e) => e.type)).toEqual(["turn_start", "turn_end"]);
+  });
 });

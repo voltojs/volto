@@ -569,7 +569,10 @@ export function createRunner(opts: RunnerOptions): Runner {
           .digest("hex")
           .slice(0, 16);
         if (headerHash !== lastHeaderHash) {
-          recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step });
+          // Same callStartedAt reading as model_call_start below — request_header
+          // describes the call model_call_start announces, so it must not sort
+          // after it when a reader orders the transcript by `time`.
+          recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step, time: callStartedAt });
           lastHeaderHash = headerHash;
         }
       } catch {

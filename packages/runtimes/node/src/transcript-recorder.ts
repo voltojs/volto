@@ -55,6 +55,16 @@ export function createTranscriptRecorder(opts: TranscriptRecorderOptions): Trans
   const { store, sessionId, turn, now } = opts;
   const enabled = store !== undefined && sessionId !== undefined;
   let buffer: TranscriptEventInput[] = [];
+  // Chains every write flush() has ever issued, so that:
+  //  (a) writes don't race each other at the store if flush() is called
+  //      again before the previous write lands, and
+  //  (b) a caller that awaits flush() waits for *every* outstanding write,
+  //      not just the batch this particular call happened to take — which
+  //      matters because an earlier, un-awaited `void recorder.flush()`
+  //      (used throughout the Runner for mid-turn best-effort writes) may
+  //      already have drained the buffer, leaving nothing for this call to
+  //      see but its write still in flight.
+  let inFlight: Promise<void> = Promise.resolve();
 
   return {
     enabled,
@@ -71,16 +81,24 @@ export function createTranscriptRecorder(opts: TranscriptRecorderOptions): Trans
     },
 
     async flush() {
-      if (!enabled || buffer.length === 0) return;
-      const batch = buffer;
-      // Clear before awaiting: a failed write must not leave the batch queued
-      // for the next flush, or a transient error would duplicate every event.
-      buffer = [];
-      try {
-        await store!.appendEvents(sessionId!, batch);
-      } catch {
-        // Best-effort by contract — see the module comment.
+      if (!enabled) return;
+      if (buffer.length > 0) {
+        const batch = buffer;
+        // Clear before the write starts: a failed write must not leave the
+        // batch queued for the next flush, or a transient error would
+        // duplicate every event.
+        buffer = [];
+        inFlight = inFlight.then(() =>
+          store!.appendEvents(sessionId!, batch).catch(() => {
+            // Best-effort by contract — see the module comment. Swallowed
+            // here (rather than left to propagate through the chain) so one
+            // batch's failure can't poison every later batch's wait.
+          }),
+        );
       }
+      // Always wait on the chain, even when this call added nothing new —
+      // that's what lets a later flush() observe an earlier one's write.
+      await inFlight;
     },
   };
 }
