@@ -39,6 +39,7 @@ import type {
   JSONSchema,
   ToolScopeConfig,
   Id,
+  Clock,
   ContextLayer,
 } from "@volto/core";
 import {
@@ -265,8 +266,16 @@ export interface CreateAgentOptions {
    */
   chatSessionId?: string;
 
-  /** Config binding recorded once via chatStore.appendMeta() at construction, when both this and chatStore are provided. */
+  /** Config binding recorded once as a `session_meta` transcript event at construction, when both this and chatStore are provided. */
   chatMeta?: ChatSessionMeta;
+
+  /**
+   * Clock for timestamps on transcript events the SDK writes directly
+   * (`session_meta`, and `turn_end` for failures outside a Runner's
+   * lifetime). Inject a deterministic Clock for reproducible timestamps in
+   * tests; defaults to wall-clock (Date.now) when omitted.
+   */
+  clock?: Clock;
 
   /**
    * Approval gate for HITL `ask` decisions. Defaults to auto-allow.
@@ -633,6 +642,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         effectiveShell,
         idPort,
         () => currentTurnEventSink,
+        opts.chatStore,
+        opts.chatSessionId,
       ),
     );
     allCustomTools.push(taskTool);
@@ -785,7 +796,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
   const chatStore = opts.chatStore ?? defaultChatStore;
   if (opts.chatStore && opts.chatMeta && opts.chatSessionId) {
-    void chatStore.appendMeta(opts.chatSessionId, opts.chatMeta).catch(() => {});
+    void chatStore
+      .appendEvents(opts.chatSessionId, [
+        {
+          time: opts.clock?.now() ?? Date.now(),
+          type: "session_meta",
+          data: opts.chatMeta,
+        },
+      ])
+      .catch(() => {});
   }
 
   // ── M8: Resolve new ports ────────────────
@@ -830,18 +849,6 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // instance runs, whether via run() or stream(). Not incremented by
   // resume(), which continues the same turn rather than starting a new one.
   let turnCounter = 0;
-  // How many of lastFinalState.messages have already been appended to
-  // chatStore — only the slice past this index is new for the next call.
-  // seedMessages (declared above) is exactly what becomes this instance's
-  // starting ReducerState.messages — both a synthesized systemPrompt message
-  // (if any) and any seeded initialMessages are "already accounted for" and
-  // must never be re-sent to chatStore as if they were new turn output.
-  // Seeded initialMessages are exactly what apps/headless-server re-supplies
-  // on a mid-conversation agent rebuild (model/permission switch) — they are
-  // already durably in chatStore from before the rebuild, so the counter must
-  // start past them, or the next persist would re-send them and duplicate
-  // the transcript.
-  let chatStorePersistedCount = seedMessages.length;
   // The EventSink actually in use for the turn currently running — read by
   // createSubAgentExecutor at call time, since the task tool is built once
   // at construction but each turn's real sink (channel.eventSink for
@@ -969,19 +976,28 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     });
   }
 
-  /** Best-effort: persists this turn's new messages (or an error) via chatStore. Never throws into the caller. */
-  async function persistTurnToChatStore(finalState: ReducerState | undefined, error: unknown): Promise<void> {
+  /**
+   * Best-effort: records a `turn_end` (reason: "error") directly via chatStore
+   * when a turn fails outside a Runner's own lifetime — either because the
+   * Runner was never constructed (e.g. resolveContextLayers rejected) or
+   * because runner.run() itself rejected. The Runner records its own
+   * `turn_end` for failures during its run, via its internal try/finally;
+   * this is the only recording point for failures before a Runner exists.
+   * Never throws into the caller.
+   */
+  function recordTurnEndError(error: unknown): void {
     if (!opts.chatStore || !opts.chatSessionId) return;
-    if (error !== undefined) {
-      const message = error instanceof Error ? error.message : String(error);
-      await chatStore.appendError(opts.chatSessionId, message).catch(() => {});
-      return;
-    }
-    if (!finalState) return;
-    const newMessages = finalState.messages.slice(chatStorePersistedCount);
-    if (newMessages.length === 0) return;
-    chatStorePersistedCount = finalState.messages.length;
-    await chatStore.appendMessages(opts.chatSessionId, newMessages).catch(() => {});
+    const message = error instanceof Error ? error.message : String(error);
+    void chatStore
+      .appendEvents(opts.chatSessionId, [
+        {
+          time: Date.now(),
+          type: "turn_end",
+          data: { turn: turnCounter, reason: "error", error: message },
+          turn: turnCounter,
+        },
+      ])
+      .catch(() => {});
   }
 
   // ── M13: Slash command resolution ──────────────
@@ -1002,19 +1018,18 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
       const agentInput = resolveInput(input);
-      const runner = await createNextRunner(
-        opts.eventSink ?? defaultEventSink,
-        undefined,
-        extractInputText(agentInput),
-      );
-      lastRunner = runner;
       try {
+        const runner = await createNextRunner(
+          opts.eventSink ?? defaultEventSink,
+          undefined,
+          extractInputText(agentInput),
+        );
+        lastRunner = runner;
         const finalState = await runner.run(agentInput);
         lastFinalState = finalState;
-        await persistTurnToChatStore(finalState, undefined);
         return finalState;
       } catch (err: unknown) {
-        await persistTurnToChatStore(undefined, err);
+        recordTurnEndError(err);
         throw err;
       }
     },
@@ -1029,23 +1044,28 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // out of `for await` early. Without it, the detached runner would
       // keep going and any error it threw would be swallowed silently.
       const abortController = new AbortController();
-      const runner = await createNextRunner(
-        channel.eventSink,
-        abortController.signal,
-        extractInputText(agentInput),
-      );
+      let runner: Runner;
+      try {
+        runner = await createNextRunner(
+          channel.eventSink,
+          abortController.signal,
+          extractInputText(agentInput),
+        );
+      } catch (err: unknown) {
+        recordTurnEndError(err);
+        throw err;
+      }
       lastRunner = runner;
 
       let runError: unknown;
       const runPromise = runner.run(agentInput).then(
         async (finalState) => {
           lastFinalState = finalState;
-          await persistTurnToChatStore(finalState, undefined);
           channel.done();
         },
         async (err) => {
           runError = err;
-          await persistTurnToChatStore(undefined, err);
+          recordTurnEndError(err);
           channel.done();
         },
       );
@@ -1193,8 +1213,60 @@ function createSubAgentExecutor(
   shellOverride?: Shell,
   idPort: Id = defaultId,
   getCurrentEventSink: () => EventSink | undefined = () => undefined,
+  chatStore?: TranscriptStore,
+  parentChatSessionId?: string,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
+    // A sub-agent writes its own session file rather than sharing the parent's.
+    // Sharing would collide: both Runners number their steps from 1 within the
+    // same (turn, step) space. Independent sessions also let a deep task tree
+    // stay readable one level at a time.
+    const childSessionId = `${parentChatSessionId}-sub-${idPort.next()}`;
+    const startedAt = Date.now();
+
+    if (chatStore && parentChatSessionId) {
+      void chatStore
+        .appendEvents(parentChatSessionId, [
+          {
+            time: startedAt,
+            type: "subagent_started",
+            data: { childSessionId, label: "task", depth },
+          },
+        ])
+        .catch(() => {});
+      void chatStore
+        .appendEvents(childSessionId, [
+          {
+            time: startedAt,
+            type: "session_meta",
+            data: {
+              projectId: null,
+              providerId: null,
+              modelId: null,
+              permissionMode: null,
+              parentSessionId: parentChatSessionId,
+              delegationDepth: depth,
+              origin: "subagent" as const,
+            },
+          },
+        ])
+        .catch(() => {});
+    }
+
+    const finishSubAgent = (isError: boolean): void => {
+      if (chatStore && parentChatSessionId) {
+        void chatStore
+          .appendEvents(parentChatSessionId, [
+            {
+              time: Date.now(),
+              type: "subagent_finished",
+              data: { childSessionId, isError, durationMs: Date.now() - startedAt },
+            },
+          ])
+          .catch(() => {});
+      }
+    };
+
     const subCustomTools = parentCustomTools.filter(
       (t) => t.definition.name !== "task",
     );
@@ -1245,6 +1317,8 @@ function createSubAgentExecutor(
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${idPort.next()}`,
+      chatStore,
+      chatSessionId: childSessionId,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
         ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined
@@ -1261,15 +1335,21 @@ function createSubAgentExecutor(
       }),
     });
 
-    const finalState = await subRunner.run({
-      type: "user_message",
-      content: message,
-    });
+    try {
+      const finalState = await subRunner.run({
+        type: "user_message",
+        content: message,
+      });
+      finishSubAgent(false);
 
-    const lastMsg = finalState.messages[finalState.messages.length - 1];
-    if (lastMsg && lastMsg.role === "assistant") {
-      return extractPlainText(lastMsg);
+      const lastMsg = finalState.messages[finalState.messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        return extractPlainText(lastMsg);
+      }
+      return "";
+    } catch (err) {
+      finishSubAgent(true);
+      throw err;
     }
-    return "";
   };
 }

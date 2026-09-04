@@ -65,10 +65,7 @@ export function createDefaultSessionStore(): SessionStore {
 }
 
 export const defaultChatStore: TranscriptStore = {
-  async appendMeta() {},
-  async appendMessages() {},
-  async appendError() {},
-  async appendTrajectoryEntry() {},
+  async appendEvents() {},
 };
 
 // ──────────────────────────────────────────────

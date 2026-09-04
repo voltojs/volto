@@ -7,7 +7,7 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
@@ -178,15 +178,12 @@ describe("createAgent — SDK facade", () => {
   });
 
   describe("with chat store", () => {
-    it("calls appendMeta once at construction when chatStore and chatMeta are provided", async () => {
-      const calls: Array<{ sessionId: string; meta: unknown }> = [];
+    it("records session_meta once at construction when chatStore and chatMeta are provided", async () => {
+      const calls: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
       const chatStore = {
-        async appendMeta(sessionId: string, meta: unknown) {
-          calls.push({ sessionId, meta });
+        async appendEvents(sessionId: string, events: TranscriptEventInput[]) {
+          for (const event of events) calls.push({ sessionId, event });
         },
-        async appendMessages() {},
-        async appendError() {},
-        async appendTrajectoryEntry() {},
       };
 
       createAgent({
@@ -197,19 +194,22 @@ describe("createAgent — SDK facade", () => {
       });
 
       expect(calls).toEqual([
-        { sessionId: "chat-s1", meta: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" } },
+        {
+          sessionId: "chat-s1",
+          event: expect.objectContaining({
+            type: "session_meta",
+            data: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" },
+          }),
+        },
       ]);
     });
 
-    it("does not call appendMeta when chatMeta is omitted", async () => {
+    it("does not record session_meta when chatMeta is omitted", async () => {
       const calls: unknown[] = [];
       const chatStore = {
-        async appendMeta(...args: unknown[]) {
+        async appendEvents(...args: unknown[]) {
           calls.push(args);
         },
-        async appendMessages() {},
-        async appendError() {},
-        async appendTrajectoryEntry() {},
       };
 
       createAgent({
@@ -229,15 +229,12 @@ describe("createAgent — SDK facade", () => {
       expect(state.status).toBe("done");
     });
 
-    it("appends only the new messages produced by each turn, never re-sending prior turns", async () => {
-      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+    it("records exactly one assistant_message per turn via the Runner, never replaying prior turns", async () => {
+      const events: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
       const chatStore = {
-        async appendMeta() {},
-        async appendMessages(sessionId: string, messages: unknown[]) {
-          appended.push({ sessionId, messages: [...messages] });
+        async appendEvents(sessionId: string, batch: TranscriptEventInput[]) {
+          for (const event of batch) events.push({ sessionId, event });
         },
-        async appendError() {},
-        async appendTrajectoryEntry() {},
       };
 
       const agent = createAgent({
@@ -249,23 +246,19 @@ describe("createAgent — SDK facade", () => {
       await agent.run("one");
       await agent.run("two");
 
-      expect(appended).toHaveLength(2);
-      expect(appended[0]!.sessionId).toBe("chat-s1");
-      // Second call's messages must not include anything from the first call.
-      const firstIds = JSON.stringify(appended[0]!.messages);
-      const secondIds = JSON.stringify(appended[1]!.messages);
-      expect(secondIds).not.toContain(firstIds.slice(1, -1));
+      // The Runner records assistant_message as it happens — one per turn,
+      // never a turn-end bulk replay that could duplicate a prior turn.
+      const assistantMessages = events.filter((e) => e.event.type === "assistant_message");
+      expect(assistantMessages).toHaveLength(2);
+      expect(assistantMessages.every((e) => e.sessionId === "chat-s1")).toBe(true);
     });
 
-    it("does not re-append seeded initialMessages to chatStore (simulates a post-rebuild agent instance)", async () => {
-      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+    it("does not emit events for seeded initialMessages (simulates a post-rebuild agent instance)", async () => {
+      const events: TranscriptEventInput[] = [];
       const chatStore = {
-        async appendMeta() {},
-        async appendMessages(sessionId: string, messages: unknown[]) {
-          appended.push({ sessionId, messages: [...messages] });
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
         },
-        async appendError() {},
-        async appendTrajectoryEntry() {},
       };
 
       // Simulates apps/headless-server rebuilding an agent instance mid-conversation
@@ -285,33 +278,23 @@ describe("createAgent — SDK facade", () => {
 
       await agent.run("new turn");
 
-      expect(appended).toHaveLength(1);
-      expect(appended[0]!.sessionId).toBe("chat-s1");
-      // Only the new turn's messages (user input + assistant reply) must be appended —
-      // the seeded initialMessages must not be re-sent.
-      expect(appended[0]!.messages).toHaveLength(2);
-      expect(appended[0]!.messages[0]).toMatchObject({ role: "user", content: "new turn" });
-      expect(appended[0]!.messages[1]).toMatchObject({
-        role: "assistant",
-        content: [{ type: "text", text: "new reply" }],
-      });
+      // Only the new turn's own input/output produce events — the seeded
+      // initialMessages never get their own user_message/assistant_message.
+      const userMessages = events.filter((e) => e.type === "user_message");
+      const assistantMessages = events.filter((e) => e.type === "assistant_message");
+      expect(userMessages).toHaveLength(1);
+      expect((userMessages[0]!.data as { content: unknown }).content).toBe("new turn");
+      expect(assistantMessages).toHaveLength(1);
     });
 
     it("does not double-count the seed when both systemPrompt and initialMessages are set (off-by-one regression)", async () => {
-      const appended: Array<{ sessionId: string; messages: unknown[] }> = [];
+      const events: TranscriptEventInput[] = [];
       const chatStore = {
-        async appendMeta() {},
-        async appendMessages(sessionId: string, messages: unknown[]) {
-          appended.push({ sessionId, messages: [...messages] });
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
         },
-        async appendError() {},
-        async appendTrajectoryEntry() {},
       };
 
-      // seedMessages becomes [systemPromptMessage, msgA, msgB] — the counter
-      // must account for the WHOLE seed (systemPrompt included), not just
-      // opts.initialMessages.length, or the last seeded message (msgB) gets
-      // re-sent to chatStore as if it were new turn output.
       const msgA: Message = { role: "user", content: "earlier turn" };
       const msgB: Message = { role: "assistant", content: [{ type: "text", text: "earlier reply" }] };
 
@@ -325,36 +308,28 @@ describe("createAgent — SDK facade", () => {
 
       await agent.run("new turn");
 
-      expect(appended).toHaveLength(1);
-      // Only the genuinely new turn output — never msgB (or the synthesized
-      // system-prompt message) re-sent as if it were new.
-      expect(appended[0]!.messages).toHaveLength(2);
-      expect(appended[0]!.messages).not.toContainEqual(msgB);
-      expect(appended[0]!.messages[0]).toMatchObject({ role: "user", content: "new turn" });
-      expect(appended[0]!.messages[1]).toMatchObject({
-        role: "assistant",
-        content: [{ type: "text", text: "new reply" }],
-      });
+      // Only the genuinely new turn's own events — never anything derived
+      // from the synthesized system-prompt message or the seeded history.
+      const userMessages = events.filter((e) => e.type === "user_message");
+      const assistantMessages = events.filter((e) => e.type === "assistant_message");
+      expect(userMessages).toHaveLength(1);
+      expect(assistantMessages).toHaveLength(1);
     });
 
-    it("appends an error via chatStore when the runner rejects", async () => {
-      const errors: Array<{ sessionId: string; message: string }> = [];
+    it("records a turn_end with the error message when the turn rejects", async () => {
+      const events: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
       const chatStore = {
-        async appendMeta() {},
-        async appendMessages() {},
-        async appendError(sessionId: string, message: string) {
-          errors.push({ sessionId, message });
+        async appendEvents(sessionId: string, batch: TranscriptEventInput[]) {
+          for (const event of batch) events.push({ sessionId, event });
         },
-        async appendTrajectoryEntry() {},
       };
       // A modelPort that throws is normalized by the runner into a reducer
       // "model_error" input (see stream-early-break.test.ts) and does NOT
       // reject runner.run() — that's the documented, tested behavior of this
       // codebase's error-handling architecture ("errors never interrupt the
-      // main loop"). To exercise the actual reject path that
-      // persistTurnToChatStore's error branch guards, we use a session:start
-      // hook that throws — hook handler exceptions propagate straight out of
-      // runner.run() uncaught, which is a real (if rarer) rejection source.
+      // main loop"). To exercise the actual reject path that the SDK's own
+      // turn_end-on-catch guards, we use a session:start hook that throws —
+      // hook handler exceptions propagate straight out of runner.run().
       const agent = createAgent({
         modelPort: createMockModelPort([textScript("unreachable")]),
         chatStore,
@@ -371,7 +346,13 @@ describe("createAgent — SDK facade", () => {
       });
 
       await expect(agent.run("hi")).rejects.toThrow("boom");
-      expect(errors).toEqual([{ sessionId: "chat-s1", message: expect.stringContaining("boom") }]);
+
+      const turnEndWithError = events.find(
+        (e) => e.event.type === "turn_end" && (e.event.data as { error?: string }).error,
+      );
+      expect(turnEndWithError).toBeDefined();
+      expect(turnEndWithError!.sessionId).toBe("chat-s1");
+      expect((turnEndWithError!.event.data as { error: string }).error).toContain("boom");
     });
   });
 
