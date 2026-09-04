@@ -178,12 +178,25 @@ export function useStream() {
               ? errVal.message
               : JSON.stringify(errVal);
         store.setError(message);
-        store.addMessage(sessionId, {
-          id: genId("err"),
-          role: "system",
-          content: `错误: ${message}`,
-          timestamp: event.timestamp,
-        });
+        // One model failure is reported twice on the wire (task-r6): the
+        // transcript model_error the runner records AND the generic raw
+        // `error` echo the reducer emits when it consumes the model_error
+        // input. The two carry the same text and arrive back-to-back; headless
+        // v2 drops the raw echo at frame(), but the desktop sinks events
+        // directly, so collapse the duplicate here instead of rendering two
+        // system rows. A genuinely distinct error (a later, differently-worded
+        // failure, or a manager-level error with its own text) still renders.
+        const session = store.sessions.get(sessionId);
+        const last = session?.messages[session.messages.length - 1];
+        const rowText = `错误: ${message}`;
+        if (!(last?.role === "system" && last.content === rowText)) {
+          store.addMessage(sessionId, {
+            id: genId("err"),
+            role: "system",
+            content: rowText,
+            timestamp: event.timestamp,
+          });
+        }
         // Close any streaming flag left dangling by the failure
         const msgId = streamingMessageIdsRef.current.get(sessionId);
         if (msgId) store.updateMessage(sessionId, msgId, { isStreaming: false });

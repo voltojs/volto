@@ -4,6 +4,7 @@ import type { ToolExecutor } from "../runner.js";
 import {
   createMockModelPort,
   textDelta,
+  reasoningDelta,
   toolUseStart,
   toolUseDelta,
   usage,
@@ -439,7 +440,7 @@ describe("Runner", () => {
       };
 
       const mockModel = createMockModelPort([
-        [textDelta("Hello"), modelDone("end_turn")],
+        [reasoningDelta("let me think"), textDelta("Hello"), usage(10, 5), modelDone("end_turn")],
       ]);
 
       const runner = createRunner({
@@ -453,11 +454,21 @@ describe("Runner", () => {
 
       const eventTypes = events.map((e) => e.type);
       expect(eventTypes).toContain("user_message");
+      expect(eventTypes).toContain("reasoning_delta");
       expect(eventTypes).toContain("text_delta");
       expect(eventTypes).toContain("assistant_message");
       // The reducer's raw event vocabulary is gone from the wire (task-r6):
-      // model_done is replaced by the recorded assistant_message.
+      // model_done is replaced by the recorded assistant_message, which
+      // carries the aggregated reasoning and the provider usage verbatim.
       expect(eventTypes).not.toContain("model_done");
+      const assistant = events.find((e) => e.type === "assistant_message")!;
+      expect(assistant.data).toMatchObject({
+        content: [{ type: "text", text: "Hello" }],
+        stopReason: "end_turn",
+        reasoning: "let me think",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        durationMs: expect.any(Number),
+      });
     });
 
     it("streams the same stamped events it records, and never streams model_done/tool_use_complete", async () => {
@@ -473,7 +484,12 @@ describe("Runner", () => {
       };
 
       const mockModel = createMockModelPort([
-        [toolUseStart("c1", "read_file"), toolUseDelta("c1", '{"path":"foo.ts"}'), modelDone("tool_use")],
+        [
+          reasoningDelta("think about it"),
+          toolUseStart("c1", "read_file"),
+          toolUseDelta("c1", '{"path":"foo.ts"}'),
+          modelDone("tool_use"),
+        ],
         [textDelta("done"), modelDone("end_turn")],
       ]);
 
@@ -499,9 +515,12 @@ describe("Runner", () => {
 
       // Every persisted event has a same-shaped twin on the stream (same
       // data + same time/turn/step — the recorder emits exactly what it
-      // buffers, task-r6 double write).
+      // buffers, task-r6 double write). Deltas (text/reasoning/tool_use) are
+      // the only stream events without a persisted twin.
       expect(persisted.length).toBeGreaterThan(0);
-      const transcriptStreamed = events.filter((e) => e.type !== "text_delta" && e.type !== "tool_use_delta");
+      const transcriptStreamed = events.filter(
+        (e) => e.type !== "text_delta" && e.type !== "reasoning_delta" && e.type !== "tool_use_delta",
+      );
       const sortKey = (e: { type: string; data: unknown }): string => JSON.stringify({ type: e.type, data: e.data });
       const streamedSorted = [...transcriptStreamed].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
       const persistedSorted = [...persisted].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
@@ -510,6 +529,7 @@ describe("Runner", () => {
         expect(sortKey(streamedSorted[i]!)).toBe(sortKey(persistedSorted[i]!));
         expect((streamedSorted[i] as { time?: unknown }).time).toBe((persistedSorted[i] as { time?: unknown }).time);
         expect((streamedSorted[i] as { turn?: unknown }).turn).toBe((persistedSorted[i] as { turn?: unknown }).turn);
+        expect((streamedSorted[i] as { step?: unknown }).step).toBe((persistedSorted[i] as { step?: unknown }).step);
       }
     });
   });
