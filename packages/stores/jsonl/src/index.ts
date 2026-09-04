@@ -18,44 +18,40 @@
  * durable transcript, not a resumable execution checkpoint.
  */
 
-import type { Message, ChatSessionMeta, RawTrajectoryEntry, TranscriptStore } from "@volto/core";
+import type {
+  ChatSessionMeta,
+  TranscriptEvent,
+  TranscriptEventInput,
+  TranscriptStore,
+} from "@volto/core";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as crypto from "node:crypto";
 
-const SCHEMA_VERSION = 1 as const;
+const SCHEMA_VERSION = 2 as const;
 
 export type { ChatSessionMeta };
 
-interface RecordBase {
-  uuid: string;
-  parentUuid: string | null;
-  sessionId: string;
-  timestamp: number;
+/** One line of a v2 session file. */
+interface EventLine {
   version: typeof SCHEMA_VERSION;
+  sessionId: string;
+  event: TranscriptEvent;
 }
 
-interface MetaLine extends RecordBase {
-  type: "meta";
-  meta: ChatSessionMeta;
+/** Thrown when a session file was written by a different format version. */
+export class TranscriptFormatError extends Error {
+  constructor(
+    readonly filePath: string,
+    readonly foundVersion: unknown,
+  ) {
+    super(
+      `Session file "${filePath}" is format version ${String(foundVersion)}; ` +
+        `this build reads version ${SCHEMA_VERSION} only. There is no migration path — ` +
+        `the session must be re-created.`,
+    );
+    this.name = "TranscriptFormatError";
+  }
 }
-
-interface MessageLine extends RecordBase {
-  type: "message";
-  message: Message;
-}
-
-interface ErrorLine extends RecordBase {
-  type: "error";
-  message: string;
-}
-
-interface TrajectoryLine extends RecordBase {
-  type: "trajectory";
-  entry: RawTrajectoryEntry;
-}
-
-type JsonlLine = MetaLine | MessageLine | ErrorLine | TrajectoryLine;
 
 export interface ChatSessionRecord {
   sessionId: string;
@@ -75,22 +71,14 @@ export interface ChatSessionRecord {
 }
 
 export interface JsonlSessionStore {
-  /**
-   * Appends (or updates) the session's config binding / title.
-   * `workspacePath` is a hint used only to place a *new* session's file
-   * under the matching workspace directory — an existing session's file,
-   * wherever it already lives, always wins (see `findExistingFilePath`), so
-   * a caller that does not know the workspace path yet (or passes a
-   * different one by mistake) can never fragment a session's history across
-   * two files.
-   */
-  appendMeta(workspacePath: string | null, sessionId: string, meta: ChatSessionMeta): Promise<void>;
-  /** Appends one line per message, in order. A no-op for an empty array. */
-  appendMessages(workspacePath: string | null, sessionId: string, messages: Message[]): Promise<void>;
-  /** Appends a turn-level error, without disturbing message history. */
-  appendError(workspacePath: string | null, sessionId: string, message: string): Promise<void>;
-  /** Appends one raw trajectory entry. Never folded into `ChatSessionRecord` — read separately when the trajectory-review feature resumes. */
-  appendTrajectoryEntry(workspacePath: string | null, sessionId: string, entry: RawTrajectoryEntry): Promise<void>;
+  /** Appends a batch of events, assigning contiguous seq in array order. Empty batch is a no-op. */
+  appendEvents(
+    workspacePath: string | null,
+    sessionId: string,
+    events: readonly TranscriptEventInput[],
+  ): Promise<void>;
+  /** Reads a session's raw event log. Empty array when the session does not exist. */
+  readEvents(sessionId: string): Promise<TranscriptEvent[]>;
   /** Replays a session's file into its current meta + full history — searches every workspace directory. */
   readSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
   /** Replays every session file across every workspace directory (plus any unbound sessions at the top level). */
@@ -192,11 +180,12 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
   }
 
   /**
-   * Reads and parses whatever lines exist at `target`, silently skipping
-   * malformed ones (e.g. a partial line left by a crash mid-write) instead
-   * of failing the whole read over one bad line.
+   * Reads and parses whatever lines exist at `target`, skipping malformed
+   * ones (e.g. a partial line left by a crash mid-write) rather than failing
+   * the whole read over one bad line. A line whose `version` does not match
+   * is a different matter entirely — that one throws.
    */
-  async function readLinesAt(target: string): Promise<JsonlLine[]> {
+  async function readLinesAt(target: string): Promise<EventLine[]> {
     let raw: string;
     try {
       raw = await fs.readFile(target, "utf-8");
@@ -204,40 +193,46 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
       if (isEnoent(err)) return [];
       throw err;
     }
-    const lines: JsonlLine[] = [];
+    const lines: EventLine[] = [];
     for (const line of raw.split("\n")) {
       if (!line.trim()) continue;
+      let parsed: unknown;
       try {
-        lines.push(JSON.parse(line) as JsonlLine);
+        parsed = JSON.parse(line);
       } catch {
-        // Skip a corrupt/partial line rather than losing the whole session.
+        // A torn/partial line — skip it rather than losing the session.
+        continue;
       }
+      const candidate = parsed as Partial<EventLine>;
+      if (candidate.version !== SCHEMA_VERSION) {
+        throw new TranscriptFormatError(target, candidate.version);
+      }
+      lines.push(candidate as EventLine);
     }
     return lines;
   }
 
-  function makeBase(sessionId: string, parentUuid: string | null): RecordBase {
-    return {
-      uuid: crypto.randomUUID(),
-      parentUuid,
-      sessionId,
-      timestamp: Date.now(),
-      version: SCHEMA_VERSION,
-    };
-  }
-
-  async function appendLines(
+  /**
+   * Appends a batch, assigning contiguous seq. The per-file queue is what
+   * makes seq assignment safe: reading the last line and writing the next
+   * batch happen without another append interleaving.
+   */
+  async function appendEventBatch(
     workspacePath: string | null,
     sessionId: string,
-    build: (parentUuid: string | null) => JsonlLine[],
+    events: readonly TranscriptEventInput[],
   ): Promise<void> {
+    if (events.length === 0) return;
     const target = await resolveWritePath(workspacePath, sessionId);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await enqueue(target, async () => {
       const existing = await readLinesAt(target);
-      const parentUuid = existing.length > 0 ? existing[existing.length - 1]!.uuid : null;
-      const lines = build(parentUuid);
-      if (lines.length === 0) return;
+      let nextSeq = existing.length > 0 ? existing[existing.length - 1]!.event.seq + 1 : 0;
+      const lines: EventLine[] = events.map((input) => ({
+        version: SCHEMA_VERSION,
+        sessionId,
+        event: { ...input, seq: nextSeq++ } as TranscriptEvent,
+      }));
       const text = lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
       await fs.appendFile(target, text, "utf-8");
     });
@@ -280,34 +275,15 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
   }
 
   return {
-    async appendMeta(workspacePath, sessionId, meta) {
-      await appendLines(workspacePath, sessionId, (parentUuid) => [
-        { ...makeBase(sessionId, parentUuid), type: "meta", meta },
-      ]);
+    async appendEvents(workspacePath, sessionId, events) {
+      await appendEventBatch(workspacePath, sessionId, events);
     },
 
-    async appendMessages(workspacePath, sessionId, messages) {
-      if (messages.length === 0) return;
-      await appendLines(workspacePath, sessionId, (initialParent) => {
-        let parentUuid = initialParent;
-        return messages.map((message): MessageLine => {
-          const base = makeBase(sessionId, parentUuid);
-          parentUuid = base.uuid;
-          return { ...base, type: "message", message };
-        });
-      });
-    },
-
-    async appendError(workspacePath, sessionId, message) {
-      await appendLines(workspacePath, sessionId, (parentUuid) => [
-        { ...makeBase(sessionId, parentUuid), type: "error", message },
-      ]);
-    },
-
-    async appendTrajectoryEntry(workspacePath, sessionId, entry) {
-      await appendLines(workspacePath, sessionId, (parentUuid) => [
-        { ...makeBase(sessionId, parentUuid), type: "trajectory", entry },
-      ]);
+    async readEvents(sessionId) {
+      const target = await findExistingFilePath(sessionId);
+      if (!target) return [];
+      const lines = await readLinesAt(target);
+      return lines.map((line) => line.event);
     },
 
     async readSession(sessionId) {
@@ -350,11 +326,11 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
  * `createAgent({ chatStore })` accepts. One underlying store instance /
  * one directory tree; this is a view over it, not a second instance.
  */
-export function scopeToWorkspace(store: JsonlSessionStore, workspacePath: string | null): TranscriptStore {
+export function scopeToWorkspace(
+  store: JsonlSessionStore,
+  workspacePath: string | null,
+): TranscriptStore {
   return {
-    appendMeta: (sessionId, meta) => store.appendMeta(workspacePath, sessionId, meta),
-    appendMessages: (sessionId, messages) => store.appendMessages(workspacePath, sessionId, messages),
-    appendError: (sessionId, message) => store.appendError(workspacePath, sessionId, message),
-    appendTrajectoryEntry: (sessionId, entry) => store.appendTrajectoryEntry(workspacePath, sessionId, entry),
+    appendEvents: (sessionId, events) => store.appendEvents(workspacePath, sessionId, events),
   };
 }
