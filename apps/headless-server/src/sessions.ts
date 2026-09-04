@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message } from "@volto/core";
+import type { Message, TranscriptEvent } from "@volto/core";
 import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -91,6 +91,25 @@ function fingerprintApiKey(apiKey: string): string {
   return crypto.createHash("sha256").update(apiKey).digest("hex");
 }
 
+/**
+ * Highest `turn` ordinal among a session's `turn_start` events, or
+ * `undefined` for an empty or turn-less log. Passed to createAgent() as
+ * `initialTurn` (via WiringOptions) so a rebuilt agent instance continues
+ * turn numbering instead of restarting at 1 — see CreateAgentOptions.initialTurn
+ * in @volto/sdk. `undefined` means "omit the option entirely", not "0":
+ * createAgent() treats an explicit 0 as a real seed (next turn = 1), which
+ * happens to be indistinguishable from the default here, but omission is the
+ * more honest signal for "no prior transcript".
+ */
+function highestTurnStart(events: readonly TranscriptEvent[]): number | undefined {
+  let max: number | undefined;
+  for (const event of events) {
+    if (event.type !== "turn_start" || event.turn === undefined) continue;
+    if (max === undefined || event.turn > max) max = event.turn;
+  }
+  return max;
+}
+
 interface Connection {
   res: http.ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
@@ -101,6 +120,8 @@ interface Session {
   agent: ReturnType<typeof createWiredAgent> | null;
   config: ResolvedConfig | null;
   history: Message[];
+  /** Ordinal of the last turn already in the durable transcript, hydrated on cold start; see highestTurnStart(). */
+  initialTurn: number | undefined;
   mapper: ReturnType<typeof sse.createEventMapper>;
   connection: Connection | null;
   buffer: sse.SSEMessage[];
@@ -142,6 +163,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         agent: null,
         config: null,
         history: [],
+        initialTurn: undefined,
         mapper: sse.createEventMapper(),
         connection: null,
         buffer: [],
@@ -306,6 +328,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
         : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
+      ...(session.initialTurn !== undefined ? { initialTurn: session.initialTurn } : {}),
       ...(chatStore
         ? {
             chatStore: scopeToWorkspace(chatStore, config.projectPath ?? null),
@@ -364,7 +387,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // it was recorded on disk.
     if (chatStore && session.history.length === 0) {
       const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-      if (persisted) session.history = projectMessages(persisted.events);
+      if (persisted) {
+        session.history = projectMessages(persisted.events);
+        session.initialTurn = highestTurnStart(persisted.events);
+      }
     }
 
     session.running = true;

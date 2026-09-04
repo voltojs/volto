@@ -229,6 +229,32 @@ describe("createAgent — SDK facade", () => {
       expect(state.status).toBe("done");
     });
 
+    it("seeds turnCounter from initialTurn so a rebuilt agent's next turn continues numbering instead of restarting at 1", async () => {
+      // Simulates apps/headless-server rebuilding an agent instance
+      // mid-conversation: the durable transcript already has 5 completed
+      // turns, so this fresh instance must record its first turn as 6, not 1.
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("ok")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        initialTurn: 5,
+      });
+
+      await agent.run("continue");
+
+      const turnStart = events.find((e) => e.type === "turn_start");
+      expect(turnStart).toBeDefined();
+      expect(turnStart!.turn).toBe(6);
+      expect((turnStart!.data as { turn: number }).turn).toBe(6);
+    });
+
     it("records exactly one assistant_message per turn via the Runner, never replaying prior turns", async () => {
       const events: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
       const chatStore = {
@@ -314,6 +340,88 @@ describe("createAgent — SDK facade", () => {
       const assistantMessages = events.filter((e) => e.type === "assistant_message");
       expect(userMessages).toHaveLength(1);
       expect(assistantMessages).toHaveLength(1);
+    });
+
+    it("survives a chatStore whose appendEvents throws synchronously (a plain, non-async implementation)", async () => {
+      // A plain (non-`async`) function that throws never produces a promise
+      // for `.catch()` to attach to — `.catch()` on its return value would
+      // never even be reached, since the throw happens before any value is
+      // returned. `createAgent()`'s six best-effort chatStore writes
+      // (construction-time session_meta, recordTurnEndError,
+      // recordTurnError, and the three sub-agent bracket writes) must all
+      // tolerate this: the store is a durable record, never a precondition
+      // for running a turn. An `async` stub that rejects would NOT reproduce
+      // this bug (the throw becomes a rejection, which `.catch()` already
+      // handles fine) — the function must be genuinely synchronous.
+      function throwingAppendEvents(): Promise<void> {
+        throw new Error("synchronous store explosion");
+      }
+      const chatStore = { appendEvents: throwingAppendEvents };
+
+      // Construction itself calls appendEvents (session_meta) synchronously
+      // via the best-effort helper — this must not throw out of createAgent().
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("ok")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        chatMeta: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" },
+      });
+
+      // A normal turn must still complete — the Runner's own transcript
+      // writes go through the same throwing store, but a turn is never
+      // gated on the transcript succeeding.
+      const state = await agent.run("hi");
+      expect(state.status).toBe("done");
+    });
+
+    it("recordTurnEndError still surfaces the real rejection when the store throws synchronously", async () => {
+      // resolveContextLayers rejecting means no Runner is ever constructed —
+      // recordTurnEndError() is the only place that records this failure
+      // (see its doc comment). Its own doc comment promises it "never throws
+      // into the caller" — a synchronous throw from the store used to
+      // replace "layer boom" with "synchronous store explosion" instead.
+      function throwingAppendEvents(): Promise<void> {
+        throw new Error("synchronous store explosion");
+      }
+      const chatStore = { appendEvents: throwingAppendEvents };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("unreachable")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        resolveContextLayers: async () => {
+          throw new Error("layer boom");
+        },
+      });
+
+      await expect(agent.run("hi")).rejects.toThrow("layer boom");
+    });
+
+    it("recordTurnError still surfaces the real rejection when the store throws synchronously", async () => {
+      // A Runner exists here (session:start hook throws AFTER construction),
+      // so recordTurnError() is the path exercised — same "never throws into
+      // the caller" contract as recordTurnEndError above.
+      function throwingAppendEvents(): Promise<void> {
+        throw new Error("synchronous store explosion");
+      }
+      const chatStore = { appendEvents: throwingAppendEvents };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("unreachable")]),
+        chatStore,
+        chatSessionId: "chat-s1",
+        hooks: [
+          {
+            name: "boom-hook",
+            lifecycle: "session:start",
+            handler: async () => {
+              throw new Error("boom");
+            },
+          },
+        ],
+      });
+
+      await expect(agent.run("hi")).rejects.toThrow("boom");
     });
 
     it("records an error event (not a duplicate turn_end) when a Runner exists and run() rejects", async () => {
@@ -671,6 +779,95 @@ describe("createAgent — SDK facade", () => {
       // number.
       const turns = new Set(events.map((e) => e.turn));
       expect(turns).toEqual(new Set([1]));
+
+      void runPromise;
+    });
+
+    it("seeds turnCounter from initialTurn so a cross-process resume reports the real turn, not the 0 sentinel", async () => {
+      // Same shape as the previous test, but this simulates a fresh SDK
+      // instance built with `initialTurn` seeded from a host's own durable
+      // transcript (e.g. apps/headless-server rebuilding on a config change)
+      // — the very first thing it does is resume a turn that was claimed
+      // BEFORE this instance ever existed. Without seeding, turnCounter
+      // starts at 0, and `RunnerOptions.turn` defaults to that same 0 used
+      // as the "no turn" sentinel elsewhere — the two collide, and a real
+      // turn 5 would be recorded as turn 0.
+      const dangerousToolDef: ToolDefinition = {
+        name: "dangerous_op",
+        description: "A tool gated by HITL approval",
+        inputSchema: { type: "object", properties: {}, required: [] },
+        requires: ["test:danger"],
+        riskTier: "WRITE_HIGH",
+      };
+      const dangerousTool: Tool = {
+        definition: dangerousToolDef,
+        handler: async (): Promise<ToolResult> => ({ modelContent: "operation completed" }),
+      };
+
+      const modelPort = createMockModelPort([
+        toolCallScript("c1", "dangerous_op", "{}"),
+        textScript("resumed after approval"),
+      ]);
+
+      const gate: ApprovalGate = {
+        ask: () => new Promise<"allow" | "deny">(() => {}),
+      };
+
+      const innerStore = createMemoryStore();
+      let loadCallCount = 0;
+      const flakyStore: SessionStore = {
+        save: (snapshot) => innerStore.save(snapshot),
+        load: async (id: string) => {
+          loadCallCount++;
+          if (loadCallCount === 1) throw new Error("simulated transient store failure");
+          return innerStore.load(id);
+        },
+        list: () => innerStore.list(),
+      };
+
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+
+      // The host's transcript already has 4 completed turns; this instance
+      // is (re)built to continue from there.
+      const agent = createAgent({
+        modelPort,
+        tools: [dangerousTool],
+        capabilities: new Set(["test:danger"]),
+        approvalGate: gate,
+        sessionStore: flakyStore,
+        chatStore,
+        chatSessionId: "chat-s1",
+        initialTurn: 4,
+        permissionConfig: {
+          defaults: {
+            READ_ONLY: "allow",
+            WRITE_LOW: "allow",
+            WRITE_HIGH: "ask",
+            IRREVERSIBLE: "deny",
+          },
+        },
+      });
+
+      const runPromise = agent.run("do it");
+      await new Promise((r) => setTimeout(r, 30));
+
+      const saved = await innerStore.list();
+      const sessionId = saved[0]!.id;
+
+      const finalState = await agent.resume(sessionId, "allow");
+      expect(finalState.status).toBe("done");
+      expect(loadCallCount).toBeGreaterThanOrEqual(2); // fallback branch actually exercised
+
+      // This turn was claimed as turn 5 (initialTurn + 1) when agent.run()
+      // started it — the fallback resume Runner must report that same
+      // number, never the 0 sentinel.
+      const turns = new Set(events.map((e) => e.turn));
+      expect(turns).toEqual(new Set([5]));
 
       void runPromise;
     });

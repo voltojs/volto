@@ -232,6 +232,17 @@ export function createRunner(opts: RunnerOptions): Runner {
   // are tracked, that re-classification would push it back into the approval
   // queue and re-prompt the gate for a decision that was already made.
   const deniedToolCallIds = new Set<string>();
+  // Tool call ids for which an `approval_asked` transcript record has already
+  // been written by THIS Runner instance. Guards the common in-process HITL
+  // flow — request_approval writes the record while `run()` is still on the
+  // stack, then `resume()` is called on the very same Runner (the SDK tries
+  // `lastRunner.resume()` first) — from writing a second, slightly different
+  // `approval_asked` record for the same callId. A fresh Runner instance
+  // (the SDK's cross-process fallback, which constructs a brand-new Runner
+  // from a loaded checkpoint) starts with an empty set, so that path still
+  // writes the record — it may be the only copy that ever reaches the store
+  // if the original process never flushed.
+  const askedToolCallIds = new Set<string>();
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
@@ -1242,6 +1253,7 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
     for (const e of effects) {
       if (e.type === "request_approval" && opts.approvalGate) {
+        askedToolCallIds.add(e.toolCall.id);
         recorder.record(
           "approval_asked",
           { callId: e.toolCall.id, name: e.toolCall.name, riskTier: e.riskTier },
@@ -1360,11 +1372,17 @@ export function createRunner(opts: RunnerOptions): Runner {
       // buffered by the runner that first asked — may never have been
       // flushed to the store (it was still sitting in that runner's buffer
       // when the process paused/restarted). Recording it again here from the
-      // checkpoint data is what makes it durable in that case; a duplicate in
-      // the same-process case is harmless (the projection treats it as
-      // best-effort metadata, never load-bearing).
-      const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
-      recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
+      // checkpoint data is what makes it durable in that case. But when this
+      // IS the same Runner that already asked (the ordinary in-process HITL
+      // flow, where the SDK's resume() succeeds via `lastRunner.resume()`),
+      // askedToolCallIds already has this id — skip the rewrite so the two
+      // records (this one lacks `step`; the original carries it) don't both
+      // land in the store for the same callId.
+      if (!askedToolCallIds.has(approvedId)) {
+        const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
+        recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
+        askedToolCallIds.add(approvedId);
+      }
       forwardEmit(feed({
         type: "approval_decision",
         toolCallId: approvedId,

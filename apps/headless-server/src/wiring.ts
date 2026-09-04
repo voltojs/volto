@@ -212,6 +212,13 @@ export interface WiringOptions {
   chatSessionId?: string;
   /** Config binding recorded once as a `session_meta` transcript event (via chatStore.appendEvents()) when the agent is (re)built. */
   chatMeta?: ChatSessionMeta;
+  /**
+   * Ordinal of the last turn already in this session's durable transcript —
+   * forwarded verbatim to createAgent()'s `initialTurn` so a rebuilt agent
+   * instance continues turn numbering instead of restarting at 1. Omit when
+   * no transcript exists yet.
+   */
+  initialTurn?: number;
 }
 
 export function createWiredAgent(opts: WiringOptions = {}) {
@@ -255,5 +262,6 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
+    ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
   });
 }

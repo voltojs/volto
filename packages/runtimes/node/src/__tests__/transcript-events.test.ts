@@ -1,12 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
+import { createAutoAllowGate } from "../approval-gate.js";
 // NOTE: createMockModelPort / textDelta / reasoningDelta are re-exported from
 // @volto/core's main entry (see src/index.ts), not from the "@volto/core/testing"
 // subpath — that subpath only exposes the SessionStore contract test suite
 // (testing/store-contract.ts). Importing from "@volto/core/testing" here would
 // fail to resolve these symbols.
-import { createMockModelPort, textDelta, reasoningDelta } from "@volto/core";
-import type { TranscriptEventInput, ModelEvent } from "@volto/core";
+import {
+  createMockModelPort,
+  textDelta,
+  reasoningDelta,
+  toolUseStart,
+  toolUseDelta,
+  modelDone,
+  createDefaultPermissionConfig,
+} from "@volto/core";
+import type {
+  TranscriptEventInput,
+  ModelEvent,
+  ToolDefinition,
+  StepContext,
+  SessionSnapshot,
+  SessionStore,
+  ApprovalGate,
+} from "@volto/core";
 
 function fakeChatStore() {
   const events: TranscriptEventInput[] = [];
@@ -420,5 +437,142 @@ describe("Runner transcript capture", () => {
       clock: steppingClock(),
     });
     await expect(runner.run({ type: "user_message", content: "hi" })).resolves.toBeDefined();
+  });
+});
+
+describe("Runner transcript capture — approval_asked dedup across resume", () => {
+  const dangerousTool: ToolDefinition = {
+    name: "dangerous_op",
+    description: "a WRITE_HIGH tool gated by HITL approval",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    requires: [],
+    riskTier: "WRITE_HIGH",
+  };
+  const ctx: StepContext = { tools: [dangerousTool], model: "test-model" };
+
+  function oneToolThenDone() {
+    return createMockModelPort([
+      [toolUseStart("c1", "dangerous_op"), toolUseDelta("c1", "{}"), modelDone("tool_use")],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+  }
+
+  function makeSessionStore(): SessionStore & { snapshots: Map<string, SessionSnapshot> } {
+    const snapshots = new Map<string, SessionSnapshot>();
+    return {
+      snapshots,
+      async save(s) {
+        snapshots.set(s.id, s);
+      },
+      async load(id) {
+        return snapshots.get(id);
+      },
+      async list() {
+        return [...snapshots.values()];
+      },
+    };
+  }
+
+  it("same-process resume (lastRunner.resume() succeeding) writes approval_asked exactly once", async () => {
+    // A gate that pauses the in-process run by throwing on its first ask —
+    // the checkpoint is already saved by then (checkpoint effects are
+    // interpreted before request_approval), so the same Runner instance can
+    // still be resumed afterward. This is the ordinary in-process HITL
+    // /resume flow: one Runner instance sees both the original ask and the
+    // later resume().
+    const { store, events } = fakeChatStore();
+    const sessionStore = makeSessionStore();
+    let asks = 0;
+    const pausingGate: ApprovalGate = {
+      ask: async () => {
+        asks++;
+        throw new Error("pause: defer to resume");
+      },
+    };
+
+    const runner = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: pausingGate,
+      sessionStore,
+      sessionId: "sess-1",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+
+    await expect(runner.run({ type: "user_message", content: "go" })).rejects.toThrow("pause");
+    expect(asks).toBe(1);
+
+    // Before the fix, resume() unconditionally re-recorded approval_asked
+    // here even though this is the SAME Runner instance that already wrote
+    // one during interpretEffects — producing two records (2/1 vs
+    // approval_decision) for a single ask.
+    const final = await runner.resume("sess-1", "allow");
+    expect(final.status).toBe("done");
+
+    const asked = events.filter((e) => e.type === "approval_asked");
+    const decided = events.filter((e) => e.type === "approval_decision");
+    expect(asked).toHaveLength(1);
+    expect(decided).toHaveLength(1);
+  });
+
+  it("cross-process fallback (a fresh Runner) still writes approval_asked — durability is preserved", async () => {
+    // Mirrors the same-process test above, but resume() is driven on a BRAND
+    // NEW Runner instance (as the SDK's cross-process fallback does after
+    // loading the checkpoint from sessionStore in a fresh process). Its
+    // askedToolCallIds set starts empty, so it must still write the record —
+    // it may be the only copy that ever reaches the store if the original
+    // process never flushed.
+    const { store, events } = fakeChatStore();
+    const sessionStore = makeSessionStore();
+    const pausingGate: ApprovalGate = {
+      ask: async () => {
+        throw new Error("pause: defer to resume");
+      },
+    };
+
+    const original = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: pausingGate,
+      sessionStore,
+      sessionId: "sess-2",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await expect(original.run({ type: "user_message", content: "go" })).rejects.toThrow("pause");
+
+    // Fresh Runner instance — simulates a new process that only has the
+    // sessionStore checkpoint to work from, not the original Runner's
+    // in-memory askedToolCallIds.
+    const resumed = createRunner({
+      modelPort: createMockModelPort([[textDelta("done"), modelDone("end_turn")]]),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: createAutoAllowGate(),
+      sessionStore,
+      sessionId: "sess-2",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    const final = await resumed.resume("sess-2", "allow");
+    expect(final.status).toBe("done");
+
+    // One from the original Runner (interpretEffects, before it paused) and
+    // one from the fresh resume Runner (its own set was empty) — both must
+    // survive, since either process could be the only one that ever flushes.
+    const asked = events.filter((e) => e.type === "approval_asked");
+    expect(asked).toHaveLength(2);
   });
 });

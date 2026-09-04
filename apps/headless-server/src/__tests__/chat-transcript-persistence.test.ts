@@ -179,6 +179,59 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(builds[0]!["initialMessages"]).toEqual([{ role: "user", content: "earlier turn" }]);
   });
 
+  it("seeds initialTurn from the highest turn_start in the persisted transcript on a cold start", async () => {
+    const chatStore = makeFakeChatStore();
+    chatStore.readSession = async (sessionId: string): Promise<ChatSessionRecord | undefined> =>
+      sessionId === "s1"
+        ? {
+            sessionId: "s1",
+            meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+            events: [
+              { seq: 0, time: 0, type: "turn_start", data: { turn: 1 }, turn: 1 },
+              { seq: 1, time: 1, type: "user_message", data: { content: "turn 1" }, turn: 1 },
+              { seq: 2, time: 2, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+              { seq: 3, time: 3, type: "turn_start", data: { turn: 2 }, turn: 2 },
+              { seq: 4, time: 4, type: "user_message", data: { content: "turn 2" }, turn: 2 },
+              { seq: 5, time: 5, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+            ],
+            createdAt: 0,
+            updatedAt: 0,
+          }
+        : undefined;
+
+    const { factory, builds } = makeFactory();
+    // A brand-new registry has no in-memory session — simulates a server
+    // restart with the same on-disk transcript still present.
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "continue", config);
+
+    expect(builds[0]!["initialTurn"]).toBe(2);
+  });
+
+  it("omits initialTurn when the persisted transcript has no turn_start events", async () => {
+    const chatStore = makeFakeChatStore();
+    chatStore.readSession = async (sessionId: string): Promise<ChatSessionRecord | undefined> =>
+      sessionId === "s1"
+        ? {
+            sessionId: "s1",
+            meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+            events: [
+              { seq: 0, time: 0, type: "user_message", data: { content: "earlier turn" } },
+            ],
+            createdAt: 0,
+            updatedAt: 0,
+          }
+        : undefined;
+
+    const { factory, builds } = makeFactory();
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "continue", config);
+
+    expect(builds[0]!["initialTurn"]).toBeUndefined();
+  });
+
   it("works without a chatStore configured (persistence is optional)", async () => {
     const { factory, builds } = makeFactory();
     const registry = makeRegistry(factory);

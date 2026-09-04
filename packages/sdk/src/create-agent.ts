@@ -49,7 +49,7 @@ import {
   resetTurnForNextInput,
   filterByScope,
 } from "@volto/core";
-import type { StepContext, ReducerState, TranscriptStore, ChatSessionMeta } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions } from "@volto/runtime-node";
 import {
@@ -149,6 +149,36 @@ function resolveConfigValue<T>(
   return configLayer[key] as T | undefined;
 }
 
+/**
+ * Best-effort transcript write: awaits the call inside its own try/catch
+ * rather than chaining `.catch()` on its return value. A store whose
+ * `appendEvents` is a plain (non-`async`) function that throws synchronously
+ * never produces a promise for `.catch()` to attach to — the throw would
+ * instead escape into the caller, turning a best-effort transcript write
+ * into a hard failure. Two of this function's six call sites
+ * (`recordTurnEndError` / `recordTurnError`) run inside error-handling paths
+ * whose own doc comments promise "never throws into the caller" — a
+ * synchronous throw here would silently replace the real error the caller
+ * was about to see. Same class of bug fixed in the transcript recorder by
+ * commit 21bd938 and in apps/headless-server/src/sessions.ts's own catch
+ * block; this is every remaining call site in this file brought up to the
+ * same standard.
+ */
+function bestEffortAppend(
+  store: TranscriptStore,
+  sessionId: string,
+  events: TranscriptEventInput[],
+): void {
+  void (async () => {
+    try {
+      await store.appendEvents(sessionId, events);
+    } catch {
+      // Best-effort by contract — a transcript write must never disturb the
+      // turn it is recording.
+    }
+  })();
+}
+
 // ──────────────────────────────────────────────
 // Public types
 // ──────────────────────────────────────────────
@@ -202,6 +232,25 @@ export interface CreateAgentOptions {
    * 对话历史重新灌入，让上下文不因实例重建而丢失。
    */
   initialMessages?: Message[];
+
+  /**
+   * Seeds the internal turn counter so a rebuilt agent instance continues
+   * numbering instead of restarting at 1. This is the ordinal of the LAST
+   * turn already present in the durable transcript (chatStore) — the next
+   * turn run() or stream() executes becomes `initialTurn + 1`, and a
+   * cross-process `resume()` of that already-in-flight last turn reports
+   * `initialTurn` itself (matching the turn number the paused turn was
+   * originally recorded under).
+   *
+   * The SDK cannot recover this value on its own: `SessionSnapshot` carries
+   * no turn number and `TranscriptStore` is write-only. A host that rebuilds
+   * agent instances mid-conversation (e.g. apps/headless-server rebuilding
+   * on every config change) must compute it from its own transcript and pass
+   * it here — otherwise every rebuild silently restarts turn numbering at 1,
+   * and a fresh cross-process resume records the sentinel `0` instead of the
+   * real turn. Omit when no transcript exists yet (first-ever turn).
+   */
+  initialTurn?: number;
 
   /** Model name override (sent to the provider) */
   model?: string;
@@ -800,15 +849,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
   const chatStore = opts.chatStore ?? defaultChatStore;
   if (opts.chatStore && opts.chatMeta && opts.chatSessionId) {
-    void chatStore
-      .appendEvents(opts.chatSessionId, [
-        {
-          time: opts.clock?.now() ?? Date.now(),
-          type: "session_meta",
-          data: opts.chatMeta,
-        },
-      ])
-      .catch(() => {});
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "session_meta",
+        data: opts.chatMeta,
+      },
+    ]);
   }
 
   // ── M8: Resolve new ports ────────────────
@@ -852,7 +899,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // Incremented once per createNextRunner() call — every new turn this
   // instance runs, whether via run() or stream(). Not incremented by
   // resume(), which continues the same turn rather than starting a new one.
-  let turnCounter = 0;
+  // Seeded from `initialTurn` (the last turn already in the transcript) so a
+  // rebuilt agent instance continues numbering instead of restarting at 1 —
+  // see CreateAgentOptions.initialTurn.
+  let turnCounter = opts.initialTurn ?? 0;
   // The EventSink actually in use for the turn currently running — read by
   // createSubAgentExecutor at call time, since the task tool is built once
   // at construction but each turn's real sink (channel.eventSink for
@@ -998,16 +1048,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   function recordTurnEndError(error: unknown): void {
     if (!opts.chatStore || !opts.chatSessionId) return;
     const message = error instanceof Error ? error.message : String(error);
-    void chatStore
-      .appendEvents(opts.chatSessionId, [
-        {
-          time: opts.clock?.now() ?? Date.now(),
-          type: "turn_end",
-          data: { turn: turnCounter, reason: "error", error: message },
-          turn: turnCounter,
-        },
-      ])
-      .catch(() => {});
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "turn_end",
+        data: { turn: turnCounter, reason: "error", error: message },
+        turn: turnCounter,
+      },
+    ]);
   }
 
   /**
@@ -1022,16 +1070,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   function recordTurnError(error: unknown): void {
     if (!opts.chatStore || !opts.chatSessionId) return;
     const message = error instanceof Error ? error.message : String(error);
-    void chatStore
-      .appendEvents(opts.chatSessionId, [
-        {
-          time: opts.clock?.now() ?? Date.now(),
-          type: "error",
-          data: { message },
-          turn: turnCounter,
-        },
-      ])
-      .catch(() => {});
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "error",
+        data: { message },
+        turn: turnCounter,
+      },
+    ]);
   }
 
   // ── M13: Slash command resolution ──────────────
@@ -1293,47 +1339,41 @@ function createSubAgentExecutor(
     const startedAt = nowMs();
 
     if (chatStore && parentChatSessionId && childSessionId) {
-      void chatStore
-        .appendEvents(parentChatSessionId, [
-          {
-            time: startedAt,
-            type: "subagent_started",
-            data: { childSessionId, label: "task", depth },
-            turn,
+      bestEffortAppend(chatStore, parentChatSessionId, [
+        {
+          time: startedAt,
+          type: "subagent_started",
+          data: { childSessionId, label: "task", depth },
+          turn,
+        },
+      ]);
+      bestEffortAppend(chatStore, childSessionId, [
+        {
+          time: startedAt,
+          type: "session_meta",
+          data: {
+            projectId: null,
+            providerId: null,
+            modelId: null,
+            permissionMode: null,
+            parentSessionId: parentChatSessionId,
+            delegationDepth: depth,
+            origin: "subagent" as const,
           },
-        ])
-        .catch(() => {});
-      void chatStore
-        .appendEvents(childSessionId, [
-          {
-            time: startedAt,
-            type: "session_meta",
-            data: {
-              projectId: null,
-              providerId: null,
-              modelId: null,
-              permissionMode: null,
-              parentSessionId: parentChatSessionId,
-              delegationDepth: depth,
-              origin: "subagent" as const,
-            },
-          },
-        ])
-        .catch(() => {});
+        },
+      ]);
     }
 
     const finishSubAgent = (isError: boolean): void => {
       if (chatStore && parentChatSessionId && childSessionId) {
-        void chatStore
-          .appendEvents(parentChatSessionId, [
-            {
-              time: nowMs(),
-              type: "subagent_finished",
-              data: { childSessionId, isError, durationMs: nowMs() - startedAt },
-              turn,
-            },
-          ])
-          .catch(() => {});
+        bestEffortAppend(chatStore, parentChatSessionId, [
+          {
+            time: nowMs(),
+            type: "subagent_finished",
+            data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+            turn,
+          },
+        ]);
       }
     };
 
