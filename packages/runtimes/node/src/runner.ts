@@ -26,6 +26,8 @@ import type {
   Telemetry,
   Validator,
   MemoryStore,
+  TokenUsage,
+  AssistantMessage,
 } from "@volto/core";
 import {
   step,
@@ -43,6 +45,8 @@ import type { StepContext, ReducerState } from "@volto/core";
 import type { Hook } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
 import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
+import { createTranscriptRecorder } from "./transcript-recorder.js";
+import * as crypto from "node:crypto";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -165,6 +169,17 @@ export interface Runner {
   getState(): ReducerState;
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
+  /**
+   * Feed an input into the turn currently in flight — e.g. a user message
+   * typed while the model is still working ("steering"). Unlike `run()`,
+   * this does not start a new turn: it does not reset budget tracking, run
+   * session/turn hooks, or record turn_start/turn_end. The reducer alone
+   * decides what happens with the input for the current status (typically
+   * queuing it and emitting steering_queued); an input that makes no sense
+   * for the current status is normalized to an error emit like any other
+   * invalid input, never thrown.
+   */
+  send(input: AgentInput): void;
 }
 
 /** Structured audit entry for approval decisions and high-risk tool executions. */
@@ -217,12 +232,32 @@ export function createRunner(opts: RunnerOptions): Runner {
   let turnHadError = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
-  // Sequential step counter for this turn's trajectory entries (Task 3 of
-  // the pluggable-session-storage plan). Resets naturally each turn since a
-  // fresh Runner instance is created per turn.
-  let trajectoryStep = 0;
   // Retry state for retriable model errors
   let consecutiveModelErrors = 0;
+
+  // Sequential step counter for this turn — one per model call, 1-based.
+  // Resets naturally each turn since a fresh Runner instance is created per turn.
+  let stepCounter = 0;
+  // Hash of the last request_header written this turn; a matching hash means
+  // the header has not changed and need not be written again.
+  let lastHeaderHash: string | null = null;
+  // Timing/aggregation state for the in-flight model call. Hoisted here
+  // (rather than declared inside runModelStream) because forwardEmit() reads
+  // them when it intercepts the model_done emit to record assistant_message —
+  // and forwardEmit is defined outside runModelStream. Reset at the top of
+  // each runModelStream() call.
+  let callStartedAt = 0;
+  let firstDeltaAt: number | undefined;
+  let reasoningText = "";
+
+  const nowMs = (): number => opts.clock?.now() ?? Date.now();
+
+  const recorder = createTranscriptRecorder({
+    store: opts.chatStore,
+    sessionId: opts.chatSessionId,
+    turn: opts.turn ?? 0,
+    now: nowMs,
+  });
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -276,32 +311,88 @@ export function createRunner(opts: RunnerOptions): Runner {
     return false;
   }
 
-  const TRAJECTORY_EVENT_TYPES = new Set(["tool_use_complete", "tool_result", "model_done", "context_assembled"]);
-
-  /** Best-effort: records a raw trajectory entry for a subset of significant event types. Never throws into the main loop. */
-  function recordTrajectory(eventType: string, data: Record<string, unknown>): void {
-    if (!TRAJECTORY_EVENT_TYPES.has(eventType)) return;
-    if (!opts.chatStore || !opts.chatSessionId) return;
-    trajectoryStep++;
-    void opts.chatStore
-      .appendTrajectoryEntry(opts.chatSessionId, {
-        sessionId: opts.chatSessionId,
-        turn: opts.turn ?? 0,
-        step: trajectoryStep,
-        timestamp: opts.clock?.now() ?? Date.now(),
-        eventType,
-        data,
-      })
-      .catch(() => {});
-  }
-
-  /** Forward emit effects to EventSink. */
+  /**
+   * Forward emit effects to EventSink, recording the ones only the reducer
+   * knows about into the transcript. Events the Runner itself originates
+   * (model_call_start, request_header, turn_start/end, model_retry,
+   * approval_decision, model_error) are recorded directly at their call
+   * sites instead — they need context (timing, hashes) that never reaches
+   * an emit effect.
+   */
   function forwardEmit(effects: Effect[]): void {
     for (const e of effects) {
-      if (e.type === "emit") {
-        opts.eventSink?.emit(e.event);
-        recordTrajectory(e.event.type, e.event.data);
+      if (e.type !== "emit") continue;
+      opts.eventSink?.emit(e.event);
+
+      // steering_queued is the one transcript event the Runner cannot observe
+      // directly: whether a mid-turn user_message is queued or starts a new
+      // turn is decided inside the reducer. Duplicating that branch here would
+      // drift; intercepting the event keeps the reducer the single source.
+      if (e.event.type === "steering_queued") {
+        recorder.record("steering_queued", {
+          content: e.event.data["content"] as string,
+        });
+        continue;
       }
+
+      if (e.event.type === "model_done") {
+        const message = e.event.data["message"] as AssistantMessage | undefined;
+        if (!message) continue;
+        const endedAt = nowMs();
+        recorder.record(
+          "assistant_message",
+          {
+            content: message.content,
+            ...(reasoningText ? { reasoning: reasoningText } : {}),
+            ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
+            ...(e.event.data["usage"] !== undefined ? { usage: e.event.data["usage"] as TokenUsage } : {}),
+            ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
+            durationMs: endedAt - callStartedAt,
+          },
+          { step: stepCounter },
+        );
+        continue;
+      }
+
+      if (e.event.type === "tool_use_complete") {
+        recorder.record(
+          "tool_call",
+          {
+            callId: e.event.data["toolCallId"] as string,
+            name: e.event.data["toolName"] as string,
+            input: (e.event.data["input"] as Record<string, unknown>) ?? {},
+          },
+          { step: stepCounter },
+        );
+        continue;
+      }
+
+      if (e.event.type === "tool_result") {
+        recorder.record(
+          "tool_result",
+          {
+            callId: e.event.data["toolCallId"] as string,
+            name: e.event.data["toolName"] as string | undefined,
+            content: (e.event.data["content"] as string) ?? "",
+            isError: e.event.data["isError"] === true,
+            durationMs: e.event.data["durationMs"] as number | undefined,
+            displayMetadata: e.event.data["displayMetadata"] as Record<string, unknown> | undefined,
+            orderInBatch: (e.event.data["orderInBatch"] as number) ?? 0,
+          },
+          { step: stepCounter },
+        );
+        continue;
+      }
+
+      if (e.event.type === "budget_exceeded") {
+        recorder.record("budget_exceeded", { reason: e.event.data["reason"] as string });
+      }
+      // Note: the reducer's model_error AgentInput produces a generic "error"
+      // emit (see reducer.ts handleCallingModel), not an emit literally typed
+      // "model_error" — there is nothing of that shape to intercept here.
+      // model_error transcript events are recorded directly in
+      // runModelStream's catch block, where the Runner already has the
+      // classified error, retriable flag, and errorKind in scope.
     }
   }
 
@@ -412,11 +503,56 @@ export function createRunner(opts: RunnerOptions): Runner {
     let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
 
+    stepCounter++;
+    const step = stepCounter;
+
     if (assembled.layerOrigins.length > 0) {
-      const contextAssembledEvent = { type: "context_assembled", data: { layerOrigins: assembled.layerOrigins } };
-      opts.eventSink?.emit(contextAssembledEvent);
-      recordTrajectory(contextAssembledEvent.type, contextAssembledEvent.data);
+      opts.eventSink?.emit({ type: "context_assembled", data: { layerOrigins: assembled.layerOrigins } });
+      recorder.record("context_assembled", { layerOrigins: assembled.layerOrigins }, { step });
     }
+
+    // Static-prefix snapshot: system layers + tool catalogue + sampling
+    // params. Written only when its hash changes, so a long conversation
+    // does not store the same header once per model call.
+    const headerPayload = {
+      systemLayers: (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text })),
+      tools: stepContext.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        schema: t.inputSchema,
+      })),
+      params: {
+        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+        ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+        ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+      },
+    };
+    const headerHash = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(headerPayload))
+      .digest("hex")
+      .slice(0, 16);
+    if (headerHash !== lastHeaderHash) {
+      recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step });
+      lastHeaderHash = headerHash;
+    }
+
+    recorder.record(
+      "model_call_start",
+      {
+        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+        ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+        ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+        headerHash,
+      },
+      { step },
+    );
+    // Reset per-call timing/aggregation state — these live at createRunner()
+    // scope (see the comment there) so forwardEmit() can read them when it
+    // intercepts model_done.
+    callStartedAt = nowMs();
+    firstDeltaAt = undefined;
+    reasoningText = "";
 
     if (opts.rag) {
       const { memoryStore, topK = 5, queryBuilder } = opts.rag;
@@ -452,8 +588,8 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
     const modelSpanStartedAt = opts.clock?.now() ?? Date.now();
-    let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
-    let capturedUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let lastUsage: TokenUsage | undefined;
+    let capturedUsage: TokenUsage | undefined;
     let receivedTerminal = false; // true after done or error event is fed
     let modelError = false;
 
@@ -466,9 +602,18 @@ export function createRunner(opts: RunnerOptions): Runner {
           return;
         }
 
+        if (event.type === "text_delta" || event.type === "reasoning_delta") {
+          firstDeltaAt ??= nowMs();
+          if (event.type === "reasoning_delta") reasoningText += event.text;
+        }
+
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
-          lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Keep every counter the provider reported — cache and reasoning
+          // tokens are part of the durable record even though cost accounting
+          // below only uses input/output.
+          const { type: _type, ...usageFields } = event;
+          lastUsage = usageFields;
           // Track raw tokens (always, regardless of pricing)
           cumulativeTokens += event.inputTokens + event.outputTokens;
           // Accumulate cost: use dollar pricing when available, else token count fallback
@@ -538,6 +683,7 @@ export function createRunner(opts: RunnerOptions): Runner {
           if (consecutiveModelErrors <= maxRetries && consecutiveModelErrors < circuitBreakerThreshold) {
             const delay = Math.min(baseDelayMs * Math.pow(2, consecutiveModelErrors - 1), maxDelayMs);
             opts.eventSink?.emit({ type: "model_retry", data: { attempt: consecutiveModelErrors, delayMs: delay, error } });
+            recorder.record("model_retry", { attempt: consecutiveModelErrors, delayMs: delay, error }, { step: stepCounter });
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, delay);
               if (opts.abortSignal) {
@@ -549,16 +695,33 @@ export function createRunner(opts: RunnerOptions): Runner {
             return;
           }
           // Circuit breaker tripped or max retries exhausted — feed error as non-retriable
-          forwardEmit(feed({ type: "model_error", error: `${error} (retried ${consecutiveModelErrors} times)`, retriable: false, errorKind: classification.kind }));
+          {
+            const finalError = `${error} (retried ${consecutiveModelErrors} times)`;
+            forwardEmit(feed({ type: "model_error", error: finalError, retriable: false, errorKind: classification.kind }));
+            recorder.record(
+              "model_error",
+              { error: finalError, retriable: false, errorKind: classification.kind },
+              { step: stepCounter },
+            );
+          }
           return;
         }
 
         // No retry policy or non-retriable: feed error to reducer.
         // When no retryPolicy, mark retriable errors as non-retriable to prevent
         // the reducer from infinitely re-issuing model calls.
-        forwardEmit(feed({ type: "model_error", error, retriable: opts.retryPolicy ? classification.retriable : false, errorKind: classification.kind }));
+        {
+          const retriable = opts.retryPolicy ? classification.retriable : false;
+          forwardEmit(feed({ type: "model_error", error, retriable, errorKind: classification.kind }));
+          recorder.record("model_error", { error, retriable, errorKind: classification.kind }, { step: stepCounter });
+        }
       }
     } finally {
+      // Best-effort flush after every model call — long turns (many tool
+      // round-trips) should not buffer their whole transcript in memory
+      // until the turn ends.
+      void recorder.flush();
+
       const endTime = opts.clock?.now() ?? Date.now();
       const usageData = capturedUsage ?? lastUsage;
       if (modelSpan) {
@@ -918,6 +1081,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               consumesBudget: sc.consumesBudget,
             }));
           }
+
+          // This batch's tool_call/tool_result events are all recorded now —
+          // flush rather than waiting for the next model call or turn end.
+          void recorder.flush();
         }
 
         // Post-batch: if cancelled during parallel execution, transition
@@ -1001,6 +1168,7 @@ export function createRunner(opts: RunnerOptions): Runner {
           toolCallId: e.toolCall.id,
           decision,
         }));
+        recorder.record("approval_decision", { callId: e.toolCall.id, decision }, { step: stepCounter });
         // Audit: record approval decision
         if (opts.auditSink) {
           opts.auditSink.record({
@@ -1028,10 +1196,34 @@ export function createRunner(opts: RunnerOptions): Runner {
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
         });
+
+        recorder.record("turn_start", { turn: opts.turn ?? 0 });
+        if (initialInput.type === "user_message") {
+          recorder.record("user_message", { content: initialInput.content });
+        }
+
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;
+      } catch (err) {
+        // An exception escaping the loop is not a normal error path (those
+        // are normalized to isError ToolResults / model_error inputs and
+        // never throw) — but if one somehow does, the turn still ended in
+        // error and the transcript should say so.
+        turnHadError = true;
+        throw err;
       } finally {
+        // Every exit from this turn — normal completion, cancellation, or an
+        // escaping exception — must close out the transcript: bracket the
+        // turn and flush whatever the recorder has buffered. A try/finally
+        // around the whole body is what guarantees that regardless of which
+        // branch above returned or threw.
+        recorder.record("turn_end", {
+          turn: opts.turn ?? 0,
+          reason: turnHadError ? "error" : cancelled ? "cancelled" : "done",
+        });
+        await recorder.flush();
+
         // M13: session:end hook
         await runHookPipeline(opts.hooks ?? [], "session:end", {
           sessionId: opts.sessionId,
@@ -1042,6 +1234,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     getState(): ReducerState {
       return state;
+    },
+
+    send(input: AgentInput): void {
+      forwardEmit(feed(input));
     },
 
     async resume(resumeSessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
@@ -1072,6 +1268,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         toolCallId: approvedId,
         decision,
       }));
+      recorder.record("approval_decision", { callId: approvedId, decision }, { step: stepCounter });
       await runLoop();
       return state;
     },
@@ -1109,7 +1306,7 @@ function extractLastUserMessage(messages: Message[]): string {
 
 function modelEventToInputs(
   event: ModelEvent,
-  pendingUsage?: { inputTokens: number; outputTokens: number },
+  pendingUsage?: TokenUsage,
 ): AgentInput[] {
   switch (event.type) {
     case "text_delta":
