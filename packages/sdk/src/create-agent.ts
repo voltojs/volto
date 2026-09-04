@@ -1174,6 +1174,22 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         compaction: compactionConfig,
         sessionId,
         initialState: restoredState,
+        // Wire the transcript the same way createNextRunner() does — without
+        // this, the tool_result and the assistant_message that follow it
+        // never reach the durable log, leaving it ending on an
+        // `assistant_message` with stopReason "tool_use" and no matching
+        // `tool_result` (a shape both Anthropic and OpenAI reject outright
+        // as the seed for the next turn).
+        chatStore: opts.chatStore ? chatStore : undefined,
+        chatSessionId: opts.chatSessionId,
+        // Not turnCounter + 1: this resumes the turn that was already
+        // claimed (and counted) when it originally started via
+        // createNextRunner() — the same reason lastRunner.resume() above
+        // doesn't touch turnCounter either. Using the current value keeps
+        // this fallback runner's events attributed to that same turn instead
+        // of silently starting a new one.
+        turn: turnCounter,
+        clock: opts.clock,
       });
 
       lastRunner = resumeRunner;

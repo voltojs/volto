@@ -37,6 +37,20 @@ function oneToolThenDone() {
   ]);
 }
 
+/** Model: two WRITE_HIGH tool_use calls in the same batch, then a closing text turn. */
+function twoToolsThenDone() {
+  return createMockModelPort([
+    [
+      toolUseStart("c1", "edit_file"),
+      toolUseDelta("c1", "{}"),
+      toolUseStart("c2", "edit_file"),
+      toolUseDelta("c2", "{}"),
+      modelDone("tool_use"),
+    ],
+    [textDelta("done"), modelDone("end_turn")],
+  ]);
+}
+
 function countingExecutor(): { exec: (c: PendingToolCall) => Promise<ToolResult>; count: () => number } {
   let n = 0;
   return {
@@ -100,6 +114,38 @@ describe("Runner HITL — ask closure", () => {
       (m) => m.role === "tool" && Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result" && b.isError),
     );
     expect(denyMsg).toBeDefined();
+  });
+
+  it("does not re-ask the gate for a tool already denied when a sibling in the same batch is still pending approval", async () => {
+    // c1 is denied while c2 (its sibling in the same tool_use batch) is still
+    // being classified. The reducer keeps a denied tool on `pendingTools` so
+    // the batch can flush once c2 resolves — without tracking denials the
+    // same way allows are tracked, the Runner's partition loop re-classifies
+    // c1 on its next pass and asks the gate again for a decision the user
+    // already gave.
+    const asked: string[] = [];
+    const gate: ApprovalGate = {
+      ask: async (call) => {
+        asked.push(call.id);
+        return call.id === "c1" ? "deny" : "allow";
+      },
+    };
+    const { exec, count } = countingExecutor();
+    const runner = createRunner({
+      modelPort: twoToolsThenDone(),
+      stepContext: ctx,
+      availableCapabilities: new Set(),
+      toolExecutor: exec,
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: gate,
+    });
+
+    const final = await runner.run({ type: "user_message", content: "go" });
+
+    expect(final.status).toBe("done");
+    // Each tool asked exactly once — no re-prompt loop.
+    expect(asked).toEqual(["c1", "c2"]);
+    expect(count()).toBe(1); // only c2 (allowed) actually ran
   });
 });
 

@@ -210,7 +210,7 @@ export interface WiringOptions {
   chatStore?: TranscriptStore;
   /** The chatStore's stable, whole-conversation session id. */
   chatSessionId?: string;
-  /** Config binding recorded once via chatStore.appendMeta() when the agent is (re)built. */
+  /** Config binding recorded once as a `session_meta` transcript event (via chatStore.appendEvents()) when the agent is (re)built. */
   chatMeta?: ChatSessionMeta;
 }
 

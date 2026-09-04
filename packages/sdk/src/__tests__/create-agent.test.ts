@@ -573,6 +573,107 @@ describe("createAgent — SDK facade", () => {
 
       void runPromise;
     });
+
+    it("resume()'s cross-process fallback (lastRunner.resume() throwing) writes the resumed turn's events to chatStore", async () => {
+      // Same shape as the previous test (a gate that never resolves in-process,
+      // forcing the fallback branch), but this time chatStore/chatSessionId are
+      // wired so we can assert the resumed turn's tool_result and closing
+      // assistant_message actually reach the durable log — the fallback
+      // Runner used to be constructed without chatStore/chatSessionId/turn/
+      // clock at all, so none of this ever got written.
+      const dangerousToolDef: ToolDefinition = {
+        name: "dangerous_op",
+        description: "A tool gated by HITL approval",
+        inputSchema: { type: "object", properties: {}, required: [] },
+        requires: ["test:danger"],
+        riskTier: "WRITE_HIGH",
+      };
+      const dangerousTool: Tool = {
+        definition: dangerousToolDef,
+        handler: async (): Promise<ToolResult> => ({ modelContent: "operation completed" }),
+      };
+
+      const modelPort = createMockModelPort([
+        toolCallScript("c1", "dangerous_op", "{}"),
+        textScript("resumed after approval"),
+      ]);
+
+      const gate: ApprovalGate = {
+        ask: () => new Promise<"allow" | "deny">(() => {}),
+      };
+
+      const innerStore = createMemoryStore();
+      let loadCallCount = 0;
+      const flakyStore: SessionStore = {
+        save: (snapshot) => innerStore.save(snapshot),
+        load: async (id: string) => {
+          loadCallCount++;
+          if (loadCallCount === 1) throw new Error("simulated transient store failure");
+          return innerStore.load(id);
+        },
+        list: () => innerStore.list(),
+      };
+
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        tools: [dangerousTool],
+        capabilities: new Set(["test:danger"]),
+        approvalGate: gate,
+        sessionStore: flakyStore,
+        chatStore,
+        chatSessionId: "chat-s1",
+        permissionConfig: {
+          defaults: {
+            READ_ONLY: "allow",
+            WRITE_LOW: "allow",
+            WRITE_HIGH: "ask",
+            IRREVERSIBLE: "deny",
+          },
+        },
+      });
+
+      const runPromise = agent.run("do it");
+      await new Promise((r) => setTimeout(r, 30));
+
+      const saved = await innerStore.list();
+      const sessionId = saved[0]!.id;
+
+      const finalState = await agent.resume(sessionId, "allow");
+      expect(finalState.status).toBe("done");
+      expect(loadCallCount).toBeGreaterThanOrEqual(2); // fallback branch actually exercised
+
+      // The approved tool's result and the closing assistant_message must
+      // both have reached the store — a log missing either leaves an
+      // assistant_message with stopReason "tool_use" and no matching
+      // tool_result, which providers reject outright as the seed for the
+      // next turn.
+      const toolResults = events.filter((e) => e.type === "tool_result");
+      const assistantMessages = events.filter((e) => e.type === "assistant_message");
+      expect(toolResults.length).toBeGreaterThanOrEqual(1);
+      expect(assistantMessages.length).toBeGreaterThanOrEqual(1);
+      expect(
+        assistantMessages.some((e) =>
+          (e.data as { content: Array<{ type: string; text?: string }> }).content.some(
+            (c) => c.type === "text" && c.text === "resumed after approval",
+          ),
+        ),
+      ).toBe(true);
+
+      // All events belong to the turn that was originally claimed when
+      // agent.run() started it — resuming must not consume a fresh turn
+      // number.
+      const turns = new Set(events.map((e) => e.turn));
+      expect(turns).toEqual(new Set([1]));
+
+      void runPromise;
+    });
   });
 
   describe("sub-agent event forwarding", () => {

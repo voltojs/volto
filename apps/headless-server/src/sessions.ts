@@ -425,11 +425,21 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // real file regardless of workspacePath, so an established session
       // still appends to the same file it already had.
       if (!turnReachedStream) {
-        await chatStore
-          ?.appendEvents(session.config?.projectPath ?? null, sessionId, [
+        // Awaited inside its own try/catch rather than chained via `.catch()`
+        // on the call's return value: a store whose `appendEvents` throws
+        // synchronously (a plain, non-async implementation) never produces a
+        // promise for `.catch()` to attach to — the throw would instead
+        // escape this catch block and reject runTurn(), turning a best-effort
+        // transcript write into a failed turn. Same class of bug fixed in
+        // the recorder itself by commit 21bd938.
+        try {
+          await chatStore?.appendEvents(session.config?.projectPath ?? null, sessionId, [
             { time: Date.now(), type: "error", data: { message: text } },
-          ])
-          .catch(() => {});
+          ]);
+        } catch {
+          // Best-effort — see the module comment: a transcript write must
+          // never disturb the turn it is recording.
+        }
       }
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once

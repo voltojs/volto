@@ -255,6 +255,7 @@ export interface TranscriptEventMap {
     ttftMs?: number;
     /** Milliseconds from model_call_start to this event. */
     durationMs: number;
+    /** not yet recorded */
     interrupted?: true;
   };
   model_error: { error: string; errorKind?: string; retriable: boolean };
@@ -284,6 +285,7 @@ export interface TranscriptEventMap {
     params: { model?: string; temperature?: number; maxTokens?: number };
   };
   context_assembled: { layerOrigins: Array<{ id: string; messageIndex: number }> };
+  /** not yet recorded */
   compaction: { replacedCount: number; summaryText: string };
 
   // ── Input ──

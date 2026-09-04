@@ -120,3 +120,37 @@ describe("Runner RAG pipeline", () => {
     expect(model.lastRequest!.layerOrigins).toContainEqual({ id: "user-memory", messageIndex: 0 });
   });
 });
+
+describe("Runner context_assembled event", () => {
+  it("does not emit context_assembled when there are no contextLayers", async () => {
+    const model = createMockModelPort();
+    const events: Array<{ type: string }> = [];
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      eventSink: { emit: (e) => events.push(e) },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect(events.some((e) => e.type === "context_assembled")).toBe(false);
+  });
+
+  it("emits context_assembled when contextLayers are present", async () => {
+    const model = createMockModelPort();
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model", contextLayers: [{ id: "user-memory", text: "Be terse" }] },
+      eventSink: { emit: (e) => events.push(e) },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const event = events.find((e) => e.type === "context_assembled");
+    expect(event).toBeDefined();
+    expect(event!.data["layerOrigins"]).toContainEqual({ id: "user-memory", messageIndex: 0 });
+  });
+});

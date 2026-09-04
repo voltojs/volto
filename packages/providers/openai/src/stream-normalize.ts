@@ -40,6 +40,10 @@ export interface RawStreamChunk {
     prompt_tokens_details?: {
       cached_tokens?: number;
     };
+    /** Present for reasoning models (o-series etc.); reasoning_tokens bills separately from completion_tokens. */
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   } | null;
 }
 
@@ -75,6 +79,8 @@ export async function* normalizeStream(
         inputTokens: chunk.usage.prompt_tokens ?? 0,
         outputTokens: chunk.usage.completion_tokens ?? 0,
         cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? undefined,
+        totalTokens: chunk.usage.total_tokens ?? undefined,
+        reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens ?? undefined,
       };
     }
 

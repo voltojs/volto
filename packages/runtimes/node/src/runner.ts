@@ -224,6 +224,14 @@ export function createRunner(opts: RunnerOptions): Runner {
   let cancelled = false;
   // Tool call ids that have already cleared an HITL "ask" (decision = allow).
   const approvedToolCallIds = new Set<string>();
+  // Tool call ids the user has already denied via HITL "ask". A denied tool
+  // stays on `pendingTools` (the reducer keeps it on the roster so a mixed
+  // batch can still flush once its siblings resolve — see
+  // handleWaitingForApproval's deny branch) so the partition loop below sees
+  // it again on the next pass. Without tracking denials the same way allows
+  // are tracked, that re-classification would push it back into the approval
+  // queue and re-prompt the gate for a decision that was already made.
+  const deniedToolCallIds = new Set<string>();
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
@@ -967,6 +975,15 @@ export function createRunner(opts: RunnerOptions): Runner {
             break;
           }
 
+          if (deniedToolCallIds.has(toolCall.id)) {
+            // Already denied — its result is already buffered by the reducer
+            // and it only remains on pendingTools so a mixed batch can flush
+            // once its siblings resolve. Skip re-classification entirely: it
+            // must not be re-queued for approval (re-prompting the gate) or
+            // pushed into the parallel batch (it was never allowed to run).
+            continue;
+          }
+
           if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
@@ -1225,8 +1242,14 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
     for (const e of effects) {
       if (e.type === "request_approval" && opts.approvalGate) {
+        recorder.record(
+          "approval_asked",
+          { callId: e.toolCall.id, name: e.toolCall.name, riskTier: e.riskTier },
+          { step: stepCounter },
+        );
         const decision = await opts.approvalGate.ask(e.toolCall, e.riskTier);
         if (decision === "allow") approvedToolCallIds.add(e.toolCall.id);
+        else deniedToolCallIds.add(e.toolCall.id);
         forwardEmit(feed({
           type: "approval_decision",
           toolCallId: e.toolCall.id,
@@ -1325,9 +1348,23 @@ export function createRunner(opts: RunnerOptions): Runner {
         );
       }
       const approvedId = state.pendingApprovalTool.id;
-      // Pre-authorize the re-queued tool so runLoop's permission gate does not
-      // re-prompt for the decision the user already gave on resume.
+      const approvedName = state.pendingApprovalTool.name;
+      // Pre-authorize (or pre-deny) the re-queued tool so runLoop's partition
+      // loop does not re-classify it into a fresh approval ask — mirrors the
+      // allow/deny bookkeeping in interpretEffects's own request_approval
+      // handling.
       if (decision === "allow") approvedToolCallIds.add(approvedId);
+      else deniedToolCallIds.add(approvedId);
+      // This Runner instance is typically fresh for a resume (see the SDK's
+      // cross-process resume path), so the original `approval_asked` record —
+      // buffered by the runner that first asked — may never have been
+      // flushed to the store (it was still sitting in that runner's buffer
+      // when the process paused/restarted). Recording it again here from the
+      // checkpoint data is what makes it durable in that case; a duplicate in
+      // the same-process case is harmless (the projection treats it as
+      // best-effort metadata, never load-bearing).
+      const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
+      recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
       forwardEmit(feed({
         type: "approval_decision",
         toolCallId: approvedId,
