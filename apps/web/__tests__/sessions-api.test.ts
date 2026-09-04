@@ -5,7 +5,11 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchServerSessions, fetchServerSessionDetail } from '../lib/sessions-api.js';
+import {
+  fetchServerSessions,
+  fetchServerSessionDetail,
+  fetchServerTrajectory,
+} from '../lib/sessions-api.js';
 
 function stubFetch(handler: (path: string) => { status: number; body: unknown }): void {
   vi.stubGlobal('fetch', async (input: string | URL) => {
@@ -83,5 +87,39 @@ describe('fetchServerSessionDetail', () => {
     stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
 
     await expect(fetchServerSessionDetail('s1')).rejects.toThrow('HTTP 500');
+  });
+});
+
+describe('fetchServerTrajectory', () => {
+  it('returns the parsed trajectory view', async () => {
+    const trajectory = {
+      rows: [
+        {
+          index: 1,
+          kind: 'request',
+          time: 1,
+          step: 1,
+          model: 'm1',
+          headerHash: 'h1',
+        },
+      ],
+    };
+    stubFetch(() => ({ status: 200, body: trajectory }));
+
+    await expect(fetchServerTrajectory('s1')).resolves.toEqual(trajectory);
+  });
+
+  it('returns null for an unknown session (404)', async () => {
+    stubFetch(() => ({ status: 404, body: { error: 'not found' } }));
+
+    await expect(fetchServerTrajectory('ghost')).resolves.toBeNull();
+  });
+
+  it('throws for a non-404 error status', async () => {
+    stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
+
+    await expect(fetchServerTrajectory('s1')).rejects.toThrow(
+      'Failed to load trajectory s1: HTTP 500',
+    );
   });
 });
