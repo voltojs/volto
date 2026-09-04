@@ -19,6 +19,8 @@ import {
   createMockModelPort,
   toolCallScript,
   textScript,
+  textDelta,
+  reasoningDelta,
   projectMessages,
 } from "@volto/core";
 import type { ToolDefinition, ToolResult } from "@volto/core";
@@ -129,15 +131,23 @@ describe("trajectory capture — real chatStore end to end", () => {
     const store = createStore({ directory: tempDir });
     const chatStore = scopeToWorkspace(store, null);
 
+    // A single model call that streams reasoning deltas, text, and a usage
+    // event carrying every optional TokenUsage field — the mock model is the
+    // only place this data can originate, and `textScript`/`toolCallScript`
+    // don't exercise reasoning or the cache/reasoning token counters, so this
+    // scripts the call directly.
     const mockModel = createMockModelPort([
-      toolCallScript("c1", "echo", '{"message":"hi"}'),
-      textScript("done"),
+      [
+        reasoningDelta("let me "),
+        reasoningDelta("think"),
+        textDelta("done"),
+        { type: "usage", inputTokens: 10, outputTokens: 5, cacheReadTokens: 8, cacheWriteTokens: 2, reasoningTokens: 3 },
+        { type: "done", stopReason: "end_turn" },
+      ],
     ]);
 
     const agent = createAgent({
       modelPort: mockModel,
-      tools: [createEchoTool()],
-      capabilities: new Set(["test:echo"]),
       chatStore,
       chatSessionId: "e2e-s2",
       resolveContextLayers: async () => [{ id: "test-layer", text: "Be terse" }],
@@ -162,7 +172,19 @@ describe("trajectory capture — real chatStore end to end", () => {
       .find((e) => e.type === "assistant_message");
 
     expect(assistant).toBeDefined();
-    expect(assistant!.data).toHaveProperty("durationMs");
-    expect(typeof (assistant!.data as { durationMs: number }).durationMs).toBe("number");
+    const data = assistant!.data as {
+      durationMs: number;
+      reasoning?: string;
+      usage?: Record<string, number>;
+    };
+    expect(typeof data.durationMs).toBe("number");
+    expect(data.reasoning).toBe("let me think");
+    expect(data.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 8,
+      cacheWriteTokens: 2,
+      reasoningTokens: 3,
+    });
   });
 });

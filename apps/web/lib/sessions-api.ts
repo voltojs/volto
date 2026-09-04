@@ -54,8 +54,12 @@ export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
   if (!response.ok) {
     throw new Error(`Failed to list sessions: HTTP ${response.status}`);
   }
-  const body = (await response.json()) as { sessions: ServerSessionSummary[] };
-  return body.sessions;
+  const body = (await response.json()) as { sessions?: ServerSessionSummary[] };
+  // Defensive against an unupgraded server still returning a bare array (or
+  // any other unexpected shape) — an undefined `sessions` would otherwise
+  // propagate to use-recover-server-sessions.ts's `.filter(...)`, which is
+  // not itself wrapped in a try/catch, surfacing as an unhandled rejection.
+  return body.sessions ?? [];
 }
 
 /** Fetches one session's full transcript. Returns null for an unknown id. */

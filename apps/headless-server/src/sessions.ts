@@ -387,17 +387,23 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
     }
 
-    // Durable recording of a turn's outcome (success or failure) is now
-    // entirely createAgent()'s own responsibility, via chatStore/chatSessionId
-    // — including a config-resolution failure before any agent is ever built,
-    // since that failure is surfaced to the client as a protocol `error`
-    // event here regardless. This block only drives the SSE channel.
+    // Durable recording of a turn's outcome is createAgent()'s own
+    // responsibility once stream() is entered (via chatStore/chatSessionId).
+    // But resolveConfig()/rebuild() can throw BEFORE stream() is ever
+    // reached — on a cold session with no agent yet, or on a later turn
+    // whose requested config is invalid even though an agent from an
+    // earlier turn is still alive — and createAgent() never sees a failure
+    // that happens before its own runner exists. `turnReachedStream` marks
+    // the boundary so this catch block records exactly that gap, without
+    // ever double-recording a failure createAgent() already saw.
+    let turnReachedStream = false;
     try {
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config)) {
         await rebuild(session, config, credentials);
       }
 
+      turnReachedStream = true;
       for await (const event of session.agent!.stream(message)) {
         const mapped = session.mapper.map(event);
         if (mapped) push(session, mapped);
@@ -407,6 +413,24 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
+      // resolveConfig()/rebuild() throw before stream() is ever entered, so
+      // createAgent()'s own internal recordTurnEndError (which only fires
+      // once a runner exists) never sees them. This is the only place left
+      // that can record that failure mode — as a bare `error` event, not a
+      // `turn_end` (no turn number exists here, and the last one would be
+      // wrong: it belongs to whatever turn already completed successfully).
+      // Uses the raw, unscoped chatStore with the last-known projectPath —
+      // rebuild() never ran for this turn, so no freshly scoped store
+      // exists — but the jsonl store resolves an existing session to its
+      // real file regardless of workspacePath, so an established session
+      // still appends to the same file it already had.
+      if (!turnReachedStream) {
+        await chatStore
+          ?.appendEvents(session.config?.projectPath ?? null, sessionId, [
+            { time: Date.now(), type: "error", data: { message: text } },
+          ])
+          .catch(() => {});
+      }
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.
