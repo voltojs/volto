@@ -118,6 +118,18 @@ export type {
 export { projectMessages, projectMessageEntries } from "./transcript-projection.js";
 export type { ProjectedMessage } from "./transcript-projection.js";
 
+// View projection — event log → turn/step records for the trajectory UI
+export { buildTurnRecords } from "./view-projection.js";
+export type {
+  TurnRecord,
+  StepRecord,
+  AssistantRecord,
+  PartialAssistant,
+  ToolCallRecord,
+  UserInputRecord,
+  RetryRecord,
+} from "./view-projection.js";
+
 // Reducer
 export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
