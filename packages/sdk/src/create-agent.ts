@@ -270,10 +270,13 @@ export interface CreateAgentOptions {
   chatMeta?: ChatSessionMeta;
 
   /**
-   * Clock for timestamps on transcript events the SDK writes directly
-   * (`session_meta`, and `turn_end` for failures outside a Runner's
-   * lifetime). Inject a deterministic Clock for reproducible timestamps in
-   * tests; defaults to wall-clock (Date.now) when omitted.
+   * Clock for timestamps on every transcript event this SDK layer touches:
+   * `session_meta` and the failure `turn_end`/`error` events it writes
+   * directly, and the `subagent_started`/`subagent_finished` bracket around
+   * a task-tool invocation. Also forwarded to each Runner it constructs
+   * (main turn and sub-agent) via `RunnerOptions.clock`, so a single
+   * injected Clock produces deterministic timestamps across the whole
+   * transcript. Defaults to wall-clock (Date.now) when omitted.
    */
   clock?: Clock;
 
@@ -644,6 +647,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         () => currentTurnEventSink,
         opts.chatStore,
         opts.chatSessionId,
+        () => turnCounter,
       ),
     );
     allCustomTools.push(taskTool);
@@ -901,11 +905,18 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       })),
     ];
 
+    // Incremented before resolveContextLayers runs — a turn is "claimed" the
+    // moment createNextRunner() is invoked, regardless of whether it goes on
+    // to construct a Runner. If this were incremented only after
+    // resolveContextLayers resolves, a rejection there would leave
+    // turnCounter pointing at the *previous* turn, so a caught failure would
+    // misattribute its turn_end to the last successful turn instead of this
+    // one (and a first-turn failure would record turn 0).
+    turnCounter++;
     const turnStepContext: StepContext = opts.resolveContextLayers
       ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
       : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
-    turnCounter++;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
     // lastRunner/lastFinalState must remain untouched so a subsequent retry
@@ -930,6 +941,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       chatStore: opts.chatStore ? chatStore : undefined,
       chatSessionId: opts.chatSessionId,
       turn: turnCounter,
+      clock: opts.clock,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
@@ -978,12 +990,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   /**
    * Best-effort: records a `turn_end` (reason: "error") directly via chatStore
-   * when a turn fails outside a Runner's own lifetime — either because the
-   * Runner was never constructed (e.g. resolveContextLayers rejected) or
-   * because runner.run() itself rejected. The Runner records its own
-   * `turn_end` for failures during its run, via its internal try/finally;
-   * this is the only recording point for failures before a Runner exists.
-   * Never throws into the caller.
+   * for a turn that fails before a Runner ever existed (e.g.
+   * resolveContextLayers rejected). This is the *only* recording point for
+   * that case — a Runner that never ran can't record its own turn_end. Never
+   * throws into the caller.
    */
   function recordTurnEndError(error: unknown): void {
     if (!opts.chatStore || !opts.chatSessionId) return;
@@ -991,9 +1001,33 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     void chatStore
       .appendEvents(opts.chatSessionId, [
         {
-          time: Date.now(),
+          time: opts.clock?.now() ?? Date.now(),
           type: "turn_end",
           data: { turn: turnCounter, reason: "error", error: message },
+          turn: turnCounter,
+        },
+      ])
+      .catch(() => {});
+  }
+
+  /**
+   * Best-effort: records an `error` event (not `turn_end`) when a Runner
+   * already exists but its `run()` call rejects. The Runner's own
+   * try/finally already recorded a `turn_end` for this turn (see
+   * `runner.ts`'s `run()`) — but that generic record carries only `reason`,
+   * not the error text. Recording a second `turn_end` here would duplicate
+   * the turn-close event; `error` preserves the message without that
+   * duplication. Never throws into the caller.
+   */
+  function recordTurnError(error: unknown): void {
+    if (!opts.chatStore || !opts.chatSessionId) return;
+    const message = error instanceof Error ? error.message : String(error);
+    void chatStore
+      .appendEvents(opts.chatSessionId, [
+        {
+          time: opts.clock?.now() ?? Date.now(),
+          type: "error",
+          data: { message },
           turn: turnCounter,
         },
       ])
@@ -1018,8 +1052,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
       const agentInput = resolveInput(input);
+      // `runner` stays undefined until createNextRunner() actually returns
+      // one — the catch block below uses that to distinguish "the Runner
+      // never existed" (record turn_end ourselves) from "the Runner existed
+      // and its own run() rejected" (it already recorded its own turn_end;
+      // record only the error text, via a separate `error` event).
+      let runner: Runner | undefined;
       try {
-        const runner = await createNextRunner(
+        runner = await createNextRunner(
           opts.eventSink ?? defaultEventSink,
           undefined,
           extractInputText(agentInput),
@@ -1029,7 +1069,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         lastFinalState = finalState;
         return finalState;
       } catch (err: unknown) {
-        recordTurnEndError(err);
+        if (runner) recordTurnError(err);
+        else recordTurnEndError(err);
         throw err;
       }
     },
@@ -1065,7 +1106,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         },
         async (err) => {
           runError = err;
-          recordTurnEndError(err);
+          // The Runner exists here (constructed above) — it already
+          // recorded its own turn_end; record the error text separately
+          // rather than duplicating turn_end.
+          recordTurnError(err);
           channel.done();
         },
       );
@@ -1215,22 +1259,31 @@ function createSubAgentExecutor(
   getCurrentEventSink: () => EventSink | undefined = () => undefined,
   chatStore?: TranscriptStore,
   parentChatSessionId?: string,
+  getCurrentTurn: () => number = () => 0,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
+    const nowMs = (): number => opts.clock?.now() ?? Date.now();
+    const turn = getCurrentTurn();
+
     // A sub-agent writes its own session file rather than sharing the parent's.
     // Sharing would collide: both Runners number their steps from 1 within the
     // same (turn, step) space. Independent sessions also let a deep task tree
     // stay readable one level at a time.
-    const childSessionId = `${parentChatSessionId}-sub-${idPort.next()}`;
-    const startedAt = Date.now();
+    // Only computed when there is a real parent session to hang it off of —
+    // without parentChatSessionId there is nothing to link a child session
+    // back to, so it would be an orphan (unattributable to any conversation)
+    // if the store ever wrote it.
+    const childSessionId = parentChatSessionId ? `${parentChatSessionId}-sub-${idPort.next()}` : undefined;
+    const startedAt = nowMs();
 
-    if (chatStore && parentChatSessionId) {
+    if (chatStore && parentChatSessionId && childSessionId) {
       void chatStore
         .appendEvents(parentChatSessionId, [
           {
             time: startedAt,
             type: "subagent_started",
             data: { childSessionId, label: "task", depth },
+            turn,
           },
         ])
         .catch(() => {});
@@ -1254,13 +1307,14 @@ function createSubAgentExecutor(
     }
 
     const finishSubAgent = (isError: boolean): void => {
-      if (chatStore && parentChatSessionId) {
+      if (chatStore && parentChatSessionId && childSessionId) {
         void chatStore
           .appendEvents(parentChatSessionId, [
             {
-              time: Date.now(),
+              time: nowMs(),
               type: "subagent_finished",
-              data: { childSessionId, isError, durationMs: Date.now() - startedAt },
+              data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+              turn,
             },
           ])
           .catch(() => {});
@@ -1317,8 +1371,12 @@ function createSubAgentExecutor(
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${idPort.next()}`,
-      chatStore,
+      // Guarded on parentChatSessionId too: without a parent session there
+      // is no valid childSessionId (see above), so never hand the Runner a
+      // chatStore it would use to write an orphaned "undefined-sub-…" session.
+      chatStore: parentChatSessionId ? chatStore : undefined,
       chatSessionId: childSessionId,
+      clock: opts.clock,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
         ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined

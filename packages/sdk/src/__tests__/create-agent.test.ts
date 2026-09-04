@@ -316,7 +316,7 @@ describe("createAgent — SDK facade", () => {
       expect(assistantMessages).toHaveLength(1);
     });
 
-    it("records a turn_end with the error message when the turn rejects", async () => {
+    it("records an error event (not a duplicate turn_end) when a Runner exists and run() rejects", async () => {
       const events: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
       const chatStore = {
         async appendEvents(sessionId: string, batch: TranscriptEventInput[]) {
@@ -327,9 +327,10 @@ describe("createAgent — SDK facade", () => {
       // "model_error" input (see stream-early-break.test.ts) and does NOT
       // reject runner.run() — that's the documented, tested behavior of this
       // codebase's error-handling architecture ("errors never interrupt the
-      // main loop"). To exercise the actual reject path that the SDK's own
-      // turn_end-on-catch guards, we use a session:start hook that throws —
-      // hook handler exceptions propagate straight out of runner.run().
+      // main loop"). To exercise the actual reject path where a Runner
+      // exists but its own run() call rejects, we use a session:start hook
+      // that throws — hook handler exceptions propagate straight out of
+      // runner.run().
       const agent = createAgent({
         modelPort: createMockModelPort([textScript("unreachable")]),
         chatStore,
@@ -347,12 +348,17 @@ describe("createAgent — SDK facade", () => {
 
       await expect(agent.run("hi")).rejects.toThrow("boom");
 
-      const turnEndWithError = events.find(
-        (e) => e.event.type === "turn_end" && (e.event.data as { error?: string }).error,
-      );
-      expect(turnEndWithError).toBeDefined();
-      expect(turnEndWithError!.sessionId).toBe("chat-s1");
-      expect((turnEndWithError!.event.data as { error: string }).error).toContain("boom");
+      // The Runner's own try/finally already closed this turn with its own
+      // turn_end (no error text) — exactly one, never a second one carrying
+      // the error text, which would be a duplicate turn-close event.
+      const turnEnds = events.filter((e) => e.event.type === "turn_end");
+      expect(turnEnds).toHaveLength(1);
+      expect((turnEnds[0]!.event.data as { error?: string }).error).toBeUndefined();
+
+      const errorEvent = events.find((e) => e.event.type === "error");
+      expect(errorEvent).toBeDefined();
+      expect(errorEvent!.sessionId).toBe("chat-s1");
+      expect((errorEvent!.event.data as { message: string }).message).toContain("boom");
     });
   });
 
