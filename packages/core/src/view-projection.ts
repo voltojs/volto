@@ -338,3 +338,140 @@ export function buildTurnRecords(
     return turn;
   });
 }
+
+// ──────────────────────────────────────────────
+// ConversationView
+// ──────────────────────────────────────────────
+
+export interface ConversationToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  /** The tool's real output — not a metadata summary. */
+  result?: string;
+  isError?: boolean;
+  durationMs?: number;
+}
+
+export type ConversationBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; call: ConversationToolCall }
+  | { type: "reasoning"; text: string };
+
+export interface ConversationMessage {
+  /** Stable across incremental rebuilds — never an array index. */
+  id: string;
+  role: "user" | "assistant";
+  blocks: ConversationBlock[];
+  /** All text segments concatenated, for copy-to-clipboard. */
+  content: string;
+  timestamp: number;
+  isStreaming?: boolean;
+}
+
+export interface ConversationView {
+  messages: ConversationMessage[];
+}
+
+function textOf(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
+/**
+ * Derives the chat feed.
+ *
+ * System scaffolding never appears. A tool result is folded into the
+ * assistant block that called it rather than becoming its own entry, so a
+ * call renders where it actually happened in the reply.
+ *
+ * Steering messages land AFTER their step's tool calls, mirroring how the
+ * reducer flushes `[...results, ...queuedUserInputs]` — ordering them by
+ * event time instead would show the user a history the model never saw.
+ */
+export function toConversationView(records: readonly TurnRecord[]): ConversationView {
+  const messages: ConversationMessage[] = [];
+
+  for (const turn of records) {
+    const direct = turn.userInput.filter((u) => u.origin === "direct");
+    const queued = turn.userInput.filter((u) => u.origin === "queued");
+
+    direct.forEach((input, i) => {
+      const text = textOf(input.content);
+      messages.push({
+        id: `${turn.turn}:u${i}`,
+        role: "user",
+        blocks: text ? [{ type: "text", text }] : [],
+        content: text,
+        timestamp: input.time,
+      });
+    });
+
+    for (const step of turn.steps) {
+      const blocks: ConversationBlock[] = [];
+      const assistant = step.assistant;
+
+      const reasoning = assistant?.reasoning ?? (step.partial?.reasoning || undefined);
+      if (reasoning) blocks.push({ type: "reasoning", text: reasoning });
+
+      if (assistant) {
+        let buffer = "";
+        const flush = (): void => {
+          if (buffer) {
+            blocks.push({ type: "text", text: buffer });
+            buffer = "";
+          }
+        };
+        for (const block of assistant.content) {
+          if (block.type === "text") {
+            buffer += block.text;
+          } else if (block.type === "tool_use") {
+            flush();
+            const call = step.toolCalls.find((c) => c.callId === block.id);
+            blocks.push({
+              type: "tool_call",
+              call: {
+                id: block.id,
+                name: block.name,
+                args: block.input,
+                ...(call?.content !== undefined ? { result: call.content } : {}),
+                ...(call?.isError !== undefined ? { isError: call.isError } : {}),
+                ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+              },
+            });
+          }
+          // Image blocks have no chat representation yet.
+        }
+        flush();
+      } else if (step.partial?.text) {
+        blocks.push({ type: "text", text: step.partial.text });
+      }
+
+      const content = assistant ? textOf(assistant.content) : (step.partial?.text ?? "");
+      messages.push({
+        id: `${turn.turn}:${step.step}`,
+        role: "assistant",
+        blocks,
+        content,
+        timestamp: step.startedAt,
+        ...(step.partial !== undefined ? { isStreaming: true } : {}),
+      });
+    }
+
+    queued.forEach((input, i) => {
+      const text = textOf(input.content);
+      messages.push({
+        id: `${turn.turn}:q${i}`,
+        role: "user",
+        blocks: text ? [{ type: "text", text }] : [],
+        content: text,
+        timestamp: input.time,
+      });
+    });
+  }
+
+  return { messages };
+}

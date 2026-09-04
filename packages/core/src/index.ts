@@ -130,6 +130,15 @@ export type {
   RetryRecord,
 } from "./view-projection.js";
 
+// View projection — turn records → chat feed for the web UI
+export { toConversationView } from "./view-projection.js";
+export type {
+  ConversationView,
+  ConversationMessage,
+  ConversationBlock,
+  ConversationToolCall,
+} from "./view-projection.js";
+
 // Reducer
 export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";

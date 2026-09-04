@@ -1,0 +1,50 @@
+[
+  {
+    "id": "s1-1",
+    "role": "user",
+    "content": "read a.txt then say hi",
+    "blocks": [
+      {
+        "type": "text",
+        "text": "read a.txt then say hi"
+      }
+    ],
+    "timestamp": 110
+  },
+  {
+    "id": "s1-2",
+    "role": "assistant",
+    "content": "Sure, reading it.",
+    "blocks": [
+      {
+        "type": "text",
+        "text": "Sure, reading it."
+      },
+      {
+        "type": "tool_call",
+        "call": {
+          "id": "c1",
+          "name": "read_file",
+          "args": {
+            "path": "a.txt"
+          },
+          "result": "file body",
+          "isError": false
+        }
+      }
+    ],
+    "timestamp": 130
+  },
+  {
+    "id": "s1-4",
+    "role": "assistant",
+    "content": "hi",
+    "blocks": [
+      {
+        "type": "text",
+        "text": "hi"
+      }
+    ],
+    "timestamp": 200
+  }
+]
