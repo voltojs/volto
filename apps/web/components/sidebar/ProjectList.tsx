@@ -52,14 +52,14 @@ export function ProjectList() {
   };
 
   const openSession = (sessionId: string) => {
+    // The chat panel's useConversation hook loads the session's history from
+    // the session store and attaches the live channel for it.
     useSessionStore.getState().setCurrentSession(sessionId);
-    const session = sessions.find((s) => s.id === sessionId);
-    useChatStore.setState({ messages: session?.messages ?? [] });
   };
 
   const startSessionForProject = (projectId: string) => {
     useSessionStore.getState().setCurrentSession(null);
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().clear();
     useSessionStore.getState().setPendingProjectId(projectId);
   };
 

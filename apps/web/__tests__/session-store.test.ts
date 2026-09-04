@@ -94,11 +94,15 @@ describe('useSessionStore', () => {
 
   it('keeps the project bound when messages update', () => {
     const id = useSessionStore.getState().createSession({ projectId: 'p1' });
-    useSessionStore
-      .getState()
-      .updateSessionMessages(id, [
-        { id: 'm1', role: 'user', content: 'hi', timestamp: Date.now() },
-      ]);
+    useSessionStore.getState().updateSessionMessages(id, [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        timestamp: Date.now(),
+        blocks: [{ type: 'text', text: 'hi' }],
+      },
+    ]);
     const session = useSessionStore
       .getState()
       .sessions.find((s) => s.id === id);
@@ -194,6 +198,81 @@ describe('migrate', () => {
     expect(migrated.sidebarOpen).toBe(true);
     expect(migrated).not.toHaveProperty('workspaces');
     expect(migrated).not.toHaveProperty('currentWorkspaceId');
+  });
+
+  it('converts legacy client Message[] history into projected ConversationMessages', () => {
+    // v1 payloads predate the view-projection consolidation: messages used
+    // the old client `Message` shape with tool results as opaque metadata.
+    const v1Payload = {
+      sessions: [
+        {
+          id: 's1',
+          title: 'old',
+          createdAt: 1,
+          updatedAt: 1,
+          projectId: 'p1',
+          providerId: 'v1',
+          modelId: 'm1',
+          permissionMode: 'plan',
+          messages: [
+            {
+              id: 'a',
+              role: 'user',
+              content: 'hi',
+              timestamp: 1,
+              blocks: [{ type: 'text', text: 'hi' }],
+            },
+            {
+              id: 'b',
+              role: 'assistant',
+              content: 'done',
+              timestamp: 2,
+              blocks: [
+                { type: 'text', text: 'done' },
+                {
+                  type: 'tool_call',
+                  call: {
+                    id: 'c1',
+                    name: 'bash',
+                    args: { cmd: 'ls' },
+                    result: { toolName: 'bash', durationMs: 3 },
+                  },
+                },
+              ],
+            },
+            { id: 'sys', role: 'system', content: 'note', timestamp: 3 },
+          ],
+        },
+      ],
+      currentSessionId: 's1',
+      sidebarOpen: true,
+    };
+
+    const migrated = migrate(v1Payload);
+    const messages = migrated.sessions[0]?.messages ?? [];
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toEqual({
+      id: 'a',
+      role: 'user',
+      content: 'hi',
+      timestamp: 1,
+      blocks: [{ type: 'text', text: 'hi' }],
+    });
+    expect(messages[1]?.role).toBe('assistant');
+    // The metadata envelope is dropped; its duration is promoted to the
+    // call's top-level field so the card can still show elapsed time.
+    expect(messages[1]?.blocks[1]).toEqual({
+      type: 'tool_call',
+      call: { id: 'c1', name: 'bash', args: { cmd: 'ls' }, durationMs: 3 },
+    });
+    // role 'system' has no ConversationMessage counterpart — it reads as assistant.
+    expect(messages[2]).toEqual({
+      id: 'sys',
+      role: 'assistant',
+      content: 'note',
+      timestamp: 3,
+      blocks: [],
+    });
   });
 
   it('tolerates an empty or missing persisted payload', () => {

@@ -7,25 +7,11 @@
  * bundle — the SSE subtree only depends on protocol types.
  */
 
-import { createSSEClient, SSEEventType } from '@volto/sdk/sse';
-import type {
-  ConnectionState,
-  SSEMessage,
-  TokenData,
-  ToolCallData,
-  ToolResultData,
-  ErrorData,
-} from '@volto/sdk/sse';
+import { createSSEClient } from '@volto/sdk/sse';
+import type { ConnectionState } from '@volto/sdk/sse';
 
-export { SSEEventType, createSSEClient };
-export type {
-  ConnectionState,
-  SSEMessage,
-  TokenData,
-  ToolCallData,
-  ToolResultData,
-  ErrorData,
-};
+export { createSSEClient };
+export type { ConnectionState };
 
 /** Base URL of the headless server. */
 export const SERVER_URL =

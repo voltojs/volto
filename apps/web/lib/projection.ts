@@ -12,6 +12,7 @@ import {
   toConversationView,
 } from '@volto/sdk/sse';
 import type {
+  ConversationMessage,
   ConversationView,
   TranscriptDelta,
   TranscriptEvent,
@@ -24,6 +25,12 @@ function asStored(events: readonly TranscriptEventInput[]): TranscriptEvent[] {
   return events.map((e, i) => ({ ...e, seq: i }) as TranscriptEvent);
 }
 
+export interface ProjectedConversation {
+  view: ConversationView;
+  /** Pass back as `prev` on the next call to keep closed turns' identity. */
+  records: TurnRecord[];
+}
+
 /**
  * Builds the chat feed from durable events plus whatever is still streaming.
  *
@@ -34,8 +41,111 @@ export function projectConversation(
   events: readonly TranscriptEventInput[],
   deltas: readonly TranscriptDelta[],
   prev?: readonly TurnRecord[],
-): ConversationView {
+): ProjectedConversation {
   let records = buildTurnRecords(asStored(events), prev);
   for (const delta of deltas) records = applyPartial(records, delta);
-  return toConversationView(records);
+  return { view: toConversationView(records), records };
+}
+
+// ---------------------------------------------------------------------------
+// Client-side feed composition
+// ---------------------------------------------------------------------------
+//
+// A session's rendered feed is its persisted history (`session.messages`,
+// projected server-side when recovered or saved client-side while active)
+// plus the live projection of whatever the SSE channel has streamed since the
+// session was opened. The two are merged by stable message id — the live list
+// supersedes the snapshot for the same turn position — so switching back to a
+// recovered session and continuing it shows one continuous conversation.
+
+/**
+ * Merges a session's persisted history with the live projection. The live
+ * side wins on id collisions, and (for an active session whose snapshot
+ * lags a debounce behind) is a strict superset, so the result equals the
+ * live feed once a turn is underway.
+ */
+export function mergeStoredAndLive(
+  stored: readonly ConversationMessage[],
+  live: readonly ConversationMessage[],
+): ConversationMessage[] {
+  if (stored.length === 0) return live as ConversationMessage[];
+  if (live.length === 0) return stored as ConversationMessage[];
+  const liveIds = new Set(live.map((m) => m.id));
+  return [
+    ...stored.filter((m) => !liveIds.has(m.id)),
+    ...(live as ConversationMessage[]),
+  ];
+}
+
+/** One rendered row of the conversation: a chat bubble or an error notice. */
+export type ChatEntry =
+  | { kind: 'message'; message: ConversationMessage }
+  | { kind: 'error'; key: string; text: string; time: number };
+
+/**
+ * Composes the feed a UI renders from a merged message list plus the live
+ * turn records the projection produced.
+ *
+ * Two rules keep the conversation honest around failures:
+ * - An assistant step that closed with an error before producing any content
+ *   (a `model_error` after `model_call_start`, no `assistant_message`) would
+ *   otherwise render as a permanently empty bubble. When the step's error is
+ *   known it becomes an error notice in that bubble's place; a closed empty
+ *   bubble with no recorded error is dropped entirely.
+ * - Turn-level errors (local send failures, protocol error events) have no
+ *   message of their own — they surface as a trailing error notice rather
+ *   than being swallowed. A turn whose step already surfaced its error skips
+ *   the duplicate notice.
+ */
+export function composeChatEntries(
+  messages: readonly ConversationMessage[],
+  records: readonly TurnRecord[],
+): ChatEntry[] {
+  const stepErrorText = new Map<string, string>();
+  for (const turn of records) {
+    for (const step of turn.steps) {
+      if (!step.error || step.assistant !== undefined) continue;
+      stepErrorText.set(
+        `${turn.turn}:${step.step}`,
+        step.error.message || '执行失败',
+      );
+    }
+  }
+
+  const entries: ChatEntry[] = [];
+  for (const message of messages) {
+    const emptyClosed =
+      message.blocks.length === 0 &&
+      message.content === '' &&
+      message.isStreaming !== true;
+    if (message.role === 'assistant' && emptyClosed) {
+      const errorText = stepErrorText.get(message.id);
+      if (errorText !== undefined) {
+        entries.push({
+          kind: 'error',
+          key: `${message.id}:error`,
+          text: errorText,
+          time: message.timestamp,
+        });
+      }
+      // No record of an error: nothing to show, nothing to hide behind — the
+      // bubble would be blank, so it is simply not rendered.
+      continue;
+    }
+    entries.push({ kind: 'message', message });
+  }
+
+  // Trailing notices for turn-level errors the message list cannot carry.
+  for (const turn of records) {
+    if (!turn.error) continue;
+    if (turn.steps.some((s) => s.error !== undefined)) continue;
+    entries.push({
+      kind: 'error',
+      key: `${turn.turn}:error`,
+      text: turn.error,
+      time: turn.startedAt,
+    });
+  }
+
+  return entries;
 }
