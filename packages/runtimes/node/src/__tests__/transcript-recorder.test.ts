@@ -62,10 +62,18 @@ describe("createTranscriptRecorder", () => {
   });
 
   it("is a no-op when no store is configured", async () => {
-    const recorder = createTranscriptRecorder({ store: undefined, sessionId: "s1", turn: 1, now: () => 1 });
+    let nowCalls = 0;
+    const recorder = createTranscriptRecorder({
+      store: undefined,
+      sessionId: "s1",
+      turn: 1,
+      now: () => { nowCalls++; return 1; },
+    });
     expect(recorder.enabled).toBe(false);
     recorder.record("turn_start", { turn: 1 });
+    expect(nowCalls).toBe(0); // Guard prevents calling now()
     await expect(recorder.flush()).resolves.toBeUndefined();
+    expect(nowCalls).toBe(0); // Still not called after flush
   });
 
   it("is a no-op when no sessionId is configured", async () => {
