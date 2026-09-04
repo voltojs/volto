@@ -119,10 +119,12 @@ describe("SSE Server", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       const joined = res.written.join("");
-      // Every channel event rides an `event` frame with its payload untouched —
-      // the transcript-level type lives inside the data.
+      // The whole channel event rides an `event` frame — type discriminator
+      // and payload untouched, so nothing is dropped on the wire.
       expect(joined).toContain("event: event");
+      expect(joined).toContain('"type":"text_delta"');
       expect(joined).toContain('"text":"hello"');
+      expect(joined).toContain('"type":"tool_use_complete"');
       expect(joined).toContain('"toolCallId":"call-1"');
       // No v1 per-type frames remain on the wire.
       expect(hasEvent(res.written, "token")).toBe(false);

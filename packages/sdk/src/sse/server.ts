@@ -3,10 +3,11 @@
  *
  * Transport responsibilities only: headers, event buffering and
  * disconnection recovery (Last-Event-ID), heartbeat keep-alive, and error
- * framing for transport-level failures. Every channel event is framed
- * verbatim as an authoritative `EVENT` frame — whether an increment is a
- * non-replayable `delta` is decided by the host that feeds the channel (see
- * the v2 mapper), not by this generic bridge.
+ * framing for transport-level failures. Every channel event — shaped
+ * `{ type, data }` — is framed whole as an authoritative `EVENT` frame, so
+ * no field is dropped on the wire; whether an increment is a non-replayable
+ * `delta` is decided by the host that feeds the channel (see the v2 mapper),
+ * not by this generic bridge.
  *
  * Supports:
  * - Event buffering and disconnection recovery (Last-Event-ID)
@@ -130,13 +131,12 @@ export function createSSEServer(options: SSEServerOptions = {}) {
         for await (const event of channel.events()) {
           if (abortController.signal.aborted) break;
 
-          // Frame the event verbatim as an authoritative EVENT frame; the
-          // transcript-level type lives inside the payload, so the transport
-          // needs no per-event-type vocabulary of its own.
+          // Frame the whole channel event — type discriminator included —
+          // verbatim as an authoritative EVENT frame, dropping nothing.
           const sseMessage: SSEMessage = {
             id: String(++eventIdCounter),
             event: SSEFrameType.EVENT,
-            data: event.data,
+            data: event,
             timestamp: Date.now(),
           };
 
