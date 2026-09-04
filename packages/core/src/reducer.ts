@@ -330,7 +330,17 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     const emitEffect: Effect = {
       type: "emit",
-      event: { type: "model_done", data: { stopReason: input.stopReason, usage: input.usage } },
+      event: {
+        type: "model_done",
+        data: {
+          stopReason: input.stopReason,
+          usage: input.usage,
+          // The Runner records this verbatim into the transcript's
+          // assistant_message event; handing it over here avoids a second,
+          // possibly divergent reassembly on the imperative side.
+          message: assistantMsg,
+        },
+      },
     };
 
     // Runaway guard — applies to every path that would issue another model call.
@@ -505,7 +515,8 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     // Emit a tool_result observability event for every result as it arrives.
     // displayMetadata.durationMs (and other host annotations) flow through so
     // tracing sinks can show timing without re-querying the runtime.
-    const matchingTool = state.pendingTools.find((t) => t.id === input.toolCallId);
+    const matchingIndex = state.pendingTools.findIndex((t) => t.id === input.toolCallId);
+    const matchingTool = matchingIndex >= 0 ? state.pendingTools[matchingIndex] : undefined;
     const resultEmit: Effect = {
       type: "emit",
       event: {
@@ -515,6 +526,14 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           toolName: matchingTool?.name,
           isError: input.result.isError ?? false,
           durationMs: input.result.displayMetadata?.["durationMs"],
+          // The result's own text and host annotations, so the transcript can
+          // record what the tool actually produced rather than just that it ran.
+          content: input.result.modelContent,
+          displayMetadata: input.result.displayMetadata,
+          // Results arrive in completion order but flush in pendingTools order
+          // (see the allDone branch below). Carrying the index lets a reader
+          // reconstruct the flushed order without replaying the reducer.
+          orderInBatch: matchingIndex,
         },
       },
     };
