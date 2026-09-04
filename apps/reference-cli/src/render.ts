@@ -54,7 +54,9 @@ export function createRenderingEventSink(targets: RenderTargets): EventSink {
         targets.stdout(event.data["text"] as string);
         return;
       }
-      if (event.type === "model_done") {
+      if (event.type === "assistant_message") {
+        // One per model call (the runner no longer emits raw model_done —
+        // task-r6; the transcript assistant_message closes each call's text).
         // End-of-turn newline. Close any open sub block first so framing
         // brackets land before the trailing newline.
         if (depth === 0 && inSubBlock) closeSubIfNeeded();

@@ -12,7 +12,7 @@ import {
   toolCallScript,
   textScript,
 } from "@volto/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink, Hook } from "@volto/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink, Hook, TranscriptEventInput } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures
@@ -432,7 +432,7 @@ describe("Runner", () => {
   });
 
   describe("event sink integration", () => {
-    it("should forward emit effects to EventSink", async () => {
+    it("should forward transcript events and deltas to EventSink", async () => {
       const events: Array<{ type: string; data: Record<string, unknown> }> = [];
       const eventSink: EventSink = {
         emit(event) { events.push(event); },
@@ -454,7 +454,63 @@ describe("Runner", () => {
       const eventTypes = events.map((e) => e.type);
       expect(eventTypes).toContain("user_message");
       expect(eventTypes).toContain("text_delta");
-      expect(eventTypes).toContain("model_done");
+      expect(eventTypes).toContain("assistant_message");
+      // The reducer's raw event vocabulary is gone from the wire (task-r6):
+      // model_done is replaced by the recorded assistant_message.
+      expect(eventTypes).not.toContain("model_done");
+    });
+
+    it("streams the same stamped events it records, and never streams model_done/tool_use_complete", async () => {
+      const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+      const eventSink: EventSink = {
+        emit(event) { events.push(event); },
+      };
+      const persisted: Array<{ type: string; data: Record<string, unknown> }> = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          persisted.push(...(batch as unknown as Array<{ type: string; data: Record<string, unknown> }>));
+        },
+      };
+
+      const mockModel = createMockModelPort([
+        [toolUseStart("c1", "read_file"), toolUseDelta("c1", '{"path":"foo.ts"}'), modelDone("tool_use")],
+        [textDelta("done"), modelDone("end_turn")],
+      ]);
+
+      const runner = createRunner({
+        modelPort: mockModel,
+        stepContext: ctx,
+        eventSink,
+        chatStore,
+        chatSessionId: "chat-1",
+        toolExecutor: async () => ({ modelContent: "const x = 1;", isError: false }),
+        availableCapabilities: capabilities,
+      });
+
+      await runner.run({ type: "user_message", content: "Hi" });
+
+      const streamTypes = events.map((e) => e.type);
+      // Transcript vocabulary + deltas on the stream, no raw reducer twins.
+      expect(streamTypes).not.toContain("model_done");
+      expect(streamTypes).not.toContain("tool_use_complete");
+      expect(streamTypes).toContain("assistant_message");
+      expect(streamTypes).toContain("tool_call");
+      expect(streamTypes).toContain("turn_end");
+
+      // Every persisted event has a same-shaped twin on the stream (same
+      // data + same time/turn/step — the recorder emits exactly what it
+      // buffers, task-r6 double write).
+      expect(persisted.length).toBeGreaterThan(0);
+      const transcriptStreamed = events.filter((e) => e.type !== "text_delta" && e.type !== "tool_use_delta");
+      const sortKey = (e: { type: string; data: unknown }): string => JSON.stringify({ type: e.type, data: e.data });
+      const streamedSorted = [...transcriptStreamed].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+      const persistedSorted = [...persisted].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+      expect(streamedSorted.length).toBe(persistedSorted.length);
+      for (let i = 0; i < persistedSorted.length; i++) {
+        expect(sortKey(streamedSorted[i]!)).toBe(sortKey(persistedSorted[i]!));
+        expect((streamedSorted[i] as { time?: unknown }).time).toBe((persistedSorted[i] as { time?: unknown }).time);
+        expect((streamedSorted[i] as { turn?: unknown }).turn).toBe((persistedSorted[i] as { turn?: unknown }).turn);
+      }
     });
   });
 

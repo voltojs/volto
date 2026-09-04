@@ -86,9 +86,11 @@ describe("SDK stream() — early break", () => {
       events.push(ev.type);
     }
     expect(events).toContain("text_delta");
-    // A non-retriable model error emits an `error` event before the
-    // reducer transitions to `done`. We accept any of {error, model_done}
-    // as proof the stream settled.
-    expect(events.some((t) => t === "model_done" || t === "error")).toBe(true);
+    // A non-retriable model error is recorded as a model_error transcript
+    // event (plus an `error` residual) before the turn closes with turn_end.
+    // Any of those proves the stream settled; raw model_done no longer exists
+    // on the wire (task-r6).
+    expect(events.some((t) => t === "model_error" || t === "turn_end" || t === "error")).toBe(true);
+    expect(events).not.toContain("model_done");
   });
 });

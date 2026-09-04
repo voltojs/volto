@@ -335,11 +335,21 @@ describe("Headless server", () => {
       .map((d) => d.text ?? "");
     expect(textPieces.join("")).toBe("Hello world");
 
-    // ...bookended by an authoritative user_message event frame.
+    // ...bookended by authoritative event frames. Task R6: the runner streams
+    // the transcript vocabulary it records — every event frame payload is a
+    // stamped TranscriptEventInput ({time, type, data, turn?}), isomorphic
+    // with what the chatStore would persist. The raw reducer vocabulary
+    // (model_done/tool_use_complete) never reaches the wire.
     const eventPayloads = frames
       .filter((f) => f.event === "event")
-      .map((f) => f.data as { type: string });
+      .map((f) => f.data as { type: string; time: number; turn?: number });
     expect(eventPayloads.some((e) => e.type === "user_message")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "assistant_message")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "turn_end")).toBe(true);
+    expect(eventPayloads.every((e) => typeof e.time === "number")).toBe(true);
+    expect(eventPayloads.every((e) => typeof e.turn === "number")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "model_done")).toBe(false);
+    expect(eventPayloads.some((e) => e.type === "tool_use_complete")).toBe(false);
 
     // Ids are monotonic so a client can resume with Last-Event-ID. Delta
     // frames share the last event's id (they are not replayable), so ids are

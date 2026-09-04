@@ -1,17 +1,22 @@
 /**
  * use-stream.ts
- * 订阅主进程通过 IPC 转发的 agent 事件，把流式增量、错误、工具调用结果
- * 写回 `chat-store`，让 `ChatPanel` 这种纯消费 store 的组件能渲染出来。
+ * Subscribes to agent events forwarded from the main process via IPC and
+ * writes streaming increments, errors, and tool-call results back into
+ * `chat-store`, which `ChatPanel` (a pure consumer of the store) renders.
  *
- * 处理的事件类型（来源：packages/core/src/reducer.ts）：
- *   - text_delta          → 追加到当前 assistant 流消息（不存在则新建）
- *   - model_done          → 标记当前流消息结束，清 streaming 标志
- *   - error               → setError + 追加一条 system 消息记录错误
- *   - tool_use_complete   → 在当前 assistant 流消息上记一个 toolCall（args 暂留空）
- *   - tool_result (来自 displayMetadata.pendingEvents) → 把 result/error 回填到对应 toolCall
- *   - reasoning_delta / cancelled / steering_queued / budget_exceeded / model_retry → 仅累计到 events 用于调试
+ * Event vocabulary (task-r6): the runner streams the persisted transcript
+ * vocabulary — assistant_message / tool_call / tool_result / model_error /
+ * user_message / turn_end ... — plus the raw streaming deltas. The pre-R6 raw
+ * events (model_done / tool_use_complete) no longer exist on the wire.
+ * Handled here:
+ *   - text_delta        → append to the current streaming assistant message (create on demand)
+ *   - assistant_message → finalize the current streaming assistant message (raw model_done's role)
+ *   - tool_call         → record a tool call on the streaming assistant message (raw tool_use_complete's role)
+ *   - tool_result       → backfill result/error/duration onto the matching tool call
+ *   - error/model_error → setError + append a system message recording the error
+ *   - everything else   → accumulated in `events` for the debug view only
  *
- * `events` 流仅用于 debug 视图；UI 渲染只读 `chat-store`。
+ * `events` is only for the debug view; the UI renders from `chat-store`.
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -25,9 +30,9 @@ import { useDebugStore } from "@/renderer/src/stores/debug-store";
 
 export type { AgentEvent };
 
-/** 从事件 data 中取一个稳定 id，没有就生成一个 */
+/** Read a stable id out of an event's data, generating one if absent. */
 function takeId(data: Record<string, unknown>, fallback: string): string {
-  const id = data["id"] ?? data["toolCallId"] ?? data["toolUseId"];
+  const id = data["id"] ?? data["toolCallId"] ?? data["toolUseId"] ?? data["callId"];
   if (typeof id === "string" && id.length > 0) return id;
   return fallback;
 }
@@ -39,30 +44,30 @@ function genId(prefix: string): string {
 
 /**
  * useStream hook
- * 订阅 agent 事件并 dispatch 到 chat-store。
+ * Subscribes to agent events and dispatches them into chat-store.
  *
- * 调用者通常是一个 root-level 组件（如 App）；多个挂载点会触发多份订阅，
- * 因此整个应用只允许调用一次。
+ * Callers are usually a root-level component (e.g. App); multiple mounts
+ * would trigger multiple subscriptions, so the app subscribes exactly once.
  */
 export function useStream() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  /** 每个 session 独立累计自己的"当前流式 assistant 消息 id"，避免多会话并发时互相覆盖 */
+  /** Per-session "currently streaming assistant message" id, so concurrent sessions do not clobber each other. */
   const streamingMessageIdsRef = useRef<Map<string, string>>(new Map());
 
-  /** 把事件按类型分发到 chat-store；同时镜像到 debug-store 供调试视图使用 */
+  /** Dispatch one event by type into chat-store; mirror it into debug-store. */
   const handleEvent = useCallback((event: AgentEvent) => {
     setEvents((prev) => [...prev, event]);
-    // debug-store 是瞬态镜像，先 push 再 dispatch 到业务 store，确保即使后续逻辑
-    // 抛错（虽然这里不会），事件本身一定能进入调试时间轴
+    // debug-store is a transient mirror — push before dispatching so the
+    // event always lands on the debug timeline even if a dispatch throws.
     useDebugStore.getState().pushEvent(event);
 
     const sessionId = typeof event.data["sessionId"] === "string" ? (event.data["sessionId"] as string) : null;
-    if (!sessionId) return; // 老事件/无会话上下文的事件，丢弃
+    if (!sessionId) return; // events without session context are dropped
 
     const store = useChatStore.getState();
-    if (!store.sessions.has(sessionId)) return; // 会话已被删除，丢弃
+    if (!store.sessions.has(sessionId)) return; // session deleted — drop
 
     switch (event.type) {
       case "text_delta": {
@@ -70,7 +75,7 @@ export function useStream() {
         if (!delta) return;
         let msgId = streamingMessageIdsRef.current.get(sessionId);
         if (!msgId) {
-          // 新开一条 assistant streaming 消息
+          // Open a new streaming assistant message
           msgId = genId("asst");
           streamingMessageIdsRef.current.set(sessionId, msgId);
           const msg: Message = {
@@ -82,7 +87,7 @@ export function useStream() {
           };
           store.addMessage(sessionId, msg);
         } else {
-          // 追加到既有 streaming 消息
+          // Append to the existing streaming message
           const current = store.sessions.get(sessionId)?.messages.find((m) => m.id === msgId);
           const nextContent = (current?.content ?? "") + delta;
           store.updateMessage(sessionId, msgId, { content: nextContent });
@@ -90,7 +95,10 @@ export function useStream() {
         return;
       }
 
-      case "model_done": {
+      case "assistant_message": {
+        // Each model call's authoritative result — the runner streams the
+        // recorded transcript event (task-r6 replaced raw model_done here).
+        // Finalize the streaming message built from text_delta.
         const msgId = streamingMessageIdsRef.current.get(sessionId);
         if (msgId) {
           store.updateMessage(sessionId, msgId, { isStreaming: false });
@@ -99,13 +107,16 @@ export function useStream() {
         return;
       }
 
-      case "tool_use_complete": {
+      case "tool_call": {
+        // A fully-assembled tool call recorded by the runner (task-r6
+        // replaced raw tool_use_complete here).
         const name = typeof event.data["name"] === "string" ? (event.data["name"] as string) : "unknown";
-        const args = (event.data["args"] ?? {}) as Record<string, unknown>;
+        const args = (event.data["input"] ?? {}) as Record<string, unknown>;
         const toolCallId = takeId(event.data, genId("tool"));
 
         let msgId = streamingMessageIdsRef.current.get(sessionId);
-        // 若 assistant 流消息尚未创建（例如模型直接 emit tool_use 而无 text），先建一条占位
+        // If no assistant message is streaming yet (e.g. the model emitted a
+        // tool call without any text), create a placeholder to hold the call.
         if (!msgId) {
           msgId = genId("asst");
           streamingMessageIdsRef.current.set(sessionId, msgId);
@@ -126,12 +137,15 @@ export function useStream() {
       }
 
       case "tool_result": {
+        // Transcript-shape result (task-r6): {callId, name?, content,
+        // isError, durationMs?, ...} streamed from the runner's own record.
         const toolCallId = takeId(event.data, "");
         if (!toolCallId) return;
-        const result = event.data["result"];
+        const content = typeof event.data["content"] === "string" ? (event.data["content"] as string) : "";
         const errorVal = event.data["error"];
+        const isError = event.data["isError"] === true;
         const durationMs = event.data["durationMs"];
-        // 在所有消息里找带该 toolCallId 的 toolCall 并回填
+        // Backfill the tool call with this id on whichever message carries it
         const session = store.sessions.get(sessionId);
         if (!session) return;
         for (const m of session.messages) {
@@ -142,8 +156,8 @@ export function useStream() {
             t.id === toolCallId
               ? {
                   ...t,
-                  result,
-                  error: typeof errorVal === "string" ? errorVal : undefined,
+                  result: content,
+                  error: isError ? content : typeof errorVal === "string" ? errorVal : undefined,
                   duration: typeof durationMs === "number" ? durationMs : t.duration,
                 }
               : t,
@@ -154,7 +168,8 @@ export function useStream() {
         return;
       }
 
-      case "error": {
+      case "error":
+      case "model_error": {
         const errVal = event.data["error"];
         const message =
           typeof errVal === "string"
@@ -169,14 +184,15 @@ export function useStream() {
           content: `错误: ${message}`,
           timestamp: event.timestamp,
         });
-        // 出错后关闭可能挂着的 streaming 标志
+        // Close any streaming flag left dangling by the failure
         const msgId = streamingMessageIdsRef.current.get(sessionId);
         if (msgId) store.updateMessage(sessionId, msgId, { isStreaming: false });
         streamingMessageIdsRef.current.delete(sessionId);
         return;
       }
 
-      // 其它事件仅累计到 events 流，不影响 UI 渲染
+      // Any other event only feeds the debug event stream — it never touches
+      // the rendered chat.
       case "user_message":
       case "reasoning_delta":
       case "cancelled":
@@ -188,7 +204,7 @@ export function useStream() {
     }
   }, []);
 
-  /** 订阅 IPC 事件，整个 app 生命周期保持一份订阅 */
+  /** Subscribe to IPC events once for the app's whole lifetime. */
   useEffect(() => {
     if (typeof window === "undefined" || !window.electronAPI?.agent) return;
     const api = window.electronAPI.agent;
@@ -203,7 +219,7 @@ export function useStream() {
     };
   }, [handleEvent]);
 
-  /** 清除调试事件 */
+  /** Clear the debug events. */
   const clearEvents = useCallback(() => setEvents([]), []);
 
   return { events, clearEvents };

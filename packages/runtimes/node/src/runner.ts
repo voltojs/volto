@@ -18,6 +18,7 @@ import type {
   PermissionConfig,
   SessionStore,
   TranscriptStore,
+  TranscriptEventInput,
   ApprovalGate,
   CompactionConfig,
   Message,
@@ -280,6 +281,10 @@ export function createRunner(opts: RunnerOptions): Runner {
     sessionId: opts.chatSessionId,
     turn: opts.turn ?? 0,
     now: nowMs,
+    // Task R6 double write: every event the recorder stamps is streamed to
+    // the EventSink — the same data and the same time/turn/step that get
+    // persisted — so the live SSE path and the durable log are isomorphic.
+    emit: opts.eventSink ? (event) => opts.eventSink!.emit(toSinkEvent(event)) : undefined,
   });
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
@@ -335,94 +340,124 @@ export function createRunner(opts: RunnerOptions): Runner {
   }
 
   /**
-   * Forward emit effects to EventSink, recording the ones only the reducer
-   * knows about into the transcript. Events the Runner itself originates
-   * (model_call_start, request_header, turn_start/end, model_retry,
-   * approval_decision, model_error) are recorded directly at their call
-   * sites instead — they need context (timing, hashes) that never reaches
-   * an emit effect.
+   * Forward reducer emit effects onto the wire, translating each event into
+   * the transcript vocabulary when it has one.
+   *
+   * Since task-r6 the EventSink carries transcript events (the same stamped
+   * `{time, type, data, turn?, step?}` the recorder persists — the recorder's
+   * `emit` hook performs the double write) plus the streaming delta
+   * increments. The reducer's own raw vocabulary is therefore NOT forwarded
+   * verbatim for events that have a transcript twin:
+   *   - model_done → assistant_message
+   *   - tool_use_complete → tool_call
+   *   - tool_result → tool_result (transcript shape)
+   *   - budget_exceeded / steering_queued → same-name transcript events
+   *   - user_message (only ever emitted for the initial idle feed) → covered
+   *     by the runner-originated record at run(), which now streams too
+   * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
+   * — they are not transcript events and are never persisted. A few raw
+   * events have no transcript counterpart (error / cancelled / self_correct);
+   * they keep flowing for observability (see the report for the decision
+   * table).
    */
   function forwardEmit(effects: Effect[]): void {
     for (const e of effects) {
       if (e.type !== "emit") continue;
-      opts.eventSink?.emit(e.event);
 
-      // steering_queued is the one transcript event the Runner cannot observe
-      // directly: whether a mid-turn user_message is queued or starts a new
-      // turn is decided inside the reducer. Duplicating that branch here would
-      // drift; intercepting the event keeps the reducer the single source.
-      if (e.event.type === "steering_queued") {
-        recorder.record("steering_queued", {
-          content: e.event.data["content"] as string,
-        });
-        continue;
-      }
+      const event = e.event;
+      switch (event.type) {
+        case "text_delta":
+        case "reasoning_delta":
+        case "tool_use_delta":
+          // Streaming increments: raw on the wire, never recorded.
+          opts.eventSink?.emit(event);
+          continue;
 
-      if (e.event.type === "model_done") {
-        const message = e.event.data["message"] as AssistantMessage | undefined;
-        if (!message) continue;
-        // Read once and reuse as this event's own `time` — same reasoning
-        // as callStartedAt above: durationMs anchors on this exact reading,
-        // and the recorded event's `time` field must match it.
-        const endedAt = nowMs();
-        recorder.record(
-          "assistant_message",
-          {
-            content: message.content,
-            ...(reasoningText ? { reasoning: reasoningText } : {}),
-            ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
-            ...(e.event.data["usage"] !== undefined ? { usage: e.event.data["usage"] as TokenUsage } : {}),
-            ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
-            durationMs: endedAt - callStartedAt,
-          },
-          { step: stepCounter, time: endedAt },
-        );
-        continue;
-      }
+        case "user_message":
+          // The reducer emits this only when the initial input (fed from
+          // run()) enters from idle. run() records — and therefore streams —
+          // the transcript user_message at the same logical moment; emitting
+          // this raw twin would duplicate it on the wire.
+          continue;
 
-      if (e.event.type === "tool_use_complete") {
-        recorder.record(
-          "tool_call",
-          {
-            callId: e.event.data["toolCallId"] as string,
-            name: e.event.data["toolName"] as string,
-            input: (e.event.data["input"] as Record<string, unknown>) ?? {},
-          },
-          { step: stepCounter },
-        );
-        continue;
-      }
+        case "steering_queued":
+          // steering_queued is the one transcript event the Runner cannot
+          // observe directly: whether a mid-turn user_message is queued or
+          // starts a new turn is decided inside the reducer. Duplicating that
+          // branch here would drift; intercepting the event keeps the reducer
+          // the single source.
+          recorder.record("steering_queued", {
+            content: event.data["content"] as string,
+          });
+          continue;
 
-      if (e.event.type === "tool_result") {
-        recorder.record(
-          "tool_result",
-          {
-            callId: e.event.data["toolCallId"] as string,
-            name: e.event.data["toolName"] as string | undefined,
-            content: (e.event.data["content"] as string) ?? "",
-            isError: e.event.data["isError"] === true,
-            durationMs: e.event.data["durationMs"] as number | undefined,
-            displayMetadata: e.event.data["displayMetadata"] as Record<string, unknown> | undefined,
-            orderInBatch: (e.event.data["orderInBatch"] as number) ?? 0,
-          },
-          { step: stepCounter },
-        );
-        continue;
-      }
+        case "model_done": {
+          const message = event.data["message"] as AssistantMessage | undefined;
+          if (!message) continue;
+          // Read once and reuse as this event's own `time` — same reasoning
+          // as callStartedAt above: durationMs anchors on this exact reading,
+          // and the recorded event's `time` field must match it.
+          const endedAt = nowMs();
+          recorder.record(
+            "assistant_message",
+            {
+              content: message.content,
+              ...(reasoningText ? { reasoning: reasoningText } : {}),
+              ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
+              ...(event.data["usage"] !== undefined ? { usage: event.data["usage"] as TokenUsage } : {}),
+              ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
+              durationMs: endedAt - callStartedAt,
+            },
+            { step: stepCounter, time: endedAt },
+          );
+          continue;
+        }
 
-      if (e.event.type === "budget_exceeded") {
-        turnHadBudgetExceeded = true;
-        recorder.record("budget_exceeded", { reason: e.event.data["reason"] as string });
+        case "tool_use_complete":
+          recorder.record(
+            "tool_call",
+            {
+              callId: event.data["toolCallId"] as string,
+              name: event.data["toolName"] as string,
+              input: (event.data["input"] as Record<string, unknown>) ?? {},
+            },
+            { step: stepCounter },
+          );
+          continue;
+
+        case "tool_result":
+          recorder.record(
+            "tool_result",
+            {
+              callId: event.data["toolCallId"] as string,
+              name: event.data["toolName"] as string | undefined,
+              content: (event.data["content"] as string) ?? "",
+              isError: event.data["isError"] === true,
+              durationMs: event.data["durationMs"] as number | undefined,
+              displayMetadata: event.data["displayMetadata"] as Record<string, unknown> | undefined,
+              orderInBatch: (event.data["orderInBatch"] as number) ?? 0,
+            },
+            { step: stepCounter },
+          );
+          continue;
+
+        case "budget_exceeded":
+          turnHadBudgetExceeded = true;
+          recorder.record("budget_exceeded", { reason: event.data["reason"] as string });
+          continue;
+
+        default:
+          // Raw events with no transcript counterpart (error / cancelled /
+          // self_correct, and any future reducer event) keep flowing for
+          // observability — see the comment above the switch. Note the
+          // reducer's model_error AgentInput produces a generic "error" emit
+          // (reducer.ts handleCallingModel), never one literally typed
+          // "model_error": model_error transcript events are recorded
+          // directly at every site that constructs that AgentInput (the
+          // provider-error stream loop and runModelStream's catch block).
+          opts.eventSink?.emit(event);
+          continue;
       }
-      // Note: the reducer's model_error AgentInput produces a generic "error"
-      // emit (see reducer.ts handleCallingModel), not an emit literally typed
-      // "model_error" — there is nothing of that shape to intercept here.
-      // model_error transcript events are instead recorded directly at every
-      // site that constructs a model_error AgentInput: the stream loop
-      // (provider yields {type:"error"} without throwing — this is the path
-      // real providers take, see runModelStream's `for await` loop) and
-      // runModelStream's catch block (the ModelPort itself threw). Both have
-      // the classified error, retriable flag, and errorKind already in scope.
     }
   }
 
@@ -537,7 +572,8 @@ export function createRunner(opts: RunnerOptions): Runner {
     const step = stepCounter;
 
     if (assembled.layerOrigins.length > 0) {
-      opts.eventSink?.emit({ type: "context_assembled", data: { layerOrigins: assembled.layerOrigins } });
+      // record() streams the same stamped context_assembled event (task-r6
+      // double write) — no separate raw emit here.
       recorder.record("context_assembled", { layerOrigins: assembled.layerOrigins }, { step });
     }
 
@@ -559,14 +595,15 @@ export function createRunner(opts: RunnerOptions): Runner {
     // "write once"; it also means a future caller with a mutable stepContext
     // gets deduping for free instead of a silent behavior change here.
     //
-    // Skip the computation entirely when nothing is recording — JSON.stringify
-    // + sha256 over the whole tool catalogue on every model call is wasted
-    // work with chatStore unconfigured. Guarded in its own try/catch: a tool
+    // Since task-r6 the recorder's double write makes request_header /
+    // model_call_start part of the live event contract, so this runs whenever
+    // anything can observe the stream (persistence OR an EventSink) — a
+    // recorder with neither is a no-op. Guarded in its own try/catch: a tool
     // whose inputSchema is self-referential (e.g. built from z.lazy) or
     // carries a non-JSON value (e.g. a BigInt default) makes JSON.stringify
     // throw, and that must not fail the turn just because the header can't
     // be hashed — transcript writes are best-effort, never a precondition.
-    if (recorder.enabled) {
+    if (recorder.enabled || opts.eventSink !== undefined) {
       let headerHash: string | undefined;
       try {
         const headerPayload = {
@@ -765,7 +802,8 @@ export function createRunner(opts: RunnerOptions): Runner {
 
           if (consecutiveModelErrors <= maxRetries && consecutiveModelErrors < circuitBreakerThreshold) {
             const delay = Math.min(baseDelayMs * Math.pow(2, consecutiveModelErrors - 1), maxDelayMs);
-            opts.eventSink?.emit({ type: "model_retry", data: { attempt: consecutiveModelErrors, delayMs: delay, error } });
+            // record() streams the same stamped model_retry event (task-r6
+            // double write) — no separate raw emit here.
             recorder.record("model_retry", { attempt: consecutiveModelErrors, delayMs: delay, error }, { step: stepCounter });
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, delay);
@@ -1431,6 +1469,30 @@ function extractLastUserMessage(messages: Message[]): string {
     }
   }
   return "";
+}
+
+/**
+ * Widen a stamped transcript event to the EventSink's declared `{type, data}`
+ * shape. The transcript stamp (`time`/`turn`/`step`) intentionally rides along
+ * as top-level extras — the wire payload IS the persisted event (task-r6), and
+ * sink consumers that care only about `type`/`data` ignore the rest. Only
+ * `data` needs widening: the sink types it as an untyped Record while a
+ * transcript event carries a specific vocabulary shape.
+ */
+function toSinkEvent(event: TranscriptEventInput): {
+  type: string;
+  data: Record<string, unknown>;
+  time: number;
+  turn?: number;
+  step?: number;
+} {
+  return {
+    type: event.type,
+    data: event.data as unknown as Record<string, unknown>,
+    time: event.time,
+    ...(event.turn !== undefined ? { turn: event.turn } : {}),
+    ...(event.step !== undefined ? { step: event.step } : {}),
+  };
 }
 
 function modelEventToInputs(

@@ -21,6 +21,15 @@ export interface TranscriptRecorderOptions {
   turn: number;
   /** Injected clock — the Runner passes its `opts.clock?.now ?? Date.now`. */
   now: () => number;
+  /**
+   * The stream half of the recorder's double write (task-r6). Called with the
+   * exact stamped event that `record()` is about to buffer — same data, same
+   * `time`/`turn`/`step` — so the live event channel and the persisted log
+   * never drift. Invoked even when no store/session is configured (persistence
+   * disabled): a host without a chatStore still needs the live transcript
+   * vocabulary. Omit for a persistence-only recorder.
+   */
+  emit?: (event: TranscriptEventInput) => void;
 }
 
 export interface RecordMeta {
@@ -39,9 +48,13 @@ export interface RecordMeta {
 }
 
 export interface TranscriptRecorder {
-  /** True when a store and session id are both configured. */
+  /** True when a store and session id are both configured (events are buffered for disk). */
   readonly enabled: boolean;
-  /** Buffers one event, stamping it with the current time and turn. */
+  /**
+   * Stamps one transcript event (time/turn/step) and — when an `emit`
+   * callback was configured — streams that exact stamped event before
+   * buffering it for persistence. Buffering is skipped when disabled.
+   */
   record<T extends TranscriptEventType>(
     type: T,
     data: TranscriptEventMap[T],
@@ -52,7 +65,7 @@ export interface TranscriptRecorder {
 }
 
 export function createTranscriptRecorder(opts: TranscriptRecorderOptions): TranscriptRecorder {
-  const { store, sessionId, turn, now } = opts;
+  const { store, sessionId, turn, now, emit } = opts;
   const enabled = store !== undefined && sessionId !== undefined;
   let buffer: TranscriptEventInput[] = [];
   // Chains every write flush() has ever issued, so that:
@@ -70,14 +83,20 @@ export function createTranscriptRecorder(opts: TranscriptRecorderOptions): Trans
     enabled,
 
     record(type, data, meta) {
-      if (!enabled) return;
-      buffer.push({
+      // A recorder with neither persistence nor a stream half is a no-op —
+      // skip stamping entirely so a disabled recorder costs nothing.
+      if (!enabled && !emit) return;
+      // Construct the stamped event exactly once; persistence and the stream
+      // share this construction so the two can never drift (task-r6).
+      const event: TranscriptEventInput = {
         time: meta?.time ?? now(),
         type,
         data,
         turn,
         ...(meta?.step !== undefined ? { step: meta.step } : {}),
-      });
+      };
+      emit?.(event);
+      if (enabled) buffer.push(event);
     },
 
     async flush() {

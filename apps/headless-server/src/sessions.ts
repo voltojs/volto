@@ -127,15 +127,41 @@ interface Session {
   lastUsed: number;
 }
 
-/** An event as an agent's stream() yields it — the raw EventSink vocabulary. */
+/** An event as an agent's stream() yields it.
+ *
+ * Since task-r6 the Runner double-writes every transcript event it persists,
+ * so the non-delta vocabulary on the stream is the transcript's own: each
+ * event carries the exact stamp ({time, turn?, step?}) that was recorded, on
+ * top of `{type, data}`. A few raw events with no transcript counterpart
+ * (reducer residuals like error/cancelled/self_correct, plus tool
+ * effect-channel events from displayMetadata.pendingEvents) still ride
+ * without a stamp.
+ */
 interface ChannelEvent {
   type: string;
   data: Record<string, unknown>;
+  /** Transcript stamp — present only on events the runner also recorded. */
+  time?: number;
+  turn?: number;
+  step?: number;
 }
 
 /** A delta payload field that is optional on the wire reads as "" when absent. */
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * Narrow a channel event to the transcript contract. The runtime
+ * discriminator is the `time` stamp: since task-r6 the Runner's recorder
+ * stamps — and therefore streams — every event it persists, so only raw
+ * residuals / effect-channel events lack one. The narrowed value is a
+ * genuine TranscriptEventInput: the same shape that was appended to the
+ * chatStore, framed verbatim by mapper.event().
+ */
+function asTranscriptEvent(event: ChannelEvent): TranscriptEventInput | null {
+  if (typeof event.time !== "number") return null;
+  return event as TranscriptEventInput;
 }
 
 export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
@@ -189,14 +215,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * Frame one channel event for the wire. The EventSink's streaming
    * increments — text / reasoning / tool-use deltas — ride `delta` frames
    * carrying a `TranscriptDelta`, so a client can render a typewriter effect
-   * between authoritative events. Everything else rides an `event` frame
-   * whose payload keeps the channel event's type discriminator (the subset
-   * whose types mirror the persisted transcript vocabulary is projected like
-   * a stored event by the client). Turn boundaries need no mapper-side
-   * bookkeeping: they are expressed by `turn_end` events, so `done()` and
-   * `resetTurn()` no longer exist on the mapper.
+   * between authoritative events. Everything else is a transcript event:
+   * since task-r6 the Runner streams the very `{time, type, data, turn?,
+   * step?}` it persists, so these ride verbatim `event` frames whose payload
+   * the client projects exactly like a stored event (spec §6.1 isomorphism).
+   * Channel events without a transcript stamp — the reducer's unmapped
+   * observability residuals (error/cancelled/self_correct) and tool
+   * effect-channel events — are not part of the transcript vocabulary and
+   * are dropped here (the raw `/stream` and `/ws` endpoints still expose
+   * them). Turn boundaries need no mapper-side bookkeeping: they are
+   * expressed by `turn_end` events, so `done()` and `resetTurn()` no longer
+   * exist on the mapper.
    */
-  function frame(session: Session, event: ChannelEvent): sse.SSEMessage {
+  function frame(session: Session, event: ChannelEvent): sse.SSEMessage | null {
     switch (event.type) {
       case "text_delta":
         return session.mapper.delta({ kind: "text", text: asString(event.data["text"]) });
@@ -211,12 +242,17 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           ...(typeof event.data["toolName"] === "string" ? { name: event.data["toolName"] as string } : {}),
           argumentsDelta: asString(event.data["argumentsDelta"]),
         });
-      default:
-        return session.mapper.event(event as unknown as TranscriptEventInput);
+      default: {
+        const transcript = asTranscriptEvent(event);
+        // Unstamped raw events are dropped — see the frame() doc comment.
+        if (!transcript) return null;
+        return session.mapper.event(transcript);
+      }
     }
   }
 
-  function push(session: Session, message: sse.SSEMessage): void {
+  function push(session: Session, message: sse.SSEMessage | null): void {
+    if (!message) return;
     // Deltas are not replayable: they carry no seq, and a client that missed
     // one is corrected by the next authoritative event. Keeping them out of
     // the buffer also stops a long reply from evicting real events from it.

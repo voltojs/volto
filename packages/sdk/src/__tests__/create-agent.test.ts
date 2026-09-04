@@ -108,7 +108,7 @@ describe("createAgent — SDK facade", () => {
   });
 
   describe("stream()", () => {
-    it("should yield events as the runner processes them", async () => {
+    it("should yield transcript events and deltas as the runner processes them", async () => {
       const mockModel = createMockModelPort([
         [textDelta("Hello"), modelDone("end_turn")],
       ]);
@@ -122,7 +122,21 @@ describe("createAgent — SDK facade", () => {
 
       const types = events.map((e) => e.type);
       expect(types).toContain("text_delta");
-      expect(types).toContain("model_done");
+      // Task R6: the runner streams the transcript vocabulary it records —
+      // assistant_message (with the recorded payload) and turn_end arrive on
+      // the stream, while the raw reducer model_done is gone.
+      expect(types).toContain("assistant_message");
+      expect(types).toContain("turn_end");
+      expect(types).not.toContain("model_done");
+
+      const assistant = events.find((e) => e.type === "assistant_message")!;
+      expect(assistant.data).toMatchObject({
+        content: [{ type: "text", text: "Hello" }],
+        stopReason: "end_turn",
+        durationMs: expect.any(Number),
+      });
+      const turnEnd = events.find((e) => e.type === "turn_end")!;
+      expect(turnEnd.data).toMatchObject({ turn: 1, reason: "done" });
     });
   });
 

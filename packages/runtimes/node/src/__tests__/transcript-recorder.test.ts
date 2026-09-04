@@ -76,6 +76,66 @@ describe("createTranscriptRecorder", () => {
     expect(nowCalls).toBe(0); // Still not called after flush
   });
 
+  it("streams the same stamped event it buffers (task-r6 double write)", async () => {
+    const { store, batches } = fakeStore();
+    const streamed: TranscriptEventInput[] = [];
+    let tick = 1000;
+    const recorder = createTranscriptRecorder({
+      store,
+      sessionId: "s1",
+      turn: 3,
+      now: () => tick++,
+      emit: (event) => streamed.push(event),
+    });
+
+    recorder.record("turn_start", { turn: 3 });
+    recorder.record("assistant_message", { content: [{ type: "text", text: "hi" }], durationMs: 5 }, { step: 2, time: 1400 });
+    await recorder.flush();
+
+    // Streamed and buffered events are constructed once and shared: identical
+    // type, data, time, turn and step.
+    const buffered = batches[0]!;
+    expect(buffered).toHaveLength(2);
+    expect(streamed).toHaveLength(2);
+    for (let i = 0; i < buffered.length; i++) {
+      expect(streamed[i]).toEqual(buffered[i]);
+    }
+    expect(streamed[1]).toMatchObject({
+      time: 1400, // explicit meta.time override honored on both halves
+      turn: 3,
+      type: "assistant_message",
+      step: 2,
+      data: { content: [{ type: "text", text: "hi" }], durationMs: 5 },
+    });
+  });
+
+  it("still streams when persistence is disabled (no store) — a live-only host", async () => {
+    const streamed: TranscriptEventInput[] = [];
+    let nowCalls = 0;
+    const recorder = createTranscriptRecorder({
+      store: undefined,
+      sessionId: "s1",
+      turn: 1,
+      now: () => { nowCalls++; return 42; },
+      emit: (event) => streamed.push(event),
+    });
+    expect(recorder.enabled).toBe(false);
+
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush(); // nothing to write, no store configured
+
+    expect(streamed).toHaveLength(1);
+    expect(streamed[0]).toMatchObject({ time: 42, turn: 1, type: "turn_start" });
+    expect(nowCalls).toBe(1); // stamped once, for the stream
+  });
+
+  it("does not emit when no emit callback is configured", async () => {
+    const { store } = fakeStore();
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush(); // no error — the callback is optional
+  });
+
   it("is a no-op when no sessionId is configured", async () => {
     const { store, batches } = fakeStore();
     const recorder = createTranscriptRecorder({ store, sessionId: undefined, turn: 1, now: () => 1 });

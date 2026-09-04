@@ -926,8 +926,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
               return;
             }
 
-            // Cost metering: intercept model_done usage data
-            if (event.type === "model_done" && costMeter) {
+            // Cost metering: the Runner no longer emits raw model_done events
+            // (task-r6) — usage rides on the transcript assistant_message it
+            // records and streams, so that is what the meter intercepts.
+            if (event.type === "assistant_message" && costMeter) {
               const usage = event.data.usage as { inputTokens?: number; outputTokens?: number } | undefined;
               if (usage) {
                 costMeter.record({
