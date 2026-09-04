@@ -36,7 +36,7 @@ describe('fetchServerSessions', () => {
         updatedAt: 2,
       },
     ];
-    stubFetch(() => ({ status: 200, body: summaries }));
+    stubFetch(() => ({ status: 200, body: { sessions: summaries, unreadableSessions: 0 } }));
 
     await expect(fetchServerSessions()).resolves.toEqual(summaries);
   });

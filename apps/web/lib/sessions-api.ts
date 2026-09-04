@@ -54,7 +54,8 @@ export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
   if (!response.ok) {
     throw new Error(`Failed to list sessions: HTTP ${response.status}`);
   }
-  return (await response.json()) as ServerSessionSummary[];
+  const body = (await response.json()) as { sessions: ServerSessionSummary[] };
+  return body.sessions;
 }
 
 /** Fetches one session's full transcript. Returns null for an unknown id. */

@@ -12,6 +12,7 @@ import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
 import type { Message } from "@volto/core";
+import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createOpenAIModelPort } from "@volto/provider-openai";
@@ -363,7 +364,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // it was recorded on disk.
     if (chatStore && session.history.length === 0) {
       const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-      if (persisted) session.history = persisted.messages;
+      if (persisted) session.history = projectMessages(persisted.events);
     }
 
     session.running = true;
@@ -386,22 +387,17 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
     }
 
-    // Tracks whether this turn reached session.agent!.stream() — once it
-    // does, the agent was successfully constructed and createAgent()'s own
-    // internal appendError (inside persistTurnToChatStore) is already
-    // responsible for recording a rejection from that point on. Only a
-    // throw BEFORE this point (resolveConfig()/rebuild() — no agent ever
-    // built) is this catch block's own responsibility to record, or a
-    // runner rejection during an established turn would be double-written
-    // to the same chatStore.
-    let turnReachedStream = false;
+    // Durable recording of a turn's outcome (success or failure) is now
+    // entirely createAgent()'s own responsibility, via chatStore/chatSessionId
+    // — including a config-resolution failure before any agent is ever built,
+    // since that failure is surfaced to the client as a protocol `error`
+    // event here regardless. This block only drives the SSE channel.
     try {
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config)) {
         await rebuild(session, config, credentials);
       }
 
-      turnReachedStream = true;
       for await (const event of session.agent!.stream(message)) {
         const mapped = session.mapper.map(event);
         if (mapped) push(session, mapped);
@@ -411,15 +407,6 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
-      // config-resolution failures (e.g. an unknown project id) throw before
-      // any agent is ever constructed, so createAgent()'s own internal
-      // appendError (which only fires once a runner exists) never sees them.
-      // This is the only place left that can record that failure mode. A
-      // throw from stream() itself (agent already built) is skipped here —
-      // createAgent() already recorded it internally.
-      if (!turnReachedStream) {
-        await chatStore?.appendError(session.config?.projectPath ?? null, sessionId, text).catch(() => {});
-      }
       // Capture whatever partial progress this failed turn made before
       // terminating it, so the client leaves its streaming state only once
       // the transcript is caught up.

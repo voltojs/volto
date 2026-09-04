@@ -341,12 +341,37 @@ describe("Headless server", () => {
 
     const { status, data } = await getJson("/sessions");
     expect(status).toBe(200);
-    const summaries = data as Array<{ id: string; projectId: string; messageCount: number }>;
-    const summary = summaries.find((s) => s.id === sessionId);
+    const body = data as { sessions: Array<{ id: string; projectId: string; messageCount: number }>; unreadableSessions: number };
+    const summary = body.sessions.find((s) => s.id === sessionId);
     expect(summary).toBeDefined();
     expect(summary!.projectId).toBe(config.projectId);
     // One user message + one assistant message from the mock model's reply.
     expect(summary!.messageCount).toBe(2);
+  });
+
+  it("GET /sessions excludes sub-agent sessions (meta.origin === \"subagent\")", async () => {
+    // Sub-agents write their own session files directly to the same
+    // top-level sessions directory the task tool uses — a raw v2 file is
+    // written here to simulate that without wiring up a real sub-agent run.
+    const sessionsDir = path.join(process.env["VOLTO_CONFIG_DIR"]!, "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const subagentSessionId = "subagent-session-1";
+    const line = JSON.stringify({
+      version: 2,
+      sessionId: subagentSessionId,
+      event: {
+        seq: 0,
+        time: Date.now(),
+        type: "session_meta",
+        data: { projectId: null, providerId: null, modelId: null, permissionMode: null, origin: "subagent" },
+      },
+    });
+    await fs.writeFile(path.join(sessionsDir, `${subagentSessionId}.jsonl`), line + "\n", "utf-8");
+
+    const { status, data } = await getJson("/sessions");
+    expect(status).toBe(200);
+    const body = data as { sessions: Array<{ id: string }> };
+    expect(body.sessions.some((s) => s.id === subagentSessionId)).toBe(false);
   });
 
   it("GET /sessions/:id returns the transcript in the web app's Message shape", async () => {

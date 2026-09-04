@@ -15,7 +15,12 @@
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { createStore as createJsonlStore, type JsonlSessionStore } from "@volto/store-jsonl";
+import { projectMessageEntries } from "@volto/core";
+import {
+  createStore as createJsonlStore,
+  TranscriptFormatError,
+  type JsonlSessionStore,
+} from "@volto/store-jsonl";
 import { toUiMessages } from "./transcript-view.js";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
@@ -374,21 +379,24 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     // GET /sessions — lightweight list for the web app's session recovery
     if (req.method === "GET" && url.pathname === "/sessions") {
       try {
-        const records = await chatStore.listSessions();
-        jsonResponse(
-          res,
-          200,
-          records.map((record) => ({
+        const { records, skipped } = await chatStore.listSessions();
+        // Sub-agent sessions are an implementation detail of the task tool —
+        // surfacing them here would flood the user's session list with rows
+        // they never started.
+        const visible = records.filter((r) => r.meta.origin !== "subagent");
+        jsonResponse(res, 200, {
+          sessions: visible.map((record) => ({
             id: record.sessionId,
             projectId: record.meta.projectId,
             providerId: record.meta.providerId,
             modelId: record.meta.modelId,
             permissionMode: record.meta.permissionMode,
-            messageCount: record.messages.length,
+            messageCount: projectMessageEntries(record.events).length,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
           })),
-        );
+          unreadableSessions: skipped.length,
+        });
       } catch (err: unknown) {
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
@@ -404,17 +412,30 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           jsonResponse(res, 404, { error: `Unknown session: ${id}` });
           return;
         }
+        // The store hands over raw events; projecting them is this layer's
+        // job (apps/* may value-import core, stores-* may not).
+        const entries = projectMessageEntries(record.events);
         jsonResponse(res, 200, {
           id: record.sessionId,
           projectId: record.meta.projectId,
           providerId: record.meta.providerId,
           modelId: record.meta.modelId,
           permissionMode: record.meta.permissionMode,
-          messages: toUiMessages(record.sessionId, record.messages, record.messageTimestamps),
+          messages: toUiMessages(
+            record.sessionId,
+            entries.map((e) => e.message),
+            entries.map((e) => e.time),
+          ),
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         });
       } catch (err: unknown) {
+        if (err instanceof TranscriptFormatError) {
+          jsonResponse(res, 410, {
+            error: "This session was written by an older version and cannot be read by this build.",
+          });
+          return;
+        }
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
-import type { ReducerState, Message, TranscriptStore } from "@volto/core";
-import type { JsonlSessionStore } from "@volto/store-jsonl";
+import type { ReducerState, Message, TranscriptStore, TranscriptEventInput } from "@volto/core";
+import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
 const created: Array<{ closeAll: () => void }> = [];
@@ -13,37 +13,33 @@ afterEach(() => {
 
 /**
  * Minimal JsonlSessionStore stand-in — records the `workspacePath` each
- * method receives so a test can verify `scopeToWorkspace()` actually
- * threaded the resolved project path through, rather than just checking
- * that the scoped store is callable.
+ * `appendEvents` call receives so a test can verify `scopeToWorkspace()`
+ * actually threaded the resolved project path through, rather than just
+ * checking that the scoped store is callable. Also records every append so a
+ * test can assert exactly what (and how many times) sessions.ts writes
+ * itself, as opposed to what a real `createAgent()` writes internally.
  */
 function makeFakeChatStore(): JsonlSessionStore & {
   workspacePaths: Array<string | null>;
-  errorCalls: Array<{ workspacePath: string | null; sessionId: string; message: string }>;
+  appendCalls: Array<{ workspacePath: string | null; sessionId: string; events: readonly TranscriptEventInput[] }>;
 } {
   const workspacePaths: Array<string | null> = [];
-  const errorCalls: Array<{ workspacePath: string | null; sessionId: string; message: string }> = [];
+  const appendCalls: Array<{ workspacePath: string | null; sessionId: string; events: readonly TranscriptEventInput[] }> = [];
   return {
     workspacePaths,
-    errorCalls,
-    async appendMeta(workspacePath) {
+    appendCalls,
+    async appendEvents(workspacePath, sessionId, events) {
       workspacePaths.push(workspacePath);
+      appendCalls.push({ workspacePath, sessionId, events });
     },
-    async appendMessages(workspacePath) {
-      workspacePaths.push(workspacePath);
-    },
-    async appendError(workspacePath, sessionId, message) {
-      workspacePaths.push(workspacePath);
-      errorCalls.push({ workspacePath, sessionId, message });
-    },
-    async appendTrajectoryEntry(workspacePath) {
-      workspacePaths.push(workspacePath);
+    async readEvents() {
+      return [];
     },
     async readSession() {
       return undefined;
     },
     async listSessions() {
-      return [];
+      return { records: [], skipped: [] };
     },
     async deleteSession() {},
   };
@@ -69,10 +65,10 @@ function makeFactory() {
 /**
  * Agent stub whose stream() rejects mid-iteration, AFTER first recording the
  * error to chatStore itself — mirroring what createAgent()'s own internal
- * persistTurnToChatStore() really does (record via chatStore, then let the
- * rejection propagate to the caller). Used to prove sessions.ts's own
- * manual appendError call is skipped once the agent was already built,
- * instead of double-writing the same error.
+ * error handling really does (append a `turn_end` event via chatStore, then
+ * let the rejection propagate to the caller). Used to prove sessions.ts
+ * itself never writes to chatStore once the agent was already built —
+ * durable recording of that failure is entirely createAgent()'s job now.
  */
 function makeThrowingStreamFactory() {
   const builds: Array<Record<string, unknown>> = [];
@@ -85,7 +81,11 @@ function makeThrowingStreamFactory() {
         const chatStore = opts["chatStore"] as TranscriptStore | undefined;
         const chatSessionId = opts["chatSessionId"] as string | undefined;
         if (chatStore && chatSessionId) {
-          await chatStore.appendError(chatSessionId, err.message).catch(() => {});
+          await chatStore
+            .appendEvents(chatSessionId, [
+              { time: 0, type: "turn_end", data: { turn: 1, reason: "error", error: err.message } },
+            ])
+            .catch(() => {});
         }
         throw err;
       },
@@ -124,7 +124,7 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(built["chatSessionId"]).toBe("s1");
     expect(built["chatStore"]).toBeDefined();
     const scoped = built["chatStore"] as TranscriptStore;
-    await expect(scoped.appendMessages("s1", [])).resolves.toBeUndefined();
+    await expect(scoped.appendEvents("s1", [])).resolves.toBeUndefined();
     // Proves scopeToWorkspace() actually threaded the resolved project path
     // through, rather than always passing null.
     expect(chatStore.workspacePaths).toContain("/tmp");
@@ -154,16 +154,16 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(builds).toHaveLength(1);
   });
 
-  it("hydrates history from the transcript on a cold start", async () => {
+  it("hydrates history from the transcript on a cold start, projecting the raw event log itself", async () => {
     const chatStore = makeFakeChatStore();
-    chatStore.readSession = async (sessionId: string) =>
+    chatStore.readSession = async (sessionId: string): Promise<ChatSessionRecord | undefined> =>
       sessionId === "s1"
         ? {
             sessionId: "s1",
             meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
-            messages: [{ role: "user", content: "earlier turn" }],
-            messageTimestamps: [0],
-            errors: [],
+            events: [
+              { seq: 0, time: 0, type: "user_message", data: { content: "earlier turn" } },
+            ],
             createdAt: 0,
             updatedAt: 0,
           }
@@ -187,12 +187,15 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(builds[0]!["chatStore"]).toBeUndefined();
   });
 
-  it("records a config-resolution failure to chatStore even though no agent was ever built", async () => {
+  it("does not write to chatStore for a config-resolution failure before any agent is built", async () => {
     const { factory, builds } = makeFactory();
     const chatStore = makeFakeChatStore();
     // No projectStore/providerStore configured — resolveConfig() throws
     // before rebuild() (and therefore before any createAgent() instance)
-    // ever runs, so createAgent()'s own internal appendError never fires.
+    // ever runs. Durable recording of a turn's outcome is now entirely
+    // createAgent()'s responsibility (via chatStore/chatSessionId), so a
+    // failure this early — before an agent even exists — is not recorded
+    // anywhere durable; sessions.ts no longer hand-writes around that gap.
     const registry = createSessionRegistry({
       agentFactory: factory as never,
       chatStore,
@@ -203,24 +206,22 @@ describe("chat transcript wiring (jsonl)", () => {
     await registry.runTurn("s1", "one", { projectId: "p1" });
 
     expect(builds).toHaveLength(0);
-    expect(chatStore.errorCalls).toHaveLength(1);
-    expect(chatStore.errorCalls[0]!.sessionId).toBe("s1");
-    expect(chatStore.errorCalls[0]!.message).toContain("Project store is not configured");
+    expect(chatStore.appendCalls).toHaveLength(0);
   });
 
-  it("does not double-record an error when stream() rejects after the agent was already built", async () => {
+  it("does not double-record when stream() rejects after the agent was already built", async () => {
     const chatStore = makeFakeChatStore();
     const { factory, builds } = makeThrowingStreamFactory();
     const registry = makeRegistry(factory, chatStore);
 
     await registry.runTurn("s1", "one", config);
 
-    // The agent WAS built (unlike the config-resolution-failure case above),
-    // so createAgent()'s own internal error handling already recorded the
-    // error — sessions.ts's own catch block must not record it a second time.
+    // The agent WAS built (unlike the config-resolution-failure case above).
+    // The stub's stream() records the rejection to chatStore itself, exactly
+    // mirroring what createAgent() really does internally — sessions.ts has
+    // no append call of its own left to double-write it.
     expect(builds).toHaveLength(1);
-    expect(chatStore.errorCalls).toHaveLength(1);
-    expect(chatStore.errorCalls[0]!.sessionId).toBe("s1");
-    expect(chatStore.errorCalls[0]!.message).toContain("runner exploded");
+    expect(chatStore.appendCalls).toHaveLength(1);
+    expect(chatStore.appendCalls[0]!.sessionId).toBe("s1");
   });
 });

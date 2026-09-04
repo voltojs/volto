@@ -19,6 +19,7 @@ import {
   createMockModelPort,
   toolCallScript,
   textScript,
+  projectMessages,
 } from "@volto/core";
 import type { ToolDefinition, ToolResult } from "@volto/core";
 import { createStore, scopeToWorkspace } from "@volto/store-jsonl";
@@ -34,11 +35,11 @@ afterEach(async () => {
 });
 
 /**
- * Runner.recordTrajectory() fires appendTrajectoryEntry() without awaiting
- * it ("best-effort, never throws into the main loop") — so agent.run()
- * resolving does not guarantee every trajectory write has landed on disk
- * yet. Poll the raw file until all four expected event types show up (or
- * time out), rather than asserting immediately after run() returns.
+ * Trajectory writes fire without awaiting them ("best-effort, never throws
+ * into the main loop") — so agent.run() resolving does not guarantee every
+ * event has landed on disk yet. Poll the raw file until all expected event
+ * types show up (or time out), rather than asserting immediately after
+ * run() returns.
  */
 async function readTrajectoryEventTypesEventually(
   filePath: string,
@@ -53,8 +54,10 @@ async function readTrajectoryEventTypesEventually(
       .trim()
       .split("\n")
       .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as { type: string; entry?: { eventType: string } });
-    lastSeen = lines.filter((line) => line.type === "trajectory").map((line) => line.entry!.eventType);
+      .map((line) => JSON.parse(line) as { version: number; event: { type: string } });
+    lastSeen = lines
+      .filter((line) => line.version === 2)
+      .map((line) => line.event.type);
     if (expected.every((type) => lastSeen.includes(type))) return lastSeen;
     if (Date.now() > deadline) return lastSeen;
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -83,7 +86,7 @@ function createEchoTool() {
 }
 
 describe("trajectory capture — real chatStore end to end", () => {
-  it("writes tool_use_complete/tool_result/context_assembled/model_done trajectory lines to the real JSONL file", async () => {
+  it("writes model_call_start/assistant_message/tool_call/tool_result/turn_end event lines to the real JSONL file", async () => {
     const store = createStore({ directory: tempDir });
     const chatStore = scopeToWorkspace(store, null);
 
@@ -104,20 +107,62 @@ describe("trajectory capture — real chatStore end to end", () => {
     const finalState = await agent.run("hi");
     expect(finalState.status).toBe("done");
 
-    // Message-level view via the store's own reader.
+    // Message-level view via the store's own reader + core's projection.
     const record = await store.readSession("e2e-s1");
     expect(record).toBeDefined();
-    expect(record!.messages.length).toBeGreaterThan(0);
+    expect(projectMessages(record!.events).length).toBeGreaterThan(0);
 
     // Raw JSONL file: workspacePath is null, so the file lives at the top
     // level of `directory` (mirrors packages/stores/jsonl/src/__tests__/store.test.ts).
     const filePath = path.join(tempDir, "e2e-s1.jsonl");
-    const expectedTypes = ["tool_use_complete", "tool_result", "context_assembled", "model_done"];
+    const expectedTypes = ["model_call_start", "assistant_message", "tool_call", "tool_result", "turn_end"];
     const trajectoryEventTypes = await readTrajectoryEventTypesEventually(filePath, expectedTypes);
 
-    expect(trajectoryEventTypes).toContain("tool_use_complete");
+    expect(trajectoryEventTypes).toContain("model_call_start");
+    expect(trajectoryEventTypes).toContain("assistant_message");
+    expect(trajectoryEventTypes).toContain("tool_call");
     expect(trajectoryEventTypes).toContain("tool_result");
-    expect(trajectoryEventTypes).toContain("context_assembled");
-    expect(trajectoryEventTypes).toContain("model_done");
+    expect(trajectoryEventTypes).toContain("turn_end");
+  });
+
+  it("persists reasoning, timing and full token usage on the assistant_message line", async () => {
+    const store = createStore({ directory: tempDir });
+    const chatStore = scopeToWorkspace(store, null);
+
+    const mockModel = createMockModelPort([
+      toolCallScript("c1", "echo", '{"message":"hi"}'),
+      textScript("done"),
+    ]);
+
+    const agent = createAgent({
+      modelPort: mockModel,
+      tools: [createEchoTool()],
+      capabilities: new Set(["test:echo"]),
+      chatStore,
+      chatSessionId: "e2e-s2",
+      resolveContextLayers: async () => [{ id: "test-layer", text: "Be terse" }],
+    });
+
+    const finalState = await agent.run("hi");
+    expect(finalState.status).toBe("done");
+
+    const filePath = path.join(tempDir, "e2e-s2.jsonl");
+    await readTrajectoryEventTypesEventually(filePath, ["assistant_message"]);
+
+    const raw = await fs.readFile(filePath, "utf-8");
+    const lines = raw
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { version: number; event: { type: string; data: unknown } });
+
+    const assistant = lines
+      .filter((line) => line.version === 2)
+      .map((line) => line.event)
+      .find((e) => e.type === "assistant_message");
+
+    expect(assistant).toBeDefined();
+    expect(assistant!.data).toHaveProperty("durationMs");
+    expect(typeof (assistant!.data as { durationMs: number }).durationMs).toBe("number");
   });
 });
