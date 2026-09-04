@@ -56,17 +56,17 @@ export class TranscriptFormatError extends Error {
 
 export interface ChatSessionRecord {
   sessionId: string;
-  meta: ChatSessionMeta;
-  messages: Message[];
+  meta: ChatSessionMeta & {
+    parentSessionId?: string;
+    delegationDepth?: number;
+    origin?: "subagent";
+  };
   /**
-   * Wall-clock time each entry in `messages` was appended, same length and
-   * order as `messages`. A separate parallel array (rather than wrapping each
-   * message) so `messages` stays a plain `Message[]` — the shape agent
-   * rebuild's `initialMessages` seeding needs — while still letting a
-   * display-oriented reader recover per-message timestamps.
+   * The raw log. Callers that need conversation history run it through
+   * `projectMessages()` themselves — this package only does I/O, and the
+   * stores-* rule is that it consumes core's interface types only.
    */
-  messageTimestamps: number[];
-  errors: Array<{ message: string; timestamp: number }>;
+  events: TranscriptEvent[];
   createdAt: number;
   updatedAt: number;
 }
@@ -82,8 +82,11 @@ export interface JsonlSessionStore {
   readEvents(sessionId: string): Promise<TranscriptEvent[]>;
   /** Replays a session's file into its current meta + full history — searches every workspace directory. */
   readSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
-  /** Replays every session file across every workspace directory (plus any unbound sessions at the top level). */
-  listSessions(): Promise<ChatSessionRecord[]>;
+  /** Replays every session file. A file this build cannot read is reported in `skipped`, not thrown. */
+  listSessions(): Promise<{
+    records: ChatSessionRecord[];
+    skipped: Array<{ filePath: string; reason: string }>;
+  }>;
   /** Deletes a session's file, wherever it lives. A no-op if it does not exist. */
   deleteSession(sessionId: string): Promise<void>;
 }
@@ -241,40 +244,32 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
     });
   }
 
-  /** Folds a session's lines into its current meta + full message history. */
-  function reduce(lines: JsonlLine[]): ChatSessionRecord {
-    let meta: ChatSessionMeta = {
+  /** Folds a session's events into its current meta. */
+  function reduce(sessionId: string, events: TranscriptEvent[]): ChatSessionRecord {
+    let meta: ChatSessionRecord["meta"] = {
       projectId: null,
       providerId: null,
       modelId: null,
       permissionMode: null,
     };
-    const messages: Message[] = [];
-    const messageTimestamps: number[] = [];
-    const errors: Array<{ message: string; timestamp: number }> = [];
-    for (const line of lines) {
-      if (line.type === "meta") meta = { ...meta, ...line.meta };
-      if (line.type === "message") {
-        messages.push(line.message);
-        messageTimestamps.push(line.timestamp);
+    for (const event of events) {
+      if (event.type === "session_meta") {
+        meta = { ...meta, ...(event.data as ChatSessionRecord["meta"]) };
       }
-      if (line.type === "error") errors.push({ message: line.message, timestamp: line.timestamp });
     }
     return {
-      sessionId: lines[0]!.sessionId,
+      sessionId,
       meta,
-      messages,
-      messageTimestamps,
-      errors,
-      createdAt: lines[0]!.timestamp,
-      updatedAt: lines[lines.length - 1]!.timestamp,
+      events,
+      createdAt: events[0]!.time,
+      updatedAt: events[events.length - 1]!.time,
     };
   }
 
   async function readAndReduce(target: string): Promise<ChatSessionRecord | undefined> {
     const lines = await readLinesAt(target);
     if (lines.length === 0) return undefined;
-    return reduce(lines);
+    return reduce(lines[0]!.sessionId, lines.map((line) => line.event));
   }
 
   return {
@@ -299,21 +294,38 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
       await fs.mkdir(directory, { recursive: true });
       const entries = await fs.readdir(directory, { withFileTypes: true });
       const records: ChatSessionRecord[] = [];
+      const skipped: Array<{ filePath: string; reason: string }> = [];
+
+      /**
+       * A single stale file must not take down the whole listing — this is
+       * the one place the "reject an unreadable file" rule is softened, and
+       * the caller learns about it through `skipped` rather than silence.
+       */
+      const readOne = async (filePath: string): Promise<void> => {
+        try {
+          const record = await readAndReduce(filePath);
+          if (record) records.push(record);
+        } catch (err: unknown) {
+          if (err instanceof TranscriptFormatError) {
+            skipped.push({ filePath, reason: err.message });
+            return;
+          }
+          throw err;
+        }
+      };
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const subDir = path.join(directory, entry.name);
           for (const file of await fs.readdir(subDir)) {
             if (!file.endsWith(".jsonl")) continue;
-            const record = await readAndReduce(path.join(subDir, file));
-            if (record) records.push(record);
+            await readOne(path.join(subDir, file));
           }
         } else if (entry.name.endsWith(".jsonl")) {
-          const record = await readAndReduce(path.join(directory, entry.name));
-          if (record) records.push(record);
+          await readOne(path.join(directory, entry.name));
         }
       }
-      return records;
+      return { records, skipped };
     },
 
     async deleteSession(sessionId) {

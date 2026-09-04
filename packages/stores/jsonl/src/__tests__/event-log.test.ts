@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createStore, encodeWorkspaceName } from "../index.js";
+import { createStore, encodeWorkspaceName, TranscriptFormatError } from "../index.js";
 import type { TranscriptEventInput } from "@volto/core";
 
 let tempDir: string;
@@ -80,5 +80,86 @@ describe("readEvents", () => {
 
     const events = await store.readEvents("s1");
     expect(events).toHaveLength(1);
+  });
+});
+
+describe("readSession", () => {
+  it("returns folded meta plus the raw events, and does not project", async () => {
+    const store = createStore({ directory: tempDir });
+    await store.appendEvents(WORKSPACE, "s1", [
+      {
+        time: 1,
+        type: "session_meta",
+        data: { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" },
+      },
+      { time: 2, type: "user_message", data: { content: "hi" }, turn: 1 },
+      {
+        time: 3,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const record = await store.readSession("s1");
+    expect(record).toBeDefined();
+    expect(record!.meta.modelId).toBe("m1");
+    expect(record!.events).toHaveLength(3);
+    expect(record!.events.map((e) => e.type)).toEqual([
+      "session_meta",
+      "user_message",
+      "assistant_message",
+    ]);
+    expect(record!.createdAt).toBe(1);
+    expect(record!.updatedAt).toBe(3);
+    // Projection belongs to the caller — a store that only does I/O keeps
+    // the stores-* type-import-only rule intact.
+    expect(record).not.toHaveProperty("messages");
+  });
+
+  it("folds a later session_meta over an earlier one", async () => {
+    const store = createStore({ directory: tempDir });
+    await store.appendEvents(WORKSPACE, "s1", [
+      { time: 1, type: "session_meta", data: { projectId: "p1", providerId: null, modelId: "m1", permissionMode: null } },
+      { time: 2, type: "session_meta", data: { projectId: "p1", providerId: null, modelId: "m2", permissionMode: null } },
+    ]);
+
+    const record = await store.readSession("s1");
+    expect(record!.meta.modelId).toBe("m2");
+  });
+
+  it("throws TranscriptFormatError on a v1 file", async () => {
+    const dir = path.join(tempDir, encodeWorkspaceName(WORKSPACE));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "old.jsonl"),
+      JSON.stringify({ uuid: "u1", parentUuid: null, sessionId: "old", timestamp: 1, version: 1, type: "message", message: { role: "user", content: "hi" } }) + "\n",
+      "utf-8",
+    );
+
+    const store = createStore({ directory: tempDir });
+    await expect(store.readSession("old")).rejects.toThrow(TranscriptFormatError);
+  });
+});
+
+describe("listSessions", () => {
+  it("returns readable records and counts unreadable ones instead of throwing", async () => {
+    const store = createStore({ directory: tempDir });
+    await store.appendEvents(WORKSPACE, "good", [
+      { time: 1, type: "user_message", data: { content: "hi" }, turn: 1 },
+    ]);
+
+    const dir = path.join(tempDir, encodeWorkspaceName(WORKSPACE));
+    await fs.writeFile(
+      path.join(dir, "old.jsonl"),
+      JSON.stringify({ version: 1, type: "message", sessionId: "old", timestamp: 1 }) + "\n",
+      "utf-8",
+    );
+
+    const { records, skipped } = await store.listSessions();
+    expect(records.map((r) => r.sessionId)).toEqual(["good"]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.filePath).toContain("old.jsonl");
   });
 });
