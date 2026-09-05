@@ -123,6 +123,11 @@ function newStep(step: number, startedAt: number, headerHash: string): MutableSt
 /**
  * Groups a session's events into turns and steps.
  *
+ * A `subagent_started` is linked to the tool call that spawned it even when
+ * the on-disk order is inverted — the SDK appends the bracket straight to the
+ * store while the parent runner flushes its buffered `tool_call` at batch
+ * end — by parking the start on its turn until a same-named call arrives.
+ *
  * `prev` is a pure optimisation: closed turns (those with an `endedAt`) whose
  * shape is unchanged keep their previous object identity, so a React consumer
  * memoising per row re-renders only the turn still in flight. Passing a `prev`
@@ -175,16 +180,34 @@ export function buildTurnRecords(
     return undefined;
   };
 
-  /** The most recent call still missing a childSessionId — the one that just delegated. */
-  const lastUnlinkedCall = (turn: MutableTurn): ToolCallRecord | undefined => {
+  /**
+   * The most recent call still missing a childSessionId — the one that just
+   * delegated. With a `label`, only a name-matching call qualifies (the
+   * sub-agent's label is the tool name that spawned it); without one, any
+   * unlinked call — the pre-existing in-order shape.
+   */
+  const lastUnlinkedCall = (turn: MutableTurn, label?: string): ToolCallRecord | undefined => {
     for (let i = turn.steps.length - 1; i >= 0; i--) {
       const calls = turn.steps[i]!.toolCalls;
       for (let j = calls.length - 1; j >= 0; j--) {
-        if (calls[j]!.childSessionId === undefined) return calls[j];
+        const call = calls[j]!;
+        if (call.childSessionId === undefined && (label === undefined || call.name === label)) {
+          return call;
+        }
       }
     }
     return undefined;
   };
+
+  /**
+   * `subagent_started` events parked because their tool call had not been
+   * flushed yet, keyed by turn number. The SDK appends the bracket straight
+   * to the store while the parent runner flushes its buffered `tool_call` at
+   * batch end, so the on-disk order can be inverted; a parked start is
+   * claimed by the first same-named call that arrives, or garbage-collected
+   * with the projection if none ever does.
+   */
+  const pendingSubagents = new Map<number, TranscriptEventMap["subagent_started"]>();
 
   for (const event of events) {
     switch (event.type) {
@@ -246,16 +269,26 @@ export function buildTurnRecords(
 
       case "tool_call": {
         const data = event.data as TranscriptEventMap["tool_call"];
-        const step = stepFor(turnFor(event), event.step, event.time);
+        const turn = turnFor(event);
+        const step = stepFor(turn, event.step, event.time);
         if (!step) break;
-        step.toolCalls.push({
+        const call: ToolCallRecord = {
           callId: data.callId,
           name: data.name,
           input: data.input,
           // Real order arrives with the result; until then keep insertion order.
           orderInBatch: step.toolCalls.length,
           startedAt: event.time,
-        });
+        };
+        step.toolCalls.push(call);
+        // Claim a subagent_started that was parked because it hit the store
+        // before this buffered flush. Only a name match may claim it — a
+        // parked start whose call never arrives simply stays parked.
+        const pending = pendingSubagents.get(turn.turn);
+        if (pending && data.name === pending.label && call.childSessionId === undefined) {
+          call.childSessionId = pending.childSessionId;
+          pendingSubagents.delete(turn.turn);
+        }
         break;
       }
 
@@ -307,8 +340,19 @@ export function buildTurnRecords(
 
       case "subagent_started": {
         const data = event.data as TranscriptEventMap["subagent_started"];
-        const call = lastUnlinkedCall(turnFor(event));
-        if (call) call.childSessionId = data.childSessionId;
+        const turn = turnFor(event);
+        // The SDK appends this event straight to the store while the parent
+        // runner flushes its buffered tool_call at batch end, so it may
+        // precede its call on disk. Prefer the unlinked call this label
+        // names; fall back to the in-order behaviour (most recent unlinked
+        // call); with nothing linkable, park it until the call arrives.
+        const call = lastUnlinkedCall(turn, data.label) ?? lastUnlinkedCall(turn);
+        if (call) {
+          call.childSessionId = data.childSessionId;
+          pendingSubagents.delete(turn.turn);
+        } else {
+          pendingSubagents.set(turn.turn, data);
+        }
         break;
       }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTurnRecords } from "../view-projection.js";
+import { buildTurnRecords, toTrajectoryView } from "../view-projection.js";
 import type { TranscriptEvent } from "../index.js";
 
 function log(entries: Array<Omit<TranscriptEvent, "seq">>): TranscriptEvent[] {
@@ -193,6 +193,91 @@ describe("buildTurnRecords", () => {
     ]);
 
     expect(buildTurnRecords(events)[0]!.steps[0]!.toolCalls[0]!.childSessionId).toBe("s1-sub-9");
+  });
+
+  // A live session (b4n4zfntc, seq 38-49) produced this exact order: the SDK
+  // appends `subagent_started` straight to the store the moment the task tool
+  // begins, while the parent runner flushes its buffered turn preamble and
+  // `tool_call` at batch end — so the subagent_started precedes the very
+  // turn_start it belongs to, carrying a later wall-clock time than the
+  // buffered events that follow it. The linkage must survive the inversion.
+  const OUT_OF_ORDER_SUBAGENT = log([
+    // Direct SDK append — on disk before anything of the turn it belongs to.
+    { time: 4001, type: "subagent_started", data: { childSessionId: "child-1", label: "task", depth: 1 }, turn: 4 },
+    // ── The parent runner's batch-end flush ──
+    { time: 1000, type: "turn_start", data: { turn: 4 }, turn: 4 },
+    { time: 1000, type: "user_message", data: { content: "请使用 task 工具派一个子代理去调研：README.md 里写了什么？" }, turn: 4 },
+    {
+      time: 1001,
+      type: "request_header",
+      data: {
+        hash: "h4",
+        systemLayers: [],
+        tools: [{ name: "task", description: "delegate a sub-agent", schema: { type: "object" } }],
+        params: {},
+      },
+      turn: 4,
+      step: 1,
+    },
+    { time: 1001, type: "model_call_start", data: { headerHash: "h4" }, turn: 4, step: 1 },
+    {
+      time: 4000,
+      type: "assistant_message",
+      data: {
+        content: [{ type: "tool_use", id: "call_1", name: "task", input: { message: "README.md 里写了什么？" } }],
+        stopReason: "tool_use",
+        ttftMs: 1112,
+        durationMs: 3488,
+      },
+      turn: 4,
+      step: 1,
+    },
+    {
+      time: 4000,
+      type: "tool_call",
+      data: { callId: "call_1", name: "task", input: { message: "README.md 里写了什么？" } },
+      turn: 4,
+      step: 1,
+    },
+    {
+      time: 45000,
+      type: "tool_result",
+      data: {
+        callId: "call_1",
+        name: "task",
+        content: "## README.md 总结\n\n项目是一个笔记应用……",
+        isError: false,
+        durationMs: 40733,
+        orderInBatch: 0,
+      },
+      turn: 4,
+      step: 1,
+    },
+    { time: 45000, type: "subagent_finished", data: { childSessionId: "child-1", isError: false, durationMs: 40733 }, turn: 4 },
+    { time: 45000, type: "model_call_start", data: { headerHash: "h4" }, turn: 4, step: 2 },
+    {
+      time: 53000,
+      type: "assistant_message",
+      data: { content: [{ type: "text", text: "子代理的调研结论如下。" }], stopReason: "end_turn", durationMs: 7900 },
+      turn: 4,
+      step: 2,
+    },
+    { time: 53001, type: "turn_end", data: { turn: 4, reason: "done" }, turn: 4 },
+  ]);
+
+  it("links a subagent_started that lands before its buffered tool_call flush", () => {
+    const records = buildTurnRecords(OUT_OF_ORDER_SUBAGENT);
+    // The stray subagent_started opens a turn shell of its own before
+    // turn_start re-opens turn 4; the real record is the one with steps.
+    const turn = records.find((t) => t.turn === 4 && t.steps.length > 0)!;
+    const call = turn.steps[0]!.toolCalls[0]!;
+
+    expect(call.name).toBe("task");
+    expect(call.childSessionId).toBe("child-1");
+
+    const row = toTrajectoryView(records, OUT_OF_ORDER_SUBAGENT).rows.find((r) => r.kind === "subagent");
+    expect(row).toBeDefined();
+    expect(row!.childSessionId).toBe("child-1");
   });
 
   it("separates steering input from direct input", () => {
