@@ -428,7 +428,7 @@ describe('projectTrajectory', () => {
       ['1:2', 'assistant'],
     ]);
     expect(rows[0]!.summary).toBe('go');
-    expect(rows[2]!.inputDetail).toContain('read_file');
+    expect(rows[2]!.inputDetail).toContain('"path"');
     expect(rows[2]!.outputDetail).toBe('file body');
     expect(rows[2]!.durationMs).toBe(40);
   });

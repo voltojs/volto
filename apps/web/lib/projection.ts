@@ -190,32 +190,6 @@ function findStreamingRowId(records: readonly TurnRecord[]): string | null {
 }
 
 /**
- * Core's trajectory view keeps the tool name in `summary` / `schemaDetail`
- * only, but the detail drawer's 参数 tab renders `inputDetail` alone — so
- * each tool / subagent row's JSON args are prefixed with the call name
- * (pinned by the projection test; core keeps its own shape unchanged).
- */
-function withToolNames(
-  rows: TrajectoryRow[],
-  records: readonly TurnRecord[],
-): TrajectoryRow[] {
-  const names = new Map<string, string>();
-  for (const turn of records) {
-    for (const step of turn.steps) {
-      for (const call of step.toolCalls) names.set(call.callId, call.name);
-    }
-  }
-  return rows.map((row) => {
-    const name =
-      row.kind === 'tool' || row.kind === 'subagent'
-        ? names.get(row.id)
-        : undefined;
-    if (name === undefined || row.inputDetail === undefined) return row;
-    return { ...row, inputDetail: `${name}\n${row.inputDetail}` };
-  });
-}
-
-/**
  * 活跃会话的轨迹投影：与 projectConversation 完全同构——同一事件缓冲、
  * 同一 asStored 伪造 seq、同一 buildTurnRecords/applyPartial 管线，只是
  * 出口换成 toTrajectoryView。不传 prev：与 use-conversation 的既有决策一致
@@ -229,7 +203,7 @@ export function projectTrajectory(
   let records = buildTurnRecords(stored);
   for (const delta of deltas) records = applyPartial(records, delta);
   return {
-    rows: withToolNames(toTrajectoryView(records, stored).rows, records),
+    rows: toTrajectoryView(records, stored).rows,
     streamingRowId: findStreamingRowId(records),
   };
 }
