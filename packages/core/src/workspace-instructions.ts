@@ -148,7 +148,27 @@ export function renderInstructionLayers(
     first += 1;
     layers = rendered.slice(first);
   }
-  if (sum(layers) <= maxBytes) return { layers, omitted, truncated: [] };
+  if (sum(layers) <= maxBytes) {
+    // Spec §5.5.3 — the budget notice is model-visible: when files were
+    // omitted whole, append one notice line to the most-specific surviving
+    // layer. The notice counts against the budget — append the full line
+    // when the combined text fits, otherwise clip the notice itself to the
+    // remaining space; append nothing only when not even one byte of it
+    // fits (degenerate — `omitted` still carries the machine-readable list).
+    if (omitted.length > 0) {
+      const available = maxBytes - sum(layers) - 1; // -1 for the "\n" separator
+      if (available > 0) {
+        const notice = noticeLine(maxBytes, omitted, []);
+        const lastLayer = layers[layers.length - 1]!;
+        const appended = `${lastLayer.text}\n${notice}`;
+        lastLayer.text =
+          utf8Bytes(appended) <= maxBytes
+            ? appended
+            : `${lastLayer.text}\n${truncateUtf8(notice, available)}`;
+      }
+    }
+    return { layers, omitted, truncated: [] };
+  }
 
   // Only the most-specific file remains and it alone exceeds the budget:
   // binary-search the longest UTF-8-safe content prefix whose full layer text

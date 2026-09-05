@@ -138,7 +138,34 @@ describe("renderInstructionLayers — byte budget", () => {
     // Each rendered layer ≈ 3KB; two fit, the broadest is dropped whole.
     expect(omitted).toEqual(["AGENTS.md"]);
     expect(layers.map((l) => l.id)).toEqual(["project-memory:src/AGENTS.md", "project-memory:src/deep/AGENTS.md"]);
-    expect(JSON.stringify(layers)).not.toContain("budget");
+    // Spec §5.5.3 — the notice is model-visible and rides on the most-specific
+    // surviving layer; every layer text still respects the budget.
+    const encoder = new TextEncoder();
+    const last = layers[layers.length - 1]!;
+    expect(last.text).toContain(`Workspace instruction budget ${4 * KB} bytes: omitted AGENTS.md`);
+    for (const l of layers) {
+      expect(encoder.encode(l.text).length).toBeLessThanOrEqual(4 * KB);
+    }
+  });
+
+  it("names omitted files and the truncation together in one notice", () => {
+    const { layers, omitted, truncated } = renderInstructionLayers(
+      [
+        file("AGENTS.md", "x".repeat(2 * KB)),
+        file("src/AGENTS.md", "x".repeat(2 * KB)),
+        file("src/deep/AGENTS.md", "y".repeat(4 * KB)),
+      ],
+      3 * KB,
+    );
+    expect(omitted).toEqual(["AGENTS.md", "src/AGENTS.md"]);
+    expect(truncated).toHaveLength(1);
+    expect(truncated[0]!.displayPath).toBe("src/deep/AGENTS.md");
+    expect(truncated[0]!.originalBytes).toBe(4 * KB);
+    const text = layers[0]!.text;
+    expect(text).toContain(
+      `Workspace instruction budget ${3 * KB} bytes: omitted AGENTS.md, src/AGENTS.md; truncated src/deep/AGENTS.md from ${4 * KB} to ${truncated[0]!.includedBytes} bytes`,
+    );
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(3 * KB);
   });
 
   it("truncates the most-specific file at a UTF-8 code-point boundary and posts a visible notice", () => {
