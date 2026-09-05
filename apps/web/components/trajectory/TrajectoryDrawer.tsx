@@ -13,6 +13,7 @@ import {
   TAB_LABELS,
   drawerTabsFor,
   formatDuration,
+  locationLabel,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
@@ -22,10 +23,6 @@ interface TrajectoryDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDrillDown: (row: TrajectoryRow) => void;
-}
-
-function locationLabel(row: TrajectoryRow): string {
-  return row.step !== undefined ? `第${row.turn}轮 · 步骤${row.step}` : `第${row.turn}轮`;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

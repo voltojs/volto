@@ -34,6 +34,11 @@ export function formatDuration(ms: number | undefined): string | null {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** 行的轮次/步骤定位标签；列表行与详情抽屉共用同一实现。 */
+export function locationLabel(row: TrajectoryRow): string {
+  return row.step !== undefined ? `第${row.turn}轮 · 步骤${row.step}` : `第${row.turn}轮`;
+}
+
 export type DrawerTabKey =
   | 'overview'
   | 'input'

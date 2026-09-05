@@ -6,7 +6,9 @@ import {
   drawerTabsFor,
   TAB_LABELS,
   EMPTY_CELL,
+  locationLabel,
 } from '@/lib/trajectory-view-model';
+import type { TrajectoryRow } from '@volto/sdk/sse';
 
 describe('KIND_LABELS / KIND_BADGE_CLASS', () => {
   it('covers every row kind with a zh label and badge classes', () => {
@@ -29,6 +31,24 @@ describe('formatDuration', () => {
     expect(formatDuration(48)).toBe('48ms');
     expect(formatDuration(999)).toBe('999ms');
     expect(formatDuration(1500)).toBe('1.5s');
+  });
+});
+
+describe('locationLabel', () => {
+  const row = (step?: number): TrajectoryRow =>
+    ({
+      index: 1,
+      id: 'r',
+      kind: 'assistant',
+      turn: 2,
+      ...(step !== undefined ? { step } : {}),
+      summary: 's',
+      startedAt: 0,
+    }) as TrajectoryRow;
+
+  it('includes the step when present and falls back to the turn alone', () => {
+    expect(locationLabel(row(3))).toBe('第2轮 · 步骤3');
+    expect(locationLabel(row())).toBe('第2轮');
   });
 });
 

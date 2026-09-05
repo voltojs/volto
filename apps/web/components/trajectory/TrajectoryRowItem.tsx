@@ -5,6 +5,7 @@ import {
   KIND_BADGE_CLASS,
   KIND_LABELS,
   formatDuration,
+  locationLabel,
 } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -14,10 +15,6 @@ interface TrajectoryRowItemProps {
   streaming: boolean;
   isSelected: boolean;
   onSelect: (row: TrajectoryRow) => void;
-}
-
-function locationLabel(row: TrajectoryRow): string {
-  return row.step !== undefined ? `第${row.turn}轮 · 步骤${row.step}` : `第${row.turn}轮`;
 }
 
 export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: TrajectoryRowItemProps) {

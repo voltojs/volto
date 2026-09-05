@@ -37,7 +37,7 @@ interface StoredState {
   loading: boolean;
 }
 
-/** 空闲态：无会话，或服务端无该会话的持久化轨迹（404）。 */
+/** 空闲态：无会话，或服务端无可展示的持久化轨迹（空行集）。 */
 const IDLE_STORED: StoredState = { rows: null, error: null, loading: false };
 
 /**
@@ -78,8 +78,9 @@ function useStoredRows(sessionId: string | null): StoredState & { retry: () => v
         const view = await fetchServerTrajectory(sessionId);
         if (cancelled) return;
         if (view === null) {
-          // 404：服务端尚无该会话的持久化轨迹（如未落盘的会话）。
-          // 展示退化为纯实时投影；不入缓存，落盘后下次拉取即可见。
+          // 防御性契约护栏：当前服务端对未知会话返回 200 + 空行集，并不
+          // 404；null 仅在契约被破坏时出现。行为不变——展示退化为空行 +
+          // 纯实时投影；不入缓存，落盘后下次拉取即可见。
           setResolved({ key, state: IDLE_STORED });
           return;
         }
