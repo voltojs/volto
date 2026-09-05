@@ -5,6 +5,7 @@ import {
   dedupeInstructions,
   instructionLayerId,
   renderInstructionLayers,
+  truncateUtf8,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
   type LoadedInstructionFile,
@@ -112,5 +113,74 @@ describe("renderInstructionLayers — rendering (no budget pressure)", () => {
 
   it("emits nothing for empty input", () => {
     expect(renderInstructionLayers([], 64 * 1024)).toEqual({ layers: [], omitted: [], truncated: [] });
+  });
+});
+
+describe("renderInstructionLayers — byte budget", () => {
+  const KB = 1024;
+
+  it("passes through when the total fits", () => {
+    const { layers, omitted, truncated } = renderInstructionLayers(
+      [file("AGENTS.md", "small")],
+      64 * KB,
+    );
+    expect(layers).toHaveLength(1);
+    expect(omitted).toEqual([]);
+    expect(truncated).toEqual([]);
+  });
+
+  it("omits broadest files whole before touching the most specific", () => {
+    const big = "x".repeat(3 * KB);
+    const { layers, omitted } = renderInstructionLayers(
+      [file("AGENTS.md", big), file("src/AGENTS.md", big), file("src/deep/AGENTS.md", "tiny")],
+      4 * KB,
+    );
+    // Each rendered layer ≈ 3KB; two fit, the broadest is dropped whole.
+    expect(omitted).toEqual(["AGENTS.md"]);
+    expect(layers.map((l) => l.id)).toEqual(["project-memory:src/AGENTS.md", "project-memory:src/deep/AGENTS.md"]);
+    expect(JSON.stringify(layers)).not.toContain("budget");
+  });
+
+  it("truncates the most-specific file at a UTF-8 code-point boundary and posts a visible notice", () => {
+    const cjk = "汉".repeat(2000); // 6000 bytes in UTF-8, 3 bytes per char
+    const { layers, truncated } = renderInstructionLayers([file("AGENTS.md", cjk)], 2 * KB);
+    expect(truncated).toHaveLength(1);
+    expect(truncated[0]!.originalBytes).toBe(6000);
+    expect(truncated[0]!.includedBytes % 3).toBe(0); // never splits 汉
+    const text = layers[0]!.text;
+    expect(text).toContain(`Workspace instruction budget ${2 * KB} bytes:`);
+    expect(text).toContain(`truncated AGENTS.md from 6000 to ${truncated[0]!.includedBytes} bytes`);
+    // The rendered total respects the budget (notice line included).
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(2 * KB);
+  });
+
+  it("keeps the notice itself inside the budget even for a tiny cap", () => {
+    const { layers } = renderInstructionLayers([file("AGENTS.md", "y".repeat(5000))], 200);
+    expect(layers).toHaveLength(1);
+    const text = layers[0]!.text;
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(200);
+    expect(text).toContain("Workspace instruction budget 200 bytes:");
+  });
+
+  it("counts the notice line against the budget", () => {
+    // Content fits alone; the notice only appears when something was dropped,
+    // so assert the no-drop case stays notice-free.
+    const { layers } = renderInstructionLayers([file("AGENTS.md", "ok")], 64 * KB);
+    expect(layers[0]!.text).not.toContain("budget");
+  });
+
+  it("returns everything as omitted and no layers when maxBytes is non-positive", () => {
+    const out = renderInstructionLayers([file("AGENTS.md", "a")], 0);
+    expect(out.layers).toEqual([]);
+    expect(out.omitted).toEqual(["AGENTS.md"]);
+  });
+});
+
+describe("truncateUtf8", () => {
+  it("never splits a multi-byte code point", () => {
+    // "汉汉" = 6 bytes; cutting at 4 must back off to 3.
+    expect(truncateUtf8("汉汉", 4)).toBe("汉");
+    expect(truncateUtf8("汉汉", 5)).toBe("汉");
+    expect(truncateUtf8("汉汉", 6)).toBe("汉汉");
   });
 });

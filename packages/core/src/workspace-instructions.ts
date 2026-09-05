@@ -84,6 +84,25 @@ export interface RenderedInstructions {
 
 const USER_MEMORY_ID = "user-memory";
 
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function utf8Bytes(value: string): number {
+  return encoder.encode(value).length;
+}
+
+/** Cuts a UTF-8 byte prefix without splitting a code point, then decodes losslessly. */
+function cutUtf8(bytes: Uint8Array, maxBytes: number): Uint8Array {
+  let end = Math.min(maxBytes, bytes.length);
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+  return bytes.slice(0, end);
+}
+
+/** UTF-8-safe truncation for display/tests: never splits a multi-byte code point. */
+export function truncateUtf8(value: string, maxBytes: number): string {
+  return decoder.decode(cutUtf8(encoder.encode(value), maxBytes));
+}
+
 /** `~`-prefixed display paths are the user-global file; everything else is project-scoped. */
 export function instructionLayerId(displayPath: string): string {
   return displayPath.startsWith("~/") ? USER_MEMORY_ID : `project-memory:${displayPath}`;
@@ -97,11 +116,79 @@ function layerFor(file: LoadedInstructionFile): ContextLayer {
   return { id: instructionLayerId(file.displayPath), text: sectionText(file) };
 }
 
+function noticeLine(maxBytes: number, omitted: string[], truncated: TruncationRecord[]): string {
+  const parts: string[] = [];
+  if (omitted.length > 0) parts.push(`omitted ${omitted.join(", ")}`);
+  for (const t of truncated) {
+    parts.push(`truncated ${t.displayPath} from ${t.originalBytes} to ${t.includedBytes} bytes`);
+  }
+  return `Workspace instruction budget ${maxBytes} bytes: ${parts.join("; ")}`;
+}
+
 export function renderInstructionLayers(
   files: LoadedInstructionFile[],
   maxBytes: number,
 ): RenderedInstructions {
   if (files.length === 0) return { layers: [], omitted: [], truncated: [] };
-  void maxBytes; // Task 4 enforces the budget; rendering is unbounded until then.
-  return { layers: files.map(layerFor), omitted: [], truncated: [] };
+  if (maxBytes <= 0 || !Number.isFinite(maxBytes)) {
+    return { layers: [], omitted: files.map((f) => f.displayPath), truncated: [] };
+  }
+
+  const rendered = files.map(layerFor);
+  const sum = (ls: ContextLayer[]): number => ls.reduce((acc, l) => acc + utf8Bytes(l.text), 0);
+  if (sum(rendered) <= maxBytes) return { layers: rendered, omitted: [], truncated: [] };
+
+  // Drop whole broadest files first — the last (most specific) file is never
+  // dropped here; if it alone still busts the budget it falls to truncation.
+  const omitted: string[] = [];
+  let first = 0;
+  let layers = rendered;
+  while (layers.length > 1 && sum(layers) > maxBytes) {
+    omitted.push(files[first]!.displayPath);
+    first += 1;
+    layers = rendered.slice(first);
+  }
+  if (sum(layers) <= maxBytes) return { layers, omitted, truncated: [] };
+
+  // Only the most-specific file remains and it alone exceeds the budget:
+  // binary-search the longest UTF-8-safe content prefix whose full layer text
+  // (heading + content + notice) fits — the notice counts against the budget.
+  const last = files[first]! as LoadedInstructionFile;
+  const heading = `Instructions from: ${last.displayPath}\n\n`;
+  const originalBytes = utf8Bytes(last.content);
+  const bytes = encoder.encode(last.content);
+  const textFor = (contentBytes: Uint8Array, includedBytes: number): string => {
+    const notice = noticeLine(maxBytes, omitted, [
+      { displayPath: last.displayPath, originalBytes, includedBytes },
+    ]);
+    return `${heading}${decoder.decode(contentBytes)}\n${notice}`;
+  };
+
+  let low = 0;
+  let high = bytes.length;
+  let best = 0;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const sliced = cutUtf8(bytes, mid);
+    if (utf8Bytes(textFor(sliced, sliced.length)) <= maxBytes) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const finalSlice = cutUtf8(bytes, best);
+  const truncated: TruncationRecord[] = [
+    { displayPath: last.displayPath, originalBytes, includedBytes: finalSlice.length },
+  ];
+  // Degenerate cap where even the notice cannot fit: the truncated notice
+  // itself is the layer (spec §5.5 — the notice is bounded last of all).
+  let text = textFor(finalSlice, finalSlice.length);
+  if (utf8Bytes(text) > maxBytes) text = truncateUtf8(noticeLine(maxBytes, omitted, truncated), maxBytes);
+  return {
+    layers: [{ id: instructionLayerId(last.displayPath), text }],
+    omitted,
+    truncated,
+  };
 }
