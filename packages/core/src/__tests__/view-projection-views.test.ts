@@ -338,6 +338,48 @@ describe("toTrajectoryView", () => {
     });
   });
 
+  it("summarises a tool-call-only assistant step by its tool calls, not \"(no text)\"", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } }],
+          reasoning: "need the file first",
+          stopReason: "tool_use",
+          durationMs: 10,
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "assistant")!;
+    expect(row.summary).toBe("1 tool call");
+    // The step's only narration lives in the reasoning block — keep it on the row.
+    expect(row.thinkingDetail).toBe("need the file first");
+    expect(row.outputDetail).toBeUndefined();
+  });
+
+  it("keeps \"(no text)\" for an assistant step with neither text nor tool calls", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: { content: [], stopReason: "end_turn", durationMs: 10 },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "assistant")!;
+    expect(row.summary).toBe("(no text)");
+  });
+
   it("puts the call arguments and real output on the tool row", () => {
     const row = toTrajectoryView(buildTurnRecords(EQUIVALENT_LOG), EQUIVALENT_LOG).rows.find(
       (r) => r.kind === "tool",

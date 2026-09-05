@@ -735,6 +735,10 @@ export function toTrajectoryView(
       const assistant = step.assistant;
       const header = headersByHash.get(step.headerHash);
       const outputText = assistant ? textOf(assistant.content) : (step.partial?.text ?? "");
+      // The authoritative message is the tool-call source of truth here: a
+      // batch that died mid-flight can leave tool_call events unflushed while
+      // the assistant_message's tool_use blocks are already durable.
+      const emittedToolCalls = assistant ? assistant.content.filter((b) => b.type === "tool_use").length : 0;
 
       rows.push({
         index: 0,
@@ -742,7 +746,18 @@ export function toTrajectoryView(
         kind: "assistant",
         turn: turn.turn,
         step: step.step,
-        summary: summarise(outputText) || (step.error ? step.error.message : "(no text)"),
+        // A step whose only payload is tool calls (reasoning models narrate
+        // via the reasoning block, not text) still happened — describe it by
+        // what it did instead of the "(no text)" dead end.
+        summary:
+          summarise(outputText) ||
+          (step.error
+            ? step.error.message
+              : emittedToolCalls > 0
+                ? emittedToolCalls === 1
+                  ? "1 tool call"
+                  : `${emittedToolCalls} tool calls`
+                : "(no text)"),
         startedAt: step.startedAt,
         ...(assistant !== undefined ? { durationMs: assistant.durationMs } : {}),
         ...(step.error !== undefined ? { isError: true } : {}),
