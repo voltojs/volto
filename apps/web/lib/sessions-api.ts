@@ -9,6 +9,19 @@
 import { SERVER_URL } from './agent-config';
 import type { ConversationMessage, TrajectoryView } from '@volto/sdk/sse';
 
+/** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */
+export class TrajectoryUnavailableError extends Error {
+  readonly status: number;
+  readonly kind: 'legacy' | 'network';
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'TrajectoryUnavailableError';
+    this.status = status;
+    this.kind = status === 410 ? 'legacy' : 'network';
+  }
+}
+
 export interface ServerSessionSummary {
   id: string;
   projectId: string | null;
@@ -60,7 +73,10 @@ export async function fetchServerTrajectory(
   const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}/trajectory`);
   if (response.status === 404) return null;
   if (!response.ok) {
-    throw new Error(`Failed to load trajectory ${id}: HTTP ${response.status}`);
+    throw new TrajectoryUnavailableError(
+      response.status,
+      `Failed to load trajectory ${id}: HTTP ${response.status}`,
+    );
   }
   return (await response.json()) as TrajectoryView;
 }
