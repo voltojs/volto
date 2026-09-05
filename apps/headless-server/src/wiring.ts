@@ -195,6 +195,19 @@ async function loadSkillResourceText(skill: Skill, rootDirByResource: Map<string
   return parts.join("\n\n");
 }
 
+/**
+ * System prompt used when the caller (config / request) provides none. Without
+ * it the model receives no system message at all — and the trajectory's
+ * request_header rows show "0 layers". Kept deliberately small: it describes
+ * the agent's role and working style, while risk-tier permissions and the
+ * approval flow enforce the actual safety policy.
+ */
+export const DEFAULT_SYSTEM_PROMPT = [
+  "You are Volto, a coding agent working in the user's project workspace.",
+  "You can read and edit files, run shell commands, and fetch web content through the provided tools.",
+  "Plan before non-trivial changes, verify your work after making it, and keep answers concise and factual.",
+].join("\n");
+
 export interface WiringOptions {
   modelPort?: ModelPort;
   model?: string;
@@ -204,6 +217,12 @@ export interface WiringOptions {
   dbPath?: string;
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
+  /**
+   * System prompt seeded into the conversation (and mirrored into the
+   * request_header transcript event). Defaults to DEFAULT_SYSTEM_PROMPT;
+   * pass `null` to run with no system message.
+   */
+  systemPrompt?: string | null;
   /** Conversation history to seed when rebuilding an instance. */
   initialMessages?: Message[];
   /** Durable transcript/trajectory store, already scoped to this workspace via scopeToWorkspace(). */
@@ -258,6 +277,10 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   return createAgent({
     modelPort,
     model: opts.model ?? process.env["OPENAI_MODEL"] ?? "gpt-4o",
+    // `null` opts out of a system message entirely; undefined takes the default.
+    ...(opts.systemPrompt === null
+      ? {}
+      : { systemPrompt: opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT }),
     fs,
     shell,
     network,
