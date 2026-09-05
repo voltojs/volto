@@ -356,6 +356,35 @@ describe("createAgent — SDK facade", () => {
       expect(assistantMessages).toHaveLength(1);
     });
 
+    it("carries systemPrompt into request_header.systemLayers while keeping the seed message intact", async () => {
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("Arrr!")]),
+        systemPrompt: "You are a pirate",
+        chatStore,
+        chatSessionId: "chat-s1",
+      });
+
+      const state = await agent.run("hi");
+
+      // Seed behavior intact: the system prompt is still the first message
+      // of the conversation state.
+      expect(state.messages[0]).toMatchObject({ role: "system", content: "You are a pirate" });
+
+      // Additionally surfaced as a synthetic context layer in the header —
+      // this is the only way request_header.systemLayers reflects the option.
+      const header = events.find((e) => e.type === "request_header");
+      expect(header).toBeDefined();
+      const { systemLayers } = header!.data as { systemLayers: Array<{ id: string; text: string }> };
+      expect(systemLayers).toContainEqual({ id: "system-prompt", text: "You are a pirate" });
+    });
+
     it("survives a chatStore whose appendEvents throws synchronously (a plain, non-async implementation)", async () => {
       // A plain (non-`async`) function that throws never produces a promise
       // for `.catch()` to attach to — `.catch()` on its return value would

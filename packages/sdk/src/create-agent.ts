@@ -211,6 +211,12 @@ export interface CreateAgentOptions {
   /**
    * System prompt prepended as the first message in every conversation.
    * Persists across turns and survives compaction.
+   *
+   * Additionally surfaced as a synthetic `{ id: "system-prompt" }` context
+   * layer on every turn's StepContext, so the transcript's
+   * `request_header.systemLayers` carries it too (the seed message alone
+   * never appears in the header). Skipped if the host's own layers already
+   * contain that id.
    */
   systemPrompt?: string;
 
@@ -982,9 +988,25 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // misattribute its turn_end to the last successful turn instead of this
     // one (and a first-turn failure would record turn 0).
     turnCounter++;
-    const turnStepContext: StepContext = opts.resolveContextLayers
-      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
-      : stepContext;
+    // systemPrompt additionally becomes a synthetic context layer so it lands
+    // in the transcript's request_header.systemLayers — the seed {role:"system"}
+    // message alone never reaches the header. Prepended (not appended) so it
+    // sits closest to the static prefix, mirroring its position as the first
+    // seed message. Skipped when the host's resolved layers already carry the
+    // same id, so a host that manages its own "system-prompt" layer cannot
+    // collide with this injection.
+    const hostLayers = opts.resolveContextLayers ? await opts.resolveContextLayers(inputText) : undefined;
+    const systemPromptLayer =
+      resolvedSystemPrompt && !hostLayers?.some((layer) => layer.id === "system-prompt")
+        ? { id: "system-prompt", text: resolvedSystemPrompt }
+        : undefined;
+    const turnStepContext: StepContext =
+      systemPromptLayer || hostLayers
+        ? {
+            ...stepContext,
+            contextLayers: systemPromptLayer ? [systemPromptLayer, ...(hostLayers ?? [])] : hostLayers,
+          }
+        : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
