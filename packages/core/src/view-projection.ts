@@ -747,17 +747,18 @@ export function toTrajectoryView(
         turn: turn.turn,
         step: step.step,
         // A step whose only payload is tool calls (reasoning models narrate
-        // via the reasoning block, not text) still happened — describe it by
-        // what it did instead of the "(no text)" dead end.
+        // via the reasoning block, not text) still happened — lead with its
+        // reasoning, then what it did, instead of the "(no text)" dead end.
         summary:
           summarise(outputText) ||
           (step.error
             ? step.error.message
-              : emittedToolCalls > 0
+            : summarise(assistant?.reasoning ?? "") ||
+              (emittedToolCalls > 0
                 ? emittedToolCalls === 1
                   ? "1 tool call"
                   : `${emittedToolCalls} tool calls`
-                : "(no text)"),
+                : "(no text)")),
         startedAt: step.startedAt,
         ...(assistant !== undefined ? { durationMs: assistant.durationMs } : {}),
         ...(step.error !== undefined ? { isError: true } : {}),

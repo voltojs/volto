@@ -338,7 +338,7 @@ describe("toTrajectoryView", () => {
     });
   });
 
-  it("summarises a tool-call-only assistant step by its tool calls, not \"(no text)\"", () => {
+  it("summarises a tool-call-only assistant step by its reasoning, then its tool calls", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
       { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
@@ -346,21 +346,40 @@ describe("toTrajectoryView", () => {
         time: 130,
         type: "assistant_message",
         data: {
-          content: [{ type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } }],
-          reasoning: "need the file first",
+          content: [
+            { type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } },
+            { type: "tool_use", id: "c2", name: "read_file", input: { path: "b.txt" } },
+          ],
+          reasoning: "need the files first\nsecond line of thought",
           stopReason: "tool_use",
           durationMs: 10,
         },
         turn: 1,
         step: 1,
       },
+      { time: 210, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+      {
+        time: 230,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c3", name: "ls", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 10,
+        },
+        turn: 1,
+        step: 2,
+      },
     ]);
 
-    const row = toTrajectoryView(buildTurnRecords(events), events).rows.find((r) => r.kind === "assistant")!;
-    expect(row.summary).toBe("1 tool call");
-    // The step's only narration lives in the reasoning block — keep it on the row.
-    expect(row.thinkingDetail).toBe("need the file first");
-    expect(row.outputDetail).toBeUndefined();
+    const rows = toTrajectoryView(buildTurnRecords(events), events).rows.filter(
+      (r) => r.kind === "assistant",
+    );
+    // Reasoning narrates the step — its first line leads the summary.
+    expect(rows[0]!.summary).toBe("need the files first");
+    expect(rows[0]!.thinkingDetail).toBe("need the files first\nsecond line of thought");
+    expect(rows[0]!.outputDetail).toBeUndefined();
+    // Without reasoning, the step is still described by what it did.
+    expect(rows[1]!.summary).toBe("1 tool call");
   });
 
   it("keeps \"(no text)\" for an assistant step with neither text nor tool calls", () => {
