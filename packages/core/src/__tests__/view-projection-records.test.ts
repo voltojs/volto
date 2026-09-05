@@ -239,6 +239,69 @@ describe("buildTurnRecords", () => {
     expect(buildTurnRecords(SIMPLE_TURN, foreign)).toEqual(buildTurnRecords(SIMPLE_TURN));
   });
 
+  // Pre-Task-3 logs: the runner closed a paused turn with a turn_end at the
+  // pause and resume() appended the post-decision events after that bracket
+  // with no new turn_start. The end time survives the extension, so identity
+  // reuse must be gated by the structural watermark, not by endedAt alone.
+  const PAUSED_TURN = log([
+    { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+    { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+    { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+    {
+      time: 130,
+      type: "assistant_message",
+      data: {
+        content: [{ type: "tool_use", id: "c1", name: "bash", input: { cmd: "deploy" } }],
+        stopReason: "tool_use",
+        durationMs: 10,
+      },
+      turn: 1,
+      step: 1,
+    },
+    { time: 140, type: "tool_call", data: { callId: "c1", name: "bash", input: { cmd: "deploy" } }, turn: 1, step: 1 },
+    { time: 150, type: "approval_asked", data: { callId: "c1", name: "bash", riskTier: "WRITE_HIGH" }, turn: 1, step: 1 },
+    { time: 160, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+  ]);
+
+  const RESUMED_TURN = log([
+    ...PAUSED_TURN.map(({ seq: _seq, ...rest }) => rest),
+    { time: 200, type: "approval_decision", data: { callId: "c1", decision: "allow" }, turn: 1, step: 1 },
+    {
+      time: 210,
+      type: "tool_result",
+      data: { callId: "c1", name: "bash", content: "deployed", isError: false, durationMs: 50, orderInBatch: 0 },
+      turn: 1,
+      step: 1,
+    },
+    { time: 220, type: "model_call_start", data: { headerHash: "h2" }, turn: 1, step: 2 },
+    {
+      time: 300,
+      type: "assistant_message",
+      data: { content: [{ type: "text", text: "done" }], stopReason: "end_turn", durationMs: 80 },
+      turn: 1,
+      step: 2,
+    },
+  ]);
+
+  it("rebuilds a turn extended after its turn_end instead of reusing a stale prev", () => {
+    const prev = buildTurnRecords(PAUSED_TURN);
+    expect(prev).toHaveLength(1);
+    expect(prev[0]!.steps).toHaveLength(1); // the stale shape the log was paused with
+
+    const records = buildTurnRecords(RESUMED_TURN, prev);
+
+    expect(Object.is(records[0], prev[0])).toBe(false);
+    expect(records[0]!.steps).toHaveLength(2);
+    expect(records[0]!.steps[1]!.assistant!.content).toEqual([{ type: "text", text: "done" }]);
+    expect(records[0]!.steps[0]!.toolCalls[0]!.approval).toEqual({ riskTier: "WRITE_HIGH", decision: "allow" });
+  });
+
+  it("produces the same resumed turn with or without prev", () => {
+    expect(buildTurnRecords(RESUMED_TURN, buildTurnRecords(PAUSED_TURN))).toEqual(
+      buildTurnRecords(RESUMED_TURN),
+    );
+  });
+
   it("returns an empty array for an empty log", () => {
     expect(buildTurnRecords([])).toEqual([]);
   });

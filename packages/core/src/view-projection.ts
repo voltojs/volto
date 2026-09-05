@@ -122,7 +122,11 @@ function newStep(step: number, startedAt: number, headerHash: string): MutableSt
  * shape is unchanged keep their previous object identity, so a React consumer
  * memoising per row re-renders only the turn still in flight. Passing a `prev`
  * from a different session cannot corrupt the result — identity is reused only
- * when the turn number and end time both match.
+ * when the turn number and end time match and a cheap structural watermark
+ * agrees: same user-input count, same step count, and same tool-call count on
+ * the last step. A log extended after the turn closed (e.g. a pre-fix resume
+ * appending past a paused turn's bracket) keeps its end time but fails the
+ * watermark, so it is rebuilt instead of served stale from `prev`.
  */
 export function buildTurnRecords(
   events: readonly TranscriptEvent[],
@@ -324,14 +328,22 @@ export function buildTurnRecords(
   if (!prev) return turns;
 
   // Reuse identity for closed turns whose shape is unchanged, so a memoising
-  // consumer re-renders only the turn still in flight.
+  // consumer re-renders only the turn still in flight. Turn number, end time
+  // and the structural watermark below must all agree: events appended after
+  // a turn_end (a pre-fix resume-shaped log) keep the same end time but grow
+  // one of these lengths, and lengths are cheap to compare while content is
+  // not.
   return turns.map((turn, i) => {
     const before = prev[i];
     if (
       before !== undefined &&
       before.turn === turn.turn &&
       before.endedAt !== undefined &&
-      before.endedAt === turn.endedAt
+      before.endedAt === turn.endedAt &&
+      before.userInput.length === turn.userInput.length &&
+      before.steps.length === turn.steps.length &&
+      before.steps[before.steps.length - 1]?.toolCalls.length ===
+        turn.steps[turn.steps.length - 1]?.toolCalls.length
     ) {
       return before;
     }
