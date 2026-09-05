@@ -243,10 +243,16 @@ export {
   ancestorChain,
   candidateFileNames,
   dedupeInstructions,
+  instructionLayerId,
+  renderInstructionLayers,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
 } from "./workspace-instructions.js";
-export type { LoadedInstructionFile } from "./workspace-instructions.js";
+export type {
+  LoadedInstructionFile,
+  RenderedInstructions,
+  TruncationRecord,
+} from "./workspace-instructions.js";
 
 // Testing utilities
 export {

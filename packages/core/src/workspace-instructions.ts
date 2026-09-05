@@ -5,6 +5,8 @@
  * See docs/superpowers/specs/2026-09-05-agent-context-injection-design.md.
  */
 
+import type { ContextLayer } from "./context-assembler.js";
+
 /** One instruction file the host has already read and @import-expanded. */
 export interface LoadedInstructionFile {
   /** Absolute host path — host-side bookkeeping, never rendered to the model. */
@@ -64,4 +66,42 @@ export function dedupeInstructions(files: LoadedInstructionFile[]): LoadedInstru
     kept.push(file);
   }
   return kept;
+}
+
+export interface TruncationRecord {
+  displayPath: string;
+  originalBytes: number;
+  includedBytes: number;
+}
+
+export interface RenderedInstructions {
+  layers: ContextLayer[];
+  /** displayPaths dropped whole by the budget (Task 4). */
+  omitted: string[];
+  /** displayPaths partially included by the budget (Task 4). */
+  truncated: TruncationRecord[];
+}
+
+const USER_MEMORY_ID = "user-memory";
+
+/** `~`-prefixed display paths are the user-global file; everything else is project-scoped. */
+export function instructionLayerId(displayPath: string): string {
+  return displayPath.startsWith("~/") ? USER_MEMORY_ID : `project-memory:${displayPath}`;
+}
+
+function sectionText(file: LoadedInstructionFile): string {
+  return `Instructions from: ${file.displayPath}\n\n${file.content}`;
+}
+
+function layerFor(file: LoadedInstructionFile): ContextLayer {
+  return { id: instructionLayerId(file.displayPath), text: sectionText(file) };
+}
+
+export function renderInstructionLayers(
+  files: LoadedInstructionFile[],
+  maxBytes: number,
+): RenderedInstructions {
+  if (files.length === 0) return { layers: [], omitted: [], truncated: [] };
+  void maxBytes; // Task 4 enforces the budget; rendering is unbounded until then.
+  return { layers: files.map(layerFor), omitted: [], truncated: [] };
 }

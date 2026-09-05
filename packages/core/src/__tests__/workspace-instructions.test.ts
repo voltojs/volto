@@ -3,6 +3,8 @@ import {
   ancestorChain,
   candidateFileNames,
   dedupeInstructions,
+  instructionLayerId,
+  renderInstructionLayers,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
   type LoadedInstructionFile,
@@ -72,5 +74,43 @@ describe("dedupeInstructions", () => {
 
   it("returns an empty array for empty input", () => {
     expect(dedupeInstructions([])).toEqual([]);
+  });
+});
+
+describe("instructionLayerId", () => {
+  it("maps the user-global display path to user-memory", () => {
+    expect(instructionLayerId("~/.volto/AGENTS.md")).toBe("user-memory");
+  });
+
+  it("keys project layers by their display path", () => {
+    expect(instructionLayerId("src/lib/AGENTS.md")).toBe("project-memory:src/lib/AGENTS.md");
+  });
+});
+
+describe("renderInstructionLayers — rendering (no budget pressure)", () => {
+  it("prefixes each layer with its provenance heading", () => {
+    const { layers } = renderInstructionLayers(
+      [file("AGENTS.md", "Root rule")],
+      64 * 1024,
+    );
+    expect(layers).toHaveLength(1);
+    expect(layers[0]!.id).toBe("project-memory:AGENTS.md");
+    expect(layers[0]!.text).toBe("Instructions from: AGENTS.md\n\nRoot rule");
+  });
+
+  it("renders one layer per file, preserving broad-to-specific order", () => {
+    const { layers } = renderInstructionLayers(
+      [file("AGENTS.md", "a"), file("src/AGENTS.md", "b"), file("src/CLAUDE.local.md", "c")],
+      64 * 1024,
+    );
+    expect(layers.map((l) => l.id)).toEqual([
+      "project-memory:AGENTS.md",
+      "project-memory:src/AGENTS.md",
+      "project-memory:src/CLAUDE.local.md",
+    ]);
+  });
+
+  it("emits nothing for empty input", () => {
+    expect(renderInstructionLayers([], 64 * 1024)).toEqual({ layers: [], omitted: [], truncated: [] });
   });
 });
