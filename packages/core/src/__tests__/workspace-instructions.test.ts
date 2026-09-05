@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   ancestorChain,
   candidateFileNames,
+  dedupeInstructions,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
+  type LoadedInstructionFile,
 } from "../workspace-instructions.js";
 
 describe("ancestorChain", () => {
@@ -38,5 +40,37 @@ describe("candidate file names", () => {
     ]);
     expect(BASE_INSTRUCTION_FILES).toEqual(["AGENTS.md", "CLAUDE.md"]);
     expect(LOCAL_INSTRUCTION_FILES).toEqual(["AGENTS.local.md", "CLAUDE.local.md"]);
+  });
+});
+
+function file(displayPath: string, content: string): LoadedInstructionFile {
+  return { absolutePath: `/abs/${displayPath}`, displayPath, content };
+}
+
+describe("dedupeInstructions", () => {
+  it("keeps the first of identical siblings in candidate order", () => {
+    const kept = dedupeInstructions([file("AGENTS.md", "same"), file("CLAUDE.md", "same")]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.displayPath).toBe("AGENTS.md");
+  });
+
+  it("dedupes across directories, not only siblings", () => {
+    const kept = dedupeInstructions([file("AGENTS.md", "rule"), file("src/AGENTS.md", "rule")]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.displayPath).toBe("AGENTS.md");
+  });
+
+  it("compares trimmed content", () => {
+    const kept = dedupeInstructions([file("AGENTS.md", "rule"), file("src/CLAUDE.md", "  rule  \n")]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("keeps files with distinct content in input order", () => {
+    const kept = dedupeInstructions([file("a", "1"), file("b", "2"), file("c", "3")]);
+    expect(kept.map((f) => f.displayPath)).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(dedupeInstructions([])).toEqual([]);
   });
 });

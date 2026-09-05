@@ -242,6 +242,7 @@ export type {
 export {
   ancestorChain,
   candidateFileNames,
+  dedupeInstructions,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
 } from "./workspace-instructions.js";

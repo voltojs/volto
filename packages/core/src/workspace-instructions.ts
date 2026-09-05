@@ -48,3 +48,20 @@ export function ancestorChain(cwd: string, projectRoot: string): string[] {
   }
   return chain;
 }
+
+/**
+ * Drops files whose trimmed content equals an earlier candidate's — a
+ * CLAUDE.md copying its AGENTS.md (in the same or a parent directory) must
+ * not be injected twice. First in candidate order wins.
+ */
+export function dedupeInstructions(files: LoadedInstructionFile[]): LoadedInstructionFile[] {
+  const seen = new Set<string>();
+  const kept: LoadedInstructionFile[] = [];
+  for (const file of files) {
+    const key = file.content.trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(file);
+  }
+  return kept;
+}
