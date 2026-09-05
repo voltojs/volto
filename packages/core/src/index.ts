@@ -238,6 +238,15 @@ export type {
   TopologyResult,
 } from "./orchestration.js";
 
+// Workspace instructions — AGENTS.md & friends chain path helpers (pure, zero I/O)
+export {
+  ancestorChain,
+  candidateFileNames,
+  BASE_INSTRUCTION_FILES,
+  LOCAL_INSTRUCTION_FILES,
+} from "./workspace-instructions.js";
+export type { LoadedInstructionFile } from "./workspace-instructions.js";
+
 // Testing utilities
 export {
   createMockModelPort,
