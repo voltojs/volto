@@ -373,3 +373,134 @@ describe('mergeStoredAndLive', () => {
     expect(mergeStoredAndLive(stored, [])).toEqual(stored);
   });
 });
+
+import {
+  projectTrajectory,
+  mergeStoredAndLiveRows,
+} from '@/lib/projection';
+import type { TrajectoryRow } from '@volto/sdk/sse';
+
+function ev(
+  time: number,
+  type: string,
+  data: Record<string, unknown>,
+  turn?: number,
+  step?: number,
+): TranscriptEventInput {
+  return {
+    time,
+    type: type as TranscriptEventInput['type'],
+    data,
+    ...(turn !== undefined ? { turn } : {}),
+    ...(step !== undefined ? { step } : {}),
+  } as TranscriptEventInput;
+}
+
+/** 两步轮次：step1 工具调用 → step2 纯文本收尾。 */
+const TOOL_LOG: TranscriptEventInput[] = [
+  ev(100, 'turn_start', { turn: 1 }, 1),
+  ev(110, 'user_message', { content: 'go' }, 1),
+  ev(120, 'model_call_start', { headerHash: 'h1' }, 1, 1),
+  ev(130, 'assistant_message', {
+    content: [{ type: 'tool_use', id: 'c1', name: 'read_file', input: { path: 'a.txt' } }],
+    stopReason: 'tool_use',
+    durationMs: 10,
+  }, 1, 1),
+  ev(140, 'tool_call', { callId: 'c1', name: 'read_file', input: { path: 'a.txt' } }, 1, 1),
+  ev(180, 'tool_result', { callId: 'c1', content: 'file body', isError: false, orderInBatch: 0, durationMs: 40 }, 1, 1),
+  ev(190, 'model_call_start', { headerHash: 'h1' }, 1, 2),
+  ev(200, 'assistant_message', {
+    content: [{ type: 'text', text: 'done' }],
+    stopReason: 'end_turn',
+    durationMs: 10,
+  }, 1, 2),
+  ev(210, 'turn_end', { turn: 1, reason: 'done' }, 1),
+];
+
+describe('projectTrajectory', () => {
+  it('derives the full row set: user / assistant / tool / assistant with stable ids', () => {
+    const { rows, streamingRowId } = projectTrajectory(TOOL_LOG, []);
+    expect(streamingRowId).toBeNull();
+    expect(rows.map((r) => [r.id, r.kind])).toEqual([
+      ['1:u0', 'user'],
+      ['1:1', 'assistant'],
+      ['c1', 'tool'],
+      ['1:2', 'assistant'],
+    ]);
+    expect(rows[0]!.summary).toBe('go');
+    expect(rows[2]!.inputDetail).toContain('read_file');
+    expect(rows[2]!.outputDetail).toBe('file body');
+    expect(rows[2]!.durationMs).toBe(40);
+  });
+
+  it('folds deltas into the open assistant row and reports it as streaming', () => {
+    const openLog = TOOL_LOG.slice(0, 7); // 截到 model_call_start(step2)，step2 无 assistant_message
+    const deltas = [
+      { kind: 'text', text: 'hel' },
+      { kind: 'text', text: 'lo' },
+    ] as TranscriptDelta[];
+
+    const { rows, streamingRowId } = projectTrajectory(openLog, deltas);
+    const streaming = rows.find((r) => r.id === '1:2');
+    expect(streamingRowId).toBe('1:2');
+    expect(streaming!.outputDetail).toBe('hello');
+  });
+
+  it('self-heals: the authoritative assistant_message replaces the partial wholesale', () => {
+    const openLog = TOOL_LOG.slice(0, 7);
+    const deltas = [{ kind: 'text', text: 'partial text' }] as TranscriptDelta[];
+
+    // 带着过期 deltas 投影完整日志——权威事件必须整体替换 partial
+    const { rows, streamingRowId } = projectTrajectory(TOOL_LOG, deltas);
+    expect(streamingRowId).toBeNull();
+    expect(rows.find((r) => r.id === '1:2')!.outputDetail).toBe('done');
+    // 且与无 deltas 的结果深相等
+    expect(rows).toEqual(projectTrajectory(TOOL_LOG, []).rows);
+  });
+});
+
+describe('mergeStoredAndLiveRows', () => {
+  const row = (id: string, startedAt: number, summary: string): TrajectoryRow => ({
+    index: 0,
+    id,
+    kind: 'assistant',
+    turn: 1,
+    summary,
+    startedAt,
+  });
+
+  it('returns stored as-is when nothing is live', () => {
+    const stored = [row('1:1', 100, 'a'), row('c1', 140, 't')];
+    expect(mergeStoredAndLiveRows(stored, [])).toEqual(stored);
+  });
+
+  it('returns live (reindexed) when nothing is stored', () => {
+    const live = [row('2:1', 300, 'x'), row('2:u0', 290, 'u')];
+    const merged = mergeStoredAndLiveRows([], live);
+    expect(merged.map((r) => r.id)).toEqual(['2:u0', '2:1']);
+    expect(merged.map((r) => r.index)).toEqual([1, 2]);
+  });
+
+  it('lets live win on id collision and re-sorts + reindexes the union', () => {
+    const stored = [row('1:1', 100, 'stale'), row('c1', 140, 'tool')];
+    const live = [row('1:1', 100, 'fresh'), row('1:2', 200, 'next')];
+    const merged = mergeStoredAndLiveRows(stored, live);
+    expect(merged.map((r) => [r.id, r.summary])).toEqual([
+      ['1:1', 'fresh'],
+      ['c1', 'tool'],
+      ['1:2', 'next'],
+    ]);
+    expect(merged.map((r) => r.index)).toEqual([1, 2, 3]);
+  });
+
+  it('merges a recovered mid-turn session: stored turn-1 rows + live turn-1 tail by id, live wins', () => {
+    // 恢复会话：盘上已有 step1 的 assistant 行；实时流随后重放了同一轮的行（带 partial 更新）
+    const stored = [row('1:u0', 90, 'go'), row('1:1', 100, 'stale')];
+    const live = [row('1:1', 100, 'fresh partial')];
+    const merged = mergeStoredAndLiveRows(stored, live);
+    expect(merged.map((r) => [r.id, r.summary])).toEqual([
+      ['1:u0', 'go'],
+      ['1:1', 'fresh partial'],
+    ]);
+  });
+});
