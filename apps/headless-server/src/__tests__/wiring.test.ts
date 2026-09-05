@@ -50,8 +50,10 @@ describe("createWiredAgent memory file layers", () => {
     const systemContents = requests[0]!.messages
       .filter((m) => m.role === "system")
       .map((m) => (m as { content: string }).content);
-    expect(systemContents).toContain("User rule");
-    expect(systemContents).toContain("Project rule");
+    // Provenance headings prefix each layer, so assert by content inclusion
+    // (toContain on an array does exact element matching).
+    expect(systemContents.some((c) => c.includes("User rule"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("Project rule"))).toBe(true);
     // Two distinct messages, not merged into one.
     expect(systemContents.filter((c) => c.includes("rule"))).toHaveLength(2);
   });
@@ -186,5 +188,67 @@ describe("createWiredAgent memory file layers", () => {
       .filter((m) => m.role === "system")
       .map((m) => (m as { content: string }).content);
     expect(systemContents.some((c) => c.includes("Debug steps."))).toBe(false);
+  });
+});
+
+describe("createWiredAgent project-chain instruction layers", () => {
+  it("injects root and subdirectory instruction files when cwd is nested", async () => {
+    await fs.mkdir(path.join(tempProjectDir, "src", "lib"), { recursive: true });
+    await fs.mkdir(path.join(tempProjectDir, ".git"));
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Root rule", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "src", "lib", "AGENTS.md"), "Deep rule", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src", "lib") });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents).toContain("Instructions from: AGENTS.md\n\nRoot rule");
+    expect(systemContents).toContain("Instructions from: src/lib/AGENTS.md\n\nDeep rule");
+  });
+
+  it("dedupes a CLAUDE.md that copies the root AGENTS.md across directories", async () => {
+    await fs.mkdir(path.join(tempProjectDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "same rule", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "src", "CLAUDE.md"), "same rule\n", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.filter((c) => c.includes("same rule"))).toHaveLength(1);
+  });
+
+  it("injects a local overlay after the base file of the same directory", async () => {
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Base", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.local.md"), "Local", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents).toContain("Instructions from: AGENTS.md\n\nBase");
+    expect(systemContents).toContain("Instructions from: AGENTS.local.md\n\nLocal");
+  });
+
+  it("still injects a single-level chain when there is no .git marker", async () => {
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Lone rule", "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents).toContain("Instructions from: AGENTS.md\n\nLone rule");
   });
 });

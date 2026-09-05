@@ -13,20 +13,19 @@ import {
   createNodeNetwork,
 } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
-import { expandInstructions, type ContextLayer } from "@volto/core";
+import {
+  ancestorChain,
+  candidateFileNames,
+  dedupeInstructions,
+  expandInstructions,
+  renderInstructionLayers,
+  type ContextLayer,
+  type LoadedInstructionFile,
+} from "@volto/core";
 import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import type { Skill } from "@volto/sdk";
 import { findTriggeredSkills } from "@volto/sdk";
 import { getConfigDir } from "./config/paths.js";
-
-/** Reads one AGENTS.md file if it exists and is readable; returns undefined (not an error) for any failure — context layers are best-effort. */
-async function readAgentsFile(dir: string): Promise<string | undefined> {
-  try {
-    return await fs.readFile(path.join(dir, "AGENTS.md"), "utf-8");
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Recursively reads an instruction file and every file it @imports (transitively)
@@ -67,33 +66,78 @@ async function loadInstructionFileTree(entryPath: string): Promise<Map<string, s
   return fileContents;
 }
 
+const DEFAULT_MAX_INSTRUCTION_BYTES = 64 * 1024;
+const USER_MEMORY_DISPLAY_PATH = "~/.volto/AGENTS.md";
+
+async function readIfPresent(filePath: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(filePath, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Builds this turn's static context layers: user-level AGENTS.md
- * (~/.volto/AGENTS.md) and project-level AGENTS.md (<cwd>/AGENTS.md), kept
- * as two separate ContextLayers (never merged) so a future audit sink can
- * tell which source contributed which text.
+ * Nearest ancestor-or-self directory containing a `.git` entry (directory or
+ * worktree file). Falls back to cwd itself when no marker exists, making the
+ * chain a single level.
  */
-async function resolveMemoryLayers(cwd: string): Promise<ContextLayer[]> {
-  const layers: ContextLayer[] = [];
+async function findProjectRoot(cwd: string): Promise<string> {
+  let current = cwd;
+  for (;;) {
+    try {
+      await fs.stat(path.join(current, ".git"));
+      return current;
+    } catch {
+      // No marker here — keep walking up.
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return cwd;
+    current = parent;
+  }
+}
+
+/** Reads one instruction file and @import-expands it; undefined when absent. */
+async function loadExpanded(filePath: string, importRoot: string): Promise<string | undefined> {
+  const raw = await readIfPresent(filePath);
+  if (raw === undefined) return undefined;
+  const fileContents = await loadInstructionFileTree(filePath);
+  const expanded = expandInstructions(fileContents, filePath, importRoot);
+  return expanded.text;
+}
+
+/**
+ * Builds this turn's instruction layers: the user-global file followed by the
+ * project chain (projectRoot → cwd, broad → specific). Budget, dedupe and
+ * provenance headings live in core's pure renderInstructionLayers(); this
+ * function only probes and reads. See
+ * docs/superpowers/specs/2026-09-05-agent-context-injection-design.md §5.
+ */
+async function resolveMemoryLayers(cwd: string, maxBytes: number): Promise<ContextLayer[]> {
   const configDir = getConfigDir();
+  const loaded: LoadedInstructionFile[] = [];
 
-  const userRaw = await readAgentsFile(configDir);
-  if (userRaw !== undefined) {
-    const userPath = path.join(configDir, "AGENTS.md");
-    const fileContents = await loadInstructionFileTree(userPath);
-    const expanded = expandInstructions(fileContents, userPath, configDir);
-    layers.push({ id: "user-memory", text: expanded.text });
+  const userPath = path.join(configDir, "AGENTS.md");
+  const userText = await loadExpanded(userPath, configDir);
+  if (userText !== undefined) {
+    loaded.push({ absolutePath: userPath, displayPath: USER_MEMORY_DISPLAY_PATH, content: userText });
   }
 
-  const projectRaw = await readAgentsFile(cwd);
-  if (projectRaw !== undefined) {
-    const projectPath = path.join(cwd, "AGENTS.md");
-    const fileContents = await loadInstructionFileTree(projectPath);
-    const expanded = expandInstructions(fileContents, projectPath, cwd);
-    layers.push({ id: "project-memory", text: expanded.text });
+  const projectRoot = await findProjectRoot(cwd);
+  for (const dir of ancestorChain(cwd, projectRoot)) {
+    for (const name of candidateFileNames()) {
+      const filePath = path.join(dir, name);
+      const text = await loadExpanded(filePath, dir);
+      if (text === undefined) continue;
+      loaded.push({
+        absolutePath: filePath,
+        displayPath: path.relative(projectRoot, filePath),
+        content: text,
+      });
+    }
   }
 
-  return layers;
+  return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
 }
 
 interface ParsedSkillFile {
@@ -263,7 +307,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
 
   let skillsPromise: Promise<LoadedSkills> | undefined;
   async function resolveContextLayers(input: string): Promise<ContextLayer[]> {
-    const layers = await resolveMemoryLayers(cwd);
+    const layers = await resolveMemoryLayers(cwd, DEFAULT_MAX_INSTRUCTION_BYTES);
     skillsPromise ??= loadAllSkills(cwd);
     const { skills, rootDirByResource } = await skillsPromise;
     const triggered = findTriggeredSkills(skills, input);
