@@ -43,7 +43,6 @@ export interface PartialAssistant {
   reasoning: string;
   /** Calls whose arguments are still streaming in. */
   pendingCalls: Array<{ callId: string; name: string; argumentsDelta: string }>;
-  firstDeltaAt?: number;
 }
 
 export interface ToolCallRecord {
@@ -57,7 +56,13 @@ export interface ToolCallRecord {
   isError?: boolean;
   durationMs?: number;
   displayMetadata?: Record<string, unknown>;
-  approval?: { riskTier: string; decision: "allow" | "deny" };
+  /**
+   * Approval gating for this call. Present from the moment `approval_asked`
+   * is recorded (risk tier alone); `decision` is filled in only when the
+   * `approval_decision` event arrives — absent means still pending, never
+   * "allowed".
+   */
+  approval?: { riskTier: string; decision?: "allow" | "deny" };
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
 }
@@ -270,7 +275,10 @@ export function buildTurnRecords(
       case "approval_asked": {
         const data = event.data as TranscriptEventMap["approval_asked"];
         const call = findCall(turnFor(event), data.callId);
-        if (call) call.approval = { riskTier: data.riskTier, decision: "allow" };
+        // riskTier only — a decision has not been made yet. Writing a
+        // provisional decision here would render a pending approval as if it
+        // had been allowed; `approval_decision` fills `decision` in later.
+        if (call) call.approval = { riskTier: data.riskTier };
         break;
       }
 

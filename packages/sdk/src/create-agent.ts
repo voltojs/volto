@@ -1101,11 +1101,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   /**
    * Best-effort: records an `error` event (not `turn_end`) when a Runner
-   * already exists but its `run()` call rejects. The Runner's own
-   * try/finally already recorded a `turn_end` for this turn (see
-   * `runner.ts`'s `run()`) — but that generic record carries only `reason`,
-   * not the error text. Recording a second `turn_end` here would duplicate
-   * the turn-close event; `error` preserves the message without that
+   * already exists but its `run()` call rejects. The Runner's own try/finally
+   * records that turn's `turn_end` (see `runner.ts`'s `recordTurnEnd()`)
+   * unless it exits paused — a pause is not a turn end, and the turn
+   * legitimately stays open until the resume that completes it closes it.
+   * A *rejected* run() always took the non-paused exit, so its turn is
+   * already closed by a generic `turn_end` carrying only `reason`, not the
+   * error text; recording a second `turn_end` here would duplicate the
+   * turn-close event, so `error` preserves the message without that
    * duplication. Never throws into the caller.
    */
   function recordTurnError(error: unknown): void {
@@ -1142,8 +1145,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // `runner` stays undefined until createNextRunner() actually returns
       // one — the catch block below uses that to distinguish "the Runner
       // never existed" (record turn_end ourselves) from "the Runner existed
-      // and its own run() rejected" (it already recorded its own turn_end;
-      // record only the error text, via a separate `error` event).
+      // and its own run() rejected" (a rejection takes the non-paused exit,
+      // so the Runner's own try/finally already recorded turn_end for the
+      // turn; record only the error text, via a separate `error` event).
       let runner: Runner | undefined;
       try {
         runner = await createNextRunner(
@@ -1193,9 +1197,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         },
         async (err) => {
           runError = err;
-          // The Runner exists here (constructed above) — it already
-          // recorded its own turn_end; record the error text separately
-          // rather than duplicating turn_end.
+          // The Runner exists here (constructed above) — a rejection means it
+          // took the non-paused exit, so its own try/finally already recorded
+          // turn_end; record the error text separately rather than
+          // duplicating turn_end. (A pause is a normal return, not a
+          // rejection, and legitimately leaves the turn open.)
           recordTurnError(err);
           channel.done();
         },
