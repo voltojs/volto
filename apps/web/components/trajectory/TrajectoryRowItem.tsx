@@ -27,7 +27,7 @@ export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: Traj
       type="button"
       onClick={() => onSelect(row)}
       className={cn(
-        'hover:bg-muted/60 flex w-full items-center gap-2 border-b px-3 py-2 text-left text-xs transition-colors',
+        'hover:bg-muted/60 flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
         row.isError && 'bg-destructive/5 border-destructive/20 hover:bg-destructive/10',
         isSelected && 'bg-muted',
       )}
