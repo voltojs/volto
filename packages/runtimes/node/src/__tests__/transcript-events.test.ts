@@ -311,6 +311,53 @@ describe("Runner transcript capture", () => {
     expect(starts.every((e) => (e.data as { headerHash: string }).headerHash === header.hash)).toBe(true);
   });
 
+  it("seeds its step counter from initialStep so a resumed turn's model calls continue the numbering", async () => {
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [textDelta("done"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+
+    // A host rebuilding a Runner mid-turn for a cross-process resume passes
+    // the highest step already persisted for the paused turn — here 2 — so
+    // this Runner's first model call must be step 3, not 1 (which would
+    // collide with the paused turn's existing steps 1..N).
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY",
+          },
+        ],
+        model: "test-model",
+      },
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 7,
+      initialStep: 2,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const starts = events.filter((e) => e.type === "model_call_start");
+    expect(starts).toHaveLength(2);
+    expect(starts.map((e) => e.step)).toEqual([3, 4]);
+    // Everything step-stamped in the turn stays above the seed, and the turn
+    // itself is untouched by the step seed.
+    expect(events.every((e) => e.step === undefined || e.step >= 3)).toBe(true);
+    expect(events.every((e) => e.turn === 7)).toBe(true);
+  });
+
   it("records tool calls and results with their real content", async () => {
     const model = createMockModelPort([
       [

@@ -252,6 +252,23 @@ export interface CreateAgentOptions {
    */
   initialTurn?: number;
 
+  /**
+   * Like `initialTurn`, but for the paused turn's step sequence: the highest
+   * step number already persisted for that turn in the durable transcript.
+   * Consumed only by resume()'s cross-process fallback, whose freshly built
+   * Runner would otherwise restart its step counter at 1 and collide with
+   * the paused turn's existing steps 1..N — a projection would then
+   * merge/overwrite distinct model calls in the same turn.
+   *
+   * As with `initialTurn`, the SDK cannot recover this value on its own:
+   * `SessionSnapshot` carries no step numbers and `TranscriptStore` is
+   * write-only. A host that rebuilds agent instances mid-conversation must
+   * compute it from its own transcript (the max `step` stamped on events of
+   * the paused turn) and pass it here. Omit when no transcript exists yet,
+   * or when the rebuilt agent starts a brand-new turn rather than resuming.
+   */
+  initialStep?: number;
+
   /** Model name override (sent to the provider) */
   model?: string;
 
@@ -1237,6 +1254,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // this fallback runner's events attributed to that same turn instead
         // of silently starting a new one.
         turn: turnCounter,
+        // Seed the step counter the same way the host seeds turnCounter via
+        // initialTurn: the paused turn's earlier steps are already in the
+        // transcript, and a fresh counter would restart at 1 and overwrite
+        // them — see CreateAgentOptions.initialStep. Note this seeds ONLY
+        // the fallback resume runner; createNextRunner() must never receive
+        // it, or every new turn would continue the old turn's step numbers.
+        initialStep: opts.initialStep,
         clock: opts.clock,
       });
 

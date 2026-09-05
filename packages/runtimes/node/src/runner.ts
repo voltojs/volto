@@ -85,6 +85,18 @@ export interface RunnerOptions {
   chatSessionId?: string;
   /** This turn's ordinal within the whole conversation (tracked by the SDK across turns). Defaults to 0 when omitted. */
   turn?: number;
+  /**
+   * Seeds the step counter — the highest step number already persisted for
+   * this turn in the durable transcript. The first model call this Runner
+   * makes is then recorded as `initialStep + 1` instead of 1.
+   *
+   * A host that rebuilds a Runner mid-turn for a cross-process resume must
+   * pass it: a fresh Runner's step counter otherwise restarts at 1 and its
+   * events collide with the paused turn's existing steps 1..N in the same
+   * turn, so a projection merges/overwrites distinct model calls. Omit for a
+   * brand-new turn (the default 0 makes the first step 1, as always).
+   */
+  initialStep?: number;
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
@@ -260,8 +272,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let consecutiveModelErrors = 0;
 
   // Sequential step counter for this turn — one per model call, 1-based.
-  // Resets naturally each turn since a fresh Runner instance is created per turn.
-  let stepCounter = 0;
+  // Resets naturally each turn since a fresh Runner instance is created per
+  // turn. Seeded from `initialStep` when the host is resuming a turn whose
+  // earlier steps are already in the transcript — see RunnerOptions.initialStep.
+  let stepCounter = opts.initialStep ?? 0;
   // Hash of the last request_header written this turn; a matching hash means
   // the header has not changed and need not be written again.
   let lastHeaderHash: string | null = null;
@@ -1455,10 +1469,13 @@ export function createRunner(opts: RunnerOptions): Runner {
           toolCallId: approvedId,
           decision,
         }));
-        // No `step` here: this Runner instance is typically fresh for a
-        // resume (see the SDK's cross-process resume path), so stepCounter is
-        // still 0 — and 0 is not a valid step (ports.ts documents step as
-        // 1-based). Omitting it is correct, not just a fallback.
+        // No `step` here: no model call has run on this Runner instance yet
+        // (it is typically fresh for a resume — see the SDK's cross-process
+        // resume path), so there is no step the decision belongs to. A seeded
+        // `initialStep` changes nothing: it raises the counter for the NEXT
+        // model call but still leaves this record step-less — 0 is not a
+        // valid step anyway (ports.ts documents step as 1-based). Omitting it
+        // is correct, not just a fallback.
         recorder.record("approval_decision", { callId: approvedId, decision });
         await runLoop();
         return state;

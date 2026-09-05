@@ -306,6 +306,71 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(builds[0]!["initialTurn"]).toBeUndefined();
   });
 
+  it("seeds initialStep from the highest step of the last turn in the persisted transcript on a cold start", async () => {
+    const chatStore = makeFakeChatStore();
+    chatStore.readSession = async (sessionId: string): Promise<ChatSessionRecord | undefined> =>
+      sessionId === "s1"
+        ? {
+            sessionId: "s1",
+            meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+            events: [
+              // Turn 1 completed with three model-call steps…
+              { seq: 0, time: 0, type: "turn_start", data: { turn: 1 }, turn: 1 },
+              { seq: 1, time: 1, type: "user_message", data: { content: "turn 1" }, turn: 1 },
+              { seq: 2, time: 2, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+              { seq: 3, time: 3, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+              { seq: 4, time: 4, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 3 },
+              { seq: 5, time: 5, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+              // …then turn 2 paused early, after a single step-1 model call.
+              { seq: 6, time: 6, type: "turn_start", data: { turn: 2 }, turn: 2 },
+              { seq: 7, time: 7, type: "user_message", data: { content: "turn 2" }, turn: 2 },
+              { seq: 8, time: 8, type: "model_call_start", data: { headerHash: "h2" }, turn: 2, step: 1 },
+            ],
+            createdAt: 0,
+            updatedAt: 0,
+          }
+        : undefined;
+
+    const { factory, builds } = makeFactory();
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "continue", config);
+
+    expect(builds[0]!["initialTurn"]).toBe(2);
+    // The step seed is the PAUSED (last) turn's max step — 1, not the
+    // transcript-wide max of 3 from the earlier turn — so a cross-process
+    // resume of turn 2 continues its step sequence at 2 instead of
+    // colliding with its existing step 1.
+    expect(builds[0]!["initialStep"]).toBe(1);
+  });
+
+  it("omits initialStep when the last turn has no step-stamped events", async () => {
+    const chatStore = makeFakeChatStore();
+    chatStore.readSession = async (sessionId: string): Promise<ChatSessionRecord | undefined> =>
+      sessionId === "s1"
+        ? {
+            sessionId: "s1",
+            meta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+            events: [
+              { seq: 0, time: 0, type: "turn_start", data: { turn: 1 }, turn: 1 },
+              { seq: 1, time: 1, type: "user_message", data: { content: "turn 1" }, turn: 1 },
+              // Paused before any model call ran — no step stamps at all.
+              { seq: 2, time: 2, type: "approval_asked", data: { callId: "c1", name: "op", riskTier: "WRITE_HIGH" }, turn: 1 },
+            ],
+            createdAt: 0,
+            updatedAt: 0,
+          }
+        : undefined;
+
+    const { factory, builds } = makeFactory();
+    const registry = makeRegistry(factory, chatStore);
+
+    await registry.runTurn("s1", "continue", config);
+
+    expect(builds[0]!["initialTurn"]).toBe(1);
+    expect(builds[0]!["initialStep"]).toBeUndefined();
+  });
+
   it("works without a chatStore configured (persistence is optional)", async () => {
     const { factory, builds } = makeFactory();
     const registry = makeRegistry(factory);

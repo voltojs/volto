@@ -110,6 +110,24 @@ function highestTurnStart(events: readonly TranscriptEvent[]): number | undefine
   return max;
 }
 
+/**
+ * Highest `step` number stamped on a given turn's events, or `undefined`
+ * when that turn has no step-stamped events. Passed to createAgent() as
+ * `initialStep` (via WiringOptions) so a rebuilt agent instance's
+ * cross-process resume Runner continues the paused turn's step sequence
+ * instead of restarting at 1 — see CreateAgentOptions.initialStep in
+ * @volto/sdk. `undefined` means "omit the option entirely", not "0",
+ * mirroring highestTurnStart's convention above.
+ */
+function highestStepInTurn(events: readonly TranscriptEvent[], turn: number): number | undefined {
+  let max: number | undefined;
+  for (const event of events) {
+    if (event.turn !== turn || event.step === undefined) continue;
+    if (max === undefined || event.step > max) max = event.step;
+  }
+  return max;
+}
+
 interface Connection {
   res: http.ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
@@ -408,6 +426,28 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return highestTurnStart(persisted.events);
   }
 
+  /**
+   * Reads a session's persisted transcript fresh and returns the highest
+   * `step` stamped on `turn`'s events, or `undefined` when there is no
+   * chatStore, no persisted session, or the turn carries no step-stamped
+   * events (a turn paused before its first model call completed, most
+   * commonly a pause on the very first approval).
+   *
+   * Companion to resolveInitialTurn(): the paused turn a cross-process
+   * resume continues is the LAST turn — exactly the one resolveInitialTurn()
+   * returns — so the caller passes that ordinal here. Feeds
+   * CreateAgentOptions.initialStep so the resume Runner's first model call
+   * is recorded after the paused turn's existing steps rather than
+   * colliding with them. Same freshness discipline as resolveInitialTurn:
+   * re-read from the transcript on every rebuild, never cached.
+   */
+  async function resolveInitialStep(sessionId: string, turn: number): Promise<number | undefined> {
+    if (!chatStore) return undefined;
+    const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
+    if (!persisted) return undefined;
+    return highestStepInTurn(persisted.events, turn);
+  }
+
   /** Construct an agent for the resolved config, seeding prior history. */
   async function rebuild(
     session: Session,
@@ -415,6 +455,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     credentials: ResolvedCredentials | null,
   ): Promise<void> {
     const initialTurn = await resolveInitialTurn(session.id);
+    // The paused turn a cross-process resume continues is the last turn —
+    // exactly the one initialTurn names — so its step seed is looked up
+    // against that ordinal. Only consumed by the SDK's cross-process resume
+    // fallback Runner; ordinary new turns ignore it entirely.
+    const initialStep = initialTurn !== undefined ? await resolveInitialStep(session.id, initialTurn) : undefined;
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
@@ -433,6 +478,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
+      ...(initialStep !== undefined ? { initialStep } : {}),
       ...(chatStore
         ? {
             chatStore: scopeToWorkspace(chatStore, config.projectPath ?? null),

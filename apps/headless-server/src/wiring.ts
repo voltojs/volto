@@ -219,6 +219,13 @@ export interface WiringOptions {
    * no transcript exists yet.
    */
   initialTurn?: number;
+  /**
+   * Highest step number already persisted for that last turn — forwarded
+   * verbatim to createAgent()'s `initialStep` so the cross-process resume
+   * Runner continues the paused turn's step sequence instead of restarting
+   * at 1. Omit together with `initialTurn` when no transcript exists yet.
+   */
+  initialStep?: number;
 }
 
 export function createWiredAgent(opts: WiringOptions = {}) {
@@ -263,5 +270,6 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
+    ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
   });
 }

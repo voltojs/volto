@@ -885,6 +885,105 @@ describe("createAgent — SDK facade", () => {
 
       void runPromise;
     });
+
+    it("seeds the cross-process resume Runner's step counter from initialStep so it continues the paused turn's numbering", async () => {
+      // Same shape as the previous test, but for the step axis: the host's
+      // transcript shows the paused turn already has a step-1 model call,
+      // so it passes `initialStep: 1`. The fallback Runner's fresh step
+      // counter must pick up from there — its post-resume model call is
+      // step 2, not step 1, which would collide with the paused turn's
+      // step-1 model_call_start/assistant_message and make a projection
+      // merge two distinct model calls into one.
+      const dangerousToolDef: ToolDefinition = {
+        name: "dangerous_op",
+        description: "A tool gated by HITL approval",
+        inputSchema: { type: "object", properties: {}, required: [] },
+        requires: ["test:danger"],
+        riskTier: "WRITE_HIGH",
+      };
+      const dangerousTool: Tool = {
+        definition: dangerousToolDef,
+        handler: async (): Promise<ToolResult> => ({ modelContent: "operation completed" }),
+      };
+
+      const modelPort = createMockModelPort([
+        toolCallScript("c1", "dangerous_op", "{}"),
+        textScript("resumed after approval"),
+      ]);
+
+      const gate: ApprovalGate = {
+        ask: () => new Promise<"allow" | "deny">(() => {}),
+      };
+
+      const innerStore = createMemoryStore();
+      let loadCallCount = 0;
+      const flakyStore: SessionStore = {
+        save: (snapshot) => innerStore.save(snapshot),
+        load: async (id: string) => {
+          loadCallCount++;
+          if (loadCallCount === 1) throw new Error("simulated transient store failure");
+          return innerStore.load(id);
+        },
+        list: () => innerStore.list(),
+      };
+
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        tools: [dangerousTool],
+        capabilities: new Set(["test:danger"]),
+        approvalGate: gate,
+        sessionStore: flakyStore,
+        chatStore,
+        chatSessionId: "chat-s1",
+        initialStep: 1,
+        permissionConfig: {
+          defaults: {
+            READ_ONLY: "allow",
+            WRITE_LOW: "allow",
+            WRITE_HIGH: "ask",
+            IRREVERSIBLE: "deny",
+          },
+        },
+      });
+
+      const runPromise = agent.run("do it");
+      await new Promise((r) => setTimeout(r, 30));
+
+      const saved = await innerStore.list();
+      const sessionId = saved[0]!.id;
+
+      const finalState = await agent.resume(sessionId, "allow");
+      expect(finalState.status).toBe("done");
+      expect(loadCallCount).toBeGreaterThanOrEqual(2); // fallback branch actually exercised
+
+      // The paused turn's step-1 model call and the resumed model call must
+      // carry distinct step numbers: [1 (pre-pause), 2 (post-resume)] —
+      // without the seed the fallback Runner restarts at 1 and the pair
+      // collapses to [1, 1].
+      const modelCallStarts = events.filter((e) => e.type === "model_call_start");
+      expect(modelCallStarts.map((e) => e.step)).toEqual([1, 2]);
+
+      // The resumed assistant_message is stamped with the incremented step,
+      // strictly above the paused turn's max step (1) — never a re-record of
+      // an existing step.
+      const resumedAssistant = events.find(
+        (e) =>
+          e.type === "assistant_message" &&
+          (e.data as { content: Array<{ type: string; text?: string }> }).content.some(
+            (c) => c.type === "text" && c.text === "resumed after approval",
+          ),
+      );
+      expect(resumedAssistant?.step).toBe(2);
+
+      void runPromise;
+    });
   });
 
   describe("sub-agent event forwarding", () => {
