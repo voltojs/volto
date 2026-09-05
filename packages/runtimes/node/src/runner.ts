@@ -95,6 +95,11 @@ export interface RunnerOptions {
    * events collide with the paused turn's existing steps 1..N in the same
    * turn, so a projection merges/overwrites distinct model calls. Omit for a
    * brand-new turn (the default 0 makes the first step 1, as always).
+   *
+   * Known limitation: an in-process fallback resume on a REPLACED lastRunner
+   * seeds from the option captured at construction, which can go stale for a
+   * turn that paused after later turns ran (a step gap); the primary
+   * cross-process rebuild path is always fresh.
    */
   initialStep?: number;
   /**
@@ -635,7 +640,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // twice. Skipped when the host's own layers already carry the id, so a
         // host managing its own "system-prompt" layer cannot collide.
         const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
-        if (opts.seedSystemPrompt !== undefined && !systemLayers.some((l) => l.id === "system-prompt")) {
+        if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
           systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
         }
         const headerPayload = {

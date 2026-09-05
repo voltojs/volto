@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@volto/core": "workspace:*",
-    "@volto/eval": "workspace:*",
     "@volto/tools-browser": "workspace:*",
     "@volto/tools-code": "workspace:*",
     "@volto/tools-data": "workspace:*",
@@ -53,6 +52,7 @@
     }
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13"
+    "@types/better-sqlite3": "^7.6.13",
+    "@volto/eval": "workspace:*"
   }
 }
