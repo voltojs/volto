@@ -65,7 +65,11 @@ export function useConversation(): ConversationFeed {
   // (which would let closed turns keep their identity for memoised rows) is
   // intentionally not threaded through a ref: this repo's react-hooks rules
   // forbid ref access during render, and no row component here is memoised,
-  // so identity reuse has no observable effect on render cost.
+  // so identity reuse has no observable effect on render cost. `prev` must be
+  // wired in together with row-level memoisation, never separately (see the
+  // deviation note in §五 of the plan-013 view-projection design doc); until
+  // then, core's structural watermark check guards against stale reuse of a
+  // closed turn from `prev`.
   const live = useMemo<ProjectedConversation>(() => {
     if (!bufferIsCurrent) return EMPTY_PROJECTED;
     return projectConversation(events, deltas);
