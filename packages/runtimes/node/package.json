@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@volto/core": "workspace:*",
+    "@volto/eval": "workspace:*",
     "@volto/tools-browser": "workspace:*",
     "@volto/tools-code": "workspace:*",
     "@volto/tools-data": "workspace:*",

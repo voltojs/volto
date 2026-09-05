@@ -326,6 +326,9 @@ importers:
       '@volto/core':
         specifier: workspace:*
         version: link:../../core
+      '@volto/eval':
+        specifier: workspace:*
+        version: link:../../eval
       '@volto/tools-browser':
         specifier: workspace:*
         version: link:../../tools/browser
