@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createWiredAgent } from "../wiring.js";
+import { createWiredAgent, DEFAULT_SYSTEM_PROMPT } from "../wiring.js";
 import { createMockModelPort, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
 
@@ -250,5 +250,27 @@ describe("createWiredAgent project-chain instruction layers", () => {
       .filter((m) => m.role === "system")
       .map((m) => (m as { content: string }).content);
     expect(systemContents).toContain("Instructions from: AGENTS.md\n\nLone rule");
+  });
+});
+
+describe("createWiredAgent instruction budget override and prompt policy", () => {
+  it("honours maxInstructionBytes and surfaces the notice to the model", async () => {
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "z".repeat(5000), "utf-8");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir, maxInstructionBytes: 600 });
+    await agent.run("hi");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    const layerText = systemContents.find((c) => c.includes("Instructions from: AGENTS.md")) ?? "";
+    expect(new TextEncoder().encode(layerText).length).toBeLessThanOrEqual(600);
+    expect(layerText).toContain("Workspace instruction budget 600 bytes:");
+  });
+
+  it("declares instruction precedence in the default system prompt", () => {
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("advisory context");
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("more specific instructions take precedence");
   });
 });
