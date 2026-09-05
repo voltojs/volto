@@ -469,6 +469,17 @@ describe('mergeStoredAndLiveRows', () => {
     startedAt,
   });
 
+  // context 行 id 内嵌事件 seq：服务端用 store 分配的 seq，客户端从缓冲
+  // 下标伪造 seq——同一 request_header 事件两侧 id 可能不同。
+  const contextRow = (id: string, startedAt: number): TrajectoryRow => ({
+    index: 0,
+    id,
+    kind: 'context',
+    turn: 1,
+    summary: 'system prompt (3 layers), 5 tools',
+    startedAt,
+  });
+
   it('returns stored as-is when nothing is live', () => {
     const stored = [row('1:1', 100, 'a'), row('c1', 140, 't')];
     expect(mergeStoredAndLiveRows(stored, [])).toEqual(stored);
@@ -501,6 +512,32 @@ describe('mergeStoredAndLiveRows', () => {
     expect(merged.map((r) => [r.id, r.summary])).toEqual([
       ['1:u0', 'go'],
       ['1:1', 'fresh partial'],
+    ]);
+  });
+
+  it('drops a stored context row whose content matches a live row with a different seq-id', () => {
+    // 慢首拉竞态：同一 request_header 事件在盘上 id 为 `1:header:5`
+    //（store 分配的 seq），在实时缓冲里 id 为 `1:header:2`（伪造 seq）。
+    // id 集合接不住，须退到内容键去重；live 侧胜出（与 id 冲突规则一致）。
+    const stored = [contextRow('1:header:5', 100), row('1:1', 120, 'a')];
+    const live = [contextRow('1:header:2', 100), row('1:1', 120, 'a')];
+    const merged = mergeStoredAndLiveRows(stored, live);
+
+    const contextRows = merged.filter((r) => r.kind === 'context');
+    expect(contextRows).toHaveLength(1);
+    expect(contextRows[0]!.id).toBe('1:header:2');
+  });
+
+  it('keeps genuinely different context rows in the same turn when live matches neither', () => {
+    // 同一轮两份不同的 request_header（startedAt 不同 → 内容键不同）：
+    // 实时侧都不含它们时必须原样保留，内容键兜底不得误伤。
+    const stored = [contextRow('1:header:5', 100), contextRow('1:header:6', 500)];
+    const live = [row('1:1', 120, 'a')];
+    const merged = mergeStoredAndLiveRows(stored, live);
+
+    expect(merged.filter((r) => r.kind === 'context').map((r) => r.id)).toEqual([
+      '1:header:5',
+      '1:header:6',
     ]);
   });
 });

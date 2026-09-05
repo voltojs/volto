@@ -11,6 +11,7 @@ import {
   type ProjectedConversation,
 } from '@/lib/projection';
 import type { ConversationMessage } from '@volto/sdk/sse';
+import { dropCachedTrajectory } from '@/lib/trajectory-cache';
 
 const EMPTY_MESSAGES: ConversationMessage[] = [];
 
@@ -122,6 +123,9 @@ export function useConversation(): ConversationFeed {
     if (chat.currentSessionId !== currentSessionId) {
       chat.setEvents([]);
       chat.setSessionId(currentSessionId);
+      // 切走即丢弃上一会话的轨迹缓存行：缓存于切换前，可能缺少离开期间
+      // 在服务端完成的轮次，切回时须重拉而不是命中陈旧缓存。
+      if (previous !== null) dropCachedTrajectory(previous);
     }
   }, [currentSessionId]);
 

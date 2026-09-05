@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getCachedTrajectory,
   setCachedTrajectory,
+  dropCachedTrajectory,
   clearTrajectoryCache,
 } from '@/lib/trajectory-cache';
 import { TrajectoryUnavailableError } from '@/lib/sessions-api';
@@ -31,6 +32,18 @@ describe('trajectory cache', () => {
     setCachedTrajectory('s1', [row('old')]);
     setCachedTrajectory('s1', [row('new')]);
     expect(getCachedTrajectory('s1')?.[0]!.id).toBe('new');
+  });
+
+  it('drops a session so its rows are refetched on return', () => {
+    setCachedTrajectory('s1', [row('1:1')]);
+    dropCachedTrajectory('s1');
+    expect(getCachedTrajectory('s1')).toBeUndefined();
+  });
+
+  it('is a no-op for an id that was never cached', () => {
+    setCachedTrajectory('s1', [row('1:1')]);
+    expect(() => dropCachedTrajectory('ghost')).not.toThrow();
+    expect(getCachedTrajectory('s1')?.[0]!.id).toBe('1:1');
   });
 });
 

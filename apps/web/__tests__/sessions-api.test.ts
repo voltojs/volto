@@ -9,6 +9,7 @@ import {
   fetchServerSessions,
   fetchServerSessionDetail,
   fetchServerTrajectory,
+  TrajectoryUnavailableError,
 } from '../lib/sessions-api.js';
 
 function stubFetch(handler: (path: string) => { status: number; body: unknown }): void {
@@ -121,5 +122,27 @@ describe('fetchServerTrajectory', () => {
     await expect(fetchServerTrajectory('s1')).rejects.toThrow(
       'Failed to load trajectory s1: HTTP 500',
     );
+  });
+
+  // The typed error has to survive the fetch path itself (not just the class
+  // constructor): the hook branches on `kind` to pick the user-facing message.
+  it('rejects with a legacy-kind TrajectoryUnavailableError for HTTP 410', async () => {
+    stubFetch(() => ({ status: 410, body: { error: 'legacy store' } }));
+
+    const err: unknown = await fetchServerTrajectory('s1').catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TrajectoryUnavailableError);
+    expect((err as TrajectoryUnavailableError).kind).toBe('legacy');
+  });
+
+  it('rejects with a network-kind TrajectoryUnavailableError for HTTP 500', async () => {
+    stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
+
+    const err: unknown = await fetchServerTrajectory('s1').catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TrajectoryUnavailableError);
+    expect((err as TrajectoryUnavailableError).kind).toBe('network');
   });
 });

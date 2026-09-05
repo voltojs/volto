@@ -213,17 +213,33 @@ export function projectTrajectory(
  * 规则与 mergeStoredAndLive 相同：按稳定 row.id 去重、live 优先
  * （恢复时轮次仍在进行：同一轮的事件既在盘上又在实时流里，live 侧含
  * partial、状态更新），再按 startedAt 排序、重编 1-based index。
+ *
+ * id 之外还有内容键兜底：context / compaction 行的 id 内嵌事件 seq，
+ * 服务端用 store 分配的 seq，客户端从缓冲下标伪造 seq——同一
+ * request_header 事件两侧 id 可能不同（首拉竞态下上下文行会成对出现）。
+ * 兜底只作用于 id 未撞上的存量行，且要求 startedAt 与 summary 全同才算
+ * 同一行；真正不同的行（含同轮多份 header）二者必有差异，不受影响。
  */
+function rowContentKey(row: TrajectoryRow): string {
+  return `${row.kind}:${row.turn}:${row.step ?? ''}:${row.startedAt}:${row.summary}`;
+}
+
 export function mergeStoredAndLiveRows(
   stored: readonly TrajectoryRow[],
   live: readonly TrajectoryRow[],
 ): TrajectoryRow[] {
   if (live.length === 0) return [...stored];
   const liveIds = new Set(live.map((r) => r.id));
+  const liveContentKeys = new Set(live.map(rowContentKey));
   const merged =
     stored.length === 0
       ? [...live]
-      : [...stored.filter((r) => !liveIds.has(r.id)), ...live];
+      : [
+          ...stored.filter(
+            (r) => !liveIds.has(r.id) && !liveContentKeys.has(rowContentKey(r)),
+          ),
+          ...live,
+        ];
   return merged
     .slice()
     .sort((a, b) => a.startedAt - b.startedAt)
