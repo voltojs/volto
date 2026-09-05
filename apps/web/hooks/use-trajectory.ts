@@ -132,8 +132,10 @@ export function useTrajectory(): TrajectoryFeed {
   const bufferSessionId = useChatStore((s) => s.currentSessionId);
   const bufferIsCurrent = bufferSessionId !== null && bufferSessionId === currentSessionId;
 
-  // 下钻栈连同所属根会话一起存，展示时按“根会话仍是当前会话”派生有效栈——
-  // 会话切换即作废（子会话从属于父会话），陈旧栈对操作不可见，无需 effect 清空。
+  // 下钻栈连同所属根会话一起存：栈归属于发起下钻的那个根会话，展示时只取
+  // 属于当前根会话的那一份。按根会话保留下钻记忆是有意为之——切走再切回
+  // 会话会恢复原来的下钻位置（与标签页状态记忆一致）。陈旧栈对操作不可见
+  // （drillTo 重开、drillBack 空转），无需 effect 清空。
   const [drill, setDrill] = useState<{
     rootSessionId: string | null;
     path: TrajectoryDrillLevel[];
