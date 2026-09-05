@@ -1321,6 +1321,27 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
   }
 
+  /**
+   * Record the turn-closing `turn_end` transcript event, deriving the reason
+   * from the same turn-scoped flags run() maintains. Shared by run()'s and
+   * resume()'s exit brackets so a turn that paused and was later resumed
+   * closes with exactly one correctly-attributed turn_end.
+   *
+   * A HITL pause is not a turn end: while the state is parked in
+   * waiting_for_approval the turn is still open (the checkpoint IS the pause
+   * marker), so the bracket is skipped and the log stays unclosed — exactly
+   * as it would had the process died mid-turn. The resume() that actually
+   * completes the turn records the closing event; a resume that pauses again
+   * (a second tool needed approval) leaves it open for the next one.
+   */
+  function recordTurnEnd(): void {
+    if (state.status === "waiting_for_approval") return;
+    recorder.record("turn_end", {
+      turn: opts.turn ?? 0,
+      reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
+    });
+  }
+
   return {
     async run(initialInput: AgentInput): Promise<ReducerState> {
       try {
@@ -1355,11 +1376,13 @@ export function createRunner(opts: RunnerOptions): Runner {
         // escaping exception — must close out the transcript: bracket the
         // turn and flush whatever the recorder has buffered. A try/finally
         // around the whole body is what guarantees that regardless of which
-        // branch above returned or threw.
-        recorder.record("turn_end", {
-          turn: opts.turn ?? 0,
-          reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
-        });
+        // branch above returned or threw. The one exception is a HITL pause:
+        // the turn is still open then (the checkpoint IS the pause marker),
+        // so recordTurnEnd() skips the bracket and the resume() that
+        // eventually completes the turn writes it instead. The session:end
+        // hook and cleanup below still run on a pause — the turn is parked,
+        // not the runner.
+        recordTurnEnd();
         await recorder.flush();
 
         // M13: session:end hook
@@ -1399,45 +1422,66 @@ export function createRunner(opts: RunnerOptions): Runner {
       }
       const approvedId = state.pendingApprovalTool.id;
       const approvedName = state.pendingApprovalTool.name;
-      // Pre-authorize (or pre-deny) the re-queued tool so runLoop's partition
-      // loop does not re-classify it into a fresh approval ask — mirrors the
-      // allow/deny bookkeeping in interpretEffects's own request_approval
-      // handling.
-      if (decision === "allow") approvedToolCallIds.add(approvedId);
-      else deniedToolCallIds.add(approvedId);
-      // This Runner instance is typically fresh for a resume (see the SDK's
-      // cross-process resume path), so the original `approval_asked` record —
-      // buffered by the runner that first asked — may never have been
-      // flushed to the store (it was still sitting in that runner's buffer
-      // when the process paused/restarted). Recording it again here from the
-      // checkpoint data is what makes it durable in that case. But when this
-      // IS the same Runner that already asked (the ordinary in-process HITL
-      // flow, where the SDK's resume() succeeds via `lastRunner.resume()`),
-      // askedToolCallIds already has this id — skip the rewrite so the two
-      // records (this one lacks `step`; the original carries it) don't both
-      // land in the store for the same callId.
-      if (!askedToolCallIds.has(approvedId)) {
-        const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
-        recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
-        askedToolCallIds.add(approvedId);
+      // Everything from here on is bracketed like run() (try/finally below):
+      // the turn run() left open at the pause gets its closing turn_end here
+      // on every exit path, and the recorder flushes before resume() resolves.
+      // The validation throws above deliberately sit OUTSIDE the bracket — no
+      // turn ran in this runner yet, so there is nothing to close.
+      try {
+        // Pre-authorize (or pre-deny) the re-queued tool so runLoop's partition
+        // loop does not re-classify it into a fresh approval ask — mirrors the
+        // allow/deny bookkeeping in interpretEffects's own request_approval
+        // handling.
+        if (decision === "allow") approvedToolCallIds.add(approvedId);
+        else deniedToolCallIds.add(approvedId);
+        // This Runner instance is typically fresh for a resume (see the SDK's
+        // cross-process resume path), so the original `approval_asked` record —
+        // buffered by the runner that first asked — may never have been
+        // flushed to the store (it was still sitting in that runner's buffer
+        // when the process paused/restarted). Recording it again here from the
+        // checkpoint data is what makes it durable in that case. But when this
+        // IS the same Runner that already asked (the ordinary in-process HITL
+        // flow, where the SDK's resume() succeeds via `lastRunner.resume()`),
+        // askedToolCallIds already has this id — skip the rewrite so the two
+        // records (this one lacks `step`; the original carries it) don't both
+        // land in the store for the same callId.
+        if (!askedToolCallIds.has(approvedId)) {
+          const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
+          recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
+          askedToolCallIds.add(approvedId);
+        }
+        forwardEmit(feed({
+          type: "approval_decision",
+          toolCallId: approvedId,
+          decision,
+        }));
+        // No `step` here: this Runner instance is typically fresh for a
+        // resume (see the SDK's cross-process resume path), so stepCounter is
+        // still 0 — and 0 is not a valid step (ports.ts documents step as
+        // 1-based). Omitting it is correct, not just a fallback.
+        recorder.record("approval_decision", { callId: approvedId, decision });
+        await runLoop();
+        return state;
+      } catch (err) {
+        // Same discipline as run(): an exception escaping the resumed loop
+        // means the turn ended in error, so recordTurnEnd()'s reason
+        // derivation below reports "error" instead of "done".
+        turnHadError = true;
+        throw err;
+      } finally {
+        // run() left this turn open at the HITL pause (no turn_end — the
+        // checkpoint was the pause marker, not a close). THIS runner is what
+        // completes the turn, so it writes the bracket here on every exit
+        // path. recordTurnEnd() itself skips the bracket if the resumed turn
+        // paused AGAIN (a second tool needed approval), leaving the turn open
+        // for the next resume — same rule run() follows.
+        //
+        // Flush so a caller that reads chatStore right after resume()
+        // resolves sees this batch's writes (assistant_message included) on
+        // disk, not still sitting in the recorder's buffer.
+        recordTurnEnd();
+        await recorder.flush();
       }
-      forwardEmit(feed({
-        type: "approval_decision",
-        toolCallId: approvedId,
-        decision,
-      }));
-      // No `step` here: this Runner instance is typically fresh for a
-      // resume (see the SDK's cross-process resume path), so stepCounter is
-      // still 0 — and 0 is not a valid step (ports.ts documents step as
-      // 1-based). Omitting it is correct, not just a fallback.
-      recorder.record("approval_decision", { callId: approvedId, decision });
-      await runLoop();
-      // Unlike run(), resume() has no turn-end bracket to flush from —
-      // flush explicitly so a caller that reads chatStore right after
-      // resume() resolves sees this batch's writes (assistant_message
-      // included) on disk, not still sitting in the recorder's buffer.
-      await recorder.flush();
-      return state;
     },
   };
 }

@@ -23,6 +23,7 @@ import type {
   SessionSnapshot,
   SessionStore,
   ApprovalGate,
+  Hook,
 } from "@volto/core";
 
 function fakeChatStore() {
@@ -574,5 +575,150 @@ describe("Runner transcript capture — approval_asked dedup across resume", () 
     // survive, since either process could be the only one that ever flushes.
     const asked = events.filter((e) => e.type === "approval_asked");
     expect(asked).toHaveLength(2);
+  });
+});
+
+describe("Runner transcript capture — pause/resume turn_end bracketing", () => {
+  const dangerousTool: ToolDefinition = {
+    name: "dangerous_op",
+    description: "a WRITE_HIGH tool gated by HITL approval",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    requires: [],
+    riskTier: "WRITE_HIGH",
+  };
+  const ctx: StepContext = { tools: [dangerousTool], model: "test-model" };
+
+  function oneToolThenDone() {
+    return createMockModelPort([
+      [toolUseStart("c1", "dangerous_op"), toolUseDelta("c1", "{}"), modelDone("tool_use")],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+  }
+
+  function makeSessionStore(): SessionStore & { snapshots: Map<string, SessionSnapshot> } {
+    const snapshots = new Map<string, SessionSnapshot>();
+    return {
+      snapshots,
+      async save(s) {
+        snapshots.set(s.id, s);
+      },
+      async load(id) {
+        return snapshots.get(id);
+      },
+      async list() {
+        return [...snapshots.values()];
+      },
+    };
+  }
+
+  /** Gate that parks the run out-of-process: the ask never yields a decision. */
+  function pausingGate(): ApprovalGate {
+    return {
+      ask: async () => {
+        throw new Error("pause: defer to resume");
+      },
+    };
+  }
+
+  it("a paused turn records no turn_end — the flushed log ends at approval_asked, hooks still fire", async () => {
+    // The gate throws to park the run out-of-process (the checkpoint is
+    // already saved by then — checkpoint effects are interpreted before
+    // request_approval). A pause is NOT a turn end: the transcript must stay
+    // unclosed — no turn_end between the pause and the eventual resume —
+    // exactly as it would had the process died mid-turn. The runner-level
+    // teardown (session:end hook, cleanup) must still run, though: the turn
+    // is parked, not the runner.
+    const { store, events } = fakeChatStore();
+    const lifecycles: string[] = [];
+    const recordingHook: Hook = {
+      name: "lifecycle-recorder",
+      lifecycle: "session:end",
+      handler: async (ctx) => {
+        lifecycles.push(ctx.lifecycle);
+        return { action: "continue" };
+      },
+    };
+
+    const runner = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: pausingGate(),
+      hooks: [recordingHook],
+      sessionStore: makeSessionStore(),
+      sessionId: "sess-1",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+
+    await expect(runner.run({ type: "user_message", content: "go" })).rejects.toThrow("pause");
+
+    expect(typesOf(events)).not.toContain("turn_end");
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[events.length - 1]!.type).toBe("approval_asked");
+    // The pause exit is still a runner exit: session:end fired.
+    expect(lifecycles).toEqual(["session:end"]);
+  });
+
+  it("resume() appends exactly one turn_end — reason 'done', as the last event", async () => {
+    // Cross-process resume shape (the dedup suite's fresh-Runner pattern):
+    // the original run() parks at the gate and leaves the turn open; the
+    // resuming Runner completes it and writes the one closing bracket. With
+    // a clean allow decision the tool executes, the model closes the turn,
+    // and the resumed segment's outcome — "done" — is the turn_end reason.
+    const { store, events } = fakeChatStore();
+    const sessionStore = makeSessionStore();
+
+    const original = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: pausingGate(),
+      sessionStore,
+      sessionId: "sess-2",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await expect(original.run({ type: "user_message", content: "go" })).rejects.toThrow("pause");
+    expect(typesOf(events)).not.toContain("turn_end");
+
+    const resumed = createRunner({
+      modelPort: createMockModelPort([[textDelta("done"), modelDone("end_turn")]]),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: createAutoAllowGate(),
+      sessionStore,
+      sessionId: "sess-2",
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    const final = await resumed.resume("sess-2", "allow");
+    expect(final.status).toBe("done");
+
+    // Exactly one bracket, correctly attributed and correctly reasoned.
+    const turnEnds = events.filter((e) => e.type === "turn_end");
+    expect(turnEnds).toHaveLength(1);
+    const turnEnd = turnEnds[0]!;
+    expect((turnEnd.data as { reason: string }).reason).toBe("done");
+    expect(turnEnd.turn).toBe(1);
+    expect((turnEnd.data as { turn: number }).turn).toBe(1);
+
+    // The bracket closes the turn: it is the log's last event, and the whole
+    // resumed segment (decision, tool execution, closing message) landed
+    // before it.
+    const lastTypes = typesOf(events);
+    expect(lastTypes[lastTypes.length - 1]).toBe("turn_end");
+    expect(lastTypes).toContain("approval_decision");
+    expect(lastTypes).toContain("tool_result");
+    expect(lastTypes.indexOf("assistant_message")).toBeLessThan(lastTypes.length - 1);
   });
 });
