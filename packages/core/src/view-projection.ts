@@ -340,7 +340,11 @@ export function buildTurnRecords(
   // and the structural watermark below must all agree: events appended after
   // a turn_end (a pre-fix resume-shaped log) keep the same end time but grow
   // one of these lengths, and lengths are cheap to compare while content is
-  // not.
+  // not. The watermark compares only lengths, so same-length in-place content
+  // growth on the last step (e.g. a tool_result filling a call without adding
+  // a step) is not detected — unreachable from current write-side shapes
+  // (post-pause turns keep endedAt undefined) and acceptable as
+  // defense-in-depth.
   return turns.map((turn, i) => {
     const before = prev[i];
     if (
