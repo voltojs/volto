@@ -267,15 +267,25 @@ describe("buildTurnRecords", () => {
 
   it("links a subagent_started that lands before its buffered tool_call flush", () => {
     const records = buildTurnRecords(OUT_OF_ORDER_SUBAGENT);
-    // The stray subagent_started opens a turn shell of its own before
-    // turn_start re-opens turn 4; the real record is the one with steps.
+    // The stray subagent_started opens turn 4's shell before turn_start
+    // arrives; turn_start must adopt that shell, so exactly one turn-4
+    // record exists and it is the one carrying the steps.
     const turn = records.find((t) => t.turn === 4 && t.steps.length > 0)!;
     const call = turn.steps[0]!.toolCalls[0]!;
 
     expect(call.name).toBe("task");
     expect(call.childSessionId).toBe("child-1");
 
-    const row = toTrajectoryView(records, OUT_OF_ORDER_SUBAGENT).rows.find((r) => r.kind === "subagent");
+    // A duplicate turn record would make toTrajectoryView re-emit the
+    // turn's context rows — the browser console surfaced it as
+    // "Encountered two children with the same key, 4:header:41".
+    expect(records.filter((t) => t.turn === 4)).toHaveLength(1);
+    const view = toTrajectoryView(records, OUT_OF_ORDER_SUBAGENT);
+    const headerRows = view.rows.filter((r) => r.kind === "context" && r.turn === 4);
+    expect(headerRows).toHaveLength(1);
+    expect(headerRows[0]!.id).toBe("4:header:3");
+
+    const row = view.rows.find((r) => r.kind === "subagent");
     expect(row).toBeDefined();
     expect(row!.childSessionId).toBe("child-1");
   });

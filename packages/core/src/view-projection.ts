@@ -213,6 +213,14 @@ export function buildTurnRecords(
     switch (event.type) {
       case "turn_start": {
         const data = event.data as TranscriptEventMap["turn_start"];
+        // A stray out-of-order event (e.g. the SDK's directly-appended
+        // subagent_started) may have opened this turn's shell already — adopt it
+        // instead of emitting a duplicate record whose context rows double up.
+        const shell = turns.find((t) => t.turn === data.turn && t.endedAt === undefined);
+        if (shell) {
+          current = shell;
+          break;
+        }
         const created = newTurn(data.turn, event.time);
         turns.push(created);
         current = created;
