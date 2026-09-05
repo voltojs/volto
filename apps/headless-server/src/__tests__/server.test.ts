@@ -450,6 +450,13 @@ describe("Headless server", () => {
     expect(frames.at(-1)?.event).toBe("error");
     // Never silently ran the turn — no delta was streamed.
     expect(frames.some((f) => f.event === "delta")).toBe(false);
+    // The error frame carries a typed payload the client can surface: the
+    // mapper's default code plus the resolveConfig rejection reason.
+    const errorData = frames.find((f) => f.event === "error")?.data as
+      | { code: string; message: string }
+      | undefined;
+    expect(errorData?.code).toBe("STREAM_ERROR");
+    expect(errorData?.message).toContain("projectId is required");
   });
 
   it("POST /messages errors over SSE when only providerId is given without modelId (F2)", async () => {

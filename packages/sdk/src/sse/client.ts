@@ -2,10 +2,11 @@
  * SSE Client — connects to an SSE server, parses the wire format, and
  * delivers frames through an event-subscription API.
  *
- * Protocol v2 has two subscription channels for payload frames — `onEvent`
- * for authoritative transcript events and `onDelta` for streaming increments.
- * Heartbeat and transport-error frames are handled by the connection layer
- * and never surfaced to subscribers.
+ * Protocol v2 has three subscription channels for payload frames — `onEvent`
+ * for authoritative transcript events, `onDelta` for streaming increments,
+ * and `onError` for `error` frames (pre-stream failures such as config
+ * resolution errors or BUSY). Heartbeat frames are handled by the connection
+ * layer and never surfaced to subscribers.
  *
  * Supports:
  * - Auto-reconnect with exponential back-off
@@ -14,7 +15,12 @@
  * - Connection state management
  */
 
-import { SSEFrameType, type SSEMessage, type ConnectionState } from "./types.js";
+import {
+  SSEFrameType,
+  type SSEMessage,
+  type ConnectionState,
+  type ErrorData,
+} from "./types.js";
 import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +69,7 @@ export type EventSourceFactory = (url: string) => EventSourceLike;
  * const client = createSSEClient("http://localhost:3000/sse");
  * client.onEvent((event) => store.pushEvent(event));
  * client.onDelta((delta) => store.pushDelta(delta));
+ * client.onError((data) => console.error(data.code, data.message));
  * client.connect();
  * // later...
  * client.disconnect();
@@ -92,6 +99,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
 
   const eventHandlers = new Set<(event: TranscriptEventInput) => void>();
   const deltaHandlers = new Set<(delta: TranscriptDelta) => void>();
+  const errorHandlers = new Set<(data: ErrorData) => void>();
   const stateListeners = new Set<(state: ConnectionState) => void>();
 
   // -- internal helpers -----------------------------------------------------
@@ -113,6 +121,10 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     } else if (message.event === SSEFrameType.DELTA) {
       for (const handler of deltaHandlers) {
         handler(message.data as TranscriptDelta);
+      }
+    } else if (message.event === SSEFrameType.ERROR) {
+      for (const handler of errorHandlers) {
+        handler(message.data as ErrorData);
       }
     }
   }
@@ -228,6 +240,17 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     };
   }
 
+  /**
+   * Subscribe to protocol `error` frames (pre-stream failures such as config
+   * resolution errors or BUSY). Returns an unsubscribe function.
+   */
+  function onError(handler: (data: ErrorData) => void): () => void {
+    errorHandlers.add(handler);
+    return () => {
+      errorHandlers.delete(handler);
+    };
+  }
+
   /** Subscribe to connection state changes. Returns an unsubscribe function. */
   function onStateChange(handler: (state: ConnectionState) => void): () => void {
     stateListeners.add(handler);
@@ -251,6 +274,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     disconnect();
     eventHandlers.clear();
     deltaHandlers.clear();
+    errorHandlers.clear();
     stateListeners.clear();
   }
 
@@ -259,6 +283,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     disconnect,
     onEvent,
     onDelta,
+    onError,
     onStateChange,
     getState,
     getLastEventId,

@@ -33,7 +33,8 @@ const CONNECT_TIMEOUT_MS = 10_000;
  * Transport is a long-lived SSE channel per chat session (`GET /events`) plus
  * a `POST /messages` trigger — the server streams the turn back over the
  * channel. Authoritative transcript events land on `onEvent`, streaming
- * increments on `onDelta`; both are forwarded into the chat store untouched.
+ * increments on `onDelta`, and pre-stream `error` frames on `onError`; all
+ * are forwarded into the chat store untouched.
  * Message assembly no longer happens here — the projection
  * (lib/projection.ts) derives the chat feed from the buffered events and
  * deltas, and the server echoes the user's own message back as a
@@ -69,6 +70,20 @@ export function useChatAgent(): UseChatAgentReturn {
 
       client.onDelta((delta) => {
         useChatStore.getState().pushDelta(delta);
+      });
+
+      // Protocol `error` frames (pre-stream failures: config resolution,
+      // BUSY, ...) have no turn_end behind them, so only the onError channel
+      // can both surface the failure and release the input box. Reuses the
+      // round-level error-notice rendering that composeChatEntries already
+      // provides for local error events — no extra UI needed.
+      client.onError((data) => {
+        useChatStore.getState().pushEvent({
+          time: Date.now(),
+          type: 'error',
+          data: { message: data.message },
+        });
+        useChatStore.getState().setGenerating(false);
       });
 
       const ready = new Promise<void>((resolve, reject) => {

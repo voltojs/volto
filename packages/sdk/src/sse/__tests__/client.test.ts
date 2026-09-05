@@ -119,6 +119,13 @@ const USER_EVENT = {
 /** A streaming increment payload. */
 const TEXT_DELTA = { kind: "text", text: "hi" };
 
+/** A transport-level error frame payload. */
+const ERROR_DATA = {
+  code: "STREAM_ERROR",
+  message: "Missing projectId",
+  retryable: false,
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -302,6 +309,54 @@ describe("SSEClient", () => {
       }
 
       expect(handler).not.toHaveBeenCalled();
+
+      client.disconnect();
+    });
+  });
+
+  describe("error subscriptions", () => {
+    it("should deliver error frames to onError subscribers but not onEvent/onDelta", () => {
+      const client = createClient();
+      const errorHandler = vi.fn();
+      const eventHandler = vi.fn();
+      const deltaHandler = vi.fn();
+
+      client.onError(errorHandler);
+      client.onEvent(eventHandler);
+      client.onDelta(deltaHandler);
+      client.connect();
+      instances[0]!.emitOpen();
+
+      instances[0]!.emitEvent("error", ERROR_DATA);
+
+      expect(errorHandler).toHaveBeenCalledTimes(1);
+      expect(errorHandler).toHaveBeenCalledWith(ERROR_DATA);
+      expect(errorHandler.mock.calls[0]![0]).toMatchObject({
+        code: "STREAM_ERROR",
+        message: "Missing projectId",
+        retryable: false,
+      });
+      // Error frames never leak into the payload channels.
+      expect(eventHandler).not.toHaveBeenCalled();
+      expect(deltaHandler).not.toHaveBeenCalled();
+
+      client.disconnect();
+    });
+
+    it("should unsubscribe onError handlers correctly", () => {
+      const client = createClient();
+      const errorHandler = vi.fn();
+
+      const unsub = client.onError(errorHandler);
+      client.connect();
+      instances[0]!.emitOpen();
+
+      instances[0]!.emitEvent("error", ERROR_DATA);
+      expect(errorHandler).toHaveBeenCalledTimes(1);
+
+      unsub();
+      instances[0]!.emitEvent("error", ERROR_DATA);
+      expect(errorHandler).toHaveBeenCalledTimes(1); // no additional call
 
       client.disconnect();
     });
