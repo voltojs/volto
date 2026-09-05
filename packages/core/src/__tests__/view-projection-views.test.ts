@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildTurnRecords, toConversationView } from "../view-projection.js";
-import type { TranscriptEvent } from "../index.js";
+import { projectMessages } from "../transcript-projection.js";
+import type { TranscriptEvent, ContentBlock } from "../index.js";
 import legacy from "./__snapshots__/legacy-ui-messages.json";
 
 function log(entries: Array<Omit<TranscriptEvent, "seq">>): TranscriptEvent[] {
@@ -45,6 +46,59 @@ const EQUIVALENT_LOG = log([
   { time: 210, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
 ]);
 
+/**
+ * A two-step turn where the user steered while step 1's batch was in flight.
+ * The reducer drains the queue after the batch's results and before the next
+ * model call, so the model saw the steering between step 1 and step 2.
+ */
+const STEERED_LOG = log([
+  { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+  { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+  { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+  {
+    time: 130,
+    type: "assistant_message",
+    data: {
+      content: [
+        { type: "text", text: "Reading it." },
+        { type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } },
+      ],
+      stopReason: "tool_use",
+      durationMs: 10,
+    },
+    turn: 1,
+    step: 1,
+  },
+  { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: { path: "a.txt" } }, turn: 1, step: 1 },
+  // Steering arrives BEFORE the result — smaller seq, later position.
+  { time: 150, type: "steering_queued", data: { content: "actually wait" }, turn: 1, step: 1 },
+  {
+    time: 160,
+    type: "tool_result",
+    data: { callId: "c1", name: "read_file", content: "body", isError: false, orderInBatch: 0 },
+    turn: 1,
+    step: 1,
+  },
+  { time: 190, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+  {
+    time: 200,
+    type: "assistant_message",
+    data: { content: [{ type: "text", text: "ok, stopped" }], stopReason: "end_turn", durationMs: 10 },
+    turn: 1,
+    step: 2,
+  },
+  { time: 210, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+]);
+
+/** Joins a projected message's text blocks — the view's `content` equivalent. */
+function messageText(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
 describe("toConversationView — parity with the legacy projection", () => {
   it("produces the same roles, block kinds and text as toUiMessages did", () => {
     const view = toConversationView(buildTurnRecords(EQUIVALENT_LOG));
@@ -74,7 +128,31 @@ describe("toConversationView", () => {
     expect(view.messages.every((m) => m.role === "user" || m.role === "assistant")).toBe(true);
   });
 
-  it("places a steering message after the batch's tool results", () => {
+  it("places a steering message between the step that was running and the next one", () => {
+    const view = toConversationView(buildTurnRecords(STEERED_LOG));
+
+    // user(go) → assistant(1:1, batch's tool result folded in) → user(steering) → assistant(1:2)
+    expect(view.messages.map((m) => m.id)).toEqual(["1:u0", "1:1", "1:q0", "1:2"]);
+    expect(view.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(view.messages[2]!.content).toBe("actually wait");
+    // The steering still renders after the batch's tool results — folded into step 1's block.
+    const step1 = view.messages[1]!;
+    expect(step1.blocks.some((b) => b.type === "tool_call" && b.call.result === "body")).toBe(true);
+  });
+
+  it("agrees with projectMessages on the order of user and assistant text", () => {
+    // Tool results are folded into view blocks, so only user/assistant text compares.
+    const fromView = toConversationView(buildTurnRecords(STEERED_LOG)).messages.map(
+      (m) => [m.role, m.content] as const,
+    );
+    const fromProjection = projectMessages(STEERED_LOG)
+      .filter((m) => m.role !== "tool")
+      .map((m) => [m.role, messageText(m.content)] as const);
+
+    expect(fromView).toEqual(fromProjection);
+  });
+
+  it("keeps a steering message at the end of the turn when the turn errors before the next step", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
       { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
@@ -91,8 +169,7 @@ describe("toConversationView", () => {
         step: 1,
       },
       { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
-      // Steering arrives BEFORE the result — smaller seq, later position.
-      { time: 150, type: "steering_queued", data: { content: "actually wait" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { content: "one more thing" }, turn: 1, step: 1 },
       {
         time: 160,
         type: "tool_result",
@@ -100,12 +177,14 @@ describe("toConversationView", () => {
         turn: 1,
         step: 1,
       },
+      // The turn dies before step 2 ever starts — no step with startedAt > 150.
+      { time: 170, type: "turn_end", data: { turn: 1, reason: "error", error: "boom" }, turn: 1 },
     ]);
 
-    const roles = toConversationView(buildTurnRecords(events)).messages.map((m) => m.role);
-    // user(go) → assistant(tool_use) → user(steering, after the batch)
-    expect(roles).toEqual(["user", "assistant", "user"]);
-    expect(toConversationView(buildTurnRecords(events)).messages.at(-1)!.content).toBe("actually wait");
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.map((m) => m.id)).toEqual(["1:u0", "1:1", "1:q0"]);
+    expect(view.messages.at(-1)!.role).toBe("user");
+    expect(view.messages.at(-1)!.content).toBe("one more thing");
   });
 
   it("emits a reasoning block when the model produced thinking", () => {

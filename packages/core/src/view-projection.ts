@@ -388,9 +388,13 @@ function textOf(content: string | ContentBlock[]): string {
  * assistant block that called it rather than becoming its own entry, so a
  * call renders where it actually happened in the reply.
  *
- * Steering messages land AFTER their step's tool calls, mirroring how the
- * reducer flushes `[...results, ...queuedUserInputs]` — ordering them by
- * event time instead would show the user a history the model never saw.
+ * A queued (steering) input renders before the first step whose `startedAt`
+ * is greater than the input's `time` — the reducer drains the queue after a
+ * batch's results and before the next model call
+ * (`[...results, ...queuedUserInputs]`), so that is where the model actually
+ * saw it. Ordering by raw event time instead would show the user a history
+ * the model never saw. A queued input with no such step (the turn ended
+ * before the queue drained) stays at the end of the turn.
  */
 export function toConversationView(records: readonly TurnRecord[]): ConversationView {
   const messages: ConversationMessage[] = [];
@@ -399,18 +403,18 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
     const direct = turn.userInput.filter((u) => u.origin === "direct");
     const queued = turn.userInput.filter((u) => u.origin === "queued");
 
-    direct.forEach((input, i) => {
+    const emitUser = (input: UserInputRecord, id: string): void => {
       const text = textOf(input.content);
       messages.push({
-        id: `${turn.turn}:u${i}`,
+        id,
         role: "user",
         blocks: text ? [{ type: "text", text }] : [],
         content: text,
         timestamp: input.time,
       });
-    });
+    };
 
-    for (const step of turn.steps) {
+    const emitStep = (step: StepRecord): void => {
       const blocks: ConversationBlock[] = [];
       const assistant = step.assistant;
 
@@ -459,18 +463,22 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
         timestamp: step.startedAt,
         ...(step.partial !== undefined ? { isStreaming: true } : {}),
       });
-    }
+    };
 
-    queued.forEach((input, i) => {
-      const text = textOf(input.content);
-      messages.push({
-        id: `${turn.turn}:q${i}`,
-        role: "user",
-        blocks: text ? [{ type: "text", text }] : [],
-        content: text,
-        timestamp: input.time,
-      });
-    });
+    direct.forEach((input, i) => emitUser(input, `${turn.turn}:u${i}`));
+
+    // Steering slots between steps: each queued input is emitted before the
+    // first step that started after it was queued. Ids stay the ordinal among
+    // queued inputs, so repositioning never makes them drift.
+    const pending = queued.map((input, i) => ({ input, id: `${turn.turn}:q${i}` }));
+    for (const step of turn.steps) {
+      while (pending[0] && pending[0].input.time < step.startedAt) {
+        const next = pending.shift()!;
+        emitUser(next.input, next.id);
+      }
+      emitStep(step);
+    }
+    for (const leftover of pending) emitUser(leftover.input, leftover.id);
   }
 
   return { messages };
