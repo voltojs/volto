@@ -97,6 +97,14 @@ export interface RunnerOptions {
    * brand-new turn (the default 0 makes the first step 1, as always).
    */
   initialStep?: number;
+  /**
+   * The conversation's seed system prompt, mirrored into request_header's
+   * `systemLayers` so the transcript shows it. Never added to the model
+   * request — the seed `{role:"system"}` message already handles that;
+   * putting it in stepContext.contextLayers would make the ContextAssembler
+   * emit a second system message and the model would see the prompt twice.
+   */
+  seedSystemPrompt?: string;
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
@@ -620,8 +628,18 @@ export function createRunner(opts: RunnerOptions): Runner {
     if (recorder.enabled || opts.eventSink !== undefined) {
       let headerHash: string | undefined;
       try {
+        // Mirror the seed system prompt into the header (prepended, so it sits
+        // closest to the static prefix). It deliberately does NOT go through
+        // stepContext.contextLayers: the ContextAssembler converts every layer
+        // into an extra system message, so the model would receive the prompt
+        // twice. Skipped when the host's own layers already carry the id, so a
+        // host managing its own "system-prompt" layer cannot collide.
+        const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
+        if (opts.seedSystemPrompt !== undefined && !systemLayers.some((l) => l.id === "system-prompt")) {
+          systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
+        }
         const headerPayload = {
-          systemLayers: (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text })),
+          systemLayers,
           tools: stepContext.tools.map((t) => ({
             name: t.name,
             description: t.description,

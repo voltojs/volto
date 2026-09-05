@@ -356,16 +356,27 @@ describe("createAgent — SDK facade", () => {
       expect(assistantMessages).toHaveLength(1);
     });
 
-    it("carries systemPrompt into request_header.systemLayers while keeping the seed message intact", async () => {
+    it("carries systemPrompt into request_header.systemLayers without duplicating it into the model request", async () => {
       const events: TranscriptEventInput[] = [];
       const chatStore = {
         async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
           events.push(...batch);
         },
       };
+      // Capture the actual ModelRequest so the test can prove the header
+      // mirror is header-only: the context-layer route would make the
+      // ContextAssembler emit a second system message per model call.
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("Arrr!")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
 
       const agent = createAgent({
-        modelPort: createMockModelPort([textScript("Arrr!")]),
+        modelPort,
         systemPrompt: "You are a pirate",
         chatStore,
         chatSessionId: "chat-s1",
@@ -377,12 +388,20 @@ describe("createAgent — SDK facade", () => {
       // of the conversation state.
       expect(state.messages[0]).toMatchObject({ role: "system", content: "You are a pirate" });
 
-      // Additionally surfaced as a synthetic context layer in the header —
-      // this is the only way request_header.systemLayers reflects the option.
+      // Surfaced in the header via the runner's seedSystemPrompt option —
+      // the only way request_header.systemLayers reflects the option.
       const header = events.find((e) => e.type === "request_header");
       expect(header).toBeDefined();
       const { systemLayers } = header!.data as { systemLayers: Array<{ id: string; text: string }> };
       expect(systemLayers).toContainEqual({ id: "system-prompt", text: "You are a pirate" });
+
+      // But the model request carries the prompt exactly once — the seed
+      // message — never twice (a duplicated layer message would be a
+      // regression against the option's documented semantics).
+      expect(capturedRequests).toHaveLength(1);
+      const systemMessages = capturedRequests[0]!.messages.filter((m) => m.role === "system");
+      expect(systemMessages).toHaveLength(1);
+      expect(systemMessages[0]).toMatchObject({ role: "system", content: "You are a pirate" });
     });
 
     it("survives a chatStore whose appendEvents throws synchronously (a plain, non-async implementation)", async () => {

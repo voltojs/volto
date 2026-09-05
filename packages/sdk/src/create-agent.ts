@@ -212,10 +212,10 @@ export interface CreateAgentOptions {
    * System prompt prepended as the first message in every conversation.
    * Persists across turns and survives compaction.
    *
-   * Additionally surfaced as a synthetic `{ id: "system-prompt" }` context
-   * layer on every turn's StepContext, so the transcript's
-   * `request_header.systemLayers` carries it too (the seed message alone
-   * never appears in the header). Skipped if the host's own layers already
+   * Mirrored into the transcript's `request_header.systemLayers` via the
+   * Runner's `seedSystemPrompt` option — the seed message alone never
+   * appears in the header, and a context layer would duplicate the prompt
+   * into the model request. Skipped there if the host's own layers already
    * contain that id.
    */
   systemPrompt?: string;
@@ -988,25 +988,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // misattribute its turn_end to the last successful turn instead of this
     // one (and a first-turn failure would record turn 0).
     turnCounter++;
-    // systemPrompt additionally becomes a synthetic context layer so it lands
-    // in the transcript's request_header.systemLayers — the seed {role:"system"}
-    // message alone never reaches the header. Prepended (not appended) so it
-    // sits closest to the static prefix, mirroring its position as the first
-    // seed message. Skipped when the host's resolved layers already carry the
-    // same id, so a host that manages its own "system-prompt" layer cannot
-    // collide with this injection.
-    const hostLayers = opts.resolveContextLayers ? await opts.resolveContextLayers(inputText) : undefined;
-    const systemPromptLayer =
-      resolvedSystemPrompt && !hostLayers?.some((layer) => layer.id === "system-prompt")
-        ? { id: "system-prompt", text: resolvedSystemPrompt }
-        : undefined;
-    const turnStepContext: StepContext =
-      systemPromptLayer || hostLayers
-        ? {
-            ...stepContext,
-            contextLayers: systemPromptLayer ? [systemPromptLayer, ...(hostLayers ?? [])] : hostLayers,
-          }
-        : stepContext;
+    const turnStepContext: StepContext = opts.resolveContextLayers
+      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
+      : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
@@ -1032,6 +1016,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       chatStore: opts.chatStore ? chatStore : undefined,
       chatSessionId: opts.chatSessionId,
       turn: turnCounter,
+      // Header-only visibility for the seed system prompt (see RunnerOptions.
+      // seedSystemPrompt): the seed message path already puts it in the model
+      // request, mirroring it as a context layer would duplicate it there.
+      // Same truthiness gate as the seed message above — an empty prompt
+      // produces neither.
+      ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
       clock: opts.clock,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
@@ -1289,6 +1279,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // the fallback resume runner; createNextRunner() must never receive
         // it, or every new turn would continue the old turn's step numbers.
         initialStep: opts.initialStep,
+        // Same header-only system-prompt mirror as createNextRunner()'s
+        // runners: a fresh process rebuilt mid-turn still writes its own
+        // request_header for the resumed model call, and without this the
+        // resumed turn's header would silently drop the seed system prompt.
+        ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
         clock: opts.clock,
       });
 
