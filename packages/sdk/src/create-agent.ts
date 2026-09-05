@@ -39,6 +39,8 @@ import type {
   JSONSchema,
   ToolScopeConfig,
   Id,
+  Clock,
+  ContextLayer,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -47,7 +49,7 @@ import {
   resetTurnForNextInput,
   filterByScope,
 } from "@volto/core";
-import type { StepContext, ReducerState } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions } from "@volto/runtime-node";
 import {
@@ -106,6 +108,7 @@ import {
   defaultEventSink,
   defaultTokenizer,
   createDefaultSessionStore,
+  defaultChatStore,
   defaultToolSource,
   createDefaultMemoryStore,
   defaultEmbedder,
@@ -146,6 +149,36 @@ function resolveConfigValue<T>(
   return configLayer[key] as T | undefined;
 }
 
+/**
+ * Best-effort transcript write: awaits the call inside its own try/catch
+ * rather than chaining `.catch()` on its return value. A store whose
+ * `appendEvents` is a plain (non-`async`) function that throws synchronously
+ * never produces a promise for `.catch()` to attach to — the throw would
+ * instead escape into the caller, turning a best-effort transcript write
+ * into a hard failure. Two of this function's six call sites
+ * (`recordTurnEndError` / `recordTurnError`) run inside error-handling paths
+ * whose own doc comments promise "never throws into the caller" — a
+ * synchronous throw here would silently replace the real error the caller
+ * was about to see. Same class of bug fixed in the transcript recorder by
+ * commit 21bd938 and in apps/headless-server/src/sessions.ts's own catch
+ * block; this is every remaining call site in this file brought up to the
+ * same standard.
+ */
+function bestEffortAppend(
+  store: TranscriptStore,
+  sessionId: string,
+  events: TranscriptEventInput[],
+): void {
+  void (async () => {
+    try {
+      await store.appendEvents(sessionId, events);
+    } catch {
+      // Best-effort by contract — a transcript write must never disturb the
+      // turn it is recording.
+    }
+  })();
+}
+
 // ──────────────────────────────────────────────
 // Public types
 // ──────────────────────────────────────────────
@@ -178,8 +211,24 @@ export interface CreateAgentOptions {
   /**
    * System prompt prepended as the first message in every conversation.
    * Persists across turns and survives compaction.
+   *
+   * Mirrored into the transcript's `request_header.systemLayers` via the
+   * Runner's `seedSystemPrompt` option — the seed message alone never
+   * appears in the header, and a context layer would duplicate the prompt
+   * into the model request. Skipped there if the host's own layers already
+   * contain that id.
    */
   systemPrompt?: string;
+
+  /**
+   * Called once per turn with that turn's user-message text; returns the
+   * static content layers (memory files, triggered skill resources) for that
+   * turn's StepContext.contextLayers. No default — packages/sdk stays
+   * host-agnostic and does not know about `~/.volto` or any skills directory
+   * convention (that is apps/headless-server's job). Omitted means
+   * contextLayers is always empty, identical to today's behavior.
+   */
+  resolveContextLayers?: (input: string) => Promise<ContextLayer[]>;
 
   /**
    * 首轮种子历史消息 —— 追加在 systemPrompt 消息之后，作为第一轮
@@ -189,6 +238,42 @@ export interface CreateAgentOptions {
    * 对话历史重新灌入，让上下文不因实例重建而丢失。
    */
   initialMessages?: Message[];
+
+  /**
+   * Seeds the internal turn counter so a rebuilt agent instance continues
+   * numbering instead of restarting at 1. This is the ordinal of the LAST
+   * turn already present in the durable transcript (chatStore) — the next
+   * turn run() or stream() executes becomes `initialTurn + 1`, and a
+   * cross-process `resume()` of that already-in-flight last turn reports
+   * `initialTurn` itself (matching the turn number the paused turn was
+   * originally recorded under).
+   *
+   * The SDK cannot recover this value on its own: `SessionSnapshot` carries
+   * no turn number and `TranscriptStore` is write-only. A host that rebuilds
+   * agent instances mid-conversation (e.g. apps/headless-server rebuilding
+   * on every config change) must compute it from its own transcript and pass
+   * it here — otherwise every rebuild silently restarts turn numbering at 1,
+   * and a fresh cross-process resume records the sentinel `0` instead of the
+   * real turn. Omit when no transcript exists yet (first-ever turn).
+   */
+  initialTurn?: number;
+
+  /**
+   * Like `initialTurn`, but for the paused turn's step sequence: the highest
+   * step number already persisted for that turn in the durable transcript.
+   * Consumed only by resume()'s cross-process fallback, whose freshly built
+   * Runner would otherwise restart its step counter at 1 and collide with
+   * the paused turn's existing steps 1..N — a projection would then
+   * merge/overwrite distinct model calls in the same turn.
+   *
+   * As with `initialTurn`, the SDK cannot recover this value on its own:
+   * `SessionSnapshot` carries no step numbers and `TranscriptStore` is
+   * write-only. A host that rebuilds agent instances mid-conversation must
+   * compute it from its own transcript (the max `step` stamped on events of
+   * the paused turn) and pass it here. Omit when no transcript exists yet,
+   * or when the rebuilt agent starts a brand-new turn rather than resuming.
+   */
+  initialStep?: number;
 
   /** Model name override (sent to the provider) */
   model?: string;
@@ -242,6 +327,30 @@ export interface CreateAgentOptions {
 
   /** Session store for HITL checkpoint/resume */
   sessionStore?: SessionStore;
+
+  /** Durable transcript/trajectory store. Optional — omitted means no durable record is kept (mirrors sessionStore's optionality). */
+  chatStore?: TranscriptStore;
+
+  /**
+   * The chatStore's stable, whole-conversation session id — set once at
+   * construction. Distinct from the SDK's internal per-turn `sessionId`
+   * (used only for HITL checkpointing), which is regenerated every turn.
+   */
+  chatSessionId?: string;
+
+  /** Config binding recorded once as a `session_meta` transcript event at construction, when both this and chatStore are provided. */
+  chatMeta?: ChatSessionMeta;
+
+  /**
+   * Clock for timestamps on every transcript event this SDK layer touches:
+   * `session_meta` and the failure `turn_end`/`error` events it writes
+   * directly, and the `subagent_started`/`subagent_finished` bracket around
+   * a task-tool invocation. Also forwarded to each Runner it constructs
+   * (main turn and sub-agent) via `RunnerOptions.clock`, so a single
+   * injected Clock produces deterministic timestamps across the whole
+   * transcript. Defaults to wall-clock (Date.now) when omitted.
+   */
+  clock?: Clock;
 
   /**
    * Approval gate for HITL `ask` decisions. Defaults to auto-allow.
@@ -598,7 +707,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(
-      createSubAgentExecutor(opts, allCustomTools, adapterTools, capabilities, compactionConfig, 1, effectiveShell, idPort),
+      createSubAgentExecutor(
+        opts,
+        allCustomTools,
+        adapterTools,
+        capabilities,
+        compactionConfig,
+        1,
+        effectiveShell,
+        idPort,
+        () => currentTurnEventSink,
+        opts.chatStore,
+        opts.chatSessionId,
+        () => turnCounter,
+      ),
     );
     allCustomTools.push(taskTool);
   }
@@ -748,6 +870,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Session store ─────────────────────────
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
+  const chatStore = opts.chatStore ?? defaultChatStore;
+  if (opts.chatStore && opts.chatMeta && opts.chatSessionId) {
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "session_meta",
+        data: opts.chatMeta,
+      },
+    ]);
+  }
 
   // ── M8: Resolve new ports ────────────────
   const resolvedPorts: ResolvedPorts = {
@@ -781,12 +913,30 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
+  // Most recently resolved per-turn contextLayers, cached for resume()'s
+  // fallback branch (see below). Only covers same-process resume
+  // (lastRunner.resume() throwing but the agent instance still alive) — a
+  // resume in a fresh process after this one exits has no prior turn's
+  // resolved layers to fall back on.
+  let lastTurnContextLayers: ContextLayer[] | undefined;
+  // Incremented once per createNextRunner() call — every new turn this
+  // instance runs, whether via run() or stream(). Not incremented by
+  // resume(), which continues the same turn rather than starting a new one.
+  // Seeded from `initialTurn` (the last turn already in the transcript) so a
+  // rebuilt agent instance continues numbering instead of restarting at 1 —
+  // see CreateAgentOptions.initialTurn.
+  let turnCounter = opts.initialTurn ?? 0;
+  // The EventSink actually in use for the turn currently running — read by
+  // createSubAgentExecutor at call time, since the task tool is built once
+  // at construction but each turn's real sink (channel.eventSink for
+  // stream(), or whatever run() was given) is only known per-call.
+  let currentTurnEventSink: EventSink | undefined;
 
-  function createNextRunner(runnerEventSink: EventSink, abortSignal?: AbortSignal): Runner {
-    const previousState = lastFinalState;
-    lastRunner = null;
-    lastFinalState = null;
-
+  async function createNextRunner(
+    runnerEventSink: EventSink,
+    abortSignal: AbortSignal | undefined,
+    inputText: string,
+  ): Promise<Runner> {
     // Wrap EventSink to intercept usage events for cost metering
     // and filter reasoning_delta based on reasoningStrategy.
     const reasoningStrategy = resolve(opts.reasoningStrategy, "reasoningStrategy") ?? "emit";
@@ -799,8 +949,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
               return;
             }
 
-            // Cost metering: intercept model_done usage data
-            if (event.type === "model_done" && costMeter) {
+            // Cost metering: the Runner no longer emits raw model_done events
+            // (task-r6) — usage rides on the transcript assistant_message it
+            // records and streams, so that is what the meter intercepts.
+            if (event.type === "assistant_message" && costMeter) {
               const usage = event.data.usage as { inputTokens?: number; outputTokens?: number } | undefined;
               if (usage) {
                 costMeter.record({
@@ -816,6 +968,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         }
       : runnerEventSink;
 
+    currentTurnEventSink = effectiveSink;
+
     // M13: Merge hooks from opts + plugins (plugin hooks appended after opts hooks)
     const allHooks: import("@volto/core").Hook[] = [
       ...(opts.hooks ?? []),
@@ -826,9 +980,30 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       })),
     ];
 
+    // Incremented before resolveContextLayers runs — a turn is "claimed" the
+    // moment createNextRunner() is invoked, regardless of whether it goes on
+    // to construct a Runner. If this were incremented only after
+    // resolveContextLayers resolves, a rejection there would leave
+    // turnCounter pointing at the *previous* turn, so a caught failure would
+    // misattribute its turn_end to the last successful turn instead of this
+    // one (and a first-turn failure would record turn 0).
+    turnCounter++;
+    const turnStepContext: StepContext = opts.resolveContextLayers
+      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
+      : stepContext;
+    lastTurnContextLayers = turnStepContext.contextLayers;
+
+    // Reset only after resolveContextLayers has succeeded — if it rejects,
+    // lastRunner/lastFinalState must remain untouched so a subsequent retry
+    // still carries forward the prior turn's state instead of silently
+    // starting a fresh conversation.
+    const previousState = lastFinalState;
+    lastRunner = null;
+    lastFinalState = null;
+
     const runnerOpts: RunnerOptions = {
       modelPort,
-      stepContext,
+      stepContext: turnStepContext,
       eventSink: effectiveSink,
       toolExecutor,
       availableCapabilities: capabilities,
@@ -838,6 +1013,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       compaction: compactionConfig,
       abortSignal,
       sessionId: `session-${idPort.next()}`,
+      chatStore: opts.chatStore ? chatStore : undefined,
+      chatSessionId: opts.chatSessionId,
+      turn: turnCounter,
+      // Header-only visibility for the seed system prompt (see RunnerOptions.
+      // seedSystemPrompt): the seed message path already puts it in the model
+      // request, mirroring it as a context layer would duplicate it there.
+      // Same truthiness gate as the seed message above — an empty prompt
+      // produces neither.
+      ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
+      clock: opts.clock,
       policyEngine: resolvedPorts.policyEngine,
       telemetry: resolvedPorts.telemetry,
       pricing: opts.pricing,
@@ -884,6 +1069,51 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     });
   }
 
+  /**
+   * Best-effort: records a `turn_end` (reason: "error") directly via chatStore
+   * for a turn that fails before a Runner ever existed (e.g.
+   * resolveContextLayers rejected). This is the *only* recording point for
+   * that case — a Runner that never ran can't record its own turn_end. Never
+   * throws into the caller.
+   */
+  function recordTurnEndError(error: unknown): void {
+    if (!opts.chatStore || !opts.chatSessionId) return;
+    const message = error instanceof Error ? error.message : String(error);
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "turn_end",
+        data: { turn: turnCounter, reason: "error", error: message },
+        turn: turnCounter,
+      },
+    ]);
+  }
+
+  /**
+   * Best-effort: records an `error` event (not `turn_end`) when a Runner
+   * already exists but its `run()` call rejects. A rejection normally means
+   * the Runner's own try/finally has already stamped that turn's generic
+   * `turn_end` (see `runner.ts`'s `recordTurnEnd()`), so recording a second
+   * `turn_end` here would duplicate the turn-close event — `error` preserves
+   * the message without that duplication. The one exception is the
+   * gate-threw-while-paused corner: the state is still waiting_for_approval,
+   * recordTurnEnd() skips the bracket, so no `turn_end` exists — the turn
+   * legitimately stays open (the resume that completes it closes it) and only
+   * the `error` event is added here. Never throws into the caller.
+   */
+  function recordTurnError(error: unknown): void {
+    if (!opts.chatStore || !opts.chatSessionId) return;
+    const message = error instanceof Error ? error.message : String(error);
+    bestEffortAppend(chatStore, opts.chatSessionId, [
+      {
+        time: opts.clock?.now() ?? Date.now(),
+        type: "error",
+        data: { message },
+        turn: turnCounter,
+      },
+    ]);
+  }
+
   // ── M13: Slash command resolution ──────────────
   const commands = opts.commands ?? [];
 
@@ -902,11 +1132,30 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
       const agentInput = resolveInput(input);
-      const runner = createNextRunner(opts.eventSink ?? defaultEventSink);
-      lastRunner = runner;
-      const finalState = await runner.run(agentInput);
-      lastFinalState = finalState;
-      return finalState;
+      // `runner` stays undefined until createNextRunner() actually returns
+      // one — the catch block below uses that to distinguish "the Runner
+      // never existed" (record turn_end ourselves) from "the Runner existed
+      // and its own run() rejected" (the Runner's try/finally has normally
+      // already recorded turn_end for the turn — except the
+      // gate-threw-while-paused corner, where no turn_end exists and the
+      // turn legitimately stays open; either way record only the error text,
+      // via a separate `error` event).
+      let runner: Runner | undefined;
+      try {
+        runner = await createNextRunner(
+          opts.eventSink ?? defaultEventSink,
+          undefined,
+          extractInputText(agentInput),
+        );
+        lastRunner = runner;
+        const finalState = await runner.run(agentInput);
+        lastFinalState = finalState;
+        return finalState;
+      } catch (err: unknown) {
+        if (runner) recordTurnError(err);
+        else recordTurnEndError(err);
+        throw err;
+      }
     },
 
     async *stream(
@@ -919,17 +1168,34 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // out of `for await` early. Without it, the detached runner would
       // keep going and any error it threw would be swallowed silently.
       const abortController = new AbortController();
-      const runner = createNextRunner(channel.eventSink, abortController.signal);
+      let runner: Runner;
+      try {
+        runner = await createNextRunner(
+          channel.eventSink,
+          abortController.signal,
+          extractInputText(agentInput),
+        );
+      } catch (err: unknown) {
+        recordTurnEndError(err);
+        throw err;
+      }
       lastRunner = runner;
 
       let runError: unknown;
       const runPromise = runner.run(agentInput).then(
-        (finalState) => {
+        async (finalState) => {
           lastFinalState = finalState;
           channel.done();
         },
-        (err) => {
+        async (err) => {
           runError = err;
+          // The Runner exists here (constructed above) — a rejection normally
+          // means its own try/finally already recorded turn_end; record the
+          // error text separately rather than duplicating turn_end. (The one
+          // gap is the gate-threw-while-paused corner: status is still
+          // waiting_for_approval, no turn_end is recorded, and the turn
+          // legitimately stays open with only this `error` event added.)
+          recordTurnError(err);
           channel.done();
         },
       );
@@ -982,7 +1248,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
       const resumeRunner = createRunner({
         modelPort,
-        stepContext,
+        stepContext: lastTurnContextLayers
+          ? { ...stepContext, contextLayers: lastTurnContextLayers }
+          : stepContext,
         eventSink: opts.eventSink ?? defaultEventSink,
         toolExecutor,
         availableCapabilities: capabilities,
@@ -992,6 +1260,34 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         compaction: compactionConfig,
         sessionId,
         initialState: restoredState,
+        // Wire the transcript the same way createNextRunner() does — without
+        // this, the tool_result and the assistant_message that follow it
+        // never reach the durable log, leaving it ending on an
+        // `assistant_message` with stopReason "tool_use" and no matching
+        // `tool_result` (a shape both Anthropic and OpenAI reject outright
+        // as the seed for the next turn).
+        chatStore: opts.chatStore ? chatStore : undefined,
+        chatSessionId: opts.chatSessionId,
+        // Not turnCounter + 1: this resumes the turn that was already
+        // claimed (and counted) when it originally started via
+        // createNextRunner() — the same reason lastRunner.resume() above
+        // doesn't touch turnCounter either. Using the current value keeps
+        // this fallback runner's events attributed to that same turn instead
+        // of silently starting a new one.
+        turn: turnCounter,
+        // Seed the step counter the same way the host seeds turnCounter via
+        // initialTurn: the paused turn's earlier steps are already in the
+        // transcript, and a fresh counter would restart at 1 and overwrite
+        // them — see CreateAgentOptions.initialStep. Note this seeds ONLY
+        // the fallback resume runner; createNextRunner() must never receive
+        // it, or every new turn would continue the old turn's step numbers.
+        initialStep: opts.initialStep,
+        // Same header-only system-prompt mirror as createNextRunner()'s
+        // runners: a fresh process rebuilt mid-turn still writes its own
+        // request_header for the resumed model call, and without this the
+        // resumed turn's header would silently drop the seed system prompt.
+        ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
+        clock: opts.clock,
       });
 
       lastRunner = resumeRunner;
@@ -1021,6 +1317,16 @@ function normalizeInput(input: string | AgentInput): AgentInput {
     return { type: "user_message", content: input };
   }
   return input;
+}
+
+/** Extracts the plain text of a user_message input; empty string for any other input type. */
+function extractInputText(input: AgentInput): string {
+  if (input.type !== "user_message") return "";
+  if (typeof input.content === "string") return input.content;
+  return input.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("");
 }
 
 /**
@@ -1064,8 +1370,65 @@ function createSubAgentExecutor(
   depth: number = 1,
   shellOverride?: Shell,
   idPort: Id = defaultId,
+  getCurrentEventSink: () => EventSink | undefined = () => undefined,
+  chatStore?: TranscriptStore,
+  parentChatSessionId?: string,
+  getCurrentTurn: () => number = () => 0,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
+    const nowMs = (): number => opts.clock?.now() ?? Date.now();
+    const turn = getCurrentTurn();
+
+    // A sub-agent writes its own session file rather than sharing the parent's.
+    // Sharing would collide: both Runners number their steps from 1 within the
+    // same (turn, step) space. Independent sessions also let a deep task tree
+    // stay readable one level at a time.
+    // Only computed when there is a real parent session to hang it off of —
+    // without parentChatSessionId there is nothing to link a child session
+    // back to, so it would be an orphan (unattributable to any conversation)
+    // if the store ever wrote it.
+    const childSessionId = parentChatSessionId ? `${parentChatSessionId}-sub-${idPort.next()}` : undefined;
+    const startedAt = nowMs();
+
+    if (chatStore && parentChatSessionId && childSessionId) {
+      bestEffortAppend(chatStore, parentChatSessionId, [
+        {
+          time: startedAt,
+          type: "subagent_started",
+          data: { childSessionId, label: "task", depth },
+          turn,
+        },
+      ]);
+      bestEffortAppend(chatStore, childSessionId, [
+        {
+          time: startedAt,
+          type: "session_meta",
+          data: {
+            projectId: null,
+            providerId: null,
+            modelId: null,
+            permissionMode: null,
+            parentSessionId: parentChatSessionId,
+            delegationDepth: depth,
+            origin: "subagent" as const,
+          },
+        },
+      ]);
+    }
+
+    const finishSubAgent = (isError: boolean): void => {
+      if (chatStore && parentChatSessionId && childSessionId) {
+        bestEffortAppend(chatStore, parentChatSessionId, [
+          {
+            time: nowMs(),
+            type: "subagent_finished",
+            data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+            turn,
+          },
+        ]);
+      }
+    };
+
     const subCustomTools = parentCustomTools.filter(
       (t) => t.definition.name !== "task",
     );
@@ -1100,8 +1463,9 @@ function createSubAgentExecutor(
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
     };
 
-    const taggedSink = opts.eventSink
-      ? tagEventSink(opts.eventSink, depth, "task")
+    const currentSink = getCurrentEventSink();
+    const taggedSink = currentSink
+      ? tagEventSink(currentSink, depth, "task")
       : undefined;
 
     const subRunner = createRunner({
@@ -1115,6 +1479,12 @@ function createSubAgentExecutor(
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${idPort.next()}`,
+      // Guarded on parentChatSessionId too: without a parent session there
+      // is no valid childSessionId (see above), so never hand the Runner a
+      // chatStore it would use to write an orphaned "undefined-sub-…" session.
+      chatStore: parentChatSessionId ? chatStore : undefined,
+      chatSessionId: childSessionId,
+      clock: opts.clock,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
         ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined
@@ -1131,15 +1501,21 @@ function createSubAgentExecutor(
       }),
     });
 
-    const finalState = await subRunner.run({
-      type: "user_message",
-      content: message,
-    });
+    try {
+      const finalState = await subRunner.run({
+        type: "user_message",
+        content: message,
+      });
+      finishSubAgent(false);
 
-    const lastMsg = finalState.messages[finalState.messages.length - 1];
-    if (lastMsg && lastMsg.role === "assistant") {
-      return extractPlainText(lastMsg);
+      const lastMsg = finalState.messages[finalState.messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        return extractPlainText(lastMsg);
+      }
+      return "";
+    } catch (err) {
+      finishSubAgent(true);
+      throw err;
     }
-    return "";
   };
 }

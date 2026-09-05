@@ -74,6 +74,15 @@ export type {
   Network,
   SessionSnapshot,
   SessionStore,
+  ChatSessionMeta,
+  TokenUsage,
+  TurnEndReason,
+  TranscriptEventMap,
+  TranscriptEventType,
+  TranscriptEventInput,
+  TranscriptEvent,
+  TranscriptStore,
+  TranscriptReader,
   EventSink,
   ApprovalGate,
   Clock,
@@ -106,6 +115,35 @@ export type {
   ToolResult,
 } from "./tool.js";
 
+// Transcript projection — event log → Message[] for session resume
+export { projectMessages, projectMessageEntries } from "./transcript-projection.js";
+export type { ProjectedMessage } from "./transcript-projection.js";
+
+// View projection — event log → turn/step records for the trajectory UI
+export { buildTurnRecords } from "./view-projection.js";
+export type {
+  TurnRecord,
+  StepRecord,
+  AssistantRecord,
+  PartialAssistant,
+  ToolCallRecord,
+  UserInputRecord,
+  RetryRecord,
+} from "./view-projection.js";
+
+// View projection — turn records → chat feed for the web UI
+export { toConversationView } from "./view-projection.js";
+export type {
+  ConversationView,
+  ConversationMessage,
+  ConversationBlock,
+  ConversationToolCall,
+} from "./view-projection.js";
+
+// View projection — streaming partials + trajectory audit ledger
+export { applyPartial, toTrajectoryView } from "./view-projection.js";
+export type { TranscriptDelta, TrajectoryView, TrajectoryRow } from "./view-projection.js";
+
 // Reducer
 export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
@@ -134,7 +172,7 @@ export {
   buildToolPrompt,
   computeStaticPrefixTokens,
 } from "./context-assembler.js";
-export type { AssembleContextOptions, AssembledContext } from "./context-assembler.js";
+export type { ContextLayer, AssembleContextOptions, AssembledContext } from "./context-assembler.js";
 
 // Compactor — compression decision logic
 export {

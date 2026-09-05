@@ -181,4 +181,80 @@ describe("McpConnection", () => {
     expect(result.isError).toBeFalsy();
     expect(result.modelContent).toBe("Hello!");
   });
+
+  it("exposes discovered resources and prompts via public getters", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [] };
+      if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a", description: "File A" }] };
+      if (method === "prompts/list") return { prompts: [{ name: "greet", description: "Greeting" }] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "s1", transport });
+    await conn.connect();
+
+    expect(conn.resources).toEqual([{ uri: "file:///a.txt", name: "a", description: "File A" }]);
+    expect(conn.prompts).toEqual([{ name: "greet", description: "Greeting" }]);
+  });
+
+  it("converts resources and prompts into index-addressed ToolDefinitions", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [] };
+      if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a", description: "File A" }] };
+      if (method === "prompts/list") return { prompts: [{ name: "greet", description: "Greeting" }] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "s1", transport });
+    await conn.connect();
+
+    const resourceTools = conn.toResourceToolDefinitions();
+    expect(resourceTools).toHaveLength(1);
+    expect(resourceTools[0]!.name).toBe("mcp__s1__read_resource_0");
+    expect(resourceTools[0]!.description).toContain("a");
+    expect(resourceTools[0]!.requires).toEqual(["mcp:s1"]);
+
+    const promptTools = conn.toPromptToolDefinitions();
+    expect(promptTools).toHaveLength(1);
+    expect(promptTools[0]!.name).toBe("mcp__s1__get_prompt_0");
+  });
+
+  it("readResourceByIndex/getPromptByIndex call through to the real uri/name", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [] };
+      if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
+      if (method === "prompts/list") return { prompts: [{ name: "greet" }] };
+      if (method === "resources/read") return { contents: [{ text: "resource body" }] };
+      if (method === "prompts/get") return { messages: [{ role: "user", content: { type: "text", text: "prompt body" } }] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "s1", transport });
+    await conn.connect();
+
+    const resourceResult = await conn.readResourceByIndex(0);
+    expect(resourceResult.modelContent).toBe("resource body");
+
+    const promptResult = await conn.getPromptByIndex(0);
+    expect(promptResult.modelContent).toBe("prompt body");
+  });
+
+  it("readResourceByIndex returns isError for an out-of-range index", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [] };
+      if (method === "resources/list") return { resources: [] };
+      if (method === "prompts/list") return { prompts: [] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "s1", transport });
+    await conn.connect();
+
+    const result = await conn.readResourceByIndex(0);
+    expect(result.isError).toBe(true);
+  });
 });

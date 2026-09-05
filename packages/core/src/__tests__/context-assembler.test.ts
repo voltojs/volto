@@ -202,3 +202,87 @@ describe("pinned messages in assembleContext", () => {
     expect(result.staticPrefixLength).toBe(1);
   });
 });
+
+describe("contextLayers in assembleContext", () => {
+  it("places each layer as its own system message after existing system messages", () => {
+    const messages: Message[] = [
+      { role: "system", content: "Base prompt" },
+      { role: "user", content: "Hello" },
+    ];
+    const result = assembleContext({
+      messages,
+      tools: [],
+      contextLayers: [
+        { id: "user-memory", text: "User instructions" },
+        { id: "project-memory", text: "Project instructions" },
+      ],
+    });
+
+    expect(result.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(result.messages[1]).toEqual({ role: "system", content: "User instructions" });
+    expect(result.messages[2]).toEqual({ role: "system", content: "Project instructions" });
+    expect(result.staticPrefixLength).toBe(3);
+  });
+
+  it("does not merge two layers into one message", () => {
+    const messages: Message[] = [{ role: "user", content: "Hi" }];
+    const result = assembleContext({
+      messages,
+      tools: [],
+      contextLayers: [
+        { id: "user-memory", text: "A" },
+        { id: "project-memory", text: "B" },
+      ],
+    });
+
+    const systemMessages = result.messages.filter((m) => m.role === "system");
+    expect(systemMessages).toHaveLength(2);
+    expect(systemMessages.map((m) => (m as { content: string }).content)).toEqual(["A", "B"]);
+  });
+
+  it("reports layerOrigins mapping each layer id to its message index", () => {
+    const messages: Message[] = [
+      { role: "system", content: "Base" },
+      { role: "user", content: "Hi" },
+    ];
+    const result = assembleContext({
+      messages,
+      tools: [],
+      contextLayers: [
+        { id: "user-memory", text: "A" },
+        { id: "skill:debugging", text: "B" },
+      ],
+    });
+
+    expect(result.layerOrigins).toEqual([
+      { id: "user-memory", messageIndex: 1 },
+      { id: "skill:debugging", messageIndex: 2 },
+    ]);
+  });
+
+  it("places contextLayers before pinned messages", () => {
+    const messages: Message[] = [
+      { role: "system", content: "Base" },
+      { role: "user", content: "msg-0" },
+      { role: "user", content: "pinned-msg" },
+    ];
+    const result = assembleContext({
+      messages,
+      tools: [],
+      pinnedMessageIds: ["2"],
+      contextLayers: [{ id: "user-memory", text: "A" }],
+    });
+
+    const contents = result.messages.map((m) => (m as { content: string }).content);
+    expect(contents).toEqual(["Base", "A", "pinned-msg", "msg-0"]);
+    expect(result.staticPrefixLength).toBe(3);
+  });
+
+  it("defaults to an empty layerOrigins array and unchanged output when contextLayers is omitted", () => {
+    const messages: Message[] = [{ role: "user", content: "Hi" }];
+    const result = assembleContext({ messages, tools: [] });
+
+    expect(result.layerOrigins).toEqual([]);
+    expect(result.messages).toEqual(messages);
+  });
+});

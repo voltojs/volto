@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Message } from './chat-store';
+import type { ConversationMessage } from '@volto/sdk/sse';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,7 +11,12 @@ export type PermissionMode = 'plan' | 'auto-accept';
 export interface Session {
   id: string;
   title: string;
-  messages: Message[];
+  /**
+   * The session's conversation history as projected messages — recovered
+   * from `GET /sessions/:id` (already projected server-side) or snapshotted
+   * from the client's live projection while the session was active.
+   */
+  messages: ConversationMessage[];
   createdAt: number;
   updatedAt: number;
   /** Project this session runs against. Fixed at creation time. */
@@ -66,8 +71,8 @@ interface SessionState {
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setCurrentSession: (id: string | null) => void;
-  getSessionMessages: (id: string) => Message[];
-  updateSessionMessages: (id: string, messages: Message[]) => void;
+  getSessionMessages: (id: string) => ConversationMessage[];
+  updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
 
   setSessionModel: (id: string, providerId: string, modelId: string) => void;
   setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
@@ -85,10 +90,15 @@ const generateId = () => Math.random().toString(36).substring(2, 11);
 
 /**
  * Shape a persisted session may have taken under any prior schema version:
- * the removed `workspaceId`, and no guarantee that the project/model/
- * permission fields introduced by project-binding are present at all.
+ * the removed `workspaceId`, no guarantee that the project/model/permission
+ * fields introduced by project-binding are present at all, and (before the
+ * view-projection consolidation) messages stored in the old client-side
+ * `Message` shape rather than the projected `ConversationMessage` shape.
  */
-type LegacySession = Partial<Session> & { workspaceId?: string };
+type LegacySession = Partial<Session> & {
+  workspaceId?: string;
+  messages?: unknown[];
+};
 
 interface PersistedSessionState {
   sessions: Session[];
@@ -96,19 +106,105 @@ interface PersistedSessionState {
   sidebarOpen: boolean;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
- * Normalises one persisted session (from any prior schema version) into the
- * current `Session` shape: drops the removed `workspaceId`, and defaults the
+ * Normalises one persisted message of any prior shape into the projected
+ * `ConversationMessage` shape the renderer consumes. Old persisted messages
+ * carried a `blocks` array of `{text, tool_call}` items whose tool result was
+ * an opaque metadata object; the protocol now carries the tool's real string
+ * output, so a surviving metadata object is dropped (its durationMs, if any,
+ * is promoted to the call's top-level field).
+ */
+function normaliseMessage(raw: unknown): ConversationMessage | null {
+  if (!isRecord(raw)) return null;
+  const content = typeof raw.content === 'string' ? raw.content : '';
+  const timestamp =
+    typeof raw.timestamp === 'number' ? raw.timestamp : Date.now();
+  const id =
+    typeof raw.id === 'string' && raw.id !== ''
+      ? raw.id
+      : `legacy-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+  const role = raw.role === 'user' ? 'user' : 'assistant';
+  const isStreaming = raw.isStreaming === true;
+
+  const blocks = Array.isArray(raw.blocks)
+    ? raw.blocks
+        .map((block) => normaliseBlock(block))
+        .filter(
+          (block): block is ConversationMessage['blocks'][number] =>
+            block !== null,
+        )
+    : [];
+
+  return {
+    id,
+    role,
+    content,
+    timestamp,
+    blocks,
+    ...(isStreaming ? { isStreaming } : {}),
+  };
+}
+
+function normaliseBlock(
+  raw: unknown,
+): ConversationMessage['blocks'][number] | null {
+  if (!isRecord(raw)) return null;
+  if (raw.type === 'text' && typeof raw.text === 'string') {
+    return { type: 'text', text: raw.text };
+  }
+  if (raw.type === 'reasoning' && typeof raw.text === 'string') {
+    return { type: 'reasoning', text: raw.text };
+  }
+  if (raw.type !== 'tool_call' || !isRecord(raw.call)) return null;
+  const call = raw.call;
+  const args = isRecord(call.args) ? call.args : {};
+  const resultRaw = isRecord(call.result)
+    ? // Legacy metadata envelope `{toolName, durationMs}` — not the tool's
+      // output. Only its duration is still meaningful; promote it.
+      typeof call.result.durationMs === 'number'
+      ? { durationMs: call.result.durationMs }
+      : {}
+    : typeof call.result === 'string'
+      ? { result: call.result }
+      : {};
+  return {
+    type: 'tool_call',
+    call: {
+      id:
+        typeof call.id === 'string'
+          ? call.id
+          : `legacy-call-${Math.random().toString(36).slice(2, 8)}`,
+      name: typeof call.name === 'string' ? call.name : 'tool',
+      args,
+      ...(call.isError === true ? { isError: true } : {}),
+      ...resultRaw,
+    },
+  };
+}
+
+/**
+ * Normalises a persisted session (from any prior schema version) into the
+ * current `Session` shape: drops the removed `workspaceId`, defaults the
  * fields introduced by project-binding so they read as `null`/`'plan'`
  * rather than `undefined` — an `undefined` projectId would match no project
  * in the sidebar, and an `undefined` permissionMode would leak into the
- * gateway request the permission picker sends later.
+ * gateway request the permission picker sends later. Messages in the legacy
+ * client `Message` shape are converted to projected `ConversationMessage`s.
  */
 function migrateSession(raw: LegacySession): Session {
+  const messages = Array.isArray(raw.messages)
+    ? raw.messages
+        .map(normaliseMessage)
+        .filter((m): m is ConversationMessage => m !== null)
+    : [];
   return {
     id: raw.id ?? generateId(),
     title: raw.title ?? '',
-    messages: raw.messages ?? [],
+    messages,
     createdAt: raw.createdAt ?? Date.now(),
     updatedAt: raw.updatedAt ?? Date.now(),
     projectId: raw.projectId ?? null,
@@ -229,7 +325,7 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: 'volto-sessions',
-      version: 1,
+      version: 2,
       migrate,
       partialize: (state) => ({
         sessions: state.sessions,

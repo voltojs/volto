@@ -1,13 +1,21 @@
 /**
  * SSE Server — bridges StreamChannel to HTTP SSE responses.
  *
+ * Transport responsibilities only: headers, event buffering and
+ * disconnection recovery (Last-Event-ID), heartbeat keep-alive, and error
+ * framing for transport-level failures. Every channel event — shaped
+ * `{ type, data }` — is framed whole as an authoritative `EVENT` frame, so
+ * no field is dropped on the wire; whether an increment is a non-replayable
+ * `delta` is decided by the host that feeds the channel (see the v2 mapper),
+ * not by this generic bridge.
+ *
  * Supports:
  * - Event buffering and disconnection recovery (Last-Event-ID)
  * - Heartbeat keep-alive
  * - Backpressure handling
  */
 
-import { type SSEMessage, SSEEventType, type ErrorData } from "./types.js";
+import { type SSEMessage, SSEFrameType, type ErrorData } from "./types.js";
 import type { StreamChannel } from "../stream-channel.js";
 
 // ---------------------------------------------------------------------------
@@ -53,21 +61,6 @@ function formatSSEMessage(message: SSEMessage): string {
     "",
   ];
   return lines.join("\n");
-}
-
-/** Map internal event type strings to SSE protocol event types. */
-function mapEventType(event: { type: string }): SSEEventType {
-  const mapping: Record<string, SSEEventType> = {
-    text_delta: SSEEventType.TOKEN,
-    tool_use_delta: SSEEventType.TOOL_CALL,
-    tool_use_complete: SSEEventType.TOOL_CALL,
-    tool_result: SSEEventType.TOOL_RESULT,
-    approval_request: SSEEventType.APPROVAL_REQ,
-    approval_decision: SSEEventType.APPROVAL_RES,
-    state_change: SSEEventType.STATE_CHANGE,
-    error: SSEEventType.ERROR,
-  };
-  return (mapping[event.type] as SSEEventType) ?? SSEEventType.STATE_CHANGE;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +116,7 @@ export function createSSEServer(options: SSEServerOptions = {}) {
     const heartbeatTimer = setInterval(() => {
       const heartbeatMsg: SSEMessage<{ timestamp: number }> = {
         id: String(++eventIdCounter),
-        event: SSEEventType.HEARTBEAT,
+        event: SSEFrameType.HEARTBEAT,
         data: { timestamp: Date.now() },
         timestamp: Date.now(),
       };
@@ -138,10 +131,12 @@ export function createSSEServer(options: SSEServerOptions = {}) {
         for await (const event of channel.events()) {
           if (abortController.signal.aborted) break;
 
+          // Frame the whole channel event — type discriminator included —
+          // verbatim as an authoritative EVENT frame, dropping nothing.
           const sseMessage: SSEMessage = {
             id: String(++eventIdCounter),
-            event: mapEventType(event),
-            data: event.data,
+            event: SSEFrameType.EVENT,
+            data: event,
             timestamp: Date.now(),
           };
 
@@ -154,18 +149,13 @@ export function createSSEServer(options: SSEServerOptions = {}) {
           writeSSEMessage(res, sseMessage);
         }
 
-        // Stream finished — send DONE event
-        const doneMessage: SSEMessage = {
-          id: String(++eventIdCounter),
-          event: SSEEventType.DONE,
-          data: {},
-          timestamp: Date.now(),
-        };
-        writeSSEMessage(res, doneMessage);
+        // Stream finished — the response simply ends. There is no terminal
+        // frame in protocol v2: run completion is expressed by the transcript
+        // itself (a turn_end event).
       } catch (error) {
         const errorMessage: SSEMessage<ErrorData> = {
           id: String(++eventIdCounter),
-          event: SSEEventType.ERROR,
+          event: SSEFrameType.ERROR,
           data: {
             code: "STREAM_ERROR",
             message: error instanceof Error ? error.message : "Unknown error",

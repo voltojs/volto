@@ -1,0 +1,256 @@
+import { describe, it, expect, vi } from "vitest";
+import { createTranscriptRecorder } from "../transcript-recorder.js";
+import type { TranscriptEventInput } from "@volto/core";
+
+function fakeStore() {
+  const batches: TranscriptEventInput[][] = [];
+  return {
+    batches,
+    store: {
+      async appendEvents(_sessionId: string, events: TranscriptEventInput[]) {
+        batches.push(events);
+      },
+    },
+  };
+}
+
+describe("createTranscriptRecorder", () => {
+  it("buffers events and writes them as one batch on flush", async () => {
+    const { store, batches } = fakeStore();
+    const recorder = createTranscriptRecorder({
+      store,
+      sessionId: "s1",
+      turn: 2,
+      now: () => 1000,
+    });
+
+    recorder.record("turn_start", { turn: 2 });
+    recorder.record("user_message", { content: "hi" });
+    expect(batches).toHaveLength(0);
+
+    await recorder.flush();
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(2);
+  });
+
+  it("stamps time from the injected clock and turn from options", async () => {
+    const { store, batches } = fakeStore();
+    let tick = 500;
+    const recorder = createTranscriptRecorder({
+      store,
+      sessionId: "s1",
+      turn: 7,
+      now: () => tick++,
+    });
+
+    recorder.record("turn_start", { turn: 7 });
+    recorder.record("user_message", { content: "hi" });
+    await recorder.flush();
+
+    expect(batches[0]![0]).toMatchObject({ time: 500, turn: 7, type: "turn_start" });
+    expect(batches[0]![1]).toMatchObject({ time: 501, turn: 7, type: "user_message" });
+  });
+
+  it("attaches step when supplied", async () => {
+    const { store, batches } = fakeStore();
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+
+    recorder.record("model_call_start", { headerHash: "h" }, { step: 3 });
+    await recorder.flush();
+
+    expect(batches[0]![0]!.step).toBe(3);
+  });
+
+  it("is a no-op when no store is configured", async () => {
+    let nowCalls = 0;
+    const recorder = createTranscriptRecorder({
+      store: undefined,
+      sessionId: "s1",
+      turn: 1,
+      now: () => { nowCalls++; return 1; },
+    });
+    expect(recorder.enabled).toBe(false);
+    recorder.record("turn_start", { turn: 1 });
+    expect(nowCalls).toBe(0); // Guard prevents calling now()
+    await expect(recorder.flush()).resolves.toBeUndefined();
+    expect(nowCalls).toBe(0); // Still not called after flush
+  });
+
+  it("streams the same stamped event it buffers (task-r6 double write)", async () => {
+    const { store, batches } = fakeStore();
+    const streamed: TranscriptEventInput[] = [];
+    let tick = 1000;
+    const recorder = createTranscriptRecorder({
+      store,
+      sessionId: "s1",
+      turn: 3,
+      now: () => tick++,
+      emit: (event) => streamed.push(event),
+    });
+
+    recorder.record("turn_start", { turn: 3 });
+    recorder.record("assistant_message", { content: [{ type: "text", text: "hi" }], durationMs: 5 }, { step: 2, time: 1400 });
+    await recorder.flush();
+
+    // Streamed and buffered events are constructed once and shared: identical
+    // type, data, time, turn and step.
+    const buffered = batches[0]!;
+    expect(buffered).toHaveLength(2);
+    expect(streamed).toHaveLength(2);
+    for (let i = 0; i < buffered.length; i++) {
+      expect(streamed[i]).toEqual(buffered[i]);
+    }
+    expect(streamed[1]).toMatchObject({
+      time: 1400, // explicit meta.time override honored on both halves
+      turn: 3,
+      type: "assistant_message",
+      step: 2,
+      data: { content: [{ type: "text", text: "hi" }], durationMs: 5 },
+    });
+  });
+
+  it("still streams when persistence is disabled (no store) — a live-only host", async () => {
+    const streamed: TranscriptEventInput[] = [];
+    let nowCalls = 0;
+    const recorder = createTranscriptRecorder({
+      store: undefined,
+      sessionId: "s1",
+      turn: 1,
+      now: () => { nowCalls++; return 42; },
+      emit: (event) => streamed.push(event),
+    });
+    expect(recorder.enabled).toBe(false);
+
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush(); // nothing to write, no store configured
+
+    expect(streamed).toHaveLength(1);
+    expect(streamed[0]).toMatchObject({ time: 42, turn: 1, type: "turn_start" });
+    expect(nowCalls).toBe(1); // stamped once, for the stream
+  });
+
+  it("does not emit when no emit callback is configured", async () => {
+    const { store } = fakeStore();
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush(); // no error — the callback is optional
+  });
+
+  it("is a no-op when no sessionId is configured", async () => {
+    const { store, batches } = fakeStore();
+    const recorder = createTranscriptRecorder({ store, sessionId: undefined, turn: 1, now: () => 1 });
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush();
+    expect(batches).toHaveLength(0);
+  });
+
+  it("swallows a store failure instead of throwing into the main loop", async () => {
+    const recorder = createTranscriptRecorder({
+      store: { async appendEvents() { throw new Error("disk full"); } },
+      sessionId: "s1",
+      turn: 1,
+      now: () => 1,
+    });
+
+    recorder.record("turn_start", { turn: 1 });
+    await expect(recorder.flush()).resolves.toBeUndefined();
+  });
+
+  it("drops the buffer after a failed flush so events are not written twice", async () => {
+    const appendEvents = vi.fn().mockRejectedValueOnce(new Error("disk full")).mockResolvedValue(undefined);
+    const recorder = createTranscriptRecorder({
+      store: { appendEvents },
+      sessionId: "s1",
+      turn: 1,
+      now: () => 1,
+    });
+
+    recorder.record("turn_start", { turn: 1 });
+    await recorder.flush();
+    recorder.record("turn_end", { turn: 1, reason: "done" });
+    await recorder.flush();
+
+    expect(appendEvents).toHaveBeenCalledTimes(2);
+    expect(appendEvents.mock.calls[1]![1]).toHaveLength(1);
+  });
+
+  it("flush with an empty buffer does not call the store", async () => {
+    const { store, batches } = fakeStore();
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+    await recorder.flush();
+    expect(batches).toHaveLength(0);
+  });
+
+  it("awaiting flush() waits for an earlier, un-awaited flush()'s write to land, even with an empty buffer of its own", async () => {
+    // Models the exact Runner.resume() defect: an earlier `void recorder.flush()`
+    // (e.g. runModelStream's per-call flush) drains the buffer and starts a
+    // real, slow write; resume() then calls `flush()` again to make sure
+    // everything is durable before it returns, but by then there is nothing
+    // left in the buffer for that second call to take — so it must wait on
+    // the *first* call's write instead of returning as soon as it sees an
+    // empty buffer.
+    const written: TranscriptEventInput[][] = [];
+    const store = {
+      async appendEvents(_sessionId: string, events: TranscriptEventInput[]) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        written.push(events);
+      },
+    };
+    const recorder = createTranscriptRecorder({ store, sessionId: "s1", turn: 1, now: () => 1 });
+
+    recorder.record("turn_start", { turn: 1 });
+    recorder.record("turn_end", { turn: 1, reason: "done" });
+    void recorder.flush(); // fire-and-forget — takes the whole buffer, write still in flight
+
+    // Nothing new recorded in between — buffer is empty for this call.
+    await recorder.flush();
+
+    expect(written).toHaveLength(1);
+    expect(written[0]!.map((e) => e.type)).toEqual(["turn_start", "turn_end"]);
+  });
+
+  it("does not reject or poison later flushes when appendEvents throws synchronously", async () => {
+    // A plain (non-async) implementation that throws directly, not an async
+    // function that would convert the throw into a rejected promise — those
+    // are different code paths. Calling `store!.appendEvents(...)` directly
+    // inside a `.then()` callback lets a synchronous throw propagate as an
+    // exception out of that callback, which rejects the `inFlight` chain
+    // with no handler attached (a `.catch()` on the call's return value
+    // never runs, because the call itself never returns).
+    const appendEvents = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("sync boom");
+      })
+      .mockResolvedValue(undefined);
+    const recorder = createTranscriptRecorder({ store: { appendEvents }, sessionId: "s1", turn: 1, now: () => 1 });
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      recorder.record("turn_start", { turn: 1 });
+      await expect(recorder.flush()).resolves.toBeUndefined();
+
+      recorder.record("turn_end", { turn: 1, reason: "done" });
+      await expect(recorder.flush()).resolves.toBeUndefined();
+
+      // Give a poisoned chain's unhandledRejection a turn of the event loop
+      // to surface before asserting none did.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(unhandled).toHaveLength(0);
+    expect(appendEvents).toHaveBeenCalledTimes(2);
+    // The first (throwing) batch is dropped, not requeued — the second call
+    // only carries turn_end.
+    const secondBatch = appendEvents.mock.calls[1]![1] as TranscriptEventInput[];
+    expect(secondBatch).toHaveLength(1);
+    expect(secondBatch[0]).toMatchObject({ type: "turn_end" });
+  });
+});

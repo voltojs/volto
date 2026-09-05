@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createSSEClient } from "../client.js";
 import type { EventSourceLike, EventSourceFactory } from "../client.js";
-import { SSEEventType } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Mock EventSource
@@ -15,7 +14,7 @@ import { SSEEventType } from "../types.js";
 function createMockEventSource(): EventSourceLike & {
   /** Trigger the open callback. */
   emitOpen(): void;
-  /** Trigger a named SSE event. */
+  /** Trigger a named SSE frame. */
   emitEvent(type: string, data: unknown, lastEventId?: string): void;
   /** Trigger the error callback. */
   emitError(): void;
@@ -106,6 +105,28 @@ function createMockEventSource(): EventSourceLike & {
 }
 
 // ---------------------------------------------------------------------------
+// Test fixtures
+// ---------------------------------------------------------------------------
+
+/** An authoritative transcript event payload. */
+const USER_EVENT = {
+  time: 100,
+  type: "user_message",
+  data: { content: "hi" },
+  turn: 1,
+};
+
+/** A streaming increment payload. */
+const TEXT_DELTA = { kind: "text", text: "hi" };
+
+/** A transport-level error frame payload. */
+const ERROR_DATA = {
+  code: "STREAM_ERROR",
+  message: "Missing projectId",
+  retryable: false,
+};
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -189,7 +210,7 @@ describe("SSEClient", () => {
       const client = createClient();
       client.connect();
       instances[0]!.emitOpen();
-      instances[0]!.emitEvent("token", { content: "hi", delta: "h" });
+      instances[0]!.emitEvent("event", USER_EVENT, "3");
 
       // The client tracks lastEventId internally; disconnect should clear it
       client.disconnect();
@@ -197,53 +218,50 @@ describe("SSEClient", () => {
     });
   });
 
-  describe("event subscription", () => {
-    it("should deliver typed events to subscribers", () => {
+  describe("event and delta subscriptions", () => {
+    it("should deliver authoritative event frames to onEvent subscribers", () => {
       const client = createClient();
       const handler = vi.fn();
 
-      client.on(SSEEventType.TOKEN, handler);
+      client.onEvent(handler);
       client.connect();
       instances[0]!.emitOpen();
 
-      const payload = { content: "hello", delta: "h" };
-      instances[0]!.emitEvent("token", payload);
+      instances[0]!.emitEvent("event", USER_EVENT);
 
       expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler).toHaveBeenCalledWith(payload);
+      expect(handler).toHaveBeenCalledWith(USER_EVENT);
 
       client.disconnect();
     });
 
-    it("should deliver wildcard events to subscribers", () => {
+    it("should deliver streaming deltas to onDelta subscribers", () => {
       const client = createClient();
       const handler = vi.fn();
 
-      client.on("*", handler);
+      client.onDelta(handler);
       client.connect();
       instances[0]!.emitOpen();
 
-      instances[0]!.emitEvent("token", { content: "a", delta: "a" });
+      instances[0]!.emitEvent("delta", TEXT_DELTA);
 
       expect(handler).toHaveBeenCalledTimes(1);
-      const received = handler.mock.calls[0]![0];
-      expect(received.event).toBe("token");
-      expect(received.data).toEqual({ content: "a", delta: "a" });
+      expect(handler).toHaveBeenCalledWith(TEXT_DELTA);
 
       client.disconnect();
     });
 
-    it("should support multiple subscribers for the same event", () => {
+    it("should support multiple subscribers for the same frame kind", () => {
       const client = createClient();
       const h1 = vi.fn();
       const h2 = vi.fn();
 
-      client.on(SSEEventType.DONE, h1);
-      client.on(SSEEventType.DONE, h2);
+      client.onEvent(h1);
+      client.onEvent(h2);
       client.connect();
       instances[0]!.emitOpen();
 
-      instances[0]!.emitEvent("done", {});
+      instances[0]!.emitEvent("event", USER_EVENT);
 
       expect(h1).toHaveBeenCalledTimes(1);
       expect(h2).toHaveBeenCalledTimes(1);
@@ -253,37 +271,92 @@ describe("SSEClient", () => {
 
     it("should unsubscribe correctly", () => {
       const client = createClient();
-      const handler = vi.fn();
+      const eventHandler = vi.fn();
+      const deltaHandler = vi.fn();
 
-      const unsub = client.on(SSEEventType.TOKEN, handler);
+      const unsubEvent = client.onEvent(eventHandler);
+      const unsubDelta = client.onDelta(deltaHandler);
       client.connect();
       instances[0]!.emitOpen();
 
-      instances[0]!.emitEvent("token", { content: "a", delta: "a" });
-      expect(handler).toHaveBeenCalledTimes(1);
+      instances[0]!.emitEvent("event", USER_EVENT);
+      instances[0]!.emitEvent("delta", TEXT_DELTA);
+      expect(eventHandler).toHaveBeenCalledTimes(1);
+      expect(deltaHandler).toHaveBeenCalledTimes(1);
 
-      unsub();
-      instances[0]!.emitEvent("token", { content: "b", delta: "b" });
-      expect(handler).toHaveBeenCalledTimes(1); // no additional call
+      unsubEvent();
+      unsubDelta();
+      instances[0]!.emitEvent("event", USER_EVENT);
+      instances[0]!.emitEvent("delta", TEXT_DELTA);
+      expect(eventHandler).toHaveBeenCalledTimes(1); // no additional call
+      expect(deltaHandler).toHaveBeenCalledTimes(1); // no additional call
 
       client.disconnect();
     });
 
-    it("should ignore messages with unparseable JSON data", () => {
+    it("should ignore frames with unparseable JSON data", () => {
       const client = createClient();
       const handler = vi.fn();
 
-      client.on("*", handler);
+      client.onEvent(handler);
       client.connect();
       instances[0]!.emitOpen();
 
       // Create a MessageEvent with raw non-JSON data directly
-      const badEvent = new MessageEvent("token", { data: "not-valid-json" });
-      for (const listener of instances[0]!._listeners.get("token") ?? []) {
+      const badEvent = new MessageEvent("event", { data: "not-valid-json" });
+      for (const listener of instances[0]!._listeners.get("event") ?? []) {
         listener(badEvent);
       }
 
       expect(handler).not.toHaveBeenCalled();
+
+      client.disconnect();
+    });
+  });
+
+  describe("error subscriptions", () => {
+    it("should deliver error frames to onError subscribers but not onEvent/onDelta", () => {
+      const client = createClient();
+      const errorHandler = vi.fn();
+      const eventHandler = vi.fn();
+      const deltaHandler = vi.fn();
+
+      client.onError(errorHandler);
+      client.onEvent(eventHandler);
+      client.onDelta(deltaHandler);
+      client.connect();
+      instances[0]!.emitOpen();
+
+      instances[0]!.emitEvent("error", ERROR_DATA);
+
+      expect(errorHandler).toHaveBeenCalledTimes(1);
+      expect(errorHandler).toHaveBeenCalledWith(ERROR_DATA);
+      expect(errorHandler.mock.calls[0]![0]).toMatchObject({
+        code: "STREAM_ERROR",
+        message: "Missing projectId",
+        retryable: false,
+      });
+      // Error frames never leak into the payload channels.
+      expect(eventHandler).not.toHaveBeenCalled();
+      expect(deltaHandler).not.toHaveBeenCalled();
+
+      client.disconnect();
+    });
+
+    it("should unsubscribe onError handlers correctly", () => {
+      const client = createClient();
+      const errorHandler = vi.fn();
+
+      const unsub = client.onError(errorHandler);
+      client.connect();
+      instances[0]!.emitOpen();
+
+      instances[0]!.emitEvent("error", ERROR_DATA);
+      expect(errorHandler).toHaveBeenCalledTimes(1);
+
+      unsub();
+      instances[0]!.emitEvent("error", ERROR_DATA);
+      expect(errorHandler).toHaveBeenCalledTimes(1); // no additional call
 
       client.disconnect();
     });
@@ -426,11 +499,12 @@ describe("SSEClient", () => {
   describe("destroy", () => {
     it("should disconnect and clear all listeners", () => {
       const client = createClient();
-      const handler = vi.fn();
+      const eventHandler = vi.fn();
+      const deltaHandler = vi.fn();
       const stateHandler = vi.fn();
 
-      client.on(SSEEventType.TOKEN, handler);
-      client.on("*", handler);
+      client.onEvent(eventHandler);
+      client.onDelta(deltaHandler);
       client.onStateChange(stateHandler);
 
       client.connect();
@@ -438,24 +512,22 @@ describe("SSEClient", () => {
 
       client.destroy();
 
-      // After destroy, emitting events should not call handlers
-      instances[0]!.emitEvent("token", { content: "x", delta: "x" });
-      expect(handler).not.toHaveBeenCalled();
+      // After destroy, emitting frames should not call handlers
+      instances[0]!.emitEvent("event", USER_EVENT);
+      instances[0]!.emitEvent("delta", TEXT_DELTA);
+      expect(eventHandler).not.toHaveBeenCalled();
+      expect(deltaHandler).not.toHaveBeenCalled();
       expect(client.getState()).toBe("disconnected");
     });
   });
 
   describe("Last-Event-ID", () => {
-    it("should track the last event ID from received messages", () => {
+    it("should track the last event ID from received frames", () => {
       const client = createClient();
       client.connect();
       instances[0]!.emitOpen();
 
-      instances[0]!.emitEvent(
-        "token",
-        { content: "hi", delta: "h" },
-        "42"
-      );
+      instances[0]!.emitEvent("event", USER_EVENT, "42");
 
       // lastEventId is tracked internally and appended as query param on reconnect
       expect(client.getLastEventId()).toBe("42");
@@ -481,8 +553,8 @@ describe("SSEClient", () => {
 
       instances[0]!.emitOpen();
 
-      // Simulate receiving an event with id "5"
-      instances[0]!.emitEvent("token", { content: "x", delta: "x" }, "5");
+      // Simulate receiving a frame with id "5"
+      instances[0]!.emitEvent("event", USER_EVENT, "5");
 
       // Disconnect and wait for reconnect
       instances[0]!.emitError();

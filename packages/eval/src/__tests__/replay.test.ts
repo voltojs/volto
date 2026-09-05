@@ -140,6 +140,7 @@ describe("replayTrajectory (strict mode)", () => {
       model: "test",
       maxTokens: 100,
       cacheBreakpoints: [0],
+      layerOrigins: [],
     },
   };
   const emitEffect = { type: "emit", event: { type: "user_message", data: { content: "hello" } } };

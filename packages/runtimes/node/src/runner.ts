@@ -17,6 +17,8 @@ import type {
   ReadFileRecord,
   PermissionConfig,
   SessionStore,
+  TranscriptStore,
+  TranscriptEventInput,
   ApprovalGate,
   CompactionConfig,
   Message,
@@ -25,6 +27,8 @@ import type {
   Telemetry,
   Validator,
   MemoryStore,
+  TokenUsage,
+  AssistantMessage,
 } from "@volto/core";
 import {
   step,
@@ -41,6 +45,9 @@ import {
 import type { StepContext, ReducerState } from "@volto/core";
 import type { Hook } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
+import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
+import { createTranscriptRecorder } from "./transcript-recorder.js";
+import * as crypto from "node:crypto";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -72,6 +79,37 @@ export interface RunnerOptions {
   sessionStore?: SessionStore;
   /** Session ID for checkpoint persistence */
   sessionId?: string;
+  /** Durable transcript/trajectory store — mirrors sessionStore's optionality; a missing chatStore just means no durable record is kept. */
+  chatStore?: TranscriptStore;
+  /** The chatStore's session id — distinct from `sessionId` above, which is regenerated per turn for HITL checkpointing. This one is the host's stable, whole-conversation id. */
+  chatSessionId?: string;
+  /** This turn's ordinal within the whole conversation (tracked by the SDK across turns). Defaults to 0 when omitted. */
+  turn?: number;
+  /**
+   * Seeds the step counter — the highest step number already persisted for
+   * this turn in the durable transcript. The first model call this Runner
+   * makes is then recorded as `initialStep + 1` instead of 1.
+   *
+   * A host that rebuilds a Runner mid-turn for a cross-process resume must
+   * pass it: a fresh Runner's step counter otherwise restarts at 1 and its
+   * events collide with the paused turn's existing steps 1..N in the same
+   * turn, so a projection merges/overwrites distinct model calls. Omit for a
+   * brand-new turn (the default 0 makes the first step 1, as always).
+   *
+   * Known limitation: an in-process fallback resume on a REPLACED lastRunner
+   * seeds from the option captured at construction, which can go stale for a
+   * turn that paused after later turns ran (a step gap); the primary
+   * cross-process rebuild path is always fresh.
+   */
+  initialStep?: number;
+  /**
+   * The conversation's seed system prompt, mirrored into request_header's
+   * `systemLayers` so the transcript shows it. Never added to the model
+   * request — the seed `{role:"system"}` message already handles that;
+   * putting it in stepContext.contextLayers would make the ContextAssembler
+   * emit a second system message and the model would see the prompt twice.
+   */
+  seedSystemPrompt?: string;
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
@@ -157,6 +195,17 @@ export interface Runner {
   getState(): ReducerState;
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
+  /**
+   * Feed an input into the turn currently in flight — e.g. a user message
+   * typed while the model is still working ("steering"). Unlike `run()`,
+   * this does not start a new turn: it does not reset budget tracking, run
+   * session/turn hooks, or record turn_start/turn_end. The reducer alone
+   * decides what happens with the input for the current status (typically
+   * queuing it and emitting steering_queued); an input that makes no sense
+   * for the current status is normalized to an error emit like any other
+   * invalid input, never thrown.
+   */
+  send(input: AgentInput): void;
 }
 
 /** Structured audit entry for approval decisions and high-risk tool executions. */
@@ -201,16 +250,69 @@ export function createRunner(opts: RunnerOptions): Runner {
   let cancelled = false;
   // Tool call ids that have already cleared an HITL "ask" (decision = allow).
   const approvedToolCallIds = new Set<string>();
+  // Tool call ids the user has already denied via HITL "ask". A denied tool
+  // stays on `pendingTools` (the reducer keeps it on the roster so a mixed
+  // batch can still flush once its siblings resolve — see
+  // handleWaitingForApproval's deny branch) so the partition loop below sees
+  // it again on the next pass. Without tracking denials the same way allows
+  // are tracked, that re-classification would push it back into the approval
+  // queue and re-prompt the gate for a decision that was already made.
+  const deniedToolCallIds = new Set<string>();
+  // Tool call ids for which an `approval_asked` transcript record has already
+  // been written by THIS Runner instance. Guards the common in-process HITL
+  // flow — request_approval writes the record while `run()` is still on the
+  // stack, then `resume()` is called on the very same Runner (the SDK tries
+  // `lastRunner.resume()` first) — from writing a second, slightly different
+  // `approval_asked` record for the same callId. A fresh Runner instance
+  // (the SDK's cross-process fallback, which constructs a brand-new Runner
+  // from a loaded checkpoint) starts with an empty set, so that path still
+  // writes the record — it may be the only copy that ever reaches the store
+  // if the original process never flushed.
+  const askedToolCallIds = new Set<string>();
   // M8 Phase 4: wallclock and cost tracking for the current turn
   let turnStartTime = 0;
   let cumulativeCost = 0;
   let cumulativeTokens = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
+  // Track whether this turn ended because a budget was exceeded — a more
+  // specific turn_end reason than "error", checked first when both could
+  // apply (the budget check can fire after a turn has already seen an error).
+  let turnHadBudgetExceeded = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
   // Retry state for retriable model errors
   let consecutiveModelErrors = 0;
+
+  // Sequential step counter for this turn — one per model call, 1-based.
+  // Resets naturally each turn since a fresh Runner instance is created per
+  // turn. Seeded from `initialStep` when the host is resuming a turn whose
+  // earlier steps are already in the transcript — see RunnerOptions.initialStep.
+  let stepCounter = opts.initialStep ?? 0;
+  // Hash of the last request_header written this turn; a matching hash means
+  // the header has not changed and need not be written again.
+  let lastHeaderHash: string | null = null;
+  // Timing/aggregation state for the in-flight model call. Hoisted here
+  // (rather than declared inside runModelStream) because forwardEmit() reads
+  // them when it intercepts the model_done emit to record assistant_message —
+  // and forwardEmit is defined outside runModelStream. Reset at the top of
+  // each runModelStream() call.
+  let callStartedAt = 0;
+  let firstDeltaAt: number | undefined;
+  let reasoningText = "";
+
+  const nowMs = (): number => opts.clock?.now() ?? Date.now();
+
+  const recorder = createTranscriptRecorder({
+    store: opts.chatStore,
+    sessionId: opts.chatSessionId,
+    turn: opts.turn ?? 0,
+    now: nowMs,
+    // Task R6 double write: every event the recorder stamps is streamed to
+    // the EventSink — the same data and the same time/turn/step that get
+    // persisted — so the live SSE path and the durable log are isomorphic.
+    emit: opts.eventSink ? (event) => opts.eventSink!.emit(toSinkEvent(event)) : undefined,
+  });
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
   const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
@@ -264,10 +366,125 @@ export function createRunner(opts: RunnerOptions): Runner {
     return false;
   }
 
-  /** Forward emit effects to EventSink. */
+  /**
+   * Forward reducer emit effects onto the wire, translating each event into
+   * the transcript vocabulary when it has one.
+   *
+   * Since task-r6 the EventSink carries transcript events (the same stamped
+   * `{time, type, data, turn?, step?}` the recorder persists — the recorder's
+   * `emit` hook performs the double write) plus the streaming delta
+   * increments. The reducer's own raw vocabulary is therefore NOT forwarded
+   * verbatim for events that have a transcript twin:
+   *   - model_done → assistant_message
+   *   - tool_use_complete → tool_call
+   *   - tool_result → tool_result (transcript shape)
+   *   - budget_exceeded / steering_queued → same-name transcript events
+   *   - user_message (only ever emitted for the initial idle feed) → covered
+   *     by the runner-originated record at run(), which now streams too
+   * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
+   * — they are not transcript events and are never persisted. A few raw
+   * events have no transcript counterpart (error / cancelled / self_correct);
+   * they keep flowing for observability (see the report for the decision
+   * table).
+   */
   function forwardEmit(effects: Effect[]): void {
     for (const e of effects) {
-      if (e.type === "emit") opts.eventSink?.emit(e.event);
+      if (e.type !== "emit") continue;
+
+      const event = e.event;
+      switch (event.type) {
+        case "text_delta":
+        case "reasoning_delta":
+        case "tool_use_delta":
+          // Streaming increments: raw on the wire, never recorded.
+          opts.eventSink?.emit(event);
+          continue;
+
+        case "user_message":
+          // The reducer emits this only when the initial input (fed from
+          // run()) enters from idle. run() records — and therefore streams —
+          // the transcript user_message at the same logical moment; emitting
+          // this raw twin would duplicate it on the wire.
+          continue;
+
+        case "steering_queued":
+          // steering_queued is the one transcript event the Runner cannot
+          // observe directly: whether a mid-turn user_message is queued or
+          // starts a new turn is decided inside the reducer. Duplicating that
+          // branch here would drift; intercepting the event keeps the reducer
+          // the single source.
+          recorder.record("steering_queued", {
+            content: event.data["content"] as string,
+          });
+          continue;
+
+        case "model_done": {
+          const message = event.data["message"] as AssistantMessage | undefined;
+          if (!message) continue;
+          // Read once and reuse as this event's own `time` — same reasoning
+          // as callStartedAt above: durationMs anchors on this exact reading,
+          // and the recorded event's `time` field must match it.
+          const endedAt = nowMs();
+          recorder.record(
+            "assistant_message",
+            {
+              content: message.content,
+              ...(reasoningText ? { reasoning: reasoningText } : {}),
+              ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
+              ...(event.data["usage"] !== undefined ? { usage: event.data["usage"] as TokenUsage } : {}),
+              ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
+              durationMs: endedAt - callStartedAt,
+            },
+            { step: stepCounter, time: endedAt },
+          );
+          continue;
+        }
+
+        case "tool_use_complete":
+          recorder.record(
+            "tool_call",
+            {
+              callId: event.data["toolCallId"] as string,
+              name: event.data["toolName"] as string,
+              input: (event.data["input"] as Record<string, unknown>) ?? {},
+            },
+            { step: stepCounter },
+          );
+          continue;
+
+        case "tool_result":
+          recorder.record(
+            "tool_result",
+            {
+              callId: event.data["toolCallId"] as string,
+              name: event.data["toolName"] as string | undefined,
+              content: (event.data["content"] as string) ?? "",
+              isError: event.data["isError"] === true,
+              durationMs: event.data["durationMs"] as number | undefined,
+              displayMetadata: event.data["displayMetadata"] as Record<string, unknown> | undefined,
+              orderInBatch: (event.data["orderInBatch"] as number) ?? 0,
+            },
+            { step: stepCounter },
+          );
+          continue;
+
+        case "budget_exceeded":
+          turnHadBudgetExceeded = true;
+          recorder.record("budget_exceeded", { reason: event.data["reason"] as string });
+          continue;
+
+        default:
+          // Raw events with no transcript counterpart (error / cancelled /
+          // self_correct, and any future reducer event) keep flowing for
+          // observability — see the comment above the switch. Note the
+          // reducer's model_error AgentInput produces a generic "error" emit
+          // (reducer.ts handleCallingModel), never one literally typed
+          // "model_error": model_error transcript events are recorded
+          // directly at every site that constructs that AgentInput (the
+          // provider-error stream loop and runModelStream's catch block).
+          opts.eventSink?.emit(event);
+          continue;
+      }
     }
   }
 
@@ -362,38 +579,7 @@ export function createRunner(opts: RunnerOptions): Runner {
    */
   async function runModelStream(): Promise<void> {
     // Apply compaction before building the main request
-    let messages = await applyCompaction(state.messages);
-
-    // RAG pipeline: query memory store and inject retrieved fragments
-    if (opts.rag) {
-      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
-      const queryText = queryBuilder
-        ? queryBuilder(messages)
-        : extractLastUserMessage(messages);
-      if (queryText) {
-        try {
-          const fragments = await memoryStore.query(queryText, topK);
-          if (fragments.length > 0) {
-            const ragText = fragments
-              .map((f, i) => `[${i + 1}] ${f.text}`)
-              .join("\n\n");
-            const ragMessage: Message = {
-              role: "user",
-              content: `# Retrieved Context\n\n${ragText}`,
-            };
-            // Inject after the last system message (preserving static prefix)
-            let insertIndex = 0;
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i]!.role === "system") insertIndex = i + 1;
-              else break;
-            }
-            messages = [...messages.slice(0, insertIndex), ragMessage, ...messages.slice(insertIndex)];
-          }
-        } catch {
-          // Memory query failure is non-fatal — proceed without RAG
-        }
-      }
-    }
+    const messages = await applyCompaction(state.messages);
 
     // ContextAssembler: cache-friendly ordering + breakpoint computation.
     // Same pure function the reducer uses for its `call_model` effect, so
@@ -404,9 +590,127 @@ export function createRunner(opts: RunnerOptions): Runner {
       messages,
       tools: stepContext.tools,
       pinnedMessageIds: state.pinnedMessageIds,
+      contextLayers: stepContext.contextLayers,
     });
-    const finalMessages = assembled.messages;
+    let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
+
+    stepCounter++;
+    const step = stepCounter;
+
+    if (assembled.layerOrigins.length > 0) {
+      // record() streams the same stamped context_assembled event (task-r6
+      // double write) — no separate raw emit here.
+      recorder.record("context_assembled", { layerOrigins: assembled.layerOrigins }, { step });
+    }
+
+    // Read once, before anything else below — reused both as the anchor
+    // ttftMs/durationMs are computed from and as model_call_start's own
+    // `time` (via the recorder's `time` override). A second, independent
+    // now() read for either purpose would disagree with this one under a
+    // clock that advances per call (real wall-clock jitter is negligible,
+    // but an injected stepping clock makes the drift visible and
+    // load-bearing for anyone reconstructing durations from event `time`
+    // fields instead of the ttftMs/durationMs fields).
+    callStartedAt = nowMs();
+
+    // Static-prefix snapshot: system layers + tool catalogue + sampling
+    // params. In practice this is written exactly once per turn: stepContext
+    // is fixed when createRunner() is called and a fresh Runner is created
+    // per turn, so the payload — and therefore its hash — never changes
+    // within a turn. The hash comparison below is what actually enforces
+    // "write once"; it also means a future caller with a mutable stepContext
+    // gets deduping for free instead of a silent behavior change here.
+    //
+    // Since task-r6 the recorder's double write makes request_header /
+    // model_call_start part of the live event contract, so this runs whenever
+    // anything can observe the stream (persistence OR an EventSink) — a
+    // recorder with neither is a no-op. Guarded in its own try/catch: a tool
+    // whose inputSchema is self-referential (e.g. built from z.lazy) or
+    // carries a non-JSON value (e.g. a BigInt default) makes JSON.stringify
+    // throw, and that must not fail the turn just because the header can't
+    // be hashed — transcript writes are best-effort, never a precondition.
+    if (recorder.enabled || opts.eventSink !== undefined) {
+      let headerHash: string | undefined;
+      try {
+        // Mirror the seed system prompt into the header (prepended, so it sits
+        // closest to the static prefix). It deliberately does NOT go through
+        // stepContext.contextLayers: the ContextAssembler converts every layer
+        // into an extra system message, so the model would receive the prompt
+        // twice. Skipped when the host's own layers already carry the id, so a
+        // host managing its own "system-prompt" layer cannot collide.
+        const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
+        if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
+          systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
+        }
+        const headerPayload = {
+          systemLayers,
+          tools: stepContext.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            schema: t.inputSchema,
+          })),
+          params: {
+            ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+            ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+            ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+          },
+        };
+        headerHash = crypto
+          .createHash("sha256")
+          .update(JSON.stringify(headerPayload))
+          .digest("hex")
+          .slice(0, 16);
+        if (headerHash !== lastHeaderHash) {
+          // Same callStartedAt reading as model_call_start below — request_header
+          // describes the call model_call_start announces, so it must not sort
+          // after it when a reader orders the transcript by `time`.
+          recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step, time: callStartedAt });
+          lastHeaderHash = headerHash;
+        }
+      } catch {
+        // Nothing to point model_call_start's (required) headerHash field at.
+        headerHash = undefined;
+      }
+
+      if (headerHash !== undefined) {
+        recorder.record(
+          "model_call_start",
+          {
+            ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+            ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+            ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+            headerHash,
+          },
+          { step, time: callStartedAt },
+        );
+      }
+    }
+    // Reset per-call timing/aggregation state — these live at createRunner()
+    // scope (see the comment there) so forwardEmit() can read them when it
+    // intercepts model_done.
+    firstDeltaAt = undefined;
+    reasoningText = "";
+
+    if (opts.rag) {
+      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
+      const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
+      if (queryText) {
+        try {
+          const fragments = await memoryStore.query(queryText, topK);
+          if (fragments.length > 0) {
+            const index = computeRAGInjectionIndex(finalCacheBreakpoints, finalMessages.length);
+            const ragMessage: Message = {
+              role: "user",
+              content: buildRAGMessage(fragments.map((f) => f.text)),
+            };
+            finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
+          }
+        } catch {
+          /* Memory query failure is non-fatal */
+        }
+      }
+    }
 
     const req = {
       messages: finalMessages,
@@ -417,12 +721,13 @@ export function createRunner(opts: RunnerOptions): Runner {
       responseFormat: stepContext.responseFormat,
       cacheBreakpoints: finalCacheBreakpoints,
       abortSignal: opts.abortSignal,
+      layerOrigins: assembled.layerOrigins,
     };
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
     const modelSpanStartedAt = opts.clock?.now() ?? Date.now();
-    let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
-    let capturedUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let lastUsage: TokenUsage | undefined;
+    let capturedUsage: TokenUsage | undefined;
     let receivedTerminal = false; // true after done or error event is fed
     let modelError = false;
 
@@ -435,9 +740,18 @@ export function createRunner(opts: RunnerOptions): Runner {
           return;
         }
 
+        if (event.type === "text_delta" || event.type === "reasoning_delta") {
+          firstDeltaAt ??= nowMs();
+          if (event.type === "reasoning_delta") reasoningText += event.text;
+        }
+
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
-          lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          // Keep every counter the provider reported — cache and reasoning
+          // tokens are part of the durable record even though cost accounting
+          // below only uses input/output.
+          const { type: _type, ...usageFields } = event;
+          lastUsage = usageFields;
           // Track raw tokens (always, regardless of pricing)
           cumulativeTokens += event.inputTokens + event.outputTokens;
           // Accumulate cost: use dollar pricing when available, else token count fallback
@@ -467,6 +781,25 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Mark terminal events (done or error)
         if (event.type === "done" || event.type === "error") {
           receivedTerminal = true;
+        }
+
+        // A provider that yields {type:"error"} instead of throwing — the
+        // path real providers take (see providers/anthropic|openai's
+        // model-port.ts for non-2xx responses, aborts, and empty bodies)
+        // never reaches the catch block below, so model_error must be
+        // recorded here or it is silently lost. This is a record of what
+        // the provider actually said, independent of what happens next:
+        // the reducer may retry in place (its own iteration-limited loop,
+        // separate from the Runner-level retryPolicy used for thrown
+        // exceptions) or end the turn — either way the turn saw an error.
+        if (event.type === "error") {
+          modelError = true;
+          turnHadError = true;
+          recorder.record(
+            "model_error",
+            { error: event.error, retriable: event.retriable ?? false },
+            { step: stepCounter },
+          );
         }
 
         // Convert and feed model events
@@ -506,7 +839,9 @@ export function createRunner(opts: RunnerOptions): Runner {
 
           if (consecutiveModelErrors <= maxRetries && consecutiveModelErrors < circuitBreakerThreshold) {
             const delay = Math.min(baseDelayMs * Math.pow(2, consecutiveModelErrors - 1), maxDelayMs);
-            opts.eventSink?.emit({ type: "model_retry", data: { attempt: consecutiveModelErrors, delayMs: delay, error } });
+            // record() streams the same stamped model_retry event (task-r6
+            // double write) — no separate raw emit here.
+            recorder.record("model_retry", { attempt: consecutiveModelErrors, delayMs: delay, error }, { step: stepCounter });
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, delay);
               if (opts.abortSignal) {
@@ -518,16 +853,33 @@ export function createRunner(opts: RunnerOptions): Runner {
             return;
           }
           // Circuit breaker tripped or max retries exhausted — feed error as non-retriable
-          forwardEmit(feed({ type: "model_error", error: `${error} (retried ${consecutiveModelErrors} times)`, retriable: false, errorKind: classification.kind }));
+          {
+            const finalError = `${error} (retried ${consecutiveModelErrors} times)`;
+            forwardEmit(feed({ type: "model_error", error: finalError, retriable: false, errorKind: classification.kind }));
+            recorder.record(
+              "model_error",
+              { error: finalError, retriable: false, errorKind: classification.kind },
+              { step: stepCounter },
+            );
+          }
           return;
         }
 
         // No retry policy or non-retriable: feed error to reducer.
         // When no retryPolicy, mark retriable errors as non-retriable to prevent
         // the reducer from infinitely re-issuing model calls.
-        forwardEmit(feed({ type: "model_error", error, retriable: opts.retryPolicy ? classification.retriable : false, errorKind: classification.kind }));
+        {
+          const retriable = opts.retryPolicy ? classification.retriable : false;
+          forwardEmit(feed({ type: "model_error", error, retriable, errorKind: classification.kind }));
+          recorder.record("model_error", { error, retriable, errorKind: classification.kind }, { step: stepCounter });
+        }
       }
     } finally {
+      // Best-effort flush after every model call — long turns (many tool
+      // round-trips) should not buffer their whole transcript in memory
+      // until the turn ends.
+      void recorder.flush();
+
       const endTime = opts.clock?.now() ?? Date.now();
       const usageData = capturedUsage ?? lastUsage;
       if (modelSpan) {
@@ -709,6 +1061,15 @@ export function createRunner(opts: RunnerOptions): Runner {
             break;
           }
 
+          if (deniedToolCallIds.has(toolCall.id)) {
+            // Already denied — its result is already buffered by the reducer
+            // and it only remains on pendingTools so a mixed batch can flush
+            // once its siblings resolve. Skip re-classification entirely: it
+            // must not be re-queued for approval (re-prompting the gate) or
+            // pushed into the parallel batch (it was never allowed to run).
+            continue;
+          }
+
           if (opts.permissionConfig && !approvedToolCallIds.has(toolCall.id)) {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
@@ -887,6 +1248,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               consumesBudget: sc.consumesBudget,
             }));
           }
+
+          // This batch's tool_call/tool_result events are all recorded now —
+          // flush rather than waiting for the next model call or turn end.
+          void recorder.flush();
         }
 
         // Post-batch: if cancelled during parallel execution, transition
@@ -963,13 +1328,21 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
     for (const e of effects) {
       if (e.type === "request_approval" && opts.approvalGate) {
+        askedToolCallIds.add(e.toolCall.id);
+        recorder.record(
+          "approval_asked",
+          { callId: e.toolCall.id, name: e.toolCall.name, riskTier: e.riskTier },
+          { step: stepCounter },
+        );
         const decision = await opts.approvalGate.ask(e.toolCall, e.riskTier);
         if (decision === "allow") approvedToolCallIds.add(e.toolCall.id);
+        else deniedToolCallIds.add(e.toolCall.id);
         forwardEmit(feed({
           type: "approval_decision",
           toolCallId: e.toolCall.id,
           decision,
         }));
+        recorder.record("approval_decision", { callId: e.toolCall.id, decision }, { step: stepCounter });
         // Audit: record approval decision
         if (opts.auditSink) {
           opts.auditSink.record({
@@ -985,6 +1358,27 @@ export function createRunner(opts: RunnerOptions): Runner {
     }
   }
 
+  /**
+   * Record the turn-closing `turn_end` transcript event, deriving the reason
+   * from the same turn-scoped flags run() maintains. Shared by run()'s and
+   * resume()'s exit brackets so a turn that paused and was later resumed
+   * closes with exactly one correctly-attributed turn_end.
+   *
+   * A HITL pause is not a turn end: while the state is parked in
+   * waiting_for_approval the turn is still open (the checkpoint IS the pause
+   * marker), so the bracket is skipped and the log stays unclosed — exactly
+   * as it would had the process died mid-turn. The resume() that actually
+   * completes the turn records the closing event; a resume that pauses again
+   * (a second tool needed approval) leaves it open for the next one.
+   */
+  function recordTurnEnd(): void {
+    if (state.status === "waiting_for_approval") return;
+    recorder.record("turn_end", {
+      turn: opts.turn ?? 0,
+      reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
+    });
+  }
+
   return {
     async run(initialInput: AgentInput): Promise<ReducerState> {
       try {
@@ -993,14 +1387,41 @@ export function createRunner(opts: RunnerOptions): Runner {
         cumulativeCost = 0;
         cumulativeTokens = 0;
         turnHadError = false;
+        turnHadBudgetExceeded = false;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
         });
+
+        recorder.record("turn_start", { turn: opts.turn ?? 0 });
+        if (initialInput.type === "user_message") {
+          recorder.record("user_message", { content: initialInput.content });
+        }
+
         forwardEmit(feed(initialInput));
         await runLoop();
         return state;
+      } catch (err) {
+        // An exception escaping the loop is not a normal error path (those
+        // are normalized to isError ToolResults / model_error inputs and
+        // never throw) — but if one somehow does, the turn still ended in
+        // error and the transcript should say so.
+        turnHadError = true;
+        throw err;
       } finally {
+        // Every exit from this turn — normal completion, cancellation, or an
+        // escaping exception — must close out the transcript: bracket the
+        // turn and flush whatever the recorder has buffered. A try/finally
+        // around the whole body is what guarantees that regardless of which
+        // branch above returned or threw. The one exception is a HITL pause:
+        // the turn is still open then (the checkpoint IS the pause marker),
+        // so recordTurnEnd() skips the bracket and the resume() that
+        // eventually completes the turn writes it instead. The session:end
+        // hook and cleanup below still run on a pause — the turn is parked,
+        // not the runner.
+        recordTurnEnd();
+        await recorder.flush();
+
         // M13: session:end hook
         await runHookPipeline(opts.hooks ?? [], "session:end", {
           sessionId: opts.sessionId,
@@ -1011,6 +1432,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     getState(): ReducerState {
       return state;
+    },
+
+    send(input: AgentInput): void {
+      forwardEmit(feed(input));
     },
 
     async resume(resumeSessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
@@ -1033,16 +1458,70 @@ export function createRunner(opts: RunnerOptions): Runner {
         );
       }
       const approvedId = state.pendingApprovalTool.id;
-      // Pre-authorize the re-queued tool so runLoop's permission gate does not
-      // re-prompt for the decision the user already gave on resume.
-      if (decision === "allow") approvedToolCallIds.add(approvedId);
-      forwardEmit(feed({
-        type: "approval_decision",
-        toolCallId: approvedId,
-        decision,
-      }));
-      await runLoop();
-      return state;
+      const approvedName = state.pendingApprovalTool.name;
+      // Everything from here on is bracketed like run() (try/finally below):
+      // the turn run() left open at the pause gets its closing turn_end here
+      // on every exit path, and the recorder flushes before resume() resolves.
+      // The validation throws above deliberately sit OUTSIDE the bracket — no
+      // turn ran in this runner yet, so there is nothing to close.
+      try {
+        // Pre-authorize (or pre-deny) the re-queued tool so runLoop's partition
+        // loop does not re-classify it into a fresh approval ask — mirrors the
+        // allow/deny bookkeeping in interpretEffects's own request_approval
+        // handling.
+        if (decision === "allow") approvedToolCallIds.add(approvedId);
+        else deniedToolCallIds.add(approvedId);
+        // This Runner instance is typically fresh for a resume (see the SDK's
+        // cross-process resume path), so the original `approval_asked` record —
+        // buffered by the runner that first asked — may never have been
+        // flushed to the store (it was still sitting in that runner's buffer
+        // when the process paused/restarted). Recording it again here from the
+        // checkpoint data is what makes it durable in that case. But when this
+        // IS the same Runner that already asked (the ordinary in-process HITL
+        // flow, where the SDK's resume() succeeds via `lastRunner.resume()`),
+        // askedToolCallIds already has this id — skip the rewrite so the two
+        // records (this one lacks `step`; the original carries it) don't both
+        // land in the store for the same callId.
+        if (!askedToolCallIds.has(approvedId)) {
+          const approvedRiskTier = visibleTools.find((t) => t.name === approvedName)?.riskTier ?? "WRITE_HIGH";
+          recorder.record("approval_asked", { callId: approvedId, name: approvedName, riskTier: approvedRiskTier });
+          askedToolCallIds.add(approvedId);
+        }
+        forwardEmit(feed({
+          type: "approval_decision",
+          toolCallId: approvedId,
+          decision,
+        }));
+        // No `step` here: no model call has run on this Runner instance yet
+        // (it is typically fresh for a resume — see the SDK's cross-process
+        // resume path), so there is no step the decision belongs to. A seeded
+        // `initialStep` changes nothing: it raises the counter for the NEXT
+        // model call but still leaves this record step-less — 0 is not a
+        // valid step anyway (ports.ts documents step as 1-based). Omitting it
+        // is correct, not just a fallback.
+        recorder.record("approval_decision", { callId: approvedId, decision });
+        await runLoop();
+        return state;
+      } catch (err) {
+        // Same discipline as run(): an exception escaping the resumed loop
+        // means the turn ended in error, so recordTurnEnd()'s reason
+        // derivation below reports "error" instead of "done".
+        turnHadError = true;
+        throw err;
+      } finally {
+        // run() left this turn open at the HITL pause (no turn_end — the
+        // checkpoint was the pause marker, not a close). THIS runner is what
+        // completes the turn, so it writes the bracket here on every exit
+        // path. recordTurnEnd() itself skips the bracket if the resumed turn
+        // paused AGAIN (a second tool needed approval), leaving the turn open
+        // for the next resume — same rule run() follows.
+        //
+        // Flush so a caller that reads chatStore right after resume()
+        // resolves sees this batch's writes (assistant_message included) on
+        // disk, not still sitting in the recorder's buffer.
+        recordTurnEnd();
+        await recorder.flush();
+      }
     },
   };
 }
@@ -1076,9 +1555,33 @@ function extractLastUserMessage(messages: Message[]): string {
   return "";
 }
 
+/**
+ * Widen a stamped transcript event to the EventSink's declared `{type, data}`
+ * shape. The transcript stamp (`time`/`turn`/`step`) intentionally rides along
+ * as top-level extras — the wire payload IS the persisted event (task-r6), and
+ * sink consumers that care only about `type`/`data` ignore the rest. Only
+ * `data` needs widening: the sink types it as an untyped Record while a
+ * transcript event carries a specific vocabulary shape.
+ */
+function toSinkEvent(event: TranscriptEventInput): {
+  type: string;
+  data: Record<string, unknown>;
+  time: number;
+  turn?: number;
+  step?: number;
+} {
+  return {
+    type: event.type,
+    data: event.data as unknown as Record<string, unknown>,
+    time: event.time,
+    ...(event.turn !== undefined ? { turn: event.turn } : {}),
+    ...(event.step !== undefined ? { step: event.step } : {}),
+  };
+}
+
 function modelEventToInputs(
   event: ModelEvent,
-  pendingUsage?: { inputTokens: number; outputTokens: number },
+  pendingUsage?: TokenUsage,
 ): AgentInput[] {
   switch (event.type) {
     case "text_delta":

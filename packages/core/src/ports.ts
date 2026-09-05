@@ -4,7 +4,7 @@
  * The core imports these interfaces, never their implementations.
  */
 
-import type { AgentState, Message, PendingToolCall } from "./state.js";
+import type { AgentState, ContentBlock, Message, PendingToolCall } from "./state.js";
 import type { RiskTier, ToolDefinition, JSONSchema } from "./tool.js";
 
 // ──────────────────────────────────────────────
@@ -33,14 +33,22 @@ export interface ModelEventToolUseDelta {
   argumentsDelta: string;
 }
 
-export interface ModelEventUsage {
-  type: "usage";
+/** Token accounting for one model call. */
+export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
-  /** Tokens read from provider-side prompt cache (e.g. OpenAI prompt caching) */
+  /** Exact full-call total when the provider reports one. */
+  totalTokens?: number;
+  /** Tokens read from provider-side prompt cache. */
   cacheReadTokens?: number;
-  /** Tokens written to provider-side prompt cache */
+  /** Tokens written to provider-side prompt cache. */
   cacheWriteTokens?: number;
+  /** Reasoning/thinking tokens when the provider bills them separately. */
+  reasoningTokens?: number;
+}
+
+export interface ModelEventUsage extends TokenUsage {
+  type: "usage";
 }
 
 export interface ModelEventDone {
@@ -77,6 +85,8 @@ export interface ModelRequest {
    * should be anchored. Provider translates to native cache_control mechanism.
    */
   cacheBreakpoints?: number[];
+  /** Mapping of context layer IDs to their message indices in the assembled context */
+  layerOrigins?: Array<{ id: string; messageIndex: number }>;
 }
 
 export interface ModelPort {
@@ -193,6 +203,143 @@ export interface SessionStore {
   save(snapshot: SessionSnapshot): Promise<void>;
   load(id: string): Promise<SessionSnapshot | undefined>;
   list(): Promise<SessionSnapshot[]>;
+}
+
+// ──────────────────────────────────────────────
+// TranscriptStore — durable, append-only session event log
+// ──────────────────────────────────────────────
+
+export interface ChatSessionMeta {
+  title?: string;
+  projectId: string | null;
+  providerId: string | null;
+  modelId: string | null;
+  permissionMode: string | null;
+}
+
+/** Why a turn ended. */
+export type TurnEndReason = "done" | "error" | "cancelled" | "budget_exceeded";
+
+/**
+ * The vocabulary of the durable session log. One entry per significant
+ * moment; detail comes from the density of the vocabulary, not from any
+ * single record being wide.
+ */
+export interface TranscriptEventMap {
+  // ── Lifecycle ──
+  session_meta: ChatSessionMeta & {
+    parentSessionId?: string;
+    delegationDepth?: number;
+    origin?: "subagent";
+  };
+  turn_start: { turn: number };
+  turn_end: { turn: number; reason: TurnEndReason; error?: string };
+
+  // ── Model call ──
+  /** Written just before the request goes out — the anchor every timing derives from. */
+  model_call_start: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    /** Points at the most recent request_header's hash. */
+    headerHash: string;
+  };
+  /** One model call's complete output, aggregated. */
+  assistant_message: {
+    content: ContentBlock[];
+    /** Full reasoning text accumulated during this call; absent when the model produced none. */
+    reasoning?: string;
+    stopReason?: "end_turn" | "tool_use" | "max_tokens";
+    usage?: TokenUsage;
+    /** Milliseconds from model_call_start to the first delta; absent when the stream produced none. */
+    ttftMs?: number;
+    /** Milliseconds from model_call_start to this event. */
+    durationMs: number;
+    /** not yet recorded */
+    interrupted?: true;
+  };
+  model_error: { error: string; errorKind?: string; retriable: boolean };
+  model_retry: { attempt: number; delayMs: number; error: string };
+
+  // ── Tools ──
+  tool_call: { callId: string; name: string; input: Record<string, unknown> };
+  tool_result: {
+    callId: string;
+    name?: string;
+    content: string;
+    isError: boolean;
+    durationMs?: number;
+    displayMetadata?: Record<string, unknown>;
+    /** Index within the batch's pendingTools — the projection's sort key. */
+    orderInBatch: number;
+  };
+  approval_asked: { callId: string; name: string; riskTier: string };
+  approval_decision: { callId: string; decision: "allow" | "deny" };
+
+  // ── Context ──
+  /** Static-prefix snapshot; written only when its hash changes. */
+  request_header: {
+    hash: string;
+    systemLayers: Array<{ id: string; text: string }>;
+    tools: Array<{ name: string; description: string; schema: JSONSchema }>;
+    params: { model?: string; temperature?: number; maxTokens?: number };
+  };
+  context_assembled: { layerOrigins: Array<{ id: string; messageIndex: number }> };
+  /** not yet recorded */
+  compaction: { replacedCount: number; summaryText: string };
+
+  // ── Input ──
+  user_message: { content: string | ContentBlock[] };
+  /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event. */
+  steering_queued: { content: string | ContentBlock[] };
+
+  // ── Sub-agents ──
+  subagent_started: { childSessionId: string; label: string; depth: number };
+  subagent_finished: { childSessionId: string; isError: boolean; durationMs: number };
+
+  // ── Other ──
+  budget_exceeded: { reason: string };
+  error: { message: string };
+}
+
+export type TranscriptEventType = keyof TranscriptEventMap;
+
+/** What a writer supplies; `seq` is assigned by the store. */
+export interface TranscriptEventInput<T extends TranscriptEventType = TranscriptEventType> {
+  /** When the event happened (epoch ms), via the Clock port — not when it was written. */
+  time: number;
+  type: T;
+  data: TranscriptEventMap[T];
+  /** Owning turn; present on everything except session-level lifecycle events. */
+  turn?: number;
+  /** Which model call within the turn (1-based). */
+  step?: number;
+}
+
+/** A stored event. */
+export interface TranscriptEvent<T extends TranscriptEventType = TranscriptEventType>
+  extends TranscriptEventInput<T> {
+  /** Monotonic and contiguous across the whole session, starting at 0. */
+  seq: number;
+}
+
+/**
+ * Durable, append-only record of a chat session. Distinct from `SessionStore` —
+ * that port is a whole-`AgentState` snapshot for HITL checkpoint/resume; this
+ * one is a log for display and audit, never read back into a running turn.
+ */
+export interface TranscriptStore {
+  /** Appends a batch, assigning contiguous seq in array order. An empty array is a no-op. */
+  appendEvents(sessionId: string, events: TranscriptEventInput[]): Promise<void>;
+}
+
+/**
+ * The read half of the transcript seam. Separate from `TranscriptStore`
+ * because the responsibilities differ and not every implementation needs
+ * both — a write-only audit sink is a legitimate `TranscriptStore`.
+ */
+export interface TranscriptReader {
+  readEvents(sessionId: string): Promise<TranscriptEvent[]>;
 }
 
 // ──────────────────────────────────────────────

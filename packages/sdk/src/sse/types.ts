@@ -1,35 +1,30 @@
 /**
- * SSE (Server-Sent Events) message types for the volto SDK.
+ * SSE (Server-Sent Events) wire types for the volto SDK.
  *
- * Provides typed message definitions for the SSE protocol layer,
- * supporting streaming token output, tool events, approval flows,
- * system events, and connection state management.
+ * Protocol v2 has four frame kinds — `event` (authoritative transcript
+ * events), `delta` (streaming increments, never persisted), `heartbeat`
+ * (keep-alive) and `error` (transport-level failures only) — plus the
+ * client-side connection state machine.
  */
 
 // ---------------------------------------------------------------------------
-// Event type enum
+// Frame type enum
 // ---------------------------------------------------------------------------
 
-/** SSE event type enum — exhaustive list of protocol events. */
-export enum SSEEventType {
-  /** Streaming token output (incremental content). */
-  TOKEN = "token",
-  /** Tool call initiated by the agent. */
-  TOOL_CALL = "tool_call",
-  /** Tool call result returned to the agent. */
-  TOOL_RESULT = "tool_result",
-  /** Approval request — a tool requires human approval before proceeding. */
-  APPROVAL_REQ = "approval_req",
-  /** Approval response — human decision on a pending approval request. */
-  APPROVAL_RES = "approval_res",
-  /** Agent state transition (e.g. idle -> running -> waiting). */
-  STATE_CHANGE = "state_change",
-  /** Error event. */
-  ERROR = "error",
-  /** Heartbeat / keep-alive ping. */
+/**
+ * Wire frame kinds.
+ *
+ * `EVENT` carries a `TranscriptEventInput` verbatim — the same shape that
+ * gets persisted, so a client projects live and historical data with one
+ * function. `DELTA` carries a streaming increment that is never persisted;
+ * losing one is self-healing because the next EVENT replaces the partial.
+ */
+export enum SSEFrameType {
+  EVENT = "event",
+  DELTA = "delta",
   HEARTBEAT = "heartbeat",
-  /** Stream ended successfully. */
-  DONE = "done",
+  /** Transport-level failure only. Agent errors travel as transcript events. */
+  ERROR = "error",
 }
 
 // ---------------------------------------------------------------------------
@@ -38,77 +33,21 @@ export enum SSEEventType {
 
 /** Unified SSE message envelope. `T` defaults to `unknown`. */
 export interface SSEMessage<T = unknown> {
-  /** Unique message ID, used for disconnection recovery (Last-Event-ID replay). */
+  /** Monotonic, for Last-Event-ID recovery. Only EVENT frames consume one. */
   id: string;
-  /** Event type discriminator. */
-  event: SSEEventType;
-  /** Event payload. */
+  /** Frame type discriminator. */
+  event: SSEFrameType;
+  /** Frame payload. */
   data: T;
   /** Server-side timestamp in milliseconds (epoch). */
   timestamp: number;
 }
 
 // ---------------------------------------------------------------------------
-// Per-event data types
+// Error payload
 // ---------------------------------------------------------------------------
 
-/** Streaming token data. */
-export interface TokenData {
-  /** Accumulated full content so far. */
-  content: string;
-  /** Incremental delta delivered in this message. */
-  delta: string;
-}
-
-/** Tool call initiated by the agent. */
-export interface ToolCallData {
-  /** Unique call ID — correlates with the matching ToolResultData. */
-  id: string;
-  /** Tool name (matches a ToolDefinition). */
-  name: string;
-  /** Tool arguments (JSON-compatible). */
-  args: Record<string, unknown>;
-}
-
-/** Tool call result. */
-export interface ToolResultData {
-  /** Call ID — correlates with the originating ToolCallData. */
-  id: string;
-  /** Tool output payload. */
-  result: unknown;
-  /** `true` when the tool returned an error. */
-  isError: boolean;
-}
-
-/** Approval request — a tool with permission policy "ask" triggers this. */
-export interface ApprovalRequestData {
-  /** Approval ID — used to correlate with the response. */
-  id: string;
-  /** The tool call awaiting approval. */
-  call: ToolCallData;
-  /** Risk level of the operation. */
-  risk: "low" | "medium" | "high";
-  /** Human-readable prompt describing what is being requested. */
-  prompt: string;
-}
-
-/** Approval response — human decision on a pending approval. */
-export interface ApprovalResponseData {
-  /** Approval ID — correlates with the originating ApprovalRequestData. */
-  id: string;
-  /** Human decision. */
-  decision: "allow" | "deny";
-}
-
-/** Agent state change event. */
-export interface StateChangeData {
-  /** New state name. */
-  state: string;
-  /** Previous state name. */
-  previous: string;
-}
-
-/** Error event. */
+/** Transport-level error frame payload. */
 export interface ErrorData {
   /** Machine-readable error code. */
   code: string;

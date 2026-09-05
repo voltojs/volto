@@ -7,7 +7,7 @@ describe("reference CLI renderer", () => {
     const sink = createRenderingEventSink({ stdout: (s) => stdout.push(s) });
 
     sink.emit({ type: "text_delta", data: { text: "Hello, world!" } });
-    sink.emit({ type: "model_done", data: {} });
+    sink.emit({ type: "assistant_message", data: { content: [{ type: "text", text: "Hello, world!" }], durationMs: 1 } });
 
     expect(stdout.join("")).toBe("Hello, world!\n");
   });
@@ -22,7 +22,7 @@ describe("reference CLI renderer", () => {
       data: { text: "sub speaks", agentDepth: 1, agentLabel: "task" },
     });
     sink.emit({ type: "text_delta", data: { text: "main continues" } });
-    sink.emit({ type: "model_done", data: {} });
+    sink.emit({ type: "assistant_message", data: { content: [], durationMs: 1 } });
 
     const out = stdout.join("");
     expect(out).toContain("main begin ");

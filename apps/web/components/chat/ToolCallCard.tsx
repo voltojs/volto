@@ -12,11 +12,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import type { ToolCall } from '@/stores/chat-store';
+import type { ConversationToolCall } from '@volto/sdk/sse';
 import { cn } from '@/lib/utils';
 
 interface ToolCallCardProps {
-  call: ToolCall;
+  call: ConversationToolCall;
 }
 
 function StatusIcon({ call }: ToolCallCardProps) {
@@ -32,10 +32,8 @@ function StatusIcon({ call }: ToolCallCardProps) {
   );
 }
 
-/** Collapsed summary of one tool call, expandable to show arguments/result. */
+/** Collapsed summary of one tool call, expandable to show args and output. */
 export function ToolCallCard({ call }: ToolCallCardProps) {
-  const meta = call.result as { durationMs?: number } | undefined;
-
   return (
     <Collapsible
       className={cn(
@@ -49,6 +47,11 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
         <span className="text-foreground/90 truncate font-mono">
           {call.name}
         </span>
+        {typeof call.durationMs === 'number' && (
+          <span className="text-muted-foreground/70 font-mono text-[10px]">
+            · {call.durationMs}ms
+          </span>
+        )}
         <span className="ml-auto shrink-0">
           <StatusIcon call={call} />
         </span>
@@ -65,21 +68,27 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
             </pre>
           </div>
           {call.result !== undefined && (
-            <div
-              className={cn(
-                'font-mono text-[11px]',
-                call.isError ? 'text-destructive' : 'text-success',
-              )}
-            >
-              {/* The protocol carries tool metadata, not the tool's output —
-                  the output itself goes to the model, not the transcript. */}
-              {call.isError ? '✕ 执行失败' : '✓ 执行成功'}
-              {typeof meta?.durationMs === 'number' && (
-                <span className="text-muted-foreground">
-                  {' '}
-                  · {meta.durationMs}ms
-                </span>
-              )}
+            <div>
+              <div
+                className={cn(
+                  'mb-1 font-mono text-[10px] tracking-wide uppercase',
+                  call.isError ? 'text-destructive' : 'text-success',
+                )}
+              >
+                {call.isError ? '✕ 执行失败' : '✓ 执行成功'}
+              </div>
+              {/* The protocol carries the tool's real output — render it as
+                  text, never JSON.stringify'd metadata. */}
+              <pre
+                className={cn(
+                  'rounded p-2 font-mono text-[11px] break-words whitespace-pre-wrap',
+                  call.isError
+                    ? 'text-destructive/90 bg-destructive/5'
+                    : 'text-foreground/80 bg-muted/40',
+                )}
+              >
+                {call.result}
+              </pre>
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
@@ -9,7 +9,10 @@ import { ProjectPicker } from './ProjectPicker';
 import { ModelPicker } from './ModelPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
 import { useChatStore } from '@/stores/chat-store';
+import { useConversation } from '@/hooks/use-conversation';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useChatAgent } from '@/hooks/use-chat-agent';
@@ -17,12 +20,11 @@ import { useAddProject } from '@/hooks/use-add-project';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
-  const messages = useChatStore((s) => s.messages);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const prevSessionIdRef = useRef<string | null>(null);
   const { sendMessage, connectionState } = useChatAgent();
+  const { entries } = useConversation();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
@@ -74,32 +76,6 @@ export function ChatPanel() {
     void sendMessage(content);
   };
 
-  // Load messages when session changes
-  useEffect(() => {
-    if (currentSessionId !== prevSessionIdRef.current) {
-      prevSessionIdRef.current = currentSessionId;
-      if (currentSessionId) {
-        const session = sessions.find((s) => s.id === currentSessionId);
-        if (session) {
-          useChatStore.setState({ messages: session.messages });
-        }
-      } else {
-        useChatStore.setState({ messages: [] });
-      }
-    }
-  }, [currentSessionId, sessions]);
-
-  // Save messages when they change (debounced)
-  useEffect(() => {
-    if (!currentSessionId) return;
-    const timeoutId = setTimeout(() => {
-      useSessionStore
-        .getState()
-        .updateSessionMessages(currentSessionId, messages);
-    }, 100);
-    return () => clearTimeout(timeoutId);
-  }, [messages, currentSessionId]);
-
   // Once a session exists (the conversation branch below), sendMessage can
   // dispatch directly — the welcome screen is the only place that still needs
   // to create one first, via startSession.
@@ -126,8 +102,13 @@ export function ChatPanel() {
   const showOffline =
     currentSessionId !== null && connectionState !== 'connected';
 
-  // Show welcome screen when no messages
-  if (messages.length === 0) {
+  // 对话 / 轨迹两个视图的切换。本地 state：跨会话切换保留用户所在 tab，
+  // 轨迹面板对新会话自行显示空态/加载态（spec §一）。
+  const [activeTab, setActiveTab] = useState<'chat' | 'trajectory'>('chat');
+
+  // Show welcome screen when there is nothing to render yet (an empty new
+  // session, or no session selected at all).
+  if (entries.length === 0) {
     return (
       <div className="flex h-full flex-col">
         <ChatHeader />
@@ -241,7 +222,22 @@ export function ChatPanel() {
             : '未连接 agent 服务，请确认 headless-server 已在 http://localhost:3100 启动'}
         </div>
       )}
-      <MessageList />
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as 'chat' | 'trajectory')}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <TabsList className="mx-4 mt-2">
+          <TabsTrigger value="chat">对话</TabsTrigger>
+          <TabsTrigger value="trajectory">轨迹</TabsTrigger>
+        </TabsList>
+        <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
+          <MessageList entries={entries} />
+        </TabsContent>
+        <TabsContent value="trajectory" keepMounted className="flex min-h-0 flex-1 flex-col">
+          <TrajectoryPanel sessionId={currentSessionId} />
+        </TabsContent>
+      </Tabs>
       <InputBar
         onSubmit={handleSubmit}
         disabled={isGenerating || missingBinding}

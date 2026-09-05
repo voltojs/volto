@@ -59,7 +59,7 @@ export function Sidebar() {
     // Clearing the current session returns the panel to the welcome screen,
     // where the user picks the project the new session will be bound to.
     useSessionStore.getState().setCurrentSession(null);
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().clear();
   };
 
   return (

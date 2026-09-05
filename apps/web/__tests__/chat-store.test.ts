@@ -1,27 +1,47 @@
 /**
  * Chat store tests.
+ *
+ * Since the view-projection consolidation the chat store is a pure event
+ * buffer: authoritative events and streaming deltas accumulate here, and the
+ * projection (lib/projection.ts) derives the rendered feed from them. Message
+ * assembly itself no longer exists in the store, so these tests cover
+ * accumulation, the delta-clear on the authoritative event, and the
+ * generation-state flags.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useChatStore, type Message } from '../stores/chat-store.js';
+import { useChatStore } from '../stores/chat-store.js';
+import type { TranscriptDelta, TranscriptEventInput } from '@volto/sdk/sse';
 
 function resetStore(): void {
   useChatStore.setState({
-    messages: [],
+    events: [],
+    deltas: [],
     isGenerating: false,
     currentSessionId: null,
   });
 }
 
-function makeMessage(overrides: Partial<Message> = {}): Message {
-  return {
-    id: 'msg-1',
-    role: 'user',
-    content: 'Hello',
-    timestamp: 1000,
-    ...overrides,
-  };
-}
+const TURN_START: TranscriptEventInput = {
+  time: 100,
+  type: 'turn_start',
+  data: { turn: 1 },
+  turn: 1,
+};
+
+const ASSISTANT_MESSAGE: TranscriptEventInput = {
+  time: 200,
+  type: 'assistant_message',
+  data: {
+    content: [{ type: 'text', text: 'hello' }],
+    stopReason: 'end_turn',
+    durationMs: 80,
+  },
+  turn: 1,
+  step: 1,
+};
+
+const TEXT_DELTA: TranscriptDelta = { kind: 'text', text: 'he' };
 
 describe('useChatStore', () => {
   beforeEach(() => {
@@ -29,232 +49,81 @@ describe('useChatStore', () => {
   });
 
   // -----------------------------------------------------------------------
-  // addMessage
+  // pushEvent
   // -----------------------------------------------------------------------
 
-  describe('addMessage', () => {
-    it('should append a message to the list', () => {
-      const msg = makeMessage();
-      useChatStore.getState().addMessage(msg);
+  describe('pushEvent', () => {
+    it('appends an authoritative event to the log', () => {
+      useChatStore.getState().pushEvent(TURN_START);
 
-      const { messages } = useChatStore.getState();
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toEqual(msg);
+      expect(useChatStore.getState().events).toEqual([TURN_START]);
     });
 
-    it('should append multiple messages in order', () => {
-      const first = makeMessage({ id: 'msg-1', content: 'first' });
-      const second = makeMessage({ id: 'msg-2', content: 'second' });
+    it('keeps the streaming deltas when the event is not the authoritative reply', () => {
+      useChatStore.getState().pushDelta(TEXT_DELTA);
+      useChatStore.getState().pushEvent(TURN_START);
 
-      useChatStore.getState().addMessage(first);
-      useChatStore.getState().addMessage(second);
+      const { events, deltas } = useChatStore.getState();
+      expect(events).toEqual([TURN_START]);
+      expect(deltas).toEqual([TEXT_DELTA]);
+    });
 
-      const { messages } = useChatStore.getState();
-      expect(messages).toHaveLength(2);
-      expect(messages[0]?.id).toBe('msg-1');
-      expect(messages[1]?.id).toBe('msg-2');
+    it('clears the deltas once the authoritative assistant_message lands', () => {
+      useChatStore.getState().pushDelta(TEXT_DELTA);
+      useChatStore.getState().pushEvent(TURN_START);
+      useChatStore.getState().pushEvent(ASSISTANT_MESSAGE);
+
+      const { events, deltas } = useChatStore.getState();
+      expect(events).toEqual([TURN_START, ASSISTANT_MESSAGE]);
+      expect(deltas).toEqual([]);
     });
   });
 
   // -----------------------------------------------------------------------
-  // updateMessage
+  // pushDelta
   // -----------------------------------------------------------------------
 
-  describe('updateMessage', () => {
-    it('should update a message by id', () => {
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-1', content: 'old' }));
+  describe('pushDelta', () => {
+    it('appends a streaming increment', () => {
+      useChatStore.getState().pushDelta(TEXT_DELTA);
+      useChatStore.getState().pushDelta({ kind: 'text', text: 'llo' });
 
-      useChatStore.getState().updateMessage('msg-1', { content: 'new' });
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('new');
-    });
-
-    it('should not affect other messages', () => {
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-1', content: 'a' }));
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-2', content: 'b' }));
-
-      useChatStore.getState().updateMessage('msg-1', { content: 'updated' });
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('updated');
-      expect(messages[1]?.content).toBe('b');
-    });
-
-    it('should be a no-op when id does not match', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1' }));
-
-      useChatStore.getState().updateMessage('nonexistent', { content: 'x' });
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('Hello');
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // appendToMessage
-  // -----------------------------------------------------------------------
-
-  describe('appendToMessage', () => {
-    it('should append delta text to matching message', () => {
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-1', content: 'Hello' }));
-
-      useChatStore.getState().appendToMessage('msg-1', ' world');
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('Hello world');
-    });
-
-    it('should handle multiple appends', () => {
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-1', content: '' }));
-
-      useChatStore.getState().appendToMessage('msg-1', 'A');
-      useChatStore.getState().appendToMessage('msg-1', 'B');
-      useChatStore.getState().appendToMessage('msg-1', 'C');
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('ABC');
-    });
-
-    it('should be a no-op when id does not match', () => {
-      useChatStore
-        .getState()
-        .addMessage(makeMessage({ id: 'msg-1', content: 'original' }));
-
-      useChatStore.getState().appendToMessage('nonexistent', ' extra');
-
-      const { messages } = useChatStore.getState();
-      expect(messages[0]?.content).toBe('original');
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // setLastTextBlock / pushToolCallBlock / updateToolCallBlock — the ordered
-  // blocks sequence that lets a tool call render where it actually happened
-  // instead of after all the message's text.
-  // -----------------------------------------------------------------------
-
-  describe('setLastTextBlock', () => {
-    it('appends a text block when there are none yet', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-
-      useChatStore.getState().setLastTextBlock('msg-1', 'hello');
-
-      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
-        { type: 'text', text: 'hello' },
-      ]);
-    });
-
-    it('overwrites the trailing text block rather than appending a second one', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-      useChatStore.getState().setLastTextBlock('msg-1', 'hel');
-      useChatStore.getState().setLastTextBlock('msg-1', 'hello');
-
-      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
-        { type: 'text', text: 'hello' },
-      ]);
-    });
-
-    it('starts a new text block when the trailing block is a tool call', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-      useChatStore
-        .getState()
-        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
-
-      useChatStore.getState().setLastTextBlock('msg-1', 'after the call');
-
-      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
-        { type: 'tool_call', call: { id: 'c1', name: 'read_file', args: {} } },
-        { type: 'text', text: 'after the call' },
-      ]);
-    });
-
-    it('does not create an empty placeholder block for an empty string', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-
-      useChatStore.getState().setLastTextBlock('msg-1', '');
-
-      expect(useChatStore.getState().messages[0]?.blocks).toBeUndefined();
-    });
-  });
-
-  describe('pushToolCallBlock', () => {
-    it('appends after an existing text block, closing it off', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-      useChatStore.getState().setLastTextBlock('msg-1', 'checking...');
-
-      useChatStore
-        .getState()
-        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: { path: '/a.ts' } });
-
-      expect(useChatStore.getState().messages[0]?.blocks).toEqual([
-        { type: 'text', text: 'checking...' },
-        { type: 'tool_call', call: { id: 'c1', name: 'read_file', args: { path: '/a.ts' } } },
+      expect(useChatStore.getState().deltas).toEqual([
+        TEXT_DELTA,
+        { kind: 'text', text: 'llo' },
       ]);
     });
   });
 
-  describe('updateToolCallBlock', () => {
-    it('merges result/isError into the matching tool_call block', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-      useChatStore
-        .getState()
-        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
+  // -----------------------------------------------------------------------
+  // setEvents
+  // -----------------------------------------------------------------------
 
-      useChatStore
-        .getState()
-        .updateToolCallBlock('msg-1', 'c1', { result: 'file contents', isError: false });
+  describe('setEvents', () => {
+    it('replaces the whole log and clears the streaming tail', () => {
+      useChatStore.getState().pushDelta(TEXT_DELTA);
+      useChatStore.getState().setEvents([TURN_START]);
 
-      const blocks = useChatStore.getState().messages[0]?.blocks;
-      expect(blocks?.[0]).toEqual({
-        type: 'tool_call',
-        call: { id: 'c1', name: 'read_file', args: {}, result: 'file contents', isError: false },
-      });
-    });
-
-    it('is a no-op when no tool_call block matches the id', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1', content: '' }));
-      useChatStore
-        .getState()
-        .pushToolCallBlock('msg-1', { id: 'c1', name: 'read_file', args: {} });
-
-      useChatStore.getState().updateToolCallBlock('msg-1', 'nonexistent', { result: 'x' });
-
-      const blocks = useChatStore.getState().messages[0]?.blocks;
-      expect(blocks?.[0]).toEqual({
-        type: 'tool_call',
-        call: { id: 'c1', name: 'read_file', args: {} },
-      });
+      const { events, deltas } = useChatStore.getState();
+      expect(events).toEqual([TURN_START]);
+      expect(deltas).toEqual([]);
     });
   });
 
   // -----------------------------------------------------------------------
-  // clearMessages
+  // clear
   // -----------------------------------------------------------------------
 
-  describe('clearMessages', () => {
-    it('should empty the messages array', () => {
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-1' }));
-      useChatStore.getState().addMessage(makeMessage({ id: 'msg-2' }));
+  describe('clear', () => {
+    it('empties events and deltas', () => {
+      useChatStore.getState().pushEvent(TURN_START);
+      useChatStore.getState().pushDelta(TEXT_DELTA);
 
-      useChatStore.getState().clearMessages();
+      useChatStore.getState().clear();
 
-      expect(useChatStore.getState().messages).toHaveLength(0);
-    });
-
-    it('should be safe to call on empty list', () => {
-      expect(() => useChatStore.getState().clearMessages()).not.toThrow();
-      expect(useChatStore.getState().messages).toHaveLength(0);
+      const { events, deltas } = useChatStore.getState();
+      expect(events).toEqual([]);
+      expect(deltas).toEqual([]);
     });
   });
 
@@ -263,106 +132,59 @@ describe('useChatStore', () => {
   // -----------------------------------------------------------------------
 
   describe('setGenerating', () => {
-    it('should toggle isGenerating to true', () => {
+    it('toggles isGenerating', () => {
       useChatStore.getState().setGenerating(true);
       expect(useChatStore.getState().isGenerating).toBe(true);
-    });
 
-    it('should toggle isGenerating back to false', () => {
-      useChatStore.getState().setGenerating(true);
       useChatStore.getState().setGenerating(false);
       expect(useChatStore.getState().isGenerating).toBe(false);
     });
   });
 
   describe('setSessionId', () => {
-    it('should set a session id', () => {
+    it('sets a session id', () => {
       useChatStore.getState().setSessionId('sess-abc');
       expect(useChatStore.getState().currentSessionId).toBe('sess-abc');
     });
 
-    it('should clear session id with null', () => {
+    it('clears session id with null', () => {
       useChatStore.getState().setSessionId('sess-abc');
       useChatStore.getState().setSessionId(null);
       expect(useChatStore.getState().currentSessionId).toBeNull();
     });
   });
 
-  // ---------------------------------------------------------------------
-  // cancelStreaming (F1) — tearing down the SSE channel mid-turn (e.g.
-  // switching sessions while tokens are still arriving) must not leave
-  // isGenerating stuck true forever, which would disable every session's
-  // input box since this store is a global singleton.
-  // ---------------------------------------------------------------------
+  // -----------------------------------------------------------------------
+  // cancelStreaming — tearing down the SSE channel mid-turn (e.g. switching
+  // sessions while tokens are still arriving) must not leave isGenerating
+  // stuck true forever, which would disable every session's input box since
+  // this store is a global singleton. The durable event log is preserved.
+  // -----------------------------------------------------------------------
 
   describe('cancelStreaming', () => {
-    it('clears isGenerating', () => {
+    it('clears isGenerating and the streaming tail', () => {
       useChatStore.getState().setGenerating(true);
-      useChatStore.getState().cancelStreaming();
-      expect(useChatStore.getState().isGenerating).toBe(false);
-    });
-
-    it('clears isStreaming on the in-flight assistant message', () => {
-      useChatStore
-        .getState()
-        .addMessage(
-          makeMessage({
-            id: 'msg-1',
-            role: 'assistant',
-            content: 'partial',
-            isStreaming: true,
-          }),
-        );
-      useChatStore.getState().setGenerating(true);
+      useChatStore.getState().pushDelta(TEXT_DELTA);
 
       useChatStore.getState().cancelStreaming();
 
-      const { messages, isGenerating } = useChatStore.getState();
+      const { isGenerating, deltas } = useChatStore.getState();
       expect(isGenerating).toBe(false);
-      expect(messages[0]?.isStreaming).toBe(false);
-      // Content already received is preserved rather than discarded.
-      expect(messages[0]?.content).toBe('partial');
+      expect(deltas).toEqual([]);
     });
 
-    it('leaves other messages untouched', () => {
-      useChatStore
-        .getState()
-        .addMessage(
-          makeMessage({ id: 'msg-1', content: 'done', isStreaming: false }),
-        );
-      useChatStore
-        .getState()
-        .addMessage(
-          makeMessage({
-            id: 'msg-2',
-            role: 'assistant',
-            content: 'partial',
-            isStreaming: true,
-          }),
-        );
+    it('leaves the durable event log untouched', () => {
+      useChatStore.getState().pushEvent(TURN_START);
+      useChatStore.getState().setGenerating(true);
 
       useChatStore.getState().cancelStreaming();
 
-      const { messages } = useChatStore.getState();
-      expect(messages[0]).toEqual(
-        makeMessage({ id: 'msg-1', content: 'done', isStreaming: false }),
-      );
-      expect(messages[1]?.isStreaming).toBe(false);
+      expect(useChatStore.getState().events).toEqual([TURN_START]);
     });
 
-    it('is a no-op when no turn is in flight (idempotent, e.g. after a normal DONE already cleared state)', () => {
-      useChatStore
-        .getState()
-        .addMessage(
-          makeMessage({ id: 'msg-1', content: 'final', isStreaming: false }),
-        );
-      useChatStore.getState().setGenerating(false);
-
+    it('is idempotent when no turn is in flight', () => {
       expect(() => useChatStore.getState().cancelStreaming()).not.toThrow();
-
-      const { messages, isGenerating } = useChatStore.getState();
-      expect(isGenerating).toBe(false);
-      expect(messages[0]?.content).toBe('final');
+      expect(useChatStore.getState().isGenerating).toBe(false);
     });
   });
 });

@@ -37,7 +37,9 @@ export function useRecoverServerSessions(): void {
         useSessionStore.getState().hydrateFromServer({
           id: detail.id,
           title: `会话 ${new Date(detail.createdAt).toLocaleDateString('zh-CN')}`,
-          messages: detail.messages.map((message) => ({ ...message })),
+          // GET /sessions/:id already returns projected ConversationMessages;
+          // store them verbatim — no second projection on the client.
+          messages: detail.messages,
           createdAt: detail.createdAt,
           updatedAt: detail.updatedAt,
           projectId: detail.projectId,

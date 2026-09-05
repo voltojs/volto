@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import type { Message, MessageBlock } from '@/stores/chat-store';
+import type { ConversationMessage } from '@volto/sdk/sse';
 import { StreamRenderer } from './StreamRenderer';
 import { Markdown } from './Markdown';
 import { ToolCallCard } from './ToolCallCard';
 import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
-  message: Message;
+  message: ConversationMessage;
 }
 
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -17,16 +17,9 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
 });
 
-/** A message with no blocks yet (nothing streamed in) falls back to its plain `content`, if any. */
-function resolveBlocks(message: Message): MessageBlock[] {
-  if (message.blocks) return message.blocks;
-  return message.content ? [{ type: 'text', text: message.content }] : [];
-}
-
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
-  const blocks = resolveBlocks(message);
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -77,21 +70,43 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           <div className="text-foreground text-sm whitespace-pre-wrap">
             {message.content}
           </div>
-        ) : blocks.length === 0 ? (
-          // Nothing streamed in yet — still show the caret so the bubble
-          // isn't empty while the first token is in flight.
-          <StreamRenderer content="" />
+        ) : message.blocks.length === 0 ? (
+          // Streaming but nothing rendered yet (e.g. the first token is in
+          // flight, or a tool-using model has not produced text) — show the
+          // caret so the bubble isn't empty while the turn is alive. Closed
+          // empty bubbles never reach here; the feed drops them up front.
+          message.isStreaming ? (
+            <StreamRenderer content="" />
+          ) : null
         ) : (
           <div className="space-y-2">
-            {blocks.map((block, index) =>
-              block.type === 'tool_call' ? (
-                <ToolCallCard key={block.call.id} call={block.call} />
-              ) : index === blocks.length - 1 && message.isStreaming ? (
+            {message.blocks.map((block, index) => {
+              if (block.type === 'reasoning') {
+                return (
+                  <details
+                    key={index}
+                    className="border-border/60 bg-muted/40 my-2 rounded-md border px-3 py-2"
+                  >
+                    <summary className="text-muted-foreground cursor-pointer text-xs select-none">
+                      思考过程
+                    </summary>
+                    <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
+                      {block.text}
+                    </div>
+                  </details>
+                );
+              }
+              if (block.type === 'tool_call') {
+                return <ToolCallCard key={block.call.id} call={block.call} />;
+              }
+              const isStreamingTail =
+                message.isStreaming && index === message.blocks.length - 1;
+              return isStreamingTail ? (
                 <StreamRenderer key={index} content={block.text} />
               ) : (
                 <Markdown key={index} content={block.text} />
-              ),
-            )}
+              );
+            })}
           </div>
         )}
       </div>

@@ -99,7 +99,7 @@ describe("TrajectoryRecorder", () => {
           tokensUsed: 0,
         },
         fullEffects: [
-          { type: "call_model", request: { messages: [{ role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0] } },
+          { type: "call_model", request: { messages: [{ role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0], layerOrigins: [] } },
           { type: "emit", event: { type: "user_message", data: { content: "hello" } } },
         ],
       },

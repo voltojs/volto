@@ -8,6 +8,7 @@ import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, 
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
+import type { ContextLayer } from "./context-assembler.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
@@ -31,6 +32,8 @@ export interface StepContext {
   maxLoopCount?: number;
   /** Structured / JSON output mode (passed through to ModelPort.stream) */
   responseFormat?: { type: "json"; schema?: JSONSchema };
+  /** Optional context layers to inject as system messages */
+  contextLayers?: ContextLayer[];
 }
 
 // ──────────────────────────────────────────────
@@ -327,7 +330,17 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     const emitEffect: Effect = {
       type: "emit",
-      event: { type: "model_done", data: { stopReason: input.stopReason, usage: input.usage } },
+      event: {
+        type: "model_done",
+        data: {
+          stopReason: input.stopReason,
+          usage: input.usage,
+          // The Runner records this verbatim into the transcript's
+          // assistant_message event; handing it over here avoids a second,
+          // possibly divergent reassembly on the imperative side.
+          message: assistantMsg,
+        },
+      },
     };
 
     // Runaway guard — applies to every path that would issue another model call.
@@ -502,7 +515,8 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     // Emit a tool_result observability event for every result as it arrives.
     // displayMetadata.durationMs (and other host annotations) flow through so
     // tracing sinks can show timing without re-querying the runtime.
-    const matchingTool = state.pendingTools.find((t) => t.id === input.toolCallId);
+    const matchingIndex = state.pendingTools.findIndex((t) => t.id === input.toolCallId);
+    const matchingTool = matchingIndex >= 0 ? state.pendingTools[matchingIndex] : undefined;
     const resultEmit: Effect = {
       type: "emit",
       event: {
@@ -512,6 +526,14 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           toolName: matchingTool?.name,
           isError: input.result.isError ?? false,
           durationMs: input.result.displayMetadata?.["durationMs"],
+          // The result's own text and host annotations, so the transcript can
+          // record what the tool actually produced rather than just that it ran.
+          content: input.result.modelContent,
+          displayMetadata: input.result.displayMetadata,
+          // Results arrive in completion order but flush in pendingTools order
+          // (see the allDone branch below). Carrying the index lets a reader
+          // reconstruct the flushed order without replaying the reducer.
+          orderInBatch: matchingIndex,
         },
       },
     };
@@ -639,10 +661,32 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
 
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: denyResultMsg };
 
-    if (state.pendingTools.length > 0) {
+    // Put the tool back on the batch roster. `request_approval` took it out of
+    // pendingTools (above), but pendingTools is also what the completion path
+    // uses as the batch's *full* roster when it flushes — see
+    // handleExecutingTools' `state.pendingTools.map(...)`. A denied tool left
+    // off the roster has its buffered message silently dropped the moment a
+    // sibling reports, and `_toolResultBuffer` is cleared right after, losing
+    // it for good. The allow branch above restores the tool for the same
+    // reason; a denial has to as well — it simply arrives already resolved.
+    //
+    // Appending (rather than restoring the original index, which the filtered
+    // list no longer knows) mirrors what the allow branch does. Ordering among
+    // a batch's results is not load-bearing — providers pair tool_result to
+    // tool_use by id — and it stays deterministic under replay.
+    const rosterWithDenied = [...state.pendingTools, approvedTool];
+
+    // Flush only once every tool on the roster has resolved. Testing the
+    // roster rather than "are there other pending tools" is what makes the
+    // single-tool case still flush immediately: the denied tool is the whole
+    // roster, and its result is already buffered.
+    const allResolved = rosterWithDenied.every((t) => t.id in newBuffer);
+
+    if (!allResolved) {
       return {
         state: {
           ...state,
+          pendingTools: rosterWithDenied,
           _toolResultBuffer: newBuffer,
           pendingApprovalTool: undefined,
           status: "executing_tools",
@@ -651,9 +695,10 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       };
     }
 
-    // All tools processed (denied was the last one) — flush buffer in order
-    // pendingTools is empty, so use buffered keys in insertion order
-    const orderedResultMsgs = Object.values(newBuffer);
+    // Every tool in the batch has resolved — flush in roster order.
+    const orderedResultMsgs = rosterWithDenied
+      .map((t) => newBuffer[t.id])
+      .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
     // Drain steering queue at turn boundary
     const drainedMessages: Message[] = [
@@ -795,6 +840,7 @@ function buildCallModelEffect(
     messages,
     tools: ctx.tools,
     pinnedMessageIds,
+    contextLayers: ctx.contextLayers,
   });
   return {
     type: "call_model",
@@ -805,6 +851,7 @@ function buildCallModelEffect(
       maxTokens: ctx.maxTokens,
       temperature: ctx.temperature,
       cacheBreakpoints: assembled.cacheBreakpoints,
+      layerOrigins: assembled.layerOrigins,
     },
   };
 }

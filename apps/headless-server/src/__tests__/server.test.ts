@@ -7,7 +7,23 @@ import { WebSocket } from "ws";
 import { createServer } from "../server.js";
 import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
-import type { ModelPort, ReducerState } from "@volto/core";
+import {
+  applyPartial,
+  buildTurnRecords,
+  createMockModelPort,
+  textScript,
+  toConversationView,
+  toolCallScript,
+} from "@volto/core";
+import type {
+  ConversationMessage,
+  ModelPort,
+  ReducerState,
+  TranscriptDelta,
+  TranscriptEvent,
+  TranscriptEventInput,
+  TurnRecord,
+} from "@volto/core";
 
 const MOCK_MODEL: ModelPort = {
   async *stream() {
@@ -46,9 +62,9 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-function post(path: string, body: unknown): Promise<{ status: number; data: unknown }> {
+function post(path: string, body: unknown, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, baseUrl);
+    const url = new URL(path, base);
     const payload = JSON.stringify(body);
     const req = http.request(url, { method: "POST", headers: { "Content-Type": "application/json" } }, (res) => {
       const chunks: Buffer[] = [];
@@ -105,38 +121,52 @@ function parseFrames(raw: string): ProtocolFrame[] {
     });
 }
 
+/** Quiet window after the last frame at which a turn is considered complete. */
+const TURN_IDLE_MS = 400;
+
 /**
  * Open an /events channel, trigger one turn via POST /messages, and collect
- * every protocol frame up to and including `done`.
+ * every protocol frame the turn produced.
  *
  * `config` is merged into the /messages body. `resolveConfig` (F2) now
  * requires a real, resolvable projectId/providerId/modelId for every turn
  * requested through /messages, so any caller that needs a turn to actually
  * run (rather than immediately error) must supply one — see
  * `createTestProjectAndModel` below.
+ *
+ * The v2 protocol has no terminal `done` frame — turn end is expressed by
+ * `turn_end` events in the transcript — so completion is detected as a quiet
+ * period once the turn's frames have drained.
  */
 function collectProtocolTurn(
   sessionId: string,
   message: string,
   config: Record<string, unknown> = {},
+  base: string = baseUrl,
 ): Promise<ProtocolFrame[]> {
   return new Promise((resolve, reject) => {
-    const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl);
-    const timer = setTimeout(() => reject(new Error("timed out waiting for done")), 10_000);
+    const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, base);
+    const timer = setTimeout(() => reject(new Error("timed out waiting for turn frames")), 10_000);
 
     const req = http.get(url, (res) => {
       let raw = "";
+      let idle: ReturnType<typeof setTimeout> | undefined;
+      const scheduleIdle = (): void => {
+        if (idle) clearTimeout(idle);
+        idle = setTimeout(() => {
+          clearTimeout(timer);
+          req.destroy();
+          resolve(parseFrames(raw));
+        }, TURN_IDLE_MS);
+      };
       res.on("data", (chunk: Buffer) => {
         raw += chunk.toString("utf-8");
-        if (!raw.includes("event: done")) return;
-        clearTimeout(timer);
-        req.destroy();
-        resolve(parseFrames(raw));
+        scheduleIdle();
       });
       res.on("error", reject);
 
       // The channel must be attached before the turn is triggered.
-      post("/messages", { sessionId, message, ...config }).catch(reject);
+      post("/messages", { sessionId, message, ...config }, base).catch(reject);
     });
     req.on("error", (err) => {
       // destroy() after resolving surfaces here; ignore once we already resolved.
@@ -168,9 +198,9 @@ async function createTestProjectAndModel(): Promise<{
   };
 }
 
-function getJson(path: string): Promise<{ status: number; data: unknown }> {
+function getJson(path: string, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
-    http.get(new URL(path, baseUrl), (res) => {
+    http.get(new URL(path, base), (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () =>
@@ -194,6 +224,93 @@ function del(path: string): Promise<{ status: number; data: unknown }> {
     req.on("error", reject);
     req.end();
   });
+}
+
+/**
+ * Boots a dedicated server instance on an ephemeral port with its own model
+ * port — the pattern the directory-picker tests use. Project/provider ids
+ * created through any server in this file resolve here too: those stores are
+ * file-backed under VOLTO_CONFIG_DIR and re-read on every call.
+ */
+async function startEphemeralServer(
+  modelPort: ModelPort,
+): Promise<{ base: string; close(): Promise<void> }> {
+  const instance = createServer({ port: 0, modelPort });
+  await new Promise<void>((resolve) => instance.on("listening", resolve));
+  const addr = instance.address();
+  const base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+  return { base, close: () => new Promise<void>((resolve) => instance.close(() => resolve())) };
+}
+
+/** Resolves once `pred` holds (polling every 25ms); rejects after `timeoutMs`. */
+async function until(
+  pred: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+  message: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await pred()) return;
+    if (Date.now() > deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+/**
+ * Opens a raw /events SSE channel and collects every protocol frame into
+ * `frames` — parsed incrementally, keeping any incomplete trailing block
+ * buffered — until `stop()` destroys the connection. Unlike
+ * `collectProtocolTurn` this never triggers a turn and never resolves on its
+ * own: the caller decides when to abort, which is what the reconnection
+ * regression needs.
+ */
+function openEventChannel(
+  sessionId: string,
+  lastEventId: string | undefined,
+  base: string,
+): { frames: ProtocolFrame[]; opened: Promise<void>; stop(): void } {
+  const frames: ProtocolFrame[] = [];
+  const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, base);
+  let signalOpen!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    signalOpen = resolve;
+  });
+
+  const handleResponse = (res: http.IncomingMessage): void => {
+    signalOpen();
+    let raw = "";
+    res.on("data", (chunk: Buffer) => {
+      raw += chunk.toString("utf-8");
+      const blocks = raw.split("\n\n");
+      raw = blocks.pop() ?? "";
+      for (const block of blocks) {
+        if (!block.includes("event: ")) continue; // the ": connected" comment
+        const fields: Record<string, string> = {};
+        for (const line of block.split("\n")) {
+          const idx = line.indexOf(": ");
+          if (idx > 0) fields[line.slice(0, idx)] = line.slice(idx + 2);
+        }
+        frames.push({
+          id: fields["id"] ?? "",
+          event: fields["event"] ?? "",
+          data: JSON.parse(fields["data"] ?? "null"),
+        });
+      }
+    });
+    res.on("error", () => {
+      // The deliberate destroy() below surfaces here — expected, not a failure.
+    });
+  };
+
+  const req =
+    lastEventId !== undefined
+      ? http.get(url, { headers: { "last-event-id": lastEventId } }, handleResponse)
+      : http.get(url, handleResponse);
+  req.on("error", () => {
+    // Same story on the request side: destroy() rejects the socket.
+  });
+
+  return { frames, opened, stop: () => req.destroy() };
 }
 
 describe("Headless server", () => {
@@ -305,19 +422,234 @@ describe("Headless server", () => {
     expect(status).toBe(400);
   });
 
-  it("GET /events + POST /messages streams a turn in protocol format", async () => {
+  it("GET /events + POST /messages streams a turn as event and delta frames", async () => {
     const sessionId = "session-protocol";
     const config = await createTestProjectAndModel();
     const frames = await collectProtocolTurn(sessionId, "hi", config);
 
-    const tokens = frames.filter((f) => f.event === "token");
-    expect(tokens.length).toBeGreaterThan(0);
-    // Tokens carry the server-side accumulation, ending with the full text.
-    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
-    expect(frames.at(-1)?.event).toBe("done");
-    // Ids are monotonic so a client can resume with Last-Event-ID.
+    // Every frame rides one of the four v2 kinds.
+    const kinds = new Set(frames.map((f) => f.event));
+    expect([...kinds].every((k) => ["event", "delta", "heartbeat", "error"].includes(k))).toBe(true);
+
+    // Text flows as delta frames carrying TranscriptDelta increments...
+    const textPieces = frames
+      .filter((f) => f.event === "delta")
+      .map((f) => f.data as { kind: string; text?: string })
+      .filter((d) => d.kind === "text")
+      .map((d) => d.text ?? "");
+    expect(textPieces.join("")).toBe("Hello world");
+
+    // ...bookended by authoritative event frames. Task R6: the runner streams
+    // the transcript vocabulary it records — every event frame payload is a
+    // stamped TranscriptEventInput ({time, type, data, turn?}), isomorphic
+    // with what the chatStore would persist. The raw reducer vocabulary
+    // (model_done/tool_use_complete) never reaches the wire.
+    const eventPayloads = frames
+      .filter((f) => f.event === "event")
+      .map((f) => f.data as { type: string; time: number; turn?: number });
+    expect(eventPayloads.some((e) => e.type === "user_message")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "assistant_message")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "turn_end")).toBe(true);
+    expect(eventPayloads.every((e) => typeof e.time === "number")).toBe(true);
+    expect(eventPayloads.every((e) => typeof e.turn === "number")).toBe(true);
+    expect(eventPayloads.some((e) => e.type === "model_done")).toBe(false);
+    expect(eventPayloads.some((e) => e.type === "tool_use_complete")).toBe(false);
+
+    // Ids are monotonic so a client can resume with Last-Event-ID. Delta
+    // frames share the last event's id (they are not replayable), so ids are
+    // non-decreasing rather than strictly increasing.
     const ids = frames.map((f) => Number(f.id));
-    expect([...ids].sort((a, b) => a - b)).toEqual(ids);
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i]!).toBeGreaterThanOrEqual(ids[i - 1]!);
+    }
+  });
+
+  // §九 P2-1: the live/history consistency gate. The SSE stream and the
+  // session store are two transports for the same transcript; this proves a
+  // client that projects the stream exactly the way apps/web does lands on
+  // the very conversation the server persists — deep-equal, including every
+  // tool_call.result folded back into its call.
+  it("reconstructs the stored ConversationView from the live event/delta stream (consistency gate)", { timeout: 15_000 }, async () => {
+    // A tool-calling turn needs a scripted model — the shared MOCK_MODEL is
+    // text-only — so this boots its own server (the picker tests' pattern).
+    // `ls` is READ_ONLY, so the default permission policy (READ_ONLY: allow)
+    // executes it without an approval round-trip.
+    const toolModel = createMockModelPort([
+      toolCallScript("call-gate-1", "ls", JSON.stringify({ path: "." })),
+      textScript("done"),
+    ]);
+    const toolServer = await startEphemeralServer(toolModel);
+    try {
+      const base = toolServer.base;
+      const sessionId = "session-consistency-gate";
+      const project = await post("/projects", { name: "gate-project", path: process.cwd() }, base);
+      const provider = await post(
+        "/providers",
+        { name: "gate-provider", models: [{ name: "gate-model", code: "gate-model" }] },
+        base,
+      );
+      const config = {
+        projectId: (project.data as { id: string }).id,
+        providerId: (provider.data as { id: string }).id,
+        modelId: (provider.data as { models: Array<{ id: string }> }).models[0]!.id,
+      };
+
+      const frames = await collectProtocolTurn(sessionId, "list this directory", config, base);
+
+      // Premise: the turn really did call a tool and got a result back.
+      const eventTypes = frames
+        .filter((f) => f.event === "event")
+        .map((f) => (f.data as { type: string }).type);
+      expect(eventTypes).toContain("tool_call");
+      expect(eventTypes).toContain("tool_result");
+
+      // The live reconstruction, exactly the way apps/web does it: event
+      // frames are the authoritative transcript (seq synthesized by arrival
+      // index — the projection never reads seq), delta frames fold into the
+      // open step as streaming partials that the next authoritative event
+      // supersedes.
+      const liveEvents: TranscriptEvent[] = [];
+      let records: TurnRecord[] = [];
+      for (const frame of frames) {
+        if (frame.event === "event") {
+          liveEvents.push({ ...(frame.data as TranscriptEventInput), seq: liveEvents.length });
+          records = buildTurnRecords(liveEvents, records);
+        } else if (frame.event === "delta") {
+          records = applyPartial(records, frame.data as TranscriptDelta);
+        }
+      }
+      const live = toConversationView(records);
+
+      // The history side: what GET /sessions/:id projects from the persisted
+      // transcript (readConversation = toConversationView(buildTurnRecords)).
+      const detail = await getJson(`/sessions/${sessionId}`, base);
+      expect(detail.status).toBe(200);
+      const stored = (detail.data as { messages: ConversationMessage[] }).messages;
+
+      // THE GATE: deep equality between the live view and the stored view.
+      expect(live.messages).toEqual(stored);
+
+      // The tool result the gate exists to cover is real tool output, not a
+      // metadata summary.
+      const calls = live.messages
+        .flatMap((m) => m.blocks)
+        .flatMap((b) => (b.type === "tool_call" ? [b.call] : []));
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.name).toBe("ls");
+      expect(calls[0]!.isError).toBe(false);
+      expect(calls[0]!.result).toContain("package.json");
+    } finally {
+      await toolServer.close();
+    }
+  });
+
+  // §九 P2-2: deltas are not replayable — a client reconnecting with
+  // Last-Event-ID must receive only authoritative event frames, and must not
+  // lose any of them while it was away.
+  it("replays only event frames (never deltas) to a client reconnecting with Last-Event-ID", { timeout: 15_000 }, async () => {
+    // The shared MOCK_MODEL streams its two text deltas back-to-back, so TCP
+    // would likely coalesce the whole turn into one chunk and a "mid-turn"
+    // abort would land after the fact. A dedicated server whose model pauses
+    // after the first delta makes the mid-stream abort deterministic.
+    const slowModel: ModelPort = {
+      async *stream() {
+        yield { type: "text_delta", text: "Hello" };
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        yield { type: "text_delta", text: " world" };
+        yield { type: "done", stopReason: "end_turn" };
+      },
+    };
+    const slowServer = await startEphemeralServer(slowModel);
+    try {
+      const base = slowServer.base;
+      const sessionId = "session-delta-replay";
+      // Project/provider ids resolve on any server in this file — the stores
+      // are file-backed under VOLTO_CONFIG_DIR and re-read per call.
+      const config = await createTestProjectAndModel();
+
+      // ── Connection A: attach, trigger the turn, abort mid-stream. ──
+      const channelA = openEventChannel(sessionId, undefined, base);
+      await channelA.opened;
+      const postResult = await post("/messages", { sessionId, message: "hi", ...config }, base);
+      expect(postResult.status).toBe(202);
+      await until(
+        () => channelA.frames.some((f) => f.event === "delta"),
+        5_000,
+        "timed out waiting for the first delta frame",
+      );
+      channelA.stop();
+
+      // Premise guards: the abort really landed mid-stream — deltas had
+      // arrived, the turn had not ended.
+      expect(channelA.frames.some((f) => f.event === "delta")).toBe(true);
+      expect(
+        channelA.frames.some(
+          (f) => f.event === "event" && (f.data as { type?: string }).type === "turn_end",
+        ),
+      ).toBe(false);
+
+      // Let the turn finish: poll the durable transcript until the assistant
+      // reply has been recorded (user + assistant = 2 messages). By this
+      // point every text delta has already been pushed, so the reconnect
+      // below can only ever see event frames.
+      await until(
+        async () => {
+          const { status, data } = await getJson(`/sessions/${sessionId}`, base);
+          return status === 200 && (data as { messages: unknown[] }).messages.length >= 2;
+        },
+        5_000,
+        "timed out waiting for the turn to persist its messages",
+      );
+
+      // ── Connection B: reconnect with Last-Event-ID. ──
+      // A well-behaved client advances its cursor on replayable (event)
+      // frames only — delta frames deliberately repeat the last event's id so
+      // they never advance it. The cursor here sits on the first event frame
+      // connection A had processed (turn_start), so everything authoritative
+      // from user_message onward must come back.
+      const lastEventId = channelA.frames.find((f) => f.event === "event")!.id;
+      const channelB = openEventChannel(sessionId, lastEventId, base);
+      await channelB.opened;
+      await until(
+        () =>
+          channelB.frames.some(
+            (f) => f.event === "event" && (f.data as { type?: string }).type === "turn_end",
+          ),
+        10_000,
+        "timed out waiting for turn_end on the reconnected channel",
+      );
+      channelB.stop();
+
+      const replayed = channelB.frames;
+
+      // THE GATE: nothing the reconnect delivers is a delta frame. The replay
+      // buffer only ever holds event frames, and by the time B attached the
+      // turn had finished streaming — so every frame here is a replay.
+      expect(replayed.length).toBeGreaterThan(0);
+      expect(replayed.every((f) => f.event === "event")).toBe(true);
+
+      // Nothing authoritative was lost while A was away: the turn's key
+      // events all came back.
+      const replayedTypes = replayed.map((f) => (f.data as { type?: string }).type);
+      expect(replayedTypes).toContain("user_message");
+      expect(replayedTypes).toContain("assistant_message");
+      expect(replayedTypes).toContain("turn_end");
+
+      // The authoritative assistant_message carries the full reply on its own
+      // — a client that lost every delta still reconstructs it.
+      const assistant = replayed.find(
+        (f) => (f.data as { type?: string }).type === "assistant_message",
+      )!.data as TranscriptEventInput;
+      const assistantContent = assistant.data as { content: Array<{ type: string; text?: string }> };
+      expect(
+        assistantContent.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
+      ).toBe("Hello world");
+
+      // Replay semantics: only frames strictly newer than the cursor.
+      expect(replayed.every((f) => Number(f.id) > Number(lastEventId))).toBe(true);
+    } finally {
+      await slowServer.close();
+    }
   });
 
   it("keeps conversation history per session across turns", async () => {
@@ -326,12 +658,16 @@ describe("Headless server", () => {
     await collectProtocolTurn(sessionId, "first", config);
     await collectProtocolTurn(sessionId, "second", config);
 
-    // The mock model replies identically each turn; what matters is that the
-    // second turn streams a complete, independent response over the same
-    // channel rather than erroring or replaying the first turn's text.
     const frames = await collectProtocolTurn(sessionId, "third", config);
-    const tokens = frames.filter((f) => f.event === "token");
-    expect((tokens[tokens.length - 1]!.data as { content: string }).content).toBe("Hello world");
+    const textPieces = frames
+      .filter((f) => f.event === "delta")
+      .map((f) => f.data as { kind: string; text?: string })
+      .filter((d) => d.kind === "text")
+      .map((d) => d.text ?? "");
+    // The mock model replies identically each turn; a fresh, complete
+    // response proves the turn ran independently rather than erroring or
+    // replaying an earlier turn's text.
+    expect(textPieces.join("")).toBe("Hello world");
   });
 
   it("GET /sessions lists a session after a turn has run", async () => {
@@ -341,12 +677,37 @@ describe("Headless server", () => {
 
     const { status, data } = await getJson("/sessions");
     expect(status).toBe(200);
-    const summaries = data as Array<{ id: string; projectId: string; messageCount: number }>;
-    const summary = summaries.find((s) => s.id === sessionId);
+    const body = data as { sessions: Array<{ id: string; projectId: string; messageCount: number }>; unreadableSessions: number };
+    const summary = body.sessions.find((s) => s.id === sessionId);
     expect(summary).toBeDefined();
     expect(summary!.projectId).toBe(config.projectId);
     // One user message + one assistant message from the mock model's reply.
     expect(summary!.messageCount).toBe(2);
+  });
+
+  it("GET /sessions excludes sub-agent sessions (meta.origin === \"subagent\")", async () => {
+    // Sub-agents write their own session files directly to the same
+    // top-level sessions directory the task tool uses — a raw v2 file is
+    // written here to simulate that without wiring up a real sub-agent run.
+    const sessionsDir = path.join(process.env["VOLTO_CONFIG_DIR"]!, "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const subagentSessionId = "subagent-session-1";
+    const line = JSON.stringify({
+      version: 2,
+      sessionId: subagentSessionId,
+      event: {
+        seq: 0,
+        time: Date.now(),
+        type: "session_meta",
+        data: { projectId: null, providerId: null, modelId: null, permissionMode: null, origin: "subagent" },
+      },
+    });
+    await fs.writeFile(path.join(sessionsDir, `${subagentSessionId}.jsonl`), line + "\n", "utf-8");
+
+    const { status, data } = await getJson("/sessions");
+    expect(status).toBe(200);
+    const body = data as { sessions: Array<{ id: string }> };
+    expect(body.sessions.some((s) => s.id === subagentSessionId)).toBe(false);
   });
 
   it("GET /sessions/:id returns the transcript in the web app's Message shape", async () => {
@@ -377,9 +738,17 @@ describe("Headless server", () => {
     const frames = await collectProtocolTurn(sessionId, "hi");
 
     expect(frames.some((f) => f.event === "error")).toBe(true);
-    expect(frames.at(-1)?.event).toBe("done");
-    // Never silently ran the turn — no token was streamed.
-    expect(frames.some((f) => f.event === "token")).toBe(false);
+    // The transport error frame is the whole turn — nothing follows it.
+    expect(frames.at(-1)?.event).toBe("error");
+    // Never silently ran the turn — no delta was streamed.
+    expect(frames.some((f) => f.event === "delta")).toBe(false);
+    // The error frame carries a typed payload the client can surface: the
+    // mapper's default code plus the resolveConfig rejection reason.
+    const errorData = frames.find((f) => f.event === "error")?.data as
+      | { code: string; message: string }
+      | undefined;
+    expect(errorData?.code).toBe("STREAM_ERROR");
+    expect(errorData?.message).toContain("projectId is required");
   });
 
   it("POST /messages errors over SSE when only providerId is given without modelId (F2)", async () => {
@@ -388,7 +757,7 @@ describe("Headless server", () => {
     const frames = await collectProtocolTurn(sessionId, "hi", { projectId, providerId });
 
     expect(frames.some((f) => f.event === "error")).toBe(true);
-    expect(frames.some((f) => f.event === "token")).toBe(false);
+    expect(frames.some((f) => f.event === "delta")).toBe(false);
   });
 
   it("POST /resume returns state", async () => {

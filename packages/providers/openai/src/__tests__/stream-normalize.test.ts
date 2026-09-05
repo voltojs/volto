@@ -214,6 +214,38 @@ describe("normalizeStream", () => {
         outputTokens: 0,
       });
     });
+
+    it("should map total_tokens and completion_tokens_details.reasoning_tokens onto the usage event", async () => {
+      const events = await collect([
+        chunk({ content: "Hi" }),
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          total_tokens: 150,
+          completion_tokens_details: { reasoning_tokens: 20 },
+        }),
+      ]);
+
+      const usageEvents = events.filter((e) => e.type === "usage");
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]).toMatchObject({
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+        reasoningTokens: 20,
+      });
+    });
+
+    it("should leave totalTokens and reasoningTokens undefined when the provider omits them", async () => {
+      const events = await collect([
+        chunk({}, "stop", { prompt_tokens: 10, completion_tokens: 5 }),
+      ]);
+
+      const usageEvents = events.filter((e) => e.type === "usage");
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]).toMatchObject({ totalTokens: undefined, reasoningTokens: undefined });
+    });
   });
 
   describe("finish reason mapping", () => {

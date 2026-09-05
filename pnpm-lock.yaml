@@ -366,6 +366,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@volto/eval':
+        specifier: workspace:*
+        version: link:../../eval
 
   packages/sdk:
     dependencies:
@@ -396,9 +399,15 @@ importers:
       '@volto/tools-data':
         specifier: workspace:*
         version: link:../tools/data
+      '@volto/tools-document':
+        specifier: workspace:*
+        version: link:../tools/document
       '@volto/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
+      '@volto/tools-schedule':
+        specifier: workspace:*
+        version: link:../tools/schedule
       '@volto/tools-shell':
         specifier: workspace:*
         version: link:../tools/shell

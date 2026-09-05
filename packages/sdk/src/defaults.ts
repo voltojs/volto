@@ -17,6 +17,7 @@ import type {
   Random,
   Tokenizer,
   SessionStore,
+  TranscriptStore,
   EventSink,
   ToolSource,
   MemoryStore,
@@ -62,6 +63,10 @@ export const defaultEventSink: EventSink = {
 export function createDefaultSessionStore(): SessionStore {
   return createMemoryStore();
 }
+
+export const defaultChatStore: TranscriptStore = {
+  async appendEvents() {},
+};
 
 // ──────────────────────────────────────────────
 // M8: New port defaults
