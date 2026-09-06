@@ -92,15 +92,30 @@ const LAYER_SENTINEL = /^<<<layer id="([^"]+)" bytes="(\d+)">>>$/;
  */
 export function parseSystemLayers(inputDetail: string): ParsedSystemLayer[] {
   if (inputDetail.length === 0) return [];
-  const sections = inputDetail.split('\n\n');
   const layers: ParsedSystemLayer[] = [];
-  for (const section of sections) {
-    const newlineAt = section.indexOf('\n');
-    if (newlineAt < 0) return [];
-    const header = section.slice(0, newlineAt);
-    const match = LAYER_SENTINEL.exec(header);
+  const bytes = new TextEncoder().encode(inputDetail);
+  const decoder = new TextDecoder();
+  let offset = 0;
+  while (offset < bytes.length) {
+    // \n (0x0A) never occurs inside multi-byte UTF-8 sequences, so byte-level
+    // line scanning is safe.
+    let lineEnd = offset;
+    while (lineEnd < bytes.length && bytes[lineEnd] !== 0x0a) lineEnd += 1;
+    const line = decoder.decode(bytes.slice(offset, lineEnd));
+    const match = LAYER_SENTINEL.exec(line);
     if (match === null) return [];
-    layers.push({ id: match[1]!, text: section.slice(newlineAt + 1) });
+    const declared = Number(match[2]);
+    const contentStart = lineEnd + 1;
+    const text = decoder.decode(bytes.slice(contentStart, contentStart + declared));
+    const after = contentStart + declared;
+    if (after < bytes.length) {
+      // Core joins sections with exactly "\n\n" — anything else is malformed.
+      if (bytes[after] !== 0x0a || bytes[after + 1] !== 0x0a) return [];
+      offset = after + 2;
+    } else {
+      offset = after;
+    }
+    layers.push({ id: match[1]!, text });
   }
   return layers;
 }

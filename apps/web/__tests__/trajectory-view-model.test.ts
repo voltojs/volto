@@ -85,11 +85,31 @@ describe('parseSystemLayers', () => {
   it('splits sentinel-framed layers with byte counts', () => {
     const input = [
       '<<<layer id="user-memory" bytes="4">>>\nUser',
-      '<<<layer id="project-memory:AGENTS.md" bytes="11">>>\nProject rule',
+      '<<<layer id="project-memory:AGENTS.md" bytes="12">>>\nProject rule',
     ].join('\n\n');
     expect(parseSystemLayers(input)).toEqual([
       { id: 'user-memory', text: 'User' },
       { id: 'project-memory:AGENTS.md', text: 'Project rule' },
+    ]);
+  });
+
+  it('groups multi-paragraph layer content with blank lines and markdown headings', () => {
+    const input = [
+      '<<<layer id="project-memory:AGENTS.md" bytes="22">>>\nIntro.\n\n## Rules\n\nBody',
+    ].join('\n');
+    expect(parseSystemLayers(input)).toEqual([
+      { id: 'project-memory:AGENTS.md', text: 'Intro.\n\n## Rules\n\nBody' },
+    ]);
+  });
+
+  it('handles a trailing-newline layer followed by another layer', () => {
+    const input = [
+      '<<<layer id="user-memory" bytes="5">>>\nUser\n',
+      '<<<layer id="skill:x" bytes="4">>>\nBody',
+    ].join('\n\n');
+    expect(parseSystemLayers(input)).toEqual([
+      { id: 'user-memory', text: 'User\n' },
+      { id: 'skill:x', text: 'Body' },
     ]);
   });
 
