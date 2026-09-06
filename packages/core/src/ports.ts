@@ -343,6 +343,35 @@ export interface TranscriptReader {
 }
 
 // ──────────────────────────────────────────────
+// SkillRegistry — progressive skill disclosure
+// ──────────────────────────────────────────────
+
+/** Normalized invocation controls for one skill (dsh-compatible frontmatter defaults). */
+export interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders include this skill. */
+  modelInvocable: boolean;
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  userInvocable: boolean;
+}
+
+/** Invocation-neutral skill metadata — the catalog carries this, never the body. */
+export interface SkillSummary {
+  name: string;
+  description: string;
+  invocation: SkillInvocationPolicy;
+}
+
+/**
+ * Host-owned skill registry: discovery (summaries only) plus on-demand full
+ * body loading. Implementations must NOT cache bodies — every load rereads
+ * the current disk state (skills are instructions, their files can change).
+ */
+export interface SkillRegistry {
+  list(): Promise<SkillSummary[]>;
+  load(name: string): Promise<string | undefined>;
+}
+
+// ──────────────────────────────────────────────
 // EventSink — observable event output
 // ──────────────────────────────────────────────
 
