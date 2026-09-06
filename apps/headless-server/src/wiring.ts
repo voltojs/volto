@@ -182,7 +182,10 @@ function parseSkillFile(raw: string): ParsedSkillFile | undefined {
     fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
   }
   if (!fields["name"] || !fields["description"]) return undefined;
-  return { name: fields["name"], description: fields["description"], trigger: fields["trigger"], body: body!.trim() };
+  // Skills from .claude/.agents conventions rarely carry a trigger field;
+  // defaulting it to the skill name keeps them reachable (input containing
+  // the name fires the skill) instead of permanently silent.
+  return { name: fields["name"], description: fields["description"], trigger: fields["trigger"] ?? fields["name"], body: body!.trim() };
 }
 
 interface LoadedSkills {
@@ -221,16 +224,36 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSk
   return { skills, rootDirByResource };
 }
 
-/** In-memory cache: skills directories are scanned once per agent instance, not once per turn. */
+/**
+ * In-memory cache: skills directories are scanned once per agent instance, not
+ * once per turn. Sources are listed in ascending priority order and merged
+ * into a name-keyed map where later entries override earlier ones — a project
+ * directory beats its user-level counterpart, and within a level .volto beats
+ * .claude beats .agents (the .claude/skills entries on real machines are
+ * frequently symlinks into .agents/skills, so name-based dedupe is
+ * load-bearing: duplicates would produce duplicate skill:<name> layer ids).
+ */
 async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
-  const [userResult, projectResult] = await Promise.all([
-    loadSkillsFromDir(path.join(getConfigDir(), "skills"), getConfigDir()),
-    loadSkillsFromDir(path.join(cwd, ".volto", "skills"), cwd),
-  ]);
-  return {
-    skills: [...userResult.skills, ...projectResult.skills],
-    rootDirByResource: new Map([...userResult.rootDirByResource, ...projectResult.rootDirByResource]),
-  };
+  const configDir = getConfigDir();
+  const sources: Array<{ root: string; subdir: string; rootDir: string }> = [
+    { root: configDir, subdir: path.join(".agents", "skills"), rootDir: configDir },
+    { root: configDir, subdir: path.join(".claude", "skills"), rootDir: configDir },
+    { root: configDir, subdir: "skills", rootDir: configDir },
+    { root: cwd, subdir: path.join(".agents", "skills"), rootDir: cwd },
+    { root: cwd, subdir: path.join(".claude", "skills"), rootDir: cwd },
+    { root: cwd, subdir: path.join(".volto", "skills"), rootDir: cwd },
+  ];
+  const byName = new Map<string, Skill>();
+  const rootDirByResource = new Map<string, string>();
+  for (const source of sources) {
+    const { skills } = await loadSkillsFromDir(path.join(source.root, source.subdir), source.rootDir);
+    for (const skill of skills) {
+      byName.set(skill.name, skill);
+      const resourcePath = skill.resources?.[0];
+      if (resourcePath !== undefined) rootDirByResource.set(resourcePath, source.rootDir);
+    }
+  }
+  return { skills: [...byName.values()], rootDirByResource };
 }
 
 /** Loads a skill's resource files (each already-expanded via @import) and joins them. */

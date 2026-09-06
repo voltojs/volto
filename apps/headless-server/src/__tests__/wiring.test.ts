@@ -401,3 +401,109 @@ describe("createWiredAgent unified instruction budget over skills", () => {
     expect(budgetLayer).toContain("truncated skill:huge from");
   });
 });
+
+describe("createWiredAgent skill directory compatibility", () => {
+  async function writeSkill(
+    root: string,
+    subdir: string,
+    name: string,
+    body: string,
+    trigger?: string,
+  ): Promise<void> {
+    const dir = path.join(root, subdir, name);
+    await fs.mkdir(dir, { recursive: true });
+    const triggerLine = trigger === undefined ? "" : `trigger: ${trigger}\n`;
+    await fs.writeFile(
+      path.join(dir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${name} skill\n${triggerLine}---\n${body}`,
+      "utf-8",
+    );
+  }
+
+  function systemContentsOf(requests: ModelRequest[]): string[] {
+    return requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+  }
+
+  it("discovers user-level .agents/.claude/.volto skills via name-fallback triggers", async () => {
+    await writeSkill(tempConfigDir, ".agents/skills", "agentsSkill", "AGENTS-SRC");
+    await writeSkill(tempConfigDir, ".claude/skills", "claudeSkill", "CLAUDE-SRC");
+    await writeSkill(tempConfigDir, "skills", "voltoSkill", "VOLTO-SRC");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("agentsSkill claudeSkill voltoSkill");
+
+    const systemContents = systemContentsOf(requests);
+    expect(
+      systemContents.some((c) => c.includes("Instructions from: skill:agentsSkill") && c.includes("AGENTS-SRC")),
+    ).toBe(true);
+    expect(
+      systemContents.some((c) => c.includes("Instructions from: skill:claudeSkill") && c.includes("CLAUDE-SRC")),
+    ).toBe(true);
+    expect(
+      systemContents.some((c) => c.includes("Instructions from: skill:voltoSkill") && c.includes("VOLTO-SRC")),
+    ).toBe(true);
+  });
+
+  it("discovers project-level .agents/.claude/.volto skills", async () => {
+    await writeSkill(tempProjectDir, ".agents/skills", "pAgents", "P-AGENTS");
+    await writeSkill(tempProjectDir, ".claude/skills", "pClaude", "P-CLAUDE");
+    await writeSkill(tempProjectDir, ".volto/skills", "pVolto", "P-VOLTO");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("pAgents pClaude pVolto");
+
+    const systemContents = systemContentsOf(requests);
+    expect(systemContents.some((c) => c.includes("P-AGENTS"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("P-CLAUDE"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("P-VOLTO"))).toBe(true);
+  });
+
+  it("prefers project-level over user-level on name collision", async () => {
+    await writeSkill(tempConfigDir, ".volto/skills", "dup", "USER-LOSE");
+    await writeSkill(tempProjectDir, ".volto/skills", "dup", "PROJECT-WINS");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("dup");
+
+    const systemContents = systemContentsOf(requests);
+    expect(
+      systemContents.some((c) => c.includes("Instructions from: skill:dup") && c.includes("PROJECT-WINS")),
+    ).toBe(true);
+    expect(systemContents.some((c) => c.includes("USER-LOSE"))).toBe(false);
+    expect(systemContents.filter((c) => c.includes("skill:dup"))).toHaveLength(1);
+  });
+
+  it("prefers .volto over .claude over .agents within the same level", async () => {
+    await writeSkill(tempConfigDir, ".agents/skills", "dup2", "AGENTS-LOSE");
+    await writeSkill(tempConfigDir, ".claude/skills", "dup2", "CLAUDE-LOSE");
+    await writeSkill(tempConfigDir, "skills", "dup2", "VOLTO-WINS");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("dup2");
+
+    const systemContents = systemContentsOf(requests);
+    expect(
+      systemContents.some((c) => c.includes("Instructions from: skill:dup2") && c.includes("VOLTO-WINS")),
+    ).toBe(true);
+    expect(systemContents.some((c) => c.includes("AGENTS-LOSE") || c.includes("CLAUDE-LOSE"))).toBe(false);
+  });
+
+  it("still honors an explicit trigger over the name fallback", async () => {
+    await writeSkill(tempConfigDir, "skills", "custom", "CUSTOM-SRC", "magical words");
+    await writeSkill(tempConfigDir, "skills", "plain", "PLAIN-SRC");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("say the magical words now");
+
+    const systemContents = systemContentsOf(requests);
+    expect(systemContents.some((c) => c.includes("CUSTOM-SRC"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("PLAIN-SRC"))).toBe(false);
+  });
+});
