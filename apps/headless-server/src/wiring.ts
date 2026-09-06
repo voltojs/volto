@@ -172,7 +172,10 @@ interface ParsedSkillFile {
 
 /** Parses a SKILL.md file's `--- key: value ---` frontmatter plus body. Pure text processing. */
 function parseSkillFile(raw: string): ParsedSkillFile | undefined {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  // Windows-authored SKILL.md files use CRLF; normalize once so the
+  // frontmatter regex and field splitting both see bare \n.
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) return undefined;
   const [, frontmatter, body] = match;
   const fields: Record<string, string> = {};

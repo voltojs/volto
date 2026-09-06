@@ -358,4 +358,23 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     expect(JSON.stringify(toolResult)).toContain("Unknown or non-invocable skill: secret");
     expect(JSON.stringify(toolResult)).not.toContain("SECRET-BODY");
   });
+
+  it("parses CRLF-authored SKILL.md files into the catalog", async () => {
+    const skillDir = path.join(tempConfigDir, "skills", "crlf");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\r\nname: crlf\r\ndescription: crlf skill\r\n---\r\nCRLF-BODY",
+      "utf-8",
+    );
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    const systemContents = systemContentsOf(requests);
+    const catalog = systemContents.find((c) => c.startsWith("Available skills (load full instructions with the skill tool):")) ?? "";
+    expect(catalog).toContain("- crlf: crlf skill");
+    expect(systemContents.some((c) => c.includes("CRLF-BODY"))).toBe(false);
+  });
 });
