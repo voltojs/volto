@@ -588,6 +588,15 @@ importers:
         specifier: workspace:*
         version: link:../common
 
+  packages/tools/skill:
+    dependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@volto/tools-common':
+        specifier: workspace:*
+        version: link:../common
+
   packages/tools/vcs:
     dependencies:
       '@volto/core':
