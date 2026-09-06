@@ -20,6 +20,8 @@ export interface LoadedInstructionFile {
   displayPath: string;
   /** Expanded file content (@import already resolved by the host). */
   content: string;
+  /** Overrides the displayPath-derived layer id (skill layers use `skill:<name>`). */
+  id?: string;
 }
 
 /** Base candidates probed in every chain directory, in precedence order. */
@@ -118,7 +120,7 @@ function sectionText(file: LoadedInstructionFile): string {
 }
 
 function layerFor(file: LoadedInstructionFile): ContextLayer {
-  return { id: instructionLayerId(file.displayPath), text: sectionText(file) };
+  return { id: file.id ?? instructionLayerId(file.displayPath), text: sectionText(file) };
 }
 
 function noticeLine(maxBytes: number, omitted: string[], truncated: TruncationRecord[]): string {
@@ -212,7 +214,7 @@ export function renderInstructionLayers(
   let text = textFor(finalSlice, finalSlice.length);
   if (utf8Bytes(text) > maxBytes) text = truncateUtf8(noticeLine(maxBytes, omitted, truncated), maxBytes);
   return {
-    layers: [{ id: instructionLayerId(last.displayPath), text }],
+    layers: [{ id: last.id ?? instructionLayerId(last.displayPath), text }],
     omitted,
     truncated,
   };

@@ -203,6 +203,22 @@ describe("renderInstructionLayers — byte budget", () => {
   });
 });
 
+describe("LoadedInstructionFile id override", () => {
+  it("uses the explicit id when present", () => {
+    const { layers } = renderInstructionLayers(
+      [{ absolutePath: "/skills/x/SKILL.md", displayPath: "skill:x", content: "body", id: "skill:x" }],
+      64 * 1024,
+    );
+    expect(layers[0]!.id).toBe("skill:x");
+    expect(layers[0]!.text).toBe("Instructions from: skill:x\n\nbody");
+  });
+
+  it("defaults to the displayPath-derived id when absent", () => {
+    const { layers } = renderInstructionLayers([file("AGENTS.md", "body")], 64 * 1024);
+    expect(layers[0]!.id).toBe("project-memory:AGENTS.md");
+  });
+});
+
 describe("truncateUtf8", () => {
   it("never splits a multi-byte code point", () => {
     // "汉汉" = 6 bytes; cutting at 4 must back off to 3.
