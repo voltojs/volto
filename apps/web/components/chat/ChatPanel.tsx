@@ -8,6 +8,7 @@ import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
 import { ModelPicker } from './ModelPicker';
 import { PermissionPicker } from './PermissionPicker';
+import { ContextMeter } from './ContextMeter';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
@@ -24,7 +25,7 @@ export function ChatPanel() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const { sendMessage, connectionState } = useChatAgent();
-  const { entries } = useConversation();
+  const { entries, usage } = useConversation();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
@@ -84,6 +85,12 @@ export function ChatPanel() {
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentProject = projects.find(
     (p) => p.id === currentSession?.projectId,
+  );
+
+  // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
+  // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
+  const currentModel = useConfigStore((s) =>
+    s.findModel(currentSession?.providerId ?? null, currentSession?.modelId ?? null),
   );
 
   // A session persisted before project-binding shipped can have projectId/
@@ -266,6 +273,7 @@ export function ChatPanel() {
                     .setSessionModel(currentSessionId, providerId, modelId)
                 }
               />
+              <ContextMeter usage={usage} contextWindow={currentModel?.contextWindow} />
             </>
           ) : null
         }
