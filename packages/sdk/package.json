@@ -24,6 +24,7 @@
   "dependencies": {
     "@volto/core": "workspace:*",
     "@volto/tools-common": "workspace:*",
+    "@volto/tool-skill": "workspace:*",
     "@volto/tools-agent": "workspace:*",
     "@volto/tools-ask": "workspace:*",
     "@volto/tools-browser": "workspace:*",

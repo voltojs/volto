@@ -42,6 +42,8 @@ import type {
   Clock,
   ContextLayer,
   ContextLayerHints,
+  SkillRegistry,
+  SkillSummary,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -98,6 +100,7 @@ import type { DatabaseAdapter } from "@volto/tools-data";
 import { createReadDocumentTool } from "@volto/tools-document";
 import type { DocumentParserAdapter } from "@volto/tools-document";
 import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
+import { createSkillTool } from "@volto/tool-skill";
 import {
   createBrowserNavigateTool,
   createBrowserClickTool,
@@ -408,6 +411,14 @@ export interface CreateAgentOptions {
   enableTaskTool?: boolean;
 
   /**
+   * Host-owned skill registry — enables progressive skill disclosure:
+   * registers the model-facing `skill` loader tool (capability `skill:load`)
+   * and appends a `skill-catalog` context layer (names + descriptions only)
+   * after the host's own context layers each turn.
+   */
+  skillRegistry?: SkillRegistry;
+
+  /**
    * Compaction config — enables automatic context compression when messages
    * grow large. Uses the default character-count tokenizer if not specified.
    */
@@ -625,6 +636,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (resolve(opts.enableTaskTool, "enableTaskTool")) {
     capabilities.add("agent:task");
   }
+  if (opts.skillRegistry) {
+    capabilities.add("skill:load");
+  }
 
   // ── Build adapter tools ──────────────────
   const adapterTools: Tool[] = [];
@@ -731,6 +745,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ),
     );
     allCustomTools.push(taskTool);
+  }
+  if (opts.skillRegistry) {
+    // Local const so the narrowing survives inside the loader callback.
+    const skillRegistry = opts.skillRegistry;
+    allCustomTools.push(createSkillTool((name) => skillRegistry.load(name)));
   }
 
   // ── Resolve ToolSources (backward-compat: single toolSource → array) ──
@@ -940,6 +959,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // stream(), or whatever run() was given) is only known per-call.
   let currentTurnEventSink: EventSink | undefined;
 
+  /**
+   * Appends the skill-catalog context layer (names + descriptions only) after
+   * the host's own layers for this turn. No registry → layers pass through
+   * unchanged; a registry with zero model-invocable skills also passes
+   * through (an empty catalog layer would only spend tokens).
+   */
+  async function appendSkillCatalogLayer(
+    hostLayers: ContextLayer[] | undefined,
+  ): Promise<ContextLayer[] | undefined> {
+    if (!opts.skillRegistry) return hostLayers;
+    const summaries = (await opts.skillRegistry.list())
+      .filter((s) => s.invocation.modelInvocable)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (summaries.length === 0) return hostLayers;
+    const catalogLayer: ContextLayer = { id: "skill-catalog", text: renderSkillCatalog(summaries) };
+    return hostLayers === undefined ? [catalogLayer] : [...hostLayers, catalogLayer];
+  }
+
   async function createNextRunner(
     runnerEventSink: EventSink,
     abortSignal: AbortSignal | undefined,
@@ -1001,9 +1038,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // carries the rebuilt history, so discovery survives cross-process resume.
     const hintsSource: Message[] = lastFinalState?.messages ?? seedMessages;
     const hints: ContextLayerHints = { touchedPaths: extractTouchedToolPaths(hintsSource) };
-    const turnStepContext: StepContext = opts.resolveContextLayers
-      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText, hints) }
-      : stepContext;
+    const hostLayers = opts.resolveContextLayers
+      ? await opts.resolveContextLayers(inputText, hints)
+      : undefined;
+    const catalogedLayers = await appendSkillCatalogLayer(hostLayers);
+    const turnStepContext: StepContext =
+      catalogedLayers !== undefined ? { ...stepContext, contextLayers: catalogedLayers } : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
@@ -1324,6 +1364,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/**
+ * Deterministic catalog text — names and descriptions only, never bodies.
+ * Sorted by name (on a copy — the input array is not mutated) so the layer
+ * text is stable regardless of the registry's discovery order; descriptions
+ * are collapsed to a single line.
+ */
+export function renderSkillCatalog(summaries: SkillSummary[]): string {
+  const sorted = [...summaries].sort((a, b) => a.name.localeCompare(b.name));
+  const lines = sorted.map(
+    (s) => `- ${s.name}: ${s.description.replace(/\s+/g, " ").trim()}`,
+  );
+  return ["Available skills (load full instructions with the skill tool):", ...lines].join("\n");
+}
 
 function normalizeInput(input: string | AgentInput): AgentInput {
   if (typeof input === "string") {

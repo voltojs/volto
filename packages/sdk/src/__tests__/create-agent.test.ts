@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createAgent } from "../create-agent.js";
+import { createAgent, renderSkillCatalog } from "../create-agent.js";
 import {
   createMockModelPort,
   textScript,
@@ -7,7 +7,7 @@ import {
   textDelta,
   modelDone,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput, SkillRegistry } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
@@ -1086,6 +1086,92 @@ describe("createAgent — SDK facade", () => {
       }
 
       expect(events.some((e) => e.type === "text_delta" && e.data["agentDepth"] === 1)).toBe(true);
+    });
+  });
+
+  describe("skillRegistry progressive disclosure", () => {
+    const registry: SkillRegistry = {
+      list: async () => [
+        {
+          name: "alpha",
+          description: "Alpha does things\nwith a second line",
+          invocation: { modelInvocable: true, userInvocable: true },
+        },
+        {
+          name: "hidden",
+          description: "Not for the model",
+          invocation: { modelInvocable: false, userInvocable: true },
+        },
+      ],
+      load: async (name: string) => (name === "alpha" ? "ALPHA-BODY" : undefined),
+    };
+
+    it("renders a sorted single-line catalog", () => {
+      const summaries = [
+        { name: "b", description: "B", invocation: { modelInvocable: true, userInvocable: true } },
+        { name: "a", description: "A  with   spaces\nand newline", invocation: { modelInvocable: true, userInvocable: true } },
+      ];
+      expect(renderSkillCatalog(summaries)).toBe(
+        "Available skills (load full instructions with the skill tool):\n- a: A with spaces and newline\n- b: B",
+      );
+    });
+
+    it("appends the skill-catalog layer to the turn's context layers", async () => {
+      // Capturing model port — same pattern as the resolveContextLayers tests above.
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("ok")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      const layersSeen: unknown[] = [];
+      const agent = createAgent({
+        modelPort,
+        skillRegistry: registry,
+        resolveContextLayers: async () => {
+          layersSeen.push(1);
+          return []; // host layers empty — the catalog is still appended
+        },
+      });
+
+      await agent.run("hi");
+      expect(layersSeen).toEqual([1]);
+
+      const systemContents = capturedRequests[0]!.messages
+        .filter((m) => m.role === "system")
+        .map((m) => (m as { content: string }).content);
+      expect(systemContents.some((c) => c.startsWith("Available skills (load full instructions with the skill tool):"))).toBe(true);
+      expect(systemContents.some((c) => c.includes("- alpha: Alpha does things with a second line"))).toBe(true);
+      expect(systemContents.some((c) => c.includes("hidden"))).toBe(false);
+    });
+
+    it("registers the skill tool and loads bodies through it", async () => {
+      // Capturing model port — same pattern as the resolveContextLayers tests above.
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([
+        toolCallScript("c1", "skill", JSON.stringify({ name: "alpha" })),
+        textScript("loaded"),
+      ]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        skillRegistry: registry,
+      });
+
+      await agent.run("load alpha");
+
+      expect(capturedRequests[0]!.tools.some((t) => t.name === "skill")).toBe(true);
+      const toolResult = capturedRequests[1]!.messages.find((m) => m.role === "tool");
+      expect(JSON.stringify(toolResult)).toContain("ALPHA-BODY");
     });
   });
 });

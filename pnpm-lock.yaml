@@ -381,6 +381,9 @@ importers:
       '@volto/store-memory':
         specifier: workspace:*
         version: link:../stores/memory
+      '@volto/tool-skill':
+        specifier: workspace:*
+        version: link:../tools/skill
       '@volto/tools-agent':
         specifier: workspace:*
         version: link:../tools/agent

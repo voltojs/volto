@@ -87,7 +87,6 @@ export { renderCommand, parseArgs, findCommand } from "./commands.js";
 export type { SlashCommand } from "./commands.js";
 
 // M13: Skills
-export { findTriggeredSkills, collectResources } from "./skills.js";
 export type { Skill, ResourceLoader } from "./skills.js";
 
 // M12: Multi-agent orchestration

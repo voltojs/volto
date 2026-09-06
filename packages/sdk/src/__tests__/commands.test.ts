@@ -5,7 +5,6 @@ import {
   findCommand,
   type SlashCommand,
 } from "../commands.js";
-import { findTriggeredSkills, collectResources, type Skill } from "../skills.js";
 import { createAgent } from "../create-agent.js";
 import { createMockModelPort, textScript } from "@volto/core";
 
@@ -99,60 +98,6 @@ describe("findCommand", () => {
 
   it("returns undefined for unknown", () => {
     expect(findCommand(commands, "nope")).toBeUndefined();
-  });
-});
-
-// ──────────────────────────────────────────────
-// Skills
-// ──────────────────────────────────────────────
-
-describe("findTriggeredSkills", () => {
-  const skills: Skill[] = [
-    { name: "review", description: "Code review", trigger: "review" },
-    { name: "test", description: "Run tests", trigger: "test" },
-    { name: "deploy", description: "Deploy", trigger: "deploy" },
-  ];
-
-  it("finds matching skills", () => {
-    const matched = findTriggeredSkills(skills, "please review this code");
-    expect(matched).toHaveLength(1);
-    expect(matched[0]!.name).toBe("review");
-  });
-
-  it("case-insensitive matching", () => {
-    const matched = findTriggeredSkills(skills, "RUN TESTS");
-    expect(matched).toHaveLength(1);
-    expect(matched[0]!.name).toBe("test");
-  });
-
-  it("no match returns empty", () => {
-    const matched = findTriggeredSkills(skills, "hello world");
-    expect(matched).toHaveLength(0);
-  });
-
-  it("multiple matches", () => {
-    const matched = findTriggeredSkills(skills, "review and test");
-    expect(matched.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("skills without trigger are never matched", () => {
-    const noTrigger: Skill[] = [{ name: "silent", description: "No trigger" }];
-    expect(findTriggeredSkills(noTrigger, "anything")).toHaveLength(0);
-  });
-});
-
-describe("collectResources", () => {
-  it("collects unique resources", () => {
-    const skills: Skill[] = [
-      { name: "a", description: "", resources: ["res1.md", "res2.md"] },
-      { name: "b", description: "", resources: ["res2.md", "res3.md"] },
-    ];
-    expect(collectResources(skills)).toEqual(["res1.md", "res2.md", "res3.md"]);
-  });
-
-  it("empty when no resources", () => {
-    const skills: Skill[] = [{ name: "a", description: "" }];
-    expect(collectResources(skills)).toEqual([]);
   });
 });
 
