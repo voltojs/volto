@@ -1,11 +1,16 @@
 /**
  * Pure helpers for workspace instruction files (AGENTS.md & friends): chain
- * path math, candidate ordering, dedupe, and byte-budgeted rendering. Zero
- * I/O — the host probes and reads files, then hands content snapshots in.
+ * path math, candidate ordering, dedupe, and byte-budgeted rendering. Also
+ * hosts the history-derived context hints (fs-tool path touches and their
+ * descendant directory chains). Zero I/O — the host probes and reads files,
+ * then hands content snapshots in.
  * See docs/superpowers/specs/2026-09-05-agent-context-injection-design.md.
  */
 
 import type { ContextLayer } from "./context-assembler.js";
+import type { Message } from "./state.js";
+
+export type { Message };
 
 /** One instruction file the host has already read and @import-expanded. */
 export interface LoadedInstructionFile {
@@ -211,4 +216,86 @@ export function renderInstructionLayers(
     omitted,
     truncated,
   };
+}
+
+// ---------------------------------------------------------------------------
+// History-derived context hints — fs-tool path touches and their descendant
+// directory chains (pure; the SDK scans history and hands the host hints).
+// ---------------------------------------------------------------------------
+
+/** Structured fs tools whose `path` input counts as a directory touch. */
+export const FS_PATH_TOOLS: readonly string[] = ["read_file", "write_file", "edit_file", "ls"];
+
+/** Per-turn hint payload the SDK derives from history and hands the host. */
+export interface ContextLayerHints {
+  /** Raw tool paths (relative to the agent cwd, exactly as the tool received them). */
+  touchedPaths: string[];
+}
+
+/**
+ * Scans assistant tool_use blocks for structured fs tool paths. Every path
+ * ever touched stays in the hint set for the rest of the conversation —
+ * discovered directories are a stable superset, recomputed each turn.
+ */
+export function extractTouchedToolPaths(messages: Message[]): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const block of message.content) {
+      if (block.type !== "tool_use") continue;
+      if (!FS_PATH_TOOLS.includes(block.name)) continue;
+      const path = block.input["path"];
+      if (typeof path !== "string" || path.length === 0) continue;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Lexically resolves "." and ".." segments (rooted — clamped at "/") without
+ * node:path, keeping the pure core free of Node builtins.
+ */
+function normalizeAbsolute(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part.length === 0 || part === ".") continue;
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+
+/**
+ * Directories strictly below cwd leading down to each touched path's parent,
+ * shallow-first (they sacrifice first under the byte budget). Paths above or
+ * directly in cwd contribute nothing — the project chain already covers them.
+ */
+export function descendantChain(cwd: string, touchedPaths: string[]): string[] {
+  const root = cwd.length > 1 ? cwd.replace(/\/+$/, "") : cwd;
+  const prefix = root === "/" ? "/" : `${root}/`;
+  const seen = new Set<string>();
+  const found: string[] = [];
+  for (const raw of touchedPaths) {
+    if (raw.length === 0) continue;
+    const absolute = normalizeAbsolute(raw.startsWith("/") ? raw : `${root}/${raw}`);
+    const cut = absolute.lastIndexOf("/");
+    const startDir = cut <= 0 ? "/" : absolute.slice(0, cut);
+    let current = startDir;
+    while (current.startsWith(prefix) && current !== root) {
+      if (!seen.has(current)) {
+        seen.add(current);
+        found.push(current);
+      }
+      const parentCut = current.lastIndexOf("/");
+      current = parentCut <= 0 ? "/" : current.slice(0, parentCut);
+    }
+  }
+  return found.sort((a, b) => a.split("/").length - b.split("/").length);
 }

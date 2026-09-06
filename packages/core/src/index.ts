@@ -248,11 +248,15 @@ export {
   truncateUtf8,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
+  FS_PATH_TOOLS,
+  descendantChain,
+  extractTouchedToolPaths,
 } from "./workspace-instructions.js";
 export type {
   LoadedInstructionFile,
   RenderedInstructions,
   TruncationRecord,
+  ContextLayerHints,
 } from "./workspace-instructions.js";
 
 // Testing utilities

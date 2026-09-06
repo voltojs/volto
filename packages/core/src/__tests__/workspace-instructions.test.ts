@@ -211,3 +211,89 @@ describe("truncateUtf8", () => {
     expect(truncateUtf8("汉汉", 6)).toBe("汉汉");
   });
 });
+
+import {
+  extractTouchedToolPaths,
+  descendantChain,
+  FS_PATH_TOOLS,
+  type ContextLayerHints,
+  type Message,
+} from "../workspace-instructions.js";
+
+function assistantToolUse(name: string, input: Record<string, unknown>): Message {
+  return {
+    role: "assistant",
+    content: [{ type: "tool_use", id: `${name}-${JSON.stringify(input)}`, name, input }],
+  };
+}
+
+describe("extractTouchedToolPaths", () => {
+  it("collects path inputs of the structured fs tools in order", () => {
+    const messages: Message[] = [
+      { role: "user", content: "go" },
+      assistantToolUse("read_file", { path: "src/a.ts" }),
+      assistantToolUse("write_file", { path: "src/b.ts" }),
+      assistantToolUse("edit_file", { path: "src/a.ts" }),
+      assistantToolUse("ls", { path: "docs" }),
+    ];
+    expect(extractTouchedToolPaths(messages)).toEqual(["src/a.ts", "src/b.ts", "docs"]);
+  });
+
+  it("ignores other tools, missing paths, and non-string paths", () => {
+    const messages: Message[] = [
+      assistantToolUse("bash", { command: "cat src/a.ts" }),
+      assistantToolUse("glob", { pattern: "**/*.ts" }),
+      assistantToolUse("read_file", { path: 42 }),
+      assistantToolUse("read_file", {}),
+    ];
+    expect(extractTouchedToolPaths(messages)).toEqual([]);
+  });
+
+  it("dedupes repeated paths preserving first-seen order", () => {
+    const messages: Message[] = [
+      assistantToolUse("read_file", { path: "src/a.ts" }),
+      assistantToolUse("ls", { path: "src/a.ts" }),
+    ];
+    expect(extractTouchedToolPaths(messages)).toEqual(["src/a.ts"]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(extractTouchedToolPaths([])).toEqual([]);
+  });
+
+  it("pins the tool set", () => {
+    expect(FS_PATH_TOOLS).toEqual(["read_file", "write_file", "edit_file", "ls"]);
+  });
+
+  it("exposes the hints shape", () => {
+    const hints: ContextLayerHints = { touchedPaths: ["a.ts"] };
+    expect(hints.touchedPaths).toEqual(["a.ts"]);
+  });
+});
+
+describe("descendantChain", () => {
+  it("lists directories strictly below cwd down to a touched file's directory", () => {
+    expect(descendantChain("/repo/src", ["lib/x.ts"])).toEqual(["/repo/src/lib"]);
+  });
+
+  it("resolves absolute touched paths and skips levels above cwd", () => {
+    expect(descendantChain("/repo/src", ["/repo/src/lib/deep/y.ts"])).toEqual([
+      "/repo/src/lib",
+      "/repo/src/lib/deep",
+    ]);
+  });
+
+  it("emits nothing for files directly in cwd, outside cwd, or empty input", () => {
+    expect(descendantChain("/repo/src", ["a.ts"])).toEqual([]);
+    expect(descendantChain("/repo/src", ["/elsewhere/a.ts"])).toEqual([]);
+    expect(descendantChain("/repo/src", ["../outside/a.ts"])).toEqual([]);
+    expect(descendantChain("/repo/src", [])).toEqual([]);
+  });
+
+  it("dedupes across paths and orders shallow before deep", () => {
+    const out = descendantChain("/repo/src", ["lib/b.ts", "lib/sub/c.ts", "lib/a.ts"]);
+    expect(out[0]).toBe("/repo/src/lib");
+    expect(out).toContain("/repo/src/lib/sub");
+    expect(new Set(out).size).toBe(out.length);
+  });
+});
