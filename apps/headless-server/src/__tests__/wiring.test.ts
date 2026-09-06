@@ -403,6 +403,23 @@ describe("createWiredAgent unified instruction budget over skills", () => {
 });
 
 describe("createWiredAgent skill directory compatibility", () => {
+  // User-level .agents/.claude hang off the REAL home directory
+  // (os.homedir() honors $HOME on POSIX) — point it at a temp home.
+  let tempHomeDir: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-home-"));
+    originalHome = process.env["HOME"];
+    process.env["HOME"] = tempHomeDir;
+  });
+
+  afterEach(async () => {
+    if (originalHome === undefined) delete process.env["HOME"];
+    else process.env["HOME"] = originalHome;
+    await fs.rm(tempHomeDir, { recursive: true, force: true });
+  });
+
   async function writeSkill(
     root: string,
     subdir: string,
@@ -426,9 +443,9 @@ describe("createWiredAgent skill directory compatibility", () => {
       .map((m) => (m as { content: string }).content);
   }
 
-  it("discovers user-level .agents/.claude/.volto skills via name-fallback triggers", async () => {
-    await writeSkill(tempConfigDir, ".agents/skills", "agentsSkill", "AGENTS-SRC");
-    await writeSkill(tempConfigDir, ".claude/skills", "claudeSkill", "CLAUDE-SRC");
+  it("discovers user-level .agents/.claude skills via name-fallback triggers", async () => {
+    await writeSkill(tempHomeDir, ".agents/skills", "agentsSkill", "AGENTS-SRC");
+    await writeSkill(tempHomeDir, ".claude/skills", "claudeSkill", "CLAUDE-SRC");
     await writeSkill(tempConfigDir, "skills", "voltoSkill", "VOLTO-SRC");
     const { modelPort, requests } = captureModelPort();
 

@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createAgent } from "@volto/sdk";
 import { createOpenAIModelPort } from "@volto/provider-openai";
@@ -232,12 +233,15 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSk
  * .claude beats .agents (the .claude/skills entries on real machines are
  * frequently symlinks into .agents/skills, so name-based dedupe is
  * load-bearing: duplicates would produce duplicate skill:<name> layer ids).
+ * User-level .agents/.claude hang off the real home directory (the cross-tool
+ * convention), not the volto config dir.
  */
 async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
   const configDir = getConfigDir();
+  const home = os.homedir();
   const sources: Array<{ root: string; subdir: string; rootDir: string }> = [
-    { root: configDir, subdir: path.join(".agents", "skills"), rootDir: configDir },
-    { root: configDir, subdir: path.join(".claude", "skills"), rootDir: configDir },
+    { root: home, subdir: path.join(".agents", "skills"), rootDir: home },
+    { root: home, subdir: path.join(".claude", "skills"), rootDir: home },
     { root: configDir, subdir: "skills", rootDir: configDir },
     { root: cwd, subdir: path.join(".agents", "skills"), rootDir: cwd },
     { root: cwd, subdir: path.join(".claude", "skills"), rootDir: cwd },
