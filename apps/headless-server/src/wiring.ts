@@ -389,6 +389,9 @@ export function createWiredAgent(opts: WiringOptions = {}) {
    * rereading disk every call (no caching) so mid-session skill edits are
    * picked up. Non-model-invocable skills are excluded from load() here;
    * the SDK's catalog layer additionally filters them out of list().
+   * An empty loaded body (entry file vanished between scan and read, or a
+   * legitimately empty body) is a miss: undefined keeps the tool's
+   * "Unknown or non-invocable skill" error path instead of an empty hit.
    */
   const skillRegistry: SkillRegistry = {
     async list(): Promise<SkillSummary[]> {
@@ -399,7 +402,8 @@ export function createWiredAgent(opts: WiringOptions = {}) {
       const { skills, rootDirByResource } = await scanSkillSources(cwd);
       const hit = skills.find((s) => s.name === name && s.invocation.modelInvocable);
       if (hit === undefined) return undefined;
-      return loadSkillResourceText(hit, rootDirByResource);
+      const body = await loadSkillResourceText(hit, rootDirByResource);
+      return body === "" ? undefined : body;
     },
   };
 

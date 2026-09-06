@@ -227,11 +227,13 @@ export interface CreateAgentOptions {
 
   /**
    * Called once per turn with that turn's user-message text; returns the
-   * static content layers (memory files, triggered skill resources) for that
-   * turn's StepContext.contextLayers. No default — packages/sdk stays
-   * host-agnostic and does not know about `~/.volto` or any skills directory
-   * convention (that is apps/headless-server's job). Omitted means
-   * contextLayers is always empty, identical to today's behavior.
+   * workspace-instruction content layers (AGENTS.md-style memory/instruction
+   * files the host discovers itself) for that turn's StepContext.contextLayers.
+   * Skills are not part of this callback — they flow through the separate
+   * `skillRegistry` option (catalog layer + skill tool). No default —
+   * packages/sdk stays host-agnostic and does not know about `~/.volto` or any
+   * instruction-file directory convention (that is apps/headless-server's job).
+   * Omitted means contextLayers is always empty, identical to today's behavior.
    *
    * The second argument carries history-derived hints (`{ touchedPaths }` —
    * structured fs paths touched so far, derived from the conversation's
@@ -971,7 +973,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     if (!opts.skillRegistry) return hostLayers;
     const summaries = (await opts.skillRegistry.list())
       .filter((s) => s.invocation.modelInvocable)
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort(compareSkillSummariesByName);
     if (summaries.length === 0) return hostLayers;
     const catalogLayer: ContextLayer = { id: "skill-catalog", text: renderSkillCatalog(summaries) };
     return hostLayers === undefined ? [catalogLayer] : [...hostLayers, catalogLayer];
@@ -1366,13 +1368,23 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 // ──────────────────────────────────────────────
 
 /**
+ * Codepoint comparator by skill name — locale-independent determinism.
+ * localeCompare() is locale-sensitive (e.g. "a" sorts before "B" under en-US
+ * collation but after it by codepoint), so the catalog order must not depend
+ * on the host's locale.
+ */
+function compareSkillSummariesByName(a: SkillSummary, b: SkillSummary): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/**
  * Deterministic catalog text — names and descriptions only, never bodies.
- * Sorted by name (on a copy — the input array is not mutated) so the layer
- * text is stable regardless of the registry's discovery order; descriptions
- * are collapsed to a single line.
+ * Sorted by name codepoint-wise (on a copy — the input array is not mutated)
+ * so the layer text is stable regardless of the registry's discovery order or
+ * the host's locale; descriptions are collapsed to a single line.
  */
 export function renderSkillCatalog(summaries: SkillSummary[]): string {
-  const sorted = [...summaries].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...summaries].sort(compareSkillSummariesByName);
   const lines = sorted.map(
     (s) => `- ${s.name}: ${s.description.replace(/\s+/g, " ").trim()}`,
   );

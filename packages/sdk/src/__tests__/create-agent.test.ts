@@ -1116,6 +1116,19 @@ describe("createAgent — SDK facade", () => {
       );
     });
 
+    it("sorts by codepoint, not locale collation", () => {
+      // "B" (U+0042) < "a" (U+0061) by codepoint; locale collation (e.g. en-US)
+      // would order "a" first — the docstring's "deterministic" must hold
+      // regardless of the host's locale.
+      const summaries = [
+        { name: "a", description: "lower", invocation: { modelInvocable: true, userInvocable: true } },
+        { name: "B", description: "upper", invocation: { modelInvocable: true, userInvocable: true } },
+      ];
+      expect(renderSkillCatalog(summaries)).toBe(
+        "Available skills (load full instructions with the skill tool):\n- B: upper\n- a: lower",
+      );
+    });
+
     it("appends the skill-catalog layer to the turn's context layers", async () => {
       // Capturing model port — same pattern as the resolveContextLayers tests above.
       const capturedRequests: ModelRequest[] = [];
@@ -1146,6 +1159,37 @@ describe("createAgent — SDK facade", () => {
       expect(systemContents.some((c) => c.startsWith("Available skills (load full instructions with the skill tool):"))).toBe(true);
       expect(systemContents.some((c) => c.includes("- alpha: Alpha does things with a second line"))).toBe(true);
       expect(systemContents.some((c) => c.includes("hidden"))).toBe(false);
+    });
+
+    it("appends no catalog layer when no skill is model-invocable (passthrough)", async () => {
+      // Capturing model port — same pattern as the resolveContextLayers tests above.
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("ok")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      const nonInvocableRegistry: SkillRegistry = {
+        list: async () => [
+          {
+            name: "manual-only",
+            description: "User-invoked only",
+            invocation: { modelInvocable: false, userInvocable: true },
+          },
+        ],
+        load: async () => undefined,
+      };
+      const agent = createAgent({ modelPort, skillRegistry: nonInvocableRegistry });
+
+      await agent.run("hi"); // must not throw — empty catalog is a passthrough, not an error
+
+      const systemContents = capturedRequests[0]!.messages
+        .filter((m) => m.role === "system")
+        .map((m) => (m as { content: string }).content);
+      expect(systemContents.some((c) => c.includes("Available skills"))).toBe(false);
     });
 
     it("registers the skill tool and loads bodies through it", async () => {

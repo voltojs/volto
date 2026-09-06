@@ -26,4 +26,34 @@ describe("createSkillTool", () => {
     expect(result).toMatchObject({ isError: true });
     expect((result as { modelContent: string }).modelContent).toContain("nope");
   });
+
+  it("returns an error result when the loader throws", async () => {
+    const tool = createSkillTool(async () => {
+      throw new Error("registry exploded");
+    });
+    const result = await tool.handler({ name: "alpha" });
+    expect(result).toMatchObject({ isError: true });
+    expect((result as { modelContent: string }).modelContent).toContain("registry exploded");
+  });
+
+  it("truncates bodies over the 64KiB cap with a visible notice", async () => {
+    const cap = 64 * 1024;
+    const originalBytes = cap + 16 * 1024;
+    const bigBody = "A".repeat(originalBytes);
+    const tool = createSkillTool(async () => bigBody);
+
+    const result = await tool.handler({ name: "big" });
+    const content = (result as { modelContent: string }).modelContent;
+
+    expect(result).not.toMatchObject({ isError: true });
+    expect(content).toContain("truncated");
+    // The visible head of the body survives truncation.
+    expect(content).toContain(bigBody.slice(0, 128));
+    // Byte length stays within the cap plus the fixed notice line.
+    const notice =
+      `\n\n[skill body truncated from ${originalBytes} to ${cap} bytes` +
+      " — reload after editing the skill file if you need the remainder]";
+    const contentBytes = new TextEncoder().encode(content).length;
+    expect(contentBytes).toBeLessThanOrEqual(cap + new TextEncoder().encode(notice).length);
+  });
 });

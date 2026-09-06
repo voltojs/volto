@@ -264,12 +264,18 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     await fs.rm(tempHomeDir, { recursive: true, force: true });
   });
 
-  async function writeSkill(root: string, subdir: string, name: string, body: string): Promise<void> {
+  async function writeSkill(
+    root: string,
+    subdir: string,
+    name: string,
+    body: string,
+    description: string = `${name} skill`,
+  ): Promise<void> {
     const dir = path.join(root, subdir, name);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, "SKILL.md"),
-      `---\nname: ${name}\ndescription: ${name} skill\n---\n${body}`,
+      `---\nname: ${name}\ndescription: ${description}\n---\n${body}`,
       "utf-8",
     );
   }
@@ -376,5 +382,55 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     const catalog = systemContents.find((c) => c.startsWith("Available skills (load full instructions with the skill tool):")) ?? "";
     expect(catalog).toContain("- crlf: crlf skill");
     expect(systemContents.some((c) => c.includes("CRLF-BODY"))).toBe(false);
+  });
+
+  it("dedupes same-named skills across sources (project beats user, .volto beats .claude)", async () => {
+    // Same skill name in three of the six sources; the catalog must carry
+    // exactly one winner per the six-source priority order: project-level
+    // beats user-level, and within a level .volto beats .claude.
+    await writeSkill(tempHomeDir, path.join(".claude", "skills"), "dup", "DUP-BODY", "USER-CLAUDE");
+    await writeSkill(tempConfigDir, "skills", "dup", "DUP-BODY", "USER-VOLTO");
+    await writeSkill(tempProjectDir, path.join(".volto", "skills"), "dup", "DUP-BODY", "PROJECT-WINS");
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("hi");
+
+    // Assertions go through the catalog layer text — bodies never reach context.
+    const catalog = systemContentsOf(requests).find((c) => c.startsWith("Available skills")) ?? "";
+    expect(catalog).toContain("- dup: PROJECT-WINS");
+    expect(catalog).not.toContain("USER-VOLTO");
+    expect(catalog).not.toContain("USER-CLAUDE");
+    expect(systemContentsOf(requests).some((c) => c.includes("DUP-BODY"))).toBe(false);
+  });
+
+  it("treats an empty skill body as a registry miss so the tool reports an error", async () => {
+    // Frontmatter-only SKILL.md: parses into the catalog fine, but its body
+    // loads as "" — as useless as an entry file that vanished between scan
+    // and read. The registry must surface undefined, not an empty hit.
+    const skillDir = path.join(tempConfigDir, "skills", "hollow");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: hollow\ndescription: hollow skill\n---\n",
+      "utf-8",
+    );
+    const requests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      toolCallScript("c1", "skill", JSON.stringify({ name: "hollow" })),
+      textScript("done"),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("go");
+
+    const toolResult = requests[1]!.messages.find((m) => m.role === "tool");
+    expect(JSON.stringify(toolResult)).toContain("Unknown or non-invocable skill: hollow");
   });
 });
