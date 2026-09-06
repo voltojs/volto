@@ -41,6 +41,7 @@ import type {
   Id,
   Clock,
   ContextLayer,
+  ContextLayerHints,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -48,6 +49,7 @@ import {
   createInitialState,
   resetTurnForNextInput,
   filterByScope,
+  extractTouchedToolPaths,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -227,8 +229,14 @@ export interface CreateAgentOptions {
    * host-agnostic and does not know about `~/.volto` or any skills directory
    * convention (that is apps/headless-server's job). Omitted means
    * contextLayers is always empty, identical to today's behavior.
+   *
+   * The second argument carries history-derived hints (`{ touchedPaths }` —
+   * structured fs paths touched so far, derived from the conversation's
+   * tool_use history; empty on a fresh first turn) so hosts can keep
+   * instruction-file discovery in sync with what the agent has actually
+   * touched.
    */
-  resolveContextLayers?: (input: string) => Promise<ContextLayer[]>;
+  resolveContextLayers?: (input: string, hints?: ContextLayerHints) => Promise<ContextLayer[]>;
 
   /**
    * 首轮种子历史消息 —— 追加在 systemPrompt 消息之后，作为第一轮
@@ -988,8 +996,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // misattribute its turn_end to the last successful turn instead of this
     // one (and a first-turn failure would record turn 0).
     turnCounter++;
+    // History-derived hints: structured fs paths touched so far. After a
+    // rebuild (fresh process) lastFinalState is null — seedMessages already
+    // carries the rebuilt history, so discovery survives cross-process resume.
+    const hintsSource: Message[] = lastFinalState?.messages ?? seedMessages;
+    const hints: ContextLayerHints = { touchedPaths: extractTouchedToolPaths(hintsSource) };
     const turnStepContext: StepContext = opts.resolveContextLayers
-      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText) }
+      ? { ...stepContext, contextLayers: await opts.resolveContextLayers(inputText, hints) }
       : stepContext;
     lastTurnContextLayers = turnStepContext.contextLayers;
 

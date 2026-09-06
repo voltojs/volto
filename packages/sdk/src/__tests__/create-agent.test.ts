@@ -1032,6 +1032,22 @@ describe("createAgent — SDK facade", () => {
 
       void runPromise;
     });
+
+    it("passes hints as the second argument (empty touchedPaths on a fresh first turn)", async () => {
+      const seen: unknown[] = [];
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("ok")]),
+        resolveContextLayers: async (input, hints) => {
+          seen.push({ input, hints });
+          return [];
+        },
+      });
+
+      await agent.run("hi");
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toEqual({ input: "hi", hints: { touchedPaths: [] } });
+    });
   });
 
   describe("sub-agent event forwarding", () => {
