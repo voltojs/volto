@@ -336,3 +336,68 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
     expect(systems.some((m) => (m as { content: string }).content.includes("Should not appear"))).toBe(false);
   });
 });
+
+describe("createWiredAgent unified instruction budget over skills", () => {
+  // Fixture style aligned with the "includes a triggered skill's resource
+  // content as its own layer" case above: project-level .volto/skills/<name>
+  // directory, array-join SKILL.md, trigger word "bug".
+  it("includes a triggered skill layer in the unified budget flow with its own id", async () => {
+    const skillsDir = path.join(tempProjectDir, ".volto", "skills", "greet");
+    await fs.mkdir(skillsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillsDir, "SKILL.md"),
+      [
+        "---",
+        "name: greet",
+        "description: Greets on demand",
+        "trigger: bug",
+        "---",
+        "Skill body text for greeting.",
+      ].join("\n"),
+      "utf-8",
+    );
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("there is a bug in my code");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Instructions from: skill:greet\n\nSkill body text for greeting."))).toBe(true);
+  });
+
+  it("omits an oversized skill under the budget with a visible notice", async () => {
+    const skillsDir = path.join(tempProjectDir, ".volto", "skills", "huge");
+    await fs.mkdir(skillsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillsDir, "SKILL.md"),
+      [
+        "---",
+        "name: huge",
+        "description: Huge skill",
+        "trigger: bug",
+        "---",
+        "S".repeat(40 * 1024),
+      ].join("\n"),
+      "utf-8",
+    );
+    const { modelPort, requests } = captureModelPort();
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir, maxInstructionBytes: 8 * 1024 });
+    await agent.run("there is a bug in my code");
+
+    const systemContents = requests[0]!.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+    expect(systemContents.some((c) => c.includes("Workspace instruction budget 8192 bytes:"))).toBe(true);
+    expect(systemContents.some((c) => c.includes("skill:huge"))).toBe(true);
+    // The surviving (truncated) layer must reference the skill by its
+    // `skill:<name>` displayPath in the budget notice itself — the only
+    // content-visible trace of the id override through the truncation branch
+    // (ContextLayer ids surface in layerOrigins diagnostics, not in message
+    // text, so the notice mention is the natural pin here).
+    const budgetLayer = systemContents.find((c) => c.includes("Workspace instruction budget 8192 bytes:")) ?? "";
+    expect(budgetLayer).toContain("truncated skill:huge from");
+  });
+});

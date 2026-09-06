@@ -109,17 +109,19 @@ async function loadExpanded(filePath: string, importRoot: string): Promise<strin
 }
 
 /**
- * Builds this turn's instruction layers: the user-global file followed by the
- * project chain (projectRoot → cwd, broad → specific). Budget, dedupe and
- * provenance headings live in core's pure renderInstructionLayers(); this
- * function only probes and reads. See
+ * Collects this turn's instruction files, UNRENDERED: the user-global file,
+ * the project chain (projectRoot → cwd, broad → specific), then discovered
+ * directories strictly below cwd. No rendering here — the caller appends
+ * triggered skill files after these (skills are the most specific, so they
+ * are sacrificed last by the budget) and applies dedupe + core's pure
+ * renderInstructionLayers() once over the combined set. This function only
+ * probes and reads. See
  * docs/superpowers/specs/2026-09-05-agent-context-injection-design.md §5.
  */
-async function resolveMemoryLayers(
+async function collectInstructionFiles(
   cwd: string,
-  maxBytes: number,
-  discoveredDirs: string[] = [],
-): Promise<ContextLayer[]> {
+  discoveredDirs: string[],
+): Promise<LoadedInstructionFile[]> {
   const configDir = getConfigDir();
   const loaded: LoadedInstructionFile[] = [];
 
@@ -158,7 +160,7 @@ async function resolveMemoryLayers(
     }
   }
 
-  return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
+  return loaded;
 }
 
 interface ParsedSkillFile {
@@ -290,8 +292,9 @@ export interface WiringOptions {
    */
   systemPrompt?: string | null;
   /**
-   * Byte cap on the combined instruction layers (user-global + project chain),
-   * enforced in core's renderInstructionLayers. Defaults to
+   * Byte cap on the combined instruction layers (user-global + project chain
+   * + discovered dirs + triggered skills, sacrificed in that order), enforced
+   * in core's renderInstructionLayers. Defaults to
    * DEFAULT_MAX_INSTRUCTION_BYTES (64 KiB) — spec §5.5.
    */
   maxInstructionBytes?: number;
@@ -336,15 +339,23 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   let skillsPromise: Promise<LoadedSkills> | undefined;
   async function resolveContextLayers(input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
     const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
-    const layers = await resolveMemoryLayers(cwd, opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES, discoveredDirs);
+    const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
+    const loaded = await collectInstructionFiles(cwd, discoveredDirs);
     skillsPromise ??= loadAllSkills(cwd);
     const { skills, rootDirByResource } = await skillsPromise;
     const triggered = findTriggeredSkills(skills, input);
     for (const skill of triggered) {
       const text = await loadSkillResourceText(skill, rootDirByResource);
-      if (text) layers.push({ id: `skill:${skill.name}`, text });
+      if (text) {
+        loaded.push({
+          absolutePath: skill.resources?.[0] ?? `skill:${skill.name}`,
+          displayPath: `skill:${skill.name}`,
+          content: text,
+          id: `skill:${skill.name}`,
+        });
+      }
     }
-    return layers;
+    return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
   }
 
   return createAgent({
