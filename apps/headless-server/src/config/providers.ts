@@ -16,6 +16,8 @@ export interface Model {
   id: string;
   name: string;
   code: string;
+  /** Max context window in tokens; optional — the context meter hides the percentage when unset. */
+  contextWindow?: number;
 }
 
 export interface Provider {
@@ -38,7 +40,7 @@ export interface ProviderInput {
   name: string;
   baseURL?: string | null;
   apiKey?: string | null;
-  models?: Array<{ id?: string; name: string; code: string }>;
+  models?: Array<{ id?: string; name: string; code: string; contextWindow?: number }>;
 }
 
 export function createProviderStore(dir: string = getConfigDir()) {
@@ -80,11 +82,20 @@ export function createProviderStore(dir: string = getConfigDir()) {
   }
 
   function normalizeModels(models: ProviderInput["models"]): Model[] {
-    return (models ?? []).map((m) => ({
-      id: m.id || crypto.randomUUID(),
-      name: m.name,
-      code: m.code,
-    }));
+    return (models ?? []).map((m) => {
+      if (
+        m.contextWindow !== undefined &&
+        (!Number.isInteger(m.contextWindow) || m.contextWindow <= 0)
+      ) {
+        throw new Error(`contextWindow must be a positive integer (got ${m.contextWindow})`);
+      }
+      return {
+        id: m.id || crypto.randomUUID(),
+        name: m.name,
+        code: m.code,
+        ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+      };
+    });
   }
 
   return {

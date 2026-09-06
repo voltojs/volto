@@ -136,3 +136,44 @@ describe("createProviderStore", () => {
     expect(entries).toEqual(["providers.json"]);
   });
 });
+
+describe("model contextWindow", () => {
+  it("persists a valid contextWindow and returns it publicly", async () => {
+    const store = createProviderStore(dir);
+    await store.create({
+      name: "p1",
+      models: [{ name: "M", code: "m-1", contextWindow: 128000 }],
+    });
+    const [provider] = await store.listPublic();
+    expect(provider!.models[0]).toMatchObject({ code: "m-1", contextWindow: 128000 });
+    const raw = JSON.parse(await fs.readFile(path.join(dir, "providers.json"), "utf-8"));
+    expect(raw[0].models[0].contextWindow).toBe(128000);
+  });
+
+  it("rejects zero, negative and non-integer contextWindow with a 400-worthy error", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", contextWindow: 0 }] }),
+    ).rejects.toThrow(/contextWindow/);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", contextWindow: -5 }] }),
+    ).rejects.toThrow(/contextWindow/);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", contextWindow: 12.5 }] }),
+    ).rejects.toThrow(/contextWindow/);
+  });
+
+  it("drops contextWindow on update when omitted and keeps it when unchanged", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "p1",
+      models: [{ name: "M", code: "m-1", contextWindow: 128000 }],
+    });
+    // models 未随 update 提交 → 维持原样
+    await store.update(created.id, { name: "p1-renamed" });
+    expect((await store.listPublic())[0]!.models[0]!.contextWindow).toBe(128000);
+    // models 提交但不含 contextWindow → 新 models 生效且字段移除
+    await store.update(created.id, { models: [{ id: created.models[0]!.id, name: "M", code: "m-1" }] });
+    expect((await store.listPublic())[0]!.models[0]!.contextWindow).toBeUndefined();
+  });
+});
