@@ -262,6 +262,20 @@ export type {
   ContextLayerHints,
 } from "./workspace-instructions.js";
 
+// Context usage — how full the model's context window is (pure projection)
+export {
+  emptyContextUsageFold,
+  foldContextUsageEvent,
+  contextUsageView,
+  computeContextUsage,
+} from "./context-usage.js";
+export type {
+  ContextUsageFold,
+  ContextUsageHeader,
+  ContextUsageAnchor,
+  ContextUsageView,
+} from "./context-usage.js";
+
 // Testing utilities
 export {
   createMockModelPort,
