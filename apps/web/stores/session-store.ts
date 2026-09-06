@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageFold } from '@volto/sdk/sse';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +24,13 @@ export interface Session {
   providerId: string | null;
   modelId: string | null;
   permissionMode: PermissionMode;
+  /**
+   * The context-usage fold state as of this session's last snapshot —
+   * seeded from `GET /sessions/:id` on recovery, rewritten whenever the
+   * session's feed snapshot is flushed. Serializable; may be null/undefined
+   * (no context projected yet, e.g. legacy sessions).
+   */
+  contextUsage?: ContextUsageFold | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +80,7 @@ interface SessionState {
   setCurrentSession: (id: string | null) => void;
   getSessionMessages: (id: string) => ConversationMessage[];
   updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
+  updateSessionContextUsage: (id: string, fold: ContextUsageFold | null) => void;
 
   setSessionModel: (id: string, providerId: string, modelId: string) => void;
   setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
@@ -296,6 +304,13 @@ export const useSessionStore = create<SessionState>()(
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === id ? { ...s, messages, updatedAt: Date.now() } : s,
+          ),
+        })),
+
+      updateSessionContextUsage: (id, fold) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, contextUsage: fold, updatedAt: Date.now() } : s,
           ),
         })),
 

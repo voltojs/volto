@@ -10,8 +10,9 @@ import {
   type ChatEntry,
   type ProjectedConversation,
 } from '@/lib/projection';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageFold, ContextUsageView } from '@volto/sdk/sse';
 import { dropCachedTrajectory } from '@/lib/trajectory-cache';
+import { projectContextUsage } from '@/lib/context-usage';
 
 const EMPTY_MESSAGES: ConversationMessage[] = [];
 
@@ -37,6 +38,12 @@ export interface ConversationFeed {
    * trigger for the debounced history save.
    */
   live: ProjectedConversation;
+  /**
+   * Context usage projected from the recovered seed plus the live event
+   * fold. null = no request header seen yet (nothing to anchor on), so the
+   * consumer renders no context meter at all.
+   */
+  usage: ContextUsageView | null;
 }
 
 /**
@@ -76,6 +83,15 @@ export function useConversation(): ConversationFeed {
     return projectConversation(events, deltas);
   }, [events, deltas, bufferIsCurrent]);
 
+  // Context usage: the session's stored fold seeds the state and the live
+  // event buffer folds on top of it. When the buffer is not current the
+  // seed renders as-is, exactly like the conversation projection above.
+  const contextUsageSeed = currentSession?.contextUsage ?? null;
+  const contextUsage = useMemo(
+    () => projectContextUsage(contextUsageSeed, events, bufferIsCurrent),
+    [events, bufferIsCurrent, contextUsageSeed],
+  );
+
   const messages = useMemo(
     () => mergeStoredAndLive(stored, live.view.messages),
     [stored, live],
@@ -90,16 +106,24 @@ export function useConversation(): ConversationFeed {
 
   const sessionRef = useRef<string | null>(null);
   const snapshotsRef = useRef(new Map<string, ConversationMessage[]>());
+  // Feeds the switch-time fold write-back only. A mid-session write-back
+  // would re-fold the still-retained buffer on top of a seed that already
+  // includes it, inflating `pendingTokens` outside the last anchor's
+  // idempotency — so the fold is only flushed when the buffer is dropped.
+  const foldsRef = useRef(new Map<string, ContextUsageFold>());
 
   // Record the committed feed of the session that owns the buffer, so the
   // switch effect below can flush it once the session id has changed (by
   // then the render already shows the next session, but the buffer — and
-  // therefore the live feed — still belongs to the one being left).
+  // therefore the live feed — still belongs to the one being left). The
+  // context fold is recorded alongside: the buffer is dropped on switch, so
+  // without flushing the fold the ring would fall back to the stale seed.
   useEffect(() => {
     if (bufferIsCurrent && currentSessionId) {
       snapshotsRef.current.set(currentSessionId, messages);
+      foldsRef.current.set(currentSessionId, contextUsage.fold);
     }
-  }, [messages, currentSessionId, bufferIsCurrent]);
+  }, [messages, currentSessionId, bufferIsCurrent, contextUsage]);
 
   useEffect(() => {
     const previous = sessionRef.current;
@@ -113,8 +137,13 @@ export function useConversation(): ConversationFeed {
       if (snapshot) {
         useSessionStore.getState().updateSessionMessages(previous, snapshot);
       }
+      const foldToFlush = foldsRef.current.get(previous);
+      if (foldToFlush) {
+        useSessionStore.getState().updateSessionContextUsage(previous, foldToFlush);
+      }
     }
     snapshotsRef.current.clear();
+    foldsRef.current.clear();
 
     // The event buffer belongs to exactly one session; whatever is still in
     // it belongs to the session just left, so it must never project into the
@@ -152,5 +181,7 @@ export function useConversation(): ConversationFeed {
     return () => clearTimeout(timeoutId);
   }, [live, currentSessionId]);
 
-  return { entries, messages, live };
+  const usage = contextUsage.view;
+
+  return { entries, messages, live, usage };
 }

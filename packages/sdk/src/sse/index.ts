@@ -58,3 +58,16 @@ export type {
   TrajectoryView,
   TrajectoryRow,
 } from "@volto/core";
+export {
+  emptyContextUsageFold,
+  foldContextUsageEvent,
+  contextUsageView,
+  computeContextUsage,
+  createCharTokenizer,
+} from "@volto/core";
+export type {
+  ContextUsageFold,
+  ContextUsageHeader,
+  ContextUsageAnchor,
+  ContextUsageView,
+} from "@volto/core";

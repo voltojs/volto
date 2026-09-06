@@ -164,6 +164,18 @@ describe('useSessionStore', () => {
   });
 });
 
+describe('updateSessionContextUsage', () => {
+  it('stores and replaces the fold for one session', () => {
+    const store = useSessionStore.getState();
+    const id = store.createSession({});
+    const fold = { header: null, anchor: { promptTokens: 10, outputTokens: 2 }, pendingTokens: 4 };
+    store.updateSessionContextUsage(id, fold);
+    expect(useSessionStore.getState().sessions.find((s) => s.id === id)?.contextUsage).toEqual(fold);
+    store.updateSessionContextUsage(id, null);
+    expect(useSessionStore.getState().sessions.find((s) => s.id === id)?.contextUsage).toBeNull();
+  });
+});
+
 describe('migrate', () => {
   it('normalises a v0-shaped persisted payload to the current shape', () => {
     // v0 sessions predate project-binding: they carry a `workspaceId` and

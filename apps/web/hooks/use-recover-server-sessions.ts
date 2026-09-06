@@ -40,6 +40,7 @@ export function useRecoverServerSessions(): void {
           // GET /sessions/:id already returns projected ConversationMessages;
           // store them verbatim — no second projection on the client.
           messages: detail.messages,
+          contextUsage: detail.contextUsage ?? null,
           createdAt: detail.createdAt,
           updatedAt: detail.updatedAt,
           projectId: detail.projectId,

@@ -7,7 +7,11 @@
  */
 
 import { SERVER_URL } from './agent-config';
-import type { ConversationMessage, TrajectoryView } from '@volto/sdk/sse';
+import type {
+  ConversationMessage,
+  ContextUsageFold,
+  TrajectoryView,
+} from '@volto/sdk/sse';
 
 /** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */
 export class TrajectoryUnavailableError extends Error {
@@ -40,6 +44,7 @@ export interface ServerSessionDetail {
   modelId: string | null;
   permissionMode: string | null;
   messages: ConversationMessage[];
+  contextUsage: ContextUsageFold | null;
   createdAt: number;
   updatedAt: number;
 }
