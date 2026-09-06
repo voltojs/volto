@@ -156,6 +156,29 @@ describe('useSessionStore', () => {
     expect(session?.title).toBe('local edit');
   });
 
+  it('hydrateFromServer keeps recovered sessions sorted newest-first', () => {
+    const make = (id: string, updatedAt: number) => ({
+      id,
+      title: `会话 ${id}`,
+      messages: [],
+      createdAt: updatedAt,
+      updatedAt,
+      projectId: 'p1',
+      providerId: 'v1',
+      modelId: 'm1',
+      permissionMode: 'plan' as const,
+    });
+    // 恢复顺序模拟服务端列表的任意顺序（readdir），最新会话必须始终排最上方
+    useSessionStore.getState().hydrateFromServer(make('old', 1));
+    useSessionStore.getState().hydrateFromServer(make('recent', 3));
+    useSessionStore.getState().hydrateFromServer(make('mid', 2));
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual([
+      'recent',
+      'mid',
+      'old',
+    ]);
+  });
+
   it('groups sessions by project', () => {
     const a = useSessionStore.getState().createSession({ projectId: 'p1' });
     useSessionStore.getState().createSession({ projectId: 'p2' });

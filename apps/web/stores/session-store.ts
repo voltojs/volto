@@ -282,7 +282,13 @@ export const useSessionStore = create<SessionState>()(
         set((state) =>
           state.sessions.some((s) => s.id === session.id)
             ? state
-            : { sessions: [session, ...state.sessions] },
+            : {
+                // 服务端列表顺序是任意的（readdir），不能依赖到达顺序：
+                // 恢复的会话按 updatedAt 降序插入，最新对话始终在最上方。
+                sessions: [...state.sessions, session].sort(
+                  (a, b) => b.updatedAt - a.updatedAt,
+                ),
+              },
         ),
 
       deleteSession: (id) =>
