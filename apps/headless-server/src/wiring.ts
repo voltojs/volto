@@ -24,10 +24,11 @@ import {
   type ContextLayer,
   type ContextLayerHints,
   type LoadedInstructionFile,
+  type SkillInvocationPolicy,
+  type SkillRegistry,
+  type SkillSummary,
 } from "@volto/core";
 import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
-import type { Skill } from "@volto/sdk";
-import { findTriggeredSkills } from "@volto/sdk";
 import { getConfigDir } from "./config/paths.js";
 
 /**
@@ -112,11 +113,9 @@ async function loadExpanded(filePath: string, importRoot: string): Promise<strin
 /**
  * Collects this turn's instruction files, UNRENDERED: the user-global file,
  * the project chain (projectRoot → cwd, broad → specific), then discovered
- * directories strictly below cwd. No rendering here — the caller appends
- * triggered skill files after these (skills are the most specific, so they
- * are sacrificed last by the budget) and applies dedupe + core's pure
- * renderInstructionLayers() once over the combined set. This function only
- * probes and reads. See
+ * directories strictly below cwd. No rendering here — the caller applies
+ * dedupe + core's pure renderInstructionLayers() once over the collected
+ * set. This function only probes and reads. See
  * docs/superpowers/specs/2026-09-05-agent-context-injection-design.md §5.
  */
 async function collectInstructionFiles(
@@ -167,7 +166,7 @@ async function collectInstructionFiles(
 interface ParsedSkillFile {
   name: string;
   description: string;
-  trigger?: string;
+  invocation: SkillInvocationPolicy;
   body: string;
 }
 
@@ -183,26 +182,42 @@ function parseSkillFile(raw: string): ParsedSkillFile | undefined {
     fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
   }
   if (!fields["name"] || !fields["description"]) return undefined;
-  // Skills from .claude/.agents conventions rarely carry a trigger field;
-  // defaulting it to the skill name keeps them reachable (input containing
-  // the name fires the skill) instead of permanently silent.
-  return { name: fields["name"], description: fields["description"], trigger: fields["trigger"] ?? fields["name"], body: body!.trim() };
+  // Invocation policy — dsh-compatible frontmatter flags. Absence of a flag
+  // keeps the default (model- and user-invocable); `true`/`false` are the
+  // only recognized values, anything else parses as "enabled".
+  const invocation: SkillInvocationPolicy = {
+    modelInvocable: fields["disable-model-invocation"] !== "true",
+    userInvocable: fields["user-invocable"] !== "false",
+  };
+  return { name: fields["name"]!, description: fields["description"]!, invocation, body: body!.trim() };
 }
 
-interface LoadedSkills {
-  skills: Skill[];
+/**
+ * Invocation-neutral scanned skill — the wiring-local counterpart of a
+ * SKILL.md directory entry. Carries metadata + invocation policy; bodies are
+ * only read on demand through the SkillRegistry port (progressive disclosure).
+ */
+interface ScannedSkill {
+  name: string;
+  description: string;
+  invocation: SkillInvocationPolicy;
+  resources: string[];
+}
+
+interface ScannedSkills {
+  skills: ScannedSkill[];
   rootDirByResource: Map<string, string>;
 }
 
 /** Scans a skills directory (one subdirectory per skill, each containing SKILL.md) and loads them, tagging each skill's resource path with the rootDir @import expansion should use for it. */
-async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSkills> {
+async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedSkills> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
   } catch {
     return { skills: [], rootDirByResource: new Map() };
   }
-  const skills: Skill[] = [];
+  const skills: ScannedSkill[] = [];
   const rootDirByResource = new Map<string, string>();
   for (const entry of entries) {
     const skillPath = path.join(dir, entry, "SKILL.md");
@@ -213,7 +228,7 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSk
         skills.push({
           name: parsed.name,
           description: parsed.description,
-          trigger: parsed.trigger,
+          invocation: parsed.invocation,
           resources: [skillPath],
         });
         rootDirByResource.set(skillPath, rootDir);
@@ -226,17 +241,18 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<LoadedSk
 }
 
 /**
- * In-memory cache: skills directories are scanned once per agent instance, not
- * once per turn. Sources are listed in ascending priority order and merged
- * into a name-keyed map where later entries override earlier ones — a project
- * directory beats its user-level counterpart, and within a level .volto beats
- * .claude beats .agents (the .claude/skills entries on real machines are
- * frequently symlinks into .agents/skills, so name-based dedupe is
- * load-bearing: duplicates would produce duplicate skill:<name> layer ids).
- * User-level .agents/.claude hang off the real home directory (the cross-tool
- * convention), not the volto config dir.
+ * Scans every skill source fresh on each call — no caching: the registry's
+ * load() must reread current disk state so mid-session skill edits are
+ * picked up (skills are instructions; their files can change). Sources are
+ * listed in ascending priority order and merged into a name-keyed map where
+ * later entries override earlier ones — a project directory beats its
+ * user-level counterpart, and within a level .volto beats .claude beats
+ * .agents (the .claude/skills entries on real machines are frequently
+ * symlinks into .agents/skills, so name-based dedupe is load-bearing).
+ * User-level .agents/.claude hang off the real home directory (the
+ * cross-tool convention), not the volto config dir.
  */
-async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
+async function scanSkillSources(cwd: string): Promise<ScannedSkills> {
   const configDir = getConfigDir();
   const home = os.homedir();
   const sources: Array<{ root: string; subdir: string; rootDir: string }> = [
@@ -247,13 +263,13 @@ async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
     { root: cwd, subdir: path.join(".claude", "skills"), rootDir: cwd },
     { root: cwd, subdir: path.join(".volto", "skills"), rootDir: cwd },
   ];
-  const byName = new Map<string, Skill>();
+  const byName = new Map<string, ScannedSkill>();
   const rootDirByResource = new Map<string, string>();
   for (const source of sources) {
     const { skills } = await loadSkillsFromDir(path.join(source.root, source.subdir), source.rootDir);
     for (const skill of skills) {
       byName.set(skill.name, skill);
-      const resourcePath = skill.resources?.[0];
+      const resourcePath = skill.resources[0];
       if (resourcePath !== undefined) rootDirByResource.set(resourcePath, source.rootDir);
     }
   }
@@ -261,18 +277,18 @@ async function loadAllSkills(cwd: string): Promise<LoadedSkills> {
 }
 
 /** Loads a skill's resource files (each already-expanded via @import) and joins them. */
-async function loadSkillResourceText(skill: Skill, rootDirByResource: Map<string, string>): Promise<string> {
+async function loadSkillResourceText(skill: ScannedSkill, rootDirByResource: Map<string, string>): Promise<string> {
   const parts: string[] = [];
-  for (const resourcePath of skill.resources ?? []) {
+  for (const resourcePath of skill.resources) {
     try {
       // Read the resource's own entry file directly (unguarded) so a
       // missing/unreadable resource throws here and is caught below.
       // loadInstructionFileTree() further down swallows *transitive*
       // @import failures on purpose (a missing imported file degrades to a
       // visible placeholder) — but the skill's own entry file failing to
-      // exist (e.g. deleted mid-session, after the skills list was cached)
-      // should skip this layer entirely instead of injecting a
-      // "[missing instruction file: ...]" placeholder into the prompt.
+      // exist (e.g. deleted between discovery and this read) should skip
+      // loading entirely instead of injecting a
+      // "[missing instruction file: ...]" placeholder into the conversation.
       await fs.readFile(resourcePath, "utf-8");
       const rootDir = rootDirByResource.get(resourcePath) ?? getConfigDir();
       const fileContents = await loadInstructionFileTree(resourcePath);
@@ -320,9 +336,10 @@ export interface WiringOptions {
   systemPrompt?: string | null;
   /**
    * Byte cap on the combined instruction layers (user-global + project chain
-   * + discovered dirs + triggered skills, sacrificed in that order), enforced
-   * in core's renderInstructionLayers. Defaults to
-   * DEFAULT_MAX_INSTRUCTION_BYTES (64 KiB) — spec §5.5.
+   * + discovered dirs, sacrificed in that order), enforced in core's
+   * renderInstructionLayers. Defaults to DEFAULT_MAX_INSTRUCTION_BYTES
+   * (64 KiB) — spec §5.5. Skill bodies never compete for this budget: they
+   * are loaded on demand through the skillRegistry's skill tool.
    */
   maxInstructionBytes?: number;
   /** Conversation history to seed when rebuilding an instance. */
@@ -363,25 +380,30 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   });
   const sessionStore = createSqliteStore({ path: dbPath });
 
-  let skillsPromise: Promise<LoadedSkills> | undefined;
+  /**
+   * Host-owned SkillRegistry port over the six-source skill directory scan.
+   * list() → name/description/policy summaries only; load() → full body,
+   * rereading disk every call (no caching) so mid-session skill edits are
+   * picked up. Non-model-invocable skills are excluded from load() here;
+   * the SDK's catalog layer additionally filters them out of list().
+   */
+  const skillRegistry: SkillRegistry = {
+    async list(): Promise<SkillSummary[]> {
+      const { skills } = await scanSkillSources(cwd);
+      return skills.map(({ name, description, invocation }) => ({ name, description, invocation }));
+    },
+    async load(name) {
+      const { skills, rootDirByResource } = await scanSkillSources(cwd);
+      const hit = skills.find((s) => s.name === name && s.invocation.modelInvocable);
+      if (hit === undefined) return undefined;
+      return loadSkillResourceText(hit, rootDirByResource);
+    },
+  };
+
   async function resolveContextLayers(input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
     const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
     const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
     const loaded = await collectInstructionFiles(cwd, discoveredDirs);
-    skillsPromise ??= loadAllSkills(cwd);
-    const { skills, rootDirByResource } = await skillsPromise;
-    const triggered = findTriggeredSkills(skills, input);
-    for (const skill of triggered) {
-      const text = await loadSkillResourceText(skill, rootDirByResource);
-      if (text) {
-        loaded.push({
-          absolutePath: skill.resources?.[0] ?? `skill:${skill.name}`,
-          displayPath: `skill:${skill.name}`,
-          content: text,
-          id: `skill:${skill.name}`,
-        });
-      }
-    }
     return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
   }
 
@@ -398,6 +420,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     sessionStore,
     enableTaskTool: true,
     resolveContextLayers,
+    skillRegistry,
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
