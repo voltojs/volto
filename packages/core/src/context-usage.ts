@@ -146,9 +146,9 @@ export function contextUsageView(
   const anchorTotal = fold.anchor
     ? fold.anchor.promptTokens + fold.anchor.outputTokens + fold.pendingTokens
     : system + tools + fold.pendingTokens;
-  // The projection never falls below the header estimate: system + tools is
-  // the measured static prefix, and the breakdown's invariant — the three
-  // buckets sum exactly to projectedTokens — needs the total to cover it.
+  // The floor keeps the projected total from falling below the header
+  // estimate + pending, so the three breakdown buckets (whose residual is
+  // clamped at zero) always sum exactly to `projectedTokens`.
   const projectedTokens = Math.max(anchorTotal, system + tools + fold.pendingTokens);
   // Residual bucket: keeps the three segments summing exactly to the total.
   const messages = Math.max(0, projectedTokens - system - tools);

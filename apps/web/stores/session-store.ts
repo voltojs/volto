@@ -25,10 +25,11 @@ export interface Session {
   modelId: string | null;
   permissionMode: PermissionMode;
   /**
-   * The context-usage fold state as of this session's last snapshot —
-   * seeded from `GET /sessions/:id` on recovery, rewritten whenever the
-   * session's feed snapshot is flushed. Serializable; may be null/undefined
-   * (no context projected yet, e.g. legacy sessions).
+   * The context-usage fold state as of the latest persisted fold — seeded
+   * from `GET /sessions/:id` on recovery, persisted mid-session by
+   * use-conversation's debounced save and flushed on session switch (see
+   * use-conversation.ts). Serializable; may be null/undefined (no context
+   * projected yet, e.g. legacy sessions).
    */
   contextUsage?: ContextUsageFold | null;
 }
@@ -202,6 +203,8 @@ function normaliseBlock(
  * in the sidebar, and an `undefined` permissionMode would leak into the
  * gateway request the permission picker sends later. Messages in the legacy
  * client `Message` shape are converted to projected `ConversationMessage`s.
+ * The `contextUsage` fold, when present, is passed through so a future
+ * persist-version bump routed through `migrate()` cannot silently strip it.
  */
 function migrateSession(raw: LegacySession): Session {
   const messages = Array.isArray(raw.messages)
@@ -219,6 +222,7 @@ function migrateSession(raw: LegacySession): Session {
     providerId: raw.providerId ?? null,
     modelId: raw.modelId ?? null,
     permissionMode: raw.permissionMode ?? 'plan',
+    ...(raw.contextUsage === undefined ? {} : { contextUsage: raw.contextUsage }),
   };
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import {
@@ -83,10 +83,21 @@ export function useConversation(): ConversationFeed {
     return projectConversation(events, deltas);
   }, [events, deltas, bufferIsCurrent]);
 
-  // Context usage: the session's stored fold seeds the state and the live
-  // event buffer folds on top of it. When the buffer is not current the
-  // seed renders as-is, exactly like the conversation projection above.
-  const contextUsageSeed = currentSession?.contextUsage ?? null;
+  // Context usage: the live event buffer folds on top of the session's fold
+  // seed. The seed is fixed at buffer-reset boundaries (initial load /
+  // session switch) rather than read reactively from the store: the debounced
+  // save persists the fold mid-session, and a reactive seed would re-fold the
+  // retained buffer onto its own output (pendingTokens inflation). Reading it
+  // from the store only when the buffer resets keeps seed+buffer idempotent.
+  // When the buffer is not current the seed renders as-is, exactly like the
+  // conversation projection above.
+  const [contextUsageSeed, setContextUsageSeed] = useState<ContextUsageFold | null>(
+    () =>
+      useSessionStore
+        .getState()
+        .sessions.find((s) => s.id === useSessionStore.getState().currentSessionId)
+        ?.contextUsage ?? null,
+  );
   const contextUsage = useMemo(
     () => projectContextUsage(contextUsageSeed, events, bufferIsCurrent),
     [events, bufferIsCurrent, contextUsageSeed],
@@ -106,10 +117,10 @@ export function useConversation(): ConversationFeed {
 
   const sessionRef = useRef<string | null>(null);
   const snapshotsRef = useRef(new Map<string, ConversationMessage[]>());
-  // Feeds the switch-time fold write-back only. A mid-session write-back
-  // would re-fold the still-retained buffer on top of a seed that already
-  // includes it, inflating `pendingTokens` outside the last anchor's
-  // idempotency — so the fold is only flushed when the buffer is dropped.
+  // Feeds both the switch-time fold flush and the debounced mid-session
+  // persistence. Persisting the fold mid-session cannot double-count: the
+  // seed is component state fixed at buffer-reset boundaries (see above), so
+  // it never reactively re-reads what the save wrote back into the store.
   const foldsRef = useRef(new Map<string, ContextUsageFold>());
 
   // Record the committed feed of the session that owns the buffer, so the
@@ -145,6 +156,16 @@ export function useConversation(): ConversationFeed {
     snapshotsRef.current.clear();
     foldsRef.current.clear();
 
+    // Fix the incoming session's seed here, at the buffer-reset boundary, so
+    // the fold below starts from what the store holds right now (mid-session
+    // write-backs from the debounced save never change it until the next
+    // switch).
+    setContextUsageSeed(
+      useSessionStore
+        .getState()
+        .sessions.find((s) => s.id === currentSessionId)?.contextUsage ?? null,
+    );
+
     // The event buffer belongs to exactly one session; whatever is still in
     // it belongs to the session just left, so it must never project into the
     // next session's feed.
@@ -177,6 +198,13 @@ export function useConversation(): ConversationFeed {
       const projected = projectConversation(chat.events, chat.deltas);
       const snapshot = mergeStoredAndLive(stored, projected.view.messages);
       sessionStore.updateSessionMessages(currentSessionId, snapshot);
+      // Persist the fold alongside the snapshot: the seed is state fixed at
+      // buffer-reset boundaries, so this mid-session write-back cannot be
+      // re-consumed by the projection (no feedback loop, no double-count).
+      const foldToSave = foldsRef.current.get(currentSessionId);
+      if (foldToSave) {
+        sessionStore.updateSessionContextUsage(currentSessionId, foldToSave);
+      }
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timeoutId);
   }, [live, currentSessionId]);

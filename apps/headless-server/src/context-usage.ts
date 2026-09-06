@@ -1,8 +1,9 @@
 /**
  * Server-side context-usage snapshot: folds a session's durable transcript
  * into the serializable fold state the web app seeds its live folding from.
- * Pure core functions + an injected node tokenizer — no I/O beyond the store
- * read the caller already performs for projection.
+ * Pure core functions + an injected node tokenizer. The fold read is a second
+ * full read of the same transcript file the caller reads for projection —
+ * that store read is the only I/O here.
  */
 
 import { emptyContextUsageFold, foldContextUsageEvent } from "@volto/core";
