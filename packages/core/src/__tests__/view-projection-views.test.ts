@@ -448,9 +448,14 @@ describe("toTrajectoryView", () => {
       { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
     ]);
 
-    const kinds = toTrajectoryView(buildTurnRecords(events), events).rows.map((r) => r.kind);
+    const rows = toTrajectoryView(buildTurnRecords(events), events).rows;
+    const kinds = rows.map((r) => r.kind);
     expect(kinds).toContain("context");
     expect(kinds).toContain("compaction");
+
+    // inputDetail uses the sentinel format the web drawer groups on.
+    const contextRow = rows.find((r) => r.kind === "context")!;
+    expect(contextRow.inputDetail).toMatch(/^<<<layer id="base" bytes="\d+">>>\n/);
   });
 
   it("marks a sub-agent row with its child session and does not inline it", () => {

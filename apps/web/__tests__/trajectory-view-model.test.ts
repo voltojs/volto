@@ -7,6 +7,7 @@ import {
   TAB_LABELS,
   EMPTY_CELL,
   locationLabel,
+  parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -77,5 +78,23 @@ describe('drawerTabsFor', () => {
     expect(TAB_LABELS.layers).toBe('系统层');
     expect(TAB_LABELS.timing).toBe('计时');
     expect(EMPTY_CELL).toBe('（无）');
+  });
+});
+
+describe('parseSystemLayers', () => {
+  it('splits sentinel-framed layers with byte counts', () => {
+    const input = [
+      '<<<layer id="user-memory" bytes="4">>>\nUser',
+      '<<<layer id="project-memory:AGENTS.md" bytes="11">>>\nProject rule',
+    ].join('\n\n');
+    expect(parseSystemLayers(input)).toEqual([
+      { id: 'user-memory', text: 'User' },
+      { id: 'project-memory:AGENTS.md', text: 'Project rule' },
+    ]);
+  });
+
+  it('returns [] for legacy or unexpected formats', () => {
+    expect(parseSystemLayers('## user-memory\nUser\n\n## project-memory\nX')).toEqual([]);
+    expect(parseSystemLayers('')).toEqual([]);
   });
 });

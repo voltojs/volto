@@ -14,6 +14,7 @@ import {
   drawerTabsFor,
   formatDuration,
   locationLabel,
+  parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
@@ -194,8 +195,27 @@ function TabBody({
       return <Code text={row.schemaDetail ?? EMPTY_CELL} />;
     case 'thinking':
       return <Cell text={row.thinkingDetail} />;
-    case 'layers':
-      return <Cell text={row.inputDetail} />;
+    case 'layers': {
+      const layers = parseSystemLayers(row.inputDetail ?? '');
+      if (layers.length === 0) return <Code text={row.inputDetail ?? EMPTY_CELL} />;
+      return (
+        <div className="space-y-3">
+          {layers.map((layer) => (
+            <div key={layer.id} className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-muted-foreground truncate font-mono text-[11px]">{layer.id}</code>
+                <span className="text-muted-foreground/60 shrink-0 font-mono text-[10px]">
+                  {new TextEncoder().encode(layer.text).length} B
+                </span>
+              </div>
+              <pre className="bg-muted/60 text-foreground/80 overflow-x-auto rounded p-2 font-mono text-[11px]">
+                {layer.text}
+              </pre>
+            </div>
+          ))}
+        </div>
+      );
+    }
     case 'timing':
       return (
         <div className="divide-y">

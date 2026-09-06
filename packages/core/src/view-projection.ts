@@ -701,7 +701,9 @@ export function toTrajectoryView(
           turn: turn.turn,
           summary: `system prompt (${data.systemLayers.length} layers), ${data.tools.length} tools`,
           startedAt: event.time,
-          inputDetail: data.systemLayers.map((l) => `## ${l.id}\n${l.text}`).join("\n\n"),
+          inputDetail: data.systemLayers
+            .map((l) => `<<<layer id="${l.id}" bytes="${new TextEncoder().encode(l.text).length}">>>\n${l.text}`)
+            .join("\n\n"),
           schemaDetail: JSON.stringify(data.tools, null, 2),
         });
       } else {

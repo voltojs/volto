@@ -77,3 +77,30 @@ export function drawerTabsFor(kind: TrajectoryRow['kind']): readonly DrawerTabKe
       return INFO_TABS;
   }
 }
+
+export interface ParsedSystemLayer {
+  id: string;
+  text: string;
+}
+
+const LAYER_SENTINEL = /^<<<layer id="([^"]+)" bytes="(\d+)">>>$/;
+
+/**
+ * Splits the context row's sentinel-framed inputDetail into layers. Returns []
+ * for anything that does not match (legacy transcripts keep rendering as one
+ * plain block).
+ */
+export function parseSystemLayers(inputDetail: string): ParsedSystemLayer[] {
+  if (inputDetail.length === 0) return [];
+  const sections = inputDetail.split('\n\n');
+  const layers: ParsedSystemLayer[] = [];
+  for (const section of sections) {
+    const newlineAt = section.indexOf('\n');
+    if (newlineAt < 0) return [];
+    const header = section.slice(0, newlineAt);
+    const match = LAYER_SENTINEL.exec(header);
+    if (match === null) return [];
+    layers.push({ id: match[1]!, text: section.slice(newlineAt + 1) });
+  }
+  return layers;
+}
