@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createWiredAgent, DEFAULT_SYSTEM_PROMPT } from "../wiring.js";
-import { createMockModelPort, textScript } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
 
 let tempConfigDir: string;
@@ -272,5 +272,67 @@ describe("createWiredAgent instruction budget override and prompt policy", () =>
   it("declares instruction precedence in the default system prompt", () => {
     expect(DEFAULT_SYSTEM_PROMPT).toContain("advisory context");
     expect(DEFAULT_SYSTEM_PROMPT).toContain("more specific instructions take precedence");
+  });
+});
+
+describe("createWiredAgent discovered instruction layers from fs touches", () => {
+  it("injects a nested chain directory's AGENTS.md on the turn after the model touches it", async () => {
+    await fs.mkdir(path.join(tempProjectDir, "src", "lib"), { recursive: true });
+    await fs.mkdir(path.join(tempProjectDir, ".git"));
+    await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Root rule", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "src", "lib", "AGENTS.md"), "Deep rule", "utf-8");
+    await fs.writeFile(path.join(tempProjectDir, "src", "lib", "x.ts"), "export {};", "utf-8");
+
+    const requests: ModelRequest[] = [];
+    // Tool paths are workspace-relative to the agent cwd (…/src), so touching
+    // the fixture file means "lib/x.ts" here — exactly what a real model would
+    // send. descendantChain() then maps the touch onto …/src/lib.
+    const inner = createMockModelPort([
+      toolCallScript("c1", "read_file", JSON.stringify({ path: "lib/x.ts" })),
+      textScript("read it"),
+      textScript("second turn answer"),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
+    await agent.run("look around");
+    await agent.run("and now?");
+
+    const systemsByCall = requests.map((req) =>
+      req.messages.filter((m) => m.role === "system").map((m) => (m as { content: string }).content),
+    );
+    // 第 1 次模型调用（首轮）：只有项目链根层，无 discovered。
+    expect(systemsByCall[0]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
+    expect(systemsByCall[0]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
+    // 第 3 次模型调用（第二轮）：上一轮 read_file 触达 src/lib → discovered 层出现。
+    expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: src/lib/AGENTS.md\n\nDeep rule"))).toBe(true);
+  });
+
+  it("does not discover from unstructured tools (bash/glob)", async () => {
+    await fs.mkdir(path.join(tempProjectDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tempProjectDir, "src", "AGENTS.md"), "Should not appear", "utf-8");
+
+    const requests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      toolCallScript("c1", "bash", JSON.stringify({ command: "cat src/AGENTS.md" })),
+      textScript("done"),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    await agent.run("go");
+
+    const systems = requests[1]!.messages.filter((m) => m.role === "system");
+    expect(systems.some((m) => (m as { content: string }).content.includes("Should not appear"))).toBe(false);
   });
 });

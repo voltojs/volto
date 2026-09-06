@@ -17,9 +17,11 @@ import {
   ancestorChain,
   candidateFileNames,
   dedupeInstructions,
+  descendantChain,
   expandInstructions,
   renderInstructionLayers,
   type ContextLayer,
+  type ContextLayerHints,
   type LoadedInstructionFile,
 } from "@volto/core";
 import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
@@ -113,7 +115,11 @@ async function loadExpanded(filePath: string, importRoot: string): Promise<strin
  * function only probes and reads. See
  * docs/superpowers/specs/2026-09-05-agent-context-injection-design.md §5.
  */
-async function resolveMemoryLayers(cwd: string, maxBytes: number): Promise<ContextLayer[]> {
+async function resolveMemoryLayers(
+  cwd: string,
+  maxBytes: number,
+  discoveredDirs: string[] = [],
+): Promise<ContextLayer[]> {
   const configDir = getConfigDir();
   const loaded: LoadedInstructionFile[] = [];
 
@@ -125,6 +131,21 @@ async function resolveMemoryLayers(cwd: string, maxBytes: number): Promise<Conte
 
   const projectRoot = await findProjectRoot(cwd);
   for (const dir of ancestorChain(cwd, projectRoot)) {
+    for (const name of candidateFileNames()) {
+      const filePath = path.join(dir, name);
+      const text = await loadExpanded(filePath, dir);
+      if (text === undefined) continue;
+      loaded.push({
+        absolutePath: filePath,
+        displayPath: path.relative(projectRoot, filePath),
+        content: text,
+      });
+    }
+  }
+
+  // Discovered directories sit strictly below cwd — probe them with the same
+  // candidate rules so a nested AGENTS.md surfaces the turn after a touch.
+  for (const dir of discoveredDirs) {
     for (const name of candidateFileNames()) {
       const filePath = path.join(dir, name);
       const text = await loadExpanded(filePath, dir);
@@ -313,8 +334,9 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const sessionStore = createSqliteStore({ path: dbPath });
 
   let skillsPromise: Promise<LoadedSkills> | undefined;
-  async function resolveContextLayers(input: string): Promise<ContextLayer[]> {
-    const layers = await resolveMemoryLayers(cwd, opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES);
+  async function resolveContextLayers(input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
+    const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
+    const layers = await resolveMemoryLayers(cwd, opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES, discoveredDirs);
     skillsPromise ??= loadAllSkills(cwd);
     const { skills, rootDirByResource } = await skillsPromise;
     const triggered = findTriggeredSkills(skills, input);
