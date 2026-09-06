@@ -104,6 +104,11 @@ function OverviewTab({
               }
             />
           </Field>
+          {(row.metrics.usage.cacheReadTokens ?? 0) > 0 && (
+            <Field label="缓存命中">
+              <Cell text={String(row.metrics.usage.cacheReadTokens)} />
+            </Field>
+          )}
         </>
       )}
       {row.kind === 'subagent' && row.childSessionId && (

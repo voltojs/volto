@@ -18,6 +18,8 @@ export interface Model {
   id: string;
   name: string;
   code: string;
+  /** 最大上下文窗口（tokens）。可选：未设置时上下文环显示灰态。 */
+  contextWindow?: number;
 }
 
 export interface Provider {
@@ -33,7 +35,7 @@ export interface ProviderInput {
   baseURL?: string | null;
   /** Omit to keep the stored key unchanged. */
   apiKey?: string | null;
-  models?: Array<{ id?: string; name: string; code: string }>;
+  models?: Array<{ id?: string; name: string; code: string; contextWindow?: number }>;
 }
 
 /**

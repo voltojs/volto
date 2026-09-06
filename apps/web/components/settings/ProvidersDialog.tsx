@@ -147,7 +147,12 @@ function ProviderCard({ provider }: { provider: Provider }) {
         // Empty means "leave the stored key alone" — the server treats an
         // omitted apiKey as unchanged.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-        models: models.map((m) => ({ id: m.id, name: m.name, code: m.code })),
+        models: models.map((m) => ({
+          id: m.id,
+          name: m.name,
+          code: m.code,
+          ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+        })),
       });
       setApiKey('');
       setDirty(false);
@@ -238,6 +243,23 @@ function ProviderCard({ provider }: { provider: Provider }) {
                 setModels(
                   models.map((m, i) =>
                     i === index ? { ...m, code: e.target.value } : m,
+                  ),
+                );
+              }}
+            />
+            <Input
+              className="w-28 shrink-0 font-mono text-xs"
+              inputMode="numeric"
+              value={model.contextWindow ?? ''}
+              placeholder="上下文窗口"
+              onChange={(e) => {
+                setDirty(true);
+                const raw = e.target.value.replace(/[^0-9]/g, '');
+                setModels(
+                  models.map((m, i) =>
+                    i === index
+                      ? { ...m, contextWindow: raw === '' ? undefined : Number(raw) }
+                      : m,
                   ),
                 );
               }}
