@@ -74,11 +74,18 @@ export async function* normalizeStream(
     // Usage may arrive in the final chunk (stream_options.include_usage)
     if (chunk.usage && !hasEmittedUsage) {
       hasEmittedUsage = true;
+      const promptTokens = chunk.usage.prompt_tokens ?? 0;
+      const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens;
       yield {
         type: "usage",
-        inputTokens: chunk.usage.prompt_tokens ?? 0,
+        // inputTokens is the UNCACHED prompt across all providers (Anthropic's
+        // input_tokens already has this shape); cached tokens ride in
+        // cacheReadTokens, so input + cacheRead + cacheWrite is the full
+        // prompt. Reporting prompt_tokens verbatim here made CostMeter price
+        // the cached portion twice.
+        inputTokens: Math.max(0, promptTokens - (cachedTokens ?? 0)),
         outputTokens: chunk.usage.completion_tokens ?? 0,
-        cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? undefined,
+        cacheReadTokens: cachedTokens,
         totalTokens: chunk.usage.total_tokens ?? undefined,
         reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens ?? undefined,
       };

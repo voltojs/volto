@@ -246,6 +246,49 @@ describe("normalizeStream", () => {
       expect(usageEvents).toHaveLength(1);
       expect(usageEvents[0]).toMatchObject({ totalTokens: undefined, reasoningTokens: undefined });
     });
+
+    it("splits cached tokens out of prompt_tokens (uncached inputTokens semantics)", async () => {
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          prompt_tokens_details: { cached_tokens: 30 },
+        }),
+      ]);
+      const usageEvents = events.filter((e) => e.type === "usage");
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]).toMatchObject({
+        type: "usage",
+        inputTokens: 70, // uncached only — matches Anthropic's input_tokens semantics
+        outputTokens: 50,
+        cacheReadTokens: 30,
+      });
+      // 恒等式：未命中 + 命中 = 完整 prompt
+      const usage = usageEvents[0] as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens + (usage.cacheReadTokens ?? 0)).toBe(100);
+    });
+
+    it("keeps inputTokens equal to prompt_tokens when nothing was cached", async () => {
+      const events = await collect([
+        chunk({}, "stop", { prompt_tokens: 100, completion_tokens: 50 }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(100);
+      expect(usage.cacheReadTokens).toBeUndefined();
+    });
+
+    it("never reports a negative uncached input", async () => {
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 10,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 30 }, // 异常 provider：cached > prompt
+        }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(0);
+      expect(usage.cacheReadTokens).toBe(30);
+    });
   });
 
   describe("finish reason mapping", () => {

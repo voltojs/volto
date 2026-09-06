@@ -205,6 +205,31 @@ describe("normalizeStream (Anthropic)", () => {
     });
   });
 
+  describe("usage semantics", () => {
+    it("keeps inputTokens uncached — cache tokens ride in their own fields", async () => {
+      const events = await collect([
+        {
+          type: "message_start",
+          message: {
+            usage: { input_tokens: 70, cache_read_input_tokens: 30, cache_creation_input_tokens: 5 },
+          },
+        },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 8 } },
+        { type: "message_stop" },
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage).toMatchObject({
+        inputTokens: 70,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 5,
+        outputTokens: 8,
+      });
+    });
+  });
+
   describe("stop reason mapping", () => {
     it("should map 'end_turn' to 'end_turn'", async () => {
       const events = await collect([
