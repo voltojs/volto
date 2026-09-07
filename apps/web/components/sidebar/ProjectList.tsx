@@ -6,6 +6,7 @@ import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { renameServerSession } from '@/lib/sessions-api';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -179,10 +180,17 @@ export function ProjectList() {
                       setEditingTitle(session.title);
                     }}
                     onFinishEdit={() => {
-                      if (editingTitle.trim()) {
+                      const title = editingTitle.trim();
+                      if (title) {
                         useSessionStore
                           .getState()
-                          .updateSessionTitle(session.id, editingTitle.trim());
+                          .updateSessionTitle(session.id, title);
+                        // Best-effort: a manual rename is not on the critical
+                        // path either, so a failed PATCH here is swallowed —
+                        // the in-memory title the user just set stands.
+                        void renameServerSession(session.id, title).catch(
+                          () => {},
+                        );
                       }
                       setEditingSessionId(null);
                     }}

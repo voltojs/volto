@@ -13,6 +13,8 @@ import {
 import type { ConversationMessage, ContextUsageView } from '@volto/sdk/sse';
 import { dropCachedTrajectory } from '@/lib/trajectory-cache';
 import { projectContextUsage } from '@/lib/context-usage';
+import { runTitleWriteBack } from '@/lib/session-title';
+import { renameServerSession } from '@/lib/sessions-api';
 
 const EMPTY_MESSAGES: ConversationMessage[] = [];
 
@@ -142,6 +144,33 @@ export function useConversation(): ConversationFeed {
   }, [currentSessionId]);
 
   const usage = contextUsage.view;
+
+  // -- title write-back -----------------------------------------------------
+
+  // `titledRef` guards a session's title derivation+write-back to happen at
+  // most once per session for the whole browsing session, no matter how many
+  // times this effect re-fires. That matters because `messages` changes on
+  // every streamed delta while the assistant answers the first turn, so this
+  // effect keeps re-running throughout that reply; `runTitleWriteBack` adds
+  // the id to the set synchronously, in the same pass that derives a
+  // non-null title, before the network call — so every later re-run this
+  // session is a cheap no-op. The gate is permanent: a PATCH failure does not
+  // remove the id (see the retry inside `runTitleWriteBack`), matching spec
+  // §4.2's "retry once, then give up for good" — titles are not on the
+  // critical path.
+  const titledRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!currentSessionId || !currentSession) return;
+    void runTitleWriteBack({
+      sessionId: currentSessionId,
+      currentTitle: currentSession.title,
+      messages,
+      titledIds: titledRef.current,
+      setTitle: (id, title) =>
+        useSessionStore.getState().updateSessionTitle(id, title),
+      rename: renameServerSession,
+    });
+  }, [currentSessionId, currentSession, messages]);
 
   return { entries, messages, live, usage };
 }

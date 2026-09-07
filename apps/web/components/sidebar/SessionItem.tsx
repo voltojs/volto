@@ -61,7 +61,9 @@ export function SessionItem({
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="flex-1 truncate text-[13px]">{session.title}</span>
+        <span className="flex-1 truncate text-[13px]">
+          {session.title || '未命名会话'}
+        </span>
       )}
 
       {showActions && !isEditing && (
