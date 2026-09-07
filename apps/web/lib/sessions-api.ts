@@ -9,7 +9,7 @@
 import { SERVER_URL } from './agent-config';
 import type {
   ConversationMessage,
-  ContextUsageFold,
+  ContextUsageSnapshot,
   TrajectoryView,
 } from '@volto/sdk/sse';
 
@@ -78,7 +78,7 @@ export interface ServerSessionDetail {
   modelId: string | null;
   permissionMode: string | null;
   messages: ConversationMessage[];
-  contextUsage: ContextUsageFold | null;
+  contextUsage: ContextUsageSnapshot | null;
   createdAt: number;
   updatedAt: number;
 }

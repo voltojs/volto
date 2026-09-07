@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  emptyContextUsageFold,
-  type ContextUsageFold,
+  emptyContextUsageSnapshot,
+  type ContextUsageSnapshot,
   type TranscriptEventInput,
 } from '@volto/sdk/sse';
 import { projectContextUsage } from '@/lib/context-usage';
@@ -20,22 +20,22 @@ const events = (extra: TranscriptEventInput[]): TranscriptEventInput[] => [
 ];
 
 describe('projectContextUsage', () => {
-  it('seeds from the stored fold and folds live events on top', () => {
-    const seed: ContextUsageFold = {
-      header: { systemLayers: HEADER.systemLayers, tools: [] },
+  it('seeds from the stored snapshot and folds live events on top', () => {
+    const seed: ContextUsageSnapshot = {
+      headerEstimate: { system: 10, tools: 0, layers: [{ id: 'system-prompt', tokens: 10 }] },
       anchor: { promptTokens: 40, outputTokens: 6 },
       pendingTokens: 0,
       messageTokens: 0,
     };
-    const { fold, view } = projectContextUsage(seed, events([]), true);
-    expect(fold.anchor).toEqual({ promptTokens: 40, outputTokens: 6 });
+    const { snapshot, view } = projectContextUsage(seed, events([]), true);
+    expect(snapshot.anchor).toEqual({ promptTokens: 40, outputTokens: 6 });
     expect(view).not.toBeNull();
     expect(view!.anchored).toBe(true);
   });
 
   it('accumulates new user messages beyond the seed', () => {
-    const seed: ContextUsageFold = {
-      header: { systemLayers: HEADER.systemLayers, tools: [] },
+    const seed: ContextUsageSnapshot = {
+      headerEstimate: { system: 10, tools: 0, layers: [{ id: 'system-prompt', tokens: 10 }] },
       anchor: { promptTokens: 40, outputTokens: 6 },
       pendingTokens: 0,
       messageTokens: 0,
@@ -52,28 +52,58 @@ describe('projectContextUsage', () => {
 
   it('returns the seed view unchanged when the buffer is not current', () => {
     const { view } = projectContextUsage(
-      { header: { systemLayers: HEADER.systemLayers, tools: [] }, anchor: { promptTokens: 40, outputTokens: 6 }, pendingTokens: 0, messageTokens: 0 },
+      {
+        headerEstimate: { system: 10, tools: 0, layers: [{ id: 'system-prompt', tokens: 10 }] },
+        anchor: { promptTokens: 40, outputTokens: 6 },
+        pendingTokens: 0,
+        messageTokens: 0,
+      },
       events([]),
       false,
     );
     expect(view!.projectedTokens).toBe(46);
   });
 
-  it('treats a missing seed as the empty fold', () => {
-    const { fold, view } = projectContextUsage(undefined, [], true);
-    expect(fold).toEqual(emptyContextUsageFold());
+  it('treats a missing seed as the empty snapshot', () => {
+    const { snapshot, view } = projectContextUsage(undefined, [], true);
+    expect(snapshot).toEqual(emptyContextUsageSnapshot());
     expect(view).toBeNull();
   });
 
-  it('seeds the fold from the session detail, not from a snapshot taken at switch time', () => {
-    const seed = {
-      header: { systemLayers: [{ id: 'sys', text: 'x'.repeat(40) }], tools: [] },
+  it('continues a server snapshot with live events', () => {
+    const seed: ContextUsageSnapshot = {
+      headerEstimate: { system: 10, tools: 5, layers: [{ id: 'sys', tokens: 10 }] },
       anchor: { promptTokens: 100, outputTokens: 10 },
       pendingTokens: 0,
-      messageTokens: 0,
+      messageTokens: 40,
     };
-    const { view } = projectContextUsage(seed, [], true);
-    expect(view?.anchored).toBe(true);
-    expect(view?.projectedTokens).toBe(110);
+    const { view } = projectContextUsage(
+      seed,
+      [{ time: 0, type: 'user_message', data: { content: 'abcd' } }],
+      true,
+    );
+    // 100 + 10 anchor, plus the new message's estimate on top.
+    expect(view!.projectedTokens).toBeGreaterThan(110);
+    expect(view!.breakdown.messages).toBeGreaterThan(40);
+  });
+
+  it('treats a missing snapshot as an empty seed', () => {
+    const { view } = projectContextUsage(null, [], true);
+    expect(view).toBeNull();
+  });
+
+  it("renders a non-live buffer's seed as-is", () => {
+    const seed: ContextUsageSnapshot = {
+      headerEstimate: { system: 10, tools: 5, layers: [] },
+      anchor: null,
+      pendingTokens: 0,
+      messageTokens: 7,
+    };
+    const { view } = projectContextUsage(
+      seed,
+      [{ time: 0, type: 'user_message', data: { content: 'ignored' } }],
+      false,
+    );
+    expect(view!.projectedTokens).toBe(22);
   });
 });

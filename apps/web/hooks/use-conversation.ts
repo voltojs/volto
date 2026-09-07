@@ -86,10 +86,10 @@ export function useConversation(): ConversationFeed {
     return projectConversation(events, deltas);
   }, [events, deltas, bufferIsCurrent]);
 
-  // Context usage: the session's fold seed (filled by ensureSessionDetail from
-  // GET /sessions/:id) plus the live event buffer folded on top. With client
-  // state memory-only there is no write-back to guard against, so the seed is
-  // read straight from the store.
+  // Context usage: the session's numbers-only snapshot seed (filled by
+  // ensureSessionDetail from GET /sessions/:id) plus the live event buffer
+  // folded on top. With client state memory-only there is no write-back to
+  // guard against, so the seed is read straight from the store.
   const contextUsage = useMemo(
     () => projectContextUsage(currentSession?.contextUsage ?? null, events, bufferIsCurrent),
     [events, bufferIsCurrent, currentSession?.contextUsage],

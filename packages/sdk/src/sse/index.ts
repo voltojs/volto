@@ -65,10 +65,15 @@ export {
   computeContextUsage,
   createCharTokenizer,
   createHeuristicTokenizer,
+  emptyContextUsageSnapshot,
+  foldSnapshotEvent,
+  snapshotView,
 } from "@volto/core";
 export type {
   ContextUsageFold,
   ContextUsageHeader,
   ContextUsageAnchor,
   ContextUsageView,
+  ContextUsageSnapshot,
+  ContextUsageHeaderEstimate,
 } from "@volto/core";

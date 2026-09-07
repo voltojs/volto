@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createStore } from "@volto/store-jsonl";
 import type { TranscriptEventInput } from "@volto/core";
-import { readContextUsageFold } from "../context-usage.js";
+import { readContextUsageSnapshot } from "../context-usage.js";
 
 let tempDir: string;
 
@@ -24,7 +24,7 @@ async function seedSession(id: string, events: TranscriptEventInput[]) {
   return store;
 }
 
-describe("readContextUsageFold", () => {
+describe("readContextUsageSnapshot", () => {
   it("folds request_header and assistant usage into a serializable state", async () => {
     const store = await seedSession("s1", [
       { time: 100, type: "user_message", data: { content: "hi" }, turn: 1 },
@@ -52,18 +52,19 @@ describe("readContextUsageFold", () => {
         step: 1,
       },
     ]);
-    const fold = await readContextUsageFold(store, "s1");
-    expect(fold).not.toBeNull();
-    expect(fold!.anchor).toEqual({ promptTokens: 44, outputTokens: 6 });
-    expect(fold!.pendingTokens).toBe(0);
-    expect(fold!.header!.systemLayers).toEqual([{ id: "system-prompt", text: "abcdefgh" }]);
+    const snapshot = await readContextUsageSnapshot(store, "s1");
+    expect(snapshot).not.toBeNull();
+    expect(snapshot.anchor).toEqual({ promptTokens: 44, outputTokens: 6 });
+    expect(snapshot.pendingTokens).toBe(0);
+    expect(snapshot.headerEstimate).not.toBeNull();
+    expect(snapshot.headerEstimate!.layers).toEqual([{ id: "system-prompt", tokens: expect.any(Number) }]);
     // JSON 可序列化（快照会原样放进 HTTP 响应）
-    expect(JSON.parse(JSON.stringify(fold))).toEqual(fold);
+    expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
   });
 
-  it("returns an empty (not null) fold for a session with no events", async () => {
+  it("returns an empty (not null) snapshot for a session with no events", async () => {
     const store = await seedSession("s2", []);
-    const fold = await readContextUsageFold(store, "s2");
-    expect(fold).toEqual({ header: null, anchor: null, pendingTokens: 0, messageTokens: 0 });
+    const snapshot = await readContextUsageSnapshot(store, "s2");
+    expect(snapshot).toEqual({ headerEstimate: null, anchor: null, pendingTokens: 0, messageTokens: 0 });
   });
 });

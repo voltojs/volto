@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ConversationMessage, ContextUsageFold } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageSnapshot } from '@volto/sdk/sse';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,17 +48,17 @@ export interface Session {
   modelId: string | null;
   permissionMode: PermissionMode;
   /**
-   * Context-usage fold seeded from `GET /sessions/:id`. Held in memory for
-   * this browsing session only — the server recomputes it from the durable
-   * transcript on every load.
+   * Numbers-only context-usage snapshot seeded from `GET /sessions/:id`. Held
+   * in memory for this browsing session only — the server recomputes it from
+   * the durable transcript on every load.
    */
-  contextUsage?: ContextUsageFold | null;
+  contextUsage?: ContextUsageSnapshot | null;
 }
 
 /** Detail payload used to fill in a session fetched via `GET /sessions/:id`. */
 export interface SessionDetail {
   messages: ConversationMessage[];
-  contextUsage: ContextUsageFold | null;
+  contextUsage: ContextUsageSnapshot | null;
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;

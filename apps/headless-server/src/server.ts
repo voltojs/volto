@@ -26,7 +26,7 @@ import {
 } from "@volto/store-jsonl";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { createSkillRegistry } from "./skills/registry.js";
-import { readContextUsageFold } from "./context-usage.js";
+import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
 import {
@@ -563,9 +563,9 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         // The store hands over raw events; projecting them is the SDK facade's
         // job (apps/* may value-import core, stores-* may not).
         const view = await readConversation(asTranscriptReader(chatStore), id);
-        // The usage meter is best-effort: a fold-read failure hides the ring
+        // The usage meter is best-effort: a snapshot-read failure hides the ring
         // client-side rather than failing the whole session fetch.
-        const contextUsage = await readContextUsageFold(chatStore, id).catch(() => null);
+        const contextUsage = await readContextUsageSnapshot(chatStore, id).catch(() => null);
         jsonResponse(res, 200, {
           id,
           ...bindingsOf(record.meta),

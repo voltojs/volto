@@ -814,6 +814,17 @@ describe("Headless server", () => {
     ]);
   });
 
+  it("GET /sessions/:id sends context usage as numbers only", async () => {
+    const sessionId = await startSessionWithOneTurn();
+    const response = await fetch(`${baseUrl}/sessions/${sessionId}`);
+    const body = (await response.json()) as { contextUsage: unknown };
+    const serialized = JSON.stringify(body.contextUsage);
+
+    expect(serialized).not.toMatch(/"text"/);
+    expect(serialized).not.toMatch(/"schema"/);
+    expect(serialized.length).toBeLessThan(1024);
+  });
+
   it("GET /sessions/:id returns 404 for an unknown session", async () => {
     const { status, data } = await getJson("/sessions/no-such-session");
     expect(status).toBe(404);
