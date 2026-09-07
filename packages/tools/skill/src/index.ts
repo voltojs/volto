@@ -38,11 +38,25 @@ function renderSkillResult(name: string, loaded: LoadedSkill): string {
 }
 
 /**
- * Caps the rendered result at MAX_SKILL_BODY_BYTES UTF-8 bytes (byte-safe via
- * TextEncoder/TextDecoder slice — a split codepoint degrades to a replacement
- * char at the boundary) and appends a visible truncation notice. The header
- * counts against the cap: the caller is promised a bounded modelContent, not
- * a bounded body.
+ * Cuts a UTF-8 byte prefix without splitting a code point, then decodes
+ * losslessly. Mirrors @volto/core's workspace-instructions.ts `cutUtf8` —
+ * duplicated here rather than imported because packages/tools/skill may only
+ * `import type` from @volto/core, never a value.
+ */
+function cutUtf8(bytes: Uint8Array, maxBytes: number): Uint8Array {
+  let end = Math.min(maxBytes, bytes.length);
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+  return bytes.slice(0, end);
+}
+
+/**
+ * Caps the rendered result at MAX_SKILL_BODY_BYTES UTF-8 bytes and appends a
+ * visible truncation notice. The cut point is walked back to a UTF-8 character
+ * boundary (via cutUtf8) rather than an arbitrary byte offset: slicing mid
+ * codepoint would decode to a replacement character (U+FFFD, 3 bytes) that can
+ * re-encode LONGER than the room allotted, pushing modelContent over the cap.
+ * The header counts against the cap: the caller is promised a bounded
+ * modelContent, not a bounded body.
  */
 function capSkillResult(text: string): string {
   const encoded = new TextEncoder().encode(text);
@@ -51,7 +65,8 @@ function capSkillResult(text: string): string {
     `\n\n[skill body truncated from ${encoded.length} to ${MAX_SKILL_BODY_BYTES} bytes` +
     " — read the files under the base directory if you need the remainder]";
   const room = MAX_SKILL_BODY_BYTES - new TextEncoder().encode(notice).length;
-  return new TextDecoder().decode(encoded.slice(0, Math.max(0, room))) + notice;
+  const truncated = cutUtf8(encoded, Math.max(0, room));
+  return new TextDecoder().decode(truncated) + notice;
 }
 
 const skillSchema = z.object({

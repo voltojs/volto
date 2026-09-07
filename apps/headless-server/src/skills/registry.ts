@@ -146,8 +146,8 @@ export function createSkillRegistry(cwd: string): SkillRegistry {
       return skills.map(({ name, description, invocation }) => ({ name, description, invocation }));
     },
     async load(name): Promise<LoadedSkill | undefined> {
-      // One scan for both the lookup and the resource roots — the previous
-      // shape scanned twice per call.
+      // Single scan of all skill sources, reused for both the name lookup
+      // and the resource-root map loadSkillResourceText needs.
       const { skills, rootDirByResource } = await scanSkillSources(cwd);
       const hit = skills.find((s) => s.name === name && s.invocation.modelInvocable);
       if (hit === undefined) return undefined;

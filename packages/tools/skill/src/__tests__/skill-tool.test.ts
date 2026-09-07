@@ -82,4 +82,35 @@ describe("createSkillTool", () => {
     const result = await tool.handler({ name: "big" });
     expect(new TextEncoder().encode(result.modelContent).length).toBeLessThanOrEqual(64 * 1024);
   });
+
+  it("caps multi-byte bodies at the byte limit even when the cut lands mid-character", async () => {
+    // Each "你" is a 3-byte UTF-8 sequence. With this repeat count the naive
+    // cut point (a fixed byte offset) lands inside one of these sequences,
+    // not on a character boundary — the regression this test guards against.
+    const tool = createSkillTool(async () => ({
+      body: "你".repeat(25 * 1000),
+      baseDir: "/skills/big",
+    }));
+    const result = await tool.handler({ name: "big" });
+    const content = (result as { modelContent: string }).modelContent;
+
+    const encodedLength = new TextEncoder().encode(content).length;
+    expect(encodedLength).toBeLessThanOrEqual(64 * 1024);
+    // A mid-character cut decodes to U+FFFD, which would re-encode 2 bytes
+    // longer than the single incomplete byte it replaced — that overshoot
+    // must never survive into the returned content.
+    expect(content).not.toContain("�");
+  });
+
+  it("caps emoji bodies (4-byte UTF-8 sequences) at the byte limit", async () => {
+    const tool = createSkillTool(async () => ({
+      body: "\u{1F600}".repeat(20 * 1000),
+      baseDir: "/skills/big",
+    }));
+    const result = await tool.handler({ name: "big" });
+    const content = (result as { modelContent: string }).modelContent;
+
+    expect(new TextEncoder().encode(content).length).toBeLessThanOrEqual(64 * 1024);
+    expect(content).not.toContain("�");
+  });
 });
