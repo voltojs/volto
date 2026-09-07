@@ -30,6 +30,33 @@ function unquote(value: string): string {
   return value;
 }
 
+/**
+ * Strips a trailing YAML-style inline comment from a freshly parsed scalar
+ * value. Real YAML only starts a comment at a `#` that is preceded by
+ * whitespace (or is the very first character of the value) and that is not
+ * inside a quoted string; a `#` glued to preceding text (`C#`, `a#b`) is
+ * ordinary data. Runs before `unquote()` so a `#` inside a quoted value is
+ * never mistaken for a comment.
+ */
+function stripInlineComment(value: string): string {
+  let inQuote: '"' | "'" | undefined;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (inQuote) {
+      if (ch === inQuote) inQuote = undefined;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = ch;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /\s/.test(value[i - 1]!))) {
+      return value.slice(0, i).trimEnd();
+    }
+  }
+  return value;
+}
+
 type BlockStyle = "folded" | "literal";
 
 /** Parses the `key: value` lines of a frontmatter block into a flat map. */
@@ -62,19 +89,25 @@ function parseFields(frontmatter: string): Record<string, string> {
       flushBlock();
     }
 
-    if (line.trim().startsWith("#")) continue;
-
     // An indented line with no active block continues the previous scalar.
+    // This must be checked BEFORE the comment-skip below: a continuation
+    // line is already-consumed content, not a fresh value, so it is never a
+    // comment even when it happens to start with "#" (e.g. "#1" or a
+    // markdown heading). It is appended literally, with no inline-comment
+    // stripping — stripping here would silently drop content again, which
+    // is exactly the bug this ordering fixes.
     if (indented && currentKey !== undefined) {
       fields[currentKey] = `${fields[currentKey] ?? ""} ${line.trim()}`.trim();
       continue;
     }
 
+    if (line.trim().startsWith("#")) continue;
+
     const idx = line.indexOf(":");
     if (idx < 0) continue;
     const key = line.slice(0, idx).trim();
     if (key.length === 0) continue;
-    const rawValue = line.slice(idx + 1).trim();
+    const rawValue = stripInlineComment(line.slice(idx + 1).trim());
     currentKey = key;
 
     const blockMatch = rawValue.match(/^([|>])(-?)$/);

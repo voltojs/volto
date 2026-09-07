@@ -59,4 +59,38 @@ describe("parseSkillFile", () => {
     expect(parseSkillFile("no frontmatter")).toBeUndefined();
     expect(parseSkillFile(wrap("name: only"))).toBeUndefined();
   });
+
+  it("strips a whitespace-preceded inline comment from a scalar value", () => {
+    const parsed = parseSkillFile(wrap("name: demo\ndescription: hi # note"));
+    expect(parsed?.description).toBe("hi");
+  });
+
+  it("disables an invocation flag even with a trailing inline comment", () => {
+    const parsed = parseSkillFile(
+      wrap("name: d\ndescription: d\ndisable-model-invocation: true # only for admins"),
+    );
+    expect(parsed?.invocation).toEqual({ modelInvocable: false, userInvocable: true });
+  });
+
+  it("keeps a `#` not preceded by whitespace (not a comment)", () => {
+    expect(parseSkillFile(wrap("name: demo\ndescription: C#"))?.description).toBe("C#");
+    expect(parseSkillFile(wrap("name: demo\ndescription: a#b"))?.description).toBe("a#b");
+  });
+
+  it("does not treat a `#` inside a quoted value as a comment", () => {
+    const parsed = parseSkillFile(wrap(`name: demo\ndescription: "hi # not a comment"`));
+    expect(parsed?.description).toBe("hi # not a comment");
+  });
+
+  it("treats an unmarked continuation line starting with `#` as content, not a comment", () => {
+    const parsed = parseSkillFile(
+      wrap("name: demo\ndescription: See the\n  #important section below"),
+    );
+    expect(parsed?.description).toBe("See the #important section below");
+  });
+
+  it("still skips a `#`-leading line that is neither indented nor a continuation", () => {
+    const parsed = parseSkillFile(wrap("name: demo\n# a standalone comment\ndescription: d"));
+    expect(parsed?.description).toBe("d");
+  });
 });
