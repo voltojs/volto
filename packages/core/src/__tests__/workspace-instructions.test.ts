@@ -173,20 +173,24 @@ describe("renderInstructionLayers — byte budget", () => {
     expect(truncated).toEqual([]);
   });
 
-  it("omits broadest files whole before touching the most specific", () => {
+  it("omits the deepest file whole before touching the broadest, within one origin", () => {
     const big = "x".repeat(3 * KB);
     const { layers, omitted } = renderInstructionLayers(
       [file("AGENTS.md", big), file("src/AGENTS.md", big), file("src/deep/AGENTS.md", "tiny")],
       4 * KB,
     );
-    // Each rendered layer ≈ 3KB; two fit, the broadest is dropped whole.
-    expect(omitted).toEqual(["AGENTS.md"]);
-    expect(layers.map((l) => l.id)).toEqual(["project-memory:src/AGENTS.md", "project-memory:src/deep/AGENTS.md"]);
-    // Spec §5.5.3 — the notice is model-visible and rides on the most-specific
-    // surviving layer; every layer text still respects the budget.
+    // All three files share the "project" origin, so the sacrifice queue
+    // ranks by depth alone: the deepest goes first, then the next-deepest,
+    // leaving the broadest (root AGENTS.md) as the sole survivor.
+    expect(omitted).toEqual(["src/deep/AGENTS.md", "src/AGENTS.md"]);
+    expect(layers.map((l) => l.id)).toEqual(["project-memory:AGENTS.md"]);
+    // Spec §5.5.3 — the notice is model-visible and rides on the surviving
+    // layer; every layer text still respects the budget.
     const encoder = new TextEncoder();
     const last = layers[layers.length - 1]!;
-    expect(last.text).toContain(`Workspace instruction budget ${4 * KB} bytes: omitted AGENTS.md`);
+    expect(last.text).toContain(
+      `Workspace instruction budget ${4 * KB} bytes: omitted src/deep/AGENTS.md, src/AGENTS.md`,
+    );
     for (const l of layers) {
       expect(encoder.encode(l.text).length).toBeLessThanOrEqual(4 * KB);
     }
@@ -195,19 +199,21 @@ describe("renderInstructionLayers — byte budget", () => {
   it("names omitted files and the truncation together in one notice", () => {
     const { layers, omitted, truncated } = renderInstructionLayers(
       [
-        file("AGENTS.md", "x".repeat(2 * KB)),
-        file("src/AGENTS.md", "x".repeat(2 * KB)),
-        file("src/deep/AGENTS.md", "y".repeat(4 * KB)),
+        file("AGENTS.md", "x".repeat(4 * KB)),
+        file("src/AGENTS.md", "y".repeat(2 * KB)),
+        file("src/deep/AGENTS.md", "z".repeat(2 * KB)),
       ],
       3 * KB,
     );
-    expect(omitted).toEqual(["AGENTS.md", "src/AGENTS.md"]);
+    // The two deeper files are sacrificed whole first (same origin, deepest
+    // first); the broadest survivor is too big alone and gets truncated.
+    expect(omitted).toEqual(["src/deep/AGENTS.md", "src/AGENTS.md"]);
     expect(truncated).toHaveLength(1);
-    expect(truncated[0]!.displayPath).toBe("src/deep/AGENTS.md");
+    expect(truncated[0]!.displayPath).toBe("AGENTS.md");
     expect(truncated[0]!.originalBytes).toBe(4 * KB);
     const text = layers[0]!.text;
     expect(text).toContain(
-      `Workspace instruction budget ${3 * KB} bytes: omitted AGENTS.md, src/AGENTS.md; truncated src/deep/AGENTS.md from ${4 * KB} to ${truncated[0]!.includedBytes} bytes`,
+      `Workspace instruction budget ${3 * KB} bytes: omitted src/deep/AGENTS.md, src/AGENTS.md; truncated AGENTS.md from ${4 * KB} to ${truncated[0]!.includedBytes} bytes`,
     );
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(3 * KB);
   });
@@ -363,5 +369,60 @@ describe("descendantChain", () => {
     expect(out[0]).toBe("/repo/src/lib");
     expect(out).toContain("/repo/src/lib/sub");
     expect(new Set(out).size).toBe(out.length);
+  });
+});
+
+describe("renderInstructionLayers sacrifice order", () => {
+  // Each section renders as `Instructions from: <path>\n\n<content>`, so a
+  // 100-byte content plus a short heading lands just over 120 bytes.
+  const body = (n: number) => "x".repeat(n);
+
+  it("gives up discovered files before project files, and project before user", () => {
+    const files: LoadedInstructionFile[] = [
+      { absolutePath: "/h/.claude/CLAUDE.md", displayPath: "~/.claude/CLAUDE.md", content: body(100), origin: "user" },
+      { absolutePath: "/r/AGENTS.md", displayPath: "AGENTS.md", content: body(100), origin: "project" },
+      { absolutePath: "/r/a/b/AGENTS.md", displayPath: "a/b/AGENTS.md", content: body(100), origin: "discovered" },
+    ];
+    // Room for two sections only.
+    const result = renderInstructionLayers(files, 300);
+    expect(result.omitted).toEqual(["a/b/AGENTS.md"]);
+    expect(result.layers.map((l) => l.id)).toEqual([
+      "user-memory:~/.claude/CLAUDE.md",
+      "project-memory:AGENTS.md",
+    ]);
+  });
+
+  it("gives up the deepest file first within one origin group", () => {
+    const files: LoadedInstructionFile[] = [
+      { absolutePath: "/r/a/AGENTS.md", displayPath: "a/AGENTS.md", content: body(100), origin: "discovered" },
+      { absolutePath: "/r/a/b/c/AGENTS.md", displayPath: "a/b/c/AGENTS.md", content: body(100), origin: "discovered" },
+    ];
+    const result = renderInstructionLayers(files, 200);
+    expect(result.omitted).toEqual(["a/b/c/AGENTS.md"]);
+  });
+
+  it("renders survivors in the original broad-to-specific order, not the sacrifice order", () => {
+    const files: LoadedInstructionFile[] = [
+      { absolutePath: "/h/.agents/AGENTS.md", displayPath: "~/.agents/AGENTS.md", content: body(50), origin: "user" },
+      { absolutePath: "/r/AGENTS.md", displayPath: "AGENTS.md", content: body(50), origin: "project" },
+      { absolutePath: "/r/a/AGENTS.md", displayPath: "a/AGENTS.md", content: body(50), origin: "discovered" },
+    ];
+    const result = renderInstructionLayers(files, 100_000);
+    expect(result.layers.map((l) => l.id)).toEqual([
+      "user-memory:~/.agents/AGENTS.md",
+      "project-memory:AGENTS.md",
+      "project-memory:a/AGENTS.md",
+    ]);
+  });
+
+  it("truncates the last survivor — the broadest user-level file — when it alone busts the budget", () => {
+    const files: LoadedInstructionFile[] = [
+      { absolutePath: "/h/.agents/AGENTS.md", displayPath: "~/.agents/AGENTS.md", content: body(500), origin: "user" },
+      { absolutePath: "/r/a/AGENTS.md", displayPath: "a/AGENTS.md", content: body(500), origin: "discovered" },
+    ];
+    const result = renderInstructionLayers(files, 200);
+    expect(result.omitted).toEqual(["a/AGENTS.md"]);
+    expect(result.truncated).toHaveLength(1);
+    expect(result.truncated[0]!.displayPath).toBe("~/.agents/AGENTS.md");
   });
 });

@@ -156,6 +156,37 @@ function noticeLine(maxBytes: number, omitted: string[], truncated: TruncationRe
   return `Workspace instruction budget ${maxBytes} bytes: ${parts.join("; ")}`;
 }
 
+const ORIGIN_SACRIFICE_RANK: Record<InstructionOrigin, number> = {
+  discovered: 0,
+  project: 1,
+  user: 2,
+};
+
+function pathDepth(absolutePath: string): number {
+  return absolutePath.split("/").filter((s) => s.length > 0).length;
+}
+
+/**
+ * Indices into `files`, ordered by what to give up first: discovered files
+ * before project files before user-level ones, and within a group the deepest
+ * path first. Broader instructions are the explicitly-declared, stable ones;
+ * deeper ones are incidental (a directory the model happened to touch) — and
+ * keeping the broad ones stable also keeps the cached prefix intact.
+ * Ties keep input order, so the queue is fully deterministic.
+ */
+function sacrificeOrder(files: LoadedInstructionFile[]): number[] {
+  return files
+    .map((file, index) => ({ file, index }))
+    .sort((a, b) => {
+      const rank = ORIGIN_SACRIFICE_RANK[a.file.origin] - ORIGIN_SACRIFICE_RANK[b.file.origin];
+      if (rank !== 0) return rank;
+      const depth = pathDepth(b.file.absolutePath) - pathDepth(a.file.absolutePath);
+      if (depth !== 0) return depth;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.index);
+}
+
 export function renderInstructionLayers(
   files: LoadedInstructionFile[],
   maxBytes: number,
@@ -169,23 +200,30 @@ export function renderInstructionLayers(
   const sum = (ls: ContextLayer[]): number => ls.reduce((acc, l) => acc + utf8Bytes(l.text), 0);
   if (sum(rendered) <= maxBytes) return { layers: rendered, omitted: [], truncated: [] };
 
-  // Drop whole broadest files first — the last (most specific) file is never
-  // dropped here; if it alone still busts the budget it falls to truncation.
+  // Drop whole files in sacrifice order (see sacrificeOrder). Rendering order
+  // is independent of it: survivors are always emitted in the original
+  // broad-to-specific input order, which is what the cached prefix depends on.
+  const queue = sacrificeOrder(files);
+  const kept = new Set(files.map((_, i) => i));
   const omitted: string[] = [];
-  let first = 0;
-  let layers = rendered;
-  while (layers.length > 1 && sum(layers) > maxBytes) {
-    omitted.push(files[first]!.displayPath);
-    first += 1;
-    layers = rendered.slice(first);
+  let cursor = 0;
+  const keptLayers = (): ContextLayer[] => rendered.filter((_, i) => kept.has(i));
+  while (kept.size > 1 && sum(keptLayers()) > maxBytes) {
+    const victim = queue[cursor]!;
+    cursor += 1;
+    if (!kept.has(victim)) continue;
+    kept.delete(victim);
+    omitted.push(files[victim]!.displayPath);
   }
+
+  const layers = keptLayers();
   if (sum(layers) <= maxBytes) {
     // Spec §5.5.3 — the budget notice is model-visible: when files were
-    // omitted whole, append one notice line to the most-specific surviving
-    // layer. The notice counts against the budget — append the full line
-    // when the combined text fits, otherwise clip the notice itself to the
-    // remaining space; append nothing only when not even one byte of it
-    // fits (degenerate — `omitted` still carries the machine-readable list).
+    // omitted whole, append one notice line to the last surviving layer. The
+    // notice counts against the budget — append the full line when the
+    // combined text fits, otherwise clip the notice itself to the remaining
+    // space; append nothing only when not even one byte of it fits
+    // (degenerate — `omitted` still carries the machine-readable list).
     if (omitted.length > 0) {
       const available = maxBytes - sum(layers) - 1; // -1 for the "\n" separator
       if (available > 0) {
@@ -201,10 +239,11 @@ export function renderInstructionLayers(
     return { layers, omitted, truncated: [] };
   }
 
-  // Only the most-specific file remains and it alone exceeds the budget:
-  // binary-search the longest UTF-8-safe content prefix whose full layer text
-  // (heading + content + notice) fits — the notice counts against the budget.
-  const last = files[first]! as LoadedInstructionFile;
+  // Only one file survives and it alone exceeds the budget: binary-search the
+  // longest UTF-8-safe content prefix whose full layer text (heading +
+  // content + notice) fits — the notice counts against the budget.
+  const survivorIndex = [...kept][0]!;
+  const last = files[survivorIndex]!;
   const heading = `Instructions from: ${last.displayPath}\n\n`;
   const originalBytes = utf8Bytes(last.content);
   const bytes = encoder.encode(last.content);
