@@ -323,6 +323,34 @@ describe("step()", () => {
       expect(finalState.tokensUsed).toBe(15);
       expect(finalState.pendingTools).toHaveLength(1);
     });
+
+    it("should count cacheReadTokens and cacheWriteTokens toward tokensUsed and trip the budget", () => {
+      // inputTokens + outputTokens alone (15) stay under the budget of 100, but the
+      // real prompt also included 90 cache-read tokens; the ledger must count those
+      // too so the budget guard actually reflects total consumption.
+      const state = createInitialState({ tokenBudget: 100, maxIterations: 50 });
+      const inputs: AgentInput[] = [
+        { type: "user_message", content: "expensive" },
+        {
+          type: "model_chunk",
+          chunk: { type: "tool_use_delta", toolCallId: "call_1", toolCallName: "read_file", argumentsDelta: '{"path":"a.ts"}' },
+        },
+        {
+          type: "model_done",
+          stopReason: "tool_use",
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90, cacheWriteTokens: 3 },
+        },
+      ];
+
+      const { finalState, allEffects } = runChain(state, inputs);
+      expect(finalState.status).toBe("done");
+      expect(finalState.tokensUsed).toBe(108);
+      expect(finalState.pendingTools).toHaveLength(0);
+      const errorEmit = allEffects.find(
+        (e) => e.type === "emit" && e.event.type === "error" && e.event.data.error === "Token budget exceeded",
+      );
+      expect(errorEmit).toBeDefined();
+    });
   });
 
   describe("cancel", () => {

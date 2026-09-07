@@ -309,7 +309,12 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     const newIterationCount = state.iterationCount + 1;
     const newTokensUsed =
       state.tokensUsed +
-      (input.usage ? input.usage.inputTokens + input.usage.outputTokens : 0);
+      (input.usage
+        ? input.usage.inputTokens +
+          input.usage.outputTokens +
+          (input.usage.cacheReadTokens ?? 0) +
+          (input.usage.cacheWriteTokens ?? 0)
+        : 0);
 
     // Finalize the assistant message
     const assistantContent = buildAssistantContent(state);

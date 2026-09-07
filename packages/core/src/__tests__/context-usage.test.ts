@@ -122,11 +122,14 @@ describe("contextUsageView", () => {
       tokenizer,
     );
     const view = contextUsageView(fold, tokenizer)!;
-    // pending = 2(text) + tool_use input JSON estimate(≥1) + 1(reasoning);
-    // all of it lands in the independent messages estimate.
+    // text "abcdefgh" → ceil(8/4)=2 + BLOCK_OVERHEAD(4) = 6;
+    // tool_use "read_file" → ceil(9/4)=3 name + ceil(12/4)=3 for
+    // JSON.stringify({path:"a"}) (12 chars) + BLOCK_OVERHEAD(4) = 10;
+    // + ROLE_OVERHEAD(4) for the message = 6+10+4 = 20;
+    // + reasoning "abcd" → ceil(4/4)=1 + BLOCK_OVERHEAD(4) = 5;
+    // total = 20 + 5 = 25, all landing in the independent messages estimate.
     expect(view.anchored).toBe(false);
-    expect(view.breakdown.messages).toBe(view.projectedTokens - view.breakdown.system - view.breakdown.tools);
-    expect(view.breakdown.messages).toBeGreaterThanOrEqual(3);
+    expect(view.breakdown.messages).toBe(25);
   });
 
   it("does not floor projectedTokens to the header estimate when the anchored total is smaller", () => {
@@ -136,18 +139,20 @@ describe("contextUsageView", () => {
       event("assistant_message", {
         content: [],
         durationMs: 5,
-        usage: { inputTokens: 2, outputTokens: 0 }, // 远小于 header 估算
+        usage: { inputTokens: 2, outputTokens: 0 }, // far smaller than the header estimate
       }),
       tokenizer,
     );
     const view = contextUsageView(fold, tokenizer)!;
-    // 锚定：projectedTokens = 2(input) + 0(output) + 0(pending，已被重锚清零) = 2，
-    // 不再被 header 估算（system 7 + tools 22）拉高。
+    // Anchored: projectedTokens = 2(input) + 0(output) + 0(pending, cleared by
+    // the re-anchor) = 2, no longer floored up by the header estimate
+    // (system 7 + tools 22).
     expect(view.projectedTokens).toBe(2);
     expect(view.breakdown.system).toBe(7);
-    // tools JSON 字符串 70 chars → ceil(70/4)=18 + BLOCK_OVERHEAD 4 = 22
+    // tools JSON string is 70 chars → ceil(70/4)=18 + BLOCK_OVERHEAD 4 = 22
     expect(view.breakdown.tools).toBe(22);
-    // messages 桶是独立累计量，来自这条 assistant_message 的空 content：
+    // The messages bucket is an independent running total, from this
+    // assistant_message's empty content:
     // countMessage([]) = countBlocks([])(0) + ROLE_OVERHEAD(4) = 4
     expect(view.breakdown.messages).toBe(4);
   });

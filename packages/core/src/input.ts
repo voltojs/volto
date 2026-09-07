@@ -31,6 +31,10 @@ export interface ModelDoneInput {
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    /** Tokens read from provider-side prompt cache. */
+    cacheReadTokens?: number;
+    /** Tokens written to provider-side prompt cache. */
+    cacheWriteTokens?: number;
   };
 }
 
