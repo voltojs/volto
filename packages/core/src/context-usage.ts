@@ -202,24 +202,17 @@ function estimateHeader(
   return { system: system > 0 ? system + ROLE_OVERHEAD : 0, tools, layers };
 }
 
+/**
+ * Fold-shaped convenience wrapper: prices the header first, then delegates to
+ * `snapshotView` for the actual projection arithmetic. Kept so callers that
+ * hold a `ContextUsageFold` (the server, mid-request) don't need to build a
+ * snapshot by hand — but `snapshotView` below is the single implementation.
+ */
 export function contextUsageView(
   fold: ContextUsageFold,
   tokenizer: Tokenizer,
 ): ContextUsageView | null {
-  if (!fold.header) return null;
-  const { system, tools, layers } = estimateHeader(fold.header, tokenizer);
-  // The anchor is a measurement; the header estimate is a guess. Mixing them
-  // with a floor let a large heuristic header inflate the headline number —
-  // the projection now stays on the measured track whenever one exists.
-  const projectedTokens = fold.anchor
-    ? fold.anchor.promptTokens + fold.anchor.outputTokens + fold.pendingTokens
-    : system + tools + fold.messageTokens;
-  return {
-    projectedTokens,
-    breakdown: { system, tools, messages: fold.messageTokens },
-    layers,
-    anchored: fold.anchor !== null,
-  };
+  return snapshotView(snapshotFold(fold, tokenizer));
 }
 
 export function computeContextUsage(
@@ -312,7 +305,11 @@ export function foldSnapshotEvent(
   };
 }
 
-/** The view, straight from the numbers — no tokenizer needed. */
+/**
+ * The view, straight from the numbers — no tokenizer needed. This is the
+ * single implementation of the projection arithmetic; `contextUsageView`
+ * above is a thin wrapper that prices a fold's header into a snapshot first.
+ */
 export function snapshotView(snap: ContextUsageSnapshot): ContextUsageView | null {
   if (!snap.headerEstimate) return null;
   const { system, tools, layers } = snap.headerEstimate;
