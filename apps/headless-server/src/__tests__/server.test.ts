@@ -198,6 +198,22 @@ async function createTestProjectAndModel(): Promise<{
   };
 }
 
+let sessionCounter = 0;
+
+/**
+ * Creates a project/provider/model, opens an /events channel, and runs one
+ * turn on a fresh session id — the "session that has already run a turn"
+ * precondition several tests need (e.g. the PATCH /sessions/:id rename
+ * tests). Factored out of the steps `GET /sessions lists a session after a
+ * turn has run` already used, since no such helper existed yet in this file.
+ */
+async function startSessionWithOneTurn(): Promise<string> {
+  const sessionId = `session-one-turn-${++sessionCounter}`;
+  const config = await createTestProjectAndModel();
+  await collectProtocolTurn(sessionId, "hi", config);
+  return sessionId;
+}
+
 function getJson(path: string, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     http.get(new URL(path, base), (res) => {
@@ -801,6 +817,73 @@ describe("Headless server", () => {
   it("GET /sessions/:id returns 404 for an unknown session", async () => {
     const { status } = await getJson("/sessions/no-such-session");
     expect(status).toBe(404);
+  });
+
+  describe("PATCH /sessions/:id", () => {
+    it("stores a title that the list endpoint reads back", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const patch = await fetch(`${baseUrl}/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "重构上下文注入" }),
+      });
+      expect(patch.status).toBe(204);
+
+      const list = await fetch(`${baseUrl}/sessions`);
+      const body = (await list.json()) as { sessions: Array<{ id: string; title: string }> };
+      expect(body.sessions.find((s) => s.id === sessionId)?.title).toBe("重构上下文注入");
+    });
+
+    it("rejects an empty or over-long title", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      for (const title of ["", "x".repeat(201)]) {
+        const response = await fetch(`${baseUrl}/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+        expect(response.status).toBe(400);
+      }
+    });
+
+    it("404s an unknown session", async () => {
+      const response = await fetch(`${baseUrl}/sessions/nope`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "x" }),
+      });
+      expect(response.status).toBe(404);
+    });
+
+    it("preserves the session's other meta fields (projectId/providerId/modelId/permissionMode)", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const before = await getJson(`/sessions/${sessionId}`);
+      const beforeDetail = before.data as {
+        projectId?: string;
+        providerId?: string;
+        modelId?: string;
+        permissionMode?: string;
+      };
+
+      const patch = await fetch(`${baseUrl}/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "renamed" }),
+      });
+      expect(patch.status).toBe(204);
+
+      const after = await getJson(`/sessions/${sessionId}`);
+      const afterDetail = after.data as {
+        projectId?: string;
+        providerId?: string;
+        modelId?: string;
+        permissionMode?: string;
+      };
+      expect(afterDetail.projectId).toBe(beforeDetail.projectId);
+      expect(afterDetail.providerId).toBe(beforeDetail.providerId);
+      expect(afterDetail.modelId).toBe(beforeDetail.modelId);
+      expect(afterDetail.permissionMode).toBe(beforeDetail.permissionMode);
+    });
   });
 
   it("POST /messages errors over SSE when projectId is missing (F2)", async () => {

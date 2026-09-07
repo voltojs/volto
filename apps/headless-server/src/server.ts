@@ -132,7 +132,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       // single fixed `corsOrigin` still behaves like a normal allow-list
       // entry; "*" is sent verbatim since it authorizes every origin anyway.
       "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
     };
   }
@@ -492,6 +492,40 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         }
         return;
       }
+    }
+
+    // PATCH /sessions/:id — rename. Titles are session_meta (last-wins), so a
+    // rename is an appended meta event, not an in-place edit of the log.
+    if (req.method === "PATCH" && url.pathname.startsWith("/sessions/")) {
+      const id = decodeURIComponent(url.pathname.slice("/sessions/".length));
+      try {
+        const record = await chatStore.readSession(id);
+        if (!record) {
+          jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+          return;
+        }
+        const body = JSON.parse(await readBody(req)) as { title?: unknown };
+        const title = typeof body.title === "string" ? body.title.trim() : "";
+        if (title.length === 0 || title.length > 200) {
+          jsonResponse(res, 400, { error: "title must be 1-200 characters" });
+          return;
+        }
+        // workspacePath is only consulted to place a *new* file; this session
+        // already has one (readSession above found it), so resolveWritePath
+        // reuses that existing path regardless of what is passed here.
+        await chatStore.appendEvents(null, id, [
+          {
+            time: Date.now(),
+            type: "session_meta",
+            data: { ...record.meta, title },
+          },
+        ]);
+        res.writeHead(204, corsHeaders);
+        res.end();
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
     }
 
     // GET /sessions/:id — full transcript, projected to the web app's chat feed
