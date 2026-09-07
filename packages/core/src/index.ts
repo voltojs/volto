@@ -227,6 +227,9 @@ export type { ValidationResult, SelfCorrectDecision, Validator } from "./self-co
 export { expandInstructions, mergeInstructionLayers } from "./instructions.js";
 export type { InstructionExpandResult, InstructionReference } from "./instructions.js";
 
+// Skill invocation — the `/name` user gesture (pure)
+export { parseSkillInvocation, renderSkillInjection } from "./skill-invocation.js";
+
 // RAG retrieval — slot placement for augmented context
 export { computeRAGInjectionIndex, buildRAGMessage } from "./retrieval.js";
 
