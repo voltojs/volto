@@ -329,6 +329,20 @@ describe("Headless server", () => {
     expect(data).toEqual({ status: "ok" });
   });
 
+  it("GET /skills lists discovered skills with their invocation flags", async () => {
+    const response = await fetch(`${baseUrl}/skills`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      skills: Array<{ name: string; description: string; modelInvocable: boolean; userInvocable: boolean }>;
+    };
+    expect(Array.isArray(body.skills)).toBe(true);
+    for (const skill of body.skills) {
+      expect(typeof skill.name).toBe("string");
+      expect(typeof skill.modelInvocable).toBe("boolean");
+      expect(typeof skill.userInvocable).toBe("boolean");
+    }
+  });
+
   // Runs before any other test creates a project — later tests in this file
   // (turn tests, F2 coverage) create their own projects via
   // `createTestProjectAndModel`, which would make this assertion vacuous if

@@ -25,6 +25,7 @@ import {
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
+import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageFold } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
@@ -97,6 +98,13 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   // scopeToWorkspace() inside sessions.ts's rebuild().
   const { chatStore: _rawChatStore, ...agentOpts } = opts;
   const agent = createWiredAgent(agentOpts);
+  // Same fallback as createWiredAgent's own `cwd` resolution (wiring.ts) — kept
+  // in sync here so /skills reports the same workspace the legacy (no
+  // sessionId) agent above actually loads. Per-session agents (rebuild() in
+  // sessions.ts) can resolve a different, per-project cwd from projectStore,
+  // but /skills takes no project/session id, so it can only speak for this
+  // process-wide default.
+  const cwd = agentOpts.cwd ?? process.cwd();
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
   const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
@@ -387,6 +395,26 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         jsonResponse(res, removed ? 200 : 404, { removed });
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /skills — the discovery catalog, including skills the model may not
+    // invoke. The web app's /name autocomplete consumes userInvocable; the
+    // model-facing catalog is assembled separately inside the SDK.
+    if (req.method === "GET" && url.pathname === "/skills") {
+      try {
+        const summaries = await createSkillRegistry(cwd).list();
+        jsonResponse(res, 200, {
+          skills: summaries.map((s) => ({
+            name: s.name,
+            description: s.description,
+            modelInvocable: s.invocation.modelInvocable,
+            userInvocable: s.invocation.userInvocable,
+          })),
+        });
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
