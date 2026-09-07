@@ -32,6 +32,7 @@ import type {
   Scheduler,
   PolicyEngine,
 } from "@volto/core";
+import { createHeuristicTokenizer } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
 
 let idCounter = 0;
@@ -51,10 +52,11 @@ export const defaultRandom: Random = {
   next: () => Math.random(),
 };
 
-/** Simple character-count tokenizer (~4 chars per token, common heuristic) */
-export const defaultTokenizer: Tokenizer = {
-  count: (text: string) => Math.ceil(text.length / 4),
-};
+/**
+ * SDK default tokenizer. Delegates to core's single-source heuristic so the
+ * server-side fold and the web client's continuation of it never diverge.
+ */
+export const defaultTokenizer: Tokenizer = createHeuristicTokenizer();
 
 export const defaultEventSink: EventSink = {
   emit: () => {},
