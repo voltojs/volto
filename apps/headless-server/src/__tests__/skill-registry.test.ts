@@ -133,4 +133,44 @@ describe("createSkillRegistry", () => {
     );
     expect((await registry.load("live"))?.body).toBe("Second body.");
   });
+
+  // This is the scenario the finding above ("always rereads the body") does
+  // not cover: there, both the byte length and mtime drift naturally, so the
+  // *metadata* cache also misses on the second call — a future regression
+  // that started serving `body` off the metadata-cache entry would still
+  // pass. Here we pin mtime and keep the file's total byte length identical
+  // (same technique as "reuses parsed metadata" above) so the metadata cache
+  // genuinely HITS on the second load(), while only the body content
+  // changes. If the body were ever served from that cache entry, this
+  // assertion would see the stale body instead of the fresh one.
+  it("serves the fresh body from disk even when the metadata cache hits", async () => {
+    const dir = path.join(home, ".agents", "skills");
+    const skillPath = path.join(await writeSkill(dir, "livecache", "First body."), "SKILL.md");
+    const { createSkillRegistry } = await import("../skills/registry.js");
+    const registry = createSkillRegistry(cwd);
+
+    const pinnedSeconds = Math.floor(Date.now() / 1000) - 60;
+    await fs.utimes(skillPath, pinnedSeconds, pinnedSeconds);
+
+    expect((await registry.load("livecache"))?.body).toBe("First body.");
+    const originalStat = await fs.stat(skillPath);
+    expect(originalStat.mtimeMs).toBe(pinnedSeconds * 1000);
+
+    // Same frontmatter, and a body of identical byte length ("First body."
+    // and "Second body" are both 11 characters) so the cache key
+    // (path + mtime + size) is unchanged — this must be a genuine
+    // metadata-cache HIT, not a miss caused by a size/mtime change.
+    await fs.writeFile(
+      skillPath,
+      `---\nname: livecache\ndescription: livecache description\n---\nSecond body`,
+    );
+    await fs.utimes(skillPath, pinnedSeconds, pinnedSeconds);
+    const restoredStat = await fs.stat(skillPath);
+    expect(restoredStat.size).toBe(originalStat.size);
+    expect(restoredStat.mtimeMs).toBe(originalStat.mtimeMs);
+
+    // The metadata cache hits (same key), but load() must still return the
+    // NEW body — proving the body is never served from the cache entry.
+    expect((await registry.load("livecache"))?.body).toBe("Second body");
+  });
 });

@@ -17,24 +17,33 @@ import { parseSkillFile, type ParsedSkillFile } from "./frontmatter.js";
 const METADATA_CACHE_LIMIT = 256;
 
 /**
- * Parsed SKILL.md metadata, keyed by path + mtime + size. Only metadata is
- * cached — bodies are deliberately never cached, because skills are
- * instructions and their files can change mid-session (plan-016 §5.3). The
- * key changes the moment the file does, so a stale entry is unreachable
- * rather than merely unlikely.
+ * The subset of ParsedSkillFile that is safe to cache. Deliberately excludes
+ * `body`: skills are instructions and their files can change mid-session
+ * (plan-016 §5.3), so a raw SKILL.md body must never sit retained in
+ * module-level memory across calls. This is a structural exclusion, not a
+ * discipline one — the type makes it impossible to accidentally cache (or
+ * later read) a body off a cache entry, even under future refactors.
  */
-const metadataCache = new Map<string, ParsedSkillFile>();
+type SkillMetadata = Pick<ParsedSkillFile, "name" | "description" | "invocation">;
+
+/**
+ * Parsed SKILL.md metadata (name/description/invocation only, never the
+ * body — see SkillMetadata), keyed by path + mtime + size. The key changes
+ * the moment the file does, so a stale entry is unreachable rather than
+ * merely unlikely.
+ */
+const metadataCache = new Map<string, SkillMetadata>();
 
 function cacheKey(skillPath: string, mtimeMs: number, size: number): string {
   return `${skillPath}:${mtimeMs}:${size}`;
 }
 
-function rememberMetadata(key: string, parsed: ParsedSkillFile): void {
+function rememberMetadata(key: string, metadata: SkillMetadata): void {
   if (metadataCache.size >= METADATA_CACHE_LIMIT) {
     const oldest = metadataCache.keys().next();
     if (!oldest.done) metadataCache.delete(oldest.value);
   }
-  metadataCache.set(key, parsed);
+  metadataCache.set(key, metadata);
 }
 
 /**
@@ -75,17 +84,22 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedS
       // their files can change mid-session.
       const stat = await fs.stat(skillPath);
       const key = cacheKey(skillPath, stat.mtimeMs, stat.size);
-      let parsed = metadataCache.get(key);
-      if (parsed === undefined) {
+      let metadata: SkillMetadata | undefined = metadataCache.get(key);
+      if (metadata === undefined) {
         const raw = await fs.readFile(skillPath, "utf-8");
-        parsed = parseSkillFile(raw);
-        if (parsed) rememberMetadata(key, parsed);
+        const parsed = parseSkillFile(raw);
+        if (parsed) {
+          // Project down to the metadata-only shape before it ever reaches
+          // the cache — parsed.body is dropped here, not merely unused.
+          metadata = { name: parsed.name, description: parsed.description, invocation: parsed.invocation };
+          rememberMetadata(key, metadata);
+        }
       }
-      if (parsed) {
+      if (metadata) {
         skills.push({
-          name: parsed.name,
-          description: parsed.description,
-          invocation: parsed.invocation,
+          name: metadata.name,
+          description: metadata.description,
+          invocation: metadata.invocation,
           resources: [skillPath],
           baseDir: path.join(dir, entry),
         });
