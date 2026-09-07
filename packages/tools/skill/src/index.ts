@@ -1,4 +1,4 @@
-import type { ToolResult } from "@volto/core";
+import type { LoadedSkill, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_SKILL } from "./capabilities.js";
@@ -7,10 +7,10 @@ export { CAP_SKILL } from "./capabilities.js";
 
 /**
  * Loader seam injected by the host — the signature is SkillRegistry["load"]
- * from @volto/core. Returns the full skill body, or undefined when the skill
- * is unknown or not model-invocable.
+ * from @volto/core. Returns the skill body plus its base directory, or
+ * undefined when the skill is unknown or not model-invocable.
  */
-export type SkillBodyLoader = (name: string) => Promise<string | undefined>;
+export type SkillBodyLoader = (name: string) => Promise<LoadedSkill | undefined>;
 
 /**
  * Byte cap on skill bodies returned as modelContent. A skill body is
@@ -22,19 +22,36 @@ export type SkillBodyLoader = (name: string) => Promise<string | undefined>;
 const MAX_SKILL_BODY_BYTES = 64 * 1024;
 
 /**
- * Caps the body at MAX_SKILL_BODY_BYTES UTF-8 bytes (byte-safe via
- * TextEncoder/TextDecoder slice — a split codepoint degrades to a replacement
- * char at the boundary) and appends a visible truncation notice.
+ * Renders the header the model needs in order to act on the body: the skill's
+ * own directory, so relative resource references in the instructions resolve.
+ * Mirrors the /name invocation rendering in core's skill-invocation module, so
+ * both load paths read identically in context.
  */
-function capSkillBody(body: string): string {
-  const encoded = new TextEncoder().encode(body);
-  if (encoded.length <= MAX_SKILL_BODY_BYTES) return body;
-  const truncated = new TextDecoder().decode(encoded.slice(0, MAX_SKILL_BODY_BYTES));
-  return (
-    truncated +
+function renderSkillResult(name: string, loaded: LoadedSkill): string {
+  return [
+    `Skill: ${name}`,
+    `Base directory: ${loaded.baseDir}`,
+    "Resolve any relative path in the instructions below against that directory.",
+    "",
+    loaded.body,
+  ].join("\n");
+}
+
+/**
+ * Caps the rendered result at MAX_SKILL_BODY_BYTES UTF-8 bytes (byte-safe via
+ * TextEncoder/TextDecoder slice — a split codepoint degrades to a replacement
+ * char at the boundary) and appends a visible truncation notice. The header
+ * counts against the cap: the caller is promised a bounded modelContent, not
+ * a bounded body.
+ */
+function capSkillResult(text: string): string {
+  const encoded = new TextEncoder().encode(text);
+  if (encoded.length <= MAX_SKILL_BODY_BYTES) return text;
+  const notice =
     `\n\n[skill body truncated from ${encoded.length} to ${MAX_SKILL_BODY_BYTES} bytes` +
-    " — reload after editing the skill file if you need the remainder]"
-  );
+    " — read the files under the base directory if you need the remainder]";
+  const room = MAX_SKILL_BODY_BYTES - new TextEncoder().encode(notice).length;
+  return new TextDecoder().decode(encoded.slice(0, Math.max(0, room))) + notice;
 }
 
 const skillSchema = z.object({
@@ -57,14 +74,17 @@ export function createSkillTool(loader: SkillBodyLoader) {
     riskTier: "READ_ONLY",
     run: async (input): Promise<ToolResult> => {
       try {
-        const body = await loader(input.name);
-        if (body === undefined) {
+        const loaded = await loader(input.name);
+        if (loaded === undefined) {
           return {
             modelContent: `Unknown or non-invocable skill: ${input.name}`,
             isError: true,
           };
         }
-        return { modelContent: capSkillBody(body) };
+        return {
+          modelContent: capSkillResult(renderSkillResult(input.name, loaded)),
+          displayMetadata: { baseDir: loaded.baseDir },
+        };
       } catch (err: unknown) {
         const error = err instanceof Error ? err.message : String(err);
         return { modelContent: `Skill load failed: ${error}`, isError: true };

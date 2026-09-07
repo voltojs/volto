@@ -85,6 +85,7 @@ export type {
   TranscriptReader,
   SkillInvocationPolicy,
   SkillSummary,
+  LoadedSkill,
   SkillRegistry,
   EventSink,
   ApprovalGate,

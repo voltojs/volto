@@ -361,6 +361,18 @@ export interface SkillSummary {
   invocation: SkillInvocationPolicy;
 }
 
+/** A skill's body plus the directory its relative resource references resolve against. */
+export interface LoadedSkill {
+  /** Markdown instructions, frontmatter already stripped and @imports expanded. */
+  body: string;
+  /**
+   * Absolute path of the skill's own directory. Skill bodies routinely point
+   * at sibling files in prose ("read references/foo.md"); without this the
+   * model resolves them against the agent cwd and never finds them.
+   */
+  baseDir: string;
+}
+
 /**
  * Host-owned skill registry: discovery (summaries only) plus on-demand full
  * body loading. Implementations must NOT cache bodies — every load rereads
@@ -368,7 +380,7 @@ export interface SkillSummary {
  */
 export interface SkillRegistry {
   list(): Promise<SkillSummary[]>;
-  load(name: string): Promise<string | undefined>;
+  load(name: string): Promise<LoadedSkill | undefined>;
 }
 
 // ──────────────────────────────────────────────

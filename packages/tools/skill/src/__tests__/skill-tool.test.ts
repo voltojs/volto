@@ -15,9 +15,12 @@ describe("createSkillTool", () => {
   });
 
   it("returns the loaded body as modelContent", async () => {
-    const tool = createSkillTool(async (name) => (name === "alpha" ? "ALPHA-BODY" : undefined));
+    const tool = createSkillTool(async (name) =>
+      name === "alpha" ? { body: "ALPHA-BODY", baseDir: "/skills/alpha" } : undefined,
+    );
     const result = await tool.handler({ name: "alpha" });
-    expect(result).toEqual({ modelContent: "ALPHA-BODY" });
+    expect((result as { modelContent: string }).modelContent).toContain("ALPHA-BODY");
+    expect((result as { modelContent: string }).modelContent).toContain("Base directory: /skills/alpha");
   });
 
   it("returns an error result for unknown or non-invocable skills", async () => {
@@ -40,7 +43,7 @@ describe("createSkillTool", () => {
     const cap = 64 * 1024;
     const originalBytes = cap + 16 * 1024;
     const bigBody = "A".repeat(originalBytes);
-    const tool = createSkillTool(async () => bigBody);
+    const tool = createSkillTool(async () => ({ body: bigBody, baseDir: "/skills/big" }));
 
     const result = await tool.handler({ name: "big" });
     const content = (result as { modelContent: string }).modelContent;
@@ -49,11 +52,34 @@ describe("createSkillTool", () => {
     expect(content).toContain("truncated");
     // The visible head of the body survives truncation.
     expect(content).toContain(bigBody.slice(0, 128));
-    // Byte length stays within the cap plus the fixed notice line.
-    const notice =
-      `\n\n[skill body truncated from ${originalBytes} to ${cap} bytes` +
-      " — reload after editing the skill file if you need the remainder]";
-    const contentBytes = new TextEncoder().encode(content).length;
-    expect(contentBytes).toBeLessThanOrEqual(cap + new TextEncoder().encode(notice).length);
+    // The rendered result (header + body + notice) stays within the cap.
+    expect(new TextEncoder().encode(content).length).toBeLessThanOrEqual(cap);
+  });
+
+  it("renders the base directory ahead of the body", async () => {
+    const tool = createSkillTool(async () => ({
+      body: "Read references/palette.md for the values.",
+      baseDir: "/home/u/.agents/skills/dataviz",
+    }));
+    const result = await tool.handler({ name: "dataviz" });
+    expect(result.modelContent).toBe(
+      [
+        "Skill: dataviz",
+        "Base directory: /home/u/.agents/skills/dataviz",
+        "Resolve any relative path in the instructions below against that directory.",
+        "",
+        "Read references/palette.md for the values.",
+      ].join("\n"),
+    );
+    expect(result.displayMetadata?.["baseDir"]).toBe("/home/u/.agents/skills/dataviz");
+  });
+
+  it("counts the header against the body cap", async () => {
+    const tool = createSkillTool(async () => ({
+      body: "x".repeat(70 * 1024),
+      baseDir: "/skills/big",
+    }));
+    const result = await tool.handler({ name: "big" });
+    expect(new TextEncoder().encode(result.modelContent).length).toBeLessThanOrEqual(64 * 1024);
   });
 });

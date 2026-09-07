@@ -1103,7 +1103,8 @@ describe("createAgent — SDK facade", () => {
           invocation: { modelInvocable: false, userInvocable: true },
         },
       ],
-      load: async (name: string) => (name === "alpha" ? "ALPHA-BODY" : undefined),
+      load: async (name: string) =>
+        name === "alpha" ? { body: "ALPHA-BODY", baseDir: "/skills/alpha" } : undefined,
     };
 
     it("renders a sorted single-line catalog", () => {
