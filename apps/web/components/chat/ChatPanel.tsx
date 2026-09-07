@@ -18,6 +18,7 @@ import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
+import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
@@ -66,6 +67,12 @@ export function ChatPanel() {
   const effectiveModelId =
     pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
 
+  // Fallback for entering a session by any path this component didn't itself
+  // trigger the fetch for (e.g. a session already current on mount).
+  useEffect(() => {
+    if (currentSessionId) void ensureSessionDetail(currentSessionId);
+  }, [currentSessionId]);
+
   const startSession = (content: string) => {
     const id = useSessionStore.getState().createSession({
       projectId: pendingProjectId,
@@ -74,6 +81,7 @@ export function ChatPanel() {
       permissionMode: pendingPermissionMode,
     });
     useSessionStore.getState().setCurrentSession(id);
+    void ensureSessionDetail(id);
     void sendMessage(content);
   };
 
@@ -112,6 +120,21 @@ export function ChatPanel() {
   // 对话 / 轨迹两个视图的切换。本地 state：跨会话切换保留用户所在 tab，
   // 轨迹面板对新会话自行显示空态/加载态（spec §一）。
   const [activeTab, setActiveTab] = useState<'chat' | 'trajectory'>('chat');
+
+  // A session whose detail hasn't been fetched yet has no messages in the
+  // store either, which would otherwise be indistinguishable from a
+  // genuinely empty conversation and flash the welcome screen. Render a
+  // skeleton instead until ensureSessionDetail resolves.
+  if (currentSessionId && currentSession && !currentSession.detailLoaded) {
+    return (
+      <div className="flex h-full flex-col">
+        <ChatHeader />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-muted-foreground text-sm">加载会话…</div>
+        </div>
+      </div>
+    );
+  }
 
   // Show welcome screen when there is nothing to render yet (an empty new
   // session, or no session selected at all).

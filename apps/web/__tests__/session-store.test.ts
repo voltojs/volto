@@ -1,13 +1,33 @@
 /**
  * Session store tests.
  *
- * The store uses zustand's persist middleware. Under vitest's node
- * environment there is no localStorage; zustand warns and skips persistence,
- * which is fine — these tests cover in-memory behaviour only.
+ * The store is memory-only (no persistence middleware): the server is the
+ * sole source of truth, and this file's "session store persistence" describe
+ * exists to pin that down as a regression guard.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useSessionStore, migrate } from '../stores/session-store.js';
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { useSessionStore } from '../stores/session-store.js';
+import { summary } from './helpers/session';
+
+// Vitest's default "node" environment has no Web Storage API. This suite
+// only asserts that the store never touches it, so an in-memory stand-in is
+// enough — no jsdom/happy-dom dependency needed for that.
+beforeAll(() => {
+  if (typeof globalThis.localStorage === 'undefined') {
+    const backing = new Map<string, string>();
+    globalThis.localStorage = {
+      getItem: (key) => backing.get(key) ?? null,
+      setItem: (key, value) => void backing.set(key, value),
+      removeItem: (key) => void backing.delete(key),
+      clear: () => backing.clear(),
+      key: (index) => Array.from(backing.keys())[index] ?? null,
+      get length() {
+        return backing.size;
+      },
+    } as Storage;
+  }
+});
 
 beforeEach(() => {
   useSessionStore.setState({
@@ -56,6 +76,16 @@ describe('useSessionStore', () => {
       .sessions.find((s) => s.id === id);
     expect(session?.providerId).toBe('v1');
     expect(session?.modelId).toBe('m1');
+  });
+
+  it('creates a new session already marked as loaded, with an empty title', () => {
+    const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+    const session = useSessionStore
+      .getState()
+      .sessions.find((s) => s.id === id);
+    expect(session?.detailLoaded).toBe(true);
+    expect(session?.messageCount).toBe(0);
+    expect(session?.title).toBe('');
   });
 
   it('changes the model of an existing session', () => {
@@ -118,67 +148,6 @@ describe('useSessionStore', () => {
     expect(useSessionStore.getState().pendingProjectId).toBeNull();
   });
 
-  it('hydrateFromServer adds a session recovered from the server', () => {
-    const recovered = {
-      id: 's1',
-      title: '会话 1',
-      messages: [],
-      createdAt: 1,
-      updatedAt: 1,
-      projectId: 'p1',
-      providerId: 'v1',
-      modelId: 'm1',
-      permissionMode: 'plan' as const,
-    };
-    useSessionStore.getState().hydrateFromServer(recovered);
-    expect(useSessionStore.getState().sessions).toEqual([recovered]);
-  });
-
-  it('hydrateFromServer never overwrites a session already known locally', () => {
-    const id = useSessionStore.getState().createSession({ projectId: 'p1' });
-    useSessionStore.getState().updateSessionTitle(id, 'local edit');
-
-    useSessionStore.getState().hydrateFromServer({
-      id,
-      title: 'server version',
-      messages: [],
-      createdAt: 0,
-      updatedAt: 0,
-      projectId: 'p1',
-      providerId: null,
-      modelId: null,
-      permissionMode: 'plan',
-    });
-
-    const session = useSessionStore
-      .getState()
-      .sessions.find((s) => s.id === id);
-    expect(session?.title).toBe('local edit');
-  });
-
-  it('hydrateFromServer keeps recovered sessions sorted newest-first', () => {
-    const make = (id: string, updatedAt: number) => ({
-      id,
-      title: `会话 ${id}`,
-      messages: [],
-      createdAt: updatedAt,
-      updatedAt,
-      projectId: 'p1',
-      providerId: 'v1',
-      modelId: 'm1',
-      permissionMode: 'plan' as const,
-    });
-    // 恢复顺序模拟服务端列表的任意顺序（readdir），最新会话必须始终排最上方
-    useSessionStore.getState().hydrateFromServer(make('old', 1));
-    useSessionStore.getState().hydrateFromServer(make('recent', 3));
-    useSessionStore.getState().hydrateFromServer(make('mid', 2));
-    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual([
-      'recent',
-      'mid',
-      'old',
-    ]);
-  });
-
   it('groups sessions by project', () => {
     const a = useSessionStore.getState().createSession({ projectId: 'p1' });
     useSessionStore.getState().createSession({ projectId: 'p2' });
@@ -199,122 +168,54 @@ describe('updateSessionContextUsage', () => {
   });
 });
 
-describe('migrate', () => {
-  it('normalises a v0-shaped persisted payload to the current shape', () => {
-    // v0 sessions predate project-binding: they carry a `workspaceId` and
-    // have none of `projectId`/`providerId`/`modelId`/`permissionMode`.
-    const v0Payload = {
-      sessions: [
-        {
-          id: 's1',
-          title: 'old session',
-          messages: [],
-          createdAt: 1,
-          updatedAt: 1,
-          workspaceId: 'w1',
-        },
-      ],
-      workspaces: [{ id: 'w1', name: 'old workspace', createdAt: 1 }],
-      currentSessionId: 's1',
-      currentWorkspaceId: 'w1',
-      sidebarOpen: true,
-    };
+describe('session store persistence', () => {
+  it('writes nothing to localStorage', () => {
+    localStorage.clear();
+    useSessionStore.getState().createSession({ title: 't' });
+    expect(localStorage.getItem('volto-sessions')).toBeNull();
+    expect(localStorage.length).toBe(0);
+  });
+});
 
-    const migrated = migrate(v0Payload);
+describe('setSessions', () => {
+  it('replaces the list with server summaries, newest first', () => {
+    useSessionStore.getState().setSessions([
+      { ...summary('a'), updatedAt: 1 },
+      { ...summary('b'), updatedAt: 3 },
+      { ...summary('c'), updatedAt: 2 },
+    ]);
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['b', 'c', 'a']);
+  });
+});
 
-    expect(migrated.sessions).toHaveLength(1);
-    const session = migrated.sessions[0];
-    expect(session).not.toHaveProperty('workspaceId');
-    expect(session?.projectId).toBeNull();
-    expect(session?.providerId).toBeNull();
-    expect(session?.modelId).toBeNull();
-    expect(session?.permissionMode).toBe('plan');
-    expect(migrated.currentSessionId).toBe('s1');
-    expect(migrated.sidebarOpen).toBe(true);
-    expect(migrated).not.toHaveProperty('workspaces');
-    expect(migrated).not.toHaveProperty('currentWorkspaceId');
+describe('applySessionDetail', () => {
+  it('fills messages and marks the session loaded', () => {
+    useSessionStore.getState().setSessions([summary('a')]);
+    useSessionStore.getState().applySessionDetail('a', {
+      messages: [{ id: 'm1', role: 'user', content: 'hi' } as never],
+      contextUsage: null,
+      projectId: 'p',
+      providerId: 'pr',
+      modelId: 'm',
+      permissionMode: 'plan',
+    });
+    const session = useSessionStore.getState().sessions[0]!;
+    expect(session.detailLoaded).toBe(true);
+    expect(session.messages).toHaveLength(1);
+    expect(session.projectId).toBe('p');
   });
 
-  it('converts legacy client Message[] history into projected ConversationMessages', () => {
-    // v1 payloads predate the view-projection consolidation: messages used
-    // the old client `Message` shape with tool results as opaque metadata.
-    const v1Payload = {
-      sessions: [
-        {
-          id: 's1',
-          title: 'old',
-          createdAt: 1,
-          updatedAt: 1,
-          projectId: 'p1',
-          providerId: 'v1',
-          modelId: 'm1',
-          permissionMode: 'plan',
-          messages: [
-            {
-              id: 'a',
-              role: 'user',
-              content: 'hi',
-              timestamp: 1,
-              blocks: [{ type: 'text', text: 'hi' }],
-            },
-            {
-              id: 'b',
-              role: 'assistant',
-              content: 'done',
-              timestamp: 2,
-              blocks: [
-                { type: 'text', text: 'done' },
-                {
-                  type: 'tool_call',
-                  call: {
-                    id: 'c1',
-                    name: 'bash',
-                    args: { cmd: 'ls' },
-                    result: { toolName: 'bash', durationMs: 3 },
-                  },
-                },
-              ],
-            },
-            { id: 'sys', role: 'system', content: 'note', timestamp: 3 },
-          ],
-        },
-      ],
-      currentSessionId: 's1',
-      sidebarOpen: true,
-    };
-
-    const migrated = migrate(v1Payload);
-    const messages = migrated.sessions[0]?.messages ?? [];
-    expect(messages).toHaveLength(3);
-    expect(messages[0]).toEqual({
-      id: 'a',
-      role: 'user',
-      content: 'hi',
-      timestamp: 1,
-      blocks: [{ type: 'text', text: 'hi' }],
-    });
-    expect(messages[1]?.role).toBe('assistant');
-    // The metadata envelope is dropped; its duration is promoted to the
-    // call's top-level field so the card can still show elapsed time.
-    expect(messages[1]?.blocks[1]).toEqual({
-      type: 'tool_call',
-      call: { id: 'c1', name: 'bash', args: { cmd: 'ls' }, durationMs: 3 },
-    });
-    // role 'system' has no ConversationMessage counterpart — it reads as assistant.
-    expect(messages[2]).toEqual({
-      id: 'sys',
-      role: 'assistant',
-      content: 'note',
-      timestamp: 3,
-      blocks: [],
-    });
-  });
-
-  it('tolerates an empty or missing persisted payload', () => {
-    expect(migrate(undefined)).toEqual({
-      sessions: [],
-      currentSessionId: null,
-      sidebarOpen: true,
-    });
+  it('ignores a detail for a session no longer in the list', () => {
+    useSessionStore.getState().setSessions([]);
+    expect(() =>
+      useSessionStore.getState().applySessionDetail('gone', {
+        messages: [],
+        contextUsage: null,
+        projectId: null,
+        providerId: null,
+        modelId: null,
+        permissionMode: 'plan',
+      }),
+    ).not.toThrow();
   });
 });

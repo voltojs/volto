@@ -5,6 +5,7 @@ import { ChevronRight, FolderGit2, Plus, Trash2 } from 'lucide-react';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
+import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -33,9 +34,9 @@ export function ProjectList() {
     sessionCount: number,
   ) => {
     // projectId is immutable and a fresh add gets a new UUID, so deleting a
-    // project permanently orphans every session under it (still in
-    // localStorage, but unreachable from the sidebar) — confirm first and
-    // say how many sessions are affected.
+    // project permanently orphans every session under it (still on the
+    // server, but unreachable from the sidebar) — confirm first and say how
+    // many sessions are affected.
     const confirmed = window.confirm(
       sessionCount > 0
         ? `确定删除项目「${name}」吗？其下的 ${sessionCount} 个会话也将从侧栏消失，且无法恢复。`
@@ -55,6 +56,7 @@ export function ProjectList() {
     // The chat panel's useConversation hook loads the session's history from
     // the session store and attaches the live channel for it.
     useSessionStore.getState().setCurrentSession(sessionId);
+    void ensureSessionDetail(sessionId);
   };
 
   const startSessionForProject = (projectId: string) => {
