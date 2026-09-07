@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronRight, FolderGit2, Plus, Trash2 } from 'lucide-react';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
-import { renameServerSession } from '@/lib/sessions-api';
+import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { cancelPendingTitleWriteBack } from '@/lib/session-title';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,6 +29,10 @@ export function ProjectList() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Guards against a double-click firing two DELETE requests for the same
+  // session: a ref (not state) so the check is up to date even if the second
+  // click lands before a re-render from the first click's state update.
+  const deletingSessionIds = useRef<Set<string>>(new Set());
 
   const handleRemoveProject = async (
     projectId: string,
@@ -52,6 +56,28 @@ export function ProjectList() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除项目失败');
     }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (deletingSessionIds.current.has(sessionId)) return;
+    deletingSessionIds.current.add(sessionId);
+    setError(null);
+    try {
+      // Delete order is load-bearing: request the server first. Removing the
+      // session locally before the server confirms would only make it
+      // reappear on the next list fetch, since the server is now the sole
+      // source of truth.
+      await deleteServerSession(sessionId);
+    } catch {
+      // Keep the session in the list — the user can retry. Reuses this
+      // component's existing inline error affordance (also used for a failed
+      // project removal above).
+      setError('删除失败，请重试');
+      return;
+    } finally {
+      deletingSessionIds.current.delete(sessionId);
+    }
+    useSessionStore.getState().deleteSession(sessionId);
   };
 
   const openSession = (sessionId: string) => {
@@ -203,7 +229,7 @@ export function ProjectList() {
                     onClick={() => openSession(session.id)}
                     onDelete={(e) => {
                       e.stopPropagation();
-                      useSessionStore.getState().deleteSession(session.id);
+                      void handleDeleteSession(session.id);
                     }}
                   />
                 ))}

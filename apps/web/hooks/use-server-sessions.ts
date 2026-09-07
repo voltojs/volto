@@ -83,9 +83,11 @@ export async function ensureSessionDetail(id: string): Promise<void> {
  * Local sessions to keep once the server's summary list replaces the store's
  * list: anything the server doesn't know about yet. Presence in `summaries`
  * is the only test — a session that already has messages locally (written by
- * `use-conversation`'s debounce) before a list request that started before
- * the session existed comes back is still "unpersisted" from the server's
- * point of view, not something to drop. `detailLoaded` excludes sessions that
+ * `use-conversation`'s session-switch flush, which moves the outgoing
+ * session's live feed into the store — there is no debounce anymore) before
+ * a list request that started before the session existed comes back is
+ * still "unpersisted" from the server's point of view, not something to
+ * drop. `detailLoaded` excludes sessions that
  * came from a *previous* server summary and are simply waiting on their
  * detail fetch — those aren't locally-originated and should follow the
  * server's list, not survive independently of it.

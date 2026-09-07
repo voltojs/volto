@@ -137,18 +137,6 @@ describe('useSessionStore', () => {
   });
 });
 
-describe('updateSessionContextUsage', () => {
-  it('stores and replaces the fold for one session', () => {
-    const store = useSessionStore.getState();
-    const id = store.createSession({});
-    const fold = { header: null, anchor: { promptTokens: 10, outputTokens: 2 }, pendingTokens: 4 };
-    store.updateSessionContextUsage(id, fold);
-    expect(useSessionStore.getState().sessions.find((s) => s.id === id)?.contextUsage).toEqual(fold);
-    store.updateSessionContextUsage(id, null);
-    expect(useSessionStore.getState().sessions.find((s) => s.id === id)?.contextUsage).toBeNull();
-  });
-});
-
 describe('session store persistence', () => {
   it('has no persist middleware attached', () => {
     // A "no localStorage writes happened" assertion is not a reliable guard:
@@ -239,6 +227,25 @@ describe('setSessionDetailError', () => {
       permissionMode: 'plan',
     });
     expect(useSessionStore.getState().sessions[0]!.detailError).toBeNull();
+  });
+});
+
+describe('deleteSession', () => {
+  it('moves the current session to the next one in the list', () => {
+    useSessionStore.getState().setSessions([
+      { ...summary('a'), updatedAt: 3 },
+      { ...summary('b'), updatedAt: 2 },
+    ]);
+    useSessionStore.getState().setCurrentSession('a');
+    useSessionStore.getState().deleteSession('a');
+    expect(useSessionStore.getState().currentSessionId).toBe('b');
+  });
+
+  it('falls back to null when the list becomes empty', () => {
+    useSessionStore.getState().setSessions([summary('a')]);
+    useSessionStore.getState().setCurrentSession('a');
+    useSessionStore.getState().deleteSession('a');
+    expect(useSessionStore.getState().currentSessionId).toBeNull();
   });
 });
 

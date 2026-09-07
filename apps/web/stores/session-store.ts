@@ -98,10 +98,6 @@ interface SessionState {
   setCurrentSession: (id: string | null) => void;
   getSessionMessages: (id: string) => ConversationMessage[];
   updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
-  updateSessionContextUsage: (
-    id: string,
-    fold: ContextUsageFold | null,
-  ) => void;
 
   setSessionModel: (id: string, providerId: string, modelId: string) => void;
   setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
@@ -190,11 +186,19 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     })),
 
   deleteSession: (id) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-      currentSessionId:
-        state.currentSessionId === id ? null : state.currentSessionId,
-    })),
+    set((state) => {
+      const sessions = state.sessions.filter((s) => s.id !== id);
+      return {
+        sessions,
+        // Land on the next session rather than the welcome screen: with
+        // the list coming from the server, an empty selection after a
+        // delete reads as data loss.
+        currentSessionId:
+          state.currentSessionId === id
+            ? (sessions[0]?.id ?? null)
+            : state.currentSessionId,
+      };
+    }),
 
   updateSessionTitle: (id, title) =>
     set((state) => ({
@@ -212,13 +216,6 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id ? { ...s, messages, updatedAt: Date.now() } : s,
-      ),
-    })),
-
-  updateSessionContextUsage: (id, fold) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, contextUsage: fold, updatedAt: Date.now() } : s,
       ),
     })),
 
