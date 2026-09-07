@@ -20,8 +20,10 @@ export function parseSkillInvocation(text: string): string | null {
 }
 
 /**
- * Deterministic rendering of an invoked skill's instructions. Mirrors the
- * skill tool's result header so both load paths read identically in context.
+ * Deterministic rendering of an invoked skill's instructions. Shares the base
+ * directory and resolution instructions with renderSkillResult from packages/tools/skill,
+ * but uses a different first line ("The user invoked...") to signal that this is a
+ * user-explicit /name gesture.
  */
 export function renderSkillInjection(name: string, baseDir: string, body: string): string {
   return [

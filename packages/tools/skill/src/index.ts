@@ -24,8 +24,9 @@ const MAX_SKILL_BODY_BYTES = 64 * 1024;
 /**
  * Renders the header the model needs in order to act on the body: the skill's
  * own directory, so relative resource references in the instructions resolve.
- * Mirrors the /name invocation rendering in core's skill-invocation module, so
- * both load paths read identically in context.
+ * Shares the base directory and resolution instructions with renderSkillInjection
+ * from core's skill-invocation module, but uses a different first line ("Skill: <name>")
+ * to signal that this is a tool-invoked load path.
  */
 function renderSkillResult(name: string, loaded: LoadedSkill): string {
   return [

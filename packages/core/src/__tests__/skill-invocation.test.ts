@@ -29,6 +29,26 @@ describe("parseSkillInvocation", () => {
     expect(parseSkillInvocation("fix the bug")).toBeNull();
     expect(parseSkillInvocation("")).toBeNull();
   });
+
+  it("rejects leading whitespace before slash", () => {
+    expect(parseSkillInvocation("  /commit")).toBeNull();
+  });
+
+  it("accepts tab as separator after name", () => {
+    expect(parseSkillInvocation("/commit\ttab-separated")).toBe("commit");
+  });
+
+  it("rejects double slash", () => {
+    expect(parseSkillInvocation("//commit")).toBeNull();
+  });
+
+  it("rejects slash alone", () => {
+    expect(parseSkillInvocation("/")).toBeNull();
+  });
+
+  it("handles CRLF line ending without leaking CR into name", () => {
+    expect(parseSkillInvocation("/commit\r\nrest of message")).toBe("commit");
+  });
 });
 
 describe("renderSkillInjection", () => {
