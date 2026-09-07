@@ -28,38 +28,7 @@ import {
 import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import { getConfigDir } from "./config/paths.js";
 import { collectInstructionFiles, loadInstructionFileTree, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
-
-interface ParsedSkillFile {
-  name: string;
-  description: string;
-  invocation: SkillInvocationPolicy;
-  body: string;
-}
-
-/** Parses a SKILL.md file's `--- key: value ---` frontmatter plus body. Pure text processing. */
-function parseSkillFile(raw: string): ParsedSkillFile | undefined {
-  // Windows-authored SKILL.md files use CRLF; normalize once so the
-  // frontmatter regex and field splitting both see bare \n.
-  const normalized = raw.replace(/\r\n/g, "\n");
-  const match = normalized.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return undefined;
-  const [, frontmatter, body] = match;
-  const fields: Record<string, string> = {};
-  for (const line of frontmatter!.split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx < 0) continue;
-    fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-  }
-  if (!fields["name"] || !fields["description"]) return undefined;
-  // Invocation policy — dsh-compatible frontmatter flags. Absence of a flag
-  // keeps the default (model- and user-invocable); `true`/`false` are the
-  // only recognized values, anything else parses as "enabled".
-  const invocation: SkillInvocationPolicy = {
-    modelInvocable: fields["disable-model-invocation"] !== "true",
-    userInvocable: fields["user-invocable"] !== "false",
-  };
-  return { name: fields["name"]!, description: fields["description"]!, invocation, body: body!.trim() };
-}
+import { parseSkillFile } from "./skills/frontmatter.js";
 
 /**
  * Invocation-neutral scanned skill — the wiring-local counterpart of a
