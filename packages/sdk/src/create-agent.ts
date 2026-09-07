@@ -52,6 +52,8 @@ import {
   resetTurnForNextInput,
   filterByScope,
   extractTouchedToolPaths,
+  parseSkillInvocation,
+  renderSkillInjection,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -133,7 +135,7 @@ import {
   type CollectedPlugins,
   collectPlugins,
 } from "./plugin.js";
-import { renderCommand } from "./commands.js";
+import { renderCommand, matchCommand } from "./commands.js";
 import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
 
 // ──────────────────────────────────────────────
@@ -1182,11 +1184,36 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // ── M13: Slash command resolution ──────────────
   const commands = opts.commands ?? [];
 
-  /** Resolve input: check for /name command → render template → normalize */
-  function resolveInput(raw: string | AgentInput): AgentInput {
+  /**
+   * Resolve raw input into an AgentInput, applying the `/name` resolution
+   * order (Plan 018 Task 10 ruling — commands and skills are independent
+   * namespaces, checked in this order):
+   *
+   *   1. A registered SlashCommand wins first. Checked synchronously via
+   *      `matchCommand` so the existing command path never awaits the
+   *      (async) skill registry.
+   *   2. Otherwise, a user-invocable skill by that name is loaded and its
+   *      instructions are appended after the user's own text
+   *      (`expandSkillInvocation`).
+   *   3. Otherwise, today's unchanged `renderCommand` fallback — the
+   *      "Unknown command: ..." prompt — applies verbatim.
+   *
+   * A same-named SKILL.md on disk must never silently shadow a command that
+   * the host registered explicitly in code; that is why step 1 never touches
+   * the skill registry at all.
+   */
+  async function resolveInput(raw: string | AgentInput): Promise<AgentInput> {
     if (typeof raw === "string" && raw.trimStart().startsWith("/")) {
-      const rendered = renderCommand(commands, raw);
-      return { type: "user_message", content: rendered };
+      if (matchCommand(commands, raw) !== undefined) {
+        return { type: "user_message", content: renderCommand(commands, raw) };
+      }
+      const rawInput: AgentInput = { type: "user_message", content: raw };
+      const expanded = await expandSkillInvocation(rawInput, opts.skillRegistry);
+      // expandSkillInvocation returns the very same object (by reference) on
+      // every non-match path — no registry, unknown name, not user-invocable,
+      // or load failure — so identity comparison is exact, not heuristic.
+      if (expanded !== rawInput) return expanded;
+      return { type: "user_message", content: renderCommand(commands, raw) };
     }
     return normalizeInput(raw);
   }
@@ -1196,7 +1223,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
     async run(input: string | AgentInput): Promise<ReducerState> {
       await initToolSources();
-      const agentInput = resolveInput(input);
+      const agentInput = await resolveInput(input);
       // `runner` stays undefined until createNextRunner() actually returns
       // one — the catch block below uses that to distinguish "the Runner
       // never existed" (record turn_end ourselves) from "the Runner existed
@@ -1227,7 +1254,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       input: string | AgentInput,
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
       await initToolSources();
-      const agentInput = resolveInput(input);
+      const agentInput = await resolveInput(input);
       const channel = createStreamChannel();
       // AbortController lets us cancel the runner if the consumer breaks
       // out of `for await` early. Without it, the detached runner would
@@ -1444,6 +1471,61 @@ function normalizeInput(input: string | AgentInput): AgentInput {
     return { type: "user_message", content: input };
   }
   return input;
+}
+
+/**
+ * Expands a `/name` gesture on a user message into the skill's instructions.
+ *
+ * The user's own text is kept verbatim and the instructions are appended
+ * after it: background context first, the material the model must act on
+ * last and closest to its answer. A name that is unknown, not user-invocable,
+ * or fails to load stays ordinary prose — the gesture was never a claim this
+ * boundary recognizes, so it must not surface as an error.
+ *
+ * Every non-match branch returns the exact same `input` object (identity,
+ * not a structural copy) — `resolveInput` relies on that to detect "nothing
+ * was expanded" with a plain `!==` check instead of a deep-equality test.
+ *
+ * Independent of the slash-command namespace: `resolveInput` only reaches
+ * this function after `matchCommand` has already found no registered
+ * command for the name, so a same-named SlashCommand always wins first (see
+ * Plan 018 Task 10 ruling). Exported for direct unit testing only — not
+ * re-exported from the package's public entry point (index.ts).
+ */
+export async function expandSkillInvocation(
+  input: AgentInput,
+  registry: SkillRegistry | undefined,
+): Promise<AgentInput> {
+  if (registry === undefined) return input;
+  if (input.type !== "user_message") return input;
+  const text = typeof input.content === "string" ? input.content : undefined;
+  if (text === undefined) return input;
+
+  const name = parseSkillInvocation(text);
+  if (name === null) return input;
+
+  try {
+    const summary = (await registry.list()).find((s) => s.name === name);
+    if (!summary?.invocation.userInvocable) return input;
+    const loaded = await registry.load(name);
+    // Known limitation (deliberate, not fixed here): SkillRegistry.load()
+    // only returns model-invocable skills, so a skill marked
+    // disable-model-invocation: true but still user-invocable gets
+    // undefined here and is not injected. Fixing that needs a second
+    // registry entry point that bypasses the modelInvocable filter —
+    // scoped to a later plan.
+    if (loaded === undefined) return input;
+    return {
+      type: "user_message",
+      content: [
+        { type: "text", text },
+        { type: "text", text: renderSkillInjection(name, loaded.baseDir, loaded.body) },
+      ],
+    };
+  } catch {
+    // A registry failure must not turn a normal message into an error.
+    return input;
+  }
 }
 
 /** Extracts the plain text of a user_message input; empty string for any other input type. */

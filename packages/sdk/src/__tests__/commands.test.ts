@@ -7,6 +7,7 @@ import {
 } from "../commands.js";
 import { createAgent } from "../create-agent.js";
 import { createMockModelPort, textScript } from "@volto/core";
+import type { SkillRegistry } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // parseArgs
@@ -154,5 +155,117 @@ describe("createAgent with commands (M13)", () => {
     const agent = createAgent({ modelPort: mockModel });
     const state = await agent.run("/anything");
     expect(state.status).toBe("done");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Resolution order through the public run()/stream() entry points
+// (Plan 018 Task 10 ruling): a registered command wins first, then a
+// user-invocable skill, then today's unchanged unknown-command fallback.
+// Commands and skills are independent namespaces throughout.
+// ──────────────────────────────────────────────
+
+describe("createAgent — /name resolution order (commands vs. skills)", () => {
+  function userMessageContent(
+    state: Awaited<ReturnType<ReturnType<typeof createAgent>["run"]>>,
+  ): unknown {
+    // findLast, not find — an agent instance carries conversation history
+    // across turns, so a test that calls run() more than once on the same
+    // instance must read the most recent user message, not the first.
+    const userMsg = [...state.messages].reverse().find((m) => m.role === "user");
+    return (userMsg as { content: unknown } | undefined)?.content;
+  }
+
+  it("a registered command wins over a same-named skill", async () => {
+    const registry: SkillRegistry = {
+      list: async () => [
+        { name: "x", description: "a skill also named x", invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+      load: async (name) =>
+        name === "x" ? { body: "SKILL BODY for x", baseDir: "/skills/x" } : undefined,
+    };
+    const agent = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "x", template: "COMMAND RENDERED" }],
+      skillRegistry: registry,
+    });
+
+    const state = await agent.run("/x");
+
+    // The command wins: content is the rendered template string, not the
+    // array shape expandSkillInvocation would have produced, and the skill
+    // body never appears anywhere in the recorded user message.
+    expect(userMessageContent(state)).toBe("COMMAND RENDERED");
+    expect(JSON.stringify(state.messages)).not.toContain("SKILL BODY for x");
+  });
+
+  it("falls back to a user-invocable skill when no command matches", async () => {
+    const registry: SkillRegistry = {
+      list: async () => [
+        { name: "y", description: "d", invocation: { modelInvocable: false, userInvocable: true } },
+      ],
+      load: async (name) =>
+        name === "y" ? { body: "Y SKILL BODY", baseDir: "/skills/y" } : undefined,
+    };
+    const agent = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "other", template: "unused" }],
+      skillRegistry: registry,
+    });
+
+    const state = await agent.run("/y do the thing");
+
+    const content = userMessageContent(state) as Array<{ type: string; text: string }>;
+    expect(Array.isArray(content)).toBe(true);
+    // The user's own text stays verbatim as the FIRST block.
+    expect(content[0]).toEqual({ type: "text", text: "/y do the thing" });
+    // The skill's instructions are appended AFTER it.
+    expect(content[1]?.text).toContain("Y SKILL BODY");
+    expect(content[1]?.text).toContain('The user invoked the skill "y"');
+  });
+
+  it("neither a command nor a skill matches — unchanged unknown-command text", async () => {
+    const registry: SkillRegistry = {
+      list: async () => [
+        { name: "y", description: "d", invocation: { modelInvocable: false, userInvocable: true } },
+      ],
+      load: async () => undefined,
+    };
+    const agent = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "other", template: "unused" }],
+      skillRegistry: registry,
+    });
+
+    const state = await agent.run("/nope args");
+
+    expect(userMessageContent(state)).toBe(
+      "Unknown command: /nope. Available commands: /other.",
+    );
+  });
+
+  it("no skillRegistry configured — identical to today for all three cases above", async () => {
+    // Case 1: a name that (in the other tests) matches a command.
+    const agentWithCommand = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "x", template: "COMMAND RENDERED" }],
+    });
+    expect(userMessageContent(await agentWithCommand.run("/x"))).toBe("COMMAND RENDERED");
+
+    // Case 2: a name that (with a registry) would resolve to a skill —
+    // without a registry it must fall through to the unknown-command text,
+    // exactly as it did before this task.
+    const agentNoRegistry = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "other", template: "unused" }],
+    });
+    expect(userMessageContent(await agentNoRegistry.run("/y do the thing"))).toBe(
+      "Unknown command: /y. Available commands: /other.",
+    );
+
+    // Case 3: neither a command nor (absent) a skill matches.
+    expect(userMessageContent(await agentNoRegistry.run("/nope args"))).toBe(
+      "Unknown command: /nope. Available commands: /other.",
+    );
   });
 });

@@ -93,6 +93,25 @@ export function parseArgs(raw: string): Record<string, string> {
 }
 
 /**
+ * Extracts the command name from a raw `/name ...` input the same way
+ * `renderCommand` does, and looks it up — without rendering. Lets a caller
+ * (createAgent's resolveInput) check synchronously "does a registered
+ * command match this name?" before deciding whether to fall through to an
+ * (async) skill lookup, without duplicating the name-parsing rule.
+ * Returns undefined for non-command input or an unmatched name.
+ */
+export function matchCommand(
+  commands: SlashCommand[],
+  input: string,
+): SlashCommand | undefined {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith("/")) return undefined;
+  const spaceIdx = trimmed.indexOf(" ");
+  const cmdName = spaceIdx !== -1 ? trimmed.slice(1, spaceIdx) : trimmed.slice(1);
+  return findCommand(commands, cmdName);
+}
+
+/**
  * Pure function: render a slash command template with args into a string.
  *
  * Placeholders in template: `{{key}}` is replaced by args[key].
@@ -112,7 +131,7 @@ export function renderCommand(
   const cmdName = spaceIdx !== -1 ? trimmed.slice(1, spaceIdx) : trimmed.slice(1);
   const rawArgs = spaceIdx !== -1 ? trimmed.slice(spaceIdx + 1) : "";
 
-  const cmd = commands.find((c) => c.name === cmdName);
+  const cmd = matchCommand(commands, input);
   if (!cmd) {
     return `Unknown command: /${cmdName}. Available commands: ${commands.map((c) => `/${c.name}`).join(", ") || "none"}.`;
   }

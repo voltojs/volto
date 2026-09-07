@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { createAgent, renderSkillCatalog } from "../create-agent.js";
+import { createAgent, renderSkillCatalog, expandSkillInvocation } from "../create-agent.js";
 import {
   createMockModelPort,
   textScript,
   toolCallScript,
   textDelta,
   modelDone,
+  renderSkillInjection,
 } from "@volto/core";
 import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput, SkillRegistry } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
@@ -1284,5 +1285,72 @@ describe("createAgent — SDK facade", () => {
       const toolResult = capturedRequests[1]!.messages.find((m) => m.role === "tool");
       expect(JSON.stringify(toolResult)).toContain("ALPHA-BODY");
     });
+  });
+});
+
+// ──────────────────────────────────────────────
+// expandSkillInvocation (Plan 018 Task 10)
+// ──────────────────────────────────────────────
+
+describe("expandSkillInvocation", () => {
+  const registry: SkillRegistry = {
+    list: async () => [
+      { name: "commit", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
+      { name: "internal", description: "d", invocation: { modelInvocable: true, userInvocable: false } },
+    ],
+    load: async (name: string) =>
+      name === "commit" ? { body: "Commit steps.", baseDir: "/skills/commit" } : undefined,
+  };
+
+  it("appends the skill body after the user's own text", async () => {
+    const out = await expandSkillInvocation(
+      { type: "user_message", content: "/commit ship it" },
+      registry,
+    );
+    expect(out).toEqual({
+      type: "user_message",
+      content: [
+        { type: "text", text: "/commit ship it" },
+        {
+          type: "text",
+          text: renderSkillInjection("commit", "/skills/commit", "Commit steps."),
+        },
+      ],
+    });
+  });
+
+  it("leaves an unknown name as ordinary prose", async () => {
+    const input = { type: "user_message" as const, content: "/nope do it" };
+    expect(await expandSkillInvocation(input, registry)).toEqual(input);
+  });
+
+  it("does not inject a non-user-invocable skill", async () => {
+    const input = { type: "user_message" as const, content: "/internal" };
+    expect(await expandSkillInvocation(input, registry)).toEqual(input);
+  });
+
+  it("passes through when there is no registry", async () => {
+    const input = { type: "user_message" as const, content: "/commit" };
+    expect(await expandSkillInvocation(input, undefined)).toEqual(input);
+  });
+
+  it("passes through a non-user_message input", async () => {
+    const input = { type: "tool_result" as const, callId: "c", content: "/commit", isError: false };
+    expect(await expandSkillInvocation(input as never, registry)).toEqual(input);
+  });
+
+  it("returns the identical object reference on every non-match path", async () => {
+    // resolveInput in create-agent.ts distinguishes "expanded" from "not
+    // expanded" with a `!==` reference check, not a deep-equality test —
+    // this pins that every early-return path really returns the same
+    // object, not merely a structurally-equal copy.
+    const noRegistryInput = { type: "user_message" as const, content: "/commit" };
+    expect(await expandSkillInvocation(noRegistryInput, undefined)).toBe(noRegistryInput);
+
+    const unknownInput = { type: "user_message" as const, content: "/nope" };
+    expect(await expandSkillInvocation(unknownInput, registry)).toBe(unknownInput);
+
+    const nonInvocableInput = { type: "user_message" as const, content: "/internal" };
+    expect(await expandSkillInvocation(nonInvocableInput, registry)).toBe(nonInvocableInput);
   });
 });
