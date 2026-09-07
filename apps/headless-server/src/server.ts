@@ -453,6 +453,10 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         jsonResponse(res, 200, {
           sessions: visible.map((record) => ({
             id: record.sessionId,
+            // Titles live in session_meta (last-wins). Empty string when the
+            // session has never been titled — the client shows a placeholder
+            // rather than inventing a title the server does not know about.
+            title: record.meta.title ?? "",
             projectId: record.meta.projectId,
             providerId: record.meta.providerId,
             modelId: record.meta.modelId,

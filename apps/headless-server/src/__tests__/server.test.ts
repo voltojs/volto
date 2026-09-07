@@ -768,6 +768,18 @@ describe("Headless server", () => {
     expect(body.sessions.some((s) => s.id === subagentSessionId)).toBe(false);
   });
 
+  it("GET /sessions includes the stored title", async () => {
+    const sessionId = "session-with-title";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hello", config);
+
+    const response = await fetch(`${baseUrl}/sessions`);
+    const body = (await response.json()) as { sessions: Array<{ id: string; title: string }> };
+    const session = body.sessions.find((s) => s.id === sessionId);
+    expect(session).toBeDefined();
+    expect(typeof session!.title).toBe("string");
+  });
+
   it("GET /sessions/:id returns the transcript in the web app's Message shape", async () => {
     const sessionId = "session-detail";
     const config = await createTestProjectAndModel();
