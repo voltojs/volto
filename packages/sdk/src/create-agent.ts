@@ -548,10 +548,25 @@ export interface CreateAgentOptions {
 }
 
 export interface AgentInstance {
-  /** Run one turn to completion; returns the final state */
+  /**
+   * Run one turn to completion; returns the final state.
+   *
+   * Concurrency contract: one agent instance serves ONE turn at a time.
+   * `run()` and `stream()` share mutable per-instance state (turn counter,
+   * last runner, last final state — see the comment above `let lastRunner`
+   * in create-agent.ts) with no lock or queue. Calling `run()`/`stream()`
+   * again before a prior call on the same instance has settled is out of
+   * contract — turn claim order and state hand-off are unspecified. Use a
+   * separate `createAgent()` instance per concurrent conversation, or
+   * serialize calls on the same instance.
+   */
   run(input: string | AgentInput): Promise<ReducerState>;
 
-  /** Yield events as the runner processes the turn */
+  /**
+   * Yield events as the runner processes the turn.
+   *
+   * Same single-turn-at-a-time contract as `run()` above.
+   */
   stream(
     input: string | AgentInput,
   ): AsyncGenerator<{ type: string; data: Record<string, unknown> }>;
@@ -949,6 +964,25 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Public API ────────────────────────────
 
+  // Concurrency contract: one createAgent() instance serves ONE turn at a
+  // time. `lastRunner`, `lastFinalState`, `turnCounter`, and
+  // `currentTurnEventSink` below are mutable state shared across every call
+  // to `run()`/`stream()` on this instance, with no lock or queue guarding
+  // them. `run()`/`stream()` calling `resolveInput()` then `createNextRunner()`
+  // is not an atomic section: `createNextRunner()` increments `turnCounter`
+  // synchronously (the "turn claim", see the comment there) but only reads
+  // `lastFinalState` and resets `lastRunner`/`lastFinalState` to null *after*
+  // awaiting `opts.resolveContextLayers()` and `appendSkillCatalogLayer()`
+  // (which itself awaits `opts.skillRegistry.list()`) — both were already
+  // async and already sat inside this span before this file ever had a
+  // `resolveInput()` (see commits 53e9e48 and 50d1140). So two overlapping,
+  // un-awaited `run()`/`stream()` calls on the same instance could already
+  // interleave turn claims and state hand-off out of issue order whenever a
+  // host configured `resolveContextLayers` or `skillRegistry` — this is a
+  // pre-existing lack of guard, not something introduced by any one call's
+  // async shape. Overlapping calls on one instance are simply out of
+  // contract; a host that needs concurrent conversations must use separate
+  // `createAgent()` instances, or serialize calls on the same one.
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
   // Most recently resolved per-turn contextLayers, cached for resume()'s
@@ -1201,6 +1235,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    * A same-named SKILL.md on disk must never silently shadow a command that
    * the host registered explicitly in code; that is why step 1 never touches
    * the skill registry at all.
+   *
+   * This function is `async` only because step 2 awaits the skill registry;
+   * the command-match branch (step 1) never awaits anything. This does not
+   * add a new atomicity requirement for callers — one agent instance already
+   * only supports one turn at a time with no concurrency guard, and
+   * `createNextRunner()` already had async gaps in the turn-claim span
+   * before this function existed. See the concurrency-contract comment above
+   * `let lastRunner` for the full picture.
    */
   async function resolveInput(raw: string | AgentInput): Promise<AgentInput> {
     if (typeof raw === "string" && raw.trimStart().startsWith("/")) {
