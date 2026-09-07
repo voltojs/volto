@@ -188,7 +188,7 @@ export function foldContextUsageEvent(
 function estimateHeader(
   header: ContextUsageHeader,
   tokenizer: Tokenizer,
-): { system: number; tools: number; layers: Array<{ id: string; tokens: number }> } {
+): ContextUsageHeaderEstimate {
   let system = 0;
   const layers = header.systemLayers.map((layer) => {
     const tokens = tokenizer.count(layer.text);
@@ -229,4 +229,100 @@ export function computeContextUsage(
   let fold = emptyContextUsageFold();
   for (const event of events) fold = foldContextUsageEvent(fold, event, tokenizer);
   return fold;
+}
+
+/** Header composition already priced — the serializable form, no full text. */
+export interface ContextUsageHeaderEstimate {
+  system: number;
+  tools: number;
+  layers: Array<{ id: string; tokens: number }>;
+}
+
+/**
+ * The fold's cross-process transport form: a handful of numbers.
+ *
+ * ContextUsageFold keeps the header's full text because the server folds from
+ * raw events and can re-price it if the tokenizer changes. None of that
+ * travels: a header carries every system layer plus every tool schema, tens
+ * of kilobytes per session. The client re-derives the estimate itself the
+ * moment a new request_header arrives (the event carries the full text), so
+ * nothing is lost by sending numbers.
+ */
+export interface ContextUsageSnapshot {
+  headerEstimate: ContextUsageHeaderEstimate | null;
+  anchor: ContextUsageAnchor | null;
+  pendingTokens: number;
+  messageTokens: number;
+}
+
+export function emptyContextUsageSnapshot(): ContextUsageSnapshot {
+  return { headerEstimate: null, anchor: null, pendingTokens: 0, messageTokens: 0 };
+}
+
+/** Prices a fold's header once and drops the text. */
+export function snapshotFold(
+  fold: ContextUsageFold,
+  tokenizer: Tokenizer,
+): ContextUsageSnapshot {
+  return {
+    headerEstimate: fold.header ? estimateHeader(fold.header, tokenizer) : null,
+    anchor: fold.anchor ? { ...fold.anchor } : null,
+    pendingTokens: fold.pendingTokens,
+    messageTokens: fold.messageTokens,
+  };
+}
+
+/**
+ * The same per-event rules as foldContextUsageEvent, over a snapshot: only the
+ * request_header arm differs, pricing the header on arrival instead of
+ * storing its text.
+ */
+export function foldSnapshotEvent(
+  snap: ContextUsageSnapshot,
+  event: TranscriptEventInput,
+  tokenizer: Tokenizer,
+): ContextUsageSnapshot {
+  if (event.type === "request_header") {
+    const data = event.data as TranscriptEventMap["request_header"];
+    return {
+      ...snap,
+      headerEstimate: estimateHeader(
+        {
+          systemLayers: data.systemLayers.map((l) => ({ ...l })),
+          tools: data.tools.map((t) => ({ ...t })),
+        },
+        tokenizer,
+      ),
+    };
+  }
+  // Every other arm only touches the two counters, so reuse the fold rules
+  // verbatim through a header-less carrier — one implementation, no drift.
+  const carrier: ContextUsageFold = {
+    header: null,
+    anchor: snap.anchor,
+    pendingTokens: snap.pendingTokens,
+    messageTokens: snap.messageTokens,
+  };
+  const folded = foldContextUsageEvent(carrier, event, tokenizer);
+  return {
+    headerEstimate: snap.headerEstimate,
+    anchor: folded.anchor,
+    pendingTokens: folded.pendingTokens,
+    messageTokens: folded.messageTokens,
+  };
+}
+
+/** The view, straight from the numbers — no tokenizer needed. */
+export function snapshotView(snap: ContextUsageSnapshot): ContextUsageView | null {
+  if (!snap.headerEstimate) return null;
+  const { system, tools, layers } = snap.headerEstimate;
+  const projectedTokens = snap.anchor
+    ? snap.anchor.promptTokens + snap.anchor.outputTokens + snap.pendingTokens
+    : system + tools + snap.messageTokens;
+  return {
+    projectedTokens,
+    breakdown: { system, tools, messages: snap.messageTokens },
+    layers,
+    anchored: snap.anchor !== null,
+  };
 }

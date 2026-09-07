@@ -278,12 +278,18 @@ export {
   foldContextUsageEvent,
   contextUsageView,
   computeContextUsage,
+  emptyContextUsageSnapshot,
+  snapshotFold,
+  foldSnapshotEvent,
+  snapshotView,
 } from "./context-usage.js";
 export type {
   ContextUsageFold,
   ContextUsageHeader,
   ContextUsageAnchor,
   ContextUsageView,
+  ContextUsageSnapshot,
+  ContextUsageHeaderEstimate,
 } from "./context-usage.js";
 
 // Testing utilities

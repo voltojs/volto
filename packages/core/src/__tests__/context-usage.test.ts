@@ -4,6 +4,10 @@ import {
   foldContextUsageEvent,
   contextUsageView,
   computeContextUsage,
+  emptyContextUsageSnapshot,
+  snapshotFold,
+  foldSnapshotEvent,
+  snapshotView,
 } from "../context-usage.js";
 import { createCharTokenizer } from "../testing/char-tokenizer.js";
 import { createHeuristicTokenizer } from "../heuristic-tokenizer.js";
@@ -118,8 +122,8 @@ describe("contextUsageView", () => {
       tokenizer,
     );
     const view = contextUsageView(fold, tokenizer)!;
-    // pending = 2(text) + tool_use input JSON 估算(≥1) + 1(reasoning)；
-    // 全部落在 messages 残差桶里
+    // pending = 2(text) + tool_use input JSON estimate(≥1) + 1(reasoning);
+    // all of it lands in the independent messages estimate.
     expect(view.anchored).toBe(false);
     expect(view.breakdown.messages).toBe(view.projectedTokens - view.breakdown.system - view.breakdown.tools);
     expect(view.breakdown.messages).toBeGreaterThanOrEqual(3);
@@ -287,6 +291,62 @@ describe("independent message counting", () => {
     expect(view.projectedTokens).toBe(
       view.breakdown.system + view.breakdown.tools + view.breakdown.messages,
     );
+  });
+});
+
+describe("snapshot equivalence", () => {
+  const heuristicTokenizer = createHeuristicTokenizer();
+  const snapEvents: TranscriptEventInput[] = [
+    {
+      time: 0,
+      type: "request_header",
+      data: {
+        hash: "h1",
+        systemLayers: [{ id: "sys", text: "x".repeat(40) }],
+        tools: [{ name: "read_file", description: "d", schema: { type: "object" } }],
+        params: {},
+      },
+    },
+    { time: 1, type: "user_message", data: { content: "hello there" } },
+    {
+      time: 2,
+      type: "assistant_message",
+      data: {
+        content: [{ type: "text", text: "hi" }],
+        usage: { inputTokens: 200, outputTokens: 20 },
+        durationMs: 1,
+      },
+    },
+    { time: 3, type: "tool_result", data: { callId: "c", content: "result", isError: false, orderInBatch: 0 } },
+  ];
+
+  it("matches the full fold at every prefix", () => {
+    for (let cut = 1; cut <= snapEvents.length; cut++) {
+      const prefix = snapEvents.slice(0, cut);
+      const fold = computeContextUsage(prefix, heuristicTokenizer);
+      let snap = emptyContextUsageSnapshot();
+      for (const event of prefix) snap = foldSnapshotEvent(snap, event, heuristicTokenizer);
+      expect(snapshotView(snap)).toEqual(contextUsageView(fold, heuristicTokenizer));
+    }
+  });
+
+  it("continues a server-made snapshot with client-side events", () => {
+    const serverFold = computeContextUsage(snapEvents.slice(0, 2), heuristicTokenizer);
+    let snap = snapshotFold(serverFold, heuristicTokenizer);
+    for (const event of snapEvents.slice(2)) snap = foldSnapshotEvent(snap, event, heuristicTokenizer);
+
+    const full = computeContextUsage(snapEvents, heuristicTokenizer);
+    expect(snapshotView(snap)).toEqual(contextUsageView(full, heuristicTokenizer));
+  });
+
+  it("carries no full text", () => {
+    const snap = snapshotFold(computeContextUsage(snapEvents, heuristicTokenizer), heuristicTokenizer);
+    expect(JSON.stringify(snap)).not.toContain("xxxx");
+    expect(JSON.stringify(snap)).not.toContain("read_file");
+  });
+
+  it("views an empty snapshot as null", () => {
+    expect(snapshotView(emptyContextUsageSnapshot())).toBeNull();
   });
 });
 
