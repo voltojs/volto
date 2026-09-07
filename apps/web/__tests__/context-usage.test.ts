@@ -44,8 +44,8 @@ describe('projectContextUsage', () => {
       data: { content: 'abcdefgh' },
     } as TranscriptEventInput;
     const { view } = projectContextUsage(seed, [next], true);
-    // 40 + 6 + 2(8 chars)
-    expect(view!.projectedTokens).toBe(48);
+    // 40 + 6 + (2(8 chars) + BLOCK_OVERHEAD 4 + ROLE_OVERHEAD 4 = 10)
+    expect(view!.projectedTokens).toBe(56);
   });
 
   it('returns the seed view unchanged when the buffer is not current', () => {

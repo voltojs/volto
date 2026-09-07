@@ -6,6 +6,7 @@ import {
   computeContextUsage,
 } from "../context-usage.js";
 import { createCharTokenizer } from "../testing/char-tokenizer.js";
+import { createHeuristicTokenizer } from "../heuristic-tokenizer.js";
 import type { TranscriptEventInput, TranscriptEventMap } from "../ports.js";
 
 const tokenizer = createCharTokenizer();
@@ -34,11 +35,11 @@ describe("contextUsageView", () => {
   });
 
   it("projects a pure estimate from the header before any anchor", () => {
-    // system 2+1=3；tools = JSON.stringify 的启发式计数（具体值不假设，用 gt 断言）
+    // system 2+1=3 + ROLE_OVERHEAD 4 = 7；tools = JSON.stringify 的启发式计数（具体值不假设，用 gt 断言）
     const fold = foldContextUsageEvent(emptyContextUsageFold(), event("request_header", HEADER), tokenizer);
     const view = contextUsageView(fold, tokenizer)!;
     expect(view.anchored).toBe(false);
-    expect(view.breakdown.system).toBe(3);
+    expect(view.breakdown.system).toBe(7);
     expect(view.breakdown.tools).toBeGreaterThan(0);
     expect(view.breakdown.messages).toBe(0);
     expect(view.projectedTokens).toBe(view.breakdown.system + view.breakdown.tools + view.breakdown.messages);
@@ -52,7 +53,8 @@ describe("contextUsageView", () => {
     let fold = foldContextUsageEvent(emptyContextUsageFold(), event("user_message", { content: "abcdefgh" }), tokenizer);
     fold = foldContextUsageEvent(fold, event("request_header", HEADER), tokenizer);
     const view = contextUsageView(fold, tokenizer)!;
-    expect(view.projectedTokens).toBe(3 + view.breakdown.tools + 2); // 8 chars 的 user 消息 → 2 tokens
+    // 8 chars 的 user 消息 → 2 tokens + BLOCK_OVERHEAD 4 + ROLE_OVERHEAD 4 = 10；system 7
+    expect(view.projectedTokens).toBe(7 + view.breakdown.tools + 10);
   });
 
   it("anchors on assistant usage: prompt = input + cacheRead + cacheWrite", () => {
@@ -87,8 +89,9 @@ describe("contextUsageView", () => {
     );
     fold = foldContextUsageEvent(fold, event("tool_result", { callId: "c1", content: "abcdefgh", isError: false, orderInBatch: 0 }), tokenizer);
     fold = foldContextUsageEvent(fold, event("steering_queued", { content: "abcdefgh" }), tokenizer);
-    // 锚 100+10=110，+2+2 增量
-    expect(contextUsageView(fold, tokenizer)!.projectedTokens).toBe(114);
+    // 锚 100+10=110；tool_result "abcdefgh"→2+BLOCK_OVERHEAD(4)=6，
+    // steering "abcdefgh"→2+BLOCK_OVERHEAD(4)+ROLE_OVERHEAD(4)=10，合计 110+6+10=126
+    expect(contextUsageView(fold, tokenizer)!.projectedTokens).toBe(126);
 
     fold = foldContextUsageEvent(
       fold,
@@ -136,6 +139,64 @@ describe("contextUsageView", () => {
     const view = contextUsageView(fold, tokenizer)!;
     expect(view.breakdown.messages).toBe(0);
     expect(view.projectedTokens).toBe(view.breakdown.system + view.breakdown.tools);
+  });
+});
+
+describe("structural overhead", () => {
+  const heuristicTokenizer = createHeuristicTokenizer();
+
+  it("adds per-block overhead to a text block", () => {
+    // "abcd" = 1 token + BLOCK_OVERHEAD 4 + ROLE_OVERHEAD 4
+    const fold = foldContextUsageEvent(
+      emptyContextUsageFold(),
+      { time: 0, type: "user_message", data: { content: [{ type: "text", text: "abcd" }] } },
+      heuristicTokenizer,
+    );
+    expect(fold.pendingTokens).toBe(9);
+  });
+
+  it("prices a string user message with role overhead", () => {
+    const fold = foldContextUsageEvent(
+      emptyContextUsageFold(),
+      { time: 0, type: "user_message", data: { content: "abcd" } },
+      heuristicTokenizer,
+    );
+    expect(fold.pendingTokens).toBe(9);
+  });
+
+  it("prices a tool_use block by name plus serialized input", () => {
+    const input = { path: "a.ts" };
+    const expected =
+      Math.ceil("read_file".length / 4) +
+      Math.ceil(JSON.stringify(input).length / 4) +
+      4 + // BLOCK_OVERHEAD
+      4; // ROLE_OVERHEAD
+    const fold = foldContextUsageEvent(
+      emptyContextUsageFold(),
+      {
+        time: 0,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input }],
+          durationMs: 1,
+        },
+      },
+      heuristicTokenizer,
+    );
+    expect(fold.pendingTokens).toBe(expected);
+  });
+
+  it("adds block overhead to a tool result", () => {
+    const fold = foldContextUsageEvent(
+      emptyContextUsageFold(),
+      {
+        time: 0,
+        type: "tool_result",
+        data: { callId: "c1", content: "abcd", isError: false, orderInBatch: 0 },
+      },
+      heuristicTokenizer,
+    );
+    expect(fold.pendingTokens).toBe(5); // 1 + BLOCK_OVERHEAD
   });
 });
 

@@ -53,15 +53,36 @@ export function emptyContextUsageFold(): ContextUsageFold {
   return { header: null, anchor: null, pendingTokens: 0 };
 }
 
+/**
+ * Per-block overhead for JSON framing and type tags, and per-message overhead
+ * for the role field. Pure chars/4 systematically under-counts a
+ * tool-call-heavy conversation; these constants match deepseek-harness's
+ * token-meter so both estimators price the same content the same way.
+ */
+const BLOCK_OVERHEAD = 4;
+const ROLE_OVERHEAD = 4;
+
 function countBlocks(blocks: readonly ContentBlock[], tokenizer: Tokenizer): number {
   let total = 0;
   for (const block of blocks) {
-    if (block.type === "text") total += tokenizer.count(block.text);
-    else if (block.type === "tool_use") total += tokenizer.count(JSON.stringify(block.input));
-    // Image and tool_result blocks are not estimated here — tool results
-    // reach the fold as their own tool_result events.
+    if (block.type === "text") {
+      total += tokenizer.count(block.text) + BLOCK_OVERHEAD;
+    } else if (block.type === "tool_use") {
+      total +=
+        tokenizer.count(block.name) + tokenizer.count(JSON.stringify(block.input)) + BLOCK_OVERHEAD;
+    } else {
+      // Images and any future block type keep a conservative structural price.
+      // tool_result blocks reach the fold as their own tool_result events, so
+      // they are not double-counted here.
+      total += tokenizer.count(JSON.stringify(block)) + BLOCK_OVERHEAD;
+    }
   }
   return total;
+}
+
+/** One message's price: its blocks plus the role framing. */
+function countMessage(blocks: readonly ContentBlock[], tokenizer: Tokenizer): number {
+  return countBlocks(blocks, tokenizer) + ROLE_OVERHEAD;
 }
 
 export function foldContextUsageEvent(
@@ -100,21 +121,24 @@ export function foldContextUsageEvent(
         ...fold,
         pendingTokens:
           fold.pendingTokens +
-          (data.reasoning ? tokenizer.count(data.reasoning) : 0) +
-          countBlocks(data.content, tokenizer),
+          (data.reasoning ? tokenizer.count(data.reasoning) + BLOCK_OVERHEAD : 0) +
+          countMessage(data.content, tokenizer),
       };
     }
     case "tool_result": {
       const data = event.data as TranscriptEventMap["tool_result"];
-      return { ...fold, pendingTokens: fold.pendingTokens + tokenizer.count(data.content) };
+      return {
+        ...fold,
+        pendingTokens: fold.pendingTokens + tokenizer.count(data.content) + BLOCK_OVERHEAD,
+      };
     }
     case "user_message":
     case "steering_queued": {
       const data = event.data as TranscriptEventMap["user_message"] | TranscriptEventMap["steering_queued"];
       const added =
         typeof data.content === "string"
-          ? tokenizer.count(data.content)
-          : countBlocks(data.content, tokenizer);
+          ? tokenizer.count(data.content) + BLOCK_OVERHEAD + ROLE_OVERHEAD
+          : countMessage(data.content, tokenizer);
       return { ...fold, pendingTokens: fold.pendingTokens + added };
     }
     default:
@@ -133,8 +157,10 @@ function estimateHeader(
     return { id: layer.id, tokens };
   });
   let tools = 0;
-  for (const tool of header.tools) tools += tokenizer.count(JSON.stringify(tool));
-  return { system, tools, layers };
+  if (header.tools.length > 0) {
+    tools = tokenizer.count(JSON.stringify(header.tools)) + BLOCK_OVERHEAD;
+  }
+  return { system: system > 0 ? system + ROLE_OVERHEAD : 0, tools, layers };
 }
 
 export function contextUsageView(
