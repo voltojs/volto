@@ -4,6 +4,7 @@ import {
   percentTone,
   formatCompactTokens,
   segmentWidths,
+  remainingTokens,
 } from '@/lib/context-meter-model';
 import type { ContextUsageView } from '@volto/sdk/sse';
 
@@ -51,5 +52,39 @@ describe('segmentWidths', () => {
   it('returns all-zero widths for an empty total', () => {
     const widths = segmentWidths({ system: 0, tools: 0, messages: 0 });
     expect(widths.map((s) => s.width)).toEqual([0, 0, 0]);
+  });
+});
+
+describe('remainingTokens', () => {
+  const usage = (projected: number): ContextUsageView => ({
+    projectedTokens: projected,
+    breakdown: { system: 10, tools: 5, messages: 20 },
+    layers: [],
+    anchored: true,
+  });
+
+  it('returns the window minus the projection', () => {
+    expect(remainingTokens(usage(1000), 8000)).toBe(7000);
+  });
+
+  it('clamps to zero when the projection exceeds the window', () => {
+    expect(remainingTokens(usage(9000), 8000)).toBe(0);
+  });
+
+  it('returns null when no window is configured', () => {
+    expect(remainingTokens(usage(1000), undefined)).toBeNull();
+    expect(remainingTokens(usage(1000), 0)).toBeNull();
+  });
+
+  it('returns null for a non-finite window instead of a nonsensical remaining figure', () => {
+    expect(remainingTokens(usage(1000), Number.NaN)).toBeNull();
+    expect(remainingTokens(usage(1000), Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+describe('segmentWidths with an unreconciled breakdown', () => {
+  it('normalises against the three segments, not the projection', () => {
+    const widths = segmentWidths({ system: 10, tools: 10, messages: 20 });
+    expect(widths.map((w) => Math.round(w.width))).toEqual([25, 25, 50]);
   });
 });

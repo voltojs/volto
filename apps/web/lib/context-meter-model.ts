@@ -35,10 +35,29 @@ export function formatCompactTokens(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M`;
 }
 
+/**
+ * Segment widths are normalised against the three segments' own total, not
+ * against `projectedTokens`. `breakdown.system` / `.tools` / `.messages` are
+ * three independent estimates that deliberately do not sum to the projection
+ * (plan-020), so the segmented bar expresses "composition share" among the
+ * three buckets — it does not represent "how full the ring is".
+ */
 export function segmentWidths(
   breakdown: ContextUsageView['breakdown'],
 ): Array<{ key: SegmentKey; width: number }> {
   const total = breakdown.system + breakdown.tools + breakdown.messages;
   if (total <= 0) return CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key, width: 0 }));
   return CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key, width: (breakdown[s.key] / total) * 100 }));
+}
+
+/**
+ * Remaining context capacity: window minus the projected total, clamped to
+ * zero (never negative). Returns null when no window is configured (0 counts
+ * as unconfigured) or when the window is not a finite number — a NaN or
+ * Infinity window would otherwise render a nonsensical remaining figure to
+ * the user, which is worse than showing "—".
+ */
+export function remainingTokens(usage: ContextUsageView, contextWindow?: number): number | null {
+  if (!contextWindow || !Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+  return Math.max(0, contextWindow - usage.projectedTokens);
 }

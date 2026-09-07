@@ -9,6 +9,7 @@ import {
   formatCompactTokens,
   meterPercent,
   percentTone,
+  remainingTokens,
   segmentWidths,
   type SegmentKey,
 } from '@/lib/context-meter-model';
@@ -43,6 +44,7 @@ export function ContextMeter({ usage, contextWindow }: ContextMeterProps) {
   const gray = percent === null;
   const tone = gray ? null : percentTone(percent);
   const widths = segmentWidths(usage.breakdown);
+  const remaining = remainingTokens(usage, contextWindow);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -88,7 +90,13 @@ export function ContextMeter({ usage, contextWindow }: ContextMeterProps) {
               {usage.anchored ? '' : '~'}
               {formatCompactTokens(usage.projectedTokens)} / {formatCompactTokens(contextWindow!)} tokens
             </p>
-            <div className="bg-muted mt-2 flex h-1.5 overflow-hidden rounded-full">
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              剩余 {remaining === null ? '—' : `~${formatCompactTokens(remaining)}`}
+            </p>
+            <p className="text-muted-foreground mt-2 text-[10px] font-medium tracking-widest uppercase">
+              构成（估算）
+            </p>
+            <div className="bg-muted mt-1 flex h-1.5 overflow-hidden rounded-full">
               {widths.map((s) => (
                 <div key={s.key} className={SEGMENT_BG[s.key]} style={{ width: `${s.width}%` }} />
               ))}
