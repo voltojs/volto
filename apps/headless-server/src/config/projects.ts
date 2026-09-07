@@ -19,6 +19,26 @@ export interface Project {
 /** Thrown when a submitted project path is not an existing absolute directory. */
 export class InvalidPathError extends Error {}
 
+/** Shared 404/error text for an unresolvable project id — kept in one place so every lookup site stays byte-identical. */
+export function unknownProjectMessage(projectId: string): string {
+  return `Unknown project: ${projectId}`;
+}
+
+/**
+ * Resolve a project id to its filesystem path via `store.findById`.
+ * Returns `undefined` on a miss instead of throwing, so each caller keeps its
+ * own control flow (e.g. throw for `resolveConfig`, a 404 JSON body for the
+ * `/skills` route) while sharing the lookup and the error text via
+ * `unknownProjectMessage`.
+ */
+export async function resolveProjectPath(
+  store: ReturnType<typeof createProjectStore>,
+  projectId: string,
+): Promise<string | undefined> {
+  const project = await store.findById(projectId);
+  return project?.path;
+}
+
 export function createProjectStore(dir: string = getConfigDir()) {
   const file = getConfigPath("projects.json", dir);
 

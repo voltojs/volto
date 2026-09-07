@@ -29,7 +29,12 @@ import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageFold } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry } from "./sessions.js";
-import { createProjectStore, InvalidPathError } from "./config/projects.js";
+import {
+  createProjectStore,
+  InvalidPathError,
+  resolveProjectPath,
+  unknownProjectMessage,
+} from "./config/projects.js";
 import { createProviderStore } from "./config/providers.js";
 import { getConfigDir } from "./config/paths.js";
 import { isUiPermissionMode } from "./permission-modes.js";
@@ -415,12 +420,12 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         const projectId = url.searchParams.get("projectId");
         let skillsCwd = cwd;
         if (projectId !== null) {
-          const project = await projectStore.findById(projectId);
-          if (!project) {
-            jsonResponse(res, 404, { error: `Unknown project: ${projectId}` });
+          const projectPath = await resolveProjectPath(projectStore, projectId);
+          if (projectPath === undefined) {
+            jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
             return;
           }
-          skillsCwd = project.path;
+          skillsCwd = projectPath;
         }
         const summaries = await createSkillRegistry(skillsCwd).list();
         jsonResponse(res, 200, {

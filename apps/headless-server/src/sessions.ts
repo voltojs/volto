@@ -18,7 +18,7 @@ import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createOpenAIModelPort } from "@volto/provider-openai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
-import type { createProjectStore } from "./config/projects.js";
+import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
@@ -356,9 +356,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     if (!projectStore) {
       throw new Error("Project store is not configured on this session registry");
     }
-    const project = await projectStore.findById(requested.projectId);
-    if (!project) throw new Error(`Unknown project: ${requested.projectId}`);
-    const projectPath = project.path;
+    const projectPath = await resolveProjectPath(projectStore, requested.projectId);
+    if (projectPath === undefined) throw new Error(unknownProjectMessage(requested.projectId));
 
     // A lone providerId or modelId is a broken reference, not "no
     // selection" — previously this was silently ignored and fell back to
