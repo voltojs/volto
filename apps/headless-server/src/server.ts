@@ -100,10 +100,10 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   const agent = createWiredAgent(agentOpts);
   // Same fallback as createWiredAgent's own `cwd` resolution (wiring.ts) — kept
   // in sync here so /skills reports the same workspace the legacy (no
-  // sessionId) agent above actually loads. Per-session agents (rebuild() in
-  // sessions.ts) can resolve a different, per-project cwd from projectStore,
-  // but /skills takes no project/session id, so it can only speak for this
-  // process-wide default.
+  // sessionId) agent above actually loads. This is only /skills' default: a
+  // caller that supplies ?projectId= gets that project's own cwd instead (see
+  // the /skills route below), resolved through projectStore exactly like
+  // sessions.ts's resolveConfig() resolves a turn's cwd.
   const cwd = agentOpts.cwd ?? process.cwd();
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
@@ -402,9 +402,27 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     // GET /skills — the discovery catalog, including skills the model may not
     // invoke. The web app's /name autocomplete consumes userInvocable; the
     // model-facing catalog is assembled separately inside the SDK.
+    //
+    // Optional ?projectId= scopes the scan to that project's own directory
+    // instead of this process's default cwd — resolved the exact same way
+    // `resolveConfig` in sessions.ts resolves a turn's cwd (`projectStore
+    // .findById(id).path`), so the two never disagree on what a given
+    // project's directory is. An unknown projectId must 404 rather than
+    // silently falling back to the process cwd, which would report the
+    // wrong workspace's skills while looking successful.
     if (req.method === "GET" && url.pathname === "/skills") {
       try {
-        const summaries = await createSkillRegistry(cwd).list();
+        const projectId = url.searchParams.get("projectId");
+        let skillsCwd = cwd;
+        if (projectId !== null) {
+          const project = await projectStore.findById(projectId);
+          if (!project) {
+            jsonResponse(res, 404, { error: `Unknown project: ${projectId}` });
+            return;
+          }
+          skillsCwd = project.path;
+        }
+        const summaries = await createSkillRegistry(skillsCwd).list();
         jsonResponse(res, 200, {
           skills: summaries.map((s) => ({
             name: s.name,

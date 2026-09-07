@@ -359,6 +359,50 @@ describe("Headless server", () => {
     expect((after.data as unknown[]).length).toBe(1);
   });
 
+  it("GET /skills?projectId= scopes discovery to that project's directory", async () => {
+    // Build a project directory with a skill that exists ONLY here — never
+    // under the process cwd this test suite runs from — so a passing
+    // assertion can only be explained by the projectId path actually
+    // resolving to this directory, not by coincidentally reusing the
+    // process-cwd scan.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-project-"));
+    const skillDir = path.join(projectDir, ".claude", "skills", "task11-fixture-skill");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: task11-fixture-skill",
+        "description: Fixture skill that only exists under the test project directory.",
+        "---",
+        "Fixture body.",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await post("/projects", { name: "skills-fixture-project", path: projectDir });
+    expect(project.status).toBe(201);
+    const projectId = (project.data as { id: string }).id;
+
+    // The process-wide default (no projectId) must NOT see the fixture skill —
+    // otherwise the two code paths would be indistinguishable.
+    const defaultResponse = await getJson("/skills");
+    const defaultBody = defaultResponse.data as { skills: Array<{ name: string }> };
+    expect(defaultBody.skills.some((s) => s.name === "task11-fixture-skill")).toBe(false);
+
+    // The project-scoped request must see it.
+    const scopedResponse = await getJson(`/skills?projectId=${encodeURIComponent(projectId)}`);
+    expect(scopedResponse.status).toBe(200);
+    const scopedBody = scopedResponse.data as { skills: Array<{ name: string }> };
+    expect(scopedBody.skills.some((s) => s.name === "task11-fixture-skill")).toBe(true);
+  });
+
+  it("GET /skills?projectId=<unknown> returns 404 without falling back to the process cwd", async () => {
+    const { status, data } = await getJson("/skills?projectId=nonexistent");
+    expect(status).toBe(404);
+    expect(data).toEqual({ error: "Unknown project: nonexistent" });
+  });
+
   it("POST /run returns final state", async () => {
     const { status, data } = await post("/run", { message: "hi" });
     expect(status).toBe(200);
