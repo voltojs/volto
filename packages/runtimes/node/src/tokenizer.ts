@@ -1,22 +1,12 @@
-/**
- * Node Tokenizer — char-heuristic adapter for the Node runtime.
- * Approximates token count using character-level estimation.
- *
- * This is a lightweight adapter; production use should prefer a real
- * tokenizer (e.g., tiktoken). The char heuristic is good enough for
- * Compactor threshold decisions.
- */
-
+import { createHeuristicTokenizer } from "@volto/core";
 import type { Tokenizer } from "@volto/core";
 
-/** Default chars-per-token ratio (English text approximation) */
-const DEFAULT_CHARS_PER_TOKEN = 4;
-
-export function createNodeTokenizer(charsPerToken: number = DEFAULT_CHARS_PER_TOKEN): Tokenizer {
-  return {
-    count(text: string): number {
-      if (text.length === 0) return 0;
-      return Math.max(1, Math.ceil(text.length / charsPerToken));
-    },
-  };
+/**
+ * Node adapter's tokenizer. Delegates to core's heuristic so the server-side
+ * fold and the web client's continuation of it never diverge; swap this for a
+ * real tokenizer (tiktoken and friends) here and both sides move together
+ * only if the client is updated too — see the note in core's module.
+ */
+export function createNodeTokenizer(charsPerToken?: number): Tokenizer {
+  return createHeuristicTokenizer(charsPerToken);
 }

@@ -6,7 +6,7 @@
 
 import {
   contextUsageView,
-  createCharTokenizer,
+  createHeuristicTokenizer,
   emptyContextUsageFold,
   foldContextUsageEvent,
   type ContextUsageFold,
@@ -14,9 +14,9 @@ import {
   type TranscriptEventInput,
 } from '@volto/sdk/sse';
 
-// 同 chars/4 启发式（core testing/char-tokenizer 的公开导出）；与
-// runtimes/*/tokenizer.ts 一致，整合是后续事项。
-const tokenizer = createCharTokenizer();
+// Same source as the server's node tokenizer — both delegate to core's
+// heuristic, so a fold seeded server-side continues client-side unchanged.
+const tokenizer = createHeuristicTokenizer();
 
 export function projectContextUsage(
   seed: ContextUsageFold | null | undefined,

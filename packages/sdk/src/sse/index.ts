@@ -64,6 +64,7 @@ export {
   contextUsageView,
   computeContextUsage,
   createCharTokenizer,
+  createHeuristicTokenizer,
 } from "@volto/core";
 export type {
   ContextUsageFold,

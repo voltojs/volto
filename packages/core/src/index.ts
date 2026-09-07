@@ -269,6 +269,9 @@ export type {
   ContextLayerHints,
 } from "./workspace-instructions.js";
 
+// Heuristic tokenizer — the production default behind the Tokenizer port
+export { createHeuristicTokenizer } from "./heuristic-tokenizer.js";
+
 // Context usage — how full the model's context window is (pure projection)
 export {
   emptyContextUsageFold,
