@@ -277,6 +277,50 @@ describe("normalizeStream", () => {
       expect(usage.cacheReadTokens).toBeUndefined();
     });
 
+    it("reads DeepSeek's hit/miss split", async () => {
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_cache_hit_tokens: 60,
+          prompt_cache_miss_tokens: 40,
+        }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(40);
+      expect(usage.cacheReadTokens).toBe(60);
+      expect(usage.inputTokens + (usage.cacheReadTokens ?? 0)).toBe(100);
+    });
+
+    it("reads OpenAI's cached_tokens detail while prompt_tokens stays the full prompt", async () => {
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 60 },
+        }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(40);
+      expect(usage.cacheReadTokens).toBe(60);
+    });
+
+    it("falls back to prompt_cache_hit_tokens's miss value even when zero", async () => {
+      // Hostile/inconsistent payload: hit is present but miss is absent.
+      // The expression `miss ?? (promptTokens - cachedTokens)` should still
+      // recompute a sane uncached value from prompt_tokens instead of NaN/undefined.
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_cache_hit_tokens: 60,
+        }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(40);
+      expect(usage.cacheReadTokens).toBe(60);
+    });
+
     it("never reports a negative uncached input", async () => {
       const events = await collect([
         chunk({}, "stop", {

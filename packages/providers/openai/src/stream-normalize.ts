@@ -40,6 +40,9 @@ export interface RawStreamChunk {
     prompt_tokens_details?: {
       cached_tokens?: number;
     };
+    /** DeepSeek's hit/miss split: the same cache signal as prompt_tokens_details.cached_tokens, spelled differently. */
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
     /** Present for reasoning models (o-series etc.); reasoning_tokens bills separately from completion_tokens. */
     completion_tokens_details?: {
       reasoning_tokens?: number;
@@ -75,7 +78,15 @@ export async function* normalizeStream(
     if (chunk.usage && !hasEmittedUsage) {
       hasEmittedUsage = true;
       const promptTokens = chunk.usage.prompt_tokens ?? 0;
-      const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens;
+      // Two vendor spellings of the same split. DeepSeek reports hit/miss
+      // directly; OpenAI reports the cached slice inside prompt_tokens_details
+      // while prompt_tokens stays the full prompt.
+      const hit = chunk.usage.prompt_cache_hit_tokens;
+      const miss = chunk.usage.prompt_cache_miss_tokens;
+      const cachedDetail = chunk.usage.prompt_tokens_details?.cached_tokens;
+      const cachedTokens = hit ?? cachedDetail;
+      const uncached =
+        miss ?? (cachedTokens === undefined ? promptTokens : Math.max(0, promptTokens - cachedTokens));
       yield {
         type: "usage",
         // inputTokens is the UNCACHED prompt across all providers (Anthropic's
@@ -83,7 +94,7 @@ export async function* normalizeStream(
         // cacheReadTokens, so input + cacheRead + cacheWrite is the full
         // prompt. Reporting prompt_tokens verbatim here made CostMeter price
         // the cached portion twice.
-        inputTokens: Math.max(0, promptTokens - (cachedTokens ?? 0)),
+        inputTokens: uncached,
         outputTokens: chunk.usage.completion_tokens ?? 0,
         cacheReadTokens: cachedTokens,
         totalTokens: chunk.usage.total_tokens ?? undefined,
