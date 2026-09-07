@@ -27,8 +27,10 @@ export interface ConversationFeed {
   /** Rendered rows: chat bubbles plus error notices for failed turns. */
   entries: ChatEntry[];
   /**
-   * Conversation messages only (no error notices) — what gets persisted as
-   * the session's history snapshot.
+   * Conversation messages only (no error notices) — the in-memory snapshot
+   * flushed into the session store when the session is switched away from.
+   * Nothing here is persisted to disk or `localStorage`; the server's
+   * transcript is the only durable copy.
    */
   messages: ConversationMessage[];
   /**
@@ -49,12 +51,15 @@ export interface ConversationFeed {
  * session and chat stores.
  *
  * A session's rendered feed is its persisted history (projected server-side
- * when recovered, or snapshotted client-side while active) merged with the
- * live projection of whatever the SSE channel has streamed since the session
- * was opened. The chat store's event buffer belongs to exactly one session;
- * when the current session changes the outgoing feed is flushed to the
+ * when recovered from `GET /sessions/:id`, or held in memory from the
+ * moment it was created client-side) merged with the live projection of
+ * whatever the SSE channel has streamed since the session was opened. The
+ * chat store's event buffer belongs to exactly one session; when the current
+ * session changes the outgoing feed is flushed into the (memory-only)
  * session store and the buffer is dropped, so switching back to a recovered
- * session and continuing it shows one continuous conversation.
+ * session and continuing it shows one continuous conversation. Nothing here
+ * is written to disk or `localStorage` — the server's transcript is the
+ * sole durable copy.
  */
 export function useConversation(): ConversationFeed {
   const currentSessionId = useSessionStore((s) => s.currentSessionId);

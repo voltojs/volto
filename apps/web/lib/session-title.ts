@@ -56,6 +56,40 @@ export interface TitleWriteBackParams {
 }
 
 /**
+ * Delay before the single retry, for both the derived write-back and the
+ * manual rename. The two realistic failure causes — the session's transcript
+ * not persisted yet (its file is created by a fire-and-forget append that
+ * isn't awaited, so a 404 is genuinely possible right after the first
+ * message), or a transient network blip — both need a moment to clear; an
+ * immediate retry lands in the same few-millisecond failure window. Exported
+ * so tests can drive it with fake timers instead of a real wait.
+ */
+export const TITLE_RETRY_DELAY_MS = 1500;
+
+/**
+ * Resolves after `ms`, or rejects immediately (or as soon as `signal` fires)
+ * without ever starting/leaking a timer past that point. `signal` is
+ * optional: the manual rename's retry has nothing to abort it.
+ */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
  * Tracks the `AbortController` for a session's in-flight derived title
  * write-back (see `runTitleWriteBack`), keyed by session id.
  *
@@ -93,20 +127,23 @@ export function cancelPendingTitleWriteBack(sessionId: string): void {
  * written back), when a write-back for this session has already been
  * started, or when there's no non-blank first user message yet to derive one
  * from. Otherwise derives the title, applies it locally right away, and
- * PATCHes it to the server with a single silent retry on failure — per spec,
- * titles are not on the critical path, so a second failure is swallowed
- * rather than surfaced or retried further.
+ * PATCHes it to the server, waits `TITLE_RETRY_DELAY_MS` and retries exactly
+ * once on failure, then — per spec, titles are not on the critical path —
+ * rolls the optimistic local title back to `''` (the pre-write-back value;
+ * `currentTitle` is guaranteed empty for this path, see the guard above) so
+ * the sidebar never keeps showing a title the server never received.
  *
  * Extracted from the `useConversation` effect so this gating and retry
  * behaviour can be unit-tested without rendering the hook.
  *
  * The write-back registers an `AbortController` in `inFlightWriteBacks` for
- * the duration of its PATCH(es), so a concurrent manual rename can cancel it
- * via `cancelPendingTitleWriteBack` — see that function's doc comment for
- * why this is needed. An aborted request is not treated as a failure: it is
- * never surfaced to the user and never triggers the retry, since the manual
- * rename that caused the abort is itself the write that should reach the
- * server.
+ * the duration of its PATCH(es) and the retry delay, so a concurrent manual
+ * rename can cancel it via `cancelPendingTitleWriteBack` — see that
+ * function's doc comment for why this is needed. An aborted request (or an
+ * abort landing during the retry delay) is not treated as a failure: it is
+ * never surfaced to the user, never rolls back the title, and never retries,
+ * since the manual rename that caused the abort is itself the write that
+ * should reach the server and is about to set its own title locally.
  */
 export async function runTitleWriteBack(
   params: TitleWriteBackParams,
@@ -132,20 +169,85 @@ export async function runTitleWriteBack(
   try {
     await rename(sessionId, title, controller.signal);
     clearInFlight();
+    return;
   } catch {
     if (controller.signal.aborted) {
       // Cancelled by a manual rename racing this write-back: the user's own
-      // title is the one being sent to the server now, so no retry and no
-      // error surfaced. `cancelPendingTitleWriteBack` already removed this
-      // controller from the map.
+      // title is the one being sent to the server now, so no retry, no
+      // rollback, and no error surfaced. `cancelPendingTitleWriteBack`
+      // already removed this controller from the map.
       return;
     }
-    try {
-      await rename(sessionId, title, controller.signal);
-    } catch {
-      // Give up silently for the rest of the browsing session.
-    } finally {
-      clearInFlight();
+  }
+
+  try {
+    await delay(TITLE_RETRY_DELAY_MS, controller.signal);
+  } catch {
+    // Aborted during the delay — same "manual rename took over" case above.
+    clearInFlight();
+    return;
+  }
+
+  try {
+    await rename(sessionId, title, controller.signal);
+  } catch {
+    if (!controller.signal.aborted) {
+      // Give up for the rest of the browsing session (titledIds already has
+      // this id), but don't leave the UI showing a title the server never
+      // got — roll back to the pre-write-back value.
+      setTitle(sessionId, '');
     }
+  } finally {
+    clearInFlight();
+  }
+}
+
+export interface ManualRenameParams {
+  sessionId: string;
+  /** The new title the user typed. */
+  title: string;
+  /** The session's title before this rename, to roll back to on final failure. */
+  previousTitle: string;
+  /** Applies a title to local state immediately (optimistic). */
+  setTitle: (id: string, title: string) => void;
+  /** The PATCH to the server. Rejects on any non-ok response. */
+  rename: (id: string, title: string) => Promise<void>;
+  /** Surfaces a user-facing error message, or clears it (`null`) at the start. */
+  setError: (message: string | null) => void;
+}
+
+/**
+ * Runs a sidebar manual rename: applies the title locally right away, PATCHes
+ * it to the server, waits `TITLE_RETRY_DELAY_MS` and retries exactly once on
+ * failure, then — matching the derived write-back's spec'd behaviour — rolls
+ * the local title back to what it was before this rename and surfaces an
+ * inline error via `setError`. Never throws.
+ *
+ * Callers must call `cancelPendingTitleWriteBack(sessionId)` before invoking
+ * this, so a slow derived-title PATCH can never land after (and silently
+ * overwrite) the title the user just set — see that function's doc comment.
+ */
+export async function runManualRename(
+  params: ManualRenameParams,
+): Promise<void> {
+  const { sessionId, title, previousTitle, setTitle, rename, setError } =
+    params;
+  setTitle(sessionId, title);
+  setError(null);
+
+  try {
+    await rename(sessionId, title);
+    return;
+  } catch {
+    // Fall through to the single delayed retry below.
+  }
+
+  await delay(TITLE_RETRY_DELAY_MS);
+
+  try {
+    await rename(sessionId, title);
+  } catch {
+    setTitle(sessionId, previousTitle);
+    setError('重命名失败，已恢复为原标题');
   }
 }

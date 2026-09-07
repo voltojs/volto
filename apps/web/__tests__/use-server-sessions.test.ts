@@ -5,13 +5,20 @@ import {
   selectUnpersistedSessions,
 } from '@/hooks/use-server-sessions';
 import type { ServerSessionSummary } from '@/lib/sessions-api';
+import { SessionDetailUnavailableError } from '@/lib/sessions-api';
 import { summary } from './helpers/session';
 
 const fetchServerSessionDetail = vi.fn();
-vi.mock('@/lib/sessions-api', () => ({
-  fetchServerSessions: vi.fn(),
-  fetchServerSessionDetail: (...args: unknown[]) => fetchServerSessionDetail(...args),
-}));
+vi.mock('@/lib/sessions-api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/sessions-api')>(
+    '@/lib/sessions-api',
+  );
+  return {
+    ...actual,
+    fetchServerSessions: vi.fn(),
+    fetchServerSessionDetail: (...args: unknown[]) => fetchServerSessionDetail(...args),
+  };
+});
 
 /** A minimal server-summary-shaped record for `selectUnpersistedSessions` tests. */
 function serverSummary(id: string): ServerSessionSummary {
@@ -113,6 +120,31 @@ describe('ensureSessionDetail', () => {
     expect(session.detailError).toBeTruthy();
   });
 
+  it('records a legacy-kind, retry-discouraging error for a 410 (legacy transcript)', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockRejectedValue(
+      new SessionDetailUnavailableError(410, 'This session was written by an older version and cannot be read by this build.'),
+    );
+
+    await expect(ensureSessionDetail('a')).rejects.toBeInstanceOf(SessionDetailUnavailableError);
+    const session = useSessionStore.getState().sessions[0]!;
+    // Dedicated copy, not the raw "HTTP 410" the generic branch would produce.
+    expect(session.detailError).toBe('此会话由旧版本写入，无法读取');
+    expect(session.detailErrorKind).toBe('legacy');
+  });
+
+  it('records a network-kind error (retryable) for a non-410 failure', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockRejectedValue(
+      new SessionDetailUnavailableError(500, 'boom'),
+    );
+
+    await expect(ensureSessionDetail('a')).rejects.toBeInstanceOf(SessionDetailUnavailableError);
+    const session = useSessionStore.getState().sessions[0]!;
+    expect(session.detailError).toContain('boom');
+    expect(session.detailErrorKind).toBe('network');
+  });
+
   it('can be retried after a failure, and clears the error on success', async () => {
     useSessionStore.setState({ sessions: [summary('a')] });
     fetchServerSessionDetail.mockRejectedValueOnce(new Error('offline'));
@@ -140,8 +172,9 @@ describe('selectUnpersistedSessions', () => {
   it('keeps an unpersisted session that already has messages', () => {
     // The bug this guards against: the list request was in flight before the
     // session existed, but by the time it resolves the session already has
-    // its first message (written by use-conversation's debounce). It must
-    // not be dropped just because it's non-empty.
+    // its first message (written by use-conversation's session-switch flush —
+    // there is no debounce). It must not be dropped just because it's
+    // non-empty.
     const withMessage: Session = {
       ...summary('a'),
       detailLoaded: true,

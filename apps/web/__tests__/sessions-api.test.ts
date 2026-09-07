@@ -12,6 +12,7 @@ import {
   renameServerSession,
   deleteServerSession,
   TrajectoryUnavailableError,
+  SessionDetailUnavailableError,
 } from '../lib/sessions-api.js';
 
 function stubFetch(handler: (path: string) => { status: number; body: unknown }): void {
@@ -87,10 +88,48 @@ describe('fetchServerSessionDetail', () => {
     await expect(fetchServerSessionDetail('ghost')).resolves.toBeNull();
   });
 
-  it('throws for a non-404 error status', async () => {
+  it('throws with the server body error text (not just the HTTP status) for a non-404 error status', async () => {
     stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
 
+    await expect(fetchServerSessionDetail('s1')).rejects.toThrow('boom');
+  });
+
+  it('falls back to a generic message when the error body is unreadable', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new Error('not json');
+      },
+    }));
+
     await expect(fetchServerSessionDetail('s1')).rejects.toThrow('HTTP 500');
+  });
+
+  // The 410 branch is the one the reviewer flagged: ChatPanel must be able to
+  // tell "legacy transcript, retry is pointless" apart from "transient
+  // failure, retry might work" — that discrimination has to survive the
+  // fetch path itself, not just the error class's constructor.
+  it('rejects with a legacy-kind SessionDetailUnavailableError and the server body text for HTTP 410', async () => {
+    stubFetch(() => ({
+      status: 410,
+      body: { error: 'This session was written by an older version and cannot be read by this build.' },
+    }));
+
+    const err: unknown = await fetchServerSessionDetail('s1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionDetailUnavailableError);
+    expect((err as SessionDetailUnavailableError).kind).toBe('legacy');
+    expect((err as Error).message).toBe(
+      'This session was written by an older version and cannot be read by this build.',
+    );
+  });
+
+  it('rejects with a network-kind SessionDetailUnavailableError for HTTP 500', async () => {
+    stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
+
+    const err: unknown = await fetchServerSessionDetail('s1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionDetailUnavailableError);
+    expect((err as SessionDetailUnavailableError).kind).toBe('network');
   });
 });
 

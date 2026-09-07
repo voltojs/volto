@@ -54,17 +54,18 @@ export function projectConversation(
 // ---------------------------------------------------------------------------
 //
 // A session's rendered feed is its persisted history (`session.messages`,
-// projected server-side when recovered or saved client-side while active)
-// plus the live projection of whatever the SSE channel has streamed since the
-// session was opened. The two are merged by stable message id — the live list
-// supersedes the snapshot for the same turn position — so switching back to a
-// recovered session and continuing it shows one continuous conversation.
+// projected server-side when recovered, or flushed into the store client-side
+// at the moment the session is switched away from) plus the live projection
+// of whatever the SSE channel has streamed since the session was opened. The
+// two are merged by stable message id — the live list supersedes the
+// snapshot for the same turn position — so switching back to a recovered
+// session and continuing it shows one continuous conversation.
 
 /**
  * Merges a session's persisted history with the live projection. The live
- * side wins on id collisions, and (for an active session whose snapshot
- * lags a debounce behind) is a strict superset, so the result equals the
- * live feed once a turn is underway.
+ * side wins on id collisions, and (for the active session, whose stored
+ * snapshot is only refreshed on switch-away, not on every delta) is a strict
+ * superset, so the result equals the live feed once a turn is underway.
  */
 export function mergeStoredAndLive(
   stored: readonly ConversationMessage[],

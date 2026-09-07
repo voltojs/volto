@@ -155,4 +155,47 @@ describe('runSessionDelete', () => {
     expect(deleteServer).toHaveBeenCalledTimes(1);
     expect(deleteLocal).toHaveBeenCalledTimes(1);
   });
+
+  it('cancels a pending title write-back before the server delete goes out, when provided', async () => {
+    const calls: string[] = [];
+    const deleteServer = vi.fn(async () => {
+      calls.push('deleteServer');
+    });
+    const deleteLocal = vi.fn();
+    const setError = vi.fn();
+    const cancelTitleWriteBack = vi.fn((id: string) => {
+      calls.push(`cancel:${id}`);
+    });
+
+    await runSessionDelete({
+      sessionId: 's1',
+      deletingIds: new Set<string>(),
+      deleteServer,
+      deleteLocal,
+      setError,
+      cancelTitleWriteBack,
+    });
+
+    expect(cancelTitleWriteBack).toHaveBeenCalledWith('s1');
+    // Must happen before the server request, so a title PATCH the delete
+    // would otherwise race can never still be in flight when DELETE is sent.
+    expect(calls).toEqual(['cancel:s1', 'deleteServer']);
+  });
+
+  it('does not require cancelTitleWriteBack (optional, existing callers keep working)', async () => {
+    const deleteServer = vi.fn().mockResolvedValue(undefined);
+    const deleteLocal = vi.fn();
+    const setError = vi.fn();
+
+    await expect(
+      runSessionDelete({
+        sessionId: 's1',
+        deletingIds: new Set<string>(),
+        deleteServer,
+        deleteLocal,
+        setError,
+      }),
+    ).resolves.toBeUndefined();
+    expect(deleteLocal).toHaveBeenCalledWith('s1');
+  });
 });

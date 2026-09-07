@@ -86,7 +86,10 @@ export function ChatPanel() {
       permissionMode: pendingPermissionMode,
     });
     useSessionStore.getState().setCurrentSession(id);
-    void ensureSessionDetail(id).catch(() => {});
+    // No `ensureSessionDetail(id)` call here: `createSession` always sets
+    // `detailLoaded: true` (a brand-new session's "detail" is just empty), so
+    // it would be a guaranteed no-op — the effect above already covers any
+    // session that needs a real fetch.
     void sendMessage(content);
   };
 
@@ -138,18 +141,29 @@ export function ChatPanel() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           {currentSession.detailError ? (
             <>
-              <p className="text-destructive text-sm">
+              <p
+                className={cn(
+                  'text-sm',
+                  currentSession.detailErrorKind === 'legacy'
+                    ? 'text-muted-foreground'
+                    : 'text-destructive',
+                )}
+              >
                 {currentSession.detailError}
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  void ensureSessionDetail(currentSessionId).catch(() => {})
-                }
-              >
-                重试
-              </Button>
+              {/* A legacy-format transcript will 410 on every retry — offering
+                  one would be worse than none, since it can never succeed. */}
+              {currentSession.detailErrorKind !== 'legacy' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void ensureSessionDetail(currentSessionId).catch(() => {})
+                  }
+                >
+                  重试
+                </Button>
+              )}
             </>
           ) : (
             <div className="text-muted-foreground text-sm">加载会话…</div>

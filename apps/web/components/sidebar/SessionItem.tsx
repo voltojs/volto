@@ -11,6 +11,16 @@ interface SessionItemProps {
   isActive: boolean;
   isEditing: boolean;
   editingTitle: string;
+  /**
+   * True while this session's channel is actively streaming a turn. Deleting
+   * such a session races the server's transcript writes: a delete landing
+   * between an in-flight `appendFile` and its completion can resurrect a
+   * truncated transcript (the store's `deleteSession` isn't serialised with
+   * `appendEventBatch` — see `packages/stores/jsonl/src/index.ts`). The full
+   * fix needs a store-side tombstone; this only closes the one-click path an
+   * ordinary user can trigger by disabling delete while generating.
+   */
+  isGenerating: boolean;
   onEditTitleChange: (title: string) => void;
   onStartEdit: () => void;
   onFinishEdit: () => void;
@@ -23,6 +33,7 @@ export function SessionItem({
   isActive,
   isEditing,
   editingTitle,
+  isGenerating,
   onEditTitleChange,
   onStartEdit,
   onFinishEdit,
@@ -82,9 +93,11 @@ export function SessionItem({
           <Button
             variant="ghost"
             size="icon-xs"
-            className="text-muted-foreground hover:text-destructive"
+            className="text-muted-foreground hover:text-destructive disabled:pointer-events-auto disabled:opacity-40"
             onClick={onDelete}
-            aria-label="删除会话"
+            disabled={isGenerating}
+            aria-label={isGenerating ? '会话正在生成中，无法删除' : '删除会话'}
+            title={isGenerating ? '会话正在生成中，无法删除' : undefined}
           >
             <Trash2 className="h-3 w-3" />
           </Button>

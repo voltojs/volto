@@ -28,6 +28,21 @@ export interface SessionDeleteParams {
   deleteLocal: (id: string) => void;
   /** Surfaces a user-facing error message, or clears it (pass `null`) at the start of a new attempt. */
   setError: (message: string | null) => void;
+  /**
+   * Cancels a pending derived-title write-back for this session, if any
+   * (`apps/web/lib/session-title.ts`'s `cancelPendingTitleWriteBack`).
+   * Called before the server delete goes out.
+   *
+   * This closes the one client-triggerable path into the server's
+   * read-session→append TOCTOU window around DELETE (documented at
+   * `apps/headless-server/src/server.ts`'s PATCH handler): if a title PATCH's
+   * append lands after a delete's `readSession` but the delete hasn't
+   * unlinked yet — or vice versa — `resolveWritePath` can fall through to
+   * `defaultFilePath` and recreate a zombie top-level jsonl for the
+   * just-deleted session. Optional so existing callers/tests that don't
+   * exercise this path aren't forced to wire it up.
+   */
+  cancelTitleWriteBack?: (id: string) => void;
 }
 
 /**
@@ -45,11 +60,18 @@ export interface SessionDeleteParams {
 export async function runSessionDelete(
   params: SessionDeleteParams,
 ): Promise<void> {
-  const { sessionId, deletingIds, deleteServer, deleteLocal, setError } =
-    params;
+  const {
+    sessionId,
+    deletingIds,
+    deleteServer,
+    deleteLocal,
+    setError,
+    cancelTitleWriteBack,
+  } = params;
   if (deletingIds.has(sessionId)) return;
   deletingIds.add(sessionId);
   setError(null);
+  cancelTitleWriteBack?.(sessionId);
   try {
     // Delete order is load-bearing: request the server first. Removing the
     // session locally before the server confirms would only make it

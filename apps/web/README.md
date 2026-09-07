@@ -74,6 +74,6 @@ apiKey 不会返回给浏览器，界面上只显示掩码。
 
 ## 说明
 
-- 会话与消息持久化在 `localStorage`（key: `volto-sessions`）。
+- 会话与消息不做客户端持久化：`headless-server` 的 jsonl transcript 是唯一真源，浏览器侧只在内存中保存当前打开的会话；刷新页面会重新从 `GET /sessions` / `GET /sessions/:id` 拉取。
 - 工具调用卡片展示工具名、参数与执行状态；工具的原始输出只回传给模型，不进入对话流。
 - 审批流（HITL）尚未接入 Web 端：网关当前使用自动放行的 ApprovalGate。

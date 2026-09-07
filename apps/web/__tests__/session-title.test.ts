@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   deriveSessionTitle,
   runTitleWriteBack,
+  runManualRename,
   cancelPendingTitleWriteBack,
+  TITLE_RETRY_DELAY_MS,
 } from '@/lib/session-title';
 import type { ConversationMessage } from '@volto/sdk/sse';
 
@@ -49,6 +51,14 @@ describe('runTitleWriteBack', () => {
     const setTitle = vi.fn();
     return { titledIds, setTitle, rename };
   };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('derives and writes the title exactly once on success', async () => {
     const rename = vi.fn().mockResolvedValue(undefined);
@@ -126,14 +136,14 @@ describe('runTitleWriteBack', () => {
     expect(titledIds.has('s1')).toBe(false);
   });
 
-  it('retries once on a PATCH failure, then succeeds without a third call', async () => {
+  it('retries once on a PATCH failure, after a delay, then succeeds without a third call', async () => {
     const rename = vi
       .fn()
       .mockRejectedValueOnce(new Error('network'))
       .mockResolvedValueOnce(undefined);
     const { titledIds, setTitle } = setup(rename);
 
-    await runTitleWriteBack({
+    const done = runTitleWriteBack({
       sessionId: 's1',
       currentTitle: '',
       messages: [user('第一句话')],
@@ -142,36 +152,51 @@ describe('runTitleWriteBack', () => {
       rename,
     });
 
+    // The retry must not fire immediately — it has to wait out the delay so
+    // a transient failure (e.g. the session not persisted yet) has time to
+    // clear before the retry lands in the same failure window.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rename).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await done;
+
     expect(rename).toHaveBeenCalledTimes(2);
     expect(titledIds.has('s1')).toBe(true);
+    // Success on the retry: no rollback, only the original optimistic set.
+    expect(setTitle).toHaveBeenCalledTimes(1);
   });
 
-  it('gives up silently after the retry also fails, and does not throw', async () => {
+  it('gives up after the delayed retry also fails, rolls the title back to empty, and does not throw', async () => {
     const rename = vi.fn().mockRejectedValue(new Error('network'));
     const { titledIds, setTitle } = setup(rename);
 
-    await expect(
-      runTitleWriteBack({
-        sessionId: 's1',
-        currentTitle: '',
-        messages: [user('第一句话')],
-        titledIds,
-        setTitle,
-        rename,
-      }),
-    ).resolves.toBeUndefined();
+    const done = runTitleWriteBack({
+      sessionId: 's1',
+      currentTitle: '',
+      messages: [user('第一句话')],
+      titledIds,
+      setTitle,
+      rename,
+    });
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await expect(done).resolves.toBeUndefined();
 
     expect(rename).toHaveBeenCalledTimes(2);
     // Permanently gated: even though the server never got the title, the id
     // is not retried again for the rest of the browsing session.
     expect(titledIds.has('s1')).toBe(true);
+    // The optimistic local title must not survive a final failure — it never
+    // reached the server, so the UI must not keep showing it.
+    expect(setTitle).toHaveBeenNthCalledWith(1, 's1', '第一句话');
+    expect(setTitle).toHaveBeenNthCalledWith(2, 's1', '');
   });
 
   it('does not issue a third call if invoked again after giving up', async () => {
     const rename = vi.fn().mockRejectedValue(new Error('network'));
     const { titledIds, setTitle } = setup(rename);
 
-    await runTitleWriteBack({
+    const done = runTitleWriteBack({
       sessionId: 's1',
       currentTitle: '',
       messages: [user('第一句话')],
@@ -179,6 +204,8 @@ describe('runTitleWriteBack', () => {
       setTitle,
       rename,
     });
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await done;
     expect(rename).toHaveBeenCalledTimes(2);
 
     // Simulates the effect re-firing because `messages` changed again
@@ -194,7 +221,9 @@ describe('runTitleWriteBack', () => {
     });
 
     expect(rename).toHaveBeenCalledTimes(2);
-    expect(setTitle).toHaveBeenCalledTimes(1);
+    // Two from the first run (optimistic set + rollback); none from the
+    // no-op second run.
+    expect(setTitle).toHaveBeenCalledTimes(2);
   });
 
   it('a manual rename cancels an in-flight derived write-back: no retry fires, and the manual title is the last write sent', async () => {
@@ -259,5 +288,121 @@ describe('runTitleWriteBack', () => {
     // title would be silently lost to the server's last-wins fold.
     expect(rename).toHaveBeenCalledTimes(2);
     expect(rename).toHaveBeenLastCalledWith('s1', '用户重命名');
+  });
+
+  it('a manual rename that lands during the retry delay also suppresses the retry, with no leaked timer', async () => {
+    const titledIds = new Set<string>();
+    const setTitle = vi.fn();
+    // First call fails immediately; the code then enters the retry delay.
+    const rename = vi.fn().mockRejectedValueOnce(new Error('network'));
+
+    const writeBack = runTitleWriteBack({
+      sessionId: 's1',
+      currentTitle: '',
+      messages: [user('第一句话')],
+      titledIds,
+      setTitle,
+      rename,
+    });
+
+    // Let the first (failing) PATCH settle and the retry delay's timer start.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rename).toHaveBeenCalledTimes(1);
+
+    // A manual rename lands while still inside the delay window.
+    cancelPendingTitleWriteBack('s1');
+
+    // Advancing past where the retry would have fired must not produce a
+    // second call — the abort must be observed even mid-delay, and the
+    // delay's own timer must not still be pending (a leaked timer would keep
+    // vitest's fake-timer queue non-empty forever).
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await writeBack;
+
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('runManualRename', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('applies the title optimistically and succeeds without a retry', async () => {
+    const setTitle = vi.fn();
+    const setError = vi.fn();
+    const rename = vi.fn().mockResolvedValue(undefined);
+
+    await runManualRename({
+      sessionId: 's1',
+      title: '新标题',
+      previousTitle: '旧标题',
+      setTitle,
+      rename,
+      setError,
+    });
+
+    expect(setTitle).toHaveBeenCalledTimes(1);
+    expect(setTitle).toHaveBeenCalledWith('s1', '新标题');
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(setError).toHaveBeenCalledWith(null);
+    expect(setError).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries once after a delay on failure, then succeeds without rollback', async () => {
+    const setTitle = vi.fn();
+    const setError = vi.fn();
+    const rename = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(undefined);
+
+    const done = runManualRename({
+      sessionId: 's1',
+      title: '新标题',
+      previousTitle: '旧标题',
+      setTitle,
+      rename,
+      setError,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rename).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await done;
+
+    expect(rename).toHaveBeenCalledTimes(2);
+    expect(setTitle).toHaveBeenCalledTimes(1);
+    expect(setTitle).toHaveBeenCalledWith('s1', '新标题');
+  });
+
+  it('rolls the title back to its pre-rename value and surfaces an error when both attempts fail', async () => {
+    const setTitle = vi.fn();
+    const setError = vi.fn();
+    const rename = vi.fn().mockRejectedValue(new Error('network'));
+
+    const done = runManualRename({
+      sessionId: 's1',
+      title: '新标题',
+      previousTitle: '旧标题',
+      setTitle,
+      rename,
+      setError,
+    });
+    await vi.advanceTimersByTimeAsync(TITLE_RETRY_DELAY_MS);
+    await expect(done).resolves.toBeUndefined();
+
+    expect(rename).toHaveBeenCalledTimes(2);
+    expect(setTitle).toHaveBeenNthCalledWith(1, 's1', '新标题');
+    expect(setTitle).toHaveBeenNthCalledWith(2, 's1', '旧标题');
+    expect(setError).toHaveBeenLastCalledWith(
+      expect.stringContaining('重命名失败'),
+    );
   });
 });

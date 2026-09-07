@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import {
   fetchServerSessions,
   fetchServerSessionDetail,
+  SessionDetailUnavailableError,
   type ServerSessionSummary,
 } from '@/lib/sessions-api';
 import {
@@ -48,10 +49,19 @@ export async function ensureSessionDetail(id: string): Promise<void> {
     try {
       detail = await fetchServerSessionDetail(id);
     } catch (error) {
+      // A legacy-format transcript (410) gets its own copy and no generic
+      // "HTTP 410" prefix — ChatPanel also uses `detailErrorKind` to suppress
+      // the retry button for this case, since retrying can never succeed.
+      if (error instanceof SessionDetailUnavailableError && error.kind === 'legacy') {
+        useSessionStore
+          .getState()
+          .setSessionDetailError(id, '此会话由旧版本写入，无法读取', 'legacy');
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       useSessionStore
         .getState()
-        .setSessionDetailError(id, `加载会话失败：${message}`);
+        .setSessionDetailError(id, `加载会话失败：${message}`, 'network');
       throw error;
     }
     if (!detail) {

@@ -7,7 +7,7 @@ import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
-import { cancelPendingTitleWriteBack } from '@/lib/session-title';
+import { cancelPendingTitleWriteBack, runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +23,12 @@ export function ProjectList() {
   const removeProject = useConfigStore((s) => s.removeProject);
   const sessions = useSessionStore((s) => s.sessions);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  // The chat store's buffer belongs to exactly one session at a time — the
+  // one whose channel is currently attached — so "is this sidebar row
+  // generating" is just "is it the buffer's session, and is it generating".
+  const generatingSessionId = useChatStore((s) =>
+    s.isGenerating ? s.currentSessionId : null,
+  );
 
   const [expandedId, setExpandedId] = useState<string | null>(
     projects[0]?.id ?? null,
@@ -62,17 +68,20 @@ export function ProjectList() {
   };
 
   const handleDeleteSession = (sessionId: string) => {
-    // Ordering (server delete before local removal) and the in-flight guard
-    // live in `runSessionDelete` so they're unit-testable without rendering
-    // this component — see apps/web/lib/session-delete.ts. `setError` here
-    // reuses this component's existing inline error affordance (also used
-    // for a failed project removal above).
+    // Ordering (server delete before local removal), the in-flight guard,
+    // and cancelling a pending derived-title write-back before the server
+    // delete goes out all live in `runSessionDelete` so they're
+    // unit-testable without rendering this component — see
+    // apps/web/lib/session-delete.ts. `setError` here reuses this
+    // component's existing inline error affordance (also used for a failed
+    // project removal above).
     void runSessionDelete({
       sessionId,
       deletingIds: deletingSessionIds.current,
       deleteServer: deleteServerSession,
       deleteLocal: (id) => useSessionStore.getState().deleteSession(id),
       setError,
+      cancelTitleWriteBack: cancelPendingTitleWriteBack,
     });
   };
 
@@ -195,6 +204,7 @@ export function ProjectList() {
                     key={session.id}
                     session={session}
                     isActive={currentSessionId === session.id}
+                    isGenerating={generatingSessionId === session.id}
                     isEditing={editingSessionId === session.id}
                     editingTitle={editingTitle}
                     onEditTitleChange={setEditingTitle}
@@ -205,20 +215,26 @@ export function ProjectList() {
                     onFinishEdit={() => {
                       const title = editingTitle.trim();
                       if (title) {
-                        useSessionStore
-                          .getState()
-                          .updateSessionTitle(session.id, title);
                         // Cancel any in-flight derived title write-back for
                         // this session before sending the manual rename, so
                         // a slow derived PATCH can never land after (and
                         // silently overwrite) the title the user just set.
                         cancelPendingTitleWriteBack(session.id);
-                        // Best-effort: a manual rename is not on the critical
-                        // path either, so a failed PATCH here is swallowed —
-                        // the in-memory title the user just set stands.
-                        void renameServerSession(session.id, title).catch(
-                          () => {},
-                        );
+                        // Ordering, the single delayed retry, and the
+                        // rollback-on-final-failure live in `runManualRename`
+                        // so they're unit-testable without rendering this
+                        // component — see apps/web/lib/session-title.ts.
+                        // `setError` reuses this component's existing inline
+                        // error affordance.
+                        void runManualRename({
+                          sessionId: session.id,
+                          title,
+                          previousTitle: session.title,
+                          setTitle: (id, t) =>
+                            useSessionStore.getState().updateSessionTitle(id, t),
+                          rename: renameServerSession,
+                          setError,
+                        });
                       }
                       setEditingSessionId(null);
                     }}

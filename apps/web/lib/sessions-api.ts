@@ -26,6 +26,39 @@ export class TrajectoryUnavailableError extends Error {
   }
 }
 
+/**
+ * `GET /sessions/:id` failure. 410 = a legacy-format transcript this build
+ * cannot read (mirrors `TrajectoryUnavailableError` — same server-side
+ * `TranscriptFormatError` mapping), the rest are network/server faults.
+ */
+export class SessionDetailUnavailableError extends Error {
+  readonly status: number;
+  readonly kind: 'legacy' | 'network';
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'SessionDetailUnavailableError';
+    this.status = status;
+    this.kind = status === 410 ? 'legacy' : 'network';
+  }
+}
+
+/**
+ * Reads the server's `{ error: string }` body for a non-ok response, falling
+ * back to a generic message when the body isn't in that shape (e.g. the
+ * server is unreachable and a proxy returned an HTML error page).
+ */
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === 'string' && body.error.length > 0
+      ? body.error
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export interface ServerSessionSummary {
   id: string;
   projectId: string | null;
@@ -67,7 +100,11 @@ export async function fetchServerSessionDetail(
   const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`);
   if (response.status === 404) return null;
   if (!response.ok) {
-    throw new Error(`Failed to load session ${id}: HTTP ${response.status}`);
+    const message = await readErrorMessage(
+      response,
+      `Failed to load session ${id}: HTTP ${response.status}`,
+    );
+    throw new SessionDetailUnavailableError(response.status, message);
   }
   return (await response.json()) as ServerSessionDetail;
 }

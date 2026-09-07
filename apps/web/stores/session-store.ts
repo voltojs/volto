@@ -18,7 +18,12 @@ export interface Session {
   /**
    * Message count carried by the server's list-endpoint summary. Nothing in
    * the UI renders it today; kept so a future sidebar count doesn't need an
-   * extra round trip to the detail endpoint.
+   * extra round trip to the detail endpoint. `updateSessionMessages` does
+   * NOT keep this field in sync with `messages.length` — it only bumps
+   * `updatedAt` — so after the first turn on an active session this value is
+   * stale (frozen at whatever `applySessionDetail`/`createSession` last set
+   * it to). A future consumer must re-derive it from `messages.length` for a
+   * session that's currently loaded, rather than reading this field as-is.
    */
   messageCount: number;
   /** false = summary only; the detail endpoint has not been fetched yet. */
@@ -28,6 +33,13 @@ export interface Session {
    * null/undefined when there is none. Cleared by a successful fetch.
    */
   detailError?: string | null;
+  /**
+   * 'legacy' = the transcript was written by an older build and a retry can
+   * never succeed (mirrors the trajectory panel's `TrajectoryUnavailableError`
+   * handling); 'network' = a transient failure a retry might clear.
+   * null/undefined alongside a null `detailError` means no error.
+   */
+  detailErrorKind?: 'legacy' | 'network' | null;
   createdAt: number;
   updatedAt: number;
   /** Project this session runs against. Fixed at creation time. */
@@ -91,7 +103,11 @@ interface SessionState {
   /** Fills one session's detail and marks it loaded. No-op for an unknown id. */
   applySessionDetail: (id: string, detail: SessionDetail) => void;
   /** Records (or clears, with `null`) a retryable detail-fetch error for one session. */
-  setSessionDetailError: (id: string, message: string | null) => void;
+  setSessionDetailError: (
+    id: string,
+    message: string | null,
+    kind?: 'legacy' | 'network' | null,
+  ) => void;
   setPendingProjectId: (id: string | null) => void;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
@@ -173,15 +189,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               messageCount: detail.messages.length,
               detailLoaded: true,
               detailError: null,
+              detailErrorKind: null,
             }
           : s,
       ),
     })),
 
-  setSessionDetailError: (id, message) =>
+  setSessionDetailError: (id, message, kind = null) =>
     set((state) => ({
       sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, detailError: message } : s,
+        s.id === id ? { ...s, detailError: message, detailErrorKind: kind } : s,
       ),
     })),
 

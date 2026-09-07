@@ -815,8 +815,9 @@ describe("Headless server", () => {
   });
 
   it("GET /sessions/:id returns 404 for an unknown session", async () => {
-    const { status } = await getJson("/sessions/no-such-session");
+    const { status, data } = await getJson("/sessions/no-such-session");
     expect(status).toBe(404);
+    expect((data as { error: string }).error).toContain("no-such-session");
   });
 
   describe("DELETE /sessions/:id", () => {
@@ -836,6 +837,11 @@ describe("Headless server", () => {
     it("404s an unknown session", async () => {
       const response = await fetch(`${baseUrl}/sessions/nope`, { method: "DELETE" });
       expect(response.status).toBe(404);
+      // Asserting the status alone would still pass if the route were deleted
+      // entirely (the server's catch-all also 404s) — pin the body too, so
+      // this actually verifies the DELETE handler ran its own not-found check.
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain("nope");
     });
   });
 
