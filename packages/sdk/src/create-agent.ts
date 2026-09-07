@@ -421,6 +421,13 @@ export interface CreateAgentOptions {
   skillRegistry?: SkillRegistry;
 
   /**
+   * Cap on each catalog entry's description length. Defaults to
+   * DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH (200); values below 16 are
+   * clamped up. Only meaningful together with `skillRegistry`.
+   */
+  skillCatalogDescriptionMaxLength?: number;
+
+  /**
    * Compaction config — enables automatic context compression when messages
    * grow large. Uses the default character-count tokenizer if not specified.
    */
@@ -975,7 +982,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       .filter((s) => s.invocation.modelInvocable)
       .sort(compareSkillSummariesByName);
     if (summaries.length === 0) return hostLayers;
-    const catalogLayer: ContextLayer = { id: "skill-catalog", text: renderSkillCatalog(summaries) };
+    const catalogLayer: ContextLayer = {
+      id: "skill-catalog",
+      text: renderSkillCatalog(summaries, opts.skillCatalogDescriptionMaxLength),
+    };
     return hostLayers === undefined ? [catalogLayer] : [...hostLayers, catalogLayer];
   }
 
@@ -1378,16 +1388,32 @@ function compareSkillSummariesByName(a: SkillSummary, b: SkillSummary): number {
 }
 
 /**
+ * Default cap on a catalog entry's description. The catalog is injected into
+ * the system layer every turn and is not covered by the instruction byte
+ * budget, so a machine with dozens of skills carrying paragraph-length
+ * descriptions would otherwise spend kilobytes per turn on it.
+ */
+export const DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH = 200;
+const MIN_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH = 16;
+
+/**
  * Deterministic catalog text — names and descriptions only, never bodies.
  * Sorted by name codepoint-wise (on a copy — the input array is not mutated)
  * so the layer text is stable regardless of the registry's discovery order or
- * the host's locale; descriptions are collapsed to a single line.
+ * the host's locale; descriptions are collapsed to a single line and capped.
  */
-export function renderSkillCatalog(summaries: SkillSummary[]): string {
+export function renderSkillCatalog(
+  summaries: SkillSummary[],
+  descriptionMaxLength: number = DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH,
+): string {
+  const limit = Math.max(MIN_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH, descriptionMaxLength);
   const sorted = [...summaries].sort(compareSkillSummariesByName);
-  const lines = sorted.map(
-    (s) => `- ${s.name}: ${s.description.replace(/\s+/g, " ").trim()}`,
-  );
+  const lines = sorted.map((s) => {
+    const collapsed = s.description.replace(/\s+/g, " ").trim();
+    const description =
+      collapsed.length > limit ? `${collapsed.slice(0, limit)}…` : collapsed;
+    return `- ${s.name}: ${description}`;
+  });
   return ["Available skills (load full instructions with the skill tool):", ...lines].join("\n");
 }
 

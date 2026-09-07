@@ -1130,6 +1130,33 @@ describe("createAgent — SDK facade", () => {
       );
     });
 
+    it("truncates long descriptions with an ellipsis", () => {
+      const long = "d".repeat(250);
+      const text = renderSkillCatalog(
+        [{ name: "a", description: long, invocation: { modelInvocable: true, userInvocable: true } }],
+        200,
+      );
+      const line = text.split("\n")[1]!;
+      expect(line).toBe(`- a: ${"d".repeat(200)}…`);
+    });
+
+    it("leaves a description at exactly the limit untouched", () => {
+      const exact = "d".repeat(200);
+      const text = renderSkillCatalog(
+        [{ name: "a", description: exact, invocation: { modelInvocable: true, userInvocable: true } }],
+        200,
+      );
+      expect(text.split("\n")[1]!).toBe(`- a: ${exact}`);
+    });
+
+    it("collapses whitespace before measuring the limit", () => {
+      const text = renderSkillCatalog(
+        [{ name: "a", description: "one\n\n  two", invocation: { modelInvocable: true, userInvocable: true } }],
+        200,
+      );
+      expect(text.split("\n")[1]!).toBe("- a: one two");
+    });
+
     it("appends the skill-catalog layer to the turn's context layers", async () => {
       // Capturing model port — same pattern as the resolveContextLayers tests above.
       const capturedRequests: ModelRequest[] = [];
