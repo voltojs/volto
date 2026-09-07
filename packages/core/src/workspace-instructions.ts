@@ -337,12 +337,23 @@ function normalizeAbsolute(path: string): string {
   return `/${parts.join("/")}`;
 }
 
+/** Upper bound on discovered directories carried into one turn's probe set. */
+export const DEFAULT_MAX_DISCOVERED_DIRS = 32;
+
 /**
  * Directories strictly below cwd leading down to each touched path's parent,
  * shallow-first (they sacrifice first under the byte budget). Paths above or
  * directly in cwd contribute nothing — the project chain already covers them.
+ * Capped at `maxDirs`: the touched-path set grows monotonically over a long
+ * session, and probing an unbounded set costs I/O for files that the budget
+ * would give up first anyway. The cap keeps the shallowest, matching the
+ * deepest-first sacrifice order.
  */
-export function descendantChain(cwd: string, touchedPaths: string[]): string[] {
+export function descendantChain(
+  cwd: string,
+  touchedPaths: string[],
+  maxDirs: number = DEFAULT_MAX_DISCOVERED_DIRS,
+): string[] {
   const root = cwd.length > 1 ? cwd.replace(/\/+$/, "") : cwd;
   const prefix = root === "/" ? "/" : `${root}/`;
   const seen = new Set<string>();
@@ -362,5 +373,7 @@ export function descendantChain(cwd: string, touchedPaths: string[]): string[] {
       current = parentCut <= 0 ? "/" : current.slice(0, parentCut);
     }
   }
-  return found.sort((a, b) => a.split("/").length - b.split("/").length);
+  return found
+    .sort((a, b) => a.split("/").length - b.split("/").length)
+    .slice(0, Math.max(0, maxDirs));
 }

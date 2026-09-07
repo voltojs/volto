@@ -255,6 +255,7 @@ export {
   FS_PATH_TOOLS,
   descendantChain,
   extractTouchedToolPaths,
+  DEFAULT_MAX_DISCOVERED_DIRS,
 } from "./workspace-instructions.js";
 export type {
   LoadedInstructionFile,

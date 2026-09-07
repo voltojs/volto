@@ -372,6 +372,20 @@ describe("descendantChain", () => {
   });
 });
 
+describe("descendantChain limit", () => {
+  it("caps the returned directories, keeping the shallowest", () => {
+    const touched = Array.from({ length: 40 }, (_, i) => `d${i}/file.md`);
+    const dirs = descendantChain("/repo", touched, 5);
+    expect(dirs).toHaveLength(5);
+    expect(dirs).toEqual(["/repo/d0", "/repo/d1", "/repo/d2", "/repo/d3", "/repo/d4"]);
+  });
+
+  it("defaults the cap to 32", () => {
+    const touched = Array.from({ length: 50 }, (_, i) => `d${i}/file.md`);
+    expect(descendantChain("/repo", touched)).toHaveLength(32);
+  });
+});
+
 describe("renderInstructionLayers sacrifice order", () => {
   // Each section renders as `Instructions from: <path>\n\n<content>`, so a
   // 100-byte content plus a short heading lands just over 120 bytes.
