@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { deriveSessionTitle, runTitleWriteBack } from '@/lib/session-title';
+import {
+  deriveSessionTitle,
+  runTitleWriteBack,
+  cancelPendingTitleWriteBack,
+} from '@/lib/session-title';
 import type { ConversationMessage } from '@volto/sdk/sse';
 
 const user = (content: string): ConversationMessage =>
@@ -62,7 +66,7 @@ describe('runTitleWriteBack', () => {
     expect(setTitle).toHaveBeenCalledTimes(1);
     expect(setTitle).toHaveBeenCalledWith('s1', '第一句话');
     expect(rename).toHaveBeenCalledTimes(1);
-    expect(rename).toHaveBeenCalledWith('s1', '第一句话');
+    expect(rename).toHaveBeenCalledWith('s1', '第一句话', expect.anything());
     expect(titledIds.has('s1')).toBe(true);
   });
 
@@ -191,5 +195,69 @@ describe('runTitleWriteBack', () => {
 
     expect(rename).toHaveBeenCalledTimes(2);
     expect(setTitle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a manual rename cancels an in-flight derived write-back: no retry fires, and the manual title is the last write sent', async () => {
+    const titledIds = new Set<string>();
+    const setTitle = vi.fn();
+    const rename = vi.fn();
+
+    // First call: the derived write-back's PATCH(T1). Simulates a real
+    // `fetch(..., { signal })` — it never settles on its own, only rejects
+    // if its signal is aborted, exactly like the browser's AbortController
+    // contract that `renameServerSession` relies on.
+    let capturedSignal: AbortSignal | undefined;
+    rename.mockImplementationOnce(
+      (_id: string, _title: string, signal?: AbortSignal) => {
+        capturedSignal = signal;
+        return new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted.');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      },
+    );
+    // Second call: the manual rename's own PATCH(T2), issued directly by the
+    // call site (ProjectList's onFinishEdit), not through runTitleWriteBack.
+    rename.mockResolvedValueOnce(undefined);
+
+    const writeBack = runTitleWriteBack({
+      sessionId: 's1',
+      currentTitle: '',
+      messages: [user('第一句话')],
+      titledIds,
+      setTitle,
+      rename,
+    });
+
+    // The derived PATCH(T1) is now in flight (synchronously, before any
+    // await inside runTitleWriteBack yields).
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(rename).toHaveBeenNthCalledWith(
+      1,
+      's1',
+      '第一句话',
+      expect.anything(),
+    );
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // The user renames the session before T1 settles. The call site cancels
+    // the derived write-back first, then issues its own PATCH — exactly the
+    // sequence `ProjectList`'s `onFinishEdit` follows.
+    cancelPendingTitleWriteBack('s1');
+    expect(capturedSignal?.aborted).toBe(true);
+    await rename('s1', '用户重命名');
+
+    await writeBack;
+
+    // Exactly two calls total: the aborted derived PATCH(T1), and the manual
+    // PATCH(T2). If the derived path treated the abort as an ordinary
+    // failure it would have retried, producing a third call with T1 — and
+    // if that retry's PATCH(T1) landed after PATCH(T2), the user's manual
+    // title would be silently lost to the server's last-wins fold.
+    expect(rename).toHaveBeenCalledTimes(2);
+    expect(rename).toHaveBeenLastCalledWith('s1', '用户重命名');
   });
 });

@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { renameServerSession } from '@/lib/sessions-api';
+import { cancelPendingTitleWriteBack } from '@/lib/session-title';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -185,6 +186,11 @@ export function ProjectList() {
                         useSessionStore
                           .getState()
                           .updateSessionTitle(session.id, title);
+                        // Cancel any in-flight derived title write-back for
+                        // this session before sending the manual rename, so
+                        // a slow derived PATCH can never land after (and
+                        // silently overwrite) the title the user just set.
+                        cancelPendingTitleWriteBack(session.id);
                         // Best-effort: a manual rename is not on the critical
                         // path either, so a failed PATCH here is swallowed —
                         // the in-memory title the user just set stands.
