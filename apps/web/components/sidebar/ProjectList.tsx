@@ -56,7 +56,10 @@ export function ProjectList() {
     // The chat panel's useConversation hook loads the session's history from
     // the session store and attaches the live channel for it.
     useSessionStore.getState().setCurrentSession(sessionId);
-    void ensureSessionDetail(sessionId);
+    // A failure is recorded on the session as a retryable `detailError`
+    // (surfaced by ChatPanel); this `.catch()` only prevents an unhandled
+    // rejection.
+    void ensureSessionDetail(sessionId).catch(() => {});
   };
 
   const startSessionForProject = (projectId: string) => {

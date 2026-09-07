@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useSessionStore } from '@/stores/session-store';
-import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { useSessionStore, type Session } from '@/stores/session-store';
+import {
+  ensureSessionDetail,
+  selectUnpersistedSessions,
+} from '@/hooks/use-server-sessions';
+import type { ServerSessionSummary } from '@/lib/sessions-api';
 import { summary } from './helpers/session';
 
 const fetchServerSessionDetail = vi.fn();
@@ -8,6 +12,21 @@ vi.mock('@/lib/sessions-api', () => ({
   fetchServerSessions: vi.fn(),
   fetchServerSessionDetail: (...args: unknown[]) => fetchServerSessionDetail(...args),
 }));
+
+/** A minimal server-summary-shaped record for `selectUnpersistedSessions` tests. */
+function serverSummary(id: string): ServerSessionSummary {
+  return {
+    id,
+    projectId: null,
+    providerId: null,
+    modelId: null,
+    permissionMode: null,
+    messageCount: 0,
+    title: '',
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
 
 // `ensureSessionDetail` is imported once, statically, rather than re-imported
 // per test via `vi.resetModules()` — that would re-evaluate `session-store`
@@ -77,6 +96,67 @@ describe('ensureSessionDetail', () => {
     fetchServerSessionDetail.mockRejectedValue(new Error('offline'));
 
     await expect(ensureSessionDetail('a')).rejects.toThrow('offline');
-    expect(useSessionStore.getState().sessions[0]!.detailLoaded).toBe(false);
+    const session = useSessionStore.getState().sessions[0]!;
+    expect(session.detailLoaded).toBe(false);
+    // A failed fetch is a retryable error state, not a silent, permanent
+    // skeleton — the message must be recorded on the session.
+    expect(session.detailError).toContain('offline');
+  });
+
+  it('records a retryable error instead of a silent no-op on a 404', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockResolvedValue(null);
+
+    await ensureSessionDetail('a');
+    const session = useSessionStore.getState().sessions[0]!;
+    expect(session.detailLoaded).toBe(false);
+    expect(session.detailError).toBeTruthy();
+  });
+
+  it('can be retried after a failure, and clears the error on success', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockRejectedValueOnce(new Error('offline'));
+    await expect(ensureSessionDetail('a')).rejects.toThrow('offline');
+    expect(useSessionStore.getState().sessions[0]!.detailError).toBeTruthy();
+
+    fetchServerSessionDetail.mockResolvedValueOnce({
+      id: 'a', messages: [{ id: 'm', role: 'user', content: 'hi' }], contextUsage: null,
+      projectId: null, providerId: null, modelId: null, permissionMode: 'plan',
+      createdAt: 0, updatedAt: 0,
+    });
+    await ensureSessionDetail('a');
+    const session = useSessionStore.getState().sessions[0]!;
+    expect(session.detailLoaded).toBe(true);
+    expect(session.detailError).toBeNull();
+  });
+});
+
+describe('selectUnpersistedSessions', () => {
+  it('keeps a brand-new empty session absent from the server list', () => {
+    const local: Session[] = [{ ...summary('a'), detailLoaded: true, messages: [] }];
+    expect(selectUnpersistedSessions(local, [])).toEqual(local);
+  });
+
+  it('keeps an unpersisted session that already has messages', () => {
+    // The bug this guards against: the list request was in flight before the
+    // session existed, but by the time it resolves the session already has
+    // its first message (written by use-conversation's debounce). It must
+    // not be dropped just because it's non-empty.
+    const withMessage: Session = {
+      ...summary('a'),
+      detailLoaded: true,
+      messages: [{ id: 'm', role: 'user', content: 'hi' } as never],
+    };
+    expect(selectUnpersistedSessions([withMessage], [])).toEqual([withMessage]);
+  });
+
+  it('drops a local session that is on the server', () => {
+    const local: Session[] = [{ ...summary('a'), detailLoaded: true, messages: [] }];
+    expect(selectUnpersistedSessions(local, [serverSummary('a')])).toEqual([]);
+  });
+
+  it('does not resurrect a session absent from both local-unloaded and the server', () => {
+    const local: Session[] = [{ ...summary('a'), detailLoaded: false }];
+    expect(selectUnpersistedSessions(local, [])).toEqual([]);
   });
 });

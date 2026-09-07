@@ -68,9 +68,14 @@ export function ChatPanel() {
     pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
 
   // Fallback for entering a session by any path this component didn't itself
-  // trigger the fetch for (e.g. a session already current on mount).
+  // trigger the fetch for (e.g. a session already current on mount). Errors
+  // are recorded on the session as a retryable `detailError` inside
+  // ensureSessionDetail itself; the `.catch()` here only keeps a rejection
+  // from becoming unhandled.
   useEffect(() => {
-    if (currentSessionId) void ensureSessionDetail(currentSessionId);
+    if (currentSessionId) {
+      void ensureSessionDetail(currentSessionId).catch(() => {});
+    }
   }, [currentSessionId]);
 
   const startSession = (content: string) => {
@@ -81,7 +86,7 @@ export function ChatPanel() {
       permissionMode: pendingPermissionMode,
     });
     useSessionStore.getState().setCurrentSession(id);
-    void ensureSessionDetail(id);
+    void ensureSessionDetail(id).catch(() => {});
     void sendMessage(content);
   };
 
@@ -101,11 +106,11 @@ export function ChatPanel() {
     s.findModel(currentSession?.providerId ?? null, currentSession?.modelId ?? null),
   );
 
-  // A session persisted before project-binding shipped can have projectId/
-  // providerId/modelId as null (see migrate() in session-store.ts).
-  // use-chat-agent guards against actually dispatching in that case, but the
-  // input should also be disabled up front so the user sees why instead of
-  // typing into a box that silently does nothing.
+  // A session's project/provider/model binding can be null (e.g. the
+  // project or model it referenced was later removed). use-chat-agent
+  // guards against actually dispatching in that case, but the input should
+  // also be disabled up front so the user sees why instead of typing into a
+  // box that silently does nothing.
   const missingBinding =
     currentSessionId !== null &&
     (!currentSession?.projectId ||
@@ -124,13 +129,31 @@ export function ChatPanel() {
   // A session whose detail hasn't been fetched yet has no messages in the
   // store either, which would otherwise be indistinguishable from a
   // genuinely empty conversation and flash the welcome screen. Render a
-  // skeleton instead until ensureSessionDetail resolves.
+  // skeleton until ensureSessionDetail resolves, or a retryable error notice
+  // if it failed — never a permanently silent skeleton.
   if (currentSessionId && currentSession && !currentSession.detailLoaded) {
     return (
       <div className="flex h-full flex-col">
         <ChatHeader />
-        <div className="flex flex-1 items-center justify-center">
-          <div className="text-muted-foreground text-sm">加载会话…</div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          {currentSession.detailError ? (
+            <>
+              <p className="text-destructive text-sm">
+                {currentSession.detailError}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void ensureSessionDetail(currentSessionId).catch(() => {})
+                }
+              >
+                重试
+              </Button>
+            </>
+          ) : (
+            <div className="text-muted-foreground text-sm">加载会话…</div>
+          )}
         </div>
       </div>
     );

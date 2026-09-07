@@ -16,12 +16,18 @@ export interface Session {
    */
   messages: ConversationMessage[];
   /**
-   * Message count from the server's list endpoint. Used for the sidebar's
-   * "N 条消息" before the detail is fetched; afterwards messages.length wins.
+   * Message count carried by the server's list-endpoint summary. Nothing in
+   * the UI renders it today; kept so a future sidebar count doesn't need an
+   * extra round trip to the detail endpoint.
    */
   messageCount: number;
   /** false = summary only; the detail endpoint has not been fetched yet. */
   detailLoaded: boolean;
+  /**
+   * Message describing why the last detail fetch for this session failed, or
+   * null/undefined when there is none. Cleared by a successful fetch.
+   */
+  detailError?: string | null;
   createdAt: number;
   updatedAt: number;
   /** Project this session runs against. Fixed at creation time. */
@@ -84,6 +90,8 @@ interface SessionState {
   setSessions: (sessions: Session[]) => void;
   /** Fills one session's detail and marks it loaded. No-op for an unknown id. */
   applySessionDetail: (id: string, detail: SessionDetail) => void;
+  /** Records (or clears, with `null`) a retryable detail-fetch error for one session. */
+  setSessionDetailError: (id: string, message: string | null) => void;
   setPendingProjectId: (id: string | null) => void;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
@@ -144,7 +152,20 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   setSessions: (sessions) =>
-    set({ sessions: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+    set((state) => {
+      const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+      // A session the incoming list doesn't contain (deleted, or dropped by
+      // the caller's own filtering) can't stay "current" — leaving the id
+      // dangling would point the rest of the UI at a session that no longer
+      // exists in `sessions`.
+      const currentStillPresent =
+        state.currentSessionId === null ||
+        sorted.some((s) => s.id === state.currentSessionId);
+      return {
+        sessions: sorted,
+        currentSessionId: currentStillPresent ? state.currentSessionId : null,
+      };
+    }),
 
   applySessionDetail: (id, detail) =>
     set((state) => ({
@@ -155,8 +176,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               ...detail,
               messageCount: detail.messages.length,
               detailLoaded: true,
+              detailError: null,
             }
           : s,
+      ),
+    })),
+
+  setSessionDetailError: (id, message) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, detailError: message } : s,
       ),
     })),
 

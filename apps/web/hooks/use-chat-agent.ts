@@ -148,8 +148,8 @@ export function useChatAgent(): UseChatAgentReturn {
       }
       const session = sessionStore.sessions.find((s) => s.id === sessionId);
       if (!session?.projectId || !session.providerId || !session.modelId) {
-        // A session persisted before project-binding shipped can have these
-        // fields as null (see migrate() in session-store.ts). Dispatching
+        // A session's project/provider/model binding can be null (e.g. the
+        // project or model it referenced was later removed). Dispatching
         // anyway would let the gateway silently fall back to its own
         // process cwd and env-configured model instead of erroring — the
         // exact fallback resolveConfig on the server now rejects. Surface a

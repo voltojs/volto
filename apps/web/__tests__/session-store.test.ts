@@ -6,28 +6,9 @@
  * exists to pin that down as a regression guard.
  */
 
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSessionStore } from '../stores/session-store.js';
 import { summary } from './helpers/session';
-
-// Vitest's default "node" environment has no Web Storage API. This suite
-// only asserts that the store never touches it, so an in-memory stand-in is
-// enough — no jsdom/happy-dom dependency needed for that.
-beforeAll(() => {
-  if (typeof globalThis.localStorage === 'undefined') {
-    const backing = new Map<string, string>();
-    globalThis.localStorage = {
-      getItem: (key) => backing.get(key) ?? null,
-      setItem: (key, value) => void backing.set(key, value),
-      removeItem: (key) => void backing.delete(key),
-      clear: () => backing.clear(),
-      key: (index) => Array.from(backing.keys())[index] ?? null,
-      get length() {
-        return backing.size;
-      },
-    } as Storage;
-  }
-});
 
 beforeEach(() => {
   useSessionStore.setState({
@@ -169,11 +150,42 @@ describe('updateSessionContextUsage', () => {
 });
 
 describe('session store persistence', () => {
-  it('writes nothing to localStorage', () => {
-    localStorage.clear();
-    useSessionStore.getState().createSession({ title: 't' });
-    expect(localStorage.getItem('volto-sessions')).toBeNull();
-    expect(localStorage.length).toBe(0);
+  it('has no persist middleware attached', () => {
+    // A "no localStorage writes happened" assertion is not a reliable guard:
+    // zustand's `persist` middleware resolves its storage
+    // (`window.localStorage` by default) in a try/catch at store-creation
+    // time, so an environment where that read throws makes it silently
+    // no-op instead of failing — re-adding
+    // `persist(..., { name: 'volto-sessions' })` to the store still passes a
+    // "writes nothing" test verbatim.
+    //
+    // The structural check this project's earlier fix reached for —
+    // `expect('persist' in useSessionStore).toBe(false)`, since `persist`
+    // attaches an `api.persist` property — is *also* not reliable in this
+    // repo's plain "node" vitest environment specifically: verified
+    // empirically (re-adding `persist(...)` and running this file) that
+    // `window` itself is undefined here (not just `window.localStorage`), so
+    // `persist`'s storage resolution throws a step earlier than the
+    // `api.persist` assignment and it takes its "storage unavailable"
+    // fallback path *before* ever setting `api.persist` — leaving
+    // `'persist' in useSessionStore` at `false` whether or not the
+    // middleware is attached. That fallback path still wraps every
+    // `set()` call to warn once per call, though
+    // (`[zustand persist middleware] Unable to update item ...`), which
+    // *is* observable here and does fail this test when persist is
+    // reintroduced. Both checks are kept: the property check is the
+    // reliable signal in a real browser (where `window` exists and this
+    // fallback path is not taken), the warning spy is what actually pins
+    // this down in this test environment.
+    expect('persist' in useSessionStore).toBe(false);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      useSessionStore.getState().createSession({ title: 't' });
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
@@ -185,6 +197,48 @@ describe('setSessions', () => {
       { ...summary('c'), updatedAt: 2 },
     ]);
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('drops a local session that is absent from the incoming list', () => {
+    useSessionStore.getState().setSessions([summary('a'), summary('b')]);
+    useSessionStore.getState().setSessions([summary('b')]);
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['b']);
+  });
+
+  it('clears the current session id when it is dropped from the list', () => {
+    useSessionStore.getState().setSessions([summary('a')]);
+    useSessionStore.getState().setCurrentSession('a');
+    useSessionStore.getState().setSessions([summary('b')]);
+    expect(useSessionStore.getState().currentSessionId).toBeNull();
+  });
+
+  it('keeps the current session id when it is still in the list', () => {
+    useSessionStore.getState().setSessions([summary('a'), summary('b')]);
+    useSessionStore.getState().setCurrentSession('a');
+    useSessionStore.getState().setSessions([summary('a'), summary('b')]);
+    expect(useSessionStore.getState().currentSessionId).toBe('a');
+  });
+});
+
+describe('setSessionDetailError', () => {
+  it('records a retryable error message on a session', () => {
+    useSessionStore.getState().setSessions([summary('a')]);
+    useSessionStore.getState().setSessionDetailError('a', 'boom');
+    expect(useSessionStore.getState().sessions[0]!.detailError).toBe('boom');
+  });
+
+  it('is cleared by a subsequent successful applySessionDetail', () => {
+    useSessionStore.getState().setSessions([summary('a')]);
+    useSessionStore.getState().setSessionDetailError('a', 'boom');
+    useSessionStore.getState().applySessionDetail('a', {
+      messages: [],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'plan',
+    });
+    expect(useSessionStore.getState().sessions[0]!.detailError).toBeNull();
   });
 });
 
