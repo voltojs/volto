@@ -8,6 +8,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { cancelPendingTitleWriteBack } from '@/lib/session-title';
+import { runSessionDelete } from '@/lib/session-delete';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -31,7 +32,9 @@ export function ProjectList() {
   const [error, setError] = useState<string | null>(null);
   // Guards against a double-click firing two DELETE requests for the same
   // session: a ref (not state) so the check is up to date even if the second
-  // click lands before a re-render from the first click's state update.
+  // click lands before a re-render from the first click's state update. The
+  // guard's check-and-add is performed by `runSessionDelete`; this ref is
+  // just the shared, mutable `Set` instance passed to it on every call.
   const deletingSessionIds = useRef<Set<string>>(new Set());
 
   const handleRemoveProject = async (
@@ -58,26 +61,19 @@ export function ProjectList() {
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    if (deletingSessionIds.current.has(sessionId)) return;
-    deletingSessionIds.current.add(sessionId);
-    setError(null);
-    try {
-      // Delete order is load-bearing: request the server first. Removing the
-      // session locally before the server confirms would only make it
-      // reappear on the next list fetch, since the server is now the sole
-      // source of truth.
-      await deleteServerSession(sessionId);
-    } catch {
-      // Keep the session in the list — the user can retry. Reuses this
-      // component's existing inline error affordance (also used for a failed
-      // project removal above).
-      setError('删除失败，请重试');
-      return;
-    } finally {
-      deletingSessionIds.current.delete(sessionId);
-    }
-    useSessionStore.getState().deleteSession(sessionId);
+  const handleDeleteSession = (sessionId: string) => {
+    // Ordering (server delete before local removal) and the in-flight guard
+    // live in `runSessionDelete` so they're unit-testable without rendering
+    // this component — see apps/web/lib/session-delete.ts. `setError` here
+    // reuses this component's existing inline error affordance (also used
+    // for a failed project removal above).
+    void runSessionDelete({
+      sessionId,
+      deletingIds: deletingSessionIds.current,
+      deleteServer: deleteServerSession,
+      deleteLocal: (id) => useSessionStore.getState().deleteSession(id),
+      setError,
+    });
   };
 
   const openSession = (sessionId: string) => {

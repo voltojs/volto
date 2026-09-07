@@ -190,9 +190,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       const sessions = state.sessions.filter((s) => s.id !== id);
       return {
         sessions,
-        // Land on the next session rather than the welcome screen: with
-        // the list coming from the server, an empty selection after a
-        // delete reads as data loss.
+        // Land on the first remaining session in list order (not
+        // necessarily the most-recently-updated one — `updateSessionTitle`,
+        // `updateSessionMessages`, `setSessionModel`, and
+        // `setSessionPermissionMode` all bump `updatedAt` in place without
+        // resorting, so this array isn't guaranteed to stay sorted) rather
+        // than the welcome screen: with the list coming from the server, an
+        // empty selection after a delete reads as data loss.
         currentSessionId:
           state.currentSessionId === id
             ? (sessions[0]?.id ?? null)
