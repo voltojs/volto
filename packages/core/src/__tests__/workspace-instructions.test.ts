@@ -6,9 +6,11 @@ import {
   instructionLayerId,
   renderInstructionLayers,
   truncateUtf8,
+  userInstructionDirs,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
   type LoadedInstructionFile,
+  type InstructionOrigin,
 } from "../workspace-instructions.js";
 
 describe("ancestorChain", () => {
@@ -46,8 +48,12 @@ describe("candidate file names", () => {
   });
 });
 
-function file(displayPath: string, content: string): LoadedInstructionFile {
-  return { absolutePath: `/abs/${displayPath}`, displayPath, content };
+function file(
+  displayPath: string,
+  content: string,
+  origin: InstructionOrigin = "project",
+): LoadedInstructionFile {
+  return { absolutePath: `/abs/${displayPath}`, displayPath, content, origin };
 }
 
 describe("dedupeInstructions", () => {
@@ -79,12 +85,50 @@ describe("dedupeInstructions", () => {
 });
 
 describe("instructionLayerId", () => {
-  it("maps the user-global display path to user-memory", () => {
-    expect(instructionLayerId("~/.volto/AGENTS.md")).toBe("user-memory");
+  it("maps a user-origin display path to a user-memory id", () => {
+    expect(instructionLayerId("~/.volto/AGENTS.md", "user")).toBe("user-memory:~/.volto/AGENTS.md");
   });
 
   it("keys project layers by their display path", () => {
-    expect(instructionLayerId("src/lib/AGENTS.md")).toBe("project-memory:src/lib/AGENTS.md");
+    expect(instructionLayerId("src/lib/AGENTS.md", "project")).toBe(
+      "project-memory:src/lib/AGENTS.md",
+    );
+  });
+});
+
+describe("userInstructionDirs", () => {
+  it("orders the three user-level dirs by ascending precedence", () => {
+    expect(userInstructionDirs("/home/u", "/home/u/.volto")).toEqual([
+      "/home/u/.agents",
+      "/home/u/.claude",
+      "/home/u/.volto",
+    ]);
+  });
+
+  it("keeps a configDir outside home as its own entry", () => {
+    expect(userInstructionDirs("/home/u", "/etc/volto")).toEqual([
+      "/home/u/.agents",
+      "/home/u/.claude",
+      "/etc/volto",
+    ]);
+  });
+});
+
+describe("instructionLayerId", () => {
+  it("gives every user-level file its own id", () => {
+    expect(instructionLayerId("~/.agents/AGENTS.md", "user")).toBe(
+      "user-memory:~/.agents/AGENTS.md",
+    );
+    expect(instructionLayerId("~/.claude/CLAUDE.md", "user")).toBe(
+      "user-memory:~/.claude/CLAUDE.md",
+    );
+  });
+
+  it("prefixes project and discovered files identically", () => {
+    expect(instructionLayerId("AGENTS.md", "project")).toBe("project-memory:AGENTS.md");
+    expect(instructionLayerId("src/lib/AGENTS.md", "discovered")).toBe(
+      "project-memory:src/lib/AGENTS.md",
+    );
   });
 });
 
@@ -206,7 +250,15 @@ describe("renderInstructionLayers — byte budget", () => {
 describe("LoadedInstructionFile id override", () => {
   it("uses the explicit id when present", () => {
     const { layers } = renderInstructionLayers(
-      [{ absolutePath: "/skills/x/SKILL.md", displayPath: "skill:x", content: "body", id: "skill:x" }],
+      [
+        {
+          absolutePath: "/skills/x/SKILL.md",
+          displayPath: "skill:x",
+          content: "body",
+          origin: "project",
+          id: "skill:x",
+        },
+      ],
       64 * 1024,
     );
     expect(layers[0]!.id).toBe("skill:x");

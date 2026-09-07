@@ -128,7 +128,12 @@ async function collectInstructionFiles(
   const userPath = path.join(configDir, "AGENTS.md");
   const userText = await loadExpanded(userPath, configDir);
   if (userText !== undefined) {
-    loaded.push({ absolutePath: userPath, displayPath: USER_MEMORY_DISPLAY_PATH, content: userText });
+    loaded.push({
+      absolutePath: userPath,
+      displayPath: USER_MEMORY_DISPLAY_PATH,
+      content: userText,
+      origin: "user",
+    });
   }
 
   const projectRoot = await findProjectRoot(cwd);
@@ -141,6 +146,7 @@ async function collectInstructionFiles(
         absolutePath: filePath,
         displayPath: path.relative(projectRoot, filePath),
         content: text,
+        origin: "project",
       });
     }
   }
@@ -156,6 +162,7 @@ async function collectInstructionFiles(
         absolutePath: filePath,
         displayPath: path.relative(projectRoot, filePath),
         content: text,
+        origin: "discovered",
       });
     }
   }

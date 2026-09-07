@@ -249,6 +249,7 @@ export {
   instructionLayerId,
   renderInstructionLayers,
   truncateUtf8,
+  userInstructionDirs,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
   FS_PATH_TOOLS,
@@ -257,6 +258,7 @@ export {
 } from "./workspace-instructions.js";
 export type {
   LoadedInstructionFile,
+  InstructionOrigin,
   RenderedInstructions,
   TruncationRecord,
   ContextLayerHints,

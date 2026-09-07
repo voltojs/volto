@@ -12,16 +12,37 @@ import type { Message } from "./state.js";
 
 export type { Message };
 
+/**
+ * Where an instruction file came from. Drives two things: the layer id
+ * prefix, and the byte-budget sacrifice order (discovered files are given up
+ * before project files, project files before user-level ones).
+ */
+export type InstructionOrigin = "user" | "project" | "discovered";
+
 /** One instruction file the host has already read and @import-expanded. */
 export interface LoadedInstructionFile {
   /** Absolute host path — host-side bookkeeping, never rendered to the model. */
   absolutePath: string;
-  /** Model-facing source label, e.g. "~/.volto/AGENTS.md" or "src/lib/AGENTS.md". */
+  /** Model-facing source label, e.g. "~/.claude/CLAUDE.md" or "src/lib/AGENTS.md". */
   displayPath: string;
   /** Expanded file content (@import already resolved by the host). */
   content: string;
+  /** Provenance — see InstructionOrigin. */
+  origin: InstructionOrigin;
   /** Overrides the displayPath-derived layer id (skill layers use `skill:<name>`). */
   id?: string;
+}
+
+/**
+ * User-level instruction directories in ascending precedence order (later
+ * entries win on dedupe). `.agents` and `.claude` hang off the real home
+ * directory — that is the cross-tool convention, and skill discovery already
+ * follows it. Pure path math; the host probes these for candidateFileNames().
+ */
+export function userInstructionDirs(home: string, configDir: string): string[] {
+  const strip = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  const h = strip(home);
+  return [`${h}/.agents`, `${h}/.claude`, strip(configDir)];
 }
 
 /** Base candidates probed in every chain directory, in precedence order. */
@@ -89,8 +110,6 @@ export interface RenderedInstructions {
   truncated: TruncationRecord[];
 }
 
-const USER_MEMORY_ID = "user-memory";
-
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -110,9 +129,14 @@ export function truncateUtf8(value: string, maxBytes: number): string {
   return decoder.decode(cutUtf8(encoder.encode(value), maxBytes));
 }
 
-/** `~`-prefixed display paths are the user-global file; everything else is project-scoped. */
-export function instructionLayerId(displayPath: string): string {
-  return displayPath.startsWith("~/") ? USER_MEMORY_ID : `project-memory:${displayPath}`;
+/**
+ * Layer id per file. Every user-level file gets its own id: a fixed shared id
+ * would emit duplicate ids into request_header.systemLayers once more than one
+ * user-level file exists, breaking the usage meter's per-layer breakdown and
+ * the trajectory drawer's layer grouping.
+ */
+export function instructionLayerId(displayPath: string, origin: InstructionOrigin): string {
+  return origin === "user" ? `user-memory:${displayPath}` : `project-memory:${displayPath}`;
 }
 
 function sectionText(file: LoadedInstructionFile): string {
@@ -120,7 +144,7 @@ function sectionText(file: LoadedInstructionFile): string {
 }
 
 function layerFor(file: LoadedInstructionFile): ContextLayer {
-  return { id: file.id ?? instructionLayerId(file.displayPath), text: sectionText(file) };
+  return { id: file.id ?? instructionLayerId(file.displayPath, file.origin), text: sectionText(file) };
 }
 
 function noticeLine(maxBytes: number, omitted: string[], truncated: TruncationRecord[]): string {
@@ -214,7 +238,7 @@ export function renderInstructionLayers(
   let text = textFor(finalSlice, finalSlice.length);
   if (utf8Bytes(text) > maxBytes) text = truncateUtf8(noticeLine(maxBytes, omitted, truncated), maxBytes);
   return {
-    layers: [{ id: last.id ?? instructionLayerId(last.displayPath), text }],
+    layers: [{ id: last.id ?? instructionLayerId(last.displayPath, last.origin), text }],
     omitted,
     truncated,
   };
