@@ -1397,21 +1397,43 @@ export const DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH = 200;
 const MIN_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH = 16;
 
 /**
+ * Cuts `value` to at most `limit` Unicode code points (not UTF-16 code
+ * units), appending an ellipsis if it was longer. `String.prototype.slice`
+ * cuts on code units and can split an astral-plane character's surrogate
+ * pair, leaving a lone unpaired surrogate that becomes U+FFFD once
+ * serialized to UTF-8 for transport. Iterating with `Array.from` walks by
+ * code point instead, so the cut always lands on a whole-character boundary.
+ */
+function truncateDescription(value: string, limit: number): string {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= limit) {
+    return value;
+  }
+  return `${codePoints.slice(0, limit).join("")}…`;
+}
+
+/**
  * Deterministic catalog text — names and descriptions only, never bodies.
  * Sorted by name codepoint-wise (on a copy — the input array is not mutated)
  * so the layer text is stable regardless of the registry's discovery order or
- * the host's locale; descriptions are collapsed to a single line and capped.
+ * the host's locale; descriptions are collapsed to a single line and capped
+ * (in Unicode code points, see `truncateDescription`).
  */
 export function renderSkillCatalog(
   summaries: SkillSummary[],
   descriptionMaxLength: number = DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH,
 ): string {
-  const limit = Math.max(MIN_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH, descriptionMaxLength);
+  // A non-finite descriptionMaxLength (e.g. NaN from a bad config parse)
+  // must fall back to the default cap rather than defeating the cap
+  // entirely: Math.max(MIN, NaN) is NaN, and `length > NaN` is always false.
+  const requestedLimit = Number.isFinite(descriptionMaxLength)
+    ? descriptionMaxLength
+    : DEFAULT_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH;
+  const limit = Math.max(MIN_SKILL_CATALOG_DESCRIPTION_MAX_LENGTH, requestedLimit);
   const sorted = [...summaries].sort(compareSkillSummariesByName);
   const lines = sorted.map((s) => {
     const collapsed = s.description.replace(/\s+/g, " ").trim();
-    const description =
-      collapsed.length > limit ? `${collapsed.slice(0, limit)}…` : collapsed;
+    const description = truncateDescription(collapsed, limit);
     return `- ${s.name}: ${description}`;
   });
   return ["Available skills (load full instructions with the skill tool):", ...lines].join("\n");

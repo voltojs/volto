@@ -1150,11 +1150,50 @@ describe("createAgent — SDK facade", () => {
     });
 
     it("collapses whitespace before measuring the limit", () => {
+      // Raw length (with all the whitespace runs) exceeds the limit, but the
+      // collapsed length does not. This only passes if whitespace collapsing
+      // happens BEFORE measuring against the limit — collapsing after would
+      // instead truncate the raw (mostly-whitespace) string and emit an
+      // ellipsis, which is a different result.
+      const raw = `a${" \n".repeat(150)}b`;
       const text = renderSkillCatalog(
-        [{ name: "a", description: "one\n\n  two", invocation: { modelInvocable: true, userInvocable: true } }],
-        200,
+        [{ name: "a", description: raw, invocation: { modelInvocable: true, userInvocable: true } }],
+        10,
       );
-      expect(text.split("\n")[1]!).toBe("- a: one two");
+      expect(text.split("\n")[1]!).toBe("- a: a b");
+    });
+
+    it("does not split a surrogate pair when truncating (Finding 1)", () => {
+      // U+1F600 is an astral-plane code point encoded as a UTF-16 surrogate
+      // pair (2 code units). Cutting by code UNIT (String.prototype.slice)
+      // can land mid-pair and leave a lone unpaired surrogate in the output,
+      // which becomes U+FFFD (replacement character) once serialized to
+      // UTF-8 for transport. The cut must land on a code-point boundary.
+      const description = "\u{1F600}".repeat(150); // 150 code points, 300 code units
+      const text = renderSkillCatalog(
+        [{ name: "a", description, invocation: { modelInvocable: true, userInvocable: true } }],
+        101, // odd code-unit offset relative to 2-unit pairs: lands mid-pair under slice()
+      );
+      const line = text.split("\n")[1]!;
+      const hasLoneSurrogate =
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(line);
+      expect(hasLoneSurrogate).toBe(false);
+      // Round-tripping through UTF-8 must be lossless — a lone surrogate
+      // would not survive re-encoding/decoding unchanged.
+      expect(Buffer.from(line, "utf8").toString("utf8")).toBe(line);
+    });
+
+    it("truncates using the default cap when descriptionMaxLength is NaN (Finding 2)", () => {
+      // Math.max(MIN, NaN) is NaN, and `collapsed.length > NaN` is always
+      // false — a bad config parse (e.g. Number("not-a-number")) must fall
+      // back to the default cap rather than silently disabling truncation.
+      const long = "d".repeat(250);
+      const text = renderSkillCatalog(
+        [{ name: "a", description: long, invocation: { modelInvocable: true, userInvocable: true } }],
+        NaN,
+      );
+      const line = text.split("\n")[1]!;
+      expect(line).toBe(`- a: ${"d".repeat(200)}…`);
     });
 
     it("appends the skill-catalog layer to the turn's context layers", async () => {
