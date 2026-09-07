@@ -9,6 +9,8 @@ import {
   fetchServerSessions,
   fetchServerSessionDetail,
   fetchServerTrajectory,
+  renameServerSession,
+  deleteServerSession,
   TrajectoryUnavailableError,
 } from '../lib/sessions-api.js';
 
@@ -37,6 +39,7 @@ describe('fetchServerSessions', () => {
         modelId: 'm1',
         permissionMode: 'plan',
         messageCount: 2,
+        title: '',
         createdAt: 1,
         updatedAt: 2,
       },
@@ -144,5 +147,38 @@ describe('fetchServerTrajectory', () => {
     );
     expect(err).toBeInstanceOf(TrajectoryUnavailableError);
     expect((err as TrajectoryUnavailableError).kind).toBe('network');
+  });
+});
+
+describe('renameServerSession', () => {
+  it('PATCHes the title', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renameServerSession('s1', '新标题');
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/sessions\/s1$/);
+    expect((init as RequestInit).method).toBe('PATCH');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ title: '新标题' });
+  });
+
+  it('throws on a non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }));
+    await expect(renameServerSession('s1', '')).rejects.toThrow();
+  });
+});
+
+describe('deleteServerSession', () => {
+  it('DELETEs and tolerates a 404 as already-gone', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(deleteServerSession('s1')).resolves.toBeUndefined();
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe('DELETE');
+  });
+
+  it('throws on other failures', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    await expect(deleteServerSession('s1')).rejects.toThrow();
   });
 });

@@ -33,6 +33,7 @@ export interface ServerSessionSummary {
   modelId: string | null;
   permissionMode: string | null;
   messageCount: number;
+  title: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -84,4 +85,29 @@ export async function fetchServerTrajectory(
     );
   }
   return (await response.json()) as TrajectoryView;
+}
+
+/** Renames a session. The server stores titles as session_meta (last-wins). */
+export async function renameServerSession(id: string, title: string): Promise<void> {
+  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to rename session ${id}: HTTP ${response.status}`);
+  }
+}
+
+/**
+ * Deletes a session's durable transcript. A 404 is treated as success —
+ * the caller's intent (the session should not exist) is already satisfied.
+ */
+export async function deleteServerSession(id: string): Promise<void> {
+  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Failed to delete session ${id}: HTTP ${response.status}`);
+  }
 }
