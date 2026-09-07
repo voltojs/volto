@@ -62,4 +62,15 @@ describe('projectContextUsage', () => {
     expect(fold).toEqual(emptyContextUsageFold());
     expect(view).toBeNull();
   });
+
+  it('seeds the fold from the session detail, not from a snapshot taken at switch time', () => {
+    const seed = {
+      header: { systemLayers: [{ id: 'sys', text: 'x'.repeat(40) }], tools: [] },
+      anchor: { promptTokens: 100, outputTokens: 10 },
+      pendingTokens: 0,
+    };
+    const { view } = projectContextUsage(seed, [], true);
+    expect(view?.anchored).toBe(true);
+    expect(view?.projectedTokens).toBe(110);
+  });
 });

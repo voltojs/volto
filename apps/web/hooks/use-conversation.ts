@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import {
@@ -10,7 +10,7 @@ import {
   type ChatEntry,
   type ProjectedConversation,
 } from '@/lib/projection';
-import type { ConversationMessage, ContextUsageFold, ContextUsageView } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageView } from '@volto/sdk/sse';
 import { dropCachedTrajectory } from '@/lib/trajectory-cache';
 import { projectContextUsage } from '@/lib/context-usage';
 
@@ -20,9 +20,6 @@ const EMPTY_PROJECTED: ProjectedConversation = {
   view: { messages: [] },
   records: [],
 };
-
-/** Debounce before a session's history snapshot is persisted. */
-const SAVE_DEBOUNCE_MS = 100;
 
 export interface ConversationFeed {
   /** Rendered rows: chat bubbles plus error notices for failed turns. */
@@ -34,8 +31,7 @@ export interface ConversationFeed {
   messages: ConversationMessage[];
   /**
    * The live projection. Its identity changes only when the event buffer
-   * does (a session switch or new streamed events), so it doubles as the
-   * trigger for the debounced history save.
+   * does (a session switch or new streamed events).
    */
   live: ProjectedConversation;
   /**
@@ -83,24 +79,13 @@ export function useConversation(): ConversationFeed {
     return projectConversation(events, deltas);
   }, [events, deltas, bufferIsCurrent]);
 
-  // Context usage: the live event buffer folds on top of the session's fold
-  // seed. The seed is fixed at buffer-reset boundaries (initial load /
-  // session switch) rather than read reactively from the store: the debounced
-  // save persists the fold mid-session, and a reactive seed would re-fold the
-  // retained buffer onto its own output (pendingTokens inflation). Reading it
-  // from the store only when the buffer resets keeps seed+buffer idempotent.
-  // When the buffer is not current the seed renders as-is, exactly like the
-  // conversation projection above.
-  const [contextUsageSeed, setContextUsageSeed] = useState<ContextUsageFold | null>(
-    () =>
-      useSessionStore
-        .getState()
-        .sessions.find((s) => s.id === useSessionStore.getState().currentSessionId)
-        ?.contextUsage ?? null,
-  );
+  // Context usage: the session's fold seed (filled by ensureSessionDetail from
+  // GET /sessions/:id) plus the live event buffer folded on top. With client
+  // state memory-only there is no write-back to guard against, so the seed is
+  // read straight from the store.
   const contextUsage = useMemo(
-    () => projectContextUsage(contextUsageSeed, events, bufferIsCurrent),
-    [events, bufferIsCurrent, contextUsageSeed],
+    () => projectContextUsage(currentSession?.contextUsage ?? null, events, bufferIsCurrent),
+    [events, bufferIsCurrent, currentSession?.contextUsage],
   );
 
   const messages = useMemo(
@@ -117,54 +102,31 @@ export function useConversation(): ConversationFeed {
 
   const sessionRef = useRef<string | null>(null);
   const snapshotsRef = useRef(new Map<string, ConversationMessage[]>());
-  // Feeds both the switch-time fold flush and the debounced mid-session
-  // persistence. Persisting the fold mid-session cannot double-count: the
-  // seed is component state fixed at buffer-reset boundaries (see above), so
-  // it never reactively re-reads what the save wrote back into the store.
-  const foldsRef = useRef(new Map<string, ContextUsageFold>());
 
   // Record the committed feed of the session that owns the buffer, so the
-  // switch effect below can flush it once the session id has changed (by
-  // then the render already shows the next session, but the buffer — and
-  // therefore the live feed — still belongs to the one being left). The
-  // context fold is recorded alongside: the buffer is dropped on switch, so
-  // without flushing the fold the ring would fall back to the stale seed.
+  // switch effect below can flush it into the in-memory store once the
+  // session id has changed. This is not persistence — it keeps the tail of an
+  // in-flight turn from being lost when the event buffer is dropped.
   useEffect(() => {
     if (bufferIsCurrent && currentSessionId) {
       snapshotsRef.current.set(currentSessionId, messages);
-      foldsRef.current.set(currentSessionId, contextUsage.fold);
     }
-  }, [messages, currentSessionId, bufferIsCurrent, contextUsage]);
+  }, [messages, currentSessionId, bufferIsCurrent]);
 
   useEffect(() => {
     const previous = sessionRef.current;
     sessionRef.current = currentSessionId;
     if (previous === currentSessionId) return;
 
-    // Persist the outgoing session's latest feed before dropping its buffer,
-    // so switching away mid-turn does not lose the turn's tail.
+    // Flush the outgoing session's latest feed into the store before dropping
+    // its buffer, so switching away mid-turn does not lose the turn's tail.
     if (previous !== null) {
       const snapshot = snapshotsRef.current.get(previous);
       if (snapshot) {
         useSessionStore.getState().updateSessionMessages(previous, snapshot);
       }
-      const foldToFlush = foldsRef.current.get(previous);
-      if (foldToFlush) {
-        useSessionStore.getState().updateSessionContextUsage(previous, foldToFlush);
-      }
     }
     snapshotsRef.current.clear();
-    foldsRef.current.clear();
-
-    // Fix the incoming session's seed here, at the buffer-reset boundary, so
-    // the fold below starts from what the store holds right now (mid-session
-    // write-backs from the debounced save never change it until the next
-    // switch).
-    setContextUsageSeed(
-      useSessionStore
-        .getState()
-        .sessions.find((s) => s.id === currentSessionId)?.contextUsage ?? null,
-    );
 
     // The event buffer belongs to exactly one session; whatever is still in
     // it belongs to the session just left, so it must never project into the
@@ -178,36 +140,6 @@ export function useConversation(): ConversationFeed {
       if (previous !== null) dropCachedTrajectory(previous);
     }
   }, [currentSessionId]);
-
-  // -- persistence ----------------------------------------------------------
-
-  // Persist the session's history snapshot, debounced. Triggered by the live
-  // projection's identity, never by the snapshot itself, so persisting
-  // cannot feed back into the render and loop. The snapshot is recomputed
-  // from store state when the timer fires, so it always captures the latest
-  // merged feed even if events kept streaming after this effect ran.
-  useEffect(() => {
-    if (!currentSessionId) return;
-    const timeoutId = setTimeout(() => {
-      const sessionStore = useSessionStore.getState();
-      const chat = useChatStore.getState();
-      if (chat.currentSessionId !== currentSessionId) return;
-      const stored =
-        sessionStore.sessions.find((s) => s.id === currentSessionId)
-          ?.messages ?? [];
-      const projected = projectConversation(chat.events, chat.deltas);
-      const snapshot = mergeStoredAndLive(stored, projected.view.messages);
-      sessionStore.updateSessionMessages(currentSessionId, snapshot);
-      // Persist the fold alongside the snapshot: the seed is state fixed at
-      // buffer-reset boundaries, so this mid-session write-back cannot be
-      // re-consumed by the projection (no feedback loop, no double-count).
-      const foldToSave = foldsRef.current.get(currentSessionId);
-      if (foldToSave) {
-        sessionStore.updateSessionContextUsage(currentSessionId, foldToSave);
-      }
-    }, SAVE_DEBOUNCE_MS);
-    return () => clearTimeout(timeoutId);
-  }, [live, currentSessionId]);
 
   const usage = contextUsage.view;
 
