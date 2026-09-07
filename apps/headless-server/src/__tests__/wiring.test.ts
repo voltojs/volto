@@ -8,20 +8,32 @@ import type { ModelPort, ModelRequest } from "@volto/core";
 
 let tempConfigDir: string;
 let tempProjectDir: string;
+let tempHomeDir: string;
 let originalConfigDir: string | undefined;
+let originalHome: string | undefined;
 
+// User-level instruction/skill probing hangs off the REAL home directory
+// (os.homedir() honors $HOME on POSIX), so every test needs an isolated
+// $HOME — otherwise it picks up whatever ~/.agents or ~/.claude happens to
+// contain on the machine running the suite.
 beforeEach(async () => {
   tempConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-config-"));
   tempProjectDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-project-"));
+  tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-home-"));
   originalConfigDir = process.env["VOLTO_CONFIG_DIR"];
   process.env["VOLTO_CONFIG_DIR"] = tempConfigDir;
+  originalHome = process.env["HOME"];
+  process.env["HOME"] = tempHomeDir;
 });
 
 afterEach(async () => {
   if (originalConfigDir === undefined) delete process.env["VOLTO_CONFIG_DIR"];
   else process.env["VOLTO_CONFIG_DIR"] = originalConfigDir;
+  if (originalHome === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = originalHome;
   await fs.rm(tempConfigDir, { recursive: true, force: true });
   await fs.rm(tempProjectDir, { recursive: true, force: true });
+  await fs.rm(tempHomeDir, { recursive: true, force: true });
 });
 
 function captureModelPort(): { modelPort: ModelPort; requests: ModelRequest[] } {
@@ -247,22 +259,9 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
 });
 
 describe("createWiredAgent skill registry (progressive disclosure)", () => {
-  // User-level .agents/.claude hang off the REAL home directory
-  // (os.homedir() honors $HOME on POSIX) — point it at a temp home.
-  let tempHomeDir: string;
-  let originalHome: string | undefined;
-
-  beforeEach(async () => {
-    tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-home-"));
-    originalHome = process.env["HOME"];
-    process.env["HOME"] = tempHomeDir;
-  });
-
-  afterEach(async () => {
-    if (originalHome === undefined) delete process.env["HOME"];
-    else process.env["HOME"] = originalHome;
-    await fs.rm(tempHomeDir, { recursive: true, force: true });
-  });
+  // tempHomeDir is set up in the top-level beforeEach — user-level
+  // .agents/.claude hang off the REAL home directory (os.homedir() honors
+  // $HOME on POSIX), so it's isolated there for every describe block.
 
   async function writeSkill(
     root: string,

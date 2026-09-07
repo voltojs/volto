@@ -15,160 +15,19 @@ import {
 } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import {
-  ancestorChain,
-  candidateFileNames,
   dedupeInstructions,
   descendantChain,
   expandInstructions,
   renderInstructionLayers,
   type ContextLayer,
   type ContextLayerHints,
-  type LoadedInstructionFile,
   type SkillInvocationPolicy,
   type SkillRegistry,
   type SkillSummary,
 } from "@volto/core";
 import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import { getConfigDir } from "./config/paths.js";
-
-/**
- * Recursively reads an instruction file and every file it @imports (transitively)
- * into a path->content map, so the pure expandInstructions() function can resolve
- * them without doing any I/O itself. A missing or unreadable imported file is
- * simply left out of the map — expandInstructions() already renders a
- * "[missing instruction file: ...]" placeholder for that case (that fallback is
- * a deliberate, tested part of its contract; this loader does not change it).
- */
-async function loadInstructionFileTree(entryPath: string): Promise<Map<string, string>> {
-  const fileContents = new Map<string, string>();
-  const queue = [entryPath];
-  const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
-
-    let raw: string;
-    try {
-      raw = await fs.readFile(current, "utf-8");
-    } catch {
-      continue;
-    }
-    fileContents.set(current, raw);
-
-    for (const line of raw.split("\n")) {
-      const match = line.trim().match(/^@(.+)$/);
-      if (!match?.[1]) continue;
-      const importPath = match[1].startsWith("/")
-        ? match[1]
-        : path.join(path.dirname(current), match[1]);
-      queue.push(importPath);
-    }
-  }
-
-  return fileContents;
-}
-
-const DEFAULT_MAX_INSTRUCTION_BYTES = 64 * 1024;
-const USER_MEMORY_DISPLAY_PATH = "~/.volto/AGENTS.md";
-
-async function readIfPresent(filePath: string): Promise<string | undefined> {
-  try {
-    return await fs.readFile(filePath, "utf-8");
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Nearest ancestor-or-self directory containing a `.git` entry (directory or
- * worktree file). Falls back to cwd itself when no marker exists, making the
- * chain a single level.
- */
-async function findProjectRoot(cwd: string): Promise<string> {
-  let current = cwd;
-  for (;;) {
-    try {
-      await fs.stat(path.join(current, ".git"));
-      return current;
-    } catch {
-      // No marker here — keep walking up.
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return cwd;
-    current = parent;
-  }
-}
-
-/** Reads one instruction file and @import-expands it; undefined when absent. */
-async function loadExpanded(filePath: string, importRoot: string): Promise<string | undefined> {
-  const raw = await readIfPresent(filePath);
-  if (raw === undefined) return undefined;
-  const fileContents = await loadInstructionFileTree(filePath);
-  const expanded = expandInstructions(fileContents, filePath, importRoot);
-  return expanded.text;
-}
-
-/**
- * Collects this turn's instruction files, UNRENDERED: the user-global file,
- * the project chain (projectRoot → cwd, broad → specific), then discovered
- * directories strictly below cwd. No rendering here — the caller applies
- * dedupe + core's pure renderInstructionLayers() once over the collected
- * set. This function only probes and reads. See
- * docs/superpowers/specs/2026-09-05-agent-context-injection-design.md §5.
- */
-async function collectInstructionFiles(
-  cwd: string,
-  discoveredDirs: string[],
-): Promise<LoadedInstructionFile[]> {
-  const configDir = getConfigDir();
-  const loaded: LoadedInstructionFile[] = [];
-
-  const userPath = path.join(configDir, "AGENTS.md");
-  const userText = await loadExpanded(userPath, configDir);
-  if (userText !== undefined) {
-    loaded.push({
-      absolutePath: userPath,
-      displayPath: USER_MEMORY_DISPLAY_PATH,
-      content: userText,
-      origin: "user",
-    });
-  }
-
-  const projectRoot = await findProjectRoot(cwd);
-  for (const dir of ancestorChain(cwd, projectRoot)) {
-    for (const name of candidateFileNames()) {
-      const filePath = path.join(dir, name);
-      const text = await loadExpanded(filePath, dir);
-      if (text === undefined) continue;
-      loaded.push({
-        absolutePath: filePath,
-        displayPath: path.relative(projectRoot, filePath),
-        content: text,
-        origin: "project",
-      });
-    }
-  }
-
-  // Discovered directories sit strictly below cwd — probe them with the same
-  // candidate rules so a nested AGENTS.md surfaces the turn after a touch.
-  for (const dir of discoveredDirs) {
-    for (const name of candidateFileNames()) {
-      const filePath = path.join(dir, name);
-      const text = await loadExpanded(filePath, dir);
-      if (text === undefined) continue;
-      loaded.push({
-        absolutePath: filePath,
-        displayPath: path.relative(projectRoot, filePath),
-        content: text,
-        origin: "discovered",
-      });
-    }
-  }
-
-  return loaded;
-}
+import { collectInstructionFiles, loadInstructionFileTree, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 
 interface ParsedSkillFile {
   name: string;
@@ -414,7 +273,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     },
   };
 
-  async function resolveContextLayers(input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
+  async function resolveContextLayers(_input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
     const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
     const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
     const loaded = await collectInstructionFiles(cwd, discoveredDirs);
