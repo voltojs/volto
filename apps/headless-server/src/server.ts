@@ -512,7 +512,10 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         }
         // workspacePath is only consulted to place a *new* file; this session
         // already has one (readSession above found it), so resolveWritePath
-        // reuses that existing path regardless of what is passed here.
+        // reuses that existing path regardless of what is passed here. This is
+        // safe only because there is no concurrent delete between readSession and
+        // this appendEvents call — if a delete occurred between them, resolveWritePath
+        // would write to a fresh top-level file for a session that was just removed.
         await chatStore.appendEvents(null, id, [
           {
             time: Date.now(),
@@ -520,6 +523,26 @@ export function createServer(opts: ServerOptions = {}): http.Server {
             data: { ...record.meta, title },
           },
         ]);
+        res.writeHead(204, corsHeaders);
+        res.end();
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // DELETE /sessions/:id — drop the durable transcript. Without this the web
+    // app cannot really delete a session: with client state held in memory
+    // only, a locally-removed session reappears on the next list fetch.
+    if (req.method === "DELETE" && url.pathname.startsWith("/sessions/")) {
+      const id = decodeURIComponent(url.pathname.slice("/sessions/".length));
+      try {
+        const record = await chatStore.readSession(id);
+        if (!record) {
+          jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+          return;
+        }
+        await chatStore.deleteSession(id);
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {

@@ -819,6 +819,26 @@ describe("Headless server", () => {
     expect(status).toBe(404);
   });
 
+  describe("DELETE /sessions/:id", () => {
+    it("removes the session from the list and the detail endpoint", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const response = await fetch(`${baseUrl}/sessions/${sessionId}`, { method: "DELETE" });
+      expect(response.status).toBe(204);
+
+      const list = await fetch(`${baseUrl}/sessions`);
+      const body = (await list.json()) as { sessions: Array<{ id: string }> };
+      expect(body.sessions.some((s) => s.id === sessionId)).toBe(false);
+
+      const detail = await fetch(`${baseUrl}/sessions/${sessionId}`);
+      expect(detail.status).toBe(404);
+    });
+
+    it("404s an unknown session", async () => {
+      const response = await fetch(`${baseUrl}/sessions/nope`, { method: "DELETE" });
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe("PATCH /sessions/:id", () => {
     it("stores a title that the list endpoint reads back", async () => {
       const sessionId = await startSessionWithOneTurn();
