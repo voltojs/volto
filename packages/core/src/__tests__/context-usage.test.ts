@@ -125,7 +125,7 @@ describe("contextUsageView", () => {
     expect(view.breakdown.messages).toBeGreaterThanOrEqual(3);
   });
 
-  it("clamps the messages residual at zero when header estimates exceed the anchored total", () => {
+  it("does not floor projectedTokens to the header estimate when the anchored total is smaller", () => {
     let fold = foldContextUsageEvent(emptyContextUsageFold(), event("request_header", HEADER), tokenizer);
     fold = foldContextUsageEvent(
       fold,
@@ -137,8 +137,15 @@ describe("contextUsageView", () => {
       tokenizer,
     );
     const view = contextUsageView(fold, tokenizer)!;
-    expect(view.breakdown.messages).toBe(0);
-    expect(view.projectedTokens).toBe(view.breakdown.system + view.breakdown.tools);
+    // 锚定：projectedTokens = 2(input) + 0(output) + 0(pending，已被重锚清零) = 2，
+    // 不再被 header 估算（system 7 + tools 22）拉高。
+    expect(view.projectedTokens).toBe(2);
+    expect(view.breakdown.system).toBe(7);
+    // tools JSON 字符串 70 chars → ceil(70/4)=18 + BLOCK_OVERHEAD 4 = 22
+    expect(view.breakdown.tools).toBe(22);
+    // messages 桶是独立累计量，来自这条 assistant_message 的空 content：
+    // countMessage([]) = countBlocks([])(0) + ROLE_OVERHEAD(4) = 4
+    expect(view.breakdown.messages).toBe(4);
   });
 });
 
@@ -197,6 +204,89 @@ describe("structural overhead", () => {
       heuristicTokenizer,
     );
     expect(fold.pendingTokens).toBe(5); // 1 + BLOCK_OVERHEAD
+  });
+});
+
+describe("independent message counting", () => {
+  const heuristicTokenizer = createHeuristicTokenizer();
+  const header = (text: string) => ({
+    time: 0,
+    type: "request_header" as const,
+    data: { hash: "h", systemLayers: [{ id: "sys", text }], tools: [], params: {} },
+  });
+  const withUsage = (promptTokens: number) => ({
+    time: 0,
+    type: "assistant_message" as const,
+    data: {
+      content: [{ type: "text" as const, text: "ok" }],
+      usage: { inputTokens: promptTokens, outputTokens: 5 },
+      durationMs: 1,
+    },
+  });
+
+  it("keeps messageTokens accumulating across an anchor reset", () => {
+    let fold = emptyContextUsageFold();
+    fold = foldContextUsageEvent(fold, header("x".repeat(40)), heuristicTokenizer);
+    fold = foldContextUsageEvent(
+      fold,
+      { time: 0, type: "user_message", data: { content: "abcd" } },
+      heuristicTokenizer,
+    );
+    const beforeAnchor = fold.messageTokens;
+    expect(beforeAnchor).toBeGreaterThan(0);
+
+    fold = foldContextUsageEvent(fold, withUsage(100), heuristicTokenizer);
+    expect(fold.pendingTokens).toBe(0);
+    expect(fold.messageTokens).toBeGreaterThan(beforeAnchor);
+  });
+
+  it("does not raise projectedTokens above the anchor when the header estimate is larger", () => {
+    let fold = emptyContextUsageFold();
+    // A 4000-char system layer estimates to ~1000 tokens, far above the anchor.
+    fold = foldContextUsageEvent(fold, header("x".repeat(4000)), heuristicTokenizer);
+    fold = foldContextUsageEvent(fold, withUsage(100), heuristicTokenizer);
+
+    const view = contextUsageView(fold, heuristicTokenizer)!;
+    expect(view.projectedTokens).toBe(105); // 100 prompt + 5 output, no floor
+    expect(view.breakdown.system).toBeGreaterThan(view.projectedTokens);
+  });
+
+  it("resets both counters on a compaction, seeding messages from the summary", () => {
+    let fold = emptyContextUsageFold();
+    fold = foldContextUsageEvent(fold, header("x".repeat(40)), heuristicTokenizer);
+    fold = foldContextUsageEvent(
+      fold,
+      {
+        time: 0,
+        type: "tool_result",
+        data: { callId: "c", content: "y".repeat(4000), isError: false, orderInBatch: 0 },
+      },
+      heuristicTokenizer,
+    );
+    expect(fold.messageTokens).toBeGreaterThan(500);
+
+    fold = foldContextUsageEvent(
+      fold,
+      { time: 0, type: "compaction", data: { replacedCount: 3, summaryText: "abcd" } },
+      heuristicTokenizer,
+    );
+    expect(fold.pendingTokens).toBe(0);
+    expect(fold.messageTokens).toBe(1 + 4); // summary tokens + BLOCK_OVERHEAD
+  });
+
+  it("uses the pure-estimate path before any anchor", () => {
+    let fold = emptyContextUsageFold();
+    fold = foldContextUsageEvent(fold, header("abcd"), heuristicTokenizer);
+    fold = foldContextUsageEvent(
+      fold,
+      { time: 0, type: "user_message", data: { content: "abcd" } },
+      heuristicTokenizer,
+    );
+    const view = contextUsageView(fold, heuristicTokenizer)!;
+    expect(view.anchored).toBe(false);
+    expect(view.projectedTokens).toBe(
+      view.breakdown.system + view.breakdown.tools + view.breakdown.messages,
+    );
   });
 });
 

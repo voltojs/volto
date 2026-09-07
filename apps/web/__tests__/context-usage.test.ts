@@ -25,6 +25,7 @@ describe('projectContextUsage', () => {
       header: { systemLayers: HEADER.systemLayers, tools: [] },
       anchor: { promptTokens: 40, outputTokens: 6 },
       pendingTokens: 0,
+      messageTokens: 0,
     };
     const { fold, view } = projectContextUsage(seed, events([]), true);
     expect(fold.anchor).toEqual({ promptTokens: 40, outputTokens: 6 });
@@ -37,6 +38,7 @@ describe('projectContextUsage', () => {
       header: { systemLayers: HEADER.systemLayers, tools: [] },
       anchor: { promptTokens: 40, outputTokens: 6 },
       pendingTokens: 0,
+      messageTokens: 0,
     };
     const next: TranscriptEventInput = {
       time: 2,
@@ -50,7 +52,7 @@ describe('projectContextUsage', () => {
 
   it('returns the seed view unchanged when the buffer is not current', () => {
     const { view } = projectContextUsage(
-      { header: { systemLayers: HEADER.systemLayers, tools: [] }, anchor: { promptTokens: 40, outputTokens: 6 }, pendingTokens: 0 },
+      { header: { systemLayers: HEADER.systemLayers, tools: [] }, anchor: { promptTokens: 40, outputTokens: 6 }, pendingTokens: 0, messageTokens: 0 },
       events([]),
       false,
     );
@@ -68,6 +70,7 @@ describe('projectContextUsage', () => {
       header: { systemLayers: [{ id: 'sys', text: 'x'.repeat(40) }], tools: [] },
       anchor: { promptTokens: 100, outputTokens: 10 },
       pendingTokens: 0,
+      messageTokens: 0,
     };
     const { view } = projectContextUsage(seed, [], true);
     expect(view?.anchored).toBe(true);

@@ -64,6 +64,6 @@ describe("readContextUsageFold", () => {
   it("returns an empty (not null) fold for a session with no events", async () => {
     const store = await seedSession("s2", []);
     const fold = await readContextUsageFold(store, "s2");
-    expect(fold).toEqual({ header: null, anchor: null, pendingTokens: 0 });
+    expect(fold).toEqual({ header: null, anchor: null, pendingTokens: 0, messageTokens: 0 });
   });
 });

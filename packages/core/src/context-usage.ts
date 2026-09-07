@@ -35,13 +35,28 @@ export interface ContextUsageFold {
   header: ContextUsageHeader | null;
   /** The most recent assistant_message that carried provider usage. */
   anchor: ContextUsageAnchor | null;
-  /** Estimated tokens added to the surface since the anchor (or since start). */
+  /**
+   * Estimated tokens added since the anchor. Reset by every measured
+   * assistant_message — this is what rides on top of the anchor to project
+   * the next prompt size.
+   */
   pendingTokens: number;
+  /**
+   * Estimated tokens of everything currently on the conversation surface.
+   * Never reset by an anchor (the messages are still there); only a
+   * compaction, which actually removes them, resets it. This is the
+   * breakdown's messages bucket — an independent estimate, not a residual.
+   */
+  messageTokens: number;
 }
 
 export interface ContextUsageView {
   projectedTokens: number;
-  /** The three buckets sum exactly to projectedTokens — messages is the residual. */
+  /**
+   * Three independent estimates. They deliberately do NOT sum to
+   * projectedTokens: when anchored, projectedTokens is a measurement and
+   * these are estimates over a different (and overlapping) surface.
+   */
   breakdown: { system: number; tools: number; messages: number };
   /** Per system layer estimates, in layer order. */
   layers: Array<{ id: string; tokens: number }>;
@@ -50,7 +65,7 @@ export interface ContextUsageView {
 }
 
 export function emptyContextUsageFold(): ContextUsageFold {
-  return { header: null, anchor: null, pendingTokens: 0 };
+  return { header: null, anchor: null, pendingTokens: 0, messageTokens: 0 };
 }
 
 /**
@@ -71,9 +86,11 @@ function countBlocks(blocks: readonly ContentBlock[], tokenizer: Tokenizer): num
       total +=
         tokenizer.count(block.name) + tokenizer.count(JSON.stringify(block.input)) + BLOCK_OVERHEAD;
     } else {
-      // Images and any future block type keep a conservative structural price.
-      // tool_result blocks reach the fold as their own tool_result events, so
-      // they are not double-counted here.
+      // Images, tool_result blocks embedded in a message, and any future
+      // block type keep a conservative structural price via JSON.stringify.
+      // A tool_result block here is priced once against this event's own
+      // content; it cannot double-count against the separate tool_result
+      // EVENT handled below, since the two are independent data sources.
       total += tokenizer.count(JSON.stringify(block)) + BLOCK_OVERHEAD;
     }
   }
@@ -113,23 +130,33 @@ export function foldContextUsageEvent(
             outputTokens: usage.outputTokens,
           },
           pendingTokens: 0,
+          // The response is on the surface regardless of it being measured.
+          messageTokens:
+            fold.messageTokens +
+            (data.reasoning ? tokenizer.count(data.reasoning) + BLOCK_OVERHEAD : 0) +
+            countMessage(data.content, tokenizer),
         };
       }
       // A response still lands on the surface even when the provider reports
       // no usage — estimate it so the projection keeps moving.
-      return {
-        ...fold,
-        pendingTokens:
-          fold.pendingTokens +
+      {
+        const added =
           (data.reasoning ? tokenizer.count(data.reasoning) + BLOCK_OVERHEAD : 0) +
-          countMessage(data.content, tokenizer),
-      };
+          countMessage(data.content, tokenizer);
+        return {
+          ...fold,
+          pendingTokens: fold.pendingTokens + added,
+          messageTokens: fold.messageTokens + added,
+        };
+      }
     }
     case "tool_result": {
       const data = event.data as TranscriptEventMap["tool_result"];
+      const added = tokenizer.count(data.content) + BLOCK_OVERHEAD;
       return {
         ...fold,
-        pendingTokens: fold.pendingTokens + tokenizer.count(data.content) + BLOCK_OVERHEAD,
+        pendingTokens: fold.pendingTokens + added,
+        messageTokens: fold.messageTokens + added,
       };
     }
     case "user_message":
@@ -139,7 +166,19 @@ export function foldContextUsageEvent(
         typeof data.content === "string"
           ? tokenizer.count(data.content) + BLOCK_OVERHEAD + ROLE_OVERHEAD
           : countMessage(data.content, tokenizer);
-      return { ...fold, pendingTokens: fold.pendingTokens + added };
+      return { ...fold, pendingTokens: fold.pendingTokens + added, messageTokens: fold.messageTokens + added };
+    }
+    case "compaction": {
+      const data = event.data as TranscriptEventMap["compaction"];
+      // Compaction replaces the surface with a summary: both counters restart
+      // from what actually remains. Note: the Runner does not yet emit this
+      // event (see the "not yet recorded" comment on ports.ts); this arm is
+      // implemented ahead of that so the fold is ready once it does.
+      return {
+        ...fold,
+        pendingTokens: 0,
+        messageTokens: tokenizer.count(data.summaryText) + BLOCK_OVERHEAD,
+      };
     }
     default:
       return fold;
@@ -169,18 +208,15 @@ export function contextUsageView(
 ): ContextUsageView | null {
   if (!fold.header) return null;
   const { system, tools, layers } = estimateHeader(fold.header, tokenizer);
-  const anchorTotal = fold.anchor
+  // The anchor is a measurement; the header estimate is a guess. Mixing them
+  // with a floor let a large heuristic header inflate the headline number —
+  // the projection now stays on the measured track whenever one exists.
+  const projectedTokens = fold.anchor
     ? fold.anchor.promptTokens + fold.anchor.outputTokens + fold.pendingTokens
-    : system + tools + fold.pendingTokens;
-  // The floor keeps the projected total from falling below the header
-  // estimate + pending, so the three breakdown buckets (whose residual is
-  // clamped at zero) always sum exactly to `projectedTokens`.
-  const projectedTokens = Math.max(anchorTotal, system + tools + fold.pendingTokens);
-  // Residual bucket: keeps the three segments summing exactly to the total.
-  const messages = Math.max(0, projectedTokens - system - tools);
+    : system + tools + fold.messageTokens;
   return {
     projectedTokens,
-    breakdown: { system, tools, messages },
+    breakdown: { system, tools, messages: fold.messageTokens },
     layers,
     anchored: fold.anchor !== null,
   };
