@@ -54,6 +54,7 @@ import {
   extractTouchedToolPaths,
   parseSkillInvocation,
   renderSkillInjection,
+  capSkillInjection,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -1226,11 +1227,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    *   1. A registered SlashCommand wins first. Checked synchronously via
    *      `matchCommand` so the existing command path never awaits the
    *      (async) skill registry.
-   *   2. Otherwise, a user-invocable skill by that name is loaded and its
-   *      instructions are appended after the user's own text
-   *      (`expandSkillInvocation`).
-   *   3. Otherwise, today's unchanged `renderCommand` fallback — the
-   *      "Unknown command: ..." prompt — applies verbatim.
+   *   2. Otherwise, `expandSkillInvocation` checks whether the name matches
+   *      a real skill at all (`recognized`). If it does — whether or not it
+   *      is user-invocable, loads successfully, or the registry throws —
+   *      its result (the user's own text, optionally with the skill's
+   *      instructions appended after it) is used as-is. A recognized-but-
+   *      unavailable skill must NOT fall through to step 3 (Finding I-2):
+   *      that would silently replace the user's whole message with
+   *      "Unknown command: ...", discarding whatever they asked for.
+   *   3. Only when the name matches no skill at all (`recognized: false`)
+   *      does today's unchanged `renderCommand` fallback — the
+   *      "Unknown command: ..." prompt — apply verbatim.
    *
    * A same-named SKILL.md on disk must never silently shadow a command that
    * the host registered explicitly in code; that is why step 1 never touches
@@ -1250,11 +1257,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         return { type: "user_message", content: renderCommand(commands, raw) };
       }
       const rawInput: AgentInput = { type: "user_message", content: raw };
-      const expanded = await expandSkillInvocation(rawInput, opts.skillRegistry);
-      // expandSkillInvocation returns the very same object (by reference) on
-      // every non-match path — no registry, unknown name, not user-invocable,
-      // or load failure — so identity comparison is exact, not heuristic.
-      if (expanded !== rawInput) return expanded;
+      const { recognized, input: expanded } = await expandSkillInvocation(rawInput, opts.skillRegistry);
+      // recognized=false is the ONLY case that falls through to the
+      // unknown-command prompt: no registry, no gesture grammar match, or a
+      // gesture whose name matches no skill at all. Any recognized gesture —
+      // even one that couldn't load — keeps its (possibly unmodified) input.
+      if (recognized) return expanded;
       return { type: "user_message", content: renderCommand(commands, raw) };
     }
     return normalizeInput(raw);
@@ -1516,17 +1524,43 @@ function normalizeInput(input: string | AgentInput): AgentInput {
 }
 
 /**
+ * Result of {@link expandSkillInvocation}: whether the first line named an
+ * actual entry in the skill registry (`recognized`), and the (possibly
+ * rewritten) input.
+ *
+ * `recognized` is the signal `resolveInput` needs to fix Finding I-2: a name
+ * that matches the `/name` grammar but corresponds to no skill at all is
+ * genuinely unknown and must still fall through to the existing
+ * "Unknown command: ..." prompt. But a name that DOES match a real skill —
+ * whether it turns out not to be user-invocable, fails to load (including the
+ * known disable-model-invocation limitation below), or the registry throws —
+ * is not "unknown"; the user's original text must survive unchanged instead
+ * of being replaced by that prompt. Distinguishing the two only from the
+ * final `input` value is impossible: both cases leave `input` untouched.
+ */
+export interface SkillGestureResult {
+  recognized: boolean;
+  input: AgentInput;
+}
+
+/**
  * Expands a `/name` gesture on a user message into the skill's instructions.
  *
  * The user's own text is kept verbatim and the instructions are appended
  * after it: background context first, the material the model must act on
- * last and closest to its answer. A name that is unknown, not user-invocable,
- * or fails to load stays ordinary prose — the gesture was never a claim this
- * boundary recognizes, so it must not surface as an error.
+ * last and closest to its answer. The injected text is capped the same way
+ * the `skill` tool caps its own modelContent (see capSkillInjection) — an
+ * unbounded SKILL.md body must not reach the provider uncapped, and unlike a
+ * tool result this block lives in `messages`, so an uncapped body would be
+ * resent on every subsequent turn.
  *
- * Every non-match branch returns the exact same `input` object (identity,
- * not a structural copy) — `resolveInput` relies on that to detect "nothing
- * was expanded" with a plain `!==` check instead of a deep-equality test.
+ * `recognized` is false only when the gesture grammar didn't match at all, or
+ * matched a name with no corresponding registry entry — see
+ * {@link SkillGestureResult}. In every `recognized: false` case `input` is
+ * returned by identity (not a structural copy), same as every
+ * `recognized: true` non-injecting case; `resolveInput` does not currently
+ * depend on that identity (it branches on `recognized`), but tests pin it as
+ * a cheap invariant.
  *
  * Independent of the slash-command namespace: `resolveInput` only reaches
  * this function after `matchCommand` has already found no registered
@@ -1537,36 +1571,51 @@ function normalizeInput(input: string | AgentInput): AgentInput {
 export async function expandSkillInvocation(
   input: AgentInput,
   registry: SkillRegistry | undefined,
-): Promise<AgentInput> {
-  if (registry === undefined) return input;
-  if (input.type !== "user_message") return input;
+): Promise<SkillGestureResult> {
+  if (registry === undefined) return { recognized: false, input };
+  if (input.type !== "user_message") return { recognized: false, input };
   const text = typeof input.content === "string" ? input.content : undefined;
-  if (text === undefined) return input;
+  if (text === undefined) return { recognized: false, input };
 
   const name = parseSkillInvocation(text);
-  if (name === null) return input;
+  if (name === null) return { recognized: false, input };
 
   try {
     const summary = (await registry.list()).find((s) => s.name === name);
-    if (!summary?.invocation.userInvocable) return input;
+    // No skill by this name at all — the gesture is genuinely unknown, same
+    // as today: let resolveInput fall through to "Unknown command: ...".
+    if (summary === undefined) return { recognized: false, input };
+    // From here the name IS a real skill. Whatever happens next — not
+    // user-invocable, load() returns undefined, or a throw below — must
+    // preserve the user's text and must NOT fall through to the
+    // unknown-command prompt (Finding I-2).
+    if (!summary.invocation.userInvocable) return { recognized: true, input };
     const loaded = await registry.load(name);
     // Known limitation (deliberate, not fixed here): SkillRegistry.load()
     // only returns model-invocable skills, so a skill marked
     // disable-model-invocation: true but still user-invocable gets
     // undefined here and is not injected. Fixing that needs a second
     // registry entry point that bypasses the modelInvocable filter —
-    // scoped to a later plan.
-    if (loaded === undefined) return input;
+    // scoped to a later plan. The user's text still survives verbatim.
+    if (loaded === undefined) return { recognized: true, input };
     return {
-      type: "user_message",
-      content: [
-        { type: "text", text },
-        { type: "text", text: renderSkillInjection(name, loaded.baseDir, loaded.body) },
-      ],
+      recognized: true,
+      input: {
+        type: "user_message",
+        content: [
+          { type: "text", text },
+          {
+            type: "text",
+            text: capSkillInjection(renderSkillInjection(name, loaded.baseDir, loaded.body)),
+          },
+        ],
+      },
     };
   } catch {
-    // A registry failure must not turn a normal message into an error.
-    return input;
+    // A registry failure must not turn a normal message into an error, and
+    // (Finding I-2) the name already matched a skill gesture, so it must not
+    // be treated as unknown either — the user's text survives.
+    return { recognized: true, input };
   }
 }
 

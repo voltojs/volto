@@ -5,6 +5,44 @@
  * See docs/superpowers/specs/2026-09-07-instruction-skill-completeness-design.md §5.4.
  */
 
+import { truncateUtf8 } from "./workspace-instructions.js";
+
+/**
+ * Byte cap on a rendered `/name` skill injection. Mirrors MAX_SKILL_BODY_BYTES
+ * in packages/tools/skill/src/index.ts (the `skill` tool's own cap on
+ * modelContent) — both paths put a skill's full, unbounded, user-authored body
+ * into the conversation, so both must be bounded by the same limit. Without
+ * this, a multi-megabyte SKILL.md invoked via `/name` lands in `messages`
+ * uncapped: not just a full context window, but a request the provider
+ * rejects outright, resent on every subsequent turn since it lives in
+ * `messages` rather than a per-turn system layer. Kept as a separate literal
+ * (not shared via import) because packages/tools/skill may only `import type`
+ * from @volto/core, never a value.
+ */
+const MAX_SKILL_INJECTION_BYTES = 64 * 1024;
+
+/**
+ * Caps a rendered skill injection (as produced by renderSkillInjection) at
+ * maxBytes UTF-8 bytes and appends a visible truncation notice — same
+ * truncate-then-notice convention as the `skill` tool's capSkillResult.
+ * Reuses truncateUtf8's byte-safe cut (never splits a multi-byte code point
+ * at the boundary) rather than re-implementing it, so this is the only place
+ * in the `/name` path that touches raw bytes.
+ */
+export function capSkillInjection(
+  text: string,
+  maxBytes: number = MAX_SKILL_INJECTION_BYTES,
+): string {
+  const encoded = new TextEncoder().encode(text);
+  if (encoded.length <= maxBytes) return text;
+  const notice =
+    `\n\n[skill body truncated from ${encoded.length} to ${maxBytes} bytes` +
+    " — read the files under the base directory if you need the remainder]";
+  const noticeBytes = new TextEncoder().encode(notice).length;
+  const room = Math.max(0, maxBytes - noticeBytes);
+  return truncateUtf8(text, room) + notice;
+}
+
 /**
  * Kebab-case skill name grammar (matching dsh's). Requiring it here is what
  * keeps a path like "/usr/local/bin" from reading as an invocation: the `/`

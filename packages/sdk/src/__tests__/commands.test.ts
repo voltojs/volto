@@ -268,4 +268,51 @@ describe("createAgent — /name resolution order (commands vs. skills)", () => {
       "Unknown command: /nope. Available commands: /other.",
     );
   });
+
+  it("Finding I-2: a user-invocable, model-invocation-disabled skill preserves the user's text instead of 'Unknown command'", async () => {
+    // Mirrors a real `user-invocable: true` + `disable-model-invocation: true`
+    // SKILL.md: registry.list() reports it, but registry.load() — which
+    // filters on modelInvocable host-side — always misses it. Before the
+    // fix, expandSkillInvocation returned the untouched input by reference,
+    // resolveInput read that as "nothing was expanded", and fell through to
+    // renderCommand — replacing the whole user sentence with
+    // "Unknown command: /manual-only. Available commands: /other.".
+    const registry: SkillRegistry = {
+      list: async () => [
+        { name: "manual-only", description: "d", invocation: { modelInvocable: false, userInvocable: true } },
+      ],
+      load: async () => undefined,
+    };
+    const agent = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "other", template: "unused" }],
+      skillRegistry: registry,
+    });
+
+    const state = await agent.run("/manual-only please do X");
+
+    expect(userMessageContent(state)).toBe("/manual-only please do X");
+    expect(JSON.stringify(state.messages)).not.toContain("Unknown command");
+  });
+
+  it("Finding I-2: registry.load() throwing preserves the user's text instead of 'Unknown command'", async () => {
+    const registry: SkillRegistry = {
+      list: async () => [
+        { name: "flaky", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+      load: async () => {
+        throw new Error("disk exploded");
+      },
+    };
+    const agent = createAgent({
+      modelPort: createMockModelPort([textScript("ok")]),
+      commands: [{ name: "other", template: "unused" }],
+      skillRegistry: registry,
+    });
+
+    const state = await agent.run("/flaky please do X");
+
+    expect(userMessageContent(state)).toBe("/flaky please do X");
+    expect(JSON.stringify(state.messages)).not.toContain("Unknown command");
+  });
 });

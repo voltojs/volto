@@ -1297,60 +1297,149 @@ describe("expandSkillInvocation", () => {
     list: async () => [
       { name: "commit", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
       { name: "internal", description: "d", invocation: { modelInvocable: true, userInvocable: false } },
+      // Present in the catalog but load() (see below) always misses it —
+      // stands in for a real disable-model-invocation + user-invocable skill,
+      // whose host-side load() filters on modelInvocable (Finding I-2 / §12).
+      { name: "user-only", description: "d", invocation: { modelInvocable: false, userInvocable: true } },
     ],
     load: async (name: string) =>
       name === "commit" ? { body: "Commit steps.", baseDir: "/skills/commit" } : undefined,
   };
 
-  it("appends the skill body after the user's own text", async () => {
+  it("appends the skill body after the user's own text, recognized true", async () => {
     const out = await expandSkillInvocation(
       { type: "user_message", content: "/commit ship it" },
       registry,
     );
     expect(out).toEqual({
-      type: "user_message",
-      content: [
-        { type: "text", text: "/commit ship it" },
-        {
-          type: "text",
-          text: renderSkillInjection("commit", "/skills/commit", "Commit steps."),
-        },
-      ],
+      recognized: true,
+      input: {
+        type: "user_message",
+        content: [
+          { type: "text", text: "/commit ship it" },
+          {
+            type: "text",
+            text: renderSkillInjection("commit", "/skills/commit", "Commit steps."),
+          },
+        ],
+      },
     });
   });
 
-  it("leaves an unknown name as ordinary prose", async () => {
+  it("leaves a genuinely unknown name unrecognized (Unknown-command fallback applies)", async () => {
     const input = { type: "user_message" as const, content: "/nope do it" };
-    expect(await expandSkillInvocation(input, registry)).toEqual(input);
+    expect(await expandSkillInvocation(input, registry)).toEqual({ recognized: false, input });
   });
 
-  it("does not inject a non-user-invocable skill", async () => {
+  it("does not inject a non-user-invocable skill, but still recognizes it", async () => {
     const input = { type: "user_message" as const, content: "/internal" };
-    expect(await expandSkillInvocation(input, registry)).toEqual(input);
+    expect(await expandSkillInvocation(input, registry)).toEqual({ recognized: true, input });
   });
 
-  it("passes through when there is no registry", async () => {
+  it("Finding I-2: a user-invocable skill whose load() misses (disable-model-invocation) survives as the user's own text, recognized true", async () => {
+    const input = { type: "user_message" as const, content: "/user-only please do X" };
+    const out = await expandSkillInvocation(input, registry);
+    // The old bug: this case fell through to resolveInput's renderCommand,
+    // producing "Unknown command: ..." and discarding the user's sentence.
+    expect(out).toEqual({ recognized: true, input });
+  });
+
+  it("passes through when there is no registry, recognized false", async () => {
     const input = { type: "user_message" as const, content: "/commit" };
-    expect(await expandSkillInvocation(input, undefined)).toEqual(input);
+    expect(await expandSkillInvocation(input, undefined)).toEqual({ recognized: false, input });
   });
 
-  it("passes through a non-user_message input", async () => {
+  it("passes through a non-user_message input, recognized false", async () => {
     const input = { type: "tool_result" as const, callId: "c", content: "/commit", isError: false };
-    expect(await expandSkillInvocation(input as never, registry)).toEqual(input);
+    expect(await expandSkillInvocation(input as never, registry)).toEqual({
+      recognized: false,
+      input,
+    });
   });
 
-  it("returns the identical object reference on every non-match path", async () => {
-    // resolveInput in create-agent.ts distinguishes "expanded" from "not
-    // expanded" with a `!==` reference check, not a deep-equality test —
-    // this pins that every early-return path really returns the same
-    // object, not merely a structurally-equal copy.
+  it("Finding I-2: registry.load() throwing still recognizes the gesture and preserves the user's text", async () => {
+    const throwingRegistry: SkillRegistry = {
+      list: async () => [
+        { name: "commit", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+      load: async () => {
+        throw new Error("disk exploded");
+      },
+    };
+    const input = { type: "user_message" as const, content: "/commit ship it" };
+    expect(await expandSkillInvocation(input, throwingRegistry)).toEqual({
+      recognized: true,
+      input,
+    });
+  });
+
+  it("returns the identical input reference on every non-injecting path", async () => {
+    // resolveInput in create-agent.ts branches on `recognized`, but the
+    // `.input` field is still pinned to identity — every early-return path
+    // returns the same object, not merely a structurally-equal copy.
     const noRegistryInput = { type: "user_message" as const, content: "/commit" };
-    expect(await expandSkillInvocation(noRegistryInput, undefined)).toBe(noRegistryInput);
+    expect((await expandSkillInvocation(noRegistryInput, undefined)).input).toBe(noRegistryInput);
 
     const unknownInput = { type: "user_message" as const, content: "/nope" };
-    expect(await expandSkillInvocation(unknownInput, registry)).toBe(unknownInput);
+    expect((await expandSkillInvocation(unknownInput, registry)).input).toBe(unknownInput);
 
     const nonInvocableInput = { type: "user_message" as const, content: "/internal" };
-    expect(await expandSkillInvocation(nonInvocableInput, registry)).toBe(nonInvocableInput);
+    expect((await expandSkillInvocation(nonInvocableInput, registry)).input).toBe(nonInvocableInput);
+  });
+
+  it("Finding I-1: caps an oversized skill body at the tool's own limit with a visible truncation notice", async () => {
+    const hugeBody = "x".repeat(3_000_000);
+    const hugeRegistry: SkillRegistry = {
+      list: async () => [
+        { name: "huge", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+      load: async () => ({ body: hugeBody, baseDir: "/skills/huge" }),
+    };
+    const out = await expandSkillInvocation(
+      { type: "user_message", content: "/huge do X" },
+      hugeRegistry,
+    );
+    expect(out.recognized).toBe(true);
+    const content = (out.input as { type: "user_message"; content: unknown }).content as Array<{
+      type: string;
+      text: string;
+    }>;
+    const injected = content[1]!.text;
+    const bytes = new TextEncoder().encode(injected).length;
+    // Bounded by the same 64 KiB limit as the `skill` tool's capSkillResult —
+    // not "smaller than the huge input", which a much larger cap would also
+    // satisfy.
+    expect(bytes).toBeLessThanOrEqual(64 * 1024);
+    expect(injected).toContain("[skill body truncated from");
+    // The user's own sentence must still be untouched and first.
+    expect(content[0]).toEqual({ type: "text", text: "/huge do X" });
+  });
+
+  it("Finding I-1: caps a multi-byte (CJK) body without splitting a character", async () => {
+    // Each "中" is 3 UTF-8 bytes; repeating well past 64 KiB and near a
+    // boundary exercises the byte-safe cut this repo has been bitten by
+    // before (naive slicing can split a multi-byte code point).
+    const hugeBody = "中".repeat(30_000);
+    const cjkRegistry: SkillRegistry = {
+      list: async () => [
+        { name: "cjk", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
+      ],
+      load: async () => ({ body: hugeBody, baseDir: "/skills/cjk" }),
+    };
+    const out = await expandSkillInvocation(
+      { type: "user_message", content: "/cjk go" },
+      cjkRegistry,
+    );
+    const content = (out.input as { type: "user_message"; content: unknown }).content as Array<{
+      type: string;
+      text: string;
+    }>;
+    const injected = content[1]!.text;
+    const bytes = new TextEncoder().encode(injected).length;
+    expect(bytes).toBeLessThanOrEqual(64 * 1024);
+    // A split code point would decode to U+FFFD (the replacement character),
+    // which does not round-trip losslessly through UTF-8 re-encoding.
+    expect(Buffer.from(injected, "utf8").toString("utf8")).toBe(injected);
+    expect(injected).not.toContain("�");
   });
 });
