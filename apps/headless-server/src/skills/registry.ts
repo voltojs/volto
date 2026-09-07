@@ -11,7 +11,31 @@ import { expandInstructions } from "@volto/core";
 import type { LoadedSkill, SkillInvocationPolicy, SkillRegistry, SkillSummary } from "@volto/core";
 import { getConfigDir } from "../config/paths.js";
 import { loadInstructionFileTree } from "../instructions.js";
-import { parseSkillFile } from "./frontmatter.js";
+import { parseSkillFile, type ParsedSkillFile } from "./frontmatter.js";
+
+/** Upper bound on cached metadata entries; oldest insertion is evicted first. */
+const METADATA_CACHE_LIMIT = 256;
+
+/**
+ * Parsed SKILL.md metadata, keyed by path + mtime + size. Only metadata is
+ * cached — bodies are deliberately never cached, because skills are
+ * instructions and their files can change mid-session (plan-016 §5.3). The
+ * key changes the moment the file does, so a stale entry is unreachable
+ * rather than merely unlikely.
+ */
+const metadataCache = new Map<string, ParsedSkillFile>();
+
+function cacheKey(skillPath: string, mtimeMs: number, size: number): string {
+  return `${skillPath}:${mtimeMs}:${size}`;
+}
+
+function rememberMetadata(key: string, parsed: ParsedSkillFile): void {
+  if (metadataCache.size >= METADATA_CACHE_LIMIT) {
+    const oldest = metadataCache.keys().next();
+    if (!oldest.done) metadataCache.delete(oldest.value);
+  }
+  metadataCache.set(key, parsed);
+}
 
 /**
  * Invocation-neutral scanned skill — the registry-local counterpart of a
@@ -45,8 +69,18 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedS
   for (const entry of entries) {
     const skillPath = path.join(dir, entry, "SKILL.md");
     try {
-      const raw = await fs.readFile(skillPath, "utf-8");
-      const parsed = parseSkillFile(raw);
+      // Metadata (name/description/invocation) is cached by mtime+size so a
+      // 60+-skill catalog isn't reparsed every turn; the body is never
+      // cached (see loadSkillResourceText) since skills are instructions and
+      // their files can change mid-session.
+      const stat = await fs.stat(skillPath);
+      const key = cacheKey(skillPath, stat.mtimeMs, stat.size);
+      let parsed = metadataCache.get(key);
+      if (parsed === undefined) {
+        const raw = await fs.readFile(skillPath, "utf-8");
+        parsed = parseSkillFile(raw);
+        if (parsed) rememberMetadata(key, parsed);
+      }
       if (parsed) {
         skills.push({
           name: parsed.name,

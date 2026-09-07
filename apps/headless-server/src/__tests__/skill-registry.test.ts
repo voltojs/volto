@@ -51,4 +51,86 @@ describe("createSkillRegistry", () => {
     const { createSkillRegistry } = await import("../skills/registry.js");
     expect(await createSkillRegistry(cwd).load("nope")).toBeUndefined();
   });
+
+  // Note on approach: the brief's original version of this test used
+  // `vi.spyOn(fs, "readFile")` to assert the second list() call never reads
+  // SKILL.md again. That throws under this repo's ESM setup ("Cannot spy on
+  // export 'readFile'. Module namespace is not configurable in ESM.") before
+  // the assertion even runs — the exact same limitation that made Task 4
+  // abandon `vi.spyOn(os, "homedir")`. A spy that cannot attach would make
+  // the test fail for the wrong reason (or, worse, pass vacuously if the API
+  // shape ever changed), so this uses a behavioural check instead: write a
+  // skill, list() it once to populate the cache, then rewrite the file with
+  // different content but restore its original mtime (via fs.utimes) and
+  // keep the byte length identical. A second list() call is only able to
+  // return the stale (cached) description if it actually consulted the
+  // cache instead of rereading — proving the cache is real with no mocking.
+  it("reuses parsed metadata while mtime and size are unchanged", async () => {
+    const dir = path.join(home, ".agents", "skills");
+    const skillPath = path.join(await writeSkill(dir, "cached", "Body."), "SKILL.md");
+    const { createSkillRegistry } = await import("../skills/registry.js");
+    const registry = createSkillRegistry(cwd);
+
+    // Pin mtime to a whole-second Unix timestamp before the first list().
+    // fs.stat()'s natural mtimeMs carries sub-millisecond/nanosecond noise on
+    // this filesystem (APFS), and round-tripping that through fs.utimes
+    // (which only accepts Date or fractional-seconds numbers) does not
+    // reproduce it bit-for-bit — verified empirically: both a Date
+    // round-trip and a fractional-seconds round-trip landed a few
+    // microseconds off the original. A whole-second timestamp has no
+    // sub-second component to lose, so setting the exact same value twice
+    // reproduces the exact same mtimeMs both times.
+    const pinnedSeconds = Math.floor(Date.now() / 1000) - 60;
+    await fs.utimes(skillPath, pinnedSeconds, pinnedSeconds);
+
+    expect((await registry.list())[0]?.description).toBe("cached description");
+    const originalStat = await fs.stat(skillPath);
+    expect(originalStat.mtimeMs).toBe(pinnedSeconds * 1000);
+
+    // Same byte length as "cached description" ("cached" and "edited" are
+    // both 6 characters) so the cache key (path + mtime + size) is
+    // unaffected by the content swap below.
+    await fs.writeFile(
+      skillPath,
+      `---\nname: cached\ndescription: edited description\n---\nBody.`,
+    );
+    await fs.utimes(skillPath, pinnedSeconds, pinnedSeconds);
+    const restoredStat = await fs.stat(skillPath);
+    expect(restoredStat.size).toBe(originalStat.size);
+    expect(restoredStat.mtimeMs).toBe(originalStat.mtimeMs);
+
+    // The cache key (path + mtime + size) is unchanged, so a genuine cache
+    // must still serve the original parsed metadata rather than rereading
+    // the now-different bytes on disk.
+    expect((await registry.list())[0]?.description).toBe("cached description");
+  });
+
+  it("re-parses after the file changes", async () => {
+    const dir = path.join(home, ".agents", "skills");
+    await writeSkill(dir, "changing", "Body.");
+    const { createSkillRegistry } = await import("../skills/registry.js");
+    const registry = createSkillRegistry(cwd);
+
+    expect((await registry.list())[0]?.description).toBe("changing description");
+
+    await fs.writeFile(
+      path.join(dir, "changing", "SKILL.md"),
+      `---\nname: changing\ndescription: updated description\n---\nBody.`,
+    );
+    expect((await registry.list())[0]?.description).toBe("updated description");
+  });
+
+  it("always rereads the body, never serving it from cache", async () => {
+    const dir = path.join(home, ".agents", "skills");
+    await writeSkill(dir, "live", "First body.");
+    const { createSkillRegistry } = await import("../skills/registry.js");
+    const registry = createSkillRegistry(cwd);
+
+    expect((await registry.load("live"))?.body).toBe("First body.");
+    await fs.writeFile(
+      path.join(dir, "live", "SKILL.md"),
+      `---\nname: live\ndescription: live description\n---\nSecond body.`,
+    );
+    expect((await registry.load("live"))?.body).toBe("Second body.");
+  });
 });
