@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   ReasoningEffortId,
-  createMockModelPort,
-  modelDoneWithMeta,
   type ModelPort,
   type ResolvedModelInfo,
   extractBlockText,
@@ -57,7 +55,18 @@ describe("reasoning effort contract", () => {
   });
 
   it("carries the effort on the request and the envelope on the done event", async () => {
-    const port = createMockModelPort([[modelDoneWithMeta("end_turn", { blocks: ["sig-1"] })]]);
+    // A port that records the request it received, so this test can assert
+    // reasoningEffort actually reached the port — createMockModelPort's
+    // stream() never inspects req, so a script-only assertion here would
+    // stay green even if reasoningEffort were dropped before the call.
+    let receivedReq: { reasoningEffort?: string } | undefined;
+    const port: ModelPort = {
+      // eslint-disable-next-line require-yield
+      async *stream(req) {
+        receivedReq = req;
+        yield { type: "done", stopReason: "end_turn", meta: { blocks: ["sig-1"] } };
+      },
+    };
     const events = [];
     for await (const event of port.stream({
       messages: [],
@@ -66,6 +75,7 @@ describe("reasoning effort contract", () => {
     })) {
       events.push(event);
     }
+    expect(receivedReq?.reasoningEffort).toBe("max");
     expect(events[0]).toEqual({ type: "done", stopReason: "end_turn", meta: { blocks: ["sig-1"] } });
   });
 });
