@@ -36,6 +36,8 @@ export interface ModelDoneInput {
     /** Tokens written to provider-side prompt cache. */
     cacheWriteTokens?: number;
   };
+  /** Adapter-private replay state from the stream's terminal event. */
+  meta?: unknown;
 }
 
 /** Model encountered an error */

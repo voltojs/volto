@@ -25,6 +25,7 @@ describe("model_done emit", () => {
       role: "assistant",
       content: [{ type: "text", text: "hello" }],
       stopReason: "end_turn",
+      source: { modelId: "test-model" },
     });
   });
 });

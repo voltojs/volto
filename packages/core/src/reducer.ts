@@ -5,6 +5,7 @@
  */
 
 import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
+import type { ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
@@ -34,6 +35,8 @@ export interface StepContext {
   responseFormat?: { type: "json"; schema?: JSONSchema };
   /** Optional context layers to inject as system messages */
   contextLayers?: ContextLayer[];
+  /** Adapter-owned reasoning effort, passed through to ModelPort.stream. */
+  reasoningEffort?: ReasoningEffortId;
 }
 
 // ──────────────────────────────────────────────
@@ -48,6 +51,8 @@ export interface StepContext {
 export interface ReducerState extends AgentState {
   /** Accumulated text content during model streaming */
   _accumulatedText: string;
+  /** Accumulated reasoning text during model streaming */
+  _accumulatedReasoning: string;
   /** Tool calls being accumulated during model streaming */
   _accumulatedToolCalls: Array<{
     id: string;
@@ -91,6 +96,7 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     selfCorrectionCount: 0,
     maxSelfCorrections: undefined,
     _accumulatedText: "",
+    _accumulatedReasoning: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
     ...overrides,
@@ -122,6 +128,7 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     selfCorrectionCount: 0,
     queuedUserInputs: [],
     _accumulatedText: "",
+    _accumulatedReasoning: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
   };
@@ -247,6 +254,10 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         event: { type: "text_delta", data: { text: chunk.text } },
       });
     } else if (chunk.type === "reasoning_delta" && chunk.text) {
+      newState = {
+        ...newState,
+        _accumulatedReasoning: newState._accumulatedReasoning + chunk.text,
+      };
       effects.push({
         type: "emit",
         event: { type: "reasoning_delta", data: { text: chunk.text } },
@@ -322,6 +333,8 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       role: "assistant",
       content: assistantContent,
       stopReason: input.stopReason,
+      ...(ctx.model !== undefined ? { source: { modelId: ctx.model } } : {}),
+      ...(input.meta !== undefined ? { modelMeta: input.meta } : {}),
     };
 
     const baseState: ReducerState = {
@@ -330,6 +343,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       iterationCount: newIterationCount,
       tokensUsed: newTokensUsed,
       _accumulatedText: "",
+      _accumulatedReasoning: "",
       _accumulatedToolCalls: [],
     };
 
@@ -443,6 +457,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         ...state,
         iterationCount: state.iterationCount + 1,
         _accumulatedText: "",
+        _accumulatedReasoning: "",
         _accumulatedToolCalls: [],
       };
       const limit = limitReached(retryState);
@@ -798,6 +813,12 @@ function limitReached(state: ReducerState): string | null {
 /** Build assistant content blocks from accumulated streaming data */
 function buildAssistantContent(state: ReducerState): AssistantMessage["content"] {
   const content: AssistantMessage["content"] = [];
+
+  // Reasoning leads the content: providers that require their thinking blocks
+  // returned expect them ahead of the text and tool calls they produced.
+  if (state._accumulatedReasoning) {
+    content.push({ type: "reasoning", text: state._accumulatedReasoning });
+  }
 
   if (state._accumulatedText) {
     content.push({ type: "text", text: state._accumulatedText });

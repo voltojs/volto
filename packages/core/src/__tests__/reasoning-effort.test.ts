@@ -7,6 +7,9 @@ import {
   type ResolvedModelInfo,
   extractBlockText,
   type AssistantMessage,
+  step,
+  createInitialState,
+  type StepContext,
 } from "../index.js";
 
 describe("reasoning effort contract", () => {
@@ -79,5 +82,74 @@ describe("reasoning content block", () => {
     expect(extractBlockText(msg.content[1]!)).toBe("answer");
     expect(msg.modelMeta).toEqual({ blocks: ["sig-1"] });
     expect(msg.source?.modelId).toBe("thinker");
+  });
+});
+
+describe("reducer assembles reasoning into the assistant message", () => {
+  const ctx: StepContext = { tools: [], model: "thinker" };
+
+  it("accumulates reasoning deltas and leads the content with them", () => {
+    let state = createInitialState({ status: "calling_model" });
+
+    state = step(state, { type: "model_chunk", chunk: { type: "reasoning_delta", text: "step " } }, ctx).state;
+    state = step(state, { type: "model_chunk", chunk: { type: "reasoning_delta", text: "one" } }, ctx).state;
+    state = step(state, { type: "model_chunk", chunk: { type: "text_delta", text: "done" } }, ctx).state;
+
+    const result = step(
+      state,
+      { type: "model_done", stopReason: "end_turn", meta: { blocks: ["sig-1"] } },
+      ctx,
+    );
+
+    const msg = result.state.messages[result.state.messages.length - 1]! as AssistantMessage;
+    expect(msg.role).toBe("assistant");
+    expect(msg.content).toEqual([
+      { type: "reasoning", text: "step one" },
+      { type: "text", text: "done" },
+    ]);
+    expect(msg.modelMeta).toEqual({ blocks: ["sig-1"] });
+    expect(msg.source).toEqual({ modelId: "thinker" });
+  });
+
+  it("omits the reasoning block and the envelope when the model produced neither", () => {
+    let state = createInitialState({ status: "calling_model" });
+    state = step(state, { type: "model_chunk", chunk: { type: "text_delta", text: "hi" } }, ctx).state;
+
+    const msg = step(state, { type: "model_done", stopReason: "end_turn" }, ctx).state.messages[0]!;
+    expect(msg.content).toEqual([{ type: "text", text: "hi" }]);
+    expect("modelMeta" in msg).toBe(false);
+  });
+
+  it("is deterministic: the same input sequence twice yields the same state and effects", () => {
+    const inputs = [
+      { type: "model_chunk", chunk: { type: "reasoning_delta", text: "think" } },
+      { type: "model_chunk", chunk: { type: "text_delta", text: "say" } },
+      { type: "model_done", stopReason: "end_turn", meta: { blocks: ["sig-1"] } },
+    ] as const;
+
+    const replay = () => {
+      let state = createInitialState({ status: "calling_model" });
+      const effects = [];
+      for (const input of inputs) {
+        const result = step(state, input, ctx);
+        state = result.state;
+        effects.push(...result.effects);
+      }
+      return { state, effects };
+    };
+
+    expect(replay()).toEqual(replay());
+  });
+
+  it("does not leak a previous call's reasoning into the next one", () => {
+    let state = createInitialState({ status: "calling_model" });
+    state = step(state, { type: "model_chunk", chunk: { type: "reasoning_delta", text: "first" } }, ctx).state;
+    state = step(state, { type: "model_done", stopReason: "end_turn" }, ctx).state;
+
+    state = { ...state, status: "calling_model" };
+    state = step(state, { type: "model_chunk", chunk: { type: "text_delta", text: "second" } }, ctx).state;
+    const msg = step(state, { type: "model_done", stopReason: "end_turn" }, ctx).state.messages[1]!;
+
+    expect(msg.content).toEqual([{ type: "text", text: "second" }]);
   });
 });
