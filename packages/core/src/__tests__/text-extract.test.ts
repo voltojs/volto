@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractMessageText, extractBlockText, extractPlainText } from "../text-extract.js";
-import type { Message } from "../state.js";
+import type { Message, AssistantMessage } from "../state.js";
 
 describe("extractMessageText", () => {
   it("extracts string content", () => {
@@ -99,5 +99,28 @@ describe("extractPlainText", () => {
       content: [{ type: "tool_use", id: "t1", name: "bash", input: {} }],
     };
     expect(extractPlainText(msg)).toBe("");
+  });
+});
+
+describe("reasoning content block extraction", () => {
+  it("extracts to empty string (not user-facing)", () => {
+    expect(extractBlockText({ type: "reasoning", text: "let me think" })).toBe("");
+  });
+
+  it("is part of an assistant message and extracts correctly with other blocks", () => {
+    const msg: AssistantMessage = {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "let me think" },
+        { type: "text", text: "answer" },
+      ],
+      source: { modelId: "thinker" },
+      modelMeta: { blocks: ["sig-1"] },
+    };
+
+    expect(extractBlockText(msg.content[0]!)).toBe("");
+    expect(extractBlockText(msg.content[1]!)).toBe("answer");
+    expect(msg.modelMeta).toEqual({ blocks: ["sig-1"] });
+    expect(msg.source?.modelId).toBe("thinker");
   });
 });

@@ -9,6 +9,7 @@ export type {
   ImageContent,
   ToolUseContent,
   ToolResultContent,
+  ReasoningContent,
   ContentBlock,
   SystemMessage,
   UserMessage,

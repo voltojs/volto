@@ -27,6 +27,7 @@ export function extractMessageText(msg: Message): string {
  * - text → the text itself
  * - tool_use → placeholder "[tool: name]"
  * - tool_result → the result content
+ * - reasoning → empty string (not user-facing text)
  * - image → empty string (no text representation)
  */
 export function extractBlockText(block: ContentBlock): string {
@@ -37,6 +38,10 @@ export function extractBlockText(block: ContentBlock): string {
       return `[tool: ${block.name}]`;
     case "tool_result":
       return block.content;
+    case "reasoning":
+      // Not user-facing text: it rides in the message so the provider gets it
+      // back, but it must not leak into summaries, titles or token previews.
+      return "";
     case "image":
       // TODO: images have no text representation; future: describe via alt text or placeholder
       return "";
