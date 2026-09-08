@@ -181,8 +181,8 @@ describe("createPiAiModelPort: construction", () => {
     expect(() =>
       createPiAiModelPort({
         providers: [
-          { id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] },
-          { id: "other", baseURL: "https://other.example/v1", models: [{ code: "m2" }] },
+          { kind: "custom", id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] },
+          { kind: "custom", id: "other", baseURL: "https://other.example/v1", models: [{ code: "m2" }] },
         ],
       }),
     ).toThrow();
@@ -192,8 +192,8 @@ describe("createPiAiModelPort: construction", () => {
     expect(() =>
       createPiAiModelPort({
         providers: [
-          { id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] },
-          { id: "other", baseURL: "https://other.example/v1", models: [{ code: "m2" }] },
+          { kind: "custom", id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] },
+          { kind: "custom", id: "other", baseURL: "https://other.example/v1", models: [{ code: "m2" }] },
         ],
         defaultProviderId: "acme",
       }),
@@ -203,7 +203,7 @@ describe("createPiAiModelPort: construction", () => {
   it("does not throw for a single configured provider without defaultProviderId", () => {
     expect(() =>
       createPiAiModelPort({
-        providers: [{ id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] }],
+        providers: [{ kind: "custom", id: "acme", baseURL: "https://acme.example/v1", models: [{ code: "m1" }] }],
       }),
     ).not.toThrow();
   });

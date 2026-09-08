@@ -6,23 +6,43 @@ import {
   type Model,
   type Models,
   type MutableModels,
+  type Provider,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelReasoningInfo, ReasoningEffortId, ResolvedModelInfo } from "@volto/core";
 
-/** One configured pi-ai gateway: a hand-declared provider plus its models. */
-export interface PiAiProviderConfig {
-  id: string;
-  name?: string;
-  baseURL: string;
-  apiKey?: string;
-  models: Array<{
-    code: string;
-    name?: string;
-    contextWindow?: number;
-    maxOutputTokens?: number;
-  }>;
-}
+/**
+ * One configured pi-ai provider. Either a reference into pi-ai's built-in
+ * catalog (`kind: "catalog"`) or a hand-declared OpenAI-completions gateway
+ * (`kind: "custom"`, unchanged from phase two aside from the new `reasoning`
+ * flag on each model).
+ */
+export type PiAiProviderConfig =
+  | {
+      kind: "catalog";
+      /** volto-side config id; also the key models are registered under. */
+      id: string;
+      /** pi-ai's built-in provider id, e.g. "openai", "deepseek". */
+      piProvider: string;
+      apiKey?: string;
+      /** User-selected model codes; an empty array means no usable models. */
+      modelCodes: string[];
+    }
+  | {
+      kind: "custom";
+      id: string;
+      name?: string;
+      baseURL: string;
+      apiKey?: string;
+      models: Array<{
+        code: string;
+        name?: string;
+        contextWindow?: number;
+        maxOutputTokens?: number;
+        reasoning?: boolean;
+      }>;
+    };
 
 /** Fallbacks used only because hand-declared config models lack a real catalog entry. */
 const DEFAULT_CONTEXT_WINDOW = 128_000;
@@ -54,11 +74,18 @@ function normalizeBaseUrl(baseUrl: string): string {
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
+type CustomModelEntry = Extract<PiAiProviderConfig, { kind: "custom" }>["models"][number];
+type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
+
 /**
- * Build the pi-ai `Model` for one hand-declared config entry. A hand-declared
- * model has no reasoning metadata: `reasoning` stays `false` and
- * `thinkingLevelMap` stays absent, so `describeModelInfo` legitimately omits
- * the `reasoning` field for it later.
+ * Build the pi-ai `Model` for one hand-declared config entry. `reasoning`
+ * comes straight from the config flag (default `false`, unchanged from phase
+ * two); `thinkingLevelMap` is deliberately left unset even when
+ * `reasoning: true` — `getSupportedThinkingLevels()` already yields a
+ * sensible default level set (off/minimal/low/medium/high, `xhigh`/`max`
+ * excluded) for a `reasoning: true` model with no explicit map
+ * (dist/models.js:551-562), which is the best a generic hand-declared
+ * OpenAI-completions gateway can claim without per-model level metadata.
  *
  * `baseUrl` must be set here, on the model itself: pi-ai only ever rewrites a
  * model's base URL from `auth.baseUrl` inside `applyAuth`
@@ -67,18 +94,14 @@ function normalizeBaseUrl(baseUrl: string): string {
  * confirms this is the intended shape (dist/providers/openai.js:9 sets
  * `baseUrl` on the model, not just the provider).
  */
-function buildModel(
-  providerId: string,
-  providerBaseUrl: string,
-  entry: PiAiProviderConfig["models"][number],
-): Model<"openai-completions"> {
+function buildModel(providerId: string, providerBaseUrl: string, entry: CustomModelEntry): Model<"openai-completions"> {
   return {
     id: entry.code,
     name: entry.name ?? entry.code,
     api: "openai-completions",
     provider: providerId,
     baseUrl: normalizeBaseUrl(providerBaseUrl),
-    reasoning: false,
+    reasoning: entry.reasoning ?? false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
@@ -87,14 +110,69 @@ function buildModel(
 }
 
 /**
+ * Wrap one of pi-ai's built-in catalog providers as a `Provider` registered
+ * under volto's own config id, restricted to the user's selected model
+ * codes.
+ *
+ * `baseUrl` on each model is left exactly as pi-ai's catalog gives it — no
+ * `normalizeBaseUrl` — per rule 1 in the task brief: that helper exists only
+ * for hand-declared gateways where phase two found pi-ai does no
+ * normalization of its own; applying it to an already-correct catalog
+ * address would corrupt it.
+ *
+ * `model.provider` is rewritten to `config.id` (not left as pi-ai's own
+ * provider id) because `Models.stream`/`streamSimple` resolve the owning
+ * provider via `model.provider` looked up in the same map `setProvider`
+ * populates (dist/models.js: `requireProvider` reads `this.providers.get(
+ * model.provider)`); registering under `config.id` while leaving
+ * `model.provider` as pi-ai's builtin id would make every request 404 on
+ * "unknown provider".
+ *
+ * `auth` is the original catalog provider's own `ProviderAuth`, untouched —
+ * no `fixedApiKeyAuth` is built here (rule 2). `Models.streamSimple`'s
+ * `options.apiKey` already wins over any resolved/ambient auth per request
+ * (dist/auth/resolve.js: `resolveProviderAuthWithSignal` takes the
+ * `overrides.apiKey` branch first when present), so the configured key is
+ * injected per call from `resolveConfiguredApiKey`, not stored here.
+ */
+function buildCatalogProvider(config: CatalogProviderConfig): Provider {
+  const source = builtinProviders().find((provider) => provider.id === config.piProvider);
+  if (!source) {
+    throw new Error(`pi-ai: unknown catalog provider "${config.piProvider}"`);
+  }
+
+  const selected = new Set(config.modelCodes);
+  const models = source.getModels()
+    .filter((model) => selected.has(model.id))
+    .map((model) => ({ ...model, provider: config.id }));
+
+  return {
+    id: config.id,
+    name: source.name,
+    baseUrl: source.baseUrl,
+    auth: source.auth,
+    getModels: () => models,
+    stream: (model, context, options) => source.stream(model, context, options),
+    streamSimple: (model, context, options) => source.streamSimple(model, context, options),
+  };
+}
+
+/**
  * Assemble a pi-ai `Models` collection from volto's configured providers.
- * Every entry becomes a hand-declared gateway via `createProvider`; there is
- * no catalog-lookup path in this phase (that is phase three).
+ * `kind: "custom"` entries become a hand-declared gateway via
+ * `createProvider`, exactly as in phase two. `kind: "catalog"` entries
+ * register a restricted view of one of pi-ai's built-in providers — see
+ * {@link buildCatalogProvider}.
  */
 export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
   const models = createModels();
 
   for (const config of providers) {
+    if (config.kind === "catalog") {
+      models.setProvider(buildCatalogProvider(config));
+      continue;
+    }
+
     const provider = createProvider({
       id: config.id,
       name: config.name,
@@ -107,6 +185,19 @@ export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
   }
 
   return models;
+}
+
+/**
+ * API key to inject on each `streamSimple`/`stream` request for a configured
+ * provider. Catalog providers use per-request injection (rule 2): the key is
+ * read straight from the live config on every call, never baked into an auth
+ * object. Custom providers already bake their key into a `fixedApiKeyAuth`
+ * at `buildModels()` time, so this returns `undefined` for them and the
+ * caller simply omits the request-level `apiKey` option.
+ */
+export function resolveConfiguredApiKey(providers: PiAiProviderConfig[], providerId: string): string | undefined {
+  const config = providers.find((p) => p.id === providerId);
+  return config?.kind === "catalog" ? config.apiKey : undefined;
 }
 
 /** Capitalize a pi-ai thinking-level id for display, e.g. "high" -> "High". */

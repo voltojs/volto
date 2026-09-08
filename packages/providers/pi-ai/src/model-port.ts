@@ -1,6 +1,6 @@
 import type { Models, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@volto/core";
-import { buildModels, describeModelInfo, type PiAiProviderConfig } from "./collection.js";
+import { buildModels, describeModelInfo, resolveConfiguredApiKey, type PiAiProviderConfig } from "./collection.js";
 import { toPiContext } from "./context.js";
 import { normalizeStream } from "./stream-normalize.js";
 
@@ -26,7 +26,8 @@ export interface CreatePiAiModelPortOptions {
 export function createPiAiModelPort(opts: CreatePiAiModelPortOptions): ModelPort {
   const providerId = resolveProviderId(opts);
   const models = buildModels(opts.providers);
-  return createPiAiModelPortFromModels(models, providerId, opts.defaultModel);
+  const apiKey = resolveConfiguredApiKey(opts.providers, providerId);
+  return createPiAiModelPortFromModels(models, providerId, opts.defaultModel, apiKey);
 }
 
 /**
@@ -39,6 +40,13 @@ export function createPiAiModelPortFromModels(
   models: Models,
   providerId: string,
   defaultModel?: string,
+  /**
+   * API key injected into every `streamSimple` call for this route (rule 2 —
+   * catalog providers carry no baked-in auth; the key travels per request).
+   * Undefined for custom providers, whose key is already baked into their
+   * `fixedApiKeyAuth` by `buildModels()`.
+   */
+  requestApiKey?: string,
 ): ModelPort {
   return {
     async *stream(req: ModelRequest): AsyncIterable<ModelEvent> {
@@ -101,6 +109,7 @@ export function createPiAiModelPortFromModels(
         // sending an explicit off value.
         const events = models.streamSimple(model, context, {
           signal: req.abortSignal,
+          ...(requestApiKey !== undefined ? { apiKey: requestApiKey } : {}),
           ...(req.reasoningEffort !== undefined
             ? { reasoning: req.reasoningEffort as ThinkingLevel }
             : {}),
