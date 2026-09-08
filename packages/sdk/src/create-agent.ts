@@ -541,10 +541,13 @@ export interface CreateAgentOptions {
   pricing?: PricingTable;
 
   /**
-   * Reasoning (thinking) passthrough strategy:
+   * Reasoning (thinking) EventSink forwarding strategy. Reasoning always
+   * lands in message history, the transcript, and the conversation view
+   * regardless of this setting — it only controls whether `reasoning_delta`
+   * events reach the EventSink:
    * - "emit" (default): reasoning_delta events flow to EventSink (visible to UI)
-   * - "record": reasoning is stored in message history (for debugging)
-   * - "meter-only": reasoning is consumed only by CostMeter (not surfaced)
+   * - "record": same delta forwarding as "emit" (reserved for future divergence)
+   * - "meter-only": reasoning_delta events are dropped from EventSink (not surfaced live)
    */
   reasoningStrategy?: "emit" | "record" | "meter-only";
 
