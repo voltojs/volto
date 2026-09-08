@@ -276,6 +276,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           providerId?: string;
           modelId?: string;
           permissionMode?: string;
+          reasoningEffort?: string;
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
@@ -296,15 +297,37 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           return;
         }
 
-        // Ack immediately; the turn streams over SSE. runTurn never rejects —
-        // failures are delivered to the client as protocol `error` events.
-        jsonResponse(res, 202, { sessionId, accepted: true });
-        void registry.runTurn(sessionId, body.message, {
+        const turnConfig = {
           ...(body.projectId ? { projectId: body.projectId } : {}),
           ...(body.providerId ? { providerId: body.providerId } : {}),
           ...(body.modelId ? { modelId: body.modelId } : {}),
           ...(isUiPermissionMode(body.permissionMode) ? { permissionMode: body.permissionMode } : {}),
-        });
+          ...(body.reasoningEffort !== undefined ? { reasoningEffort: body.reasoningEffort } : {}),
+        };
+
+        // A requested reasoningEffort is validated against the resolved
+        // model's declared capability BEFORE any provider I/O and BEFORE the
+        // turn is ever acked — an unsupported value must answer with a real
+        // HTTP 400 and never reach the agent factory, not merely surface as a
+        // mid-stream `error` event after an agent has already been built.
+        // Only reached when the caller actually asked for an effort: an
+        // omitted `reasoningEffort` keeps the exact prior behavior (whatever
+        // resolveConfig()/runTurn() already did for project/provider/model
+        // resolution failures — a 202 ack followed by an SSE `error` frame).
+        if (body.reasoningEffort !== undefined) {
+          try {
+            await registry.resolveConfig(turnConfig);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            jsonResponse(res, 400, { error: message });
+            return;
+          }
+        }
+
+        // Ack immediately; the turn streams over SSE. runTurn never rejects —
+        // failures are delivered to the client as protocol `error` events.
+        jsonResponse(res, 202, { sessionId, accepted: true });
+        void registry.runTurn(sessionId, body.message, turnConfig);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });

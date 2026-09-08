@@ -75,6 +75,13 @@ export interface WiringOptions {
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
   /**
+   * Reasoning effort for this agent instance, forwarded verbatim to
+   * createAgent()'s own `reasoningEffort` option. Validated by the caller
+   * (sessions.ts's resolveConfig) against the resolved model's declared
+   * capability before this is ever reached — never rewritten here.
+   */
+  reasoningEffort?: string;
+  /**
    * System prompt seeded into the conversation (and mirrored into the
    * request_header transcript event). Defaults to DEFAULT_SYSTEM_PROMPT;
    * pass `null` to run with no system message.
@@ -94,8 +101,16 @@ export interface WiringOptions {
   chatStore?: TranscriptStore;
   /** The chatStore's stable, whole-conversation session id. */
   chatSessionId?: string;
-  /** Config binding recorded once as a `session_meta` transcript event (via chatStore.appendEvents()) when the agent is (re)built. */
-  chatMeta?: ChatSessionMeta;
+  /**
+   * Config binding recorded once as a `session_meta` transcript event (via
+   * chatStore.appendEvents()) when the agent is (re)built. Widened with an
+   * optional `reasoningEffort` beyond core's own `ChatSessionMeta` — this is
+   * headless-server's own extra config-binding field, not a core concept, so
+   * it is added here rather than by touching `@volto/core`'s type; createAgent()'s
+   * own `chatMeta` parameter still accepts this structurally (a superset of
+   * what it requires), and the persisted jsonl record is untyped JSON at rest.
+   */
+  chatMeta?: ChatSessionMeta & { reasoningEffort?: string };
   /**
    * Ordinal of the last turn already in this session's durable transcript —
    * forwarded verbatim to createAgent()'s `initialTurn` so a rebuilt agent
@@ -176,6 +191,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     skillRegistry,
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
+    ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),

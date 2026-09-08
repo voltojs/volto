@@ -15,7 +15,7 @@ import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core
 import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
-import type { PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
@@ -46,6 +46,14 @@ export interface TurnConfig {
   providerId?: string;
   modelId?: string;
   permissionMode?: UiPermissionMode;
+  /**
+   * Reasoning effort requested for this turn — forwarded verbatim to
+   * createAgent()'s own `reasoningEffort` option. Validated in resolveConfig()
+   * against the resolved model's declared capability before any provider I/O;
+   * an unsupported value throws rather than being silently rewritten (mirrors
+   * `permissionMode`'s parallel structure at every site below).
+   */
+  reasoningEffort?: string;
 }
 
 /** Snapshot of what an agent instance was built from. */
@@ -67,6 +75,7 @@ interface ResolvedConfig {
    */
   keyFingerprint: string | undefined;
   permissionMode: UiPermissionMode | undefined;
+  reasoningEffort: string | undefined;
 }
 
 /**
@@ -97,7 +106,61 @@ const EMPTY_CONFIG: ResolvedConfig = {
   maxOutputTokens: undefined,
   keyFingerprint: undefined,
   permissionMode: undefined,
+  reasoningEffort: undefined,
 };
+
+/**
+ * Project a resolved credential into the `PiAiProviderConfig` shape
+ * `createPiAiModelPort` expects — shared by `rebuild()` (to build the real
+ * agent's ModelPort) and `assertSupportedReasoningEffort()` (to look up the
+ * resolved model's declared reasoning capability without making any provider
+ * I/O — `describeModel` on the resulting port is a pure, synchronous
+ * projection of already-known config/catalog data, never a network call).
+ */
+function buildProviderConfig(providerId: string | undefined, credentials: ResolvedCredentials): PiAiProviderConfig {
+  return credentials.kind === "catalog"
+    ? {
+        kind: "catalog",
+        id: providerId ?? "default",
+        piProvider: credentials.piProvider,
+        apiKey: credentials.apiKey ?? undefined,
+        modelCodes: [credentials.code],
+      }
+    : {
+        kind: "custom",
+        id: providerId ?? "default",
+        // Mirrors provider-openai's own default when no baseURL is resolved.
+        baseURL: credentials.baseURL ?? "https://api.openai.com",
+        apiKey: credentials.apiKey ?? undefined,
+        models: [{ code: credentials.code, reasoning: credentials.reasoning }],
+      };
+}
+
+/**
+ * Validates a requested `reasoningEffort` against the resolved model's
+ * declared capability, throwing when unsupported. This is the first line of
+ * defense named in the phase-one contract: the pi-ai ModelPort adapter
+ * itself repeats an equivalent check immediately before its own provider
+ * request as a last line of defense, but a turn must never reach that point
+ * — an unsupported effort must fail here, before rebuild()/createAgent() are
+ * ever invoked, not be silently rewritten to something the model accepts.
+ */
+async function assertSupportedReasoningEffort(
+  providerId: string | undefined,
+  credentials: ResolvedCredentials,
+  reasoningEffort: string,
+): Promise<void> {
+  const providerConfig = buildProviderConfig(providerId, credentials);
+  const port = createPiAiModelPort({ providers: [providerConfig], defaultProviderId: providerConfig.id });
+  const info = await port.describeModel!(credentials.code);
+  const supported = info.reasoning?.efforts.map((effort) => effort.id as string) ?? [];
+  if (!supported.includes(reasoningEffort)) {
+    throw new Error(
+      `Unsupported reasoningEffort "${reasoningEffort}" for model "${credentials.code}"; ` +
+        `supported: ${supported.length > 0 ? supported.join(", ") : "(none)"}`,
+    );
+  }
+}
 
 /** SHA-256 hex digest of an apiKey, for change detection without storing the secret. */
 function fingerprintApiKey(apiKey: string): string {
@@ -395,6 +458,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     }
     const credentials: ResolvedCredentials = resolved;
 
+    // Validate BEFORE any provider I/O — this must throw (never silently
+    // rewrite) when the resolved model does not declare support for the
+    // requested effort. See assertSupportedReasoningEffort's own doc comment.
+    if (requested.reasoningEffort !== undefined) {
+      await assertSupportedReasoningEffort(requested.providerId, credentials, requested.reasoningEffort);
+    }
+
     const config: ResolvedConfig = {
       projectPath,
       projectId: requested.projectId,
@@ -405,6 +475,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       maxOutputTokens: credentials.kind === "custom" ? credentials.maxOutputTokens : undefined,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
+      reasoningEffort: requested.reasoningEffort,
     };
 
     return { config, credentials };
@@ -421,7 +492,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.code === b.code &&
       a.maxOutputTokens === b.maxOutputTokens &&
       a.keyFingerprint === b.keyFingerprint &&
-      a.permissionMode === b.permissionMode
+      a.permissionMode === b.permissionMode &&
+      a.reasoningEffort === b.reasoningEffort
     );
   }
 
@@ -494,28 +566,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
             // `modelPort` is given (see wiring.ts). This targets the exact
             // provider this turn resolved to — not a default — since both
             // branches read `config.providerId`/`credentials` verbatim.
-            providerConfig: (credentials.kind === "catalog"
-              ? {
-                  kind: "catalog",
-                  id: config.providerId ?? "default",
-                  piProvider: credentials.piProvider,
-                  apiKey: credentials.apiKey ?? undefined,
-                  modelCodes: [credentials.code],
-                }
-              : {
-                  kind: "custom",
-                  id: config.providerId ?? "default",
-                  // Mirrors provider-openai's own default when no baseURL is resolved.
-                  baseURL: credentials.baseURL ?? "https://api.openai.com",
-                  apiKey: credentials.apiKey ?? undefined,
-                  models: [{ code: credentials.code, reasoning: credentials.reasoning }],
-                }) satisfies PiAiProviderConfig,
+            providerConfig: buildProviderConfig(config.providerId, credentials),
           }
         : {}),
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
         ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
         : {}),
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
       ...(initialStep !== undefined ? { initialStep } : {}),
@@ -528,6 +586,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
               providerId: config.providerId ?? null,
               modelId: config.modelId ?? null,
               permissionMode: config.permissionMode ?? null,
+              ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
             },
           }
         : {}),
@@ -699,5 +758,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     ensureAgent,
     closeAll,
     size: () => sessions.size,
+    /**
+     * Resolves and validates a `TurnConfig` without building/rebuilding an
+     * agent — throws exactly as `runTurn()`'s internal call would. Exposed so
+     * `POST /messages` can validate a request's `reasoningEffort` against the
+     * resolved model's declared capability and answer with a genuine HTTP 400
+     * *before* ever acking the turn, rather than only surfacing the failure
+     * as a mid-stream `error` event after the agent factory has already run.
+     */
+    resolveConfig,
   };
 }
