@@ -10,18 +10,19 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "start": "node dist/server.js",
-    "dev": "tsc --build && node --env-file-if-exists=../../.env dist/server.js"
+    "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
     "@volto/core": "workspace:*",
-    "@volto/sdk": "workspace:*",
     "@volto/provider-openai": "workspace:*",
     "@volto/runtime-node": "workspace:*",
+    "@volto/sdk": "workspace:*",
     "@volto/store-jsonl": "workspace:*",
     "@volto/store-sqlite": "workspace:*",
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.0"
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.23.13"
   }
 }
