@@ -1014,15 +1014,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   async function appendSkillCatalogLayer(
     hostLayers: ContextLayer[] | undefined,
   ): Promise<ContextLayer[] | undefined> {
-    if (!opts.skillRegistry) return hostLayers;
-    const summaries = (await opts.skillRegistry.list())
-      .filter((s) => s.invocation.modelInvocable)
-      .sort(compareSkillSummariesByName);
-    if (summaries.length === 0) return hostLayers;
-    const catalogLayer: ContextLayer = {
-      id: "skill-catalog",
-      text: renderSkillCatalog(summaries, opts.skillCatalogDescriptionMaxLength),
-    };
+    const catalogLayer = await buildSkillCatalogLayer(opts.skillRegistry, opts.skillCatalogDescriptionMaxLength);
+    if (!catalogLayer) return hostLayers;
     return hostLayers === undefined ? [catalogLayer] : [...hostLayers, catalogLayer];
   }
 
@@ -1516,6 +1509,27 @@ export function renderSkillCatalog(
   return ["Available skills (load full instructions with the skill tool):", ...lines].join("\n");
 }
 
+/**
+ * Builds the skill-catalog `ContextLayer` (names + descriptions only) shared
+ * by the main turn and subagent dispatch. Returns `undefined` when there is
+ * no registry, or when the registry lists zero model-invocable skills — an
+ * empty catalog layer would only spend tokens for nothing.
+ */
+async function buildSkillCatalogLayer(
+  skillRegistry: SkillRegistry | undefined,
+  descriptionMaxLength: number | undefined,
+): Promise<ContextLayer | undefined> {
+  if (!skillRegistry) return undefined;
+  const summaries = (await skillRegistry.list())
+    .filter((s) => s.invocation.modelInvocable)
+    .sort(compareSkillSummariesByName);
+  if (summaries.length === 0) return undefined;
+  return {
+    id: "skill-catalog",
+    text: renderSkillCatalog(summaries, descriptionMaxLength),
+  };
+}
+
 function normalizeInput(input: string | AgentInput): AgentInput {
   if (typeof input === "string") {
     return { type: "user_message", content: input };
@@ -1756,11 +1770,21 @@ function createSubAgentExecutor(
     const subCapabilities = new Set(capabilities);
     subCapabilities.delete("agent:task");
 
+    // A subagent that keeps skill:load (and the `skill` tool) can only guess
+    // skill names without this. Rebuilt per dispatch rather than reusing the
+    // parent turn's catalog: correctness (a registry can change mid-session)
+    // over the one extra `list()` call per subagent. Deliberately does NOT
+    // carry the host's other context layers (project instructions, user
+    // memory, …) — plan-015 decided subagents start from a clean context,
+    // and widening that is a design change, not this fix's scope.
+    const subCatalogLayer = await buildSkillCatalogLayer(opts.skillRegistry, opts.skillCatalogDescriptionMaxLength);
+
     const subStepContext: StepContext = {
       tools: subToolDefs,
       model: resolveConfigValue(opts.model, opts.config?.config, "model"),
       maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
+      ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
     };
 
     const currentSink = getCurrentEventSink();

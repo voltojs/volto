@@ -5,7 +5,7 @@ import {
   toolCallScript,
   textScript,
 } from "@volto/core";
-import type { ToolDefinition, ToolResult } from "@volto/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelRequest, SkillRegistry } from "@volto/core";
 
 // ──────────────────────────────────────────────
 // Fixtures
@@ -121,5 +121,136 @@ describe("task sub-agent — context isolation", () => {
 
     // Should complete (the sub-agent's task call fails gracefully)
     expect(state.status).toBe("done");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Subagent skill-catalog context layer (plan-018 follow-up)
+// ──────────────────────────────────────────────
+
+describe("task sub-agent — skill catalog context layer", () => {
+  const registry: SkillRegistry = {
+    list: async () => [
+      {
+        name: "alpha",
+        description: "Alpha does things",
+        invocation: { modelInvocable: true, userInvocable: true },
+      },
+      {
+        name: "hidden",
+        description: "Not for the model",
+        invocation: { modelInvocable: false, userInvocable: true },
+      },
+    ],
+    load: async (name: string) =>
+      name === "alpha" ? { body: "ALPHA-BODY", baseDir: "/skills/alpha" } : undefined,
+  };
+
+  function systemContentsOf(req: ModelRequest): string[] {
+    return req.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (m as { content: string }).content);
+  }
+
+  it("gives a dispatched subagent the skill-catalog layer when a registry is present", async () => {
+    const capturedRequests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      // Main agent: dispatch a subagent via the task tool
+      toolCallScript("main-call-1", "task", JSON.stringify({ message: "Do research" })),
+      // Sub-agent: single text turn
+      textScript("Sub-agent done"),
+      // Main agent: final text after task tool returns
+      textScript("Summary."),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        capturedRequests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = createAgent({
+      modelPort,
+      skillRegistry: registry,
+      enableTaskTool: true,
+    });
+
+    await agent.run("Research this topic");
+
+    // capturedRequests[0] is the main agent's turn (which also gets the
+    // catalog — covered elsewhere); capturedRequests[1] is the subagent's
+    // single model call.
+    const subRequest = capturedRequests[1]!;
+    const subSystemContents = systemContentsOf(subRequest);
+    expect(
+      subSystemContents.some((c) => c.startsWith("Available skills (load full instructions with the skill tool):")),
+    ).toBe(true);
+    expect(subSystemContents.some((c) => c.includes("- alpha: Alpha does things"))).toBe(true);
+    // Non-model-invocable skills must not leak into the subagent's catalog either.
+    expect(subSystemContents.some((c) => c.includes("hidden"))).toBe(false);
+  });
+
+  it("gives a dispatched subagent no contextLayers when there is no skill registry (regression guard)", async () => {
+    const capturedRequests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      toolCallScript("main-call-1", "task", JSON.stringify({ message: "Do research" })),
+      textScript("Sub-agent done"),
+      textScript("Summary."),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        capturedRequests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = createAgent({
+      modelPort,
+      enableTaskTool: true,
+      // No skillRegistry — must be byte-identical to today's behavior.
+    });
+
+    await agent.run("Research this topic");
+
+    const subRequest = capturedRequests[1]!;
+    // No system messages at all — no host system prompt, no catalog layer.
+    expect(subRequest.messages.some((m) => m.role === "system")).toBe(false);
+  });
+
+  it("gives a dispatched subagent no catalog layer when no skill is model-invocable", async () => {
+    const capturedRequests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      toolCallScript("main-call-1", "task", JSON.stringify({ message: "Do research" })),
+      textScript("Sub-agent done"),
+      textScript("Summary."),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        capturedRequests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const nonInvocableRegistry: SkillRegistry = {
+      list: async () => [
+        {
+          name: "manual-only",
+          description: "User-invoked only",
+          invocation: { modelInvocable: false, userInvocable: true },
+        },
+      ],
+      load: async () => undefined,
+    };
+
+    const agent = createAgent({
+      modelPort,
+      skillRegistry: nonInvocableRegistry,
+      enableTaskTool: true,
+    });
+
+    await agent.run("Research this topic");
+
+    const subRequest = capturedRequests[1]!;
+    expect(subRequest.messages.some((m) => m.role === "system")).toBe(false);
   });
 });
