@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model as PiModel, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 
 import type { ModelRequest } from "@volto/core";
 import { toReplayEnvelope } from "../replay.js";
 import { toPiContext } from "../context.js";
 
-const model = "test-model";
+const modelId = "test-model";
+// Minimal fake Model, only the fields toPiContext/mapAssistantMessage reads
+// (id/api/provider), for stamping onto outgoing assistant messages.
+const model = {
+  id: modelId,
+  api: "test-api",
+  provider: "test-provider",
+} as unknown as PiModel<"test-api">;
 
 function baseRequest(overrides: Partial<ModelRequest> = {}): ModelRequest {
   return {
@@ -76,7 +83,7 @@ describe("toPiContext", () => {
           { type: "text", text: "answer" },
         ],
       } as AssistantMessage,
-      model,
+      modelId,
     );
     // Manually craft the envelope with real signatures (toReplayEnvelope above
     // only captures signatures present on the faux message, so set them here).
@@ -125,7 +132,7 @@ describe("toPiContext", () => {
   it("degrades gracefully when source.modelId disagrees with the current model, even if modelMeta looks valid", () => {
     const modelMeta = toReplayEnvelope(
       { content: [{ type: "thinking", thinking: "reasoning..." }] } as AssistantMessage,
-      model,
+      modelId,
     );
     modelMeta.blocks[0] = { type: "reasoning", thinkingSignature: "think-sig" };
 
@@ -149,7 +156,7 @@ describe("toPiContext", () => {
   it("trusts a valid envelope when source is absent entirely", () => {
     const modelMeta = toReplayEnvelope(
       { content: [{ type: "text", text: "answer" }] } as AssistantMessage,
-      model,
+      modelId,
     );
     modelMeta.blocks[0] = { type: "text", textSignature: "text-sig" };
 

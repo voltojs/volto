@@ -1,8 +1,10 @@
 import type {
+  Api as PiApi,
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
   ImageContent as PiImageContent,
   Message as PiMessage,
+  Model as PiModel,
   TextContent as PiTextContent,
   ThinkingContent as PiThinkingContent,
   Tool as PiTool,
@@ -25,11 +27,15 @@ import { readReplayEnvelope, type PiReplayBlock } from "./replay.js";
  * Translate core's neutral Message[] (and tool definitions) into a pi-ai
  * Context ready to hand to Models.stream/streamSimple.
  *
- * `model` is the current route's model id, passed through to
- * `readReplayEnvelope` so a message produced by a different model degrades
- * to unsigned content instead of replaying a foreign provider's signatures.
+ * `model` is the current route's resolved pi-ai Model. Its `id` is passed
+ * through to `readReplayEnvelope` so a message produced by a different model
+ * degrades to unsigned content instead of replaying a foreign provider's
+ * signatures; its `api`/`provider`/`id` are also stamped onto outgoing
+ * assistant messages so pi-ai's own `transformMessages` isSameModel check
+ * (which gates whether signed thinking/tool-call blocks survive) passes.
  */
-export function toPiContext(req: ModelRequest, model: string): PiContext {
+export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext {
+  const modelId = model.id;
   const systemPrompt = req.messages
     .filter((m): m is Extract<Message, { role: "system" }> => m.role === "system")
     .map((m) => m.content)
@@ -48,7 +54,7 @@ export function toPiContext(req: ModelRequest, model: string): PiContext {
     if (message.role === "user") {
       messages.push(mapUserMessage(message));
     } else if (message.role === "assistant") {
-      messages.push(mapAssistantMessage(message, model));
+      messages.push(mapAssistantMessage(message, modelId, model));
     } else {
       messages.push(...mapToolResultMessage(message.content, toolNameById));
     }
@@ -100,7 +106,11 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
 // assistant
 // ──────────────────────────────────────────────
 
-function mapAssistantMessage(message: AssistantMessage, model: string): PiAssistantMessage {
+function mapAssistantMessage(
+  message: AssistantMessage,
+  model: string,
+  piModel: PiModel<PiApi>,
+): PiAssistantMessage {
   // Second, independent guard alongside readReplayEnvelope's own model check:
   // `source` is stamped by the kernel from the step context at assembly time,
   // while `modelMeta` is adapter-private and self-declared. A message whose
@@ -132,13 +142,17 @@ function mapAssistantMessage(message: AssistantMessage, model: string): PiAssist
     // pi-ai's AssistantMessage doubles as "the full response envelope from a
     // provider" (api/provider/model/usage/stopReason are all required,
     // non-optional fields), but core's neutral AssistantMessage only tracks
-    // content + stopReason + modelMeta. When we're reconstructing history to
-    // send back out (not receiving a fresh response), those provenance
-    // fields are placeholders: pi-ai's own `convertMessages` implementations
-    // only read `content` (and the replay signatures within it) when
-    // building an outgoing request from message history, not `usage`/`api`.
-    api: "unknown",
-    provider: "unknown",
+    // content + stopReason + modelMeta. `usage` is a genuine placeholder
+    // (we don't track historical token counts), but api/provider/model MUST
+    // match the current route's real Model: pi-ai's own transformMessages
+    // (dist/api/transform-messages.js) computes `isSameModel` by comparing
+    // `assistantMsg.provider === model.provider && assistantMsg.api ===
+    // model.api && assistantMsg.model === model.id` before deciding whether
+    // to keep signed thinking/tool-call blocks or strip them to plain text.
+    // Hardcoding "unknown" here made isSameModel always false, silently
+    // dropping thinkingSignature/thoughtSignature on every replay.
+    api: piModel.api,
+    provider: piModel.provider,
     model,
     usage: zeroUsage(),
     stopReason: mapStopReason(message.stopReason),

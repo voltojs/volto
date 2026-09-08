@@ -95,7 +95,7 @@ export function createPiAiModelPortFromModels(
         }
 
         // Step 3: translate core's Message[] into a pi-ai Context.
-        const context = toPiContext(req, model.id);
+        const context = toPiContext(req, model);
 
         // Step 4: invoke pi-ai's streaming call.
         // maxTokens/temperature ARE forwarded — per api-notes.md item 2,
