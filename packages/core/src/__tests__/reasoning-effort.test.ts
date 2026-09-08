@@ -60,3 +60,22 @@ describe("reasoning effort contract", () => {
     expect(events[0]).toEqual({ type: "done", stopReason: "end_turn", meta: { blocks: ["sig-1"] } });
   });
 });
+
+describe("reasoning content block", () => {
+  it("is part of an assistant message and extracts to no user-visible text", () => {
+    const msg: AssistantMessage = {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "let me think" },
+        { type: "text", text: "answer" },
+      ],
+      source: { modelId: "thinker" },
+      modelMeta: { blocks: ["sig-1"] },
+    };
+
+    expect(extractBlockText(msg.content[0]!)).toBe("");
+    expect(extractBlockText(msg.content[1]!)).toBe("answer");
+    expect(msg.modelMeta).toEqual({ blocks: ["sig-1"] });
+    expect(msg.source?.modelId).toBe("thinker");
+  });
+});
