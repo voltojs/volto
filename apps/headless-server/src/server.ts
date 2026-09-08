@@ -122,20 +122,57 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           piProvider: provider.piProvider,
           modelCodes: provider.modelCodes,
         };
-        const port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+        // Building the ModelPort can itself throw (e.g. an unknown
+        // piProvider — collection.ts's buildCatalogProvider). Isolate that
+        // per-provider so one stale/misconfigured provider can't 500 the
+        // whole /providers response for every other healthy provider; fall
+        // back to reporting this provider's models with no capability info.
+        let port;
+        try {
+          port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+        } catch {
+          return { ...provider, models: provider.modelCodes.map((code) => ({ code })) };
+        }
+        // ModelPort is built once per provider (above), not once per model:
+        // describeModel below is a pure lookup against the already-built
+        // `models` collection, no need to rebuild the port per code.
         const models = await Promise.all(
           provider.modelCodes.map(async (code) => {
-            const info = await port.describeModel!(code);
-            return { code, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+            // Per-model isolation: an unknown model code (describeModelInfo
+            // in collection.ts) throws; degrade to `{ code }` with no
+            // `reasoning` key rather than failing the whole provider.
+            try {
+              const info = await port.describeModel!(code);
+              return { code, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+            } catch {
+              return { code };
+            }
           }),
         );
         return { ...provider, models };
       }
 
+      // A custom provider with no configured baseURL yet (`null` is a
+      // legitimate "not configured" state — see providers.ts's `create()`
+      // writing `input.baseURL ?? null`) has nothing to build a ModelPort
+      // against. Coercing null to "" would let normalizeBaseUrl (collection.ts)
+      // turn it into the nonsense URL "/v1"; skip capability resolution for
+      // this provider entirely instead, same as the "can't build a ModelPort"
+      // case below.
+      if (provider.baseURL === null) {
+        return {
+          ...provider,
+          models: provider.models.map((m) => {
+            const { reasoning: _reasoningFlag, ...rest } = m;
+            return rest;
+          }),
+        };
+      }
+
       const config: PiAiProviderConfig = {
         kind: "custom",
         id: provider.id,
-        baseURL: provider.baseURL ?? "",
+        baseURL: provider.baseURL,
         models: provider.models.map((m) => ({
           code: m.code,
           name: m.name,
@@ -144,14 +181,29 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           reasoning: m.reasoning,
         })),
       };
-      const port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+      let port;
+      try {
+        port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+      } catch {
+        return {
+          ...provider,
+          models: provider.models.map((m) => {
+            const { reasoning: _reasoningFlag, ...rest } = m;
+            return rest;
+          }),
+        };
+      }
       const models = await Promise.all(
         provider.models.map(async (m) => {
-          const info = await port.describeModel!(m.code);
           // The stored boolean `reasoning` config flag is replaced by the
           // resolved capability object on the wire — never both.
           const { reasoning: _reasoningFlag, ...rest } = m;
-          return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+          try {
+            const info = await port.describeModel!(m.code);
+            return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+          } catch {
+            return rest;
+          }
         }),
       );
       return { ...provider, models };
