@@ -26,7 +26,7 @@ export function ChatPanel() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const { sendMessage, connectionState } = useChatAgent();
-  const { entries, usage } = useConversation();
+  const { entries, usage, messages } = useConversation();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
@@ -107,6 +107,13 @@ export function ChatPanel() {
   // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
   const currentModel = useConfigStore((s) =>
     s.findModel(currentSession?.providerId ?? null, currentSession?.modelId ?? null),
+  );
+
+  // Gates ContextMeter's "provider isn't reporting usage" hint: only true
+  // once a full assistant round-trip has completed, so the hint cannot fire
+  // mid-first-generation (see shouldShowUnanchoredHint).
+  const hasCompletedAssistantMessage = messages.some(
+    (m) => m.role === 'assistant' && !m.isStreaming,
   );
 
   // A session's project/provider/model binding can be null (e.g. the
@@ -333,7 +340,11 @@ export function ChatPanel() {
                     .setSessionModel(currentSessionId, providerId, modelId)
                 }
               />
-              <ContextMeter usage={usage} contextWindow={currentModel?.contextWindow} />
+              <ContextMeter
+                usage={usage}
+                contextWindow={currentModel?.contextWindow}
+                hasCompletedAssistantMessage={hasCompletedAssistantMessage}
+              />
             </>
           ) : null
         }

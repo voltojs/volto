@@ -103,18 +103,33 @@ describe('shouldShowUnanchoredHint', () => {
     ...overrides,
   });
 
-  it('renders when unanchored with a non-zero messages estimate', () => {
-    expect(shouldShowUnanchoredHint(baseView({}))).toBe(true);
+  it('renders when unanchored and an assistant message has already completed', () => {
+    expect(shouldShowUnanchoredHint(baseView({}), true)).toBe(true);
   });
 
-  it('does not render when anchored', () => {
-    expect(shouldShowUnanchoredHint(baseView({ anchored: true }))).toBe(false);
+  it('does not render when anchored, even with a completed assistant message', () => {
+    expect(shouldShowUnanchoredHint(baseView({ anchored: true }), true)).toBe(false);
   });
+
+  it(
+    'does not render mid-first-generation: unanchored, messages > 0, but no assistant ' +
+      'response has completed yet',
+    () => {
+      // breakdown.messages > 0 here because request_header (which flips the
+      // meter out of its null state) fires after the user_message has
+      // already been folded — this is the exact state during the entire
+      // first generation, before any assistant reply has landed. The old
+      // predicate (`!anchored && breakdown.messages > 0`) wrongly returned
+      // true here.
+      expect(shouldShowUnanchoredHint(baseView({}), false)).toBe(false);
+    },
+  );
 
   it('does not render on a fresh session with nothing in it', () => {
     expect(
       shouldShowUnanchoredHint(
         baseView({ projectedTokens: 0, breakdown: { system: 0, tools: 0, messages: 0 } }),
+        false,
       ),
     ).toBe(false);
   });

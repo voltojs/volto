@@ -83,13 +83,25 @@ export function remainingTokens(usage: ContextUsageView, contextWindow?: number)
 
 /**
  * True when the projection has never been anchored to a real provider
- * measurement AND the conversation clearly has content (a non-zero message
- * estimate). This is the degradation case worth calling out — the same
- * `anchored === false` also holds on a session's very first turn (before any
- * model call has returned), which is a normal transient state, not a
- * degradation. Gating on `breakdown.messages > 0` excludes that first-turn
- * case: an empty session has nothing tokenized into the messages bucket yet.
+ * measurement AND at least one assistant turn has already completed. This is
+ * the degradation case worth calling out — a real provider that simply
+ * hasn't returned usage on the *current* in-flight turn yet must not be
+ * accused of never returning it.
+ *
+ * `hasCompletedAssistantMessage` (not `breakdown.messages > 0`) is the right
+ * gate: `request_header` (which is what flips a session out of the "nothing
+ * to render yet" null state) fires at the *start* of a model call, by which
+ * point the user's message has already been folded into `breakdown.messages`.
+ * So `anchored === false && breakdown.messages > 0` is also true for the
+ * entire first generation — several seconds where a perfectly good provider
+ * simply hasn't answered yet — and the old guard showed the hint then too.
+ * A completed assistant message can only exist once a full round-trip has
+ * happened, so it is false throughout that window and only flips true once
+ * the provider has genuinely had its chance to report usage and didn't.
  */
-export function shouldShowUnanchoredHint(usage: ContextUsageView): boolean {
-  return !usage.anchored && usage.breakdown.messages > 0;
+export function shouldShowUnanchoredHint(
+  usage: ContextUsageView,
+  hasCompletedAssistantMessage: boolean,
+): boolean {
+  return !usage.anchored && hasCompletedAssistantMessage;
 }

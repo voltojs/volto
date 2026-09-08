@@ -35,9 +35,18 @@ interface ContextMeterProps {
   usage: ContextUsageView | null;
   /** 当前模型的上下文窗口（tokens）；缺省 → 灰态 + 引导。 */
   contextWindow?: number;
+  /**
+   * Whether at least one assistant turn has fully completed in this
+   * conversation. Feeds shouldShowUnanchoredHint: an unanchored projection is
+   * only worth flagging as "this provider isn't reporting usage" once a
+   * round-trip has actually finished without one arriving — mid-first-
+   * generation, no assistant message has completed yet, so the hint stays
+   * hidden even though the projection is still unanchored.
+   */
+  hasCompletedAssistantMessage: boolean;
 }
 
-export function ContextMeter({ usage, contextWindow }: ContextMeterProps) {
+export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessage }: ContextMeterProps) {
   const [open, setOpen] = useState(false);
   if (!usage) return null;
 
@@ -94,7 +103,7 @@ export function ContextMeter({ usage, contextWindow }: ContextMeterProps) {
             <p className="text-muted-foreground mt-0.5 text-xs">
               剩余 {remaining === null ? '—' : `~${formatCompactTokens(remaining)}`}
             </p>
-            {shouldShowUnanchoredHint(usage) && (
+            {shouldShowUnanchoredHint(usage, hasCompletedAssistantMessage) && (
               <p className="text-muted-foreground mt-1 text-xs">
                 当前模型未返回用量数据，以上数字为纯估算，非实际测量值。
               </p>
