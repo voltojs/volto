@@ -55,6 +55,7 @@ import {
   parseSkillInvocation,
   renderSkillInjection,
   capSkillInjection,
+  ReasoningEffortId,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -299,6 +300,13 @@ export interface CreateAgentOptions {
 
   /** Temperature */
   temperature?: number;
+
+  /**
+   * Adapter-owned reasoning effort id, forwarded verbatim to the ModelPort.
+   * Distinct from `reasoningStrategy`, which only decides whether reasoning
+   * deltas reach the EventSink.
+   */
+  reasoningEffort?: string;
 
   /** Max inner-loop iterations before runaway guard fires (default: 20) */
   maxIterations?: number;
@@ -900,6 +908,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     temperature: resolve(opts.temperature, "temperature"),
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
+    ...(resolve(opts.reasoningEffort, "reasoningEffort") !== undefined
+      ? { reasoningEffort: ReasoningEffortId(resolve(opts.reasoningEffort, "reasoningEffort")!) }
+      : {}),
   };
 
   // ── Compose tool executor ────────────────
@@ -1803,6 +1814,13 @@ function createSubAgentExecutor(
       model: resolveConfigValue(opts.model, opts.config?.config, "model"),
       maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
+      ...(resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort") !== undefined
+        ? {
+            reasoningEffort: ReasoningEffortId(
+              resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort")!,
+            ),
+          }
+        : {}),
       ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
     };
 

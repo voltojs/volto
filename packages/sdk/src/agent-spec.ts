@@ -34,6 +34,8 @@ export interface AgentSpec {
   maxTokens?: number;
   /** Temperature */
   temperature?: number;
+  /** Adapter-owned reasoning effort id, forwarded verbatim to the ModelPort */
+  reasoningEffort?: string;
   /** Tool names to include (resolved from registry); empty = no tools */
   tools?: string[];
   /** Required capabilities — tools whose requires are not met are gated out */
@@ -67,6 +69,7 @@ export interface ResolvedAgentSpec {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  reasoningEffort?: string;
   maxIterations?: number;
   maxToolCalls?: number;
   responseFormat?: { type: "json"; schema?: JSONSchema };
@@ -117,6 +120,7 @@ export function resolveAgentSpec(
     model: spec.model,
     maxTokens: spec.maxTokens,
     temperature: spec.temperature,
+    reasoningEffort: spec.reasoningEffort,
     maxIterations: spec.maxIterations,
     maxToolCalls: spec.maxToolCalls,
     responseFormat: spec.responseFormat,
@@ -159,6 +163,7 @@ export function loadAgentSpec(options: LoadAgentSpecOptions): AgentInstance {
     model: resolved.model,
     maxTokens: resolved.maxTokens,
     temperature: resolved.temperature,
+    reasoningEffort: resolved.reasoningEffort,
     maxIterations: resolved.maxIterations,
     maxToolCalls: resolved.maxToolCalls,
     permissionConfig: resolved.permissionConfig,

@@ -39,6 +39,9 @@ export interface ConfigLayer {
   /** Temperature */
   temperature?: number;
 
+  /** Adapter-owned reasoning effort id, forwarded verbatim to the ModelPort */
+  reasoningEffort?: string;
+
   /** Max inner-loop iterations */
   maxIterations?: number;
 
@@ -142,6 +145,7 @@ const LAYER_KEYS = [
   "model",
   "maxTokens",
   "temperature",
+  "reasoningEffort",
   "maxIterations",
   "tokenBudget",
   "maxToolCalls",
