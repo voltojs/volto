@@ -8,8 +8,7 @@ import {
   type MutableModels,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import type { ModelReasoningInfo, ResolvedModelInfo } from "@volto/core";
-import { ReasoningEffortId } from "@volto/core";
+import type { ModelReasoningInfo, ReasoningEffortId, ResolvedModelInfo } from "@volto/core";
 
 /** One configured pi-ai gateway: a hand-declared provider plus its models. */
 export interface PiAiProviderConfig {
@@ -117,7 +116,7 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     if (levels.length > 0) {
       const reasoning: ModelReasoningInfo = {
         efforts: levels.map((level) => ({
-          id: ReasoningEffortId(level),
+          id: level as unknown as ReasoningEffortId, // branded type: effort id is published verbatim from pi-ai; core never interprets it
           name: displayName(level),
         })),
       };
