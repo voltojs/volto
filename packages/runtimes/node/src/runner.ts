@@ -748,6 +748,20 @@ export function createRunner(opts: RunnerOptions): Runner {
           if (event.type === "reasoning_delta") reasoningText += event.text;
         }
 
+        // Provider degradation signal: the request asked for usage but the
+        // stream ended without one. This is observability-only — forward it
+        // straight to the EventSink (the same raw `{type, data}` shape used
+        // for tool-result pendingEvents above) without touching the durable
+        // transcript or the reducer's own AgentInput vocabulary; it must not
+        // change anything the context/cost meters compute.
+        if (event.type === "usage_unavailable") {
+          opts.eventSink?.emit({
+            type: "usage_unavailable",
+            data: { model: stepContext.model },
+          });
+          continue;
+        }
+
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           // Keep every counter the provider reported — cache and reasoning
