@@ -35,7 +35,8 @@ import {
   resolveProjectPath,
   unknownProjectMessage,
 } from "./config/projects.js";
-import { createProviderStore } from "./config/providers.js";
+import { createProviderStore, type PublicProvider } from "./config/providers.js";
+import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
 import { isUiPermissionMode } from "./permission-modes.js";
 import {
@@ -90,6 +91,72 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
+}
+
+/**
+ * Inline each configured model's resolved reasoning capability into a
+ * `GET /providers` response.
+ *
+ * `ModelPort.describeModel` (from `createPiAiModelPort`) is used to derive
+ * this rather than duplicating pi-ai's capability logic: it re-projects
+ * pi-ai's statically generated catalog metadata (catalog-kind models) or the
+ * stored `reasoning` flag (custom-kind models) into `{ efforts, defaultEffort? }`
+ * — no apiKey is read and no network request is made, since building a
+ * `Models` collection and looking up a model's declared thinking levels are
+ * both pure, synchronous operations (see collection.ts's `describeModelInfo`).
+ * A model with no reasoning capability gets no `reasoning` key at all —
+ * never an empty/`off`-only list — matching the contract `describeModelInfo`
+ * already enforces; this function must not undo that while projecting.
+ *
+ * Never touches `apiKeyMasked` — every field from the input `PublicProvider`
+ * survives untouched except `models`, which is rebuilt from scratch without
+ * ever reading `apiKeyEnc`/the plaintext key.
+ */
+async function withReasoningCapability(providers: PublicProvider[]): Promise<unknown[]> {
+  return Promise.all(
+    providers.map(async (provider) => {
+      if (provider.kind === "catalog") {
+        const config: PiAiProviderConfig = {
+          kind: "catalog",
+          id: provider.id,
+          piProvider: provider.piProvider,
+          modelCodes: provider.modelCodes,
+        };
+        const port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+        const models = await Promise.all(
+          provider.modelCodes.map(async (code) => {
+            const info = await port.describeModel!(code);
+            return { code, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+          }),
+        );
+        return { ...provider, models };
+      }
+
+      const config: PiAiProviderConfig = {
+        kind: "custom",
+        id: provider.id,
+        baseURL: provider.baseURL ?? "",
+        models: provider.models.map((m) => ({
+          code: m.code,
+          name: m.name,
+          contextWindow: m.contextWindow,
+          maxOutputTokens: m.maxOutputTokens,
+          reasoning: m.reasoning,
+        })),
+      };
+      const port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
+      const models = await Promise.all(
+        provider.models.map(async (m) => {
+          const info = await port.describeModel!(m.code);
+          // The stored boolean `reasoning` config flag is replaced by the
+          // resolved capability object on the wire — never both.
+          const { reasoning: _reasoningFlag, ...rest } = m;
+          return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+        }),
+      );
+      return { ...provider, models };
+    }),
+  );
 }
 
 export function createServer(opts: ServerOptions = {}): http.Server {
@@ -372,10 +439,18 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       return;
     }
 
+    // GET /catalog/providers — pi-ai's built-in provider catalog. A static
+    // projection (see listCatalogProviders): no user input, no credentials,
+    // no network request.
+    if (req.method === "GET" && url.pathname === "/catalog/providers") {
+      jsonResponse(res, 200, listCatalogProviders());
+      return;
+    }
+
     // GET /providers
     if (req.method === "GET" && url.pathname === "/providers") {
       try {
-        jsonResponse(res, 200, await providerStore.listPublic());
+        jsonResponse(res, 200, await withReasoningCapability(await providerStore.listPublic()));
       } catch (err: unknown) {
         // Same corrupt-file failure mode as GET /projects above.
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });

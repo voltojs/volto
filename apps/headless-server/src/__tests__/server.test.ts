@@ -993,6 +993,82 @@ describe("Headless server", () => {
     expect(JSON.stringify(data)).toContain("sk-…3f2a");
   });
 
+  it("GET /catalog/providers returns a non-empty static projection excluding oauth-only providers", async () => {
+    const { status, data } = await getJson("/catalog/providers");
+    expect(status).toBe(200);
+    const providers = data as Array<{ id: string; name: string; models: Array<{ code: string }> }>;
+    expect(providers.length).toBeGreaterThan(0);
+    expect(providers.some((p) => p.id === "openai-codex")).toBe(false);
+    for (const provider of providers) {
+      expect(provider.models.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("GET /providers inlines non-empty reasoning efforts for a catalog reasoning model, and never exposes its apiKey", async () => {
+    // Find a real reasoning-capable catalog model so this test tracks pi-ai's
+    // actual metadata rather than a hardcoded, possibly-stale code.
+    const { data: catalog } = await getJson("/catalog/providers");
+    const catalogProviders = catalog as Array<{
+      id: string;
+      models: Array<{ code: string; reasoning: boolean }>;
+    }>;
+    let target: { piProvider: string; code: string } | undefined;
+    for (const provider of catalogProviders) {
+      const model = provider.models.find((m) => m.reasoning);
+      if (model) {
+        target = { piProvider: provider.id, code: model.code };
+        break;
+      }
+    }
+    expect(target).toBeDefined();
+
+    await post("/providers", {
+      name: "Catalog reasoning provider",
+      kind: "catalog",
+      piProvider: target!.piProvider,
+      apiKey: "sk-catalog-secret-1234",
+      modelCodes: [target!.code],
+    });
+
+    const { status, data } = await getJson("/providers");
+    expect(status).toBe(200);
+    expect(JSON.stringify(data)).not.toContain("sk-catalog-secret-1234");
+
+    const providers = data as Array<{
+      kind: string;
+      piProvider?: string;
+      models: Array<{ code: string; reasoning?: { efforts: Array<{ id: string; name: string }> } }>;
+    }>;
+    const provider = providers.find((p) => p.kind === "catalog" && p.piProvider === target!.piProvider);
+    expect(provider).toBeDefined();
+    const model = provider!.models.find((m) => m.code === target!.code);
+    expect(model).toBeDefined();
+    expect(model!.reasoning).toBeDefined();
+    expect(model!.reasoning!.efforts.length).toBeGreaterThan(0);
+  });
+
+  it("GET /providers omits the reasoning key entirely for a model with no reasoning capability", async () => {
+    await post("/providers", {
+      name: "No-reasoning provider",
+      baseURL: "https://example.com/v1",
+      apiKey: "sk-no-reasoning-secret",
+      models: [{ name: "plain-model", code: "plain-model" }],
+    });
+
+    const { data } = await getJson("/providers");
+    const providers = data as Array<{
+      kind: string;
+      models: Array<{ code: string; reasoning?: unknown }>;
+    }>;
+    const provider = providers.find((p) =>
+      p.kind === "custom" && p.models.some((m) => m.code === "plain-model"),
+    );
+    expect(provider).toBeDefined();
+    const model = provider!.models.find((m) => m.code === "plain-model");
+    expect(model).toBeDefined();
+    expect("reasoning" in model!).toBe(false);
+  });
+
   it("DELETE /providers/:id with a malformed id returns 400 instead of crashing", async () => {
     const { status } = await del("/providers/%");
     expect(status).toBe(400);

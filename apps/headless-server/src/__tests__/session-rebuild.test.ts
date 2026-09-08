@@ -257,11 +257,10 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
   });
 
-  // -- Finding 3: a catalog-kind credential must fail loudly instead of ---
-  // -- silently building an OpenAI-bound agent with the wrong provider's --
-  // -- API key. --------------------------------------------------------
+  // -- Task 4: a catalog-kind credential now builds a real agent, targeted --
+  // -- at the resolved provider/model, not a default OpenAI-bound one. ------
 
-  it("fails the turn instead of building an OpenAI-bound agent for a catalog-kind credential", async () => {
+  it("builds a real agent for a catalog-kind credential, targeting the resolved provider rather than a default", async () => {
     const { factory, builds } = makeFactory();
     const written: string[] = [];
     const registry = createSessionRegistry({
@@ -286,11 +285,29 @@ describe("session agent lifecycle", () => {
       projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
     });
 
-    // No agent was ever built — the catalog-kind path must throw before
-    // constructing a ModelPort, not fall back to an OpenAI-shaped one.
-    expect(builds).toHaveLength(0);
-    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+    // A real agent is now built — the catalog-kind path is wired, not
+    // rejected before ever reaching agentFactory.
+    expect(builds).toHaveLength(1);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(false);
     expect(registry.get("s1").running).toBe(false);
+
+    // The build targets the resolved catalog provider/model, not a default:
+    // "v1" (this turn's providerId) and "openai" (this credential's
+    // piProvider) both surface, and the model is "gpt-5", not DEFAULT_MODEL.
+    const providerConfig = builds[0]!["providerConfig"] as {
+      kind: string;
+      id: string;
+      piProvider: string;
+      modelCodes: string[];
+    };
+    expect(providerConfig.kind).toBe("catalog");
+    expect(providerConfig.id).toBe("v1");
+    expect(providerConfig.piProvider).toBe("openai");
+    expect(providerConfig.modelCodes).toEqual(["gpt-5"]);
+    expect(builds[0]!["model"]).toBe("gpt-5");
+
+    // The apiKey never leaks into the SSE stream either.
+    expect(written.some((chunk) => chunk.includes("sk-super-secret-token"))).toBe(false);
   });
 
   it("rejects a turn with an unknown projectId rather than defaulting", async () => {

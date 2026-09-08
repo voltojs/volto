@@ -5,7 +5,7 @@
 
 import * as path from "node:path";
 import { createAgent } from "@volto/sdk";
-import { createPiAiModelPort } from "@volto/provider-pi-ai";
+import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -57,6 +57,14 @@ export interface WiringOptions {
    */
   apiKey?: string;
   baseUrl?: string;
+  /**
+   * Fully-resolved pi-ai provider config (catalog or custom kind) to build
+   * the ModelPort from — the shape `sessions.ts`'s `rebuild()` constructs
+   * from a `resolveModel()` result. Takes precedence over `apiKey`/`baseUrl`
+   * (which only describe the legacy single hardcoded "custom" default
+   * below); ignored when `modelPort` is supplied.
+   */
+  providerConfig?: PiAiProviderConfig;
   cwd?: string;
   dbPath?: string;
   /**
@@ -119,20 +127,28 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const shell = createNodeShell({ defaultCwd: cwd });
   const network = createNodeNetwork();
   const model = opts.model ?? DEFAULT_MODEL;
-  const modelPort = opts.modelPort ?? createPiAiModelPort({
-    providers: [
-      {
-        kind: "custom",
-        id: "default",
-        // Mirrors provider-openai's own default when no baseURL is given.
-        baseURL: opts.baseUrl ?? "https://api.openai.com",
-        apiKey: opts.apiKey ?? "",
-        models: [{ code: model }],
-      },
-    ],
-    defaultProviderId: "default",
-    defaultModel: model,
-  });
+  const modelPort = opts.modelPort ?? createPiAiModelPort(
+    opts.providerConfig
+      ? {
+          providers: [opts.providerConfig],
+          defaultProviderId: opts.providerConfig.id,
+          defaultModel: model,
+        }
+      : {
+          providers: [
+            {
+              kind: "custom",
+              id: "default",
+              // Mirrors provider-openai's own default when no baseURL is given.
+              baseURL: opts.baseUrl ?? "https://api.openai.com",
+              apiKey: opts.apiKey ?? "",
+              models: [{ code: model }],
+            },
+          ],
+          defaultProviderId: "default",
+          defaultModel: model,
+        },
+  );
   const sessionStore = createSqliteStore({ path: dbPath });
 
   const skillRegistry = createSkillRegistry(cwd);

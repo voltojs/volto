@@ -15,7 +15,7 @@ import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core
 import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
-import { createPiAiModelPort } from "@volto/provider-pi-ai";
+import type { PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
@@ -71,14 +71,20 @@ interface ResolvedConfig {
 
 /**
  * Shape returned by providerStore.resolveModel — see config/providers.ts.
- * `kind: "catalog"` (piProvider + code, no baseURL) is not yet consumed by
- * `rebuild()` below; wiring a catalog-backed model into the pi-ai ModelPort
- * is tracked separately. Only `kind: "custom"` is built into a live agent
- * today.
+ * Both kinds are consumed by `rebuild()` below: each is projected into a
+ * `PiAiProviderConfig` (same discriminant) and handed to `createWiredAgent`
+ * via `WiringOptions.providerConfig`, which builds the actual ModelPort.
  */
 type ResolvedCredentials =
   | { kind: "catalog"; piProvider: string; apiKey: string | null; code: string }
-  | { kind: "custom"; baseURL: string | null; apiKey: string | null; code: string; maxOutputTokens?: number };
+  | {
+      kind: "custom";
+      baseURL: string | null;
+      apiKey: string | null;
+      code: string;
+      maxOutputTokens?: number;
+      reasoning?: boolean;
+    };
 
 /** A session with no project/model/permission selection yet. */
 const EMPTY_CONFIG: ResolvedConfig = {
@@ -480,37 +486,31 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
       ...(credentials
-        ? credentials.kind === "catalog"
-          ? (() => {
-              // Catalog-kind credentials aren't wired into a live agent yet
-              // (see ResolvedCredentials above; Task 4 lands this). Failing
-              // loudly here beats silently falling back to a "custom" shape
-              // pointed at OpenAI's endpoint, which would leak this
-              // provider's API key to the wrong service and surface as a
-              // confusing auth error. This throw is caught by runTurn()'s
-              // catch block (see below) and reported as a request-level
-              // error, not a server crash.
-              throw new Error(
-                "Catalog-kind providers are not yet wired into a live agent (Task 4); cannot build a ModelPort for this session.",
-              );
-            })()
-          : {
-              model: credentials.code,
-              modelPort: wiring.modelPort ?? createPiAiModelPort({
-                providers: [
-                  {
-                    kind: "custom",
-                    id: config.providerId ?? "default",
-                    // Mirrors provider-openai's own default when no baseURL is resolved.
-                    baseURL: credentials.baseURL ?? "https://api.openai.com",
-                    apiKey: credentials.apiKey ?? "",
-                    models: [{ code: credentials.code }],
-                  },
-                ],
-                defaultProviderId: config.providerId ?? "default",
-                defaultModel: credentials.code,
-              }),
-            }
+        ? {
+            model: credentials.code,
+            // `wiring.modelPort`, if the caller supplied one (e.g. tests via
+            // `agentFactory`), still wins: `createWiredAgent` only falls back
+            // to building a port from `providerConfig` when no explicit
+            // `modelPort` is given (see wiring.ts). This targets the exact
+            // provider this turn resolved to — not a default — since both
+            // branches read `config.providerId`/`credentials` verbatim.
+            providerConfig: (credentials.kind === "catalog"
+              ? {
+                  kind: "catalog",
+                  id: config.providerId ?? "default",
+                  piProvider: credentials.piProvider,
+                  apiKey: credentials.apiKey ?? undefined,
+                  modelCodes: [credentials.code],
+                }
+              : {
+                  kind: "custom",
+                  id: config.providerId ?? "default",
+                  // Mirrors provider-openai's own default when no baseURL is resolved.
+                  baseURL: credentials.baseURL ?? "https://api.openai.com",
+                  apiKey: credentials.apiKey ?? undefined,
+                  models: [{ code: credentials.code, reasoning: credentials.reasoning }],
+                }) satisfies PiAiProviderConfig,
+          }
         : {}),
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
