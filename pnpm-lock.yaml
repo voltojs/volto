@@ -491,6 +491,9 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/ask:
     dependencies:
@@ -587,6 +590,9 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/schedule:
     dependencies:
@@ -608,6 +614,9 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/skill:
     dependencies:
@@ -617,6 +626,9 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/vcs:
     dependencies:
@@ -638,6 +650,9 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 

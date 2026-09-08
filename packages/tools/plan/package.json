@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@volto/core": "workspace:*",
-    "@volto/tools-common": "workspace:*"
+    "@volto/tools-common": "workspace:*",
+    "zod": "^4.4.3"
   }
 }
