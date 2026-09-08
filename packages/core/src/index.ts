@@ -54,6 +54,7 @@ export type {
   ModelEventUsage,
   ModelEventDone,
   ModelEventError,
+  ModelEventUsageUnavailable,
   ModelEvent,
   ModelRequest,
   ModelPort,

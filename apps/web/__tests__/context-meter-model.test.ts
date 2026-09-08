@@ -5,6 +5,7 @@ import {
   formatCompactTokens,
   segmentWidths,
   remainingTokens,
+  shouldShowUnanchoredHint,
 } from '@/lib/context-meter-model';
 import type { ContextUsageView } from '@volto/sdk/sse';
 
@@ -90,5 +91,31 @@ describe('segmentWidths with an unreconciled breakdown', () => {
   it('normalises against the three segments, not the projection', () => {
     const widths = segmentWidths({ system: 10, tools: 10, messages: 20 });
     expect(widths.map((w) => Math.round(w.width))).toEqual([25, 25, 50]);
+  });
+});
+
+describe('shouldShowUnanchoredHint', () => {
+  const baseView = (overrides: Partial<ContextUsageView>): ContextUsageView => ({
+    projectedTokens: 100,
+    breakdown: { system: 3, tools: 2, messages: 95 },
+    layers: [],
+    anchored: false,
+    ...overrides,
+  });
+
+  it('renders when unanchored with a non-zero messages estimate', () => {
+    expect(shouldShowUnanchoredHint(baseView({}))).toBe(true);
+  });
+
+  it('does not render when anchored', () => {
+    expect(shouldShowUnanchoredHint(baseView({ anchored: true }))).toBe(false);
+  });
+
+  it('does not render on a fresh session with nothing in it', () => {
+    expect(
+      shouldShowUnanchoredHint(
+        baseView({ projectedTokens: 0, breakdown: { system: 0, tools: 0, messages: 0 } }),
+      ),
+    ).toBe(false);
   });
 });

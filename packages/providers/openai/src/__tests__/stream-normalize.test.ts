@@ -7,14 +7,17 @@ import type { ModelEvent } from "@volto/core";
 // Helpers
 // ──────────────────────────────────────────────
 
-async function collect(chunks: RawStreamChunk[]): Promise<ModelEvent[]> {
+async function collect(
+  chunks: RawStreamChunk[],
+  options?: { includeUsageRequested?: boolean },
+): Promise<ModelEvent[]> {
   async function* generate() {
     for (const chunk of chunks) {
       yield chunk;
     }
   }
   const events: ModelEvent[] = [];
-  for await (const event of normalizeStream(generate())) {
+  for await (const event of normalizeStream(generate(), options)) {
     events.push(event);
   }
   return events;
@@ -349,6 +352,32 @@ describe("normalizeStream", () => {
       const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
       expect(usage.inputTokens).toBe(0);
       expect(usage.cacheReadTokens).toBe(30);
+    });
+  });
+
+  describe("usage_unavailable", () => {
+    it("emits usage_unavailable when include_usage was requested and no usage chunk ever arrives", async () => {
+      const events = await collect(
+        [chunk({ content: "Hi" }), chunk({}, "stop")],
+        { includeUsageRequested: true },
+      );
+      const unavailable = events.filter((e) => e.type === "usage_unavailable");
+      expect(unavailable).toHaveLength(1);
+    });
+
+    it("does not emit usage_unavailable when usage was reported", async () => {
+      const events = await collect(
+        [chunk({ content: "Hi" }), chunk({}, "stop", { prompt_tokens: 10, completion_tokens: 5 })],
+        { includeUsageRequested: true },
+      );
+      const unavailable = events.filter((e) => e.type === "usage_unavailable");
+      expect(unavailable).toHaveLength(0);
+    });
+
+    it("does not emit usage_unavailable when include_usage was not requested", async () => {
+      const events = await collect([chunk({ content: "Hi" }), chunk({}, "stop")]);
+      const unavailable = events.filter((e) => e.type === "usage_unavailable");
+      expect(unavailable).toHaveLength(0);
     });
   });
 

@@ -57,6 +57,18 @@ interface ToolCallEntry {
   emittedStart: boolean;
 }
 
+export interface NormalizeStreamOptions {
+  /**
+   * Whether the request asked the provider for usage (e.g. via
+   * `stream_options.include_usage`). When true and the stream completes
+   * without ever yielding a usage chunk, `normalizeStream` emits a single
+   * `usage_unavailable` event so downstream consumers (context meter, cost
+   * meter) can distinguish "this provider never reports usage" from "usage
+   * for this particular turn just hasn't arrived yet".
+   */
+  includeUsageRequested?: boolean;
+}
+
 /**
  * Normalize a stream of raw OpenAI chunks into core ModelEvents.
  * Statefully accumulates tool call arguments across chunks.
@@ -67,6 +79,7 @@ interface ToolCallEntry {
  */
 export async function* normalizeStream(
   rawChunks: AsyncIterable<RawStreamChunk>,
+  options: NormalizeStreamOptions = {},
 ): AsyncGenerator<ModelEvent> {
   const toolCalls = new Map<number, ToolCallEntry>();
   /** Buffer argument deltas for tool call indices that haven't received id/name yet. */
@@ -180,6 +193,13 @@ export async function* normalizeStream(
       const stopReason = mapFinishReason(finish_reason);
       yield { type: "done", stopReason };
     }
+  }
+
+  // The stream ended without ever yielding a usage chunk, despite the
+  // request having asked for one — a silent provider degradation. Fire at
+  // most once per stream.
+  if (options.includeUsageRequested && !hasEmittedUsage) {
+    yield { type: "usage_unavailable" };
   }
 }
 

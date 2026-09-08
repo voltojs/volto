@@ -80,3 +80,16 @@ export function remainingTokens(usage: ContextUsageView, contextWindow?: number)
   if (!contextWindow || !Number.isFinite(contextWindow) || contextWindow <= 0) return null;
   return Math.max(0, contextWindow - usage.projectedTokens);
 }
+
+/**
+ * True when the projection has never been anchored to a real provider
+ * measurement AND the conversation clearly has content (a non-zero message
+ * estimate). This is the degradation case worth calling out — the same
+ * `anchored === false` also holds on a session's very first turn (before any
+ * model call has returned), which is a normal transient state, not a
+ * degradation. Gating on `breakdown.messages > 0` excludes that first-turn
+ * case: an empty session has nothing tokenized into the messages bucket yet.
+ */
+export function shouldShowUnanchoredHint(usage: ContextUsageView): boolean {
+  return !usage.anchored && usage.breakdown.messages > 0;
+}

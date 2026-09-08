@@ -11,6 +11,7 @@ import {
   percentTone,
   remainingTokens,
   segmentWidths,
+  shouldShowUnanchoredHint,
   type SegmentKey,
 } from '@/lib/context-meter-model';
 
@@ -93,6 +94,11 @@ export function ContextMeter({ usage, contextWindow }: ContextMeterProps) {
             <p className="text-muted-foreground mt-0.5 text-xs">
               剩余 {remaining === null ? '—' : `~${formatCompactTokens(remaining)}`}
             </p>
+            {shouldShowUnanchoredHint(usage) && (
+              <p className="text-muted-foreground mt-1 text-xs">
+                当前模型未返回用量数据，以上数字为纯估算，非实际测量值。
+              </p>
+            )}
             <p className="text-muted-foreground mt-2 text-[10px] font-medium tracking-widest uppercase">
               构成（估算）
             </p>

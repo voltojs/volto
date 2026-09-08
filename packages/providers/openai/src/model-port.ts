@@ -75,7 +75,10 @@ export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
 
       // Parse SSE stream → raw chunks → normalize → ModelEvents
       const rawChunks = parseSSEStream(response.body);
-      yield* normalizeStream(rawChunks);
+      // Request body always sets stream_options.include_usage: true (see
+      // buildRequestBody below), so normalizeStream can watch for a provider
+      // that silently never honors it.
+      yield* normalizeStream(rawChunks, { includeUsageRequested: true });
     },
   };
 }

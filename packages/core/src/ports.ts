@@ -62,6 +62,17 @@ export interface ModelEventError {
   retriable?: boolean;
 }
 
+/**
+ * Emitted at most once per stream when the request asked the provider for
+ * usage (e.g. `stream_options.include_usage`) but the stream completed
+ * without ever yielding a `ModelEventUsage`. Signals a silent provider
+ * degradation — consumers that don't recognize this event can safely ignore
+ * it (see modelEventToInputs's default case in the Node runner).
+ */
+export interface ModelEventUsageUnavailable {
+  type: "usage_unavailable";
+}
+
 export type ModelEvent =
   | ModelEventTextDelta
   | ModelEventReasoningDelta
@@ -69,7 +80,8 @@ export type ModelEvent =
   | ModelEventToolUseDelta
   | ModelEventUsage
   | ModelEventDone
-  | ModelEventError;
+  | ModelEventError
+  | ModelEventUsageUnavailable;
 
 export interface ModelRequest {
   messages: Message[];
