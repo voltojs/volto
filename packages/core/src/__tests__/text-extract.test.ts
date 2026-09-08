@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractMessageText, extractBlockText, extractPlainText } from "../text-extract.js";
-import type { Message, AssistantMessage } from "../state.js";
+import type { Message } from "../state.js";
 
 describe("extractMessageText", () => {
   it("extracts string content", () => {
