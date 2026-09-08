@@ -9,7 +9,7 @@
 import { createAgent } from "@volto/sdk";
 import { createDefaultPermissionConfig } from "@volto/core";
 import type { EventSink } from "@volto/core";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import * as path from "node:path";
 import {
   createNodeFileSystem,
@@ -111,9 +111,17 @@ if (TRACE) {
 const fs = createNodeFileSystem({ root: CWD });
 const shell = createNodeShell({ defaultCwd: CWD });
 const network = createNodeNetwork();
-const modelPort = createOpenAIModelPort({
-  apiKey: API_KEY,
-  baseURL: BASE_URL,
+const modelPort = createPiAiModelPort({
+  providers: [
+    {
+      id: "default",
+      // Mirrors provider-openai's own default when no baseURL is given.
+      baseURL: BASE_URL ?? "https://api.openai.com",
+      apiKey: API_KEY,
+      models: [{ code: MODEL }],
+    },
+  ],
+  defaultProviderId: "default",
   defaultModel: MODEL,
 });
 

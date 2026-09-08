@@ -19,6 +19,7 @@
     "@volto/sdk": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "@volto/provider-pi-ai": "workspace:*",
     "electron-store": "^11.0.2",
     "lucide-react": "^1.21.0",
     "radix-ui": "^1.6.0",

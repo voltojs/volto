@@ -14,7 +14,7 @@
   "dependencies": {
     "@volto/core": "workspace:*",
     "@volto/sdk": "workspace:*",
-    "@volto/provider-openai": "workspace:*",
+    "@volto/provider-pi-ai": "workspace:*",
     "@volto/runtime-node": "workspace:*",
     "@volto/store-sqlite": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.0"

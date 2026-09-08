@@ -4,7 +4,7 @@
  */
 
 import { createAgent } from "@volto/sdk";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -30,10 +30,19 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const fs = createNodeFileSystem({ root: cwd });
   const shell = createNodeShell({ defaultCwd: cwd });
   const network = createNodeNetwork();
-  const modelPort = opts.modelPort ?? createOpenAIModelPort({
-    apiKey: opts.apiKey ?? process.env["OPENAI_API_KEY"] ?? "",
-    baseURL: opts.baseUrl ?? process.env["OPENAI_BASE_URL"],
-    defaultModel: opts.model ?? process.env["OPENAI_MODEL"] ?? "gpt-4o",
+  const model = opts.model ?? process.env["OPENAI_MODEL"] ?? "gpt-4o";
+  const modelPort = opts.modelPort ?? createPiAiModelPort({
+    providers: [
+      {
+        id: "default",
+        // Mirrors provider-openai's own default when no baseURL is given.
+        baseURL: opts.baseUrl ?? process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com",
+        apiKey: opts.apiKey ?? process.env["OPENAI_API_KEY"] ?? "",
+        models: [{ code: model }],
+      },
+    ],
+    defaultProviderId: "default",
+    defaultModel: model,
   });
   const sessionStore = createSqliteStore({ path: dbPath });
 

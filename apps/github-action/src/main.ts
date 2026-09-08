@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import { createAgent } from "@volto/sdk";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -38,8 +38,16 @@ export async function run(): Promise<void> {
   const fsAdapter = createNodeFileSystem({ root: cwd });
   const shell = createNodeShell({ defaultCwd: cwd });
   const network = createNodeNetwork();
-  const modelPort = createOpenAIModelPort({
-    apiKey,
+  const modelPort = createPiAiModelPort({
+    providers: [
+      {
+        id: "default",
+        baseURL: "https://api.openai.com",
+        apiKey,
+        models: [{ code: model }],
+      },
+    ],
+    defaultProviderId: "default",
     defaultModel: model,
   });
 

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@volto/core": "workspace:*",
-    "@volto/provider-openai": "workspace:*",
+    "@volto/provider-pi-ai": "workspace:*",
     "@volto/runtime-node": "workspace:*",
     "@volto/sdk": "workspace:*",
     "@volto/store-jsonl": "workspace:*",

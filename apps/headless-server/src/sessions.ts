@@ -15,7 +15,7 @@ import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core
 import { projectMessages } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
@@ -479,9 +479,17 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(credentials
         ? {
             model: credentials.code,
-            modelPort: wiring.modelPort ?? createOpenAIModelPort({
-              apiKey: credentials.apiKey ?? "",
-              ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
+            modelPort: wiring.modelPort ?? createPiAiModelPort({
+              providers: [
+                {
+                  id: config.providerId ?? "default",
+                  // Mirrors provider-openai's own default when no baseURL is resolved.
+                  baseURL: credentials.baseURL ?? "https://api.openai.com",
+                  apiKey: credentials.apiKey ?? "",
+                  models: [{ code: credentials.code }],
+                },
+              ],
+              defaultProviderId: config.providerId ?? "default",
               defaultModel: credentials.code,
             }),
           }

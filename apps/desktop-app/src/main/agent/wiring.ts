@@ -7,7 +7,7 @@
 import { createAgent } from "@volto/sdk";
 import { createDefaultPermissionConfig } from "@volto/core";
 import type { ApprovalGate, EventSink, Message } from "@volto/core";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -71,10 +71,18 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const fs = createNodeFileSystem({ root: cwd });
   const shell = createNodeShell({ defaultCwd: cwd });
   const network = createNodeNetwork();
-  const modelPort = createOpenAIModelPort({
-    apiKey,
+  const modelPort = createPiAiModelPort({
+    providers: [
+      {
+        id: "default",
+        // Mirrors provider-openai's own default when no baseURL is given.
+        baseURL: baseURL ?? "https://api.openai.com",
+        apiKey,
+        models: [{ code: modelName }],
+      },
+    ],
+    defaultProviderId: "default",
     defaultModel: modelName,
-    baseURL: baseURL ?? undefined,
   });
 
   // 创建调度器

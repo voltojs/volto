@@ -5,7 +5,7 @@
 
 import * as path from "node:path";
 import { createAgent } from "@volto/sdk";
-import { createOpenAIModelPort } from "@volto/provider-openai";
+import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -118,10 +118,19 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const fs = createNodeFileSystem({ root: cwd });
   const shell = createNodeShell({ defaultCwd: cwd });
   const network = createNodeNetwork();
-  const modelPort = opts.modelPort ?? createOpenAIModelPort({
-    apiKey: opts.apiKey ?? "",
-    baseURL: opts.baseUrl,
-    defaultModel: opts.model ?? DEFAULT_MODEL,
+  const model = opts.model ?? DEFAULT_MODEL;
+  const modelPort = opts.modelPort ?? createPiAiModelPort({
+    providers: [
+      {
+        id: "default",
+        // Mirrors provider-openai's own default when no baseURL is given.
+        baseURL: opts.baseUrl ?? "https://api.openai.com",
+        apiKey: opts.apiKey ?? "",
+        models: [{ code: model }],
+      },
+    ],
+    defaultProviderId: "default",
+    defaultModel: model,
   });
   const sessionStore = createSqliteStore({ path: dbPath });
 

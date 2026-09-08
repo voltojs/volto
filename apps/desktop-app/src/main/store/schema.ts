@@ -59,7 +59,7 @@ export interface ModelConfig {
 export interface ProviderConfig {
   id: string;
   name: string;
-  /** 留空则由 provider 走 @volto/provider-openai 内置默认地址 */
+  /** 留空则由 wiring 层退回默认地址 https://api.openai.com */
   baseURL: string | null;
   apiKey: string | null;
   models: ModelConfig[];
