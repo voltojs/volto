@@ -199,11 +199,23 @@ export function createProviderStore(dir: string = getConfigDir()) {
       return toPublic(provider);
     },
 
+    // `kind` is immutable after creation: a provider changing from a
+    // hand-declared custom endpoint to a catalog route (or vice versa) is a
+    // different record, not an edit. If `input.kind` is present and differs
+    // from the stored record's kind, this rejects with a clear error instead
+    // of silently keeping the old kind and dropping the input's kind-specific
+    // fields.
     async update(id: string, input: Partial<ProviderInput>): Promise<PublicProvider | null> {
       const all = await readAll();
       const index = all.findIndex((p) => p.id === id);
       const current = all[index];
       if (!current) return null;
+
+      if (input.kind !== undefined && input.kind !== current.kind) {
+        throw new Error(
+          `Cannot change provider "${current.id}" kind from "${current.kind}" to "${input.kind}"; delete and recreate it instead.`,
+        );
+      }
 
       // An omitted apiKey means "keep the existing one" — this is what lets
       // the settings UI show a masked value without round-tripping secrets.
@@ -212,13 +224,14 @@ export function createProviderStore(dir: string = getConfigDir()) {
 
       let next: Provider;
       if (current.kind === "catalog") {
+        const catalogInput = input as Partial<Extract<ProviderInput, { kind: "catalog" }>>;
         next = {
           kind: "catalog",
           id: current.id,
           name,
-          piProvider: (input as { piProvider?: string }).piProvider ?? current.piProvider,
+          piProvider: catalogInput.piProvider ?? current.piProvider,
           apiKeyEnc,
-          modelCodes: (input as { modelCodes?: string[] }).modelCodes ?? current.modelCodes,
+          modelCodes: catalogInput.modelCodes ?? current.modelCodes,
         };
       } else {
         const customInput = input as Partial<Extract<ProviderInput, { kind?: "custom" }>>;

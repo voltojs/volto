@@ -279,6 +279,32 @@ describe("catalog/custom discriminator", () => {
     });
   });
 
+  it("rejects update() when input.kind differs from the stored provider's kind", async () => {
+    const store = createProviderStore(dir);
+    const custom = await store.create({ ...INPUT, kind: "custom" });
+    await expect(
+      store.update(custom.id, {
+        kind: "catalog",
+        piProvider: "openai",
+        modelCodes: ["gpt-5"],
+      } as never),
+    ).rejects.toThrow(/kind/);
+    // Rejected update must not have mutated the stored record.
+    const [listed] = await store.listPublic();
+    expect(listed!.kind).toBe("custom");
+
+    const catalog = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      apiKey: "sk-abcdefgh3f2a",
+      modelCodes: ["gpt-5"],
+    });
+    await expect(
+      store.update(catalog.id, { kind: "custom", models: [] } as never),
+    ).rejects.toThrow(/kind/);
+  });
+
   it("never exposes a plaintext apiKey through listPublic for a catalog provider", async () => {
     const store = createProviderStore(dir);
     await store.create({

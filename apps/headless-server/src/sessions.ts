@@ -480,26 +480,37 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
       ...(credentials
-        ? {
-            model: credentials.code,
-            modelPort: wiring.modelPort ?? createPiAiModelPort({
-              providers: [
-                {
-                  kind: "custom",
-                  id: config.providerId ?? "default",
-                  // Mirrors provider-openai's own default when no baseURL is resolved.
-                  // Catalog-kind credentials aren't built into a live agent yet
-                  // (see ResolvedCredentials above); this falls back to the
-                  // same "custom" shape until that wiring lands.
-                  baseURL: (credentials.kind === "custom" ? credentials.baseURL : null) ?? "https://api.openai.com",
-                  apiKey: credentials.apiKey ?? "",
-                  models: [{ code: credentials.code }],
-                },
-              ],
-              defaultProviderId: config.providerId ?? "default",
-              defaultModel: credentials.code,
-            }),
-          }
+        ? credentials.kind === "catalog"
+          ? (() => {
+              // Catalog-kind credentials aren't wired into a live agent yet
+              // (see ResolvedCredentials above; Task 4 lands this). Failing
+              // loudly here beats silently falling back to a "custom" shape
+              // pointed at OpenAI's endpoint, which would leak this
+              // provider's API key to the wrong service and surface as a
+              // confusing auth error. This throw is caught by runTurn()'s
+              // catch block (see below) and reported as a request-level
+              // error, not a server crash.
+              throw new Error(
+                "Catalog-kind providers are not yet wired into a live agent (Task 4); cannot build a ModelPort for this session.",
+              );
+            })()
+          : {
+              model: credentials.code,
+              modelPort: wiring.modelPort ?? createPiAiModelPort({
+                providers: [
+                  {
+                    kind: "custom",
+                    id: config.providerId ?? "default",
+                    // Mirrors provider-openai's own default when no baseURL is resolved.
+                    baseURL: credentials.baseURL ?? "https://api.openai.com",
+                    apiKey: credentials.apiKey ?? "",
+                    models: [{ code: credentials.code }],
+                  },
+                ],
+                defaultProviderId: config.providerId ?? "default",
+                defaultModel: credentials.code,
+              }),
+            }
         : {}),
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode

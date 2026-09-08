@@ -257,6 +257,42 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
   });
 
+  // -- Finding 3: a catalog-kind credential must fail loudly instead of ---
+  // -- silently building an OpenAI-bound agent with the wrong provider's --
+  // -- API key. --------------------------------------------------------
+
+  it("fails the turn instead of building an OpenAI-bound agent for a catalog-kind credential", async () => {
+    const { factory, builds } = makeFactory();
+    const written: string[] = [];
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: {
+        resolveModel: async () => ({
+          kind: "catalog",
+          piProvider: "openai",
+          apiKey: "sk-super-secret-token",
+          code: "gpt-5",
+        }),
+      } as never,
+    });
+    registry.attach("s1", {
+      write: (chunk: string) => written.push(chunk),
+      on: () => {},
+    } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+    });
+
+    // No agent was ever built — the catalog-kind path must throw before
+    // constructing a ModelPort, not fall back to an OpenAI-shaped one.
+    expect(builds).toHaveLength(0);
+    expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+    expect(registry.get("s1").running).toBe(false);
+  });
+
   it("rejects a turn with an unknown projectId rather than defaulting", async () => {
     const { factory, builds } = makeFactory();
     const { registry, written } = makeRegistry(factory, {
