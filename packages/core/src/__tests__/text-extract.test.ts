@@ -107,20 +107,14 @@ describe("reasoning content block extraction", () => {
     expect(extractBlockText({ type: "reasoning", text: "let me think" })).toBe("");
   });
 
-  it("is part of an assistant message and extracts correctly with other blocks", () => {
-    const msg: AssistantMessage = {
+  it("is dropped cleanly when joined in multi-block messages", () => {
+    const msg: Message = {
       role: "assistant",
       content: [
         { type: "reasoning", text: "let me think" },
         { type: "text", text: "answer" },
       ],
-      source: { modelId: "thinker" },
-      modelMeta: { blocks: ["sig-1"] },
     };
-
-    expect(extractBlockText(msg.content[0]!)).toBe("");
-    expect(extractBlockText(msg.content[1]!)).toBe("answer");
-    expect(msg.modelMeta).toEqual({ blocks: ["sig-1"] });
-    expect(msg.source?.modelId).toBe("thinker");
+    expect(extractPlainText(msg)).toBe("answer");
   });
 });
