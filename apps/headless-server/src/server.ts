@@ -204,15 +204,26 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     };
   }
 
-  /** Flattens a session's persisted chatMeta into the response's binding fields. */
+  /**
+   * Flattens a session's persisted chatMeta into the response's binding fields.
+   *
+   * `reasoningEffort` is headless-server's own extra config-binding field (see
+   * wiring.ts's `chatMeta` option) — it is not part of core's `ChatSessionMeta`
+   * and is persisted as untyped JSON at rest, so it is read back here via the
+   * same local widening wiring.ts uses to write it, rather than by touching
+   * `@volto/core`.
+   */
   function bindingsOf(
-    meta: ChatSessionMeta,
-  ): Pick<ChatSessionMeta, "projectId" | "providerId" | "modelId" | "permissionMode"> {
+    meta: ChatSessionMeta & { reasoningEffort?: string },
+  ): Pick<ChatSessionMeta, "projectId" | "providerId" | "modelId" | "permissionMode"> & {
+    reasoningEffort?: string;
+  } {
     return {
       projectId: meta.projectId,
       providerId: meta.providerId,
       modelId: meta.modelId,
       permissionMode: meta.permissionMode,
+      ...(meta.reasoningEffort !== undefined ? { reasoningEffort: meta.reasoningEffort } : {}),
     };
   }
 
@@ -574,10 +585,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
             // session has never been titled — the client shows a placeholder
             // rather than inventing a title the server does not know about.
             title: record.meta.title ?? "",
-            projectId: record.meta.projectId,
-            providerId: record.meta.providerId,
-            modelId: record.meta.modelId,
-            permissionMode: record.meta.permissionMode,
+            ...bindingsOf(record.meta),
             messageCount: projectMessageEntries(record.events).length,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,

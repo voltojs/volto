@@ -57,6 +57,23 @@ function makeReasoningProviderStore() {
   };
 }
 
+/**
+ * A resolveModel stub for a model that declares no reasoning capability at
+ * all (`describeModel` returns no `reasoning` field) — the normal "switched
+ * to a non-reasoning model while a stale reasoningEffort is still in flight"
+ * user path, distinct from "effort not in the declared list".
+ */
+function makeNonReasoningProviderStore() {
+  return {
+    resolveModel: async () => ({
+      kind: "custom" as const,
+      baseURL: null,
+      apiKey: "sk-secret",
+      code: "m1",
+    }),
+  };
+}
+
 function makeRegistry(
   factory: ReturnType<typeof makeFactory>["factory"],
   overrides: { chatStore?: unknown } = {},
@@ -110,6 +127,21 @@ describe("reasoningEffort — session-level unit tests (createSessionRegistry)",
 
     expect(builds).toHaveLength(0);
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
+  });
+
+  it("a reasoningEffort supplied for a model with no reasoning capability at all is rejected, not crashed or silently accepted", async () => {
+    const { factory, builds } = makeFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: makeNonReasoningProviderStore() as never,
+    });
+    created.push(registry);
+
+    await expect(
+      registry.resolveConfig({ ...baseConfig, reasoningEffort: "low" }),
+    ).rejects.toThrow(/reasoningEffort/i);
+    expect(builds).toHaveLength(0);
   });
 
   it("resolveConfig() itself throws on an unsupported effort, without building an agent", async () => {
@@ -282,5 +314,67 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
     }
 
     expect((persisted?.meta as { reasoningEffort?: string } | undefined)?.reasoningEffort).toBe("low");
+  });
+
+  it("GET /sessions/:id reports back the reasoningEffort a session was created with", async () => {
+    const sessionId = `reasoning-effort-readback-${Date.now()}`;
+    const config = await createProjectAndReasoningModel();
+    openEvents(sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await post("/messages", { sessionId, message: "hi", ...config, reasoningEffort: "low" }, baseUrl);
+
+    // The turn runs asynchronously over SSE; poll GET /sessions/:id until the
+    // session_meta event has landed.
+    let data: { reasoningEffort?: string } | undefined;
+    for (let i = 0; i < 40; i++) {
+      const res = await new Promise<{ status: number; data: unknown }>((resolve, reject) => {
+        http.get(new URL(`/sessions/${encodeURIComponent(sessionId)}`, baseUrl), (r) => {
+          const chunks: Buffer[] = [];
+          r.on("data", (chunk: Buffer) => chunks.push(chunk));
+          r.on("end", () =>
+            resolve({ status: r.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString("utf-8")) }),
+          );
+          r.on("error", reject);
+        });
+      });
+      if (res.status === 200) {
+        data = res.data as { reasoningEffort?: string };
+        if (data.reasoningEffort !== undefined) break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    expect(data?.reasoningEffort).toBe("low");
+  });
+
+  it("GET /sessions does not gain a spurious reasoningEffort key for a session created without one", async () => {
+    const sessionId = `reasoning-effort-absent-${Date.now()}`;
+    const config = await createProjectAndReasoningModel();
+    openEvents(sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await post("/messages", { sessionId, message: "hi", ...config }, baseUrl);
+
+    let found: { reasoningEffort?: string } | undefined;
+    for (let i = 0; i < 40; i++) {
+      const res = await new Promise<{ status: number; data: unknown }>((resolve, reject) => {
+        http.get(new URL("/sessions", baseUrl), (r) => {
+          const chunks: Buffer[] = [];
+          r.on("data", (chunk: Buffer) => chunks.push(chunk));
+          r.on("end", () =>
+            resolve({ status: r.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString("utf-8")) }),
+          );
+          r.on("error", reject);
+        });
+      });
+      const sessions = (res.data as { sessions: Array<{ id: string; reasoningEffort?: string }> }).sessions;
+      found = sessions.find((s) => s.id === sessionId);
+      if (found) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    expect(found).toBeDefined();
+    expect(found && "reasoningEffort" in found).toBe(false);
   });
 });
