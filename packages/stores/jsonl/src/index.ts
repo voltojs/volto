@@ -141,6 +141,64 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
     return next;
   }
 
+  /**
+   * Tombstone of sessions currently being deleted. `appendEventBatch`
+   * resolves its target file path *before* entering the per-file write
+   * queue (see that function's comment), so a delete can land in the gap
+   * between an append's path resolution and its queued write. Without this
+   * flag, that queued write would find no file (ENOENT swallowed by
+   * `readLinesAt`), restart `seq` at 0, and `fs.appendFile` would recreate
+   * the file with just the tail of that batch — a structurally valid but
+   * truncated resurrection of a deleted session.
+   *
+   * The flag is checked *inside* the queued callback (i.e. holding the same
+   * per-file lock appends use), which is what makes it authoritative
+   * regardless of queue ordering between the delete's unlink task and a
+   * straggling append's write task.
+   *
+   * Bounding: an id is added here before `deleteSession` unlinks, and is
+   * only removed once every `appendEventBatch` call that was already
+   * in-flight for that session id (i.e. had already started, however far
+   * along) has finished. That is exactly the window in which a stale write
+   * could land, so nothing older sticks around afterward — this is not an
+   * unbounded set. `inFlightAppends` (below) tracks the in-flight count and
+   * wakes `deleteSession` once it drains to zero.
+   */
+  const tombstonedSessions = new Set<string>();
+
+  /** Per-session in-flight `appendEventBatch` bookkeeping, used to bound `tombstonedSessions`. */
+  interface InFlightAppends {
+    count: number;
+    waiters: Array<() => void>;
+  }
+  const inFlightAppends = new Map<string, InFlightAppends>();
+
+  function beginAppend(sessionId: string): void {
+    const entry = inFlightAppends.get(sessionId);
+    if (entry) {
+      entry.count += 1;
+    } else {
+      inFlightAppends.set(sessionId, { count: 1, waiters: [] });
+    }
+  }
+
+  function endAppend(sessionId: string): void {
+    const entry = inFlightAppends.get(sessionId);
+    if (!entry) return;
+    entry.count -= 1;
+    if (entry.count <= 0) {
+      inFlightAppends.delete(sessionId);
+      for (const wake of entry.waiters) wake();
+    }
+  }
+
+  /** Resolves once no `appendEventBatch` call for `sessionId` is in flight. */
+  function waitForAppendsToDrain(sessionId: string): Promise<void> {
+    const entry = inFlightAppends.get(sessionId);
+    if (!entry) return Promise.resolve();
+    return new Promise((resolve) => entry.waiters.push(resolve));
+  }
+
   async function exists(target: string): Promise<boolean> {
     try {
       await fs.stat(target);
@@ -230,19 +288,30 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
     events: readonly TranscriptEventInput[],
   ): Promise<void> {
     if (events.length === 0) return;
-    const target = await resolveWritePath(workspacePath, sessionId);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await enqueue(target, async () => {
-      const existing = await readLinesAt(target);
-      let nextSeq = existing.length > 0 ? existing[existing.length - 1]!.event.seq + 1 : 0;
-      const lines: EventLine[] = events.map((input) => ({
-        version: SCHEMA_VERSION,
-        sessionId,
-        event: { ...input, seq: nextSeq++ } as TranscriptEvent,
-      }));
-      const text = lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
-      await fs.appendFile(target, text, "utf-8");
-    });
+    beginAppend(sessionId);
+    try {
+      const target = await resolveWritePath(workspacePath, sessionId);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await enqueue(target, async () => {
+        // Authoritative check: holds the same per-file lock as the read/write
+        // below, so it sees a delete that landed anytime before this task
+        // reached the front of the queue. A tombstoned session's append is a
+        // silent no-op, matching the "best-effort recorder" semantics the
+        // Runner's `bestEffortAppend` already relies on.
+        if (tombstonedSessions.has(sessionId)) return;
+        const existing = await readLinesAt(target);
+        let nextSeq = existing.length > 0 ? existing[existing.length - 1]!.event.seq + 1 : 0;
+        const lines: EventLine[] = events.map((input) => ({
+          version: SCHEMA_VERSION,
+          sessionId,
+          event: { ...input, seq: nextSeq++ } as TranscriptEvent,
+        }));
+        const text = lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
+        await fs.appendFile(target, text, "utf-8");
+      });
+    } finally {
+      endAppend(sessionId);
+    }
   }
 
   /** Folds a session's events into its current meta. */
@@ -331,7 +400,32 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
 
     async deleteSession(sessionId) {
       const target = await findExistingFilePath(sessionId);
-      if (target) await fs.unlink(target);
+      if (!target) return;
+      // Mark the tombstone before unlinking so that any append whose write
+      // path already resolved to `target` — but has not yet reached the
+      // per-file queue — sees it once it gets there (see `tombstonedSessions`
+      // comment above). Routing the unlink itself through the same
+      // `enqueue(target, ...)` queue as appends is what prevents the unlink
+      // from interleaving with a queued append's read-modify-write.
+      tombstonedSessions.add(sessionId);
+      try {
+        await enqueue(target, async () => {
+          try {
+            await fs.unlink(target);
+          } catch (err: unknown) {
+            if (!isEnoent(err)) throw err;
+          }
+        });
+        // Keep the tombstone up until every append that was already
+        // in-flight for this session id has finished (whether it skipped
+        // itself via the check above, or — if it was queued ahead of the
+        // unlink task — already wrote and lost the race honestly). That is
+        // the entire window a stale write could land in; nothing survives
+        // this call, so the set does not grow unboundedly.
+        await waitForAppendsToDrain(sessionId);
+      } finally {
+        tombstonedSessions.delete(sessionId);
+      }
     },
   };
 }
