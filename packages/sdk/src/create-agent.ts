@@ -901,6 +901,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   // ── Step context ─────────────────────────
+  const resolvedReasoningEffort = resolve(opts.reasoningEffort, "reasoningEffort");
   const stepContext: StepContext = {
     tools: toolDefs,
     model: resolve(opts.model, "model"),
@@ -908,8 +909,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     temperature: resolve(opts.temperature, "temperature"),
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
-    ...(resolve(opts.reasoningEffort, "reasoningEffort") !== undefined
-      ? { reasoningEffort: ReasoningEffortId(resolve(opts.reasoningEffort, "reasoningEffort")!) }
+    ...(resolvedReasoningEffort !== undefined
+      ? { reasoningEffort: ReasoningEffortId(resolvedReasoningEffort) }
       : {}),
   };
 
@@ -1809,17 +1810,18 @@ function createSubAgentExecutor(
     // and widening that is a design change, not this fix's scope.
     const subCatalogLayer = await buildSkillCatalogLayer(opts.skillRegistry, opts.skillCatalogDescriptionMaxLength);
 
+    const resolvedSubReasoningEffort = resolveConfigValue(
+      opts.reasoningEffort,
+      opts.config?.config,
+      "reasoningEffort",
+    );
     const subStepContext: StepContext = {
       tools: subToolDefs,
       model: resolveConfigValue(opts.model, opts.config?.config, "model"),
       maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
-      ...(resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort") !== undefined
-        ? {
-            reasoningEffort: ReasoningEffortId(
-              resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort")!,
-            ),
-          }
+      ...(resolvedSubReasoningEffort !== undefined
+        ? { reasoningEffort: ReasoningEffortId(resolvedSubReasoningEffort) }
         : {}),
       ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
     };

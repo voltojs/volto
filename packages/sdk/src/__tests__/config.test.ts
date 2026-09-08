@@ -40,6 +40,15 @@ describe("mergeConfig", () => {
     expect(result.resolvedFrom.temperature).toBe("project");
   });
 
+  it("reasoningEffort is a layer key — runtime overrides project overrides global", () => {
+    const global: ConfigLayer = { reasoningEffort: "low" };
+    const project: ConfigLayer = { reasoningEffort: "medium" };
+    const runtime: ConfigLayer = { reasoningEffort: "high" };
+    const result = mergeConfig(global, project, runtime);
+    expect(result.config.reasoningEffort).toBe("high");
+    expect(result.resolvedFrom.reasoningEffort).toBe("runtime");
+  });
+
   it("missing layers are skipped gracefully", () => {
     const project: ConfigLayer = { model: "gpt-4o" };
     const result = mergeConfig(undefined, project, undefined);

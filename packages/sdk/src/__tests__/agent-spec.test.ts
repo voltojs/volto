@@ -56,6 +56,14 @@ describe("resolveAgentSpec", () => {
     expect(resolved.errors).toHaveLength(0);
   });
 
+  it("carries reasoningEffort through into the resolved spec", () => {
+    const registry = makeRegistry();
+    const spec: AgentSpec = { name: "test", reasoningEffort: "high" };
+
+    const resolved = resolveAgentSpec(spec, registry);
+    expect(resolved.reasoningEffort).toBe("high");
+  });
+
   it("reports unknown tools as errors (not thrown)", () => {
     const registry = makeRegistry(createEchoTool());
     const spec: AgentSpec = { name: "test", tools: ["echo", "nonexistent"] };
