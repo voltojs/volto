@@ -95,6 +95,13 @@ export interface JsonlSessionStore {
 export interface JsonlStoreOptions {
   /** Directory holding one subdirectory per workspace, each with one `<sessionId>.jsonl` per session. */
   directory: string;
+  /**
+   * How long `deleteSession` will wait for in-flight appends to drain before
+   * returning anyway (default 5000ms). Exposed mainly so tests can shrink it
+   * without waiting out the production default; the tombstone itself is not
+   * bounded by this value (see `deleteSession`).
+   */
+  appendDrainTimeoutMs?: number;
 }
 
 function isEnoent(err: unknown): boolean {
@@ -119,7 +126,7 @@ export function encodeWorkspaceName(workspacePath: string): string {
 }
 
 export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
-  const { directory } = opts;
+  const { directory, appendDrainTimeoutMs = 5000 } = opts;
 
   // Per-file write queues so concurrent appends to the same session's file
   // never interleave their lines. This is also what makes seq assignment
@@ -156,13 +163,10 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
    * regardless of queue ordering between the delete's unlink task and a
    * straggling append's write task.
    *
-   * Bounding: an id is added here before `deleteSession` unlinks, and is
-   * only removed once every `appendEventBatch` call that was already
-   * in-flight for that session id (i.e. had already started, however far
-   * along) has finished. That is exactly the window in which a stale write
-   * could land, so nothing older sticks around afterward — this is not an
-   * unbounded set. `inFlightAppends` (below) tracks the in-flight count and
-   * wakes `deleteSession` once it drains to zero.
+   * Bounding: an id is added here before `deleteSession` unlinks. Actual
+   * removal is decoupled from what `deleteSession` itself waits on — see the
+   * comment on `deleteSession` for why, and `waitForAppendsToDrain` /
+   * `APPEND_DRAIN_TIMEOUT_MS` for the two halves of that split.
    */
   const tombstonedSessions = new Set<string>();
 
@@ -192,11 +196,23 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
     }
   }
 
-  /** Resolves once no `appendEventBatch` call for `sessionId` is in flight. */
+  /**
+   * Resolves once every `appendEventBatch` call for `sessionId` that is
+   * currently in flight — including ones that start *after* this is called,
+   * for as long as the count never actually reaches zero — has finished.
+   * This is a genuine, unbounded drain: on its own it is what the
+   * `deleteSession` bug report described ("can hang forever" for a session
+   * that keeps streaming appends in). It is only ever awaited from a
+   * context that does not block a caller on it — see `deleteSession`.
+   */
   function waitForAppendsToDrain(sessionId: string): Promise<void> {
     const entry = inFlightAppends.get(sessionId);
     if (!entry) return Promise.resolve();
     return new Promise((resolve) => entry.waiters.push(resolve));
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async function exists(target: string): Promise<boolean> {
@@ -424,15 +440,32 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
             }
           });
         }
-        // Keep the tombstone up until every append that was already
-        // in-flight for this session id has finished (whether it skipped
-        // itself via the check above, or — if it was queued ahead of the
-        // unlink task — already wrote and lost the race honestly). That is
-        // the entire window a stale write could land in; nothing survives
-        // this call, so the set does not grow unboundedly.
-        await waitForAppendsToDrain(sessionId);
       } finally {
-        tombstonedSessions.delete(sessionId);
+        // `deleteSession`'s own returned promise is bounded by a timeout,
+        // not by a full drain: a session mid-streaming-turn can keep the
+        // in-flight append count continuously non-zero (the recorder
+        // appends event by event), so awaiting an unbounded drain here would
+        // hang this call — and the `DELETE /sessions/:id` handler that
+        // awaits it — for as long as the stream keeps going.
+        //
+        // Tombstone removal itself is NOT bounded by that same timeout:
+        // forcing it off early would let an append that was genuinely
+        // already in flight — just not finished yet — land after the
+        // tombstone was gone, which is exactly the resurrection this
+        // mechanism exists to prevent. `fullyDrained` chains the removal
+        // onto the real, unbounded drain and keeps running in the
+        // background regardless of which side of the race below wins, so a
+        // pathologically long-running stream cannot hold this call hostage
+        // while every append that does eventually settle still sees an
+        // accurate tombstone. Calling `waitForAppendsToDrain` here — after
+        // the find+unlink above, in a `finally` so it also runs if that
+        // threw — is what keeps the tombstone covering that whole window
+        // unconditionally, which is what the "delete before the file has
+        // ever been created" fix depends on.
+        const fullyDrained = waitForAppendsToDrain(sessionId).then(() => {
+          tombstonedSessions.delete(sessionId);
+        });
+        await Promise.race([fullyDrained, sleep(appendDrainTimeoutMs)]);
       }
     },
   };

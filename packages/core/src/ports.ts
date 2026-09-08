@@ -66,8 +66,11 @@ export interface ModelEventError {
  * Emitted at most once per stream when the request asked the provider for
  * usage (e.g. `stream_options.include_usage`) but the stream completed
  * without ever yielding a `ModelEventUsage`. Signals a silent provider
- * degradation — consumers that don't recognize this event can safely ignore
- * it (see modelEventToInputs's default case in the Node runner).
+ * degradation — observability-only: the Node runner's event loop forwards it
+ * straight to the `EventSink` and `continue`s, without ever turning it into
+ * an `AgentInput` (see the `usage_unavailable` branch in `runner.ts`'s model
+ * event loop), so consumers that don't recognize this event never see it at
+ * all.
  */
 export interface ModelEventUsageUnavailable {
   type: "usage_unavailable";
