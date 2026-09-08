@@ -67,6 +67,7 @@ describe("Runner — compaction wiring", () => {
       iterationCount: 0,
       readFiles: [],
       _accumulatedText: "",
+      _accumulatedReasoning: "",
       _accumulatedToolCalls: [],
       _toolResultBuffer: {},
       queuedUserInputs: [],

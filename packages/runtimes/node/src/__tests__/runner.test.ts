@@ -459,13 +459,16 @@ describe("Runner", () => {
       expect(eventTypes).toContain("assistant_message");
       // The reducer's raw event vocabulary is gone from the wire (task-r6):
       // model_done is replaced by the recorded assistant_message, which
-      // carries the aggregated reasoning and the provider usage verbatim.
+      // carries the aggregated reasoning (as a leading content block) and
+      // the provider usage verbatim.
       expect(eventTypes).not.toContain("model_done");
       const assistant = events.find((e) => e.type === "assistant_message")!;
       expect(assistant.data).toMatchObject({
-        content: [{ type: "text", text: "Hello" }],
+        content: [
+          { type: "reasoning", text: "let me think" },
+          { type: "text", text: "Hello" },
+        ],
         stopReason: "end_turn",
-        reasoning: "let me think",
         usage: { inputTokens: 10, outputTokens: 5 },
         durationMs: expect.any(Number),
       });

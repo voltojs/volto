@@ -302,7 +302,6 @@ export function createRunner(opts: RunnerOptions): Runner {
   // each runModelStream() call.
   let callStartedAt = 0;
   let firstDeltaAt: number | undefined;
-  let reasoningText = "";
 
   const nowMs = (): number => opts.clock?.now() ?? Date.now();
 
@@ -432,8 +431,9 @@ export function createRunner(opts: RunnerOptions): Runner {
             "assistant_message",
             {
               content: message.content,
-              ...(reasoningText ? { reasoning: reasoningText } : {}),
               ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
+              ...(message.source !== undefined ? { source: message.source } : {}),
+              ...(message.modelMeta !== undefined ? { modelMeta: message.modelMeta } : {}),
               ...(event.data["usage"] !== undefined ? { usage: event.data["usage"] as TokenUsage } : {}),
               ...(firstDeltaAt !== undefined ? { ttftMs: firstDeltaAt - callStartedAt } : {}),
               durationMs: endedAt - callStartedAt,
@@ -693,7 +693,6 @@ export function createRunner(opts: RunnerOptions): Runner {
     // scope (see the comment there) so forwardEmit() can read them when it
     // intercepts model_done.
     firstDeltaAt = undefined;
-    reasoningText = "";
 
     if (opts.rag) {
       const { memoryStore, topK = 5, queryBuilder } = opts.rag;
@@ -725,6 +724,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       cacheBreakpoints: finalCacheBreakpoints,
       abortSignal: opts.abortSignal,
       layerOrigins: assembled.layerOrigins,
+      reasoningEffort: stepContext.reasoningEffort,
     };
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
@@ -745,7 +745,6 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         if (event.type === "text_delta" || event.type === "reasoning_delta") {
           firstDeltaAt ??= nowMs();
-          if (event.type === "reasoning_delta") reasoningText += event.text;
         }
 
         // Provider degradation signal: the request asked for usage but the
@@ -1674,6 +1673,7 @@ function modelEventToInputs(
           type: "model_done",
           stopReason: event.stopReason,
           usage: pendingUsage,
+          ...(event.meta !== undefined ? { meta: event.meta } : {}),
         },
       ];
     case "error":

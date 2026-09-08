@@ -96,7 +96,7 @@ describe("Runner transcript capture", () => {
     expect(data!.stopReason).toBe("end_turn");
   });
 
-  it("aggregates reasoning deltas into one reasoning field", async () => {
+  it("aggregates reasoning deltas into a leading reasoning content block", async () => {
     const model = createMockModelPort([
       [reasoningDelta("let me "), reasoningDelta("think"), textDelta("done"), { type: "done", stopReason: "end_turn" }],
     ]);
@@ -112,10 +112,13 @@ describe("Runner transcript capture", () => {
     });
     await runner.run({ type: "user_message", content: "hi" });
 
-    expect(firstOf<{ reasoning: string }>(events, "assistant_message")!.reasoning).toBe("let me think");
+    expect(firstOf<{ content: unknown[] }>(events, "assistant_message")!.content[0]).toEqual({
+      type: "reasoning",
+      text: "let me think",
+    });
   });
 
-  it("omits reasoning when the model produced none", async () => {
+  it("omits the reasoning content block when the model produced none", async () => {
     const model = createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]);
     const { store, events } = fakeChatStore();
 
@@ -129,7 +132,9 @@ describe("Runner transcript capture", () => {
     });
     await runner.run({ type: "user_message", content: "hi" });
 
-    expect(firstOf<{ reasoning?: string }>(events, "assistant_message")!.reasoning).toBeUndefined();
+    expect(firstOf<{ content: unknown[] }>(events, "assistant_message")!.content).toEqual([
+      { type: "text", text: "hi" },
+    ]);
   });
 
   it("computes ttftMs from the first delta and durationMs from the call bracket", async () => {
