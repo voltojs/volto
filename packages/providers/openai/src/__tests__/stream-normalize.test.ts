@@ -321,6 +321,23 @@ describe("normalizeStream", () => {
       expect(usage.cacheReadTokens).toBe(60);
     });
 
+    it("derives cachedTokens from prompt_tokens when miss is present without hit", async () => {
+      // Hostile/inconsistent payload: miss is present but hit is absent.
+      // cachedTokens must still be recovered from prompt_tokens - miss so the
+      // input + cacheRead + cacheWrite === prompt_tokens identity holds.
+      const events = await collect([
+        chunk({}, "stop", {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_cache_miss_tokens: 40,
+        }),
+      ]);
+      const usage = events.find((e) => e.type === "usage") as Extract<ModelEvent, { type: "usage" }>;
+      expect(usage.inputTokens).toBe(40);
+      expect(usage.cacheReadTokens).toBe(60);
+      expect(usage.inputTokens + (usage.cacheReadTokens ?? 0)).toBe(100);
+    });
+
     it("never reports a negative uncached input", async () => {
       const events = await collect([
         chunk({}, "stop", {

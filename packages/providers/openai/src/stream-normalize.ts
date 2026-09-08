@@ -84,9 +84,15 @@ export async function* normalizeStream(
       const hit = chunk.usage.prompt_cache_hit_tokens;
       const miss = chunk.usage.prompt_cache_miss_tokens;
       const cachedDetail = chunk.usage.prompt_tokens_details?.cached_tokens;
-      const cachedTokens = hit ?? cachedDetail;
-      const uncached =
-        miss ?? (cachedTokens === undefined ? promptTokens : Math.max(0, promptTokens - cachedTokens));
+      // prompt_tokens is the authority: a hostile/inconsistent payload that
+      // sends prompt_cache_miss_tokens without prompt_cache_hit_tokens must
+      // still derive cachedTokens from it, otherwise cacheReadTokens ends up
+      // undefined while inputTokens (= miss) silently underreports the real
+      // prompt size, breaking the input + cacheRead + cacheWrite === prompt
+      // identity downstream.
+      const cachedTokens =
+        hit ?? cachedDetail ?? (miss !== undefined ? Math.max(0, promptTokens - miss) : undefined);
+      const uncached = Math.max(0, promptTokens - (cachedTokens ?? 0));
       yield {
         type: "usage",
         // inputTokens is the UNCACHED prompt across all providers (Anthropic's
