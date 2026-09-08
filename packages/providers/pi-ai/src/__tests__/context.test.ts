@@ -121,6 +121,53 @@ describe("toPiContext", () => {
     expect(msg.content).toEqual([{ type: "thinking", thinking: "reasoning from another model" }]);
   });
 
+  it("degrades gracefully when source.modelId disagrees with the current model, even if modelMeta looks valid", () => {
+    const modelMeta = toReplayEnvelope(
+      { content: [{ type: "thinking", thinking: "reasoning..." }] } as AssistantMessage,
+      model,
+    );
+    modelMeta.blocks[0] = { type: "reasoning", thinkingSignature: "think-sig" };
+
+    const req = baseRequest({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "reasoning..." }],
+          modelMeta,
+          source: { modelId: "some-other-model" },
+        },
+      ],
+    });
+
+    const ctx = toPiContext(req, model);
+    const msg = ctx.messages[0] as AssistantMessage;
+
+    expect(msg.content).toEqual([{ type: "thinking", thinking: "reasoning..." }]);
+  });
+
+  it("trusts a valid envelope when source is absent entirely", () => {
+    const modelMeta = toReplayEnvelope(
+      { content: [{ type: "text", text: "answer" }] } as AssistantMessage,
+      model,
+    );
+    modelMeta.blocks[0] = { type: "text", textSignature: "text-sig" };
+
+    const req = baseRequest({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "answer" }],
+          modelMeta,
+        },
+      ],
+    });
+
+    const ctx = toPiContext(req, model);
+    const msg = ctx.messages[0] as AssistantMessage;
+
+    expect(msg.content).toEqual([{ type: "text", text: "answer", textSignature: "text-sig" }]);
+  });
+
   it("degrades gracefully when modelMeta is absent entirely", () => {
     const req = baseRequest({
       messages: [

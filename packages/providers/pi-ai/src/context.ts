@@ -93,7 +93,21 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
 // ──────────────────────────────────────────────
 
 function mapAssistantMessage(message: AssistantMessage, model: string): PiAssistantMessage {
-  const envelope = readReplayEnvelope(message.modelMeta, model);
+  // Second, independent guard alongside readReplayEnvelope's own model check:
+  // `source` is stamped by the kernel from the step context at assembly time,
+  // while `modelMeta` is adapter-private and self-declared. A message whose
+  // envelope claims the current model but whose kernel-stamped source
+  // disagrees is foreign replay just as much as a mismatched envelope is; do
+  // not trust the envelope in that case. An absent `source` (older messages,
+  // or messages assembled before this field existed) is not a mismatch — it
+  // falls back to the envelope's own check alone.
+  //
+  // `source.providerId` is intentionally not compared: the Runner only knows
+  // `stepContext.model`, so the kernel never populates `providerId` today.
+  // Cross-provider routing is a later phase; comparing an always-undefined
+  // field would just make every message look foreign.
+  const isForeignSource = message.source !== undefined && message.source.modelId !== model;
+  const envelope = isForeignSource ? undefined : readReplayEnvelope(message.modelMeta, model);
 
   const content: (PiTextContent | PiThinkingContent | PiToolCall)[] = [];
   message.content.forEach((block, index) => {
