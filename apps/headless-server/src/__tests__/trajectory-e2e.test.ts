@@ -174,11 +174,16 @@ describe("trajectory capture — real chatStore end to end", () => {
     expect(assistant).toBeDefined();
     const data = assistant!.data as {
       durationMs: number;
-      reasoning?: string;
+      content: Array<{ type: string; text?: string }>;
       usage?: Record<string, number>;
     };
     expect(typeof data.durationMs).toBe("number");
-    expect(data.reasoning).toBe("let me think");
+
+    // Reasoning is now a content block (first, before text/tool_use blocks)
+    const reasoningBlock = data.content.find((block) => block.type === "reasoning");
+    expect(reasoningBlock).toBeDefined();
+    expect(reasoningBlock?.text).toBe("let me think");
+
     expect(data.usage).toEqual({
       inputTokens: 10,
       outputTokens: 5,
