@@ -17,7 +17,11 @@ import type { Tokenizer, TranscriptEventInput, TranscriptEventMap } from "./port
 import type { JSONSchema } from "./tool.js";
 import type { ContentBlock } from "./state.js";
 
-/** System prompt layers + tool definitions exactly as the last request carried them. */
+/**
+ * System prompt layers + tool definitions exactly as the last request
+ * carried them. Fold-side only (see the docblock on ContextUsageFold below)
+ * — has no production consumer today.
+ */
 export interface ContextUsageHeader {
   systemLayers: Array<{ id: string; text: string }>;
   tools: Array<{ name: string; description: string; schema: JSONSchema }>;
@@ -30,6 +34,18 @@ export interface ContextUsageAnchor {
   outputTokens: number;
 }
 
+/**
+ * Fold-side API (this interface plus emptyContextUsageFold,
+ * foldContextUsageEvent, contextUsageView, computeContextUsage and
+ * snapshotFold below): retains the header's full text, which is what lets
+ * the server re-price a whole session if the tokenizer changes, and backs
+ * the oracle used by the snapshot-equivalence tests. It currently has no
+ * production consumer — every production path (headless-server, web) uses
+ * the snapshot API (`ContextUsageSnapshot`, `emptyContextUsageSnapshot`,
+ * `foldSnapshotEvent`, `snapshotView`) instead, which is the entry point for
+ * anything crossing a process or storage boundary. This is not deprecated —
+ * keep it — but new code should reach for the snapshot API first.
+ */
 export interface ContextUsageFold {
   /** The most recent request_header (last-wins). */
   header: ContextUsageHeader | null;
@@ -64,6 +80,7 @@ export interface ContextUsageView {
   anchored: boolean;
 }
 
+/** Fold-side (see the docblock on ContextUsageFold) — no production consumer today. */
 export function emptyContextUsageFold(): ContextUsageFold {
   return { header: null, anchor: null, pendingTokens: 0, messageTokens: 0 };
 }
@@ -102,6 +119,7 @@ function countMessage(blocks: readonly ContentBlock[], tokenizer: Tokenizer): nu
   return countBlocks(blocks, tokenizer) + ROLE_OVERHEAD;
 }
 
+/** Fold-side (see the docblock on ContextUsageFold) — no production consumer today. */
 export function foldContextUsageEvent(
   fold: ContextUsageFold,
   event: TranscriptEventInput,
@@ -207,6 +225,7 @@ function estimateHeader(
  * `snapshotView` for the actual projection arithmetic. Kept so callers that
  * hold a `ContextUsageFold` (the server, mid-request) don't need to build a
  * snapshot by hand — but `snapshotView` below is the single implementation.
+ * Fold-side (see the docblock on ContextUsageFold) — no production consumer today.
  */
 export function contextUsageView(
   fold: ContextUsageFold,
@@ -215,6 +234,7 @@ export function contextUsageView(
   return snapshotView(snapshotFold(fold, tokenizer));
 }
 
+/** Fold-side (see the docblock on ContextUsageFold) — no production consumer today. */
 export function computeContextUsage(
   events: readonly TranscriptEventInput[],
   tokenizer: Tokenizer,
@@ -252,7 +272,12 @@ export function emptyContextUsageSnapshot(): ContextUsageSnapshot {
   return { headerEstimate: null, anchor: null, pendingTokens: 0, messageTokens: 0 };
 }
 
-/** Prices a fold's header once and drops the text. */
+/**
+ * Prices a fold's header once and drops the text.
+ * Fold-side input (see the docblock on ContextUsageFold) — no production
+ * consumer today; used by the snapshot-equivalence tests, for which this
+ * fold API is the oracle.
+ */
 export function snapshotFold(
   fold: ContextUsageFold,
   tokenizer: Tokenizer,
