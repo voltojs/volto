@@ -20,36 +20,76 @@ export interface Model {
   contextWindow?: number;
   /** Max output tokens per model call; optional — omitted means the provider's own default. */
   maxOutputTokens?: number;
+  /** Whether this model supports reasoning/thinking; optional, defaults to false downstream. */
+  reasoning?: boolean;
 }
 
-export interface Provider {
-  id: string;
-  name: string;
-  baseURL: string | null;
-  apiKeyEnc: string | null;
-  models: Model[];
-}
+/**
+ * `kind` discriminates a catalog provider (backed by pi-ai's built-in
+ * provider registry, selecting models by code) from a custom one (a
+ * hand-declared OpenAI-completions-compatible endpoint with its own model
+ * list). A record persisted before this field existed has no `kind` at all;
+ * `readAll` defaults that to `"custom"` — see module header for why this is
+ * a default and not a migration.
+ */
+export type Provider =
+  | {
+      kind: "catalog";
+      id: string;
+      name: string;
+      piProvider: string;
+      apiKeyEnc: string | null;
+      modelCodes: string[];
+    }
+  | {
+      kind: "custom";
+      id: string;
+      name: string;
+      baseURL: string | null;
+      apiKeyEnc: string | null;
+      models: Model[];
+    };
 
-export interface PublicProvider {
-  id: string;
-  name: string;
-  baseURL: string | null;
-  apiKeyMasked: string | null;
-  models: Model[];
-}
+export type PublicProvider =
+  | {
+      kind: "catalog";
+      id: string;
+      name: string;
+      piProvider: string;
+      apiKeyMasked: string | null;
+      modelCodes: string[];
+    }
+  | {
+      kind: "custom";
+      id: string;
+      name: string;
+      baseURL: string | null;
+      apiKeyMasked: string | null;
+      models: Model[];
+    };
 
-export interface ProviderInput {
-  name: string;
-  baseURL?: string | null;
-  apiKey?: string | null;
-  models?: Array<{
-    id?: string;
-    name: string;
-    code: string;
-    contextWindow?: number;
-    maxOutputTokens?: number;
-  }>;
-}
+export type ProviderInput =
+  | {
+      kind: "catalog";
+      name: string;
+      piProvider: string;
+      apiKey?: string | null;
+      modelCodes: string[];
+    }
+  | {
+      kind?: "custom";
+      name: string;
+      baseURL?: string | null;
+      apiKey?: string | null;
+      models?: Array<{
+        id?: string;
+        name: string;
+        code: string;
+        contextWindow?: number;
+        maxOutputTokens?: number;
+        reasoning?: boolean;
+      }>;
+    };
 
 export function createProviderStore(dir: string = getConfigDir()) {
   const file = getConfigPath("providers.json", dir);
@@ -60,7 +100,11 @@ export function createProviderStore(dir: string = getConfigDir()) {
     // throws instead of being treated as empty — see config/io.ts. Treating
     // it as empty here would have meant the next create()/update() call
     // silently discarded every provider (and every apiKey with it).
-    return readJsonFile<Provider[]>(file, []);
+    // `kind` is optional on disk: a record written before the discriminator
+    // existed has none, and reads as "custom" — a default, not a migration
+    // (see module header). This is the only place that default is applied.
+    const raw = await readJsonFile<Array<Provider & { kind?: "catalog" | "custom" }>>(file, []);
+    return raw.map((p) => (p.kind === "catalog" ? p : { ...p, kind: "custom" as const }));
   }
 
   async function writeAll(providers: Provider[]): Promise<void> {
@@ -80,7 +124,18 @@ export function createProviderStore(dir: string = getConfigDir()) {
         masked = "…";
       }
     }
+    if (provider.kind === "catalog") {
+      return {
+        kind: "catalog",
+        id: provider.id,
+        name: provider.name,
+        piProvider: provider.piProvider,
+        apiKeyMasked: masked,
+        modelCodes: provider.modelCodes,
+      };
+    }
     return {
+      kind: "custom",
       id: provider.id,
       name: provider.name,
       baseURL: provider.baseURL,
@@ -89,7 +144,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
     };
   }
 
-  function normalizeModels(models: ProviderInput["models"]): Model[] {
+  function normalizeModels(
+    models: Extract<ProviderInput, { kind?: "custom" }>["models"],
+  ): Model[] {
     return (models ?? []).map((m) => {
       if (
         m.contextWindow !== undefined &&
@@ -109,6 +166,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         code: m.code,
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
+        ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
       };
     });
   }
@@ -119,13 +177,24 @@ export function createProviderStore(dir: string = getConfigDir()) {
     },
 
     async create(input: ProviderInput): Promise<PublicProvider> {
-      const provider: Provider = {
-        id: crypto.randomUUID(),
-        name: input.name,
-        baseURL: input.baseURL ?? null,
-        apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
-        models: normalizeModels(input.models),
-      };
+      const provider: Provider =
+        input.kind === "catalog"
+          ? {
+              kind: "catalog",
+              id: crypto.randomUUID(),
+              name: input.name,
+              piProvider: input.piProvider,
+              apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
+              modelCodes: input.modelCodes,
+            }
+          : {
+              kind: "custom",
+              id: crypto.randomUUID(),
+              name: input.name,
+              baseURL: input.baseURL ?? null,
+              apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
+              models: normalizeModels(input.models),
+            };
       await writeAll([...(await readAll()), provider]);
       return toPublic(provider);
     },
@@ -136,15 +205,32 @@ export function createProviderStore(dir: string = getConfigDir()) {
       const current = all[index];
       if (!current) return null;
 
-      const next: Provider = {
-        ...current,
-        name: input.name ?? current.name,
-        baseURL: input.baseURL === undefined ? current.baseURL : input.baseURL,
-        // An omitted apiKey means "keep the existing one" — this is what lets
-        // the settings UI show a masked value without round-tripping secrets.
-        apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : current.apiKeyEnc,
-        models: input.models ? normalizeModels(input.models) : current.models,
-      };
+      // An omitted apiKey means "keep the existing one" — this is what lets
+      // the settings UI show a masked value without round-tripping secrets.
+      const apiKeyEnc = input.apiKey ? await cipher.encrypt(input.apiKey) : current.apiKeyEnc;
+      const name = input.name ?? current.name;
+
+      let next: Provider;
+      if (current.kind === "catalog") {
+        next = {
+          kind: "catalog",
+          id: current.id,
+          name,
+          piProvider: (input as { piProvider?: string }).piProvider ?? current.piProvider,
+          apiKeyEnc,
+          modelCodes: (input as { modelCodes?: string[] }).modelCodes ?? current.modelCodes,
+        };
+      } else {
+        const customInput = input as Partial<Extract<ProviderInput, { kind?: "custom" }>>;
+        next = {
+          kind: "custom",
+          id: current.id,
+          name,
+          baseURL: customInput.baseURL === undefined ? current.baseURL : customInput.baseURL,
+          apiKeyEnc,
+          models: customInput.models ? normalizeModels(customInput.models) : current.models,
+        };
+      }
 
       all[index] = next;
       await writeAll(all);
@@ -162,22 +248,46 @@ export function createProviderStore(dir: string = getConfigDir()) {
     async resolveModel(
       providerId: string,
       modelId: string,
-    ): Promise<{
-      baseURL: string | null;
-      apiKey: string | null;
-      code: string;
-      maxOutputTokens?: number;
-    } | null> {
+    ): Promise<
+      | {
+          kind: "catalog";
+          piProvider: string;
+          apiKey: string | null;
+          code: string;
+        }
+      | {
+          kind: "custom";
+          baseURL: string | null;
+          apiKey: string | null;
+          code: string;
+          maxOutputTokens?: number;
+          reasoning?: boolean;
+        }
+      | null
+    > {
       const provider = (await readAll()).find((p) => p.id === providerId);
       if (!provider) return null;
+
+      const apiKey = provider.apiKeyEnc ? await cipher.decrypt(provider.apiKeyEnc) : null;
+
+      if (provider.kind === "catalog") {
+        // Catalog models are selected by code (no per-model id), so `modelId`
+        // is matched against the code directly.
+        const code = provider.modelCodes.find((c) => c === modelId);
+        if (!code) return null;
+        return { kind: "catalog", piProvider: provider.piProvider, apiKey, code };
+      }
+
       const model = provider.models.find((m) => m.id === modelId);
       if (!model) return null;
 
       return {
+        kind: "custom",
         baseURL: provider.baseURL,
-        apiKey: provider.apiKeyEnc ? await cipher.decrypt(provider.apiKeyEnc) : null,
+        apiKey,
         code: model.code,
         ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
       };
     },
   };

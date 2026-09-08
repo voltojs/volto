@@ -87,7 +87,7 @@ function makeRegistry(
     providerStore: {
       // A distinctive, obviously-fake secret so the plaintext-leak test has
       // no risk of a false-negative substring match.
-      resolveModel: async () => ({ baseURL: null, apiKey: "sk-super-secret-token", code: "m" }),
+      resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-super-secret-token", code: "m" }),
     } as never,
   });
   registry.attach("s1", {

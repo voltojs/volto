@@ -176,7 +176,7 @@ function makeRegistry(
   const registry = createSessionRegistry({
     agentFactory: factory as never,
     projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
-    providerStore: { resolveModel: async () => ({ baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
+    providerStore: { resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
     ...(chatStore ? { chatStore } : {}),
   });
   registry.attach("s1", { write: () => {}, on: () => {} } as never);
@@ -457,7 +457,7 @@ describe("chat transcript wiring (jsonl)", () => {
     const registry = createSessionRegistry({
       agentFactory: factory as never,
       projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
-      providerStore: { resolveModel: async () => ({ baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
+      providerStore: { resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
       chatStore,
     });
     registry.attach("s1", { write: () => {}, on: () => {} } as never);

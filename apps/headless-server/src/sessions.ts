@@ -69,13 +69,16 @@ interface ResolvedConfig {
   permissionMode: UiPermissionMode | undefined;
 }
 
-/** Shape returned by providerStore.resolveModel — see config/providers.ts. */
-interface ResolvedCredentials {
-  baseURL: string | null;
-  apiKey: string | null;
-  code: string;
-  maxOutputTokens?: number;
-}
+/**
+ * Shape returned by providerStore.resolveModel — see config/providers.ts.
+ * `kind: "catalog"` (piProvider + code, no baseURL) is not yet consumed by
+ * `rebuild()` below; wiring a catalog-backed model into the pi-ai ModelPort
+ * is tracked separately. Only `kind: "custom"` is built into a live agent
+ * today.
+ */
+type ResolvedCredentials =
+  | { kind: "catalog"; piProvider: string; apiKey: string | null; code: string }
+  | { kind: "custom"; baseURL: string | null; apiKey: string | null; code: string; maxOutputTokens?: number };
 
 /** A session with no project/model/permission selection yet. */
 const EMPTY_CONFIG: ResolvedConfig = {
@@ -391,9 +394,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       projectId: requested.projectId,
       providerId: requested.providerId,
       modelId: requested.modelId,
-      baseURL: credentials.baseURL,
+      baseURL: credentials.kind === "custom" ? credentials.baseURL : null,
       code: credentials.code,
-      maxOutputTokens: credentials.maxOutputTokens,
+      maxOutputTokens: credentials.kind === "custom" ? credentials.maxOutputTokens : undefined,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
     };
@@ -482,9 +485,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
             modelPort: wiring.modelPort ?? createPiAiModelPort({
               providers: [
                 {
+                  kind: "custom",
                   id: config.providerId ?? "default",
                   // Mirrors provider-openai's own default when no baseURL is resolved.
-                  baseURL: credentials.baseURL ?? "https://api.openai.com",
+                  // Catalog-kind credentials aren't built into a live agent yet
+                  // (see ResolvedCredentials above); this falls back to the
+                  // same "custom" shape until that wiring lands.
+                  baseURL: (credentials.kind === "custom" ? credentials.baseURL : null) ?? "https://api.openai.com",
                   apiKey: credentials.apiKey ?? "",
                   models: [{ code: credentials.code }],
                 },

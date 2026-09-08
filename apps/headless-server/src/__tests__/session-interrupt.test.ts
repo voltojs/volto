@@ -49,7 +49,7 @@ function makeBlockingFactory() {
 
 function makeRegistry(
   factory: ReturnType<typeof makeBlockingFactory>["factory"],
-  resolved: Record<string, unknown> = { baseURL: null, apiKey: "sk-test", code: "m" },
+  resolved: Record<string, unknown> = { kind: "custom", baseURL: null, apiKey: "sk-test", code: "m" },
 ) {
   const registry = createSessionRegistry({
     agentFactory: factory as never,
@@ -114,6 +114,7 @@ describe("model maxOutputTokens plumbing", () => {
   it("forwards a resolved maxOutputTokens to the agent as maxTokens", async () => {
     const { factory, builds, firstYield } = makeBlockingFactory();
     const registry = makeRegistry(factory, {
+      kind: "custom",
       baseURL: null,
       apiKey: "sk-test",
       code: "m",
