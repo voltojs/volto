@@ -197,6 +197,10 @@ export type { PermissionConfig, PermissionMode, PermissionRule } from "./permiss
 // Text extraction — shared helpers for Message → string
 export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
 
+// Pricing — shared cost arithmetic (core ← runtimes-* and core ← sdk)
+export { computeUsageCost, totalUsageTokens } from "./pricing.js";
+export type { PricingEntry, PricingTable, UsageCounts } from "./pricing.js";
+
 // Loop detector — oscillation detection (pure function)
 export { detectLoop } from "./loop-detector.js";
 export type { LoopDetectionResult } from "./loop-detector.js";

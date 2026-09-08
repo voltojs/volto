@@ -29,6 +29,7 @@ import type {
   MemoryStore,
   TokenUsage,
   AssistantMessage,
+  PricingEntry,
 } from "@volto/core";
 import {
   step,
@@ -41,6 +42,8 @@ import {
   annotateUntrusted,
   decideSelfCorrect,
   assembleContext,
+  computeUsageCost,
+  totalUsageTokens,
 } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
 import type { Hook } from "@volto/core";
@@ -138,10 +141,10 @@ export interface RunnerOptions {
   telemetry?: Telemetry;
   /**
    * Per-model pricing table for cost metrics.
-   * Key: model name; value: cost per million tokens (input/output).
+   * Key: model name; value: cost per million tokens (input/output/cache).
    * When provided, Runner records `cost_usd` metric on model call spans.
    */
-  pricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+  pricing?: Record<string, PricingEntry>;
   /**
    * Structured audit sink for approval decisions and high-risk tool executions.
    * When provided, Runner records audit entries for HITL decisions and
@@ -748,22 +751,31 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Track usage separately (attach to the next done event)
         if (event.type === "usage") {
           // Keep every counter the provider reported — cache and reasoning
-          // tokens are part of the durable record even though cost accounting
-          // below only uses input/output.
+          // tokens are part of the durable record, and cache tokens now also
+          // feed the budget gates below (a heavily-cached turn can be
+          // dominated by cache reads, e.g. 5504 of 5619 total tokens).
           const { type: _type, ...usageFields } = event;
           lastUsage = usageFields;
-          // Track raw tokens (always, regardless of pricing)
-          cumulativeTokens += event.inputTokens + event.outputTokens;
-          // Accumulate cost: use dollar pricing when available, else token count fallback
+          // Track raw tokens (always, regardless of pricing) — includes cache
+          // tokens, since input+output alone can undercount a cache-heavy
+          // turn by an order of magnitude.
+          cumulativeTokens += totalUsageTokens(event);
+          // Accumulate cost: use dollar pricing when available, else a raw
+          // token-count fallback. NOTE: the fallback is a pre-existing
+          // conflation — cumulativeCost is compared against maxCostDollars
+          // (a dollar figure) but the fallback adds a token count instead of
+          // a dollar amount. That mismatch predates this change and is out
+          // of scope here; it is only extended to count cache tokens too,
+          // for consistency with the cumulativeTokens fix above.
           if (opts.pricing && stepContext.model) {
             const entry = opts.pricing[stepContext.model];
             if (entry) {
-              cumulativeCost += (event.inputTokens * entry.inputPer1M + event.outputTokens * entry.outputPer1M) / 1_000_000;
+              cumulativeCost += computeUsageCost(entry, event);
             } else {
-              cumulativeCost += event.inputTokens + event.outputTokens;
+              cumulativeCost += totalUsageTokens(event);
             }
           } else {
-            cumulativeCost += event.inputTokens + event.outputTokens;
+            cumulativeCost += totalUsageTokens(event);
           }
           // Check cost budget immediately after accumulation
           if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
@@ -887,6 +899,15 @@ export function createRunner(opts: RunnerOptions): Runner {
         if (usageData) {
           modelSpan.setAttribute("inputTokens", usageData.inputTokens);
           modelSpan.setAttribute("outputTokens", usageData.outputTokens);
+          // Cache tokens get their own attributes rather than being folded
+          // into inputTokens/outputTokens — folding them in would misreport
+          // what was actually billed as fresh input/output.
+          if (usageData.cacheReadTokens !== undefined) {
+            modelSpan.setAttribute("cacheReadTokens", usageData.cacheReadTokens);
+          }
+          if (usageData.cacheWriteTokens !== undefined) {
+            modelSpan.setAttribute("cacheWriteTokens", usageData.cacheWriteTokens);
+          }
         }
         modelSpan.end();
       }
@@ -900,11 +921,19 @@ export function createRunner(opts: RunnerOptions): Runner {
         if (usageData) {
           opts.telemetry.metric("tokens", usageData.inputTokens, { ...attrs, kind: "input" });
           opts.telemetry.metric("tokens", usageData.outputTokens, { ...attrs, kind: "output" });
+          // Cache tokens as their own metric kinds — same reasoning as the
+          // span attributes above: never fold them into input/output.
+          if (usageData.cacheReadTokens !== undefined) {
+            opts.telemetry.metric("tokens", usageData.cacheReadTokens, { ...attrs, kind: "cache_read" });
+          }
+          if (usageData.cacheWriteTokens !== undefined) {
+            opts.telemetry.metric("tokens", usageData.cacheWriteTokens, { ...attrs, kind: "cache_write" });
+          }
           // Cost
           if (opts.pricing && stepContext.model) {
             const entry = opts.pricing[stepContext.model];
             if (entry) {
-              const cost = (usageData.inputTokens * entry.inputPer1M + usageData.outputTokens * entry.outputPer1M) / 1_000_000;
+              const cost = computeUsageCost(entry, usageData);
               opts.telemetry.metric("cost_usd", cost, attrs);
             }
           }

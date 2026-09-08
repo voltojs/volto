@@ -6,16 +6,13 @@
  * budget enforcement (that's M8 Phase 4's responsibility).
  */
 
-import type { ModelEvent, EventSink, Telemetry } from "@volto/core";
+import type { ModelEvent, EventSink, Telemetry, PricingEntry, PricingTable } from "@volto/core";
+import { computeUsageCost } from "@volto/core";
 
-export interface PricingEntry {
-  inputPer1M: number;
-  outputPer1M: number;
-  cacheReadPer1M?: number;
-  cacheWritePer1M?: number;
-}
-
-export type PricingTable = Record<string, PricingEntry>;
+// Re-exported so the SDK's public API is unchanged — the arithmetic and
+// types now live in @volto/core (shared with the Node runtime's budget
+// gates), but consumers of @volto/sdk still import them from here.
+export type { PricingEntry, PricingTable };
 
 export interface CostMeterResult {
   inputTokens: number;
@@ -74,7 +71,9 @@ export function createCostMeter(opts: CostMeterOptions) {
 
   function result(): CostMeterResult {
     const entry = pricing[model];
-    const cost = entry ? computeCost(entry, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens) : 0;
+    const cost = entry
+      ? computeUsageCost(entry, { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens })
+      : 0;
 
     const summary: CostMeterResult = {
       inputTokens,
@@ -109,22 +108,4 @@ export function createCostMeter(opts: CostMeterOptions) {
   }
 
   return { record, result, reset };
-}
-
-function computeCost(
-  entry: PricingEntry,
-  inputTokens: number,
-  outputTokens: number,
-  cacheReadTokens: number,
-  cacheWriteTokens: number,
-): number {
-  const inputCost = (inputTokens / 1_000_000) * entry.inputPer1M;
-  const outputCost = (outputTokens / 1_000_000) * entry.outputPer1M;
-  const cacheReadCost = cacheReadTokens > 0 && entry.cacheReadPer1M !== undefined
-    ? (cacheReadTokens / 1_000_000) * entry.cacheReadPer1M
-    : 0;
-  const cacheWriteCost = cacheWriteTokens > 0 && entry.cacheWritePer1M !== undefined
-    ? (cacheWriteTokens / 1_000_000) * entry.cacheWritePer1M
-    : 0;
-  return inputCost + outputCost + cacheReadCost + cacheWriteCost;
 }
