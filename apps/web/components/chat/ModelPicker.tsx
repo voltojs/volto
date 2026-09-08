@@ -35,11 +35,12 @@ export function ModelPicker({
   onChange,
 }: ModelPickerProps) {
   const providers = useConfigStore((s) => s.providers);
+  const catalogProviders = useConfigStore((s) => s.catalogProviders);
   const isModelValid = useConfigStore((s) => s.isModelValid);
   const valid = isModelValid(providerId, modelId);
 
   const items = providers.flatMap((p) =>
-    providerModels(p).map((m) => ({
+    providerModels(p, catalogProviders).map((m) => ({
       value: encode(p.id, m.id),
       label: m.name,
     })),
@@ -70,7 +71,7 @@ export function ModelPicker({
         {providers.map((provider) => (
           <SelectGroup key={provider.id}>
             <SelectLabel>{provider.name}</SelectLabel>
-            {providerModels(provider).map((model) => (
+            {providerModels(provider, catalogProviders).map((model) => (
               <SelectItem key={model.id} value={encode(provider.id, model.id)}>
                 {model.name}
               </SelectItem>

@@ -47,6 +47,7 @@ beforeEach(() => {
   useConfigStore.setState({
     projects: [],
     providers: [],
+    catalogProviders: [],
     loaded: false,
     error: null,
   });
@@ -57,14 +58,19 @@ afterEach(() => {
 });
 
 describe('useConfigStore', () => {
-  it('loads projects and providers', async () => {
-    stubFetch({ 'GET /projects': [PROJECT], 'GET /providers': [PROVIDER] });
+  it('loads projects, providers and the catalog', async () => {
+    stubFetch({
+      'GET /projects': [PROJECT],
+      'GET /providers': [PROVIDER],
+      'GET /catalog/providers': [],
+    });
 
     await useConfigStore.getState().load();
 
     const state = useConfigStore.getState();
     expect(state.projects).toEqual([PROJECT]);
     expect(state.providers).toEqual([PROVIDER]);
+    expect(state.catalogProviders).toEqual([]);
     expect(state.loaded).toBe(true);
     expect(state.error).toBeNull();
   });
@@ -153,7 +159,7 @@ describe('useConfigStore', () => {
     expect(useConfigStore.getState().getModelReasoning('v1', 'gone')).toBeNull();
   });
 
-  it('finds a catalog-provider model by its pi-ai code, synthesizing name/id', () => {
+  it('resolves a catalog-provider model name from the loaded catalog by code', () => {
     const catalogProvider = {
       id: 'v4',
       kind: 'catalog' as const,
@@ -168,11 +174,20 @@ describe('useConfigStore', () => {
         },
       ],
     };
-    useConfigStore.setState({ providers: [catalogProvider] });
+    useConfigStore.setState({
+      providers: [catalogProvider],
+      catalogProviders: [
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          models: [{ code: 'gpt-5', name: 'GPT-5' }],
+        },
+      ],
+    });
     const model = useConfigStore.getState().findModel('v4', 'gpt-5');
     expect(model).toEqual({
       id: 'gpt-5',
-      name: 'gpt-5',
+      name: 'GPT-5',
       code: 'gpt-5',
       reasoning: { efforts: [{ id: 'high', name: 'High' }] },
     });
@@ -180,6 +195,31 @@ describe('useConfigStore', () => {
       useConfigStore.getState().getModelReasoning('v4', 'gpt-5'),
     ).toEqual({ efforts: [{ id: 'high', name: 'High' }] });
     expect(useConfigStore.getState().findModel('v4', 'missing')).toBeNull();
+  });
+
+  it('falls back to the code as the name when the catalog has not loaded or no longer lists it', () => {
+    const catalogProvider = {
+      id: 'v5',
+      kind: 'catalog' as const,
+      name: 'OpenAI',
+      piProvider: 'openai',
+      apiKeyMasked: 'sk-…abcd',
+      modelCodes: ['gpt-5-legacy'],
+      models: [{ code: 'gpt-5-legacy' }],
+    };
+    // Catalog not loaded at all.
+    useConfigStore.setState({ providers: [catalogProvider], catalogProviders: [] });
+    expect(useConfigStore.getState().findModel('v5', 'gpt-5-legacy')?.name).toBe(
+      'gpt-5-legacy',
+    );
+
+    // Catalog loaded but no longer lists this code (stale config).
+    useConfigStore.setState({
+      catalogProviders: [{ id: 'openai', name: 'OpenAI', models: [] }],
+    });
+    expect(useConfigStore.getState().findModel('v5', 'gpt-5-legacy')?.name).toBe(
+      'gpt-5-legacy',
+    );
   });
 
   it('drops a removed provider from local state', async () => {

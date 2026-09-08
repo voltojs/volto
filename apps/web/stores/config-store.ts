@@ -6,27 +6,47 @@ import type {
   Model,
   ProviderInput,
   ProviderUpdateInput,
+  CatalogProvider,
 } from '@/lib/config-api';
 
-export type { Project, Provider, Model, ProviderInput, ProviderUpdateInput };
+export type {
+  Project,
+  Provider,
+  Model,
+  ProviderInput,
+  ProviderUpdateInput,
+  CatalogProvider,
+};
 
 /**
  * Normalizes a provider's model list to `Model[]` regardless of `kind`.
  *
  * A catalog provider's `GET /providers` models carry no `id`/`name` (see
  * `CatalogProviderModel`) since selection is by pi-ai code, not a
- * server-assigned id — this synthesizes both from the code so every caller
- * that just wants "the models under this provider, with an id and a name"
- * (pickers, validity checks) can treat both kinds the same way.
+ * server-assigned id — the display `name` is looked up from the pi-ai
+ * catalog (`GET /catalog/providers`) by matching `code`. When the catalog
+ * hasn't loaded yet, or no longer lists that code (e.g. a stale
+ * `piProvider`/`modelCodes` pair after a pi-ai upgrade), fall back to the
+ * code itself so callers ("the models under this provider, with an id and
+ * a name" — pickers, validity checks) never see a missing name.
  */
-export function providerModels(provider: Provider): Model[] {
+export function providerModels(
+  provider: Provider,
+  catalogProviders: CatalogProvider[] = [],
+): Model[] {
   if (provider.kind === 'catalog') {
-    return provider.models.map((m) => ({
-      id: m.code,
-      name: m.code,
-      code: m.code,
-      ...(m.reasoning ? { reasoning: m.reasoning } : {}),
-    }));
+    const catalogEntry = catalogProviders.find(
+      (c) => c.id === provider.piProvider,
+    );
+    return provider.models.map((m) => {
+      const catalogModel = catalogEntry?.models.find((cm) => cm.code === m.code);
+      return {
+        id: m.code,
+        name: catalogModel?.name ?? m.code,
+        code: m.code,
+        ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+      };
+    });
   }
   return provider.models;
 }
@@ -39,6 +59,14 @@ export function providerModels(provider: Provider): Model[] {
 interface ConfigState {
   projects: Project[];
   providers: Provider[];
+  /**
+   * pi-ai's built-in provider/model catalog, used to resolve a catalog
+   * model's display name from its `code` (see `providerModels`). Loaded
+   * best-effort alongside providers/projects — a failure here must not
+   * block the rest of config from loading, since `providerModels` already
+   * falls back to the raw code when this is empty or stale.
+   */
+  catalogProviders: CatalogProvider[];
   loaded: boolean;
   error: string | null;
 
@@ -66,16 +94,20 @@ interface ConfigState {
 export const useConfigStore = create<ConfigState>((set, get) => ({
   projects: [],
   providers: [],
+  catalogProviders: [],
   loaded: false,
   error: null,
 
   load: async () => {
     try {
-      const [projects, providers] = await Promise.all([
+      const [projects, providers, catalogProviders] = await Promise.all([
         api.fetchProjects(),
         api.fetchProviders(),
+        // Best-effort: an unreachable catalog shouldn't block config from
+        // loading, it only means catalog model names fall back to codes.
+        api.fetchCatalogProviders().catch(() => get().catalogProviders),
       ]);
-      set({ projects, providers, loaded: true, error: null });
+      set({ projects, providers, catalogProviders, loaded: true, error: null });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
@@ -116,7 +148,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     if (!providerId || !modelId) return null;
     const provider = get().providers.find((p) => p.id === providerId);
     if (!provider) return null;
-    return providerModels(provider).find((m) => m.id === modelId) ?? null;
+    return (
+      providerModels(provider, get().catalogProviders).find(
+        (m) => m.id === modelId,
+      ) ?? null
+    );
   },
 
   isProjectValid: (id) =>
