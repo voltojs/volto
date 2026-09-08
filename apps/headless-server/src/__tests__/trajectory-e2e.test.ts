@@ -58,7 +58,7 @@ async function readTrajectoryEventTypesEventually(
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as { version: number; event: { type: string } });
     lastSeen = lines
-      .filter((line) => line.version === 2)
+      .filter((line) => line.version === 3)
       .map((line) => line.event.type);
     if (expected.every((type) => lastSeen.includes(type))) return lastSeen;
     if (Date.now() > deadline) return lastSeen;
@@ -167,7 +167,7 @@ describe("trajectory capture — real chatStore end to end", () => {
       .map((line) => JSON.parse(line) as { version: number; event: { type: string; data: unknown } });
 
     const assistant = lines
-      .filter((line) => line.version === 2)
+      .filter((line) => line.version === 3)
       .map((line) => line.event)
       .find((e) => e.type === "assistant_message");
 

@@ -29,11 +29,16 @@ import type {
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-const SCHEMA_VERSION = 2 as const;
+// v3: assistant_message dropped its `reasoning` string field in favor of a
+// `reasoning` content block plus `source`/`modelMeta`. A v2 log read by this
+// build would silently drop older sessions' reasoning (projections now read
+// it only from content blocks) with no error — the version bump makes that
+// rejected explicitly by the mismatch check below instead.
+const SCHEMA_VERSION = 3 as const;
 
 export type { ChatSessionMeta };
 
-/** One line of a v2 session file. */
+/** One line of a v3 session file. */
 interface EventLine {
   version: typeof SCHEMA_VERSION;
   sessionId: string;
