@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ConversationMessage, ContextUsageSnapshot } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
+import { useConfigStore } from './config-store';
 
 /** The reasoning capability of the model a session is switching to, as reported by `configStore.getModelReasoning`. */
 type ReasoningCapability = Model['reasoning'];
@@ -127,18 +128,17 @@ interface SessionState {
   updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
 
   /**
-   * `reasoning` is the new model's declared reasoning capability (or
-   * undefined for a model with none) — pass `configStore.getModelReasoning`'s
-   * result straight through. It drives the reset rule for the currently
-   * selected effort: kept if still valid, reset to the new model's default
-   * if not, cleared otherwise. Never mapped to a "closest" tier.
+   * Resolves the new model's declared reasoning capability itself (via
+   * `configStore.getModelReasoning`) rather than taking it as a parameter —
+   * an optional capability argument is a footgun every caller must remember
+   * to pass, and omitting it is indistinguishable from "this model has no
+   * reasoning capability", which would silently discard a still-valid
+   * selection. The resolved capability drives the reset rule for the
+   * currently selected effort: kept if still valid, reset to the new
+   * model's default if not, cleared otherwise. Never mapped to a "closest"
+   * tier.
    */
-  setSessionModel: (
-    id: string,
-    providerId: string,
-    modelId: string,
-    reasoning?: ReasoningCapability,
-  ) => void;
+  setSessionModel: (id: string, providerId: string, modelId: string) => void;
   setSessionReasoningEffort: (id: string, effort: string | undefined) => void;
   setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
   getProjectSessions: (projectId: string) => Session[];
@@ -286,7 +286,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       ),
     })),
 
-  setSessionModel: (id, providerId, modelId, reasoning) =>
+  setSessionModel: (id, providerId, modelId) => {
+    const reasoning = useConfigStore
+      .getState()
+      .getModelReasoning(providerId, modelId);
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id
@@ -294,12 +297,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               ...s,
               providerId,
               modelId,
-              reasoningEffort: resetReasoningEffort(s.reasoningEffort, reasoning),
+              reasoningEffort: resetReasoningEffort(
+                s.reasoningEffort,
+                reasoning ?? undefined,
+              ),
               updatedAt: Date.now(),
             }
           : s,
       ),
-    })),
+    }));
+  },
 
   setSessionReasoningEffort: (id, effort) =>
     set((state) => ({

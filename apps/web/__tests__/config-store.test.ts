@@ -125,6 +125,27 @@ describe('useConfigStore', () => {
     });
   });
 
+  it('returns the reasoning object even when it declares zero effort tiers', () => {
+    // A truthy `reasoning` with an empty `efforts` array is still a declared
+    // capability and must be returned as-is, not nulled out like a missing key.
+    const providerWithEmptyEfforts = {
+      ...PROVIDER,
+      id: 'v3',
+      models: [
+        {
+          id: 'm3',
+          name: 'MiMo-Bare-Reasoning',
+          code: 'mimo-bare',
+          reasoning: { efforts: [] },
+        },
+      ],
+    };
+    useConfigStore.setState({ providers: [providerWithEmptyEfforts] });
+    expect(useConfigStore.getState().getModelReasoning('v3', 'm3')).toEqual({
+      efforts: [],
+    });
+  });
+
   it('returns null reasoning for an unknown provider or model', () => {
     useConfigStore.setState({ providers: [PROVIDER] });
     expect(useConfigStore.getState().getModelReasoning('gone', 'm1')).toBeNull();

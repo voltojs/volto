@@ -20,6 +20,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSessionStore } from '../stores/session-store.js';
+import { useConfigStore } from '../stores/config-store.js';
 import { summary } from './helpers/session';
 
 beforeEach(() => {
@@ -28,6 +29,10 @@ beforeEach(() => {
     currentSessionId: null,
     pendingProjectId: null,
   });
+  // setSessionModel now resolves the new model's reasoning capability itself
+  // via useConfigStore.getModelReasoning, so tests that exercise the reset
+  // rule must seed the provider/model catalog the same way the real app does.
+  useConfigStore.setState({ projects: [], providers: [], loaded: false, error: null });
 });
 
 describe('useSessionStore', () => {
@@ -109,15 +114,33 @@ describe('useSessionStore', () => {
     // the visible selection disagree with the request that actually goes
     // out. Only these three outcomes are allowed.
     it('keeps the selected effort when the new model still declares it', () => {
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [
+              {
+                id: 'm2',
+                name: 'm2',
+                code: 'm2',
+                reasoning: {
+                  efforts: [
+                    { id: 'eff-low', name: 'Low' },
+                    { id: 'eff-high', name: 'High' },
+                  ],
+                  defaultEffort: 'eff-low',
+                },
+              },
+            ],
+          },
+        ],
+      });
       const id = useSessionStore.getState().createSession({ projectId: 'p1' });
       useSessionStore.getState().setSessionReasoningEffort(id, 'eff-high');
-      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
-        efforts: [
-          { id: 'eff-low', name: 'Low' },
-          { id: 'eff-high', name: 'High' },
-        ],
-        defaultEffort: 'eff-low',
-      });
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
       expect(
         useSessionStore.getState().sessions.find((s) => s.id === id)
           ?.reasoningEffort,
@@ -125,15 +148,33 @@ describe('useSessionStore', () => {
     });
 
     it('falls back to the new model default when the selected effort is gone', () => {
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [
+              {
+                id: 'm2',
+                name: 'm2',
+                code: 'm2',
+                reasoning: {
+                  efforts: [
+                    { id: 'eff-low', name: 'Low' },
+                    { id: 'eff-high', name: 'High' },
+                  ],
+                  defaultEffort: 'eff-low',
+                },
+              },
+            ],
+          },
+        ],
+      });
       const id = useSessionStore.getState().createSession({ projectId: 'p1' });
       useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
-      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
-        efforts: [
-          { id: 'eff-low', name: 'Low' },
-          { id: 'eff-high', name: 'High' },
-        ],
-        defaultEffort: 'eff-low',
-      });
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
       expect(
         useSessionStore.getState().sessions.find((s) => s.id === id)
           ?.reasoningEffort,
@@ -141,18 +182,24 @@ describe('useSessionStore', () => {
     });
 
     it('clears the effort when the new model has no default and no match', () => {
-      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
-      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
-      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
-        efforts: [{ id: 'eff-low', name: 'Low' }],
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [
+              {
+                id: 'm2',
+                name: 'm2',
+                code: 'm2',
+                reasoning: { efforts: [{ id: 'eff-low', name: 'Low' }] },
+              },
+            ],
+          },
+        ],
       });
-      expect(
-        useSessionStore.getState().sessions.find((s) => s.id === id)
-          ?.reasoningEffort,
-      ).toBeUndefined();
-    });
-
-    it('clears the effort when the new model has no reasoning capability at all', () => {
       const id = useSessionStore.getState().createSession({ projectId: 'p1' });
       useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
       useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
@@ -160,6 +207,67 @@ describe('useSessionStore', () => {
         useSessionStore.getState().sessions.find((s) => s.id === id)
           ?.reasoningEffort,
       ).toBeUndefined();
+    });
+
+    it('clears the effort when the new model has no reasoning capability at all', () => {
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [{ id: 'm2', name: 'm2', code: 'm2' }],
+          },
+        ],
+      });
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBeUndefined();
+    });
+
+    it('regression: a caller that changes only the model (no capability arg exists anymore) still gets the correct outcome', () => {
+      // This is exactly the bug the fix removes: setSessionModel used to take
+      // an optional capability parameter that every caller could forget,
+      // silently clearing a still-valid selection. Now the store resolves
+      // the capability itself, so a caller that only passes id/providerId/
+      // modelId — the only signature available now — still gets the right
+      // reset-rule outcome instead of an accidental clear.
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [
+              {
+                id: 'm2',
+                name: 'm2',
+                code: 'm2',
+                reasoning: {
+                  efforts: [
+                    { id: 'eff-low', name: 'Low' },
+                    { id: 'eff-high', name: 'High' },
+                  ],
+                  defaultEffort: 'eff-low',
+                },
+              },
+            ],
+          },
+        ],
+      });
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-high');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBe('eff-high');
     });
   });
 
