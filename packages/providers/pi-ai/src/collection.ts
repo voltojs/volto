@@ -42,13 +42,34 @@ function fixedApiKeyAuth(providerId: string, apiKey: string | undefined): ApiKey
 }
 
 /**
+ * Normalize a configured base URL the way the old `provider-openai` port did:
+ * strip trailing slashes, then append `/v1` unless the URL already ends in
+ * `/v1`. pi-ai does no normalization of its own — it hands `model.baseUrl`
+ * straight to the OpenAI SDK, which appends `/chat/completions` — so without
+ * this, `https://api.openai.com` (no `/v1`) 404s and every pre-existing
+ * `https://gateway.example` style config breaks.
+ */
+function normalizeBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+/**
  * Build the pi-ai `Model` for one hand-declared config entry. A hand-declared
  * model has no reasoning metadata: `reasoning` stays `false` and
  * `thinkingLevelMap` stays absent, so `describeModelInfo` legitimately omits
  * the `reasoning` field for it later.
+ *
+ * `baseUrl` must be set here, on the model itself: pi-ai only ever rewrites a
+ * model's base URL from `auth.baseUrl` inside `applyAuth`
+ * (dist/models.js:375), which we don't populate; `provider.baseUrl` is stored
+ * but never read on the request path. pi-ai's own built-in OpenAI provider
+ * confirms this is the intended shape (dist/providers/openai.js:9 sets
+ * `baseUrl` on the model, not just the provider).
  */
 function buildModel(
   providerId: string,
+  providerBaseUrl: string,
   entry: PiAiProviderConfig["models"][number],
 ): Model<"openai-completions"> {
   return {
@@ -56,7 +77,7 @@ function buildModel(
     name: entry.name ?? entry.code,
     api: "openai-completions",
     provider: providerId,
-    baseUrl: "",
+    baseUrl: normalizeBaseUrl(providerBaseUrl),
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -79,7 +100,7 @@ export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
       name: config.name,
       baseUrl: config.baseURL,
       auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
-      models: config.models.map((entry) => buildModel(config.id, entry)),
+      models: config.models.map((entry) => buildModel(config.id, config.baseURL, entry)),
       api: openAICompletionsApi(),
     });
     models.setProvider(provider);
@@ -116,7 +137,7 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     if (levels.length > 0) {
       const reasoning: ModelReasoningInfo = {
         efforts: levels.map((level) => ({
-          id: level as unknown as ReasoningEffortId, // branded type: effort id is published verbatim from pi-ai; core never interprets it
+          id: level as ReasoningEffortId, // branded type: effort id is published verbatim from pi-ai; core never interprets it
           name: displayName(level),
         })),
       };

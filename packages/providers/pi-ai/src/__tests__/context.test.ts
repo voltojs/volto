@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+
 import type { ModelRequest } from "@volto/core";
 import { toReplayEnvelope } from "../replay.js";
 import { toPiContext } from "../context.js";
@@ -212,7 +213,7 @@ describe("toPiContext", () => {
     expect(toolResultMsg.isError).toBe(false);
   });
 
-  it("throws a descriptive error when a tool_result has no matching prior tool_use block", () => {
+  it("drops (does not throw for) a tool_result with no matching prior tool_use block", () => {
     const req = baseRequest({
       messages: [
         {
@@ -224,7 +225,8 @@ describe("toPiContext", () => {
       ],
     });
 
-    expect(() => toPiContext(req, model)).toThrow(/call_missing/);
+    expect(() => toPiContext(req, model)).not.toThrow();
+    expect(toPiContext(req, model).messages).toHaveLength(0);
   });
 
   it("passes tool schemas through as-is (inputSchema -> parameters)", () => {
@@ -257,5 +259,70 @@ describe("toPiContext", () => {
         },
       },
     ]);
+  });
+
+  it("drops a tool result whose originating assistant tool_use message is absent (e.g. compacted away), without throwing", () => {
+    const req = baseRequest({
+      messages: [
+        { role: "user", content: "run it" },
+        {
+          role: "tool",
+          content: [{ type: "tool_result", toolUseId: "missing-call", content: "result text" }],
+        },
+      ],
+    });
+
+    expect(() => toPiContext(req, model)).not.toThrow();
+    const ctx = toPiContext(req, model);
+    const toolResultMessages = ctx.messages.filter((m) => m.role === "toolResult");
+    expect(toolResultMessages).toHaveLength(0);
+  });
+
+  it("keeps a tool result whose originating assistant tool_use message is present", () => {
+    const req = baseRequest({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "call-1", name: "echo", input: { text: "hi" } }],
+          stopReason: "tool_use",
+        },
+        {
+          role: "tool",
+          content: [{ type: "tool_result", toolUseId: "call-1", content: "result text" }],
+        },
+      ],
+    });
+
+    const ctx = toPiContext(req, model);
+    const toolResultMessages = ctx.messages.filter(
+      (m): m is ToolResultMessage => m.role === "toolResult",
+    );
+    expect(toolResultMessages).toHaveLength(1);
+    expect(toolResultMessages[0]?.toolName).toBe("echo");
+  });
+
+  it("skips a URL-sourced image block instead of sending it as malformed base64 data", () => {
+    const req = baseRequest({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "look at this" },
+            {
+              type: "image",
+              source: {
+                type: "url",
+                mediaType: "image/png",
+                data: "https://example.com/pic.png",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const ctx = toPiContext(req, model);
+    const msg = ctx.messages[0] as UserMessage;
+    expect(msg.content).toEqual([{ type: "text", text: "look at this" }]);
   });
 });

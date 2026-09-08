@@ -35,6 +35,11 @@ export function toPiContext(req: ModelRequest, model: string): PiContext {
     .map((m) => m.content)
     .join("\n\n");
 
+  // Built once per call (not rescanned per tool-result block): maps a
+  // tool_use block's id to its name, for mapToolResultMessage's reverse
+  // lookup below.
+  const toolNameById = buildToolNameIndex(req.messages);
+
   const messages: PiMessage[] = [];
   for (const message of req.messages) {
     if (message.role === "system") {
@@ -45,7 +50,7 @@ export function toPiContext(req: ModelRequest, model: string): PiContext {
     } else if (message.role === "assistant") {
       messages.push(mapAssistantMessage(message, model));
     } else {
-      messages.push(...mapToolResultMessage(message.content, req.messages));
+      messages.push(...mapToolResultMessage(message.content, toolNameById));
     }
   }
 
@@ -73,12 +78,15 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
     if (block.type === "text") {
       content.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
-      // pi-ai's ImageContent only carries `data` (always expected to be
-      // base64) + `mimeType` — there is no separate URL variant. A
-      // source.type "url" block's `data` is passed through as-is; the
-      // caller is responsible for ensuring it is something the target
-      // provider can consume, since pi-ai gives us no way to express "this
-      // is a URL, please fetch it" distinctly from base64 payload data.
+      // pi-ai's ImageContent.data is unconditionally treated as base64 —
+      // there is no separate URL variant, and no way to say "fetch this
+      // URL" instead. Passing a URL through as `data` would produce a
+      // malformed (not merely degraded) request, so skip URL-sourced image
+      // blocks defensively, consistent with this file's other defensive
+      // skips.
+      if (block.source.type === "url") {
+        continue;
+      }
       content.push({ type: "image", data: block.source.data, mimeType: block.source.mediaType });
     }
     // Other ContentBlock variants (tool_use / tool_result / reasoning) are not
@@ -222,49 +230,56 @@ function zeroUsage(): PiUsage {
 // tool result
 // ──────────────────────────────────────────────
 
+/**
+ * Map tool results to pi-ai's `ToolResultMessage`, dropping any result whose
+ * originating `tool_use` block cannot be found.
+ *
+ * This is not hypothetical: compaction (`packages/core/src/compactor.ts`)
+ * walks the message list greedily against a token budget and can compress an
+ * old assistant `tool_use` message while its later `tool` result message
+ * stays inside the recent-keep window, with nothing pairing the two. That is
+ * an ordinary, expected outcome of normal operation, not a corrupted
+ * transcript — so we degrade (drop the orphaned result) instead of throwing.
+ * pi-ai's ToolResultMessage.toolName is a required, non-empty-in-practice
+ * string; there is no sensible placeholder to send for an orphaned result,
+ * so omitting the whole message is the only safe option.
+ */
 function mapToolResultMessage(
   blocks: ToolResultContent[],
-  allMessages: readonly Message[],
+  toolNameById: ReadonlyMap<string, string>,
 ): PiToolResultMessage[] {
-  return blocks.map((block) => ({
-    role: "toolResult",
-    toolCallId: block.toolUseId,
-    toolName: lookupToolName(block.toolUseId, allMessages),
-    content: [{ type: "text", text: block.content }],
-    isError: block.isError ?? false,
-    timestamp: 0,
-  }));
+  const messages: PiToolResultMessage[] = [];
+  for (const block of blocks) {
+    const toolName = toolNameById.get(block.toolUseId);
+    if (toolName === undefined) {
+      continue;
+    }
+    messages.push({
+      role: "toolResult",
+      toolCallId: block.toolUseId,
+      toolName,
+      content: [{ type: "text", text: block.content }],
+      isError: block.isError ?? false,
+      timestamp: 0,
+    });
+  }
+  return messages;
 }
 
-/**
- * Reverse-look-up a tool's name from the assistant `tool_use` block that
- * originated this result. Core's ToolResultContent only carries
- * `toolUseId` — the name lives on the matching earlier assistant message.
- *
- * A miss means the transcript is corrupted (a tool result with no
- * corresponding call) — this is not the same kind of "expected degradation"
- * as foreign replay. pi-ai's ToolResultMessage.toolName is a required,
- * non-empty-in-practice string; silently substituting "" would send a
- * structurally valid but semantically broken request without any signal
- * that something went wrong. We throw instead, so the failure is visible
- * at the point the request is built rather than surfacing later as a
- * confusing provider-side rejection.
- */
-function lookupToolName(toolUseId: string, allMessages: readonly Message[]): string {
+/** Index every assistant `tool_use` block's id -> name, once per toPiContext call. */
+function buildToolNameIndex(allMessages: readonly Message[]): Map<string, string> {
+  const index = new Map<string, string>();
   for (const message of allMessages) {
     if (message.role !== "assistant") {
       continue;
     }
     for (const block of message.content) {
-      if (block.type === "tool_use" && block.id === toolUseId) {
-        return block.name;
+      if (block.type === "tool_use") {
+        index.set(block.id, block.name);
       }
     }
   }
-  throw new Error(
-    `toPiContext: no assistant tool_use block found for tool_result "${toolUseId}"; cannot ` +
-      "determine toolName (pi-ai requires it). This indicates a corrupted transcript.",
-  );
+  return index;
 }
 
 // ──────────────────────────────────────────────

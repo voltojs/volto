@@ -102,7 +102,7 @@ export function createPiAiModelPortFromModels(
         const events = models.streamSimple(model, context, {
           signal: req.abortSignal,
           ...(req.reasoningEffort !== undefined
-            ? { reasoning: req.reasoningEffort as unknown as ThinkingLevel }
+            ? { reasoning: req.reasoningEffort as ThinkingLevel }
             : {}),
           ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),

@@ -31,7 +31,7 @@ export interface AgentWiringOptions {
   cwd?: string;
   /** OpenAI 兼容服务的 API Key（由调用方按会话绑定的供应商解析后传入） */
   apiKey: string | null;
-  /** 自定义 baseURL；null/undefined 时走 provider 内置默认地址 */
+  /** Custom baseURL; null/undefined falls back to the default hardcoded below in this file (provider-pi-ai itself does no default-URL fallback) */
   baseURL: string | null;
   /** 实际发给 API 的模型代码 */
   modelName: string;
@@ -75,7 +75,8 @@ export function createAgentInstance(options: AgentWiringOptions) {
     providers: [
       {
         id: "default",
-        // Mirrors provider-openai's own default when no baseURL is given.
+        // provider-pi-ai does no default-URL fallback of its own; this
+        // wiring layer supplies the same default provider-openai used to.
         baseURL: baseURL ?? "https://api.openai.com",
         apiKey,
         models: [{ code: modelName }],

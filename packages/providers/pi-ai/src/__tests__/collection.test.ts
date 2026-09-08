@@ -112,4 +112,53 @@ describe("describeModelInfo", () => {
     expect(() => describeModelInfo(models, "nope", "plain-model")).toThrow();
     expect(() => describeModelInfo(models, "acme", "nope")).toThrow();
   });
+
+  it("threads the configured base URL onto each Model (not left empty)", () => {
+    const models = buildModels(twoProviderConfigs());
+
+    const model = models.getModel("acme", "plain-model");
+    // Finding 1: pi-ai only ever rewrites baseUrl from auth.baseUrl inside
+    // applyAuth; provider.baseUrl is never read on the request path, so it
+    // must be set on the model itself.
+    expect(model?.baseUrl).toBe("https://acme.example/v1");
+  });
+
+  it("normalizes a base URL with no /v1 by appending it", () => {
+    const models = buildModels([
+      {
+        id: "gw",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        models: [{ code: "m" }],
+      },
+    ]);
+
+    expect(models.getModel("gw", "m")?.baseUrl).toBe("https://gateway.example/v1");
+  });
+
+  it("leaves a base URL already ending in /v1 unchanged", () => {
+    const models = buildModels([
+      {
+        id: "gw",
+        baseURL: "https://gateway.example/v1",
+        apiKey: "k",
+        models: [{ code: "m" }],
+      },
+    ]);
+
+    expect(models.getModel("gw", "m")?.baseUrl).toBe("https://gateway.example/v1");
+  });
+
+  it("strips a trailing slash before normalizing", () => {
+    const models = buildModels([
+      {
+        id: "gw",
+        baseURL: "https://gateway.example/",
+        apiKey: "k",
+        models: [{ code: "m" }],
+      },
+    ]);
+
+    expect(models.getModel("gw", "m")?.baseUrl).toBe("https://gateway.example/v1");
+  });
 });
