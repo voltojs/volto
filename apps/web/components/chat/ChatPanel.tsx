@@ -7,6 +7,7 @@ import { InputBar } from './InputBar';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
 import { ModelPicker } from './ModelPicker';
+import { ReasoningPicker } from './ReasoningPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextMeter } from './ContextMeter';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,13 @@ export function ChatPanel() {
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [pendingPermissionMode, setPendingPermissionMode] =
     useState<PermissionMode>('plan');
+  // Cleared on every model change (below) rather than trying to mirror
+  // `setSessionModel`'s keep-if-still-valid rule — there is no session yet
+  // to carry that nuance for, so falling back to the new model's declared
+  // default is enough.
+  const [pendingReasoningEffort, setPendingReasoningEffort] = useState<
+    string | undefined
+  >(undefined);
 
   const hasModel = providers.some((p) => p.models.length > 0);
 
@@ -66,6 +74,11 @@ export function ChatPanel() {
     pendingProviderId ?? firstProviderWithModels?.id ?? null;
   const effectiveModelId =
     pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
+  const pendingReasoning = useConfigStore((s) =>
+    s.getModelReasoning(effectiveProviderId, effectiveModelId),
+  );
+  const effectiveReasoningEffort =
+    pendingReasoningEffort ?? pendingReasoning?.defaultEffort;
 
   // Fallback for entering a session by any path this component didn't itself
   // trigger the fetch for (e.g. a session already current on mount). Errors
@@ -84,6 +97,7 @@ export function ChatPanel() {
       providerId: effectiveProviderId,
       modelId: effectiveModelId,
       permissionMode: pendingPermissionMode,
+      reasoningEffort: effectiveReasoningEffort,
     });
     useSessionStore.getState().setCurrentSession(id);
     // No `ensureSessionDetail(id)` call here: `createSession` always sets
@@ -107,6 +121,12 @@ export function ChatPanel() {
   // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
   const currentModel = useConfigStore((s) =>
     s.findModel(currentSession?.providerId ?? null, currentSession?.modelId ?? null),
+  );
+  const currentReasoning = useConfigStore((s) =>
+    s.getModelReasoning(
+      currentSession?.providerId ?? null,
+      currentSession?.modelId ?? null,
+    ),
   );
 
   // Gates ContextMeter's "provider isn't reporting usage" hint: only true
@@ -258,14 +278,22 @@ export function ChatPanel() {
                     />
                   }
                   trailing={
-                    <ModelPicker
-                      providerId={effectiveProviderId}
-                      modelId={effectiveModelId}
-                      onChange={(providerId, modelId) => {
-                        setPendingProviderId(providerId);
-                        setPendingModelId(modelId);
-                      }}
-                    />
+                    <>
+                      <ModelPicker
+                        providerId={effectiveProviderId}
+                        modelId={effectiveModelId}
+                        onChange={(providerId, modelId) => {
+                          setPendingProviderId(providerId);
+                          setPendingModelId(modelId);
+                          setPendingReasoningEffort(undefined);
+                        }}
+                      />
+                      <ReasoningPicker
+                        efforts={pendingReasoning?.efforts ?? []}
+                        value={effectiveReasoningEffort}
+                        onChange={setPendingReasoningEffort}
+                      />
+                    </>
                   }
                 />
               </>
@@ -349,6 +377,15 @@ export function ChatPanel() {
                   useSessionStore
                     .getState()
                     .setSessionModel(currentSessionId, providerId, modelId)
+                }
+              />
+              <ReasoningPicker
+                efforts={currentReasoning?.efforts ?? []}
+                value={currentSession.reasoningEffort}
+                onChange={(effort) =>
+                  useSessionStore
+                    .getState()
+                    .setSessionReasoningEffort(currentSessionId, effort)
                 }
               />
             </>

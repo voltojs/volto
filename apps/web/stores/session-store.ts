@@ -95,6 +95,14 @@ interface CreateSessionOptions {
    * the first turn instead of being silently overridden.
    */
   permissionMode?: PermissionMode;
+  /**
+   * Same "let the pre-creation picker's choice take effect immediately"
+   * treatment as `permissionMode` above: the welcome screen's
+   * `ReasoningPicker` operates on local state before a session exists, so
+   * it has to be threaded through here rather than starting every session
+   * at `undefined` and forcing the user to reselect it turn one.
+   */
+  reasoningEffort?: string;
 }
 
 interface SessionState {
@@ -201,6 +209,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       // a floor. A caller that lets the user pick a tier up front (the
       // welcome screen) passes it straight through.
       permissionMode: options.permissionMode ?? 'plan',
+      reasoningEffort: options.reasoningEffort,
     };
     set((state) => ({
       sessions: [session, ...state.sessions],
