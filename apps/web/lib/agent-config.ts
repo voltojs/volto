@@ -27,6 +27,8 @@ export interface TurnConfig {
   providerId?: string | null;
   modelId?: string | null;
   permissionMode?: string;
+  /** Opaque id of a reasoning-effort tier declared by the selected model. */
+  reasoningEffort?: string;
 }
 
 /**
@@ -49,6 +51,9 @@ export async function postMessage(
       ...(config.modelId ? { modelId: config.modelId } : {}),
       ...(config.permissionMode
         ? { permissionMode: config.permissionMode }
+        : {}),
+      ...(config.reasoningEffort
+        ? { reasoningEffort: config.reasoningEffort }
         : {}),
     }),
   });

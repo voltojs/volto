@@ -14,6 +14,13 @@ export interface Project {
   createdAt: number;
 }
 
+/** One selectable reasoning-effort tier for a model. The id is opaque — never hardcode or parse it. */
+export interface ReasoningEffort {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface Model {
   id: string;
   name: string;
@@ -22,6 +29,15 @@ export interface Model {
   contextWindow?: number;
   /** 单次模型调用的最大输出 token 数。可选：未设置时沿用供应商默认值。 */
   maxOutputTokens?: number;
+  /**
+   * Present only when the model declares reasoning-effort tiers. Absent —
+   * never an empty `efforts` list — for a model with no such capability;
+   * callers must check for the key rather than the list length.
+   */
+  reasoning?: {
+    efforts: ReasoningEffort[];
+    defaultEffort?: string;
+  };
 }
 
 export interface Provider {
@@ -91,6 +107,25 @@ export const deleteProject = (id: string) =>
   request<void>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const fetchProviders = () => request<Provider[]>('/providers');
+
+/** A single model surfaced from pi-ai's built-in catalog (settings' add-provider flow). */
+export interface CatalogModel {
+  code: string;
+  name: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  reasoning?: boolean;
+}
+
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  models: CatalogModel[];
+}
+
+/** Providers the user can authenticate with a typed API key, from pi-ai's static catalog. */
+export const fetchCatalogProviders = () =>
+  request<CatalogProvider[]>('/catalog/providers');
 
 export const createProvider = (input: ProviderInput) =>
   request<Provider>('/providers', {

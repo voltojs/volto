@@ -12,7 +12,21 @@ const PROVIDER = {
   name: 'MiMo',
   baseURL: 'https://example.com/v1',
   apiKeyMasked: 'sk-…3f2a',
-  models: [{ id: 'm1', name: 'MiMo-V2.5-Pro', code: 'mimo-v2.5' }],
+  models: [
+    { id: 'm1', name: 'MiMo-V2.5-Pro', code: 'mimo-v2.5' },
+    {
+      id: 'm2',
+      name: 'MiMo-Thinking',
+      code: 'mimo-thinking',
+      reasoning: {
+        efforts: [
+          { id: 'eff-low', name: 'Low' },
+          { id: 'eff-high', name: 'High' },
+        ],
+        defaultEffort: 'eff-low',
+      },
+    },
+  ],
 };
 
 function stubFetch(routes: Record<string, unknown>): void {
@@ -90,6 +104,31 @@ describe('useConfigStore', () => {
       .addProject({ name: 'demo', path: '/tmp/demo' });
     expect(useConfigStore.getState().projects).toEqual([PROJECT]);
     expect(created).toEqual(PROJECT);
+  });
+
+  it('returns null reasoning for a model with no reasoning capability', () => {
+    useConfigStore.setState({ providers: [PROVIDER] });
+    expect(
+      useConfigStore.getState().getModelReasoning('v1', 'm1'),
+    ).toBeNull();
+  });
+
+  it('returns the declared efforts for a model with reasoning capability', () => {
+    useConfigStore.setState({ providers: [PROVIDER] });
+    const reasoning = useConfigStore.getState().getModelReasoning('v1', 'm2');
+    expect(reasoning).toEqual({
+      efforts: [
+        { id: 'eff-low', name: 'Low' },
+        { id: 'eff-high', name: 'High' },
+      ],
+      defaultEffort: 'eff-low',
+    });
+  });
+
+  it('returns null reasoning for an unknown provider or model', () => {
+    useConfigStore.setState({ providers: [PROVIDER] });
+    expect(useConfigStore.getState().getModelReasoning('gone', 'm1')).toBeNull();
+    expect(useConfigStore.getState().getModelReasoning('v1', 'gone')).toBeNull();
   });
 
   it('drops a removed provider from local state', async () => {

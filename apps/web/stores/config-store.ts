@@ -29,6 +29,11 @@ interface ConfigState {
   ) => Model | null;
   isProjectValid: (id: string | null) => boolean;
   isModelValid: (providerId: string | null, modelId: string | null) => boolean;
+  /** Null for an unknown model reference or a model with no reasoning capability. */
+  getModelReasoning: (
+    providerId: string | null,
+    modelId: string | null,
+  ) => Model['reasoning'] | null;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
@@ -91,4 +96,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
   isModelValid: (providerId, modelId) =>
     get().findModel(providerId, modelId) !== null,
+
+  getModelReasoning: (providerId, modelId) =>
+    get().findModel(providerId, modelId)?.reasoning ?? null,
 }));

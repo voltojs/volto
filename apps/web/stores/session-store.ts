@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import type { ConversationMessage, ContextUsageSnapshot } from '@volto/sdk/sse';
+import type { Model } from '@/lib/config-api';
+
+/** The reasoning capability of the model a session is switching to, as reported by `configStore.getModelReasoning`. */
+type ReasoningCapability = Model['reasoning'];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +52,12 @@ export interface Session {
   modelId: string | null;
   permissionMode: PermissionMode;
   /**
+   * Opaque id of the selected reasoning-effort tier, or undefined when none
+   * is selected. Never hardcode or interpret this id — display strings come
+   * from the server's declared efforts list.
+   */
+  reasoningEffort?: string;
+  /**
    * Numbers-only context-usage snapshot seeded from `GET /sessions/:id`. Held
    * in memory for this browsing session only — the server recomputes it from
    * the durable transcript on every load.
@@ -63,6 +73,7 @@ export interface SessionDetail {
   providerId: string | null;
   modelId: string | null;
   permissionMode: PermissionMode;
+  reasoningEffort?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +126,20 @@ interface SessionState {
   getSessionMessages: (id: string) => ConversationMessage[];
   updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
 
-  setSessionModel: (id: string, providerId: string, modelId: string) => void;
+  /**
+   * `reasoning` is the new model's declared reasoning capability (or
+   * undefined for a model with none) — pass `configStore.getModelReasoning`'s
+   * result straight through. It drives the reset rule for the currently
+   * selected effort: kept if still valid, reset to the new model's default
+   * if not, cleared otherwise. Never mapped to a "closest" tier.
+   */
+  setSessionModel: (
+    id: string,
+    providerId: string,
+    modelId: string,
+    reasoning?: ReasoningCapability,
+  ) => void;
+  setSessionReasoningEffort: (id: string, effort: string | undefined) => void;
   setSessionPermissionMode: (id: string, mode: PermissionMode) => void;
   getProjectSessions: (projectId: string) => Session[];
 
@@ -124,6 +148,28 @@ interface SessionState {
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
+
+/**
+ * The model-change reset rule for a session's reasoning-effort selection:
+ * - still declared by the new model → keep it;
+ * - not declared, but the new model has a default → use that;
+ * - not declared and no default (or the new model has no reasoning
+ *   capability at all) → clear it.
+ *
+ * Deliberately never maps to a "closest" tier — a silent substitution would
+ * make the visible selection disagree with the request that actually goes
+ * out.
+ */
+function resetReasoningEffort(
+  current: string | undefined,
+  reasoning: ReasoningCapability,
+): string | undefined {
+  if (!reasoning) return undefined;
+  if (current !== undefined && reasoning.efforts.some((e) => e.id === current)) {
+    return current;
+  }
+  return reasoning.defaultEffort;
+}
 
 export const useSessionStore = create<SessionState>()((set, get) => ({
   sessions: [],
@@ -240,10 +286,27 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       ),
     })),
 
-  setSessionModel: (id, providerId, modelId) =>
+  setSessionModel: (id, providerId, modelId, reasoning) =>
     set((state) => ({
       sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, providerId, modelId, updatedAt: Date.now() } : s,
+        s.id === id
+          ? {
+              ...s,
+              providerId,
+              modelId,
+              reasoningEffort: resetReasoningEffort(s.reasoningEffort, reasoning),
+              updatedAt: Date.now(),
+            }
+          : s,
+      ),
+    })),
+
+  setSessionReasoningEffort: (id, effort) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id
+          ? { ...s, reasoningEffort: effort, updatedAt: Date.now() }
+          : s,
       ),
     })),
 

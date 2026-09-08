@@ -95,6 +95,74 @@ describe('useSessionStore', () => {
     expect(session?.projectId).toBe('p1');
   });
 
+  it('sets and updates the reasoning effort of an existing session', () => {
+    const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+    useSessionStore.getState().setSessionReasoningEffort(id, 'eff-high');
+    expect(
+      useSessionStore.getState().sessions.find((s) => s.id === id)
+        ?.reasoningEffort,
+    ).toBe('eff-high');
+  });
+
+  describe('setSessionModel reasoning-effort reset rule', () => {
+    // Never map to the "closest" effort — a silent substitution would make
+    // the visible selection disagree with the request that actually goes
+    // out. Only these three outcomes are allowed.
+    it('keeps the selected effort when the new model still declares it', () => {
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-high');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
+        efforts: [
+          { id: 'eff-low', name: 'Low' },
+          { id: 'eff-high', name: 'High' },
+        ],
+        defaultEffort: 'eff-low',
+      });
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBe('eff-high');
+    });
+
+    it('falls back to the new model default when the selected effort is gone', () => {
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
+        efforts: [
+          { id: 'eff-low', name: 'Low' },
+          { id: 'eff-high', name: 'High' },
+        ],
+        defaultEffort: 'eff-low',
+      });
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBe('eff-low');
+    });
+
+    it('clears the effort when the new model has no default and no match', () => {
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2', {
+        efforts: [{ id: 'eff-low', name: 'Low' }],
+      });
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBeUndefined();
+    });
+
+    it('clears the effort when the new model has no reasoning capability at all', () => {
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-medium');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBeUndefined();
+    });
+  });
+
   it('changes the permission mode of an existing session', () => {
     const id = useSessionStore.getState().createSession({ projectId: 'p1' });
     useSessionStore.getState().setSessionPermissionMode(id, 'auto-accept');
@@ -273,11 +341,13 @@ describe('applySessionDetail', () => {
       providerId: 'pr',
       modelId: 'm',
       permissionMode: 'plan',
+      reasoningEffort: 'eff-high',
     });
     const session = useSessionStore.getState().sessions[0]!;
     expect(session.detailLoaded).toBe(true);
     expect(session.messages).toHaveLength(1);
     expect(session.projectId).toBe('p');
+    expect(session.reasoningEffort).toBe('eff-high');
   });
 
   it('ignores a detail for a session no longer in the list', () => {
