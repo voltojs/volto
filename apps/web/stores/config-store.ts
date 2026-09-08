@@ -1,8 +1,35 @@
 import { create } from 'zustand';
 import * as api from '@/lib/config-api';
-import type { Project, Provider, Model, ProviderInput } from '@/lib/config-api';
+import type {
+  Project,
+  Provider,
+  Model,
+  ProviderInput,
+  ProviderUpdateInput,
+} from '@/lib/config-api';
 
-export type { Project, Provider, Model };
+export type { Project, Provider, Model, ProviderInput, ProviderUpdateInput };
+
+/**
+ * Normalizes a provider's model list to `Model[]` regardless of `kind`.
+ *
+ * A catalog provider's `GET /providers` models carry no `id`/`name` (see
+ * `CatalogProviderModel`) since selection is by pi-ai code, not a
+ * server-assigned id — this synthesizes both from the code so every caller
+ * that just wants "the models under this provider, with an id and a name"
+ * (pickers, validity checks) can treat both kinds the same way.
+ */
+export function providerModels(provider: Provider): Model[] {
+  if (provider.kind === 'catalog') {
+    return provider.models.map((m) => ({
+      id: m.code,
+      name: m.code,
+      code: m.code,
+      ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+    }));
+  }
+  return provider.models;
+}
 
 /**
  * Mirror of the gateway's configuration. Deliberately NOT persisted: the
@@ -20,7 +47,7 @@ interface ConfigState {
   addProject: (input: { name: string; path: string }) => Promise<Project>;
   removeProject: (id: string) => Promise<void>;
   addProvider: (input: ProviderInput) => Promise<void>;
-  editProvider: (id: string, input: Partial<ProviderInput>) => Promise<void>;
+  editProvider: (id: string, input: ProviderUpdateInput) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
 
   findModel: (
@@ -88,7 +115,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   findModel: (providerId, modelId) => {
     if (!providerId || !modelId) return null;
     const provider = get().providers.find((p) => p.id === providerId);
-    return provider?.models.find((m) => m.id === modelId) ?? null;
+    if (!provider) return null;
+    return providerModels(provider).find((m) => m.id === modelId) ?? null;
   },
 
   isProjectValid: (id) =>

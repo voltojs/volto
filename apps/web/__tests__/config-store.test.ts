@@ -9,6 +9,7 @@ import { useConfigStore } from '../stores/config-store.js';
 const PROJECT = { id: 'p1', name: 'demo', path: '/tmp/demo', createdAt: 1 };
 const PROVIDER = {
   id: 'v1',
+  kind: 'custom' as const,
   name: 'MiMo',
   baseURL: 'https://example.com/v1',
   apiKeyMasked: 'sk-…3f2a',
@@ -150,6 +151,35 @@ describe('useConfigStore', () => {
     useConfigStore.setState({ providers: [PROVIDER] });
     expect(useConfigStore.getState().getModelReasoning('gone', 'm1')).toBeNull();
     expect(useConfigStore.getState().getModelReasoning('v1', 'gone')).toBeNull();
+  });
+
+  it('finds a catalog-provider model by its pi-ai code, synthesizing name/id', () => {
+    const catalogProvider = {
+      id: 'v4',
+      kind: 'catalog' as const,
+      name: 'OpenAI',
+      piProvider: 'openai',
+      apiKeyMasked: 'sk-…abcd',
+      modelCodes: ['gpt-5'],
+      models: [
+        {
+          code: 'gpt-5',
+          reasoning: { efforts: [{ id: 'high', name: 'High' }] },
+        },
+      ],
+    };
+    useConfigStore.setState({ providers: [catalogProvider] });
+    const model = useConfigStore.getState().findModel('v4', 'gpt-5');
+    expect(model).toEqual({
+      id: 'gpt-5',
+      name: 'gpt-5',
+      code: 'gpt-5',
+      reasoning: { efforts: [{ id: 'high', name: 'High' }] },
+    });
+    expect(
+      useConfigStore.getState().getModelReasoning('v4', 'gpt-5'),
+    ).toEqual({ efforts: [{ id: 'high', name: 'High' }] });
+    expect(useConfigStore.getState().findModel('v4', 'missing')).toBeNull();
   });
 
   it('drops a removed provider from local state', async () => {

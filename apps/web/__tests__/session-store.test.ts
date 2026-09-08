@@ -32,7 +32,12 @@ beforeEach(() => {
   // setSessionModel now resolves the new model's reasoning capability itself
   // via useConfigStore.getModelReasoning, so tests that exercise the reset
   // rule must seed the provider/model catalog the same way the real app does.
-  useConfigStore.setState({ projects: [], providers: [], loaded: false, error: null });
+  useConfigStore.setState({
+    projects: [],
+    providers: [],
+    loaded: false,
+    error: null,
+  });
 });
 
 describe('useSessionStore', () => {
@@ -118,6 +123,7 @@ describe('useSessionStore', () => {
         providers: [
           {
             id: 'v2',
+            kind: 'custom' as const,
             name: 'v2',
             baseURL: '',
             apiKeyMasked: '',
@@ -152,6 +158,7 @@ describe('useSessionStore', () => {
         providers: [
           {
             id: 'v2',
+            kind: 'custom' as const,
             name: 'v2',
             baseURL: '',
             apiKeyMasked: '',
@@ -186,6 +193,7 @@ describe('useSessionStore', () => {
         providers: [
           {
             id: 'v2',
+            kind: 'custom' as const,
             name: 'v2',
             baseURL: '',
             apiKeyMasked: '',
@@ -214,6 +222,7 @@ describe('useSessionStore', () => {
         providers: [
           {
             id: 'v2',
+            kind: 'custom' as const,
             name: 'v2',
             baseURL: '',
             apiKeyMasked: '',
@@ -241,6 +250,7 @@ describe('useSessionStore', () => {
         providers: [
           {
             id: 'v2',
+            kind: 'custom' as const,
             name: 'v2',
             baseURL: '',
             apiKeyMasked: '',
@@ -358,10 +368,12 @@ describe('session store persistence', () => {
 
   it('never writes the session store to localStorage', () => {
     useSessionStore.getState().createSession({ title: 't' });
-    useSessionStore.getState().updateSessionTitle(
-      useSessionStore.getState().sessions[0]!.id,
-      'renamed',
-    );
+    useSessionStore
+      .getState()
+      .updateSessionTitle(
+        useSessionStore.getState().sessions[0]!.id,
+        'renamed',
+      );
     expect(window.localStorage.getItem('volto-sessions')).toBeNull();
     expect(window.localStorage.length).toBe(0);
   });
@@ -374,7 +386,11 @@ describe('setSessions', () => {
       { ...summary('b'), updatedAt: 3 },
       { ...summary('c'), updatedAt: 2 },
     ]);
-    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['b', 'c', 'a']);
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual([
+      'b',
+      'c',
+      'a',
+    ]);
   });
 
   it('drops a local session that is absent from the incoming list', () => {

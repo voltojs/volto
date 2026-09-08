@@ -16,7 +16,7 @@ import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
 import { useChatStore } from '@/stores/chat-store';
 import { useConversation } from '@/hooks/use-conversation';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
-import { useConfigStore } from '@/stores/config-store';
+import { useConfigStore, providerModels } from '@/stores/config-store';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
@@ -73,7 +73,11 @@ export function ChatPanel() {
   const effectiveProviderId =
     pendingProviderId ?? firstProviderWithModels?.id ?? null;
   const effectiveModelId =
-    pendingModelId ?? firstProviderWithModels?.models[0]?.id ?? null;
+    pendingModelId ??
+    (firstProviderWithModels
+      ? providerModels(firstProviderWithModels)[0]?.id
+      : undefined) ??
+    null;
   const pendingReasoning = useConfigStore((s) =>
     s.getModelReasoning(effectiveProviderId, effectiveModelId),
   );

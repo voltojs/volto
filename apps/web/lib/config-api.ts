@@ -40,27 +40,91 @@ export interface Model {
   };
 }
 
-export interface Provider {
-  id: string;
-  name: string;
-  baseURL: string | null;
-  apiKeyMasked: string | null;
-  models: Model[];
+/**
+ * A model entry inside a catalog-kind provider's `GET /providers` response.
+ * Unlike a custom provider's `Model`, there is no server-assigned `id` or
+ * display `name` here — the model is identified by `code`, and its display
+ * name must be looked up from `/catalog/providers` by matching `code`. This
+ * mirrors `withReasoningCapability`'s catalog projection in the gateway.
+ */
+export interface CatalogProviderModel {
+  code: string;
+  /**
+   * Present only when the model declares reasoning-effort tiers, same
+   * contract as `Model['reasoning']`.
+   */
+  reasoning?: NonNullable<Model['reasoning']>;
 }
 
-export interface ProviderInput {
+/**
+ * `kind` discriminates a catalog provider (backed by pi-ai's built-in
+ * provider registry, selecting models by code from `/catalog/providers`)
+ * from a custom one (a hand-declared OpenAI-completions-compatible endpoint
+ * with its own model list). `kind` is immutable after creation — the
+ * gateway rejects an update that tries to change it; the UI must not offer
+ * converting one into the other.
+ */
+export type Provider =
+  | {
+      kind: 'catalog';
+      id: string;
+      name: string;
+      piProvider: string;
+      apiKeyMasked: string | null;
+      modelCodes: string[];
+      models: CatalogProviderModel[];
+    }
+  | {
+      kind: 'custom';
+      id: string;
+      name: string;
+      baseURL: string | null;
+      apiKeyMasked: string | null;
+      models: Model[];
+    };
+
+/** One custom-provider model entry, as sent in a create/update request body. */
+export interface CustomModelInput {
+  id?: string;
   name: string;
-  baseURL?: string | null;
-  /** Omit to keep the stored key unchanged. */
-  apiKey?: string | null;
-  models?: Array<{
-    id?: string;
-    name: string;
-    code: string;
-    contextWindow?: number;
-    maxOutputTokens?: number;
-  }>;
+  code: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  /** Whether this model supports reasoning/thinking. */
+  reasoning?: boolean;
 }
+
+export type ProviderInput =
+  | {
+      kind: 'catalog';
+      name: string;
+      piProvider: string;
+      /** Omit to keep the stored key unchanged. */
+      apiKey?: string | null;
+      modelCodes: string[];
+    }
+  | {
+      kind?: 'custom';
+      name: string;
+      baseURL?: string | null;
+      /** Omit to keep the stored key unchanged. */
+      apiKey?: string | null;
+      models?: CustomModelInput[];
+    };
+
+/**
+ * Partial update bodies, kept as a union of per-kind partials rather than
+ * `Partial<ProviderInput>` — `Partial` over a union only keeps the keys
+ * shared by every member (here, just `kind`), which would silently drop
+ * `piProvider` / `modelCodes` / `baseURL` / `models` from the callable type.
+ */
+export type ProviderUpdateInput =
+  | ({ kind?: 'catalog' } & Partial<
+      Omit<Extract<ProviderInput, { kind: 'catalog' }>, 'kind'>
+    >)
+  | ({ kind?: 'custom' } & Partial<
+      Omit<Extract<ProviderInput, { kind?: 'custom' }>, 'kind'>
+    >);
 
 /**
  * An error response from the gateway. Carries the HTTP status so callers can
@@ -133,7 +197,7 @@ export const createProvider = (input: ProviderInput) =>
     body: JSON.stringify(input),
   });
 
-export const updateProvider = (id: string, input: Partial<ProviderInput>) =>
+export const updateProvider = (id: string, input: ProviderUpdateInput) =>
   request<Provider>(`/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(input),

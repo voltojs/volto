@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useConfigStore } from '@/stores/config-store';
+import { useConfigStore, providerModels } from '@/stores/config-store';
 
 interface ModelPickerProps {
   providerId: string | null;
@@ -39,7 +39,10 @@ export function ModelPicker({
   const valid = isModelValid(providerId, modelId);
 
   const items = providers.flatMap((p) =>
-    p.models.map((m) => ({ value: encode(p.id, m.id), label: m.name })),
+    providerModels(p).map((m) => ({
+      value: encode(p.id, m.id),
+      label: m.name,
+    })),
   );
 
   return (
@@ -67,7 +70,7 @@ export function ModelPicker({
         {providers.map((provider) => (
           <SelectGroup key={provider.id}>
             <SelectLabel>{provider.name}</SelectLabel>
-            {provider.models.map((model) => (
+            {providerModels(provider).map((model) => (
               <SelectItem key={model.id} value={encode(provider.id, model.id)}>
                 {model.name}
               </SelectItem>
