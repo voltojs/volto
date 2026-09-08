@@ -5,9 +5,41 @@ import {
   fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { ModelEvent } from "@volto/core";
 import { normalizeStream } from "../stream-normalize.js";
 import { readReplayEnvelope } from "../replay.js";
+
+// Minimal partial AssistantMessage builder for hand-rolled stream events.
+// Only the fields normalizeStream actually reads (content, usage, stopReason,
+// errorMessage) matter; the rest are filled with plausible placeholders.
+function fauxPartial(content: AssistantMessage["content"]): AssistantMessage {
+  return {
+    role: "assistant",
+    content,
+    api: "test-api" as AssistantMessage["api"],
+    provider: "test-provider" as AssistantMessage["provider"],
+    model: "test-model",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  };
+}
+
+async function* asAsyncIterable(
+  events: AssistantMessageEvent[],
+): AsyncIterable<AssistantMessageEvent> {
+  for (const event of events) {
+    yield event;
+  }
+}
 
 const model = "test-model";
 
@@ -121,6 +153,88 @@ describe("normalizeStream", () => {
     const errorEvent = events.find((e) => e.type === "error");
     expect(errorEvent).toBeDefined();
     if (errorEvent?.type !== "error") throw new Error("unreachable");
+    expect(errorEvent.retriable).toBe(false);
+  });
+
+  it("attributes interleaved tool_use_delta events to their own contentIndex block, not a cached one", async () => {
+    // Two tool calls open concurrently at contentIndex 0 and 1, with their
+    // toolcall_start/delta events interleaved rather than run contiguously.
+    // A regression that caches "the current block" instead of re-reading
+    // event.partial.content[event.contentIndex] per event would attribute
+    // call B's argument fragments to call A (or vice versa).
+    const callA = { type: "toolCall" as const, id: "call-a-id", name: "search", arguments: {} };
+    const callB = { type: "toolCall" as const, id: "call-b-id", name: "write_file", arguments: {} };
+
+    const events: AssistantMessageEvent[] = [
+      { type: "toolcall_start", contentIndex: 0, partial: fauxPartial([callA]) },
+      { type: "toolcall_start", contentIndex: 1, partial: fauxPartial([callA, callB]) },
+      {
+        type: "toolcall_delta",
+        contentIndex: 0,
+        delta: '{"query":',
+        partial: fauxPartial([callA, callB]),
+      },
+      {
+        type: "toolcall_delta",
+        contentIndex: 1,
+        delta: '{"path":',
+        partial: fauxPartial([callA, callB]),
+      },
+      {
+        type: "toolcall_delta",
+        contentIndex: 0,
+        delta: '"cats"}',
+        partial: fauxPartial([callA, callB]),
+      },
+      {
+        type: "toolcall_delta",
+        contentIndex: 1,
+        delta: '"a.txt"}',
+        partial: fauxPartial([callA, callB]),
+      },
+    ];
+
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model));
+    const deltaEvents = normalized.filter((e) => e.type === "tool_use_delta");
+    expect(deltaEvents).toHaveLength(4);
+
+    const forA = deltaEvents.filter(
+      (e) => e.type === "tool_use_delta" && e.toolCallId === "call-a-id",
+    );
+    const forB = deltaEvents.filter(
+      (e) => e.type === "tool_use_delta" && e.toolCallId === "call-b-id",
+    );
+
+    const argsFor = (events: typeof deltaEvents) =>
+      events
+        .map((e) => (e.type === "tool_use_delta" ? e.argumentsDelta : ""))
+        .join("");
+
+    expect(argsFor(forA)).toBe('{"query":"cats"}');
+    expect(argsFor(forB)).toBe('{"path":"a.txt"}');
+  });
+
+  it("falls back to a synthesized message when the error assistant message has no errorMessage", async () => {
+    // fauxAssistantMessage always sets errorMessage when given one, and there
+    // is no faux helper to omit it while still producing an error-reason
+    // event, so this hand-rolls the AssistantMessageEvent directly (the
+    // function's public contract is "consumes AsyncIterable<AssistantMessageEvent>",
+    // so this is a legitimate way to drive it without going through pi-ai's
+    // streaming machinery).
+    const errorMessage = fauxPartial([]);
+    // Explicitly confirm errorMessage is absent, matching api-notes.md item 5
+    // (errorMessage is optional on AssistantMessage).
+    expect(errorMessage.errorMessage).toBeUndefined();
+
+    const events: AssistantMessageEvent[] = [
+      { type: "error", reason: "error", error: errorMessage },
+    ];
+
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model));
+    const errorEvent = normalized.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+    if (errorEvent?.type !== "error") throw new Error("unreachable");
+    expect(errorEvent.error).toBe("pi-ai stream error");
     expect(errorEvent.retriable).toBe(false);
   });
 });
