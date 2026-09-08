@@ -1069,6 +1069,59 @@ describe("Headless server", () => {
     expect("reasoning" in model!).toBe(false);
   });
 
+  it("GET /providers isolates a broken catalog provider (unknown piProvider) so it still returns 200 with the healthy provider intact", async () => {
+    // Healthy provider: a plain custom provider with no reasoning capability,
+    // sharing nothing with the broken record below.
+    await post("/providers", {
+      name: "Healthy custom provider",
+      baseURL: "https://example.com/v1",
+      apiKey: "sk-healthy-secret-0000",
+      models: [{ name: "healthy-model", code: "healthy-model" }],
+    });
+
+    // Broken provider: a catalog provider whose piProvider does not exist in
+    // pi-ai's catalog — the exact shape a retired provider id or a routine
+    // pi-ai upgrade produces (createPiAiModelPort throws inside
+    // buildCatalogProvider, per collection.ts). POST /providers itself does
+    // not validate piProvider against the catalog, so this record persists
+    // fine and only fails when GET /providers tries to build a ModelPort
+    // for it.
+    await post("/providers", {
+      name: "Broken catalog provider",
+      kind: "catalog",
+      piProvider: "not-a-real-pi-ai-provider",
+      apiKey: "sk-broken-secret-1111",
+      modelCodes: ["stale-model-code"],
+    });
+
+    const { status, data } = await getJson("/providers");
+    expect(status).toBe(200);
+
+    // Standing invariant: no plaintext apiKey anywhere on the wire, even
+    // with a broken record mixed in.
+    const raw = JSON.stringify(data);
+    expect(raw).not.toContain("sk-healthy-secret-0000");
+    expect(raw).not.toContain("sk-broken-secret-1111");
+
+    const providers = data as Array<{
+      name: string;
+      kind: string;
+      models: Array<{ code: string; reasoning?: unknown }>;
+    }>;
+
+    const healthy = providers.find((p) => p.name === "Healthy custom provider");
+    expect(healthy).toBeDefined();
+    expect(healthy!.models.some((m) => m.code === "healthy-model")).toBe(true);
+
+    const broken = providers.find((p) => p.name === "Broken catalog provider");
+    expect(broken).toBeDefined();
+    const brokenModel = broken!.models.find((m) => m.code === "stale-model-code");
+    expect(brokenModel).toBeDefined();
+    // Degraded: model is present but carries no `reasoning` key at all —
+    // not an empty list, an absent key.
+    expect("reasoning" in brokenModel!).toBe(false);
+  });
+
   it("DELETE /providers/:id with a malformed id returns 400 instead of crashing", async () => {
     const { status } = await del("/providers/%");
     expect(status).toBe(400);
