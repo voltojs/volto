@@ -1,9 +1,21 @@
+// @vitest-environment jsdom
 /**
  * Session store tests.
  *
  * The store is memory-only (no persistence middleware): the server is the
  * sole source of truth, and this file's "session store persistence" describe
  * exists to pin that down as a regression guard.
+ *
+ * This file runs under the jsdom environment (see the docblock above) rather
+ * than the workspace default of plain "node", specifically so `window` and
+ * `window.localStorage` exist. Without a real `window`, zustand's `persist`
+ * middleware throws while resolving `createJSONStorage(() => window.localStorage)`
+ * and silently takes its "storage unavailable" no-op fallback *before* ever
+ * assigning `api.persist` — which means a structural check like
+ * `'persist' in useSessionStore` passes whether or not `persist(...)` is
+ * actually attached to the store, and cannot fail the regression guard below.
+ * With jsdom, `localStorage` is real, so the structural check and the direct
+ * `localStorage` assertions are both genuinely load-bearing.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -138,35 +150,27 @@ describe('useSessionStore', () => {
 });
 
 describe('session store persistence', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('has no persist middleware attached', () => {
-    // A "no localStorage writes happened" assertion is not a reliable guard:
-    // zustand's `persist` middleware resolves its storage
-    // (`window.localStorage` by default) in a try/catch at store-creation
-    // time, so an environment where that read throws makes it silently
-    // no-op instead of failing — re-adding
-    // `persist(..., { name: 'volto-sessions' })` to the store still passes a
-    // "writes nothing" test verbatim.
-    //
-    // The structural check this project's earlier fix reached for —
-    // `expect('persist' in useSessionStore).toBe(false)`, since `persist`
-    // attaches an `api.persist` property — is *also* not reliable in this
-    // repo's plain "node" vitest environment specifically: verified
-    // empirically (re-adding `persist(...)` and running this file) that
-    // `window` itself is undefined here (not just `window.localStorage`), so
-    // `persist`'s storage resolution throws a step earlier than the
-    // `api.persist` assignment and it takes its "storage unavailable"
-    // fallback path *before* ever setting `api.persist` — leaving
-    // `'persist' in useSessionStore` at `false` whether or not the
-    // middleware is attached. That fallback path still wraps every
-    // `set()` call to warn once per call, though
-    // (`[zustand persist middleware] Unable to update item ...`), which
-    // *is* observable here and does fail this test when persist is
-    // reintroduced. Both checks are kept: the property check is the
-    // reliable signal in a real browser (where `window` exists and this
-    // fallback path is not taken), the warning spy is what actually pins
-    // this down in this test environment.
+    // With a real `window.localStorage` (jsdom), zustand's `persist`
+    // middleware resolves its storage successfully at store-creation time
+    // and attaches an `api.persist` property — so this structural check is
+    // now genuinely load-bearing: it fails if `persist(...)` is reintroduced
+    // to the store. (In this repo's default plain "node" vitest environment,
+    // `window` doesn't exist at all, so `persist`'s storage resolution throws
+    // and it silently takes its "storage unavailable" fallback *before* ever
+    // setting `api.persist` — leaving this check unable to fail. That's why
+    // this file opts into jsdom via the docblock above.)
     expect('persist' in useSessionStore).toBe(false);
 
+    // The warning spy is kept as a second, independent signal: if a future
+    // zustand version changes how storage resolution failure is detected,
+    // this still catches persistence being silently reintroduced via a
+    // console warning path. (It is not load-bearing on its own — see the
+    // file-level docblock's history of why a warning-only guard is fragile.)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       useSessionStore.getState().createSession({ title: 't' });
@@ -174,6 +178,16 @@ describe('session store persistence', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it('never writes the session store to localStorage', () => {
+    useSessionStore.getState().createSession({ title: 't' });
+    useSessionStore.getState().updateSessionTitle(
+      useSessionStore.getState().sessions[0]!.id,
+      'renamed',
+    );
+    expect(window.localStorage.getItem('volto-sessions')).toBeNull();
+    expect(window.localStorage.length).toBe(0);
   });
 });
 
