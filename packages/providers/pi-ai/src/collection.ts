@@ -128,12 +128,19 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
  * `model.provider` as pi-ai's builtin id would make every request 404 on
  * "unknown provider".
  *
- * `auth` is the original catalog provider's own `ProviderAuth`, untouched —
- * no `fixedApiKeyAuth` is built here (rule 2). `Models.streamSimple`'s
- * `options.apiKey` already wins over any resolved/ambient auth per request
- * (dist/auth/resolve.js: `resolveProviderAuthWithSignal` takes the
- * `overrides.apiKey` branch first when present), so the configured key is
- * injected per call from `resolveConfiguredApiKey`, not stored here.
+ * `auth` is deliberately rebuilt as a `fixedApiKeyAuth`, NOT the original
+ * catalog provider's own `ProviderAuth`. pi-ai's `resolveProviderAuthWithSignal`
+ * (dist/auth/resolve.js) only takes the `overrides.apiKey` branch when
+ * `options.apiKey` is defined; when a catalog provider is configured with no
+ * key (`config.apiKey === undefined`), it falls through to stored
+ * credentials and then to the provider's own ambient auth — for built-in
+ * providers like deepseek that is `envApiKeyAuth(...)`, which reads
+ * `process.env` inside pi-ai. Keeping `source.auth` here would silently
+ * reintroduce an env-var fallback, violating this repo's "nothing is read
+ * from the environment" invariant (see comments at top of this file and
+ * apps/headless-server/src/wiring.ts). Using a fixed-key auth here — the
+ * same helper the custom-provider path uses — makes the no-env-fallback
+ * behavior structural rather than dependent on the UI always supplying a key.
  */
 function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   const source = builtinProviders().find((provider) => provider.id === config.piProvider);
@@ -150,7 +157,7 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
     id: config.id,
     name: source.name,
     baseUrl: source.baseUrl,
-    auth: source.auth,
+    auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
     getModels: () => models,
     stream: (model, context, options) => source.stream(model, context, options),
     streamSimple: (model, context, options) => source.streamSimple(model, context, options),
