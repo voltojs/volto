@@ -312,11 +312,14 @@ export interface TranscriptEventMap {
   };
   /** One model call's complete output, aggregated. */
   assistant_message: {
+    /** Includes the reasoning block when the model produced one — the single source of truth. */
     content: ContentBlock[];
-    /** Full reasoning text accumulated during this call; absent when the model produced none. */
-    reasoning?: string;
     stopReason?: "end_turn" | "tool_use" | "max_tokens";
     usage?: TokenUsage;
+    /** The route that produced it; adapters check it before trusting `modelMeta`. */
+    source?: { providerId?: string; modelId: string };
+    /** Adapter-private replay state; persisted verbatim, never read by the core. */
+    modelMeta?: unknown;
     /** Milliseconds from model_call_start to the first delta; absent when the stream produced none. */
     ttftMs?: number;
     /** Milliseconds from model_call_start to this event. */

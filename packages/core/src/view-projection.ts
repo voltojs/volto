@@ -261,9 +261,13 @@ export function buildTurnRecords(
         const step = stepFor(turnFor(event), event.step, event.time);
         if (!step) break;
         step.endedAt = event.time;
+        const reasoningText = data.content
+          .filter((b): b is Extract<ContentBlock, { type: "reasoning" }> => b.type === "reasoning")
+          .map((b) => b.text)
+          .join("");
         step.assistant = {
           content: data.content,
-          ...(data.reasoning !== undefined ? { reasoning: data.reasoning } : {}),
+          ...(reasoningText ? { reasoning: reasoningText } : {}),
           ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
           ...(data.usage !== undefined ? { usage: data.usage } : {}),
           ...(data.ttftMs !== undefined ? { ttftMs: data.ttftMs } : {}),

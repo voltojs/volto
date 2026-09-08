@@ -97,7 +97,7 @@ const ROLE_OVERHEAD = 4;
 function countBlocks(blocks: readonly ContentBlock[], tokenizer: Tokenizer): number {
   let total = 0;
   for (const block of blocks) {
-    if (block.type === "text") {
+    if (block.type === "text" || block.type === "reasoning") {
       total += tokenizer.count(block.text) + BLOCK_OVERHEAD;
     } else if (block.type === "tool_use") {
       total +=
@@ -149,18 +149,15 @@ export function foldContextUsageEvent(
           },
           pendingTokens: 0,
           // The response is on the surface regardless of it being measured.
-          messageTokens:
-            fold.messageTokens +
-            (data.reasoning ? tokenizer.count(data.reasoning) + BLOCK_OVERHEAD : 0) +
-            countMessage(data.content, tokenizer),
+          // The reasoning block, when present, rides inside data.content
+          // already — it is counted once there, not added separately.
+          messageTokens: fold.messageTokens + countMessage(data.content, tokenizer),
         };
       }
       // A response still lands on the surface even when the provider reports
       // no usage — estimate it so the projection keeps moving.
       {
-        const added =
-          (data.reasoning ? tokenizer.count(data.reasoning) + BLOCK_OVERHEAD : 0) +
-          countMessage(data.content, tokenizer);
+        const added = countMessage(data.content, tokenizer);
         return {
           ...fold,
           pendingTokens: fold.pendingTokens + added,

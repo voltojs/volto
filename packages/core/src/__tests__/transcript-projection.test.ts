@@ -120,6 +120,8 @@ function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; fina
             content: data.message.content,
             stopReason: data.message.stopReason,
             usage: data.usage,
+            ...(data.message.source !== undefined ? { source: data.message.source } : {}),
+            ...(data.message.modelMeta !== undefined ? { modelMeta: data.message.modelMeta } : {}),
             // The reducer does not track per-call wall-clock duration; the
             // projection never reads durationMs, so a fixed value is fine.
             durationMs: 0,

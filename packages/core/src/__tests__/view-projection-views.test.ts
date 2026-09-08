@@ -195,8 +195,10 @@ describe("toConversationView", () => {
         time: 120,
         type: "assistant_message",
         data: {
-          content: [{ type: "text", text: "answer" }],
-          reasoning: "step by step",
+          content: [
+            { type: "reasoning", text: "step by step" },
+            { type: "text", text: "answer" },
+          ],
           stopReason: "end_turn",
           durationMs: 5,
         },
@@ -316,8 +318,10 @@ describe("toTrajectoryView", () => {
         time: 200,
         type: "assistant_message",
         data: {
-          content: [{ type: "text", text: "answer" }],
-          reasoning: "deep thought",
+          content: [
+            { type: "reasoning", text: "deep thought" },
+            { type: "text", text: "answer" },
+          ],
           stopReason: "end_turn",
           usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, reasoningTokens: 2 },
           ttftMs: 30,
@@ -347,10 +351,10 @@ describe("toTrajectoryView", () => {
         type: "assistant_message",
         data: {
           content: [
+            { type: "reasoning", text: "need the files first\nsecond line of thought" },
             { type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } },
             { type: "tool_use", id: "c2", name: "read_file", input: { path: "b.txt" } },
           ],
-          reasoning: "need the files first\nsecond line of thought",
           stopReason: "tool_use",
           durationMs: 10,
         },

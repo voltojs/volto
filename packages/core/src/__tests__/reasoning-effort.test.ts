@@ -10,6 +10,10 @@ import {
   step,
   createInitialState,
   type StepContext,
+  projectMessages,
+  buildTurnRecords,
+  toConversationView,
+  type TranscriptEvent,
 } from "../index.js";
 
 describe("reasoning effort contract", () => {
@@ -151,5 +155,45 @@ describe("reducer assembles reasoning into the assistant message", () => {
     const msg = step(state, { type: "model_done", stopReason: "end_turn" }, ctx).state.messages[1]!;
 
     expect(msg.content).toEqual([{ type: "text", text: "second" }]);
+  });
+});
+
+describe("projections read reasoning from the assistant content", () => {
+  const events = [
+    { seq: 0, type: "turn_start", data: { turn: 1 }, time: 1, turn: 1 },
+    {
+      seq: 1,
+      type: "assistant_message",
+      data: {
+        content: [
+          { type: "reasoning", text: "thinking" },
+          { type: "text", text: "hello" },
+        ],
+        stopReason: "end_turn",
+        durationMs: 5,
+        source: { modelId: "thinker" },
+        modelMeta: { blocks: ["sig-1"] },
+      },
+      time: 2,
+      turn: 1,
+      step: 1,
+    },
+  ] as unknown as TranscriptEvent[];
+
+  it("rebuilds the assistant message with its replay state intact", () => {
+    const messages = projectMessages(events);
+    const assistant = messages.find((m) => m.role === "assistant")!;
+    expect(assistant).toMatchObject({
+      role: "assistant",
+      modelMeta: { blocks: ["sig-1"] },
+      source: { modelId: "thinker" },
+    });
+  });
+
+  it("emits the reasoning block ahead of the text", () => {
+    const view = toConversationView(buildTurnRecords(events));
+    const blocks = view.messages.flatMap((m) => m.blocks);
+    expect(blocks[0]).toEqual({ type: "reasoning", text: "thinking" });
+    expect(blocks[1]).toEqual({ type: "text", text: "hello" });
   });
 });

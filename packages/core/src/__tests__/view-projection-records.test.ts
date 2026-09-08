@@ -14,8 +14,10 @@ const SIMPLE_TURN = log([
     time: 200,
     type: "assistant_message",
     data: {
-      content: [{ type: "text", text: "hello" }],
-      reasoning: "thinking",
+      content: [
+        { type: "reasoning", text: "thinking" },
+        { type: "text", text: "hello" },
+      ],
       stopReason: "end_turn",
       usage: { inputTokens: 10, outputTokens: 5 },
       ttftMs: 30,

@@ -171,6 +171,8 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
             role: "assistant",
             content: data.content,
             ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
+            ...(data.source !== undefined ? { source: data.source } : {}),
+            ...(data.modelMeta !== undefined ? { modelMeta: data.modelMeta } : {}),
           },
           time: event.time,
         });

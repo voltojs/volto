@@ -36,14 +36,16 @@ describe("transcript event types", () => {
 
   it("assistant_message carries reasoning, usage and timing", () => {
     const data: TranscriptEventMap["assistant_message"] = {
-      content: [{ type: "text", text: "hi" }],
-      reasoning: "let me think",
+      content: [
+        { type: "reasoning", text: "let me think" },
+        { type: "text", text: "hi" },
+      ],
       stopReason: "end_turn",
       usage: { inputTokens: 1, outputTokens: 2 },
       ttftMs: 120,
       durationMs: 800,
     };
-    expect(data.reasoning).toBe("let me think");
+    expect(data.content[0]).toEqual({ type: "reasoning", text: "let me think" });
     expect(data.ttftMs).toBe(120);
   });
 

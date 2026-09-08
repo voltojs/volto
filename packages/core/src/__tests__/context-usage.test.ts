@@ -115,8 +115,11 @@ describe("contextUsageView", () => {
     fold = foldContextUsageEvent(
       fold,
       event("assistant_message", {
-        content: [{ type: "text", text: "abcdefgh" }, { type: "tool_use", id: "t1", name: "read_file", input: { path: "a" } }],
-        reasoning: "abcd",
+        content: [
+          { type: "reasoning", text: "abcd" },
+          { type: "text", text: "abcdefgh" },
+          { type: "tool_use", id: "t1", name: "read_file", input: { path: "a" } },
+        ],
         durationMs: 5,
       }),
       tokenizer,
