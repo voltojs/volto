@@ -36,7 +36,6 @@
   - **Runner / sdk 例外**：薄解释器(`runtimes-*` 的 Runner)与 SDK 门面是内核的**执行者**，必须值导入纯函数内核（`step` / `createInitialState` 等)——这是 functional-core / imperative-shell 的本意，导入纯函数不破坏可移植性,不属违规。
 - **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@volto/tools-fs`（一包多工具，复数）、`@volto/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
 - **第三方库构造器参数必须查阅官方文档确认**，不得凭记忆臆测（尤其 OpenAI 兼容 streaming 的 `tool_calls` 分片累积、Zod schema 写法）。
-- **Plan 工作先建分支** — 提交前创建 `feat/plan-NNN-...`，禁止直接提交到 `dev` / `main`。
 
 ---
 
