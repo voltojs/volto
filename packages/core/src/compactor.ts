@@ -13,7 +13,7 @@
 
 import type { Message } from "./state.js";
 import type { Tokenizer } from "./ports.js";
-import { extractMessageText } from "./text-extract.js";
+import { extractMessageText, estimateContentTokens } from "./text-extract.js";
 
 // ──────────────────────────────────────────────
 // Types
@@ -253,11 +253,14 @@ export function estimateTokens(messages: Message[], tokenizer: Tokenizer): numbe
   return total;
 }
 
-/** Estimate tokens for a single message */
+/**
+ * Estimate tokens for a single message. Prices content per-block via
+ * estimateContentTokens (not extractMessageText, which zeroes reasoning
+ * blocks for display purposes) so reasoning — which does ride in the
+ * request sent to the provider — is not priced at zero here.
+ */
 export function estimateMessageTokens(msg: Message, tokenizer: Tokenizer): number {
-  const text = extractMessageText(msg);
-  // Add overhead for message structure (role, content blocks, etc.)
-  const contentTokens = tokenizer.count(text);
+  const contentTokens = estimateContentTokens(msg.content, tokenizer);
   const overhead = 4; // role + separators
   return contentTokens + overhead;
 }

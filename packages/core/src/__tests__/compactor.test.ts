@@ -130,16 +130,33 @@ describe("estimateTokens", () => {
   it("estimates tokens across multiple messages", () => {
     const tokenizer = createCharTokenizer(4);
     const messages: Message[] = [
-      userMsg("Hello"),         // 5 chars / 4 = 2 tokens + 4 overhead = 6
-      assistantMsg("Hi there"), // 8 chars / 4 = 2 tokens + 4 overhead = 6
+      userMsg("Hello"),         // 5 chars / 4 = 2 tokens + BLOCK_OVERHEAD(4) + ROLE_OVERHEAD(4) = 10
+      assistantMsg("Hi there"), // 8 chars / 4 = 2 tokens + BLOCK_OVERHEAD(4) + ROLE_OVERHEAD(4) = 10
     ];
     const total = estimateTokens(messages, tokenizer);
-    expect(total).toBe(12);
+    expect(total).toBe(20);
   });
 
   it("handles empty messages", () => {
     const tokenizer = createCharTokenizer(4);
     expect(estimateTokens([], tokenizer)).toBe(0);
+  });
+
+  it("prices a reasoning block materially higher than the same message without it", () => {
+    const tokenizer = createCharTokenizer(4);
+    const withoutReasoning: Message = { role: "assistant", content: [{ type: "text", text: "Hi" }] };
+    const withReasoning: Message = {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "a".repeat(400) },
+        { type: "text", text: "Hi" },
+      ],
+    };
+    const baseline = estimateTokens([withoutReasoning], tokenizer);
+    const withReasoningEstimate = estimateTokens([withReasoning], tokenizer);
+    // The reasoning block alone accounts for ~100 tokens (400 chars / 4);
+    // pricing it at zero would leave the two estimates nearly identical.
+    expect(withReasoningEstimate - baseline).toBeGreaterThan(90);
   });
 });
 

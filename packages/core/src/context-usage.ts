@@ -16,6 +16,7 @@
 import type { Tokenizer, TranscriptEventInput, TranscriptEventMap } from "./ports.js";
 import type { JSONSchema } from "./tool.js";
 import type { ContentBlock } from "./state.js";
+import { estimateContentTokens } from "./text-extract.js";
 
 /**
  * System prompt layers + tool definitions exactly as the last request
@@ -94,29 +95,15 @@ export function emptyContextUsageFold(): ContextUsageFold {
 const BLOCK_OVERHEAD = 4;
 const ROLE_OVERHEAD = 4;
 
-function countBlocks(blocks: readonly ContentBlock[], tokenizer: Tokenizer): number {
-  let total = 0;
-  for (const block of blocks) {
-    if (block.type === "text" || block.type === "reasoning") {
-      total += tokenizer.count(block.text) + BLOCK_OVERHEAD;
-    } else if (block.type === "tool_use") {
-      total +=
-        tokenizer.count(block.name) + tokenizer.count(JSON.stringify(block.input)) + BLOCK_OVERHEAD;
-    } else {
-      // Images, tool_result blocks embedded in a message, and any future
-      // block type keep a conservative structural price via JSON.stringify.
-      // A tool_result block here is priced once against this event's own
-      // content; it cannot double-count against the separate tool_result
-      // EVENT handled below, since the two are independent data sources.
-      total += tokenizer.count(JSON.stringify(block)) + BLOCK_OVERHEAD;
-    }
-  }
-  return total;
-}
-
-/** One message's price: its blocks plus the role framing. */
+/**
+ * One message's price: its blocks (priced by estimateContentTokens, the same
+ * per-block pricing the compactor's estimator uses) plus the role framing.
+ * A tool_result block here is priced once against this event's own content;
+ * it cannot double-count against the separate tool_result EVENT handled
+ * below, since the two are independent data sources.
+ */
 function countMessage(blocks: readonly ContentBlock[], tokenizer: Tokenizer): number {
-  return countBlocks(blocks, tokenizer) + ROLE_OVERHEAD;
+  return estimateContentTokens(blocks, tokenizer) + ROLE_OVERHEAD;
 }
 
 /** Fold-side (see the docblock on ContextUsageFold) — no production consumer today. */
