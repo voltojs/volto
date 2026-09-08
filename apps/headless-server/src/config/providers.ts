@@ -18,6 +18,8 @@ export interface Model {
   code: string;
   /** Max context window in tokens; optional — the context meter hides the percentage when unset. */
   contextWindow?: number;
+  /** Max output tokens per model call; optional — omitted means the provider's own default. */
+  maxOutputTokens?: number;
 }
 
 export interface Provider {
@@ -40,7 +42,13 @@ export interface ProviderInput {
   name: string;
   baseURL?: string | null;
   apiKey?: string | null;
-  models?: Array<{ id?: string; name: string; code: string; contextWindow?: number }>;
+  models?: Array<{
+    id?: string;
+    name: string;
+    code: string;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+  }>;
 }
 
 export function createProviderStore(dir: string = getConfigDir()) {
@@ -89,11 +97,18 @@ export function createProviderStore(dir: string = getConfigDir()) {
       ) {
         throw new Error(`contextWindow must be a positive integer (got ${m.contextWindow})`);
       }
+      if (
+        m.maxOutputTokens !== undefined &&
+        (!Number.isInteger(m.maxOutputTokens) || m.maxOutputTokens <= 0)
+      ) {
+        throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
+      }
       return {
         id: m.id || crypto.randomUUID(),
         name: m.name,
         code: m.code,
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+        ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
       };
     });
   }
@@ -147,7 +162,12 @@ export function createProviderStore(dir: string = getConfigDir()) {
     async resolveModel(
       providerId: string,
       modelId: string,
-    ): Promise<{ baseURL: string | null; apiKey: string | null; code: string } | null> {
+    ): Promise<{
+      baseURL: string | null;
+      apiKey: string | null;
+      code: string;
+      maxOutputTokens?: number;
+    } | null> {
       const provider = (await readAll()).find((p) => p.id === providerId);
       if (!provider) return null;
       const model = provider.models.find((m) => m.id === modelId);
@@ -157,6 +177,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         baseURL: provider.baseURL,
         apiKey: provider.apiKeyEnc ? await cipher.decrypt(provider.apiKeyEnc) : null,
         code: model.code,
+        ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
       };
     },
   };

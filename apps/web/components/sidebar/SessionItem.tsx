@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 import { cn } from '@/lib/utils';
 import { MessageSquareText, Trash2, Pencil } from 'lucide-react';
 
@@ -25,7 +26,7 @@ interface SessionItemProps {
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onClick: () => void;
-  onDelete: (e: React.MouseEvent) => void;
+  onDelete: () => void;
 }
 
 export function SessionItem({
@@ -41,6 +42,7 @@ export function SessionItem({
   onDelete,
 }: SessionItemProps) {
   const [showActions, setShowActions] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <div
@@ -93,8 +95,11 @@ export function SessionItem({
           <Button
             variant="ghost"
             size="icon-xs"
-            className="text-muted-foreground hover:text-destructive disabled:pointer-events-auto disabled:opacity-40"
-            onClick={onDelete}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 disabled:pointer-events-auto disabled:opacity-40"
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmOpen(true);
+            }}
             disabled={isGenerating}
             aria-label={isGenerating ? '会话正在生成中，无法删除' : '删除会话'}
             title={isGenerating ? '会话正在生成中，无法删除' : undefined}
@@ -103,6 +108,17 @@ export function SessionItem({
           </Button>
         </div>
       )}
+
+      {/* Outside the hover-gated block above: opening the dialog moves the
+          pointer off the row, which unmounts those buttons — a dialog nested
+          in there would be torn down the moment it appeared. */}
+      <ConfirmDeleteDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="删除会话"
+        description={`确定删除会话「${session.title || '未命名会话'}」吗？此操作无法撤销。`}
+        onConfirm={onDelete}
+      />
     </div>
   );
 }

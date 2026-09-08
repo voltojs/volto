@@ -3,7 +3,7 @@ import {
   meterPercent,
   percentTone,
   formatCompactTokens,
-  segmentWidths,
+  compositionWidths,
   remainingTokens,
   shouldShowUnanchoredHint,
 } from '@/lib/context-meter-model';
@@ -49,14 +49,42 @@ describe('formatCompactTokens', () => {
   });
 });
 
-describe('segmentWidths', () => {
-  it('splits by breakdown share', () => {
-    const widths = segmentWidths({ system: 25, tools: 25, messages: 50 });
+describe('compositionWidths', () => {
+  const withBreakdown = (
+    breakdown: ContextUsageView['breakdown'],
+    projectedTokens: number,
+  ): ContextUsageView => ({ projectedTokens, breakdown, layers: [], anchored: true });
+
+  it('splits by breakdown share when no window is configured (no free slice)', () => {
+    const widths = compositionWidths(
+      withBreakdown({ system: 25, tools: 25, messages: 50 }, 100),
+      undefined,
+    );
+    expect(widths.map((s) => s.key)).toEqual(['system', 'tools', 'messages']);
     expect(widths.map((s) => s.width)).toEqual([25, 25, 50]);
   });
+
   it('returns all-zero widths for an empty total', () => {
-    const widths = segmentWidths({ system: 0, tools: 0, messages: 0 });
+    const widths = compositionWidths(withBreakdown({ system: 0, tools: 0, messages: 0 }, 0), undefined);
     expect(widths.map((s) => s.width)).toEqual([0, 0, 0]);
+  });
+
+  it('scales the buckets to the used share and adds the unused remainder', () => {
+    // 40 projected of a 200-token window → 20% used, split 25/25/50 among
+    // the buckets, leaving 80% free.
+    const widths = compositionWidths(withBreakdown({ system: 10, tools: 10, messages: 20 }, 40), 200);
+    expect(widths.map((s) => s.key)).toEqual(['system', 'tools', 'messages', 'free']);
+    expect(widths.map((s) => s.width)).toEqual([5, 5, 10, 80]);
+  });
+
+  it('leaves no free slice once the window is full', () => {
+    const widths = compositionWidths(withBreakdown({ system: 10, tools: 10, messages: 20 }, 400), 200);
+    expect(widths.at(-1)).toEqual({ key: 'free', width: 0 });
+  });
+
+  it('shows a fully free bar for a window with nothing in it yet', () => {
+    const widths = compositionWidths(withBreakdown({ system: 0, tools: 0, messages: 0 }, 0), 200);
+    expect(widths.map((s) => s.width)).toEqual([0, 0, 0, 100]);
   });
 });
 
@@ -87,10 +115,19 @@ describe('remainingTokens', () => {
   });
 });
 
-describe('segmentWidths with an unreconciled breakdown', () => {
-  it('normalises against the three segments, not the projection', () => {
-    const widths = segmentWidths({ system: 10, tools: 10, messages: 20 });
-    expect(widths.map((w) => Math.round(w.width))).toEqual([25, 25, 50]);
+describe('compositionWidths with an unreconciled breakdown', () => {
+  it('splits the used share by bucket ratio, not by each bucket against the window', () => {
+    // The three buckets sum to 40 while the projection is 100: scaling each
+    // bucket against the window directly would understate the used share and
+    // contradict the percentage shown beside the bar.
+    const usage: ContextUsageView = {
+      projectedTokens: 100,
+      breakdown: { system: 10, tools: 10, messages: 20 },
+      layers: [],
+      anchored: true,
+    };
+    const widths = compositionWidths(usage, 200);
+    expect(widths.map((w) => Math.round(w.width))).toEqual([13, 13, 25, 50]);
   });
 });
 

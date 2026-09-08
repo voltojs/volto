@@ -245,6 +245,25 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       return;
     }
 
+    // POST /interrupt — cancel the turn currently streaming on a session
+    if (req.method === "POST" && url.pathname === "/interrupt") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { sessionId?: string };
+        const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
+        // 409 rather than a silent 200: "nothing was running" is a real
+        // answer the client can act on, not an interrupt that succeeded.
+        if (!registry.interrupt(sessionId)) {
+          jsonResponse(res, 409, { error: `No running turn for session ${sessionId}` });
+          return;
+        }
+        jsonResponse(res, 202, { sessionId, interrupted: true });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 400, { error: message });
+      }
+      return;
+    }
+
     // POST /run — one-shot (legacy); honours sessionId for multi-turn history
     if (req.method === "POST" && url.pathname === "/run") {
       try {

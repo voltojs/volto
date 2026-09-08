@@ -20,6 +20,8 @@ export interface Model {
   code: string;
   /** 最大上下文窗口（tokens）。可选：未设置时上下文环显示灰态。 */
   contextWindow?: number;
+  /** 单次模型调用的最大输出 token 数。可选：未设置时沿用供应商默认值。 */
+  maxOutputTokens?: number;
 }
 
 export interface Provider {
@@ -35,7 +37,13 @@ export interface ProviderInput {
   baseURL?: string | null;
   /** Omit to keep the stored key unchanged. */
   apiKey?: string | null;
-  models?: Array<{ id?: string; name: string; code: string; contextWindow?: number }>;
+  models?: Array<{
+    id?: string;
+    name: string;
+    code: string;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+  }>;
 }
 
 /**

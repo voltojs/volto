@@ -567,9 +567,15 @@ export interface AgentInstance {
    * Yield events as the runner processes the turn.
    *
    * Same single-turn-at-a-time contract as `run()` above.
+   *
+   * `opts.signal` lets a caller cancel the turn from the outside — aborting
+   * it stops the runner exactly like breaking out of the `for await` does,
+   * so the turn still closes with a `turn_end` carrying
+   * `reason: "cancelled"` instead of being left open.
    */
   stream(
     input: string | AgentInput,
+    opts?: { signal?: AbortSignal },
   ): AsyncGenerator<{ type: string; data: Record<string, unknown> }>;
 
   /**
@@ -1295,6 +1301,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
     async *stream(
       input: string | AgentInput,
+      streamOpts?: { signal?: AbortSignal },
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
       await initToolSources();
       const agentInput = await resolveInput(input);
@@ -1303,6 +1310,18 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // out of `for await` early. Without it, the detached runner would
       // keep going and any error it threw would be swallowed silently.
       const abortController = new AbortController();
+      // An external signal (e.g. a UI "stop" button) is linked into the same
+      // controller, so cancelling from the outside takes the identical path
+      // as an early `break`: the runner observes the abort, unwinds, and
+      // closes the turn with `reason: "cancelled"`.
+      const externalSignal = streamOpts?.signal;
+      if (externalSignal) {
+        if (externalSignal.aborted) abortController.abort();
+        else
+          externalSignal.addEventListener("abort", () => abortController.abort(), {
+            once: true,
+          });
+      }
       let runner: Runner;
       try {
         runner = await createNextRunner(

@@ -25,7 +25,7 @@ export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const { sendMessage, connectionState } = useChatAgent();
+  const { sendMessage, stopGeneration, connectionState } = useChatAgent();
   const { entries, usage, messages } = useConversation();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
@@ -252,20 +252,20 @@ export function ChatPanel() {
                       : '请先选择工作区'
                   }
                   toolbar={
-                    <>
-                      <PermissionPicker
-                        value={pendingPermissionMode}
-                        onChange={setPendingPermissionMode}
-                      />
-                      <ModelPicker
-                        providerId={effectiveProviderId}
-                        modelId={effectiveModelId}
-                        onChange={(providerId, modelId) => {
-                          setPendingProviderId(providerId);
-                          setPendingModelId(modelId);
-                        }}
-                      />
-                    </>
+                    <PermissionPicker
+                      value={pendingPermissionMode}
+                      onChange={setPendingPermissionMode}
+                    />
+                  }
+                  trailing={
+                    <ModelPicker
+                      providerId={effectiveProviderId}
+                      modelId={effectiveModelId}
+                      onChange={(providerId, modelId) => {
+                        setPendingProviderId(providerId);
+                        setPendingModelId(modelId);
+                      }}
+                    />
                   }
                 />
               </>
@@ -315,6 +315,8 @@ export function ChatPanel() {
       <InputBar
         onSubmit={handleSubmit}
         disabled={isGenerating || missingBinding}
+        isGenerating={isGenerating}
+        onStop={() => void stopGeneration()}
         placeholder={
           missingBinding
             ? '此会话缺少绑定的项目或模型，无法发送消息'
@@ -322,14 +324,23 @@ export function ChatPanel() {
         }
         toolbar={
           currentSessionId && currentSession ? (
+            <PermissionPicker
+              value={currentSession.permissionMode}
+              onChange={(mode) =>
+                useSessionStore
+                  .getState()
+                  .setSessionPermissionMode(currentSessionId, mode)
+              }
+            />
+          ) : null
+        }
+        trailing={
+          currentSessionId && currentSession ? (
             <>
-              <PermissionPicker
-                value={currentSession.permissionMode}
-                onChange={(mode) =>
-                  useSessionStore
-                    .getState()
-                    .setSessionPermissionMode(currentSessionId, mode)
-                }
+              <ContextMeter
+                usage={usage}
+                contextWindow={currentModel?.contextWindow}
+                hasCompletedAssistantMessage={hasCompletedAssistantMessage}
               />
               <ModelPicker
                 providerId={currentSession.providerId}
@@ -339,11 +350,6 @@ export function ChatPanel() {
                     .getState()
                     .setSessionModel(currentSessionId, providerId, modelId)
                 }
-              />
-              <ContextMeter
-                usage={usage}
-                contextWindow={currentModel?.contextWindow}
-                hasCompletedAssistantMessage={hasCompletedAssistantMessage}
               />
             </>
           ) : null

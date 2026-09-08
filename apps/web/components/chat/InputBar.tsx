@@ -6,17 +6,26 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Kbd } from '@/components/ui/kbd';
 
 interface InputBarProps {
   onSubmit?: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
-  /** Controls rendered under the textarea (model / permission pickers). */
+  /** Controls on the left of the toolbar (permission / project pickers). */
   toolbar?: ReactNode;
+  /** Controls immediately left of the send button (context meter, model picker). */
+  trailing?: ReactNode;
+  /**
+   * True while a turn is streaming: the send button becomes a stop button.
+   * Note this is independent of `disabled` — the stop button stays clickable
+   * while the textarea is locked.
+   */
+  isGenerating?: boolean;
+  /** Invoked by the stop button. Omit to keep the send button while generating. */
+  onStop?: () => void;
 }
 
 export function InputBar({
@@ -24,6 +33,9 @@ export function InputBar({
   disabled,
   placeholder,
   toolbar,
+  trailing,
+  isGenerating,
+  onStop,
 }: InputBarProps) {
   const [input, setInput] = useState('');
 
@@ -51,11 +63,10 @@ export function InputBar({
     }
   };
 
+  const showStop = Boolean(isGenerating && onStop);
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="mx-auto w-full max-w-3xl px-6 pb-4"
-    >
+    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-4">
       <div className="bg-card focus-within:border-ring focus-within:ring-ring/30 rounded-xl border shadow-sm transition-shadow focus-within:ring-3">
         <Textarea
           value={input}
@@ -66,20 +77,36 @@ export function InputBar({
           rows={1}
           className="max-h-48 min-h-11 resize-none border-0 px-3.5 py-3 text-sm shadow-none focus-visible:ring-0"
         />
-        <div className="flex items-center gap-2 px-2.5 pb-2.5">
+        <div className="flex items-center gap-1 px-2.5 pb-2.5">
           {toolbar}
-          <span className="text-muted-foreground ml-auto hidden items-center gap-1 text-[11px] sm:flex">
-            <Kbd>Enter</Kbd> 发送 <Kbd>Shift+Enter</Kbd> 换行
-          </span>
-          <Button
-            type="submit"
-            size="icon"
-            className="h-8 w-8 shrink-0 rounded-full"
-            disabled={!input.trim() || disabled}
-            aria-label="发送"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
+          <div className="ml-auto flex items-center gap-1">
+            {trailing}
+            {showStop ? (
+              // Deliberately not gated on `disabled`: the textarea is locked
+              // while a turn streams, but stopping that turn is exactly what
+              // the user needs to be able to do then.
+              <Button
+                type="button"
+                size="icon"
+                variant="destructive"
+                className="h-8 w-8 shrink-0 rounded-full"
+                onClick={onStop}
+                aria-label="中断生成"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                className="h-8 w-8 shrink-0 rounded-full"
+                disabled={!input.trim() || disabled}
+                aria-label="发送"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </form>

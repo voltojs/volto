@@ -54,19 +54,42 @@ export function formatCompactTokens(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M`;
 }
 
+/** A composition-bar slice: one of the three buckets, or the unused remainder. */
+export type CompositionKey = SegmentKey | 'free';
+
 /**
- * Segment widths are normalised against the three segments' own total, not
- * against `projectedTokens`. `breakdown.system` / `.tools` / `.messages` are
- * three independent estimates that deliberately do not sum to the projection
- * (plan-020), so the segmented bar expresses "composition share" among the
- * three buckets — it does not represent "how full the ring is".
+ * Widths for the composition bar, expressed as a share of the whole context
+ * window rather than of the three buckets alone — so the bar also shows how
+ * much capacity is still unused (the `free` slice).
+ *
+ * The used share is taken from `meterPercent`, which keeps the bar and the
+ * ring telling the same story, and is then split among the three buckets by
+ * their own relative share. That indirection is deliberate: `breakdown` is
+ * three independent estimates that do not sum to `projectedTokens`
+ * (plan-020), so scaling each bucket against the window directly would
+ * produce a used total that contradicts the percentage next to it.
+ *
+ * Without a usable window there is no "unused capacity" to speak of, so the
+ * bar falls back to pure composition (no `free` slice) — the same thing it
+ * showed before.
  */
-export function segmentWidths(
-  breakdown: ContextUsageView['breakdown'],
-): Array<{ key: SegmentKey; width: number }> {
-  const total = breakdown.system + breakdown.tools + breakdown.messages;
-  if (total <= 0) return CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key, width: 0 }));
-  return CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key, width: (breakdown[s.key] / total) * 100 }));
+export function compositionWidths(
+  usage: ContextUsageView,
+  contextWindow?: number,
+): Array<{ key: CompositionKey; width: number }> {
+  const total = usage.breakdown.system + usage.breakdown.tools + usage.breakdown.messages;
+  const share = (key: SegmentKey): number => (total <= 0 ? 0 : usage.breakdown[key] / total);
+
+  const percent = meterPercent(usage, contextWindow);
+  if (percent === null) {
+    return CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key as CompositionKey, width: share(s.key) * 100 }));
+  }
+
+  const used = total <= 0 ? 0 : percent;
+  return [
+    ...CONTEXT_METER_SEGMENTS.map((s) => ({ key: s.key as CompositionKey, width: share(s.key) * used })),
+    { key: 'free' as const, width: 100 - used },
+  ];
 }
 
 /**

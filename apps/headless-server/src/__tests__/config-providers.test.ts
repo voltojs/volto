@@ -177,3 +177,48 @@ describe("model contextWindow", () => {
     expect((await store.listPublic())[0]!.models[0]!.contextWindow).toBeUndefined();
   });
 });
+
+describe("model maxOutputTokens", () => {
+  it("persists a valid maxOutputTokens and returns it publicly", async () => {
+    const store = createProviderStore(dir);
+    await store.create({
+      name: "p1",
+      models: [{ name: "M", code: "m-1", maxOutputTokens: 8192 }],
+    });
+    const [provider] = await store.listPublic();
+    expect(provider!.models[0]).toMatchObject({ code: "m-1", maxOutputTokens: 8192 });
+    const raw = JSON.parse(await fs.readFile(path.join(dir, "providers.json"), "utf-8"));
+    expect(raw[0].models[0].maxOutputTokens).toBe(8192);
+  });
+
+  it("rejects zero, negative and non-integer maxOutputTokens", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", maxOutputTokens: 0 }] }),
+    ).rejects.toThrow(/maxOutputTokens/);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", maxOutputTokens: -5 }] }),
+    ).rejects.toThrow(/maxOutputTokens/);
+    await expect(
+      store.create({ name: "p1", models: [{ name: "M", code: "m-1", maxOutputTokens: 12.5 }] }),
+    ).rejects.toThrow(/maxOutputTokens/);
+  });
+
+  it("carries maxOutputTokens through resolveModel so a turn can be built with it", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "p1",
+      apiKey: "sk-abcdefgh3f2a",
+      models: [{ name: "M", code: "m-1", maxOutputTokens: 4096 }],
+    });
+    const resolved = await store.resolveModel(created.id, created.models[0]!.id);
+    expect(resolved).toMatchObject({ code: "m-1", maxOutputTokens: 4096 });
+  });
+
+  it("omits maxOutputTokens from resolveModel when the model has none", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({ name: "p1", models: [{ name: "M", code: "m-1" }] });
+    const resolved = await store.resolveModel(created.id, created.models[0]!.id);
+    expect(resolved).not.toHaveProperty("maxOutputTokens");
+  });
+});

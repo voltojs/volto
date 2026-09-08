@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { ProjectList } from './ProjectList';
-import { ProvidersDialog } from '@/components/settings/ProvidersDialog';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -155,7 +155,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <ProvidersDialog open={showSettings} onOpenChange={setShowSettings} />
+      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
     </div>
   );
 }

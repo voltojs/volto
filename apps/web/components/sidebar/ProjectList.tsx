@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { SessionItem } from './SessionItem';
+import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 
 export function ProjectList() {
   const projects = useConfigStore((s) => s.projects);
@@ -36,6 +37,14 @@ export function ProjectList() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The project whose deletion is awaiting confirmation. One piece of state
+  // for the whole list rather than one dialog per row: only one confirmation
+  // can be open at a time anyway.
+  const [projectPendingDelete, setProjectPendingDelete] = useState<{
+    id: string;
+    name: string;
+    sessionCount: number;
+  } | null>(null);
   // Guards against a double-click firing two DELETE requests for the same
   // session: a ref (not state) so the check is up to date even if the second
   // click lands before a re-render from the first click's state update. The
@@ -43,22 +52,7 @@ export function ProjectList() {
   // just the shared, mutable `Set` instance passed to it on every call.
   const deletingSessionIds = useRef<Set<string>>(new Set());
 
-  const handleRemoveProject = async (
-    projectId: string,
-    name: string,
-    sessionCount: number,
-  ) => {
-    // projectId is immutable and a fresh add gets a new UUID, so deleting a
-    // project permanently orphans every session under it (still on the
-    // server, but unreachable from the sidebar) — confirm first and say how
-    // many sessions are affected.
-    const confirmed = window.confirm(
-      sessionCount > 0
-        ? `确定删除项目「${name}」吗？其下的 ${sessionCount} 个会话也将从侧栏消失，且无法恢复。`
-        : `确定删除项目「${name}」吗？此操作无法撤销。`,
-    );
-    if (!confirmed) return;
-
+  const handleRemoveProject = async (projectId: string) => {
     setError(null);
     try {
       await removeProject(projectId);
@@ -176,14 +170,14 @@ export function ProjectList() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="text-muted-foreground hover:text-destructive"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void handleRemoveProject(
-                      project.id,
-                      project.name,
-                      projectSessions.length,
-                    );
+                    setProjectPendingDelete({
+                      id: project.id,
+                      name: project.name,
+                      sessionCount: projectSessions.length,
+                    });
                   }}
                   aria-label="删除项目"
                 >
@@ -239,10 +233,7 @@ export function ProjectList() {
                       setEditingSessionId(null);
                     }}
                     onClick={() => openSession(session.id)}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      void handleDeleteSession(session.id);
-                    }}
+                    onDelete={() => handleDeleteSession(session.id)}
                   />
                 ))}
               </div>
@@ -250,6 +241,31 @@ export function ProjectList() {
           </div>
         );
       })}
+
+      {/* projectId is immutable and a fresh add gets a new UUID, so deleting a
+          project permanently orphans every session under it (still on the
+          server, but unreachable from the sidebar) — hence the session count
+          in the confirmation text. */}
+      <ConfirmDeleteDialog
+        open={projectPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setProjectPendingDelete(null);
+        }}
+        title="删除工作区"
+        description={
+          projectPendingDelete === null
+            ? ''
+            : projectPendingDelete.sessionCount > 0
+              ? `确定删除工作区「${projectPendingDelete.name}」吗？其下的 ${projectPendingDelete.sessionCount} 个会话也将从侧栏消失，且无法恢复。`
+              : `确定删除工作区「${projectPendingDelete.name}」吗？此操作无法撤销。`
+        }
+        onConfirm={() => {
+          if (projectPendingDelete) {
+            void handleRemoveProject(projectPendingDelete.id);
+          }
+          setProjectPendingDelete(null);
+        }}
+      />
     </div>
   );
 }

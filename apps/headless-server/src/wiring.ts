@@ -43,6 +43,11 @@ export interface WiringOptions {
   baseUrl?: string;
   cwd?: string;
   dbPath?: string;
+  /**
+   * Max output tokens per model call, forwarded verbatim to createAgent()'s
+   * `maxTokens`. Omit to let the provider apply its own default.
+   */
+  maxTokens?: number;
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
   /**
@@ -120,6 +125,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     enableTaskTool: true,
     resolveContextLayers,
     skillRegistry,
+    ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),

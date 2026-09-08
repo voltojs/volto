@@ -55,7 +55,7 @@ export function ModelPicker({
         }
       }}
     >
-      <SelectTrigger size="sm" className="font-mono">
+      <SelectTrigger size="sm" variant="ghost" className="font-mono">
         <Cpu className="text-primary/80 h-3.5 w-3.5" />
         {/* A session may reference a model that was since deleted; say so
             rather than silently falling back to some other model. */}

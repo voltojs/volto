@@ -40,7 +40,7 @@ export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
 
   return (
     <Select items={items} value={value} onValueChange={handleValueChange}>
-      <SelectTrigger size="sm" className="font-mono">
+      <SelectTrigger size="sm" variant="ghost" className="font-mono">
         <Folder className="text-primary/80 h-3.5 w-3.5" />
         <SelectValue placeholder="选择工作区" />
       </SelectTrigger>

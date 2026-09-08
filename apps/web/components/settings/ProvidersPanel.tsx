@@ -1,14 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2, KeyRound } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,11 +11,6 @@ import {
   type Provider,
   type Model,
 } from '@/stores/config-store';
-
-interface ProvidersDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
 
 /**
  * A draft model row needs a React key that stays stable for the row's whole
@@ -39,7 +27,14 @@ function toDraftModels(models: Model[]): DraftModel[] {
   return models.map((m) => ({ ...m, clientKey: m.id || crypto.randomUUID() }));
 }
 
-export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
+/** Reads a positive-integer field, mapping an empty box back to "unset". */
+function parsePositiveInt(raw: string): number | undefined {
+  const digits = raw.replace(/[^0-9]/g, '');
+  return digits === '' ? undefined : Number(digits);
+}
+
+/** 模型配置 Tab：供应商、凭据与其下的模型清单。 */
+export function ProvidersPanel() {
   const providers = useConfigStore((s) => s.providers);
   const addProvider = useConfigStore((s) => s.addProvider);
   const [error, setError] = useState<string | null>(null);
@@ -59,42 +54,32 @@ export function ProvidersDialog({ open, onOpenChange }: ProvidersDialogProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <KeyRound className="text-primary h-4 w-4" />
-            模型配置
-          </DialogTitle>
-          <DialogDescription>
-            供应商的 apiKey 加密保存在服务端{' '}
-            <code className="font-mono">~/.volto</code>，不会存入浏览器。
-          </DialogDescription>
-        </DialogHeader>
+    <div className="space-y-3">
+      <p className="text-muted-foreground text-xs">
+        供应商的 apiKey 加密保存在服务端{' '}
+        <code className="font-mono">~/.volto</code>，不会存入浏览器。
+      </p>
 
-        <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-          {providers.map((provider) => (
-            <ProviderCard key={provider.id} provider={provider} />
-          ))}
-          {providers.length === 0 && (
-            <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
-              还没有配置供应商
-            </div>
-          )}
+      {providers.map((provider) => (
+        <ProviderCard key={provider.id} provider={provider} />
+      ))}
+      {providers.length === 0 && (
+        <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
+          还没有配置供应商
         </div>
+      )}
 
-        {error && <p className="text-destructive text-xs">{error}</p>}
+      {error && <p className="text-destructive text-xs">{error}</p>}
 
-        <Button
-          variant="outline"
-          className="w-full gap-2 border-dashed"
-          onClick={() => void handleAddProvider()}
-        >
-          <Plus className="h-4 w-4" />
-          新增供应商
-        </Button>
-      </DialogContent>
-    </Dialog>
+      <Button
+        variant="outline"
+        className="w-full gap-2 border-dashed"
+        onClick={() => void handleAddProvider()}
+      >
+        <Plus className="h-4 w-4" />
+        新增供应商
+      </Button>
+    </div>
   );
 }
 
@@ -128,6 +113,11 @@ function ProviderCard({ provider }: { provider: Provider }) {
     setModels(toDraftModels(provider.models));
   }
 
+  const updateModel = (index: number, patch: Partial<DraftModel>) => {
+    setDirty(true);
+    setModels(models.map((m, i) => (i === index ? { ...m, ...patch } : m)));
+  };
+
   const remove = async () => {
     setError(null);
     try {
@@ -151,7 +141,12 @@ function ProviderCard({ provider }: { provider: Provider }) {
           id: m.id,
           name: m.name,
           code: m.code,
-          ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+          ...(m.contextWindow === undefined
+            ? {}
+            : { contextWindow: m.contextWindow }),
+          ...(m.maxOutputTokens === undefined
+            ? {}
+            : { maxOutputTokens: m.maxOutputTokens }),
         })),
       });
       setApiKey('');
@@ -183,7 +178,7 @@ function ProviderCard({ provider }: { provider: Provider }) {
         <Button
           variant="ghost"
           size="icon"
-          className="text-muted-foreground hover:text-destructive shrink-0"
+          className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
           onClick={() => void remove()}
           aria-label="删除供应商"
         >
@@ -220,62 +215,74 @@ function ProviderCard({ provider }: { provider: Provider }) {
           模型
         </div>
         {models.map((model, index) => (
-          <div key={model.clientKey} className="flex items-center gap-2">
-            <Input
-              className="flex-1"
-              value={model.name}
-              placeholder="展示名"
-              onChange={(e) => {
-                setDirty(true);
-                setModels(
-                  models.map((m, i) =>
-                    i === index ? { ...m, name: e.target.value } : m,
-                  ),
-                );
-              }}
-            />
-            <Input
-              className="flex-1 font-mono text-xs"
-              value={model.code}
-              placeholder="模型代码"
-              onChange={(e) => {
-                setDirty(true);
-                setModels(
-                  models.map((m, i) =>
-                    i === index ? { ...m, code: e.target.value } : m,
-                  ),
-                );
-              }}
-            />
-            <Input
-              className="w-28 shrink-0 font-mono text-xs"
-              inputMode="numeric"
-              value={model.contextWindow ?? ''}
-              placeholder="上下文窗口"
-              onChange={(e) => {
-                setDirty(true);
-                const raw = e.target.value.replace(/[^0-9]/g, '');
-                setModels(
-                  models.map((m, i) =>
-                    i === index
-                      ? { ...m, contextWindow: raw === '' ? undefined : Number(raw) }
-                      : m,
-                  ),
-                );
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-destructive shrink-0"
-              onClick={() => {
-                setDirty(true);
-                setModels(models.filter((_, i) => i !== index));
-              }}
-              aria-label="删除模型"
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
+          <div
+            key={model.clientKey}
+            className="bg-background/60 space-y-2 rounded-md border p-2"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                className="flex-1"
+                value={model.name}
+                placeholder="展示名"
+                onChange={(e) => updateModel(index, { name: e.target.value })}
+              />
+              <Input
+                className="flex-1 font-mono text-xs"
+                value={model.code}
+                placeholder="模型代码"
+                onChange={(e) => updateModel(index, { code: e.target.value })}
+              />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                onClick={() => {
+                  setDirty(true);
+                  setModels(models.filter((_, i) => i !== index));
+                }}
+                aria-label="删除模型"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+            {/* Both caps are optional and share a "leave empty for the
+                provider's own default" story, so they sit on their own row
+                with explicit labels rather than relying on placeholders that
+                the narrow inputs would truncate. */}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1">
+                <span className="text-muted-foreground text-[11px]">
+                  上下文窗口（tokens）
+                </span>
+                <Input
+                  className="font-mono text-xs"
+                  inputMode="numeric"
+                  value={model.contextWindow ?? ''}
+                  placeholder="留空则不显示占用百分比"
+                  onChange={(e) =>
+                    updateModel(index, {
+                      contextWindow: parsePositiveInt(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-muted-foreground text-[11px]">
+                  最大输出 Token
+                </span>
+                <Input
+                  className="font-mono text-xs"
+                  inputMode="numeric"
+                  value={model.maxOutputTokens ?? ''}
+                  placeholder="留空则用供应商默认值"
+                  onChange={(e) =>
+                    updateModel(index, {
+                      maxOutputTokens: parsePositiveInt(e.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
           </div>
         ))}
         <Button

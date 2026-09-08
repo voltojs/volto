@@ -58,6 +58,8 @@ interface ResolvedConfig {
   /** Resolved from the provider record so an in-place edit is detected too. */
   baseURL: string | null | undefined;
   code: string | undefined;
+  /** Per-call output cap from the model record; undefined means the provider default. */
+  maxOutputTokens: number | undefined;
   /**
    * SHA-256 hex digest of the resolved apiKey — never the plaintext. Lets a
    * rotated key be distinguished from an unchanged one without storing the
@@ -72,6 +74,7 @@ interface ResolvedCredentials {
   baseURL: string | null;
   apiKey: string | null;
   code: string;
+  maxOutputTokens?: number;
 }
 
 /** A session with no project/model/permission selection yet. */
@@ -82,6 +85,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
   modelId: undefined,
   baseURL: undefined,
   code: undefined,
+  maxOutputTokens: undefined,
   keyFingerprint: undefined,
   permissionMode: undefined,
 };
@@ -142,6 +146,13 @@ interface Session {
   connection: Connection | null;
   buffer: sse.SSEMessage[];
   running: boolean;
+  /**
+   * Cancels the turn currently streaming on this session, if any. Set for the
+   * lifetime of `runTurn`'s `for await` and cleared when the turn settles, so
+   * a late `interrupt()` for a turn that already finished is a no-op rather
+   * than poisoning the next one.
+   */
+  abort: AbortController | null;
   lastUsed: number;
 }
 
@@ -220,6 +231,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         connection: null,
         buffer: [],
         running: false,
+        abort: null,
         lastUsed: Date.now(),
       };
       sessions.set(sessionId, session);
@@ -381,6 +393,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       modelId: requested.modelId,
       baseURL: credentials.baseURL,
       code: credentials.code,
+      maxOutputTokens: credentials.maxOutputTokens,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
     };
@@ -397,6 +410,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.modelId === b.modelId &&
       a.baseURL === b.baseURL &&
       a.code === b.code &&
+      a.maxOutputTokens === b.maxOutputTokens &&
       a.keyFingerprint === b.keyFingerprint &&
       a.permissionMode === b.permissionMode
     );
@@ -472,6 +486,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
             }),
           }
         : {}),
+      ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
         ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
         : {}),
@@ -575,7 +590,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
 
       turnReachedStream = true;
-      for await (const event of session.agent!.stream(message)) {
+      const abort = new AbortController();
+      session.abort = abort;
+      for await (const event of session.agent!.stream(message, { signal: abort.signal })) {
         push(session, frame(session, event));
       }
       await captureHistory();
@@ -616,7 +633,26 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       await captureHistory();
     } finally {
       session.running = false;
+      session.abort = null;
     }
+  }
+
+  /**
+   * Cancel the turn currently streaming on a session. Returns false when
+   * there is nothing to cancel (no live turn), which the route surfaces as a
+   * 409 rather than pretending to have stopped something.
+   *
+   * The abort travels into the SDK's `stream()` and from there into the
+   * Runner, so the turn unwinds exactly as an early `break` would: the model
+   * call is aborted, no further tools run, and the turn closes with a
+   * `turn_end` carrying `reason: "cancelled"` — the same terminal frame the
+   * client already uses to leave its streaming state.
+   */
+  function interrupt(sessionId: string): boolean {
+    const session = sessions.get(sessionId);
+    if (!session?.running || !session.abort) return false;
+    session.abort.abort();
+    return true;
   }
 
   /** Close every connection and drop all sessions (used on shutdown). */
@@ -627,5 +663,15 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     sessions.clear();
   }
 
-  return { get, attach, detachById, hasConnection, runTurn, ensureAgent, closeAll, size: () => sessions.size };
+  return {
+    get,
+    attach,
+    detachById,
+    hasConnection,
+    runTurn,
+    interrupt,
+    ensureAgent,
+    closeAll,
+    size: () => sessions.size,
+  };
 }

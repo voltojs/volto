@@ -831,6 +831,16 @@ describe("Headless server", () => {
     expect((data as { error: string }).error).toContain("no-such-session");
   });
 
+  describe("POST /interrupt", () => {
+    it("409s when the session has no turn running", async () => {
+      const { status, data } = await post("/interrupt", { sessionId: "idle-session" });
+      expect(status).toBe(409);
+      // Pin the body too: the server's catch-all would not produce this
+      // message, so a deleted route could not make this test pass.
+      expect((data as { error: string }).error).toContain("idle-session");
+    });
+  });
+
   describe("DELETE /sessions/:id", () => {
     it("removes the session from the list and the detail endpoint", async () => {
       const sessionId = await startSessionWithOneTurn();

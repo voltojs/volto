@@ -62,3 +62,29 @@ export async function postMessage(
     );
   }
 }
+
+/**
+ * Ask the server to cancel the turn currently streaming on a session.
+ *
+ * Returns false on a 409 — the server had nothing running, so the client's
+ * "generating" state was simply stale. That is not an error (nothing is left
+ * to stop), but the caller does need to tell the two apart: an interrupted
+ * turn still emits its own `turn_end`, while a stale one never will.
+ */
+export async function interruptTurn(sessionId: string): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/interrupt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  });
+
+  if (response.ok) return true;
+  if (response.status === 409) return false;
+
+  const detail = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  throw new Error(
+    detail?.error ?? `Request failed with HTTP ${response.status}`,
+  );
+}

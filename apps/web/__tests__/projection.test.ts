@@ -327,6 +327,63 @@ describe('composeChatEntries', () => {
       time: 200,
     });
   });
+
+  // A user-stopped turn records no assistant_message, and applyPartial drops
+  // the streamed deltas the moment the turn closes — so the neutral notice is
+  // the only thing left to show that the turn happened at all.
+  it('appends a neutral notice for a turn the user cancelled', () => {
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        endedAt: 300,
+        reason: 'cancelled' as const,
+        userInput: [],
+        steps: [],
+      },
+    ];
+    const entries = composeChatEntries([emptyAssistant('1:1')], records);
+    expect(entries).toEqual([
+      { kind: 'notice', key: '1:cancelled', text: '已中断本次生成', time: 300 },
+    ]);
+  });
+
+  it('places the cancel notice at the end of its own turn, not after later turns', () => {
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        endedAt: 300,
+        reason: 'cancelled' as const,
+        userInput: [],
+        steps: [],
+      },
+      { turn: 2, startedAt: 400, userInput: [], steps: [] },
+    ];
+    const entries = composeChatEntries(
+      [userMessage('1:u0', 'hi'), userMessage('2:u0', 'again')],
+      records,
+    );
+    expect(entries.map((e) => (e.kind === 'message' ? e.message.id : e.key))).toEqual([
+      '1:u0',
+      '1:cancelled',
+      '2:u0',
+    ]);
+  });
+
+  it('does not add a cancel notice to a turn that completed normally', () => {
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        endedAt: 300,
+        reason: 'done' as const,
+        userInput: [],
+        steps: [],
+      },
+    ];
+    expect(composeChatEntries([], records)).toEqual([]);
+  });
 });
 
 describe('mergeStoredAndLive', () => {

@@ -852,6 +852,19 @@ export function createRunner(opts: RunnerOptions): Runner {
         forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
       }
     } catch (err: unknown) {
+      // An aborted turn surfaces here as a throw from the model stream (the
+      // provider rejects its in-flight request when the signal fires). That
+      // is not a model failure: treating it as one would close the turn with
+      // `reason: "error"` and show the user a red failure notice for
+      // something they asked for. Take the same route the mid-stream
+      // cancellation check above takes, and leave `turnHadError` alone so
+      // the turn closes with `reason: "cancelled"`.
+      if (cancelled) {
+        if (getStatus() !== "cancelling" && getStatus() !== "done") {
+          forwardEmit(feed({ type: "cancel", reason: "abort" }));
+        }
+        return;
+      }
       modelError = true;
       turnHadError = true;
       if (getStatus() === "calling_model") {

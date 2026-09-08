@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import {
   createSSEClient,
   eventsUrl,
+  interruptTurn,
   postMessage,
   type ConnectionState,
 } from '@/lib/agent-config';
@@ -21,6 +22,8 @@ interface Connection {
 
 interface UseChatAgentReturn {
   sendMessage: (content: string) => Promise<void>;
+  /** Cancels the turn currently streaming, if any. */
+  stopGeneration: () => Promise<void>;
   connectionState: ConnectionState;
 }
 
@@ -191,5 +194,29 @@ export function useChatAgent(): UseChatAgentReturn {
     [ensureConnection],
   );
 
-  return { sendMessage, connectionState };
+  const stopGeneration = useCallback(async () => {
+    const sessionId = useSessionStore.getState().currentSessionId;
+    if (!sessionId || !useChatStore.getState().isGenerating) return;
+
+    try {
+      const interrupted = await interruptTurn(sessionId);
+      // On success `isGenerating` is deliberately left alone: the server
+      // still closes the cancelled turn with a `turn_end`, and that event is
+      // what releases the input — releasing it here as well would let the
+      // user send the next message while the aborted turn is still unwinding.
+      // When the server had nothing running, though, no `turn_end` is ever
+      // coming, so this is the only place that can unstick the UI.
+      if (!interrupted) useChatStore.getState().cancelStreaming();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '中断失败，请稍后重试';
+      useChatStore.getState().pushEvent({
+        time: Date.now(),
+        type: 'error',
+        data: { message },
+      });
+    }
+  }, []);
+
+  return { sendMessage, stopGeneration, connectionState };
 }

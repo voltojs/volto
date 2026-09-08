@@ -6,12 +6,13 @@ import { cn } from '@/lib/utils';
 import type { ContextUsageView } from '@volto/sdk/sse';
 import {
   CONTEXT_METER_SEGMENTS,
+  compositionWidths,
   formatCompactTokens,
   meterPercent,
   percentTone,
   remainingTokens,
-  segmentWidths,
   shouldShowUnanchoredHint,
+  type CompositionKey,
   type SegmentKey,
 } from '@/lib/context-meter-model';
 
@@ -22,6 +23,12 @@ const SEGMENT_BG: Record<SegmentKey, string> = {
   system: 'bg-primary',
   tools: 'bg-amber-500',
   messages: 'bg-sky-500',
+};
+
+/** The bar's slices, including the unused-capacity remainder. */
+const COMPOSITION_BG: Record<CompositionKey, string> = {
+  ...SEGMENT_BG,
+  free: 'bg-muted-foreground/15',
 };
 
 const TONE_TEXT = {
@@ -53,7 +60,7 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
   const percent = meterPercent(usage, contextWindow);
   const gray = percent === null;
   const tone = gray ? null : percentTone(percent);
-  const widths = segmentWidths(usage.breakdown);
+  const widths = compositionWidths(usage, contextWindow);
   const remaining = remainingTokens(usage, contextWindow);
 
   return (
@@ -111,9 +118,11 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
             <p className="text-muted-foreground mt-2 text-[10px] font-medium tracking-widest uppercase">
               构成（估算）
             </p>
+            {/* The bar spans the whole window, so its trailing slice is the
+                capacity still unused — not just the three buckets' share. */}
             <div className="bg-muted mt-1 flex h-1.5 overflow-hidden rounded-full">
               {widths.map((s) => (
-                <div key={s.key} className={SEGMENT_BG[s.key]} style={{ width: `${s.width}%` }} />
+                <div key={s.key} className={COMPOSITION_BG[s.key]} style={{ width: `${s.width}%` }} />
               ))}
             </div>
             <ul className="mt-2 space-y-1 text-xs">
@@ -126,6 +135,15 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
                   <span className="font-mono">{formatCompactTokens(usage.breakdown[s.key])}</span>
                 </li>
               ))}
+              <li className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <span className={cn('inline-block h-2 w-2 rounded-full', COMPOSITION_BG.free)} />
+                  未使用
+                </span>
+                <span className="font-mono">
+                  {remaining === null ? '—' : formatCompactTokens(remaining)}
+                </span>
+              </li>
             </ul>
             {usage.layers.length > 0 && (
               <div className="mt-2 border-t pt-2">

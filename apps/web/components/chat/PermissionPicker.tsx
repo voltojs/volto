@@ -34,7 +34,7 @@ export function PermissionPicker({ value, onChange }: PermissionPickerProps) {
       value={value}
       onValueChange={(next) => onChange(next as PermissionMode)}
     >
-      <SelectTrigger size="sm" className="font-mono">
+      <SelectTrigger size="sm" variant="ghost" className="font-mono">
         {value === 'auto-accept' ? (
           <ShieldAlert className="text-destructive/80 h-3.5 w-3.5" />
         ) : (

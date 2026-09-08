@@ -1,12 +1,6 @@
 'use client';
 
-import {
-  ChevronRight,
-  Terminal,
-  CircleAlert,
-  Check,
-  LoaderCircle,
-} from 'lucide-react';
+import { ChevronRight, CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -43,7 +37,6 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
     >
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
         <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <Terminal className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
         <span className="text-foreground/90 truncate font-mono">
           {call.name}
         </span>

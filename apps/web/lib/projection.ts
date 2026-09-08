@@ -80,10 +80,11 @@ export function mergeStoredAndLive(
   ];
 }
 
-/** One rendered row of the conversation: a chat bubble or an error notice. */
+/** One rendered row of the conversation: a chat bubble, an error, or a notice. */
 export type ChatEntry =
   | { kind: 'message'; message: ConversationMessage }
-  | { kind: 'error'; key: string; text: string; time: number };
+  | { kind: 'error'; key: string; text: string; time: number }
+  | { kind: 'notice'; key: string; text: string; time: number };
 
 /**
  * Composes the feed a UI renders from a merged message list plus the live
@@ -169,7 +170,64 @@ export function composeChatEntries(
     });
   }
 
-  return entries;
+  return withCancelNotices(entries, records);
+}
+
+/** The turn an entry belongs to; ids and keys are all `${turn}:…`. */
+function entryTurn(entry: ChatEntry): number {
+  const id = entry.kind === 'message' ? entry.message.id : entry.key;
+  return Number(id.split(':')[0]);
+}
+
+/**
+ * Inserts a neutral "stopped" notice at the end of every turn the user
+ * cancelled.
+ *
+ * The notice is not a failure (so not an `error` row) and it is the only
+ * trace such a turn leaves: no `assistant_message` was ever recorded, and
+ * `applyPartial` discards the streamed deltas the moment the turn closes —
+ * without it the turn would vanish from the feed as if nothing had happened.
+ *
+ * Placement matters once the conversation continues past the interruption:
+ * appending to the end would float the notice below every later turn, so it
+ * is spliced in right after the last entry of its own turn instead.
+ */
+function withCancelNotices(
+  entries: readonly ChatEntry[],
+  records: readonly TurnRecord[],
+): ChatEntry[] {
+  const cancelled = records.filter((t) => t.reason === 'cancelled');
+  if (cancelled.length === 0) return entries as ChatEntry[];
+
+  const noticeFor = (turn: TurnRecord): ChatEntry => ({
+    kind: 'notice',
+    key: `${turn.turn}:cancelled`,
+    text: '已中断本次生成',
+    time: turn.endedAt ?? turn.startedAt,
+  });
+  const pending = new Map(cancelled.map((t) => [t.turn, t]));
+
+  const result: ChatEntry[] = [];
+  let openTurn: number | null = null;
+  for (const entry of entries) {
+    const turn = entryTurn(entry);
+    if (openTurn !== null && turn !== openTurn) {
+      const done = pending.get(openTurn);
+      if (done) {
+        result.push(noticeFor(done));
+        pending.delete(openTurn);
+      }
+    }
+    result.push(entry);
+    openTurn = turn;
+  }
+
+  // Whatever is left belongs to the last turn rendered (or to a turn with no
+  // entries of its own at all, e.g. one cancelled before anything streamed).
+  for (const turn of cancelled) {
+    if (pending.has(turn.turn)) result.push(noticeFor(turn));
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
