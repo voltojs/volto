@@ -24,6 +24,10 @@ describe('meterPercent', () => {
     expect(meterPercent(view(100), undefined)).toBeNull();
     expect(meterPercent(view(100), 0)).toBeNull();
   });
+  it('returns null for a non-finite window, matching remainingTokens', () => {
+    expect(meterPercent(view(100), Number.POSITIVE_INFINITY)).toBeNull();
+    expect(meterPercent(view(100), Number.NaN)).toBeNull();
+  });
 });
 
 describe('percentTone', () => {

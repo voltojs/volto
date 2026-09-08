@@ -14,9 +14,19 @@ export const CONTEXT_METER_SEGMENTS = [
 
 export type SegmentKey = (typeof CONTEXT_METER_SEGMENTS)[number]['key'];
 
-/** null = 窗口未配置（灰态）。 */
+/**
+ * null = 窗口未配置（灰态）。
+ *
+ * Also guards against a non-finite window (NaN or Infinity), matching
+ * remainingTokens below: an Infinity window is unreachable today
+ * (contextWindow comes from validated positive-integer provider config, and
+ * JSON cannot encode Infinity) so this is consistency hardening, not a bug
+ * fix — without it, an Infinity window would render "0%" here while
+ * remainingTokens correctly renders "—", two contradictory lines in the same
+ * popover.
+ */
 export function meterPercent(usage: ContextUsageView, contextWindow?: number): number | null {
-  if (!contextWindow || contextWindow <= 0) return null;
+  if (!contextWindow || !Number.isFinite(contextWindow) || contextWindow <= 0) return null;
   return Math.min(100, Math.round((usage.projectedTokens / contextWindow) * 100));
 }
 
@@ -28,7 +38,16 @@ export function percentTone(percent: number): MeterTone {
   return 'normal';
 }
 
-/** <1000 原值；≥1000 K 一位小数；≥1e6 M 一位小数。 */
+/**
+ * <1000 原值；≥1000 K 一位小数；≥1e6 M 一位小数。
+ *
+ * Does not itself guard against a non-finite `tokens` (would render
+ * "InfinityM" / "NaNM"): every current call site is now shielded upstream —
+ * ContextMeter only reaches these calls once meterPercent/remainingTokens
+ * have already confirmed a finite, positive contextWindow. Left un-guarded
+ * here to keep the fix scoped to the actual contradiction (§ meterPercent
+ * above); revisit if a future call site can pass a non-finite value directly.
+ */
 export function formatCompactTokens(tokens: number): string {
   if (tokens < 1000) return String(tokens);
   if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}K`;
