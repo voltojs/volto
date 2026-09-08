@@ -5,6 +5,8 @@ import {
   modelDoneWithMeta,
   type ModelPort,
   type ResolvedModelInfo,
+  extractBlockText,
+  type AssistantMessage,
 } from "../index.js";
 
 describe("reasoning effort contract", () => {
