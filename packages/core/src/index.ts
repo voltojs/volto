@@ -45,6 +45,14 @@ export type {
   Effect,
 } from "./effect.js";
 
+// Export ReasoningEffortId as a value (constructor function + type)
+export { ReasoningEffortId } from "./ports.js";
+export type {
+  ReasoningEffortInfo,
+  ModelReasoningInfo,
+  ResolvedModelInfo,
+} from "./ports.js";
+
 // Types — Ports
 export type {
   ModelEventTextDelta,
@@ -306,6 +314,7 @@ export {
   toolUseDelta,
   usage,
   modelDone,
+  modelDoneWithMeta,
   modelError,
   toolCallScript,
   textScript,

@@ -75,6 +75,13 @@ export function modelDone(stopReason: "end_turn" | "tool_use" | "max_tokens"): M
   return { type: "done", stopReason };
 }
 
+export function modelDoneWithMeta(
+  stopReason: "end_turn" | "tool_use" | "max_tokens",
+  meta: unknown,
+): ModelEvent {
+  return { type: "done", stopReason, meta };
+}
+
 export function modelError(error: string, retriable?: boolean): ModelEvent {
   return { type: "error", error, retriable };
 }

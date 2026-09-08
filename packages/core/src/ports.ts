@@ -51,9 +51,53 @@ export interface ModelEventUsage extends TokenUsage {
   type: "usage";
 }
 
+/**
+ * Opaque, adapter-owned reasoning effort id. The core carries it verbatim and
+ * never interprets, aliases or clamps it: the set of selectable efforts is a
+ * capability of one exact model, not a core-wide enum.
+ */
+export type ReasoningEffortId = string & { readonly __reasoningEffort: unique symbol };
+
+/** Brand a provider-declared effort string. */
+export function ReasoningEffortId(value: string): ReasoningEffortId {
+  return value as ReasoningEffortId;
+}
+
+/** Display metadata for one adapter-owned reasoning effort. */
+export interface ReasoningEffortInfo {
+  id: ReasoningEffortId;
+  name: string;
+  description?: string;
+}
+
+/** Selectable reasoning efforts for one exact model. */
+export interface ModelReasoningInfo {
+  /** Non-empty, in adapter-preferred display order. */
+  efforts: readonly ReasoningEffortInfo[];
+  /** Absent preserves the provider's own default. */
+  defaultEffort?: ReasoningEffortId;
+}
+
+/**
+ * Model metadata resolved by its owning adapter. An absent `reasoning` field
+ * means the capability is unavailable — adapters must not synthesize an
+ * off-only list, since "off" that translates to omitting the parameter is
+ * byte-for-byte the same request as naming no effort.
+ */
+export interface ResolvedModelInfo {
+  model: string;
+  contextWindow?: number;
+  reasoning?: ModelReasoningInfo;
+}
+
 export interface ModelEventDone {
   type: "done";
   stopReason: "end_turn" | "tool_use" | "max_tokens";
+  /**
+   * Adapter-private replay state for this call (e.g. provider thinking-block
+   * signatures). The core stores and returns it verbatim and never reads it.
+   */
+  meta?: unknown;
 }
 
 export interface ModelEventError {
@@ -92,6 +136,8 @@ export interface ModelRequest {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Adapter-owned reasoning effort; the adapter rejects ids it did not declare. */
+  reasoningEffort?: ReasoningEffortId;
   abortSignal?: AbortSignal;
   /** Structured / JSON output mode (provider-specific translation) */
   responseFormat?: { type: "json"; schema?: JSONSchema };
@@ -106,6 +152,11 @@ export interface ModelRequest {
 
 export interface ModelPort {
   stream(req: ModelRequest): AsyncIterable<ModelEvent>;
+  /**
+   * Per-model capability query. Optional: a port that does not implement it
+   * offers no reasoning control at all.
+   */
+  describeModel?(model: string): Promise<ResolvedModelInfo>;
 }
 
 // ──────────────────────────────────────────────
