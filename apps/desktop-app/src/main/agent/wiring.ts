@@ -74,6 +74,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const modelPort = createPiAiModelPort({
     providers: [
       {
+        kind: "custom",
         id: "default",
         // provider-pi-ai does no default-URL fallback of its own; this
         // wiring layer supplies the same default provider-openai used to.

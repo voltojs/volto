@@ -34,6 +34,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const modelPort = opts.modelPort ?? createPiAiModelPort({
     providers: [
       {
+        kind: "custom",
         id: "default",
         // Mirrors provider-openai's own default when no baseURL is given.
         baseURL: opts.baseUrl ?? process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com",

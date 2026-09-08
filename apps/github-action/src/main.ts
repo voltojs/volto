@@ -41,6 +41,7 @@ export async function run(): Promise<void> {
   const modelPort = createPiAiModelPort({
     providers: [
       {
+        kind: "custom",
         id: "default",
         baseURL: "https://api.openai.com",
         apiKey,

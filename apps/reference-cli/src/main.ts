@@ -114,6 +114,7 @@ const network = createNodeNetwork();
 const modelPort = createPiAiModelPort({
   providers: [
     {
+      kind: "custom",
       id: "default",
       // Mirrors provider-openai's own default when no baseURL is given.
       baseURL: BASE_URL ?? "https://api.openai.com",
