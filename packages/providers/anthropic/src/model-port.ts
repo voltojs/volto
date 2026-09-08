@@ -204,7 +204,10 @@ function convertMessage(msg: Message): Record<string, unknown> {
             input: block.input,
           });
         }
-        // thinking blocks are not persisted in core state; skip
+        // The core does carry reasoning blocks now, but faithful replay of a
+        // "thinking" block back to Anthropic needs its per-block signature,
+        // which travels in modelMeta — this adapter does not read that yet,
+        // so the reasoning text is dropped here rather than resent unsigned.
       }
       return { role: "assistant", content };
     }
