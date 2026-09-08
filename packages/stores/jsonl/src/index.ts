@@ -399,23 +399,31 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
     },
 
     async deleteSession(sessionId) {
-      const target = await findExistingFilePath(sessionId);
-      if (!target) return;
-      // Mark the tombstone before unlinking so that any append whose write
-      // path already resolved to `target` — but has not yet reached the
-      // per-file queue — sees it once it gets there (see `tombstonedSessions`
-      // comment above). Routing the unlink itself through the same
-      // `enqueue(target, ...)` queue as appends is what prevents the unlink
-      // from interleaving with a queued append's read-modify-write.
+      // Mark the tombstone *before* resolving the file, not after: a session
+      // deleted while its very first `appendEventBatch` call is still
+      // resolving its write path (or blocked on `fs.mkdir`) has no file on
+      // disk yet, so `findExistingFilePath` would return null and an early
+      // return here would skip tombstoning entirely — leaving that in-flight
+      // append free to create the file once it resumes, resurrecting a
+      // session that was supposedly deleted. Tombstoning unconditionally
+      // closes that gap: whichever target the racing append resolves to, its
+      // queued callback checks `tombstonedSessions` before writing (see the
+      // comment on that set above).
       tombstonedSessions.add(sessionId);
       try {
-        await enqueue(target, async () => {
-          try {
-            await fs.unlink(target);
-          } catch (err: unknown) {
-            if (!isEnoent(err)) throw err;
-          }
-        });
+        const target = await findExistingFilePath(sessionId);
+        if (target) {
+          // Routing the unlink through the same `enqueue(target, ...)` queue
+          // as appends is what prevents it from interleaving with a queued
+          // append's read-modify-write.
+          await enqueue(target, async () => {
+            try {
+              await fs.unlink(target);
+            } catch (err: unknown) {
+              if (!isEnoent(err)) throw err;
+            }
+          });
+        }
         // Keep the tombstone up until every append that was already
         // in-flight for this session id has finished (whether it skipped
         // itself via the check above, or — if it was queued ahead of the

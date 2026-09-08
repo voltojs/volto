@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createStore } from "../index.js";
+import { createStore, encodeWorkspaceName } from "../index.js";
 import type { TranscriptEventInput } from "@volto/core";
 
 /**
@@ -32,13 +32,16 @@ let tempDir: string;
 
 beforeEach(async () => {
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "store-jsonl-tombstone-"));
+  WORKSPACE = path.join(tempDir, "my_project");
 });
 
 afterEach(async () => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-const WORKSPACE = "/Users/leo.zheng/Documents/my_project";
+// Environment-independent: derived from the per-test temp dir rather than a
+// hardcoded absolute path, so this file behaves the same on any machine/CI.
+let WORKSPACE: string;
 
 function userEvent(text: string, time: number): TranscriptEventInput {
   return { time, type: "user_message", data: { content: text }, turn: 1 };
@@ -74,7 +77,35 @@ describe("deleteSession racing appendEventBatch", () => {
 
     // The session must not have been resurrected: no file, no events.
     expect(await store.readEvents("s1")).toEqual([]);
-    const files = await fs.readdir(path.join(tempDir, "-Users-leo-zheng-Documents-my-project")).catch(() => []);
+    const files = await fs
+      .readdir(path.join(tempDir, encodeWorkspaceName(WORKSPACE)))
+      .catch(() => []);
+    expect(files).toEqual([]);
+  });
+
+  it("does not resurrect a session deleted before its file has ever been created", async () => {
+    const store = createStore({ directory: tempDir });
+
+    // No prior appendEvents call for this session — its file has never
+    // existed, so `findExistingFilePath` resolves to null on both sides of
+    // the race. This is the "create then immediately delete" timing: the
+    // very first append is still resolving/creating its directory when the
+    // delete comes in.
+    const appendPromise = store.appendEvents(WORKSPACE, "s5", [userEvent("first", 0)]);
+
+    // Give the append a moment to resolve its (fresh) write path and land in
+    // the mocked mkdir delay — "resolved but not yet queued" — then delete
+    // before the file is ever created.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const deletePromise = store.deleteSession("s5");
+
+    await Promise.all([appendPromise, deletePromise]);
+
+    // The session must not have been resurrected: no file, no events.
+    expect(await store.readEvents("s5")).toEqual([]);
+    const files = await fs
+      .readdir(path.join(tempDir, encodeWorkspaceName(WORKSPACE)))
+      .catch(() => []);
     expect(files).toEqual([]);
   });
 
