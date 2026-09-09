@@ -81,7 +81,9 @@ volto/
 │       ├── memory/           # @volto/store-memory
 │       └── file/            # @volto/store-file
 ├── apps/
-│   └── reference-cli/        # 参考宿主：仅 wiring + 订阅事件，核心零改动
+│   ├── headless-server/      # HTTP + SSE 网关宿主：仅 wiring + 订阅事件，核心零改动
+│   ├── web/                  # Next.js 聊天前端，消费网关的 SSE 协议
+│   └── desktop-app/          # Electron 宿主：仅 wiring，含审批弹窗
 ├── plans/                    # 实施方案文档
 └── docs/                     # 架构设计文档
 ```

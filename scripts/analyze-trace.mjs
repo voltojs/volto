@@ -2,8 +2,10 @@
 /**
  * analyze-trace.mjs — Offline analyzer for volto trace JSONL files.
  *
- * Reads a trace file produced by `createTracingEventSink({ jsonlPath })`
- * (see apps/reference-cli) and prints a structured human-readable report.
+ * Reads a trace file in the JSONL shape an EventSink writes and prints a
+ * structured human-readable report. The in-repo producer that used to emit
+ * these files (the reference CLI's tracing sink) has been removed, so a host
+ * wanting this report must write the file itself.
  *
  * Usage:
  *   node scripts/analyze-trace.mjs [path]              # default: /tmp/agent-logs/trace.jsonl

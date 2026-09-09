@@ -1,7 +1,6 @@
 /**
  * Agent Wiring
  * 负责组装 agent 的所有依赖项
- * 参考 reference-cli/src/main.ts
  */
 
 import { createAgent } from "@volto/sdk";
