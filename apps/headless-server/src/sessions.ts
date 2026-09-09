@@ -20,6 +20,8 @@ import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
+import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
+import type { PermissionRule } from "@volto/core";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
@@ -235,6 +237,18 @@ interface Session {
    * than poisoning the next one.
    */
   abort: AbortController | null;
+  /**
+   * Pending human approvals for this session, plus the write path a
+   * "always allow" answer takes. Lives on the session rather than on the
+   * agent so a rebuild (model switch, project switch) keeps the rules the
+   * user already granted.
+   */
+  approvals: ApprovalRegistry;
+  /**
+   * Permission rules the user granted at approval prompts. Re-injected on
+   * every rebuild — a config change must not silently revoke them.
+   */
+  dynamicRules: PermissionRule[];
   lastUsed: number;
 }
 
@@ -314,6 +328,16 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         buffer: [],
         running: false,
         abort: null,
+        approvals: createApprovalRegistry({
+          onAlwaysAllow: (toolName) => {
+            const session = sessions.get(sessionId);
+            if (!session) return;
+            // Unshift, not push: a later grant must outrank an earlier
+            // deny rule for the same tool.
+            session.dynamicRules.unshift({ toolName, decision: "allow" });
+          },
+        }),
+        dynamicRules: [],
         lastUsed: Date.now(),
       };
       sessions.set(sessionId, session);
@@ -409,6 +433,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   }
 
   function detach(session: Session): void {
+    // A dropped channel means nobody can answer — deny rather than leave a
+    // tool call parked forever, and never allow by default.
+    session.approvals.settleAll("deny");
     if (!session.connection) return;
     clearInterval(session.connection.heartbeat);
     session.connection = null;
@@ -586,8 +613,15 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
         ? {
-            permissionConfig: buildPermissionConfig(config.permissionMode),
+            permissionConfig: {
+              ...buildPermissionConfig(config.permissionMode),
+              // Same array reference on every rebuild: the Runner re-reads
+              // config.rules at each evaluation, so a grant made mid-turn
+              // takes effect immediately without rebuilding the agent.
+              rules: session.dynamicRules,
+            },
             sandboxMode: sandboxModeFor(config.permissionMode),
+            approvalGate: session.approvals.gate,
           }
         : {}),
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
@@ -753,6 +787,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   function interrupt(sessionId: string): boolean {
     const session = sessions.get(sessionId);
     if (!session?.running || !session.abort) return false;
+    session.approvals.settleAll("deny");
     session.abort.abort();
     return true;
   }
@@ -772,6 +807,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     hasConnection,
     runTurn,
     interrupt,
+    decideApproval: (sessionId: string, callId: string, decision: ApprovalDecision): boolean => {
+      const session = sessions.get(sessionId);
+      if (!session) return false;
+      return session.approvals.settle(callId, decision);
+    },
     ensureAgent,
     closeAll,
     size: () => sessions.size,

@@ -21,7 +21,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
+import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
@@ -82,6 +82,8 @@ export interface WiringOptions {
    * undecorated (the legacy no-session routes and tests).
    */
   sandboxMode?: SandboxMode;
+  /** HITL approval gate. Omit to fall back to the SDK's auto-allow gate. */
+  approvalGate?: ApprovalGate;
   /**
    * Reasoning effort for this agent instance, forwarded verbatim to
    * createAgent()'s own `reasoningEffort` option. Validated by the caller
@@ -212,6 +214,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     skillRegistry,
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
+    ...(opts.approvalGate ? { approvalGate: opts.approvalGate } : {}),
     ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
