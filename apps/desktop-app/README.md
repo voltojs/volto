@@ -115,6 +115,6 @@ pnpm --filter @volto/desktop-app package:linux   # .AppImage + .deb
 
 ## 相关文档
 
-- `../../docs/pure-volto.md` — agent 内核架构
-- `../../plans/` 与 vault 内的 plan 文档 — 实施过程与每 phase 决策记录
-- `../reference-cli/` — 同套 SDK 的 CLI 参考实现
+- `../../docs/pure-agent-core.md` — agent 内核架构
+- `../../docs/superpowers/specs/` 与 `../../docs/superpowers/plans/` — 每个特性的设计与实施记录
+- `../headless-server/` — 同套 SDK 的 HTTP + SSE 网关宿主

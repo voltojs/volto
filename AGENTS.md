@@ -55,42 +55,40 @@
 - **Monorepo**：pnpm workspace + Turborepo（任务依赖图编排 build / test / lint / typecheck）
 - **核心**：零依赖 functional core —— `state` / `input` / `effect` 类型、`step()` reducer、ContextAssembler / Compactor / ToolRouter / PermissionPolicy 纯决策、全部 port 接口
 - **工具 schema**：Zod（运行时校验 + 推导 JSON Schema，仅 `tools/*` 与 `sdk` 依赖）
-- **首个 Provider**：OpenAI 兼容 ModelPort（`/v1/chat/completions` 流式，`baseURL` 可配）
-- **Runtime adapter**：Node（FileSystem / Shell / Network / Tokenizer / ApprovalGate）
-- **SessionStore**：内存 + sqlite
+- **Provider**：pi-ai（宿主默认，多 provider 目录 + 模型能力声明）、OpenAI 兼容、Anthropic
+- **Runtime adapter**：Node（FileSystem / Shell / Network / Tokenizer / ApprovalGate / Sandbox）、browser、edge
+- **Store**：memory / file / jsonl / sqlite / postgres（共用同一套 SessionStore 合同测试）
 - **测试**：Vitest（含重放测试、SessionStore 共享行为测试、能力门控测试）
 
-## Project Structure（目标态，详见 Plan 001 §4.2）
+## Project Structure（现状）
 
 ```
 volto/
 ├── packages/
 │   ├── core/                 # @volto/core   纯函数内核 + ports 接口  ← 零依赖
-│   ├── sdk/                  # @volto/sdk     门面 run / stream / resume
-│   ├── tools/
-│   │   ├── fs/               # @volto/tools-fs     read/edit/write/ls/glob/grep
-│   │   ├── shell/            # @volto/tools-shell  bash
-│   │   ├── web/              # @volto/tools-web    web_fetch / web_search
-│   │   ├── plan/             # @volto/tools-plan   write_todos
-│   │   └── agent/            # @volto/tools-agent  task 子 agent
-│   ├── providers/
-│   │   └── openai/           # @volto/provider-openai
-│   ├── runtimes/
-│   │   └── node/             # @volto/runtime-node
-│   └── stores/
-│       ├── memory/           # @volto/store-memory
-│       └── file/            # @volto/store-file
+│   ├── sdk/                  # @volto/sdk    门面 run / stream / resume
+│   ├── eval/                 # @volto/eval   评测
+│   ├── tools/                # 每个子目录一个工具包
+│   │   ├── fs shell web plan agent ask browser code data document mcp schedule vcs
+│   │   ├── common/           # @volto/tools-common  defineTool 等共享设施
+│   │   └── skill/            # @volto/tool-skill（注意：单数前缀，与其它 tools-* 不同）
+│   ├── providers/            # openai / anthropic / pi-ai   → @volto/provider-*
+│   ├── runtimes/             # node / browser / edge        → @volto/runtime-*
+│   ├── stores/               # memory / file / jsonl / sqlite / postgres → @volto/store-*
+│   ├── embedders/            # openai                       → @volto/embedder-*
+│   └── memories/             # inmemory                     → @volto/memory-*
 ├── apps/
 │   ├── headless-server/      # HTTP + SSE 网关宿主：仅 wiring + 订阅事件，核心零改动
 │   ├── web/                  # Next.js 聊天前端，消费网关的 SSE 协议
 │   └── desktop-app/          # Electron 宿主：仅 wiring，含审批弹窗
-├── plans/                    # 实施方案文档
-└── docs/                     # 架构设计文档
+├── docs/                     # 架构设计 + 演进路线
+│   └── superpowers/          # 每个特性的 spec 与 plan
+└── scripts/                  # 仓库级校验与分析脚本
 ```
 
-> pnpm workspace glob 用混合深度：`packages/*`（core/sdk）+ `packages/*/*`（tools/providers/runtimes/stores）+ `apps/*`。
+> pnpm workspace glob 用混合深度：`packages/*`（core/sdk/eval）+ `packages/*/*`（tools/providers/runtimes/stores/embedders/memories）+ `apps/*`。包名前缀按"该包是什么"取单/复数，见上文命名规则。
 
-## Commands（Plan 001 Phase 1 建立后可用）
+## Commands
 
 ```bash
 pnpm install                              # 安装依赖
@@ -112,10 +110,15 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 
 ## Documentation Index
 
-| 文档              | 路径                                          | 说明                                       |
-| ----------------- | --------------------------------------------- | ------------------------------------------ |
-| 架构设计文档      | `docs/pure-volto.md`                     | 纯 Agent 核心架构、模块分解、ports 契约、路线图 M1–M7 |
-| 实施方案 Plan 001 | `plans/001-pure-volto-implementation.md` | monorepo 落地方案、目录/包结构、8 个 Phase  |
-| 演进路线图        | `docs/roadmap.md`                             | 内核平台化 M8–M14 路线、10 条能力工作流、依赖 DAG  |
+**判断"某能力现在是什么样"时，代码是唯一真相源。** 下面的文档解释**为什么**是这样，不保证描述现状。
+
+| 文档                | 路径                        | 用途                                                     | 时效 |
+| ------------------- | --------------------------- | -------------------------------------------------------- | ---- |
+| 架构设计文档        | `docs/pure-agent-core.md`   | 纯函数内核架构、模块分解、ports 契约——纯度铁律的出处      | 长期有效 |
+| 特性设计（spec）    | `docs/superpowers/specs/`   | 每个特性的设计取舍，文件名带日期                          | 写作时点的决策记录 |
+| 特性实施方案（plan） | `docs/superpowers/plans/`   | 与 spec 一一对应的分任务实施方案与验收标准                | 写作时点的执行记录 |
+| 演进路线图          | `docs/roadmap.md`           | 内核平台化的方向与不变量                                  | 历史方向文档，里程碑表不再跟踪进度 |
+
+**查特性来龙去脉的正确姿势**：按日期倒序看 `docs/superpowers/specs/`（先设计后实施，spec 比 plan 短得多），找到对应主题再读同名 plan。不要把某份 spec/plan 的内容当作现状——它记录的是**当时**的决定，之后可能被更晚的 spec 推翻。
 
 </details>
