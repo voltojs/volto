@@ -104,7 +104,15 @@ type ResolvedCredentials =
       reasoning?: boolean;
     };
 
-/** A session with no project/model/permission selection yet. */
+/**
+ * A session with no project/model/permission selection yet — used by
+ * `ensureAgent()` for the legacy `/run` route, which never builds a
+ * `TurnConfig`. `permissionMode` still defaults to "ask" here for the same
+ * reason as `resolveConfig()` above: leaving it `undefined` skips rebuild()'s
+ * entire permissionConfig/sandboxMode/approvalGate branch and hands this
+ * legacy path the widest possible agent (workspace-write + auto-allow)
+ * instead of the narrowest working tier.
+ */
 const EMPTY_CONFIG: ResolvedConfig = {
   projectPath: undefined,
   projectId: undefined,
@@ -114,7 +122,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
   code: undefined,
   maxOutputTokens: undefined,
   keyFingerprint: undefined,
-  permissionMode: undefined,
+  permissionMode: "ask",
   reasoningEffort: undefined,
 };
 
@@ -515,7 +523,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // are configurable records rather than bare codes.
       maxOutputTokens: credentials.maxOutputTokens,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
-      permissionMode: requested.permissionMode,
+      // I3: an omitted permissionMode must resolve to the narrowest tier
+      // that can still do work ("ask"), never to "no mode at all" — the
+      // latter makes rebuild() skip the whole permissionConfig/sandboxMode/
+      // approvalGate branch below and createAgent() falls back to
+      // workspace-write + auto-allow, the widest possible agent. Defaulting
+      // here (rather than requiring the field on the HTTP route) closes the
+      // hole for every caller, including legacy paths that never send it.
+      permissionMode: requested.permissionMode ?? "ask",
       reasoningEffort: requested.reasoningEffort,
     };
 

@@ -349,6 +349,24 @@ describe("session agent lifecycle", () => {
     expect("baseURL" in providerConfig).toBe(false);
   });
 
+  // -- I3: an omitted permissionMode must resolve to the narrowest working --
+  // -- tier ("ask"), not silently fall through to an unwired, wide-open -----
+  // -- agent (no permissionConfig / sandboxMode / approvalGate at all). -----
+
+  it("wires a permissionConfig/sandboxMode/approvalGate even when permissionMode is omitted", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry } = makeRegistry(factory);
+
+    // No permissionMode at all — exactly what an omitted field on
+    // POST /messages looks like.
+    await registry.runTurn("s1", "one", { projectId: "p1", providerId: "v1", modelId: "m1" });
+
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!["permissionConfig"]).toBeDefined();
+    expect(builds[0]!["sandboxMode"]).toBeDefined();
+    expect(builds[0]!["approvalGate"]).toBeDefined();
+  });
+
   it("rejects a turn with an unknown projectId rather than defaulting", async () => {
     const { factory, builds } = makeFactory();
     const { registry, written } = makeRegistry(factory, {
