@@ -205,26 +205,101 @@ describe("catalog/custom discriminator", () => {
     expect(asCustom(listed!).models[0]).toMatchObject({ code: "mimo-v2.5" });
   });
 
-  it("round-trips a catalog provider with piProvider and modelCodes", async () => {
+  it("round-trips a catalog provider with piProvider and its model records", async () => {
     const store = createProviderStore(dir);
     const created = await store.create({
       name: "OpenAI",
       kind: "catalog",
       piProvider: "openai",
       apiKey: "sk-abcdefgh3f2a",
-      modelCodes: ["gpt-5", "gpt-5-mini"],
+      models: [{ code: "gpt-5" }, { code: "gpt-5-mini" }],
     });
     if (created.kind !== "catalog") throw new Error("expected a catalog provider");
     expect(created.piProvider).toBe("openai");
-    expect(created.modelCodes).toEqual(["gpt-5", "gpt-5-mini"]);
+    expect(created.models).toEqual([{ code: "gpt-5" }, { code: "gpt-5-mini" }]);
     expect(JSON.stringify(created)).not.toContain("sk-abcdefgh3f2a");
 
     const [listed] = await store.listPublic();
     expect(listed).toMatchObject({
       kind: "catalog",
       piProvider: "openai",
-      modelCodes: ["gpt-5", "gpt-5-mini"],
+      models: [{ code: "gpt-5" }, { code: "gpt-5-mini" }],
     });
+  });
+
+  it("keeps a catalog model's overrides and resolves its maxOutputTokens", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [
+        { code: "gpt-5", name: "我的 GPT-5", contextWindow: 200000, maxOutputTokens: 8192 },
+        // An override-free model stays override-free: omitted fields must not
+        // become explicit `undefined`, or they would shadow pi-ai's catalog.
+        { code: "gpt-5-mini" },
+      ],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(created.models[0]).toEqual({
+      code: "gpt-5",
+      name: "我的 GPT-5",
+      contextWindow: 200000,
+      maxOutputTokens: 8192,
+    });
+    expect(Object.keys(created.models[1]!)).toEqual(["code"]);
+
+    const resolved = await store.resolveModel(created.id, "gpt-5");
+    expect(resolved).toMatchObject({ kind: "catalog", code: "gpt-5", maxOutputTokens: 8192 });
+    const bare = await store.resolveModel(created.id, "gpt-5-mini");
+    expect(bare).toBeDefined();
+    expect("maxOutputTokens" in bare!).toBe(false);
+  });
+
+  it("rejects a non-positive contextWindow on a catalog model", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({
+        name: "OpenAI",
+        kind: "catalog",
+        piProvider: "openai",
+        models: [{ code: "gpt-5", contextWindow: 0 }],
+      }),
+    ).rejects.toThrow(/contextWindow/);
+  });
+
+  it("reads a legacy catalog record's modelCodes as override-free models", async () => {
+    // A catalog record written before enabled models became configurable:
+    // a bare code list and no `models` at all. Read-time default, same as
+    // `kind` — nothing on disk is rewritten until the user saves.
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "providers.json"),
+      JSON.stringify([
+        {
+          kind: "catalog",
+          id: "legacy-catalog",
+          name: "DeepSeek",
+          piProvider: "deepseek",
+          apiKeyEnc: null,
+          modelCodes: ["deepseek-v4-flash", "deepseek-v4-pro"],
+        },
+      ]),
+      "utf-8",
+    );
+
+    const [listed] = await createProviderStore(dir).listPublic();
+    expect(listed).toMatchObject({
+      kind: "catalog",
+      models: [{ code: "deepseek-v4-flash" }, { code: "deepseek-v4-pro" }],
+    });
+
+    // Still routable: a turn on a legacy record must resolve by code.
+    const resolved = await createProviderStore(dir).resolveModel(
+      "legacy-catalog",
+      "deepseek-v4-pro",
+    );
+    expect(resolved).toMatchObject({ kind: "catalog", code: "deepseek-v4-pro" });
   });
 
   it("reads a legacy record with no kind field as custom, with its model list intact", async () => {
@@ -268,7 +343,7 @@ describe("catalog/custom discriminator", () => {
       kind: "catalog",
       piProvider: "openai",
       apiKey: "sk-abcdefgh3f2a",
-      modelCodes: ["gpt-5"],
+      models: [{ code: "gpt-5" }],
     });
     const resolved = await store.resolveModel(created.id, "gpt-5");
     expect(resolved).toMatchObject({
@@ -286,7 +361,7 @@ describe("catalog/custom discriminator", () => {
       store.update(custom.id, {
         kind: "catalog",
         piProvider: "openai",
-        modelCodes: ["gpt-5"],
+        models: [{ code: "gpt-5" }],
       } as never),
     ).rejects.toThrow(/kind/);
     // Rejected update must not have mutated the stored record.
@@ -298,7 +373,7 @@ describe("catalog/custom discriminator", () => {
       kind: "catalog",
       piProvider: "openai",
       apiKey: "sk-abcdefgh3f2a",
-      modelCodes: ["gpt-5"],
+      models: [{ code: "gpt-5" }],
     });
     await expect(
       store.update(catalog.id, { kind: "custom", models: [] } as never),
@@ -312,7 +387,7 @@ describe("catalog/custom discriminator", () => {
       kind: "catalog",
       piProvider: "openai",
       apiKey: "sk-abcdefgh3f2a",
-      modelCodes: ["gpt-5"],
+      models: [{ code: "gpt-5" }],
     });
     expect(JSON.stringify(await store.listPublic())).not.toContain("sk-abcdefgh3f2a");
   });

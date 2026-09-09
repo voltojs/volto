@@ -1044,7 +1044,7 @@ describe("Headless server", () => {
       kind: "catalog",
       piProvider: target!.piProvider,
       apiKey: "sk-catalog-secret-1234",
-      modelCodes: [target!.code],
+      models: [{ code: target!.code }],
     });
 
     const { status, data } = await getJson("/providers");
@@ -1086,7 +1086,7 @@ describe("Headless server", () => {
       kind: "catalog",
       piProvider: target!.piProvider,
       apiKey: "sk-write-shape-secret",
-      modelCodes: [target!.code],
+      models: [{ code: target!.code }],
     });
     expect(created.status).toBe(201);
     const createdProvider = created.data as {
@@ -1100,7 +1100,7 @@ describe("Headless server", () => {
 
     const updated = await put(`/providers/${encodeURIComponent(createdProvider.id)}`, {
       kind: "catalog",
-      modelCodes: [target!.code],
+      models: [{ code: target!.code }],
     });
     expect(updated.status).toBe(200);
     const updatedProvider = updated.data as {
@@ -1109,6 +1109,46 @@ describe("Headless server", () => {
     expect(updatedProvider.models).toBeDefined();
     expect(updatedProvider.models![0]!.code).toBe(target!.code);
     expect(updatedProvider.models![0]!.reasoning).toBeDefined();
+  });
+
+  it("GET /providers reports a catalog model's stored overrides only, never the catalog's token caps", async () => {
+    // The settings form edits this response. Merging pi-ai's own
+    // contextWindow/maxOutputTokens in would put a catalog number into an
+    // override box, and the next save would freeze it as an explicit
+    // override that no longer tracks pi-ai.
+    const { data: catalog } = await getJson("/catalog/providers");
+    const catalogProviders = catalog as Array<{
+      id: string;
+      models: Array<{ code: string; contextWindow?: number }>;
+    }>;
+    let target: { piProvider: string; code: string } | undefined;
+    for (const provider of catalogProviders) {
+      const model = provider.models.find((m) => m.contextWindow !== undefined);
+      if (model) {
+        target = { piProvider: provider.id, code: model.code };
+        break;
+      }
+    }
+    expect(target).toBeDefined();
+
+    await post("/providers", {
+      name: "Catalog override provider",
+      kind: "catalog",
+      piProvider: target!.piProvider,
+      models: [{ code: target!.code, maxOutputTokens: 1234 }],
+    });
+
+    const { data } = await getJson("/providers");
+    const provider = (
+      data as Array<{
+        kind: string;
+        name: string;
+        models: Array<{ code: string; contextWindow?: number; maxOutputTokens?: number }>;
+      }>
+    ).find((p) => p.name === "Catalog override provider");
+    const model = provider!.models.find((m) => m.code === target!.code);
+    expect(model!.maxOutputTokens).toBe(1234);
+    expect("contextWindow" in model!).toBe(false);
   });
 
   it("GET /providers omits the reasoning key entirely for a model with no reasoning capability", async () => {
@@ -1155,7 +1195,7 @@ describe("Headless server", () => {
       kind: "catalog",
       piProvider: "not-a-real-pi-ai-provider",
       apiKey: "sk-broken-secret-1111",
-      modelCodes: ["stale-model-code"],
+      models: [{ code: "stale-model-code" }],
     });
 
     const { status, data } = await getJson("/providers");

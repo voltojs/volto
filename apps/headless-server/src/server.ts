@@ -120,7 +120,7 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           kind: "catalog",
           id: provider.id,
           piProvider: provider.piProvider,
-          modelCodes: provider.modelCodes,
+          modelCodes: provider.models.map((m) => m.code),
         };
         // Building the ModelPort can itself throw (e.g. an unknown
         // piProvider — collection.ts's buildCatalogProvider). Isolate that
@@ -131,21 +131,28 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
         try {
           port = createPiAiModelPort({ providers: [config], defaultProviderId: provider.id });
         } catch {
-          return { ...provider, models: provider.modelCodes.map((code) => ({ code })) };
+          return provider;
         }
         // ModelPort is built once per provider (above), not once per model:
         // describeModel below is a pure lookup against the already-built
         // `models` collection, no need to rebuild the port per code.
         const models = await Promise.all(
-          provider.modelCodes.map(async (code) => {
+          provider.models.map(async (model) => {
             // Per-model isolation: an unknown model code (describeModelInfo
-            // in collection.ts) throws; degrade to `{ code }` with no
+            // in collection.ts) throws; degrade to the stored record with no
             // `reasoning` key rather than failing the whole provider.
             try {
-              const info = await port.describeModel!(code);
-              return { code, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+              const info = await port.describeModel!(model.code);
+              // Only `reasoning` is inlined. The two token caps are
+              // deliberately NOT merged in from the catalog: this response is
+              // what the settings form edits, and a catalog value shown in an
+              // override box would be saved back as an explicit override,
+              // silently freezing a number that should keep tracking pi-ai.
+              // Consumers that want the effective value merge it themselves
+              // from GET /catalog/providers (see web's providerModels).
+              return { ...model, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
             } catch {
-              return { code };
+              return model;
             }
           }),
         );

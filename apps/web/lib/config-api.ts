@@ -50,10 +50,26 @@ export interface Model {
 export interface CatalogProviderModel {
   code: string;
   /**
+   * Overrides of what pi-ai's catalog reports for this model. Absent means
+   * "use the catalog's value", so these are only ever written by the user.
+   */
+  name?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  /**
    * Present only when the model declares reasoning-effort tiers, same
-   * contract as `Model['reasoning']`.
+   * contract as `Model['reasoning']`. Read-only: reasoning capability comes
+   * from pi-ai, never from a stored flag on a catalog model.
    */
   reasoning?: NonNullable<Model['reasoning']>;
+}
+
+/** One catalog-provider model entry, as sent in a create/update request body. */
+export interface CatalogModelInput {
+  code: string;
+  name?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
 }
 
 /**
@@ -71,7 +87,6 @@ export type Provider =
       name: string;
       piProvider: string;
       apiKeyMasked: string | null;
-      modelCodes: string[];
       models: CatalogProviderModel[];
     }
   | {
@@ -101,7 +116,7 @@ export type ProviderInput =
       piProvider: string;
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
-      modelCodes: string[];
+      models: CatalogModelInput[];
     }
   | {
       kind?: 'custom';
@@ -116,7 +131,7 @@ export type ProviderInput =
  * Partial update bodies, kept as a union of per-kind partials rather than
  * `Partial<ProviderInput>` — `Partial` over a union only keeps the keys
  * shared by every member (here, just `kind`), which would silently drop
- * `piProvider` / `modelCodes` / `baseURL` / `models` from the callable type.
+ * `piProvider` / `baseURL` / `models` from the callable type.
  */
 export type ProviderUpdateInput =
   | ({ kind?: 'catalog' } & Partial<

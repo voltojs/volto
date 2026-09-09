@@ -25,6 +25,25 @@ export interface Model {
 }
 
 /**
+ * A model enabled under a catalog provider. `code` is pi-ai's own model id
+ * and is the only required field — everything else is an optional override
+ * of what pi-ai's catalog already reports, so an omitted field means "use
+ * the catalog's value" rather than "unset".
+ *
+ * Deliberately carries no `reasoning` flag: which thinking levels a model
+ * supports belongs to that exact model and is read from pi-ai, never
+ * declared by the user (a hand-set flag here could only ever disagree with
+ * the provider).
+ */
+export interface CatalogModel {
+  code: string;
+  /** Display name; omitted means pi-ai's catalog name. */
+  name?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+}
+
+/**
  * `kind` discriminates a catalog provider (backed by pi-ai's built-in
  * provider registry, selecting models by code) from a custom one (a
  * hand-declared OpenAI-completions-compatible endpoint with its own model
@@ -39,7 +58,7 @@ export type Provider =
       name: string;
       piProvider: string;
       apiKeyEnc: string | null;
-      modelCodes: string[];
+      models: CatalogModel[];
     }
   | {
       kind: "custom";
@@ -57,7 +76,7 @@ export type PublicProvider =
       name: string;
       piProvider: string;
       apiKeyMasked: string | null;
-      modelCodes: string[];
+      models: CatalogModel[];
     }
   | {
       kind: "custom";
@@ -74,7 +93,7 @@ export type ProviderInput =
       name: string;
       piProvider: string;
       apiKey?: string | null;
-      modelCodes: string[];
+      models: CatalogModel[];
     }
   | {
       kind?: "custom";
@@ -103,8 +122,18 @@ export function createProviderStore(dir: string = getConfigDir()) {
     // `kind` is optional on disk: a record written before the discriminator
     // existed has none, and reads as "custom" — a default, not a migration
     // (see module header). This is the only place that default is applied.
-    const raw = await readJsonFile<Array<Provider & { kind?: "catalog" | "custom" }>>(file, []);
-    return raw.map((p) => (p.kind === "catalog" ? p : { ...p, kind: "custom" as const }));
+    const raw = await readJsonFile<
+      Array<Provider & { kind?: "catalog" | "custom"; modelCodes?: string[] }>
+    >(file, []);
+    return raw.map((p) => {
+      if (p.kind !== "catalog") return { ...p, kind: "custom" as const };
+      // Same read-time default as `kind` above: a catalog record written when
+      // enabled models were a bare code list has `modelCodes` and no `models`.
+      // A bare code carries no overrides, which is exactly what an all-optional
+      // CatalogModel with only `code` means — so this is a projection, not a
+      // migration, and nothing is rewritten on disk until the user saves.
+      return p.models ? p : { ...p, models: (p.modelCodes ?? []).map((code) => ({ code })) };
+    });
   }
 
   async function writeAll(providers: Provider[]): Promise<void> {
@@ -131,7 +160,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         name: provider.name,
         piProvider: provider.piProvider,
         apiKeyMasked: masked,
-        modelCodes: provider.modelCodes,
+        models: provider.models,
       };
     }
     return {
@@ -171,6 +200,36 @@ export function createProviderStore(dir: string = getConfigDir()) {
     });
   }
 
+  /**
+   * Catalog models carry only overrides, so the two token caps get the same
+   * positive-integer check as custom models while `name` stays free-form and
+   * an omitted field stays omitted (rather than becoming an explicit
+   * `undefined` that would shadow pi-ai's own value on read).
+   */
+  function normalizeCatalogModels(models: CatalogModel[]): CatalogModel[] {
+    return models.map((m) => {
+      if (!m.code) throw new Error("catalog model code is required");
+      if (
+        m.contextWindow !== undefined &&
+        (!Number.isInteger(m.contextWindow) || m.contextWindow <= 0)
+      ) {
+        throw new Error(`contextWindow must be a positive integer (got ${m.contextWindow})`);
+      }
+      if (
+        m.maxOutputTokens !== undefined &&
+        (!Number.isInteger(m.maxOutputTokens) || m.maxOutputTokens <= 0)
+      ) {
+        throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
+      }
+      return {
+        code: m.code,
+        ...(m.name === undefined || m.name === "" ? {} : { name: m.name }),
+        ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
+        ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
+      };
+    });
+  }
+
   return {
     async listPublic(): Promise<PublicProvider[]> {
       return Promise.all((await readAll()).map(toPublic));
@@ -185,7 +244,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
               name: input.name,
               piProvider: input.piProvider,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
-              modelCodes: input.modelCodes,
+              models: normalizeCatalogModels(input.models),
             }
           : {
               kind: "custom",
@@ -231,7 +290,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
           name,
           piProvider: catalogInput.piProvider ?? current.piProvider,
           apiKeyEnc,
-          modelCodes: catalogInput.modelCodes ?? current.modelCodes,
+          models: catalogInput.models
+            ? normalizeCatalogModels(catalogInput.models)
+            : current.models,
         };
       } else {
         const customInput = input as Partial<Extract<ProviderInput, { kind?: "custom" }>>;
@@ -267,6 +328,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           piProvider: string;
           apiKey: string | null;
           code: string;
+          maxOutputTokens?: number;
         }
       | {
           kind: "custom";
@@ -286,9 +348,15 @@ export function createProviderStore(dir: string = getConfigDir()) {
       if (provider.kind === "catalog") {
         // Catalog models are selected by code (no per-model id), so `modelId`
         // is matched against the code directly.
-        const code = provider.modelCodes.find((c) => c === modelId);
-        if (!code) return null;
-        return { kind: "catalog", piProvider: provider.piProvider, apiKey, code };
+        const model = provider.models.find((m) => m.code === modelId);
+        if (!model) return null;
+        return {
+          kind: "catalog",
+          piProvider: provider.piProvider,
+          apiKey,
+          code: model.code,
+          ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        };
       }
 
       const model = provider.models.find((m) => m.id === modelId);

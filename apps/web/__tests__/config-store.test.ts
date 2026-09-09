@@ -262,6 +262,47 @@ describe('useConfigStore', () => {
     expect(renamed?.name).toBe('GPT-5 Turbo');
   });
 
+  it("falls back to the catalog's token caps for a catalog model with no override", () => {
+    const provider = {
+      id: 'v7',
+      kind: 'catalog' as const,
+      name: 'OpenAI',
+      piProvider: 'openai',
+      apiKeyMasked: null,
+      models: [
+        // Overrides only one of the two caps; the other must inherit.
+        { code: 'gpt-5', maxOutputTokens: 999 },
+        { code: 'gpt-5-mini' },
+      ],
+    };
+    useConfigStore.setState({
+      providers: [provider],
+      catalogProviders: [
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          models: [
+            {
+              code: 'gpt-5',
+              name: 'GPT-5',
+              contextWindow: 400000,
+              maxOutputTokens: 128000,
+            },
+            { code: 'gpt-5-mini', name: 'GPT-5 mini', contextWindow: 200000 },
+          ],
+        },
+      ],
+    });
+
+    const overridden = useConfigStore.getState().findModel('v7', 'gpt-5');
+    expect(overridden?.contextWindow).toBe(400000);
+    expect(overridden?.maxOutputTokens).toBe(999);
+
+    const inherited = useConfigStore.getState().findModel('v7', 'gpt-5-mini');
+    expect(inherited?.contextWindow).toBe(200000);
+    expect(inherited?.maxOutputTokens).toBeUndefined();
+  });
+
   it('drops a removed provider from local state', async () => {
     useConfigStore.setState({ providers: [PROVIDER] });
     stubFetch({ 'DELETE /providers/v1': { removed: true } });

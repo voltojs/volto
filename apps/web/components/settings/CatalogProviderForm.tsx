@@ -17,6 +17,7 @@ import {
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { fetchCatalogProviders, type CatalogProvider } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
+import { ModelTable, toCatalogDrafts, type DraftModel } from './ModelTable';
 
 type CatalogKindProvider = Extract<Provider, { kind: 'catalog' }>;
 
@@ -135,7 +136,7 @@ function CatalogAddForm({
         name: name.trim() || selected?.name || piProvider,
         piProvider,
         apiKey: apiKey.trim() || null,
-        modelCodes: selectedCodes,
+        models: selectedCodes.map((code) => ({ code })),
       });
       onDone();
     } catch (err) {
@@ -255,19 +256,21 @@ function CatalogProviderCard({
   const removeProvider = useConfigStore((s) => s.removeProvider);
 
   const [apiKey, setApiKey] = useState('');
-  const [selectedCodes, setSelectedCodes] = useState<string[]>(
-    provider.modelCodes,
+  const [models, setModels] = useState<DraftModel[]>(() =>
+    toCatalogDrafts(provider.models),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Same untouched-only re-seed as the custom card: an external refresh must
+  // reach a draft nobody is editing, and must not touch one that is.
+  const [dirty, setDirty] = useState(false);
+  const [syncedProvider, setSyncedProvider] = useState(provider);
+  if (provider !== syncedProvider && !dirty) {
+    setSyncedProvider(provider);
+    setModels(toCatalogDrafts(provider.models));
+  }
 
   const catalogEntry = catalog?.find((c) => c.id === provider.piProvider);
-
-  const toggleCode = (code: string, checked: boolean) => {
-    setSelectedCodes((codes) =>
-      checked ? [...codes, code] : codes.filter((c) => c !== code),
-    );
-  };
 
   const remove = async () => {
     setError(null);
@@ -288,10 +291,22 @@ function CatalogProviderCard({
         // contract extends in spirit to "which pi-ai provider": switching it
         // is a different set of models entirely, so that's a delete+recreate,
         // same as switching kind.
-        modelCodes: selectedCodes,
+        models: models.map((m) => ({
+          code: m.code,
+          // An empty box means "no override" — send nothing rather than an
+          // empty string, or it would shadow pi-ai's own catalog value.
+          ...(m.name.trim() ? { name: m.name.trim() } : {}),
+          ...(m.contextWindow === undefined
+            ? {}
+            : { contextWindow: m.contextWindow }),
+          ...(m.maxOutputTokens === undefined
+            ? {}
+            : { maxOutputTokens: m.maxOutputTokens }),
+        })),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       });
       setApiKey('');
+      setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -308,7 +323,7 @@ function CatalogProviderCard({
             {provider.piProvider}
           </Badge>
           <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {selectedCodes.length} 个模型
+            {provider.models.length} 个模型
           </Badge>
           {provider.apiKeyMasked && (
             <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
@@ -338,36 +353,21 @@ function CatalogProviderCard({
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
           模型
         </div>
-        {catalogEntry ? (
-          catalogEntry.models.map((model) => (
-            <label
-              key={model.code}
-              className="flex items-center gap-2 text-sm"
-            >
-              <Checkbox
-                checked={selectedCodes.includes(model.code)}
-                onCheckedChange={(checked) =>
-                  toggleCode(model.code, checked === true)
-                }
-              />
-              <span>{model.name}</span>
-              <span className="text-muted-foreground font-mono text-xs">
-                {model.code}
-              </span>
-              {model.reasoning && (
-                <Badge variant="outline" className="text-[10px]">
-                  支持推理
-                </Badge>
-              )}
-            </label>
-          ))
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            {provider.modelCodes.length > 0
-              ? `已启用: ${provider.modelCodes.join(', ')}`
-              : '尚未启用任何模型'}
-          </p>
-        )}
+        {/* Model codes come from pi-ai's catalog, offered as autocomplete
+            rather than a fixed list: a code this build's catalog doesn't know
+            (a newly released model, or one the user configured before a pi-ai
+            downgrade) must still be typeable, and must not vanish from a list
+            it is already in. */}
+        <ModelTable
+          models={models}
+          onChange={(next) => {
+            setDirty(true);
+            setModels(next);
+          }}
+          reasoning="readonly"
+          codeListId={`catalog-models-${provider.id}`}
+          {...(catalogEntry ? { codeOptions: catalogEntry.models } : {})}
+        />
       </div>
 
       {error && <p className="text-destructive text-xs">{error}</p>}

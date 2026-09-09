@@ -85,7 +85,13 @@ interface ResolvedConfig {
  * via `WiringOptions.providerConfig`, which builds the actual ModelPort.
  */
 type ResolvedCredentials =
-  | { kind: "catalog"; piProvider: string; apiKey: string | null; code: string }
+  | {
+      kind: "catalog";
+      piProvider: string;
+      apiKey: string | null;
+      code: string;
+      maxOutputTokens?: number;
+    }
   | {
       kind: "custom";
       baseURL: string | null;
@@ -472,7 +478,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       modelId: requested.modelId,
       baseURL: credentials.kind === "custom" ? credentials.baseURL : null,
       code: credentials.code,
-      maxOutputTokens: credentials.kind === "custom" ? credentials.maxOutputTokens : undefined,
+      // Both kinds carry an optional per-model cap now that catalog models
+      // are configurable records rather than bare codes.
+      maxOutputTokens: credentials.maxOutputTokens,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       permissionMode: requested.permissionMode,
       reasoningEffort: requested.reasoningEffort,

@@ -69,10 +69,21 @@ export function providerModels(
     );
     const models = provider.models.map((m) => {
       const catalogModel = catalogEntry?.models.find((cm) => cm.code === m.code);
+      const contextWindow = m.contextWindow ?? catalogModel?.contextWindow;
+      const maxOutputTokens =
+        m.maxOutputTokens ?? catalogModel?.maxOutputTokens;
       return {
         id: m.code,
-        name: catalogModel?.name ?? m.code,
+        // The user's own override wins, then pi-ai's catalog name, then the
+        // raw code — never a missing name.
+        name: m.name ?? catalogModel?.name ?? m.code,
         code: m.code,
+        // Effective value = the user's override, else pi-ai's catalog. The
+        // gateway deliberately reports only the override (see server.ts's
+        // withReasoningCapability), so this merge happens exactly here — and
+        // the settings form, which edits the override, must NOT use it.
+        ...(contextWindow === undefined ? {} : { contextWindow }),
+        ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
         ...(m.reasoning ? { reasoning: m.reasoning } : {}),
       };
     });
