@@ -13,6 +13,6 @@ export function summary(id: string): Session {
     projectId: null,
     providerId: null,
     modelId: null,
-    permissionMode: 'plan',
+    permissionMode: 'ask',
   };
 }

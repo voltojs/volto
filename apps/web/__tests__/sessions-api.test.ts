@@ -38,7 +38,7 @@ describe('fetchServerSessions', () => {
         projectId: 'p1',
         providerId: 'v1',
         modelId: 'm1',
-        permissionMode: 'plan',
+        permissionMode: 'ask',
         messageCount: 2,
         title: '',
         createdAt: 1,
@@ -64,7 +64,7 @@ describe('fetchServerSessionDetail', () => {
       projectId: 'p1',
       providerId: 'v1',
       modelId: 'm1',
-      permissionMode: 'plan',
+      permissionMode: 'ask',
       messages: [
         {
           id: 's1-0',

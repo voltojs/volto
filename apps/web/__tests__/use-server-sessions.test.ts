@@ -57,7 +57,7 @@ describe('ensureSessionDetail', () => {
       projectId: null,
       providerId: null,
       modelId: null,
-      permissionMode: 'plan',
+      permissionMode: 'ask',
       createdAt: 0,
       updatedAt: 0,
     });
@@ -78,7 +78,7 @@ describe('ensureSessionDetail', () => {
     const second = ensureSessionDetail('a');
     resolve({
       id: 'a', messages: [], contextUsage: null, projectId: null, providerId: null,
-      modelId: null, permissionMode: 'plan', createdAt: 0, updatedAt: 0,
+      modelId: null, permissionMode: 'ask', createdAt: 0, updatedAt: 0,
     });
     await Promise.all([first, second]);
     expect(fetchServerSessionDetail).toHaveBeenCalledTimes(1);
@@ -88,7 +88,7 @@ describe('ensureSessionDetail', () => {
     useSessionStore.setState({ sessions: [summary('a'), summary('b')], currentSessionId: 'a' });
     fetchServerSessionDetail.mockResolvedValue({
       id: 'a', messages: [{ id: 'm', role: 'user', content: 'hi' }], contextUsage: null,
-      projectId: null, providerId: null, modelId: null, permissionMode: 'plan',
+      projectId: null, providerId: null, modelId: null, permissionMode: 'ask',
       createdAt: 0, updatedAt: 0,
     });
 
@@ -153,7 +153,7 @@ describe('ensureSessionDetail', () => {
 
     fetchServerSessionDetail.mockResolvedValueOnce({
       id: 'a', messages: [{ id: 'm', role: 'user', content: 'hi' }], contextUsage: null,
-      projectId: null, providerId: null, modelId: null, permissionMode: 'plan',
+      projectId: null, providerId: null, modelId: null, permissionMode: 'ask',
       createdAt: 0, updatedAt: 0,
     });
     await ensureSessionDetail('a');

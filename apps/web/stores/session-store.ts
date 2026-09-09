@@ -11,7 +11,7 @@ type ReasoningCapability = Model['reasoning'];
 // Types
 // ---------------------------------------------------------------------------
 
-export type PermissionMode = 'plan' | 'auto-accept';
+export type PermissionMode = 'read-only' | 'ask' | 'auto' | 'full';
 
 export interface Session {
   id: string;
@@ -88,7 +88,7 @@ interface CreateSessionOptions {
   providerId?: string | null;
   modelId?: string | null;
   /**
-   * Defaults to `'plan'` when omitted. Callers that let the user choose a
+   * Defaults to `'ask'` when omitted. Callers that let the user choose a
    * permission tier before the session exists (the welcome screen's picker)
    * can pass it through directly — nothing downstream forces a session to
    * start restrictive; that used to be a hardcoded rule here, deliberately
@@ -211,10 +211,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       projectId: options.projectId ?? null,
       providerId: options.providerId ?? null,
       modelId: options.modelId ?? null,
-      // 'plan' is the default when the caller doesn't specify one — not
+      // 'ask' is the default when the caller doesn't specify one — not
       // a floor. A caller that lets the user pick a tier up front (the
       // welcome screen) passes it straight through.
-      permissionMode: options.permissionMode ?? 'plan',
+      permissionMode: options.permissionMode ?? 'ask',
       reasoningEffort: options.reasoningEffort,
     };
     set((state) => ({

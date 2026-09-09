@@ -20,11 +20,36 @@ import {
  */
 const inFlight = new Map<string, Promise<void>>();
 
-/** The server sends `permissionMode` as a bare string; narrow it defensively
+/**
+ * The server sends `permissionMode` as a bare string; narrow it defensively
  * rather than casting, so a value outside the union can't flow into the
- * store (and from there into gateway requests) unchecked. */
-function normalisePermissionMode(mode: string | null): PermissionMode {
-  return mode === 'plan' || mode === 'auto-accept' ? mode : 'plan';
+ * store (and from there into gateway requests) unchecked. Transcripts
+ * persisted before the redesign carry the retired names, which are accepted
+ * here on the read path only — they are never sent back.
+ */
+const LEGACY_PERMISSION_MODES: Record<string, PermissionMode> = {
+  plan: 'read-only',
+  'auto-accept': 'auto',
+};
+
+export function normalisePermissionMode(mode: string | null): PermissionMode {
+  if (
+    mode === 'read-only' ||
+    mode === 'ask' ||
+    mode === 'auto' ||
+    mode === 'full'
+  ) {
+    return mode;
+  }
+  // Object.hasOwn, not a bare index: a plain object literal inherits
+  // Object.prototype, so `LEGACY_PERMISSION_MODES['constructor']` is truthy
+  // and would return the Object constructor instead of falling back to 'ask'.
+  // The gateway's twin of this function shipped that bug (Task 3, fixed in
+  // review) — do not reintroduce it here.
+  if (mode !== null && Object.hasOwn(LEGACY_PERMISSION_MODES, mode)) {
+    return LEGACY_PERMISSION_MODES[mode]!;
+  }
+  return 'ask';
 }
 
 /**

@@ -42,7 +42,7 @@ export function ChatPanel() {
   );
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [pendingPermissionMode, setPendingPermissionMode] =
-    useState<PermissionMode>('plan');
+    useState<PermissionMode>('ask');
   // Cleared on every model change (below) rather than trying to mirror
   // `setSessionModel`'s keep-if-still-valid rule — there is no session yet
   // to carry that nuance for, so falling back to the new model's declared

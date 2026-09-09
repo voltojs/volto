@@ -54,25 +54,25 @@ describe('useSessionStore', () => {
     expect(session?.projectId).toBe('p1');
   });
 
-  it('defaults permissionMode to plan when none is given', () => {
+  it('defaults permissionMode to ask when none is given', () => {
     const id = useSessionStore.getState().createSession({ projectId: 'p1' });
     const session = useSessionStore
       .getState()
       .sessions.find((s) => s.id === id);
-    expect(session?.permissionMode).toBe('plan');
+    expect(session?.permissionMode).toBe('ask');
   });
 
   it('starts a session in the requested permission mode when one is given', () => {
     // The welcome screen lets the user pick a tier before the session
     // exists; that choice must actually take effect from the first turn
-    // rather than being silently forced back to 'plan'.
+    // rather than being silently forced back to 'ask'.
     const id = useSessionStore
       .getState()
-      .createSession({ projectId: 'p1', permissionMode: 'auto-accept' });
+      .createSession({ projectId: 'p1', permissionMode: 'full' });
     const session = useSessionStore
       .getState()
       .sessions.find((s) => s.id === id);
-    expect(session?.permissionMode).toBe('auto-accept');
+    expect(session?.permissionMode).toBe('full');
   });
 
   it('carries the initial model binding', () => {
@@ -370,11 +370,11 @@ describe('useSessionStore', () => {
 
   it('changes the permission mode of an existing session', () => {
     const id = useSessionStore.getState().createSession({ projectId: 'p1' });
-    useSessionStore.getState().setSessionPermissionMode(id, 'auto-accept');
+    useSessionStore.getState().setSessionPermissionMode(id, 'auto');
     const session = useSessionStore
       .getState()
       .sessions.find((s) => s.id === id);
-    expect(session?.permissionMode).toBe('auto-accept');
+    expect(session?.permissionMode).toBe('auto');
     expect(session?.projectId).toBe('p1');
   });
 
@@ -517,7 +517,7 @@ describe('setSessionDetailError', () => {
       projectId: null,
       providerId: null,
       modelId: null,
-      permissionMode: 'plan',
+      permissionMode: 'ask',
     });
     expect(useSessionStore.getState().sessions[0]!.detailError).toBeNull();
   });
@@ -551,7 +551,7 @@ describe('applySessionDetail', () => {
       projectId: 'p',
       providerId: 'pr',
       modelId: 'm',
-      permissionMode: 'plan',
+      permissionMode: 'ask',
       reasoningEffort: 'eff-high',
     });
     const session = useSessionStore.getState().sessions[0]!;
@@ -570,8 +570,22 @@ describe('applySessionDetail', () => {
         projectId: null,
         providerId: null,
         modelId: null,
-        permissionMode: 'plan',
+        permissionMode: 'ask',
       }),
     ).not.toThrow();
+  });
+});
+
+describe('permission mode migration', () => {
+  it('新会话默认落在询问档', () => {
+    // "ask" is the only tier that both gets work done and never performs an
+    // irreversible action behind the user's back.
+    const store = useSessionStore.getState();
+    const id = store.createSession({});
+    const session = useSessionStore
+      .getState()
+      .sessions.find((s) => s.id === id);
+
+    expect(session?.permissionMode).toBe('ask');
   });
 });
