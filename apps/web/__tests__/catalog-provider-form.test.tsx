@@ -52,6 +52,30 @@ afterEach(() => {
 });
 
 describe('CatalogProviderSection', () => {
+  it('does not offer a pi-ai provider that is already configured', async () => {
+    stubFetch({ 'GET /catalog/providers': CATALOG });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    const existing = {
+      kind: 'catalog' as const,
+      id: 'v1',
+      name: 'Anthropic',
+      piProvider: 'anthropic',
+      baseURL: null,
+      apiKeyMasked: null,
+      models: [],
+    };
+    render(<CatalogProviderSection providers={[existing]} />);
+
+    // CATALOG has exactly one provider, and it is already configured — the
+    // gateway would reject a second record, so the entry point is closed
+    // rather than leading into a form that cannot be submitted.
+    const addButton = await screen.findByText('内置 Provider 已全部配置');
+    expect(addButton.closest('button')).toBeDisabled();
+    await user.click(addButton);
+    expect(screen.queryByPlaceholderText('apiKey')).not.toBeInTheDocument();
+  });
+
   it('adds models to the new provider through the same table as the edit form', async () => {
     stubFetch({ 'GET /catalog/providers': CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });

@@ -1,6 +1,12 @@
 import type { Models, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@volto/core";
-import { buildModels, describeModelInfo, resolveConfiguredApiKey, type PiAiProviderConfig } from "./collection.js";
+import {
+  buildModels,
+  describeModelInfo,
+  registryProviderId,
+  resolveConfiguredApiKey,
+  type PiAiProviderConfig,
+} from "./collection.js";
 import { toPiContext } from "./context.js";
 import { normalizeStream } from "./stream-normalize.js";
 
@@ -24,10 +30,17 @@ export interface CreatePiAiModelPortOptions {
  * time if the route is ambiguous — see resolveProviderId.
  */
 export function createPiAiModelPort(opts: CreatePiAiModelPortOptions): ModelPort {
-  const providerId = resolveProviderId(opts);
+  const configId = resolveProviderId(opts);
   const models = buildModels(opts.providers);
-  const apiKey = resolveConfiguredApiKey(opts.providers, providerId);
-  return createPiAiModelPortFromModels(models, providerId, opts.defaultModel, apiKey);
+  const apiKey = resolveConfiguredApiKey(opts.providers, configId);
+  // Lookups go through the registry key, which for a catalog provider is
+  // pi-ai's own provider id rather than volto's config id (collection.ts).
+  return createPiAiModelPortFromModels(
+    models,
+    registryProviderId(opts.providers, configId),
+    opts.defaultModel,
+    apiKey,
+  );
 }
 
 /**

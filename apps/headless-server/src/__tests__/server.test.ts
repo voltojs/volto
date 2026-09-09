@@ -346,6 +346,34 @@ function openEventChannel(
   return { frames, opened, stop: () => req.destroy() };
 }
 
+/**
+ * Pick a catalog provider/model pair that satisfies `wants` and is not
+ * already configured. Every catalog record must name a distinct pi-ai
+ * provider (config/providers.ts's assertPiProviderFree), and these tests
+ * share one config dir, so a fixed "first match" would collide with whatever
+ * an earlier test configured.
+ */
+async function pickFreeCatalogTarget(
+  wants: (model: { code: string; reasoning?: boolean; contextWindow?: number }) => boolean,
+): Promise<{ piProvider: string; code: string }> {
+  const { data: catalog } = await getJson("/catalog/providers");
+  const { data: configured } = await getJson("/providers");
+  const taken = new Set(
+    (configured as Array<{ kind: string; piProvider?: string }>)
+      .filter((p) => p.kind === "catalog")
+      .map((p) => p.piProvider),
+  );
+  for (const provider of catalog as Array<{
+    id: string;
+    models: Array<{ code: string; reasoning?: boolean; contextWindow?: number }>;
+  }>) {
+    if (taken.has(provider.id)) continue;
+    const model = provider.models.find(wants);
+    if (model) return { piProvider: provider.id, code: model.code };
+  }
+  throw new Error("no unconfigured catalog provider matched");
+}
+
 describe("Headless server", () => {
   it("GET /health returns ok", async () => {
     const url = new URL("/health", baseUrl);
@@ -1024,27 +1052,14 @@ describe("Headless server", () => {
   it("GET /providers inlines non-empty reasoning efforts for a catalog reasoning model, and never exposes its apiKey", async () => {
     // Find a real reasoning-capable catalog model so this test tracks pi-ai's
     // actual metadata rather than a hardcoded, possibly-stale code.
-    const { data: catalog } = await getJson("/catalog/providers");
-    const catalogProviders = catalog as Array<{
-      id: string;
-      models: Array<{ code: string; reasoning: boolean }>;
-    }>;
-    let target: { piProvider: string; code: string } | undefined;
-    for (const provider of catalogProviders) {
-      const model = provider.models.find((m) => m.reasoning);
-      if (model) {
-        target = { piProvider: provider.id, code: model.code };
-        break;
-      }
-    }
-    expect(target).toBeDefined();
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
 
     await post("/providers", {
       name: "Catalog reasoning provider",
       kind: "catalog",
-      piProvider: target!.piProvider,
+      piProvider: target.piProvider,
       apiKey: "sk-catalog-secret-1234",
-      models: [{ code: target!.code }],
+      models: [{ code: target.code }],
     });
 
     const { status, data } = await getJson("/providers");
@@ -1056,9 +1071,9 @@ describe("Headless server", () => {
       piProvider?: string;
       models: Array<{ code: string; reasoning?: { efforts: Array<{ id: string; name: string }> } }>;
     }>;
-    const provider = providers.find((p) => p.kind === "catalog" && p.piProvider === target!.piProvider);
+    const provider = providers.find((p) => p.kind === "catalog" && p.piProvider === target.piProvider);
     expect(provider).toBeDefined();
-    const model = provider!.models.find((m) => m.code === target!.code);
+    const model = provider!.models.find((m) => m.code === target.code);
     expect(model).toBeDefined();
     expect(model!.reasoning).toBeDefined();
     expect(model!.reasoning!.efforts.length).toBeGreaterThan(0);
@@ -1069,24 +1084,14 @@ describe("Headless server", () => {
     // GET, so a write that answered with the bare PublicProvider left a
     // catalog record with no `models` array at all — every consumer that
     // walks `provider.models` then crashed until the next full reload.
-    const { data: catalog } = await getJson("/catalog/providers");
-    const catalogProviders = catalog as Array<{ id: string; models: Array<{ code: string; reasoning: boolean }> }>;
-    let target: { piProvider: string; code: string } | undefined;
-    for (const provider of catalogProviders) {
-      const model = provider.models.find((m) => m.reasoning);
-      if (model) {
-        target = { piProvider: provider.id, code: model.code };
-        break;
-      }
-    }
-    expect(target).toBeDefined();
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
 
     const created = await post("/providers", {
       name: "Catalog write-shape provider",
       kind: "catalog",
-      piProvider: target!.piProvider,
+      piProvider: target.piProvider,
       apiKey: "sk-write-shape-secret",
-      models: [{ code: target!.code }],
+      models: [{ code: target.code }],
     });
     expect(created.status).toBe(201);
     const createdProvider = created.data as {
@@ -1094,20 +1099,20 @@ describe("Headless server", () => {
       models?: Array<{ code: string; reasoning?: { efforts: unknown[] } }>;
     };
     expect(createdProvider.models).toBeDefined();
-    expect(createdProvider.models![0]!.code).toBe(target!.code);
+    expect(createdProvider.models![0]!.code).toBe(target.code);
     expect(createdProvider.models![0]!.reasoning).toBeDefined();
     expect(JSON.stringify(created.data)).not.toContain("sk-write-shape-secret");
 
     const updated = await put(`/providers/${encodeURIComponent(createdProvider.id)}`, {
       kind: "catalog",
-      models: [{ code: target!.code }],
+      models: [{ code: target.code }],
     });
     expect(updated.status).toBe(200);
     const updatedProvider = updated.data as {
       models?: Array<{ code: string; reasoning?: { efforts: unknown[] } }>;
     };
     expect(updatedProvider.models).toBeDefined();
-    expect(updatedProvider.models![0]!.code).toBe(target!.code);
+    expect(updatedProvider.models![0]!.code).toBe(target.code);
     expect(updatedProvider.models![0]!.reasoning).toBeDefined();
   });
 
@@ -1116,26 +1121,13 @@ describe("Headless server", () => {
     // contextWindow/maxOutputTokens in would put a catalog number into an
     // override box, and the next save would freeze it as an explicit
     // override that no longer tracks pi-ai.
-    const { data: catalog } = await getJson("/catalog/providers");
-    const catalogProviders = catalog as Array<{
-      id: string;
-      models: Array<{ code: string; contextWindow?: number }>;
-    }>;
-    let target: { piProvider: string; code: string } | undefined;
-    for (const provider of catalogProviders) {
-      const model = provider.models.find((m) => m.contextWindow !== undefined);
-      if (model) {
-        target = { piProvider: provider.id, code: model.code };
-        break;
-      }
-    }
-    expect(target).toBeDefined();
+    const target = await pickFreeCatalogTarget((m) => m.contextWindow !== undefined);
 
     await post("/providers", {
       name: "Catalog override provider",
       kind: "catalog",
-      piProvider: target!.piProvider,
-      models: [{ code: target!.code, maxOutputTokens: 1234 }],
+      piProvider: target.piProvider,
+      models: [{ code: target.code, maxOutputTokens: 1234 }],
     });
 
     const { data } = await getJson("/providers");
@@ -1146,7 +1138,7 @@ describe("Headless server", () => {
         models: Array<{ code: string; contextWindow?: number; maxOutputTokens?: number }>;
       }>
     ).find((p) => p.name === "Catalog override provider");
-    const model = provider!.models.find((m) => m.code === target!.code);
+    const model = provider!.models.find((m) => m.code === target.code);
     expect(model!.maxOutputTokens).toBe(1234);
     expect("contextWindow" in model!).toBe(false);
   });

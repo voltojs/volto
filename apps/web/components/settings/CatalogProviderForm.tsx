@@ -56,6 +56,12 @@ export function CatalogProviderSection({
     (p): p is CatalogKindProvider => p.kind === 'catalog',
   );
 
+  // Each pi-ai provider can be configured once (the gateway rejects a second
+  // record — see config/providers.ts's assertPiProviderFree), so the ones
+  // already in the list are not offered again.
+  const configured = new Set(catalogProviders.map((p) => p.piProvider));
+  const available = (catalog ?? []).filter((c) => !configured.has(c.id));
+
   return (
     <div className="space-y-2">
       <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
@@ -84,17 +90,22 @@ export function CatalogProviderSection({
       {loadError && <p className="text-destructive text-xs">{loadError}</p>}
 
       {adding && catalog && (
-        <CatalogAddForm catalog={catalog} onDone={() => setAdding(false)} />
+        <CatalogAddForm
+          catalog={available}
+          onDone={() => setAdding(false)}
+        />
       )}
       {!adding && (
         <Button
           variant="outline"
           className="w-full gap-2 border-dashed"
           onClick={() => setAdding(true)}
-          disabled={!catalog}
+          disabled={!catalog || available.length === 0}
         >
           <Plus className="h-4 w-4" />
-          新增内置 Provider
+          {catalog && available.length === 0
+            ? '内置 Provider 已全部配置'
+            : '新增内置 Provider'}
         </Button>
       )}
     </div>

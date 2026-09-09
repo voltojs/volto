@@ -182,18 +182,20 @@ describe("catalog provider registration", () => {
     };
   }
 
-  it("resolves a catalog model via getModel(volto-id, code)", () => {
+  it("resolves a catalog model via getModel(pi-ai provider id, code)", () => {
     const models = buildModels([catalogConfig()]);
 
-    const model = models.getModel("my-deepseek", "deepseek-v4-flash");
+    const model = models.getModel("deepseek", "deepseek-v4-flash");
     expect(model).toBeDefined();
-    expect(model?.provider).toBe("my-deepseek");
+    // pi-ai's own id, kept on both the model and the registration so
+    // detectCompat still recognizes the provider.
+    expect(model?.provider).toBe("deepseek");
   });
 
   it("registers no models for a provider whose selected model list is empty", () => {
     const models = buildModels([catalogConfig({ modelCodes: [] })]);
 
-    expect(models.getModel("my-deepseek", "deepseek-v4-flash")).toBeUndefined();
+    expect(models.getModel("deepseek", "deepseek-v4-flash")).toBeUndefined();
   });
 
   // Rule 1 (pinned): a catalog model's baseUrl is pi-ai's own catalog value,
@@ -203,7 +205,7 @@ describe("catalog provider registration", () => {
   it("does not run a catalog model's baseUrl through normalizeBaseUrl", () => {
     const models = buildModels([catalogConfig()]);
 
-    const model = models.getModel("my-deepseek", "deepseek-v4-flash");
+    const model = models.getModel("deepseek", "deepseek-v4-flash");
     const catalogEntry = getBuiltinModel("deepseek", "deepseek-v4-flash");
 
     expect(model?.baseUrl).toBe(catalogEntry.baseUrl);
@@ -219,21 +221,79 @@ describe("catalog provider registration", () => {
       catalogConfig({ baseURL: "https://mirror.internal/deepseek" }),
     ]);
 
-    const model = models.getModel("my-deepseek", "deepseek-v4-flash");
+    const model = models.getModel("deepseek", "deepseek-v4-flash");
     expect(model?.baseUrl).toBe("https://mirror.internal/deepseek");
   });
 
   it("keeps the catalog's own baseUrl when no override is configured", () => {
     const models = buildModels([catalogConfig()]);
-    expect(models.getModel("my-deepseek", "deepseek-v4-flash")?.baseUrl).toBe(
+    expect(models.getModel("deepseek", "deepseek-v4-flash")?.baseUrl).toBe(
       "https://api.deepseek.com",
     );
+  });
+
+  it("marks a third-party catalog model as not supporting the developer role", () => {
+    // pi-ai sends the system prompt as role "developer" when the model is
+    // reasoning-capable and compat.supportsDeveloperRole is not explicitly
+    // false — and detectCompat defaults that to true for any provider it
+    // does not recognize. A gateway that does not implement the role takes
+    // the message but does not treat it as a system instruction, so the
+    // whole system prompt is silently demoted.
+    const models = buildModels([
+      { kind: "catalog", id: "v", piProvider: "xiaomi-token-plan-cn", modelCodes: ["mimo-v2.5"] },
+    ]);
+    const model = models.getModel("xiaomi-token-plan-cn", "mimo-v2.5");
+    expect(model?.reasoning).toBe(true);
+    expect(model?.compat).toMatchObject({ supportsDeveloperRole: false });
+  });
+
+  it("keeps the developer role for the providers that implement it", () => {
+    const openai = buildModels([
+      { kind: "catalog", id: "v", piProvider: "openai", modelCodes: ["gpt-4o-mini"] },
+    ]);
+    expect(openai.getModel("openai", "gpt-4o-mini")?.compat).toMatchObject({
+      supportsDeveloperRole: true,
+    });
+  });
+
+  it("preserves the catalog model's other compat fields while overriding the role", () => {
+    const models = buildModels([catalogConfig()]);
+    const model = models.getModel("deepseek", "deepseek-v4-flash");
+    // deepseek declares these itself; overriding one compat key must not
+    // drop the rest (which decide the max-tokens field name and the
+    // thinking-block wire format).
+    expect(model?.compat).toMatchObject({
+      maxTokensField: "max_tokens",
+      thinkingFormat: "deepseek",
+      requiresReasoningContentOnAssistantMessages: true,
+      supportsDeveloperRole: false,
+    });
+  });
+
+  it("rejects configuring the same built-in provider twice", () => {
+    // setProvider silently replaces, so the second registration would drop
+    // the first one's models and API key without a word.
+    expect(() =>
+      buildModels([
+        catalogConfig({ id: "first" }),
+        catalogConfig({ id: "second", apiKey: "other-key" }),
+      ]),
+    ).toThrow(/already configured/);
+  });
+
+  it("rejects a hand-declared provider whose id collides with a registered catalog provider", () => {
+    expect(() =>
+      buildModels([
+        catalogConfig(),
+        { kind: "custom", id: "deepseek", baseURL: "https://gw.example", apiKey: "k", models: [{ code: "m" }] },
+      ]),
+    ).toThrow(/already configured/);
   });
 
   it("declares a non-empty efforts list for a reasoning-capable catalog model", () => {
     const models = buildModels([catalogConfig()]);
 
-    const info = describeModelInfo(models, "my-deepseek", "deepseek-v4-flash");
+    const info = describeModelInfo(models, "deepseek", "deepseek-v4-flash");
 
     expect(info.reasoning).toBeDefined();
     expect(info.reasoning?.efforts.length).toBeGreaterThan(0);
@@ -245,7 +305,7 @@ describe("catalog provider registration", () => {
       catalogConfig({ id: "my-openai", piProvider: "openai", modelCodes: ["gpt-4o-mini"] }),
     ]);
 
-    const info = describeModelInfo(models, "my-openai", "gpt-4o-mini");
+    const info = describeModelInfo(models, "openai", "gpt-4o-mini");
 
     expect(info.reasoning).toBeUndefined();
   });
@@ -357,7 +417,7 @@ describe("catalog provider: per-request apiKey injection", () => {
       },
     } as never);
 
-    const port = createPiAiModelPortFromModels(models, "my-deepseek", undefined, apiKey);
+    const port = createPiAiModelPortFromModels(models, "deepseek", undefined, apiKey);
     const events = port.stream({ model: "deepseek-v4-flash", messages: [], tools: [] });
     for await (const _event of events) {
       // drain

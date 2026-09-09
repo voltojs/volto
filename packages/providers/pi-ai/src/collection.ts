@@ -21,7 +21,11 @@ import type { ModelReasoningInfo, ReasoningEffortId, ResolvedModelInfo } from "@
 export type PiAiProviderConfig =
   | {
       kind: "catalog";
-      /** volto-side config id; also the key models are registered under. */
+      /**
+       * volto-side config id. NOT the key models are registered under — a
+       * catalog provider registers under its pi-ai id, see
+       * {@link registryProviderId}.
+       */
       id: string;
       /** pi-ai's built-in provider id, e.g. "openai", "deepseek". */
       piProvider: string;
@@ -115,8 +119,34 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
 }
 
 /**
+ * Whether pi-ai's `developer` system role is safe for one catalog model.
+ *
+ * pi-ai sends the system prompt as `role: "developer"` whenever the model is
+ * reasoning-capable and `compat.supportsDeveloperRole` is not explicitly
+ * false — and `detectCompat` defaults that to true for any provider it does
+ * not recognize. `developer` is an OpenAI-specific role: a third-party
+ * OpenAI-compatible gateway that does not implement it takes the message but
+ * does not treat it as a system instruction, so the whole system prompt is
+ * silently demoted (observed with `xiaomi-token-plan-cn`, which pi-ai 0.85.1
+ * does not flag).
+ *
+ * Inverting the default is the safer error: a provider that DOES support
+ * `developer` still honours `system`, while one that does not silently drops
+ * the instructions. So only the providers known to implement it keep it.
+ */
+function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
+  if (piProvider === "openai") return true;
+  // OpenRouter proxies the upstream role through for these two families;
+  // matches pi-ai's own `isOpenRouterDeveloperRoleModel` rule.
+  if (piProvider === "openrouter") {
+    return modelId.startsWith("openai/") || modelId.startsWith("anthropic/");
+  }
+  return false;
+}
+
+/**
  * Wrap one of pi-ai's built-in catalog providers as a `Provider` registered
- * under volto's own config id, restricted to the user's selected model
+ * under pi-ai's own provider id, restricted to the user's selected model
  * codes.
  *
  * `baseUrl` on each model is left exactly as pi-ai's catalog gives it — no
@@ -132,13 +162,21 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
  * `https://api.deepseek.com`) and API dialect, so the openai-completions
  * `/v1` rule cannot be applied to an override for an arbitrary one.
  *
- * `model.provider` is rewritten to `config.id` (not left as pi-ai's own
- * provider id) because `Models.stream`/`streamSimple` resolve the owning
- * provider via `model.provider` looked up in the same map `setProvider`
- * populates (dist/models.js: `requireProvider` reads `this.providers.get(
- * model.provider)`); registering under `config.id` while leaving
- * `model.provider` as pi-ai's builtin id would make every request 404 on
- * "unknown provider".
+ * `model.provider` is left as pi-ai's own provider id, and the provider is
+ * registered under that same id rather than volto's config id. Both must
+ * agree — `Models.stream`/`streamSimple` resolve the owning provider via
+ * `model.provider` looked up in the map `setProvider` populates
+ * (dist/models.js: `requireProvider` reads `this.providers.get(
+ * model.provider)`). Keeping pi-ai's id on both sides is what preserves
+ * `detectCompat`, which decides the wire format (system role, max-tokens
+ * field name, thinking-block format) from `model.provider` first and
+ * `model.baseUrl` second: rewriting the id to volto's own left only the URL
+ * check standing, and a configured `baseURL` override knocks that out too —
+ * silently switching providers like `xai`/`openrouter`/`cerebras` onto the
+ * wrong wire format. The cost is that one pi-ai provider can be configured
+ * only once per collection; `buildModels` rejects a duplicate rather than
+ * letting the second registration silently replace the first (including its
+ * API key).
  *
  * `auth` is deliberately rebuilt as a `fixedApiKeyAuth`, NOT the original
  * catalog provider's own `ProviderAuth`. pi-ai's `resolveProviderAuthWithSignal`
@@ -165,12 +203,23 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
     .filter((model) => selected.has(model.id))
     .map((model) => ({
       ...model,
-      provider: config.id,
+      // Explicit, so it no longer depends on detectCompat's "unknown provider
+      // is a standard OpenAI endpoint" default — see supportsDeveloperRole.
+      // Only the two OpenAI dialects read this key; the anthropic-messages
+      // and bedrock compat shapes do not declare it, so leave theirs alone.
+      ...(model.api === "openai-completions" || model.api === "openai-responses"
+        ? {
+            compat: {
+              ...model.compat,
+              supportsDeveloperRole: supportsDeveloperRole(config.piProvider, model.id),
+            },
+          }
+        : {}),
       ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
     }));
 
   return {
-    id: config.id,
+    id: config.piProvider,
     name: source.name,
     baseUrl: config.baseURL ?? source.baseUrl,
     auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
@@ -187,14 +236,43 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
  * register a restricted view of one of pi-ai's built-in providers — see
  * {@link buildCatalogProvider}.
  */
+/**
+ * The id one configured provider is registered under in the `Models`
+ * collection, which is what `getModel`/`describeModelInfo` must be called
+ * with — pi-ai's own provider id for catalog entries (see
+ * {@link buildCatalogProvider}), the config id for hand-declared ones.
+ */
+export function registryProviderId(providers: PiAiProviderConfig[], configId: string): string {
+  const config = providers.find((p) => p.id === configId);
+  if (config === undefined) return configId;
+  return config.kind === "catalog" ? config.piProvider : config.id;
+}
+
 export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
   const models = createModels();
+  // setProvider silently replaces an existing registration, so a collision
+  // would drop one provider's models AND its API key without a word. Both
+  // kinds share one namespace because a hand-declared provider registers
+  // under its config id, which could equal some pi-ai provider id.
+  const registered = new Map<string, string>();
+  const claim = (key: string, configId: string): void => {
+    const owner = registered.get(key);
+    if (owner !== undefined) {
+      throw new Error(
+        `pi-ai: provider "${key}" is already configured (by "${owner}"); ` +
+          `configure each built-in provider at most once.`,
+      );
+    }
+    registered.set(key, configId);
+  };
 
   for (const config of providers) {
     if (config.kind === "catalog") {
+      claim(config.piProvider, config.id);
       models.setProvider(buildCatalogProvider(config));
       continue;
     }
+    claim(config.id, config.id);
 
     const provider = createProvider({
       id: config.id,

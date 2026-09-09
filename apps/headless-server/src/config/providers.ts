@@ -235,12 +235,37 @@ export function createProviderStore(dir: string = getConfigDir()) {
     });
   }
 
+  /**
+   * One record per pi-ai provider.
+   *
+   * A `Models` collection registers a catalog provider under pi-ai's own id
+   * (see provider-pi-ai's buildCatalogProvider), so two records pointing at
+   * the same one cannot coexist — and pi-ai's `setProvider` would silently
+   * replace rather than reject. Two records would also be ambiguous by
+   * definition: same endpoint, same models, two API keys. Rejected here so
+   * the failure lands on the save, naming the conflict, instead of on some
+   * later turn.
+   */
+  async function assertPiProviderFree(piProvider: string, exceptId?: string): Promise<void> {
+    const clash = (await readAll()).find(
+      (p) => p.kind === "catalog" && p.piProvider === piProvider && p.id !== exceptId,
+    );
+    if (clash) {
+      throw new Error(
+        `Built-in provider "${piProvider}" is already configured as "${clash.name}"; edit that one instead.`,
+      );
+    }
+  }
+
   return {
     async listPublic(): Promise<PublicProvider[]> {
       return Promise.all((await readAll()).map(toPublic));
     },
 
     async create(input: ProviderInput): Promise<PublicProvider> {
+      if (input.kind === "catalog") {
+        await assertPiProviderFree(input.piProvider);
+      }
       const provider: Provider =
         input.kind === "catalog"
           ? {
@@ -290,6 +315,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
       let next: Provider;
       if (current.kind === "catalog") {
         const catalogInput = input as Partial<Extract<ProviderInput, { kind: "catalog" }>>;
+        if (catalogInput.piProvider !== undefined && catalogInput.piProvider !== current.piProvider) {
+          await assertPiProviderFree(catalogInput.piProvider, current.id);
+        }
         next = {
           kind: "catalog",
           id: current.id,

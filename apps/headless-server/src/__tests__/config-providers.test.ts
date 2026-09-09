@@ -256,6 +256,43 @@ describe("catalog/custom discriminator", () => {
     expect("maxOutputTokens" in bare!).toBe(false);
   });
 
+  it("rejects a second record for a pi-ai provider that is already configured", async () => {
+    const store = createProviderStore(dir);
+    await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [{ code: "gpt-5" }],
+    });
+
+    await expect(
+      store.create({
+        name: "OpenAI (second key)",
+        kind: "catalog",
+        piProvider: "openai",
+        models: [{ code: "gpt-5-mini" }],
+      }),
+    ).rejects.toThrow(/already configured as "OpenAI"/);
+
+    // A different pi-ai provider is unaffected, and so is updating the
+    // existing record in place (its own piProvider must not clash with itself).
+    await store.create({
+      name: "DeepSeek",
+      kind: "catalog",
+      piProvider: "deepseek",
+      models: [{ code: "deepseek-v4-flash" }],
+    });
+    const [first] = await store.listPublic();
+    await expect(
+      store.update(first!.id, { kind: "catalog", piProvider: "openai", name: "Renamed" }),
+    ).resolves.toMatchObject({ name: "Renamed" });
+
+    // ...but repointing it at an already-taken one is rejected.
+    await expect(
+      store.update(first!.id, { kind: "catalog", piProvider: "deepseek" }),
+    ).rejects.toThrow(/already configured as "DeepSeek"/);
+  });
+
   it("round-trips a catalog provider's baseURL override and resolves it", async () => {
     const store = createProviderStore(dir);
     const created = await store.create({
