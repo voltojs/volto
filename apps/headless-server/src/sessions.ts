@@ -17,7 +17,7 @@ import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
-import { buildPermissionConfig, type UiPermissionMode } from "./permission-modes.js";
+import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 
@@ -585,7 +585,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         : {}),
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
-        ? { permissionConfig: buildPermissionConfig(config.permissionMode) }
+        ? {
+            permissionConfig: buildPermissionConfig(config.permissionMode),
+            sandboxMode: sandboxModeFor(config.permissionMode),
+          }
         : {}),
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(session.history.length > 0 ? { initialMessages: session.history } : {}),

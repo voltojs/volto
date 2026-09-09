@@ -98,3 +98,14 @@ describe("normaliseUiPermissionMode", () => {
     }
   });
 });
+
+describe("preset / sandbox coherence", () => {
+  it("each preset's permissionConfig.sandbox agrees with sandboxModeFor", () => {
+    // The decision layer and the enforcement layer must never disagree: if
+    // these drift, a preset would decide "allow" for a write the sandbox
+    // then refuses (or worse, the other way round).
+    for (const mode of UI_PERMISSION_MODES) {
+      expect(buildPermissionConfig(mode).sandbox).toBe(sandboxModeFor(mode));
+    }
+  });
+});

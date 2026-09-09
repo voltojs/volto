@@ -10,6 +10,8 @@ import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
+  createSandboxedFileSystem,
+  createSandboxedShell,
 } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import {
@@ -19,7 +21,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { ModelPort, PermissionConfig, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
+import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
@@ -74,6 +76,12 @@ export interface WiringOptions {
   maxTokens?: number;
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
+  /**
+   * Sandbox boundary for this agent instance — the same knob the permission
+   * preset bundles, so the decision and the enforcement agree. Omit to run
+   * undecorated (the legacy no-session routes and tests).
+   */
+  sandboxMode?: SandboxMode;
   /**
    * Reasoning effort for this agent instance, forwarded verbatim to
    * createAgent()'s own `reasoningEffort` option. Validated by the caller
@@ -138,8 +146,21 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   // directory itself (see stores/sqlite's createStore).
   const dbPath = opts.dbPath ?? path.join(getConfigPath("db"), "sessions.db");
 
-  const fs = createNodeFileSystem({ root: cwd });
-  const shell = createNodeShell({ defaultCwd: cwd });
+  // One sandbox knob drives both paths. Without a mode the adapters stay
+  // undecorated — the legacy routes and tests that build an agent with no
+  // permission preset keep their prior behaviour.
+  const sandboxConfig = opts.sandboxMode
+    ? { mode: opts.sandboxMode, writableRoots: [cwd] }
+    : null;
+  const rawFs = createNodeFileSystem({ root: cwd });
+  const rawShell = createNodeShell({ defaultCwd: cwd });
+  // The third argument is the root `rawFs` itself resolves relative paths
+  // against. It must match, or the boundary check and the actual write
+  // resolve the same relative target differently — see Task 2.
+  const fs = sandboxConfig
+    ? createSandboxedFileSystem(rawFs, sandboxConfig, { root: cwd })
+    : rawFs;
+  const shell = sandboxConfig ? createSandboxedShell(rawShell, sandboxConfig) : rawShell;
   const network = createNodeNetwork();
   const model = opts.model ?? DEFAULT_MODEL;
   const modelPort = opts.modelPort ?? createPiAiModelPort(
