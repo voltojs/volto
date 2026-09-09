@@ -6,8 +6,7 @@ import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
-import { ModelPicker } from './ModelPicker';
-import { ReasoningPicker } from './ReasoningPicker';
+import { ModelSettingsPicker } from './ModelSettingsPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextMeter } from './ContextMeter';
 import { Button } from '@/components/ui/button';
@@ -282,22 +281,18 @@ export function ChatPanel() {
                     />
                   }
                   trailing={
-                    <>
-                      <ModelPicker
-                        providerId={effectiveProviderId}
-                        modelId={effectiveModelId}
-                        onChange={(providerId, modelId) => {
-                          setPendingProviderId(providerId);
-                          setPendingModelId(modelId);
-                          setPendingReasoningEffort(undefined);
-                        }}
-                      />
-                      <ReasoningPicker
-                        efforts={pendingReasoning?.efforts ?? []}
-                        value={effectiveReasoningEffort}
-                        onChange={setPendingReasoningEffort}
-                      />
-                    </>
+                    <ModelSettingsPicker
+                      providerId={effectiveProviderId}
+                      modelId={effectiveModelId}
+                      onModelChange={(providerId, modelId) => {
+                        setPendingProviderId(providerId);
+                        setPendingModelId(modelId);
+                        setPendingReasoningEffort(undefined);
+                      }}
+                      efforts={pendingReasoning?.efforts ?? []}
+                      effort={effectiveReasoningEffort}
+                      onEffortChange={setPendingReasoningEffort}
+                    />
                   }
                 />
               </>
@@ -374,19 +369,17 @@ export function ChatPanel() {
                 contextWindow={currentModel?.contextWindow}
                 hasCompletedAssistantMessage={hasCompletedAssistantMessage}
               />
-              <ModelPicker
+              <ModelSettingsPicker
                 providerId={currentSession.providerId}
                 modelId={currentSession.modelId}
-                onChange={(providerId, modelId) =>
+                onModelChange={(providerId, modelId) =>
                   useSessionStore
                     .getState()
                     .setSessionModel(currentSessionId, providerId, modelId)
                 }
-              />
-              <ReasoningPicker
                 efforts={currentReasoning?.efforts ?? []}
-                value={currentSession.reasoningEffort}
-                onChange={(effort) =>
+                effort={currentSession.reasoningEffort}
+                onEffortChange={(effort) =>
                   useSessionStore
                     .getState()
                     .setSessionReasoningEffort(currentSessionId, effort)
