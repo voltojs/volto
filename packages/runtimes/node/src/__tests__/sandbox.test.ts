@@ -1,8 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
+import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
-import type { Shell } from "@volto/core";
+import type { Shell, ShellEvent } from "@volto/core";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+
+/** Drain a Shell.exec() AsyncIterable into its stdout/stderr text and exit code. */
+async function drain(events: AsyncIterable<ShellEvent>): Promise<{ out: string; code: number | undefined }> {
+  let out = "";
+  let code: number | undefined;
+  for await (const ev of events) {
+    if (ev.type === "stdout" || ev.type === "stderr") out += ev.data;
+    else if (ev.type === "exit") code = ev.code;
+  }
+  return { out, code };
+}
 
 /** Minimal mock Shell for testing createSandboxedShell */
 function createMockShell(): Shell {
@@ -592,5 +607,122 @@ describe("createSandboxProxy", () => {
       expect(isHostAllowed("api.example.com", hosts)).toBe(true);
       expect(isHostAllowed("evil.com", hosts)).toBe(false);
     }
+  });
+});
+
+// ──────────────────────────────────────────────
+// Real seatbelt execution (darwin only)
+//
+// Every test above either uses backend: "none" (passthrough) or asserts on
+// the generated profile STRING — none of them ever actually invoke
+// sandbox-exec. That gap is exactly what let a one-line defect ship: the
+// seatbelt branch called `sandbox-exec -p '<profile-file-path>'`, but `-p`
+// takes an INLINE profile string, not a file path (`-f` does). Every
+// sandboxed command on macOS exited 65 with "unbound variable: <path>"
+// until that was fixed. These tests really shell out to sandbox-exec so a
+// regression like that fails loudly again.
+// ──────────────────────────────────────────────
+
+describe("createSandboxedShell — real seatbelt execution (darwin only)", () => {
+  if (process.platform !== "darwin") {
+    it.skip("skipped: seatbelt is a macOS-only backend", () => {});
+    return;
+  }
+
+  const scratchDirs: string[] = [];
+  afterEach(() => {
+    for (const dir of scratchDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function makeScratch(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "volto-seatbelt-test-"));
+    scratchDirs.push(dir);
+    return dir;
+  }
+
+  it("actually executes a simple command and returns its real stdout + exit 0", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    const { out, code } = await drain(shell.exec("echo sandboxed-hello"));
+
+    // This is the exact regression the -p/-f bug caused: sandbox-exec would
+    // exit 65 with "unbound variable: <profile-path>" and no stdout at all.
+    expect(code).toBe(0);
+    expect(out).toContain("sandboxed-hello");
+  });
+
+  it("a multi-command line actually runs under the seatbelt (needs process-fork)", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    const { out, code } = await drain(shell.exec("echo one && echo two"));
+
+    expect(code).toBe(0);
+    expect(out).toContain("one");
+    expect(out).toContain("two");
+  });
+
+  it("a write inside a writable root actually succeeds on disk", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    const { code } = await drain(shell.exec("touch ./inside.txt"));
+
+    expect(code).toBe(0);
+    // Assert on the real filesystem, not just the exit code — the write
+    // must have actually landed inside the sandbox's writable root.
+    expect(fs.existsSync(path.join(scratch, "inside.txt"))).toBe(true);
+  });
+
+  it("a write outside every writable root is refused, and nothing is created", async () => {
+    const scratch = makeScratch();
+    const outsideDir = makeScratch(); // a second scratch dir, NOT in writableRoots
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+    const outsideTarget = path.join(outsideDir, "should-not-exist.txt");
+
+    const { code } = await drain(shell.exec(`touch "${outsideTarget}"`));
+
+    expect(code).not.toBe(0);
+    expect(fs.existsSync(outsideTarget)).toBe(false);
+  });
+
+  it("read-only mode: reads succeed but a write is refused, on the real filesystem", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "read-only",
+      backend: "seatbelt",
+    });
+
+    const read = await drain(shell.exec("cat /etc/hosts"));
+    expect(read.code).toBe(0);
+    expect(read.out).toContain("localhost");
+
+    const target = path.join(scratch, "ro-should-not-exist.txt");
+    const write = await drain(shell.exec(`touch "${target}"`));
+    expect(write.code).not.toBe(0);
+    expect(fs.existsSync(target)).toBe(false);
   });
 });

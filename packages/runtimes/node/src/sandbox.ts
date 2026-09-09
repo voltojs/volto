@@ -20,7 +20,7 @@ import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
 import type { SandboxMode } from "@volto/core";
 import { spawn, execFileSync } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
@@ -155,8 +155,16 @@ export function createSandboxedShell(
   const isWriteMode = config.mode === "workspace-write";
   const resolvedConfig: SandboxConfig = {
     ...config,
+    // Verified required: seatbelt's `(subpath "...")` match is evaluated
+    // against the REAL (symlink-resolved) path of the file being touched,
+    // not the literal string in the profile. On macOS both `/tmp` (→
+    // `/private/tmp`) and `os.tmpdir()`'s `/var/folders/...` (→
+    // `/private/var/folders/...`) are symlinks, so a profile built from the
+    // lexical path denies every write under it — `touch` inside a supposedly
+    // writable root failed with "Operation not permitted" until this
+    // resolved the roots the same way first.
     writableRoots: isWriteMode
-      ? (config.writableRoots ?? [process.cwd(), tmpdir()])
+      ? (config.writableRoots ?? [process.cwd(), tmpdir()]).map(resolveRealRootPath)
       : config.writableRoots,
     readOnlyOverlays: isWriteMode
       ? (config.readOnlyOverlays ?? [".git", ".env"])
@@ -239,9 +247,13 @@ export function createSandboxedShell(
             const envPrefix = Object.entries(proxyEnv)
               .map(([k, v]) => `export ${k}='${v.replace(/'/g, "'\\''")}'`)
               .join(" && ");
+            // `-f` takes a profile FILE path; `-p` takes an inline profile
+            // string. Passing the path to `-p` makes sandbox-exec try to
+            // parse the path itself as a profile, which fails with
+            // "unbound variable: <path>" — every sandboxed command exits 65.
             const wrappedCmd = envPrefix
-              ? `${envPrefix} && sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`
-              : `sandbox-exec -p '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+              ? `${envPrefix} && sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`
+              : `sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
 
             // Yield through all events from the wrapped command
             for await (const event of realShell.exec(wrappedCmd, opts)) {
@@ -357,6 +369,21 @@ export function createSandboxedShell(
 // ──────────────────────────────────────────────
 
 /**
+ * Resolve a writable root to its real (symlink-free) form, tolerating a
+ * root that does not exist yet (falls back to the lexical path, matching
+ * `sandboxed-filesystem.ts`'s own tolerant `realResolveRoot`). Called before
+ * a root is embedded in a seatbelt/bwrap profile — see the comment on
+ * `resolvedConfig.writableRoots` in `createSandboxedShell`.
+ */
+function resolveRealRootPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
  * Escape a path for use inside a seatbelt profile string.
  * Handles backslash and double-quote characters.
  */
@@ -418,10 +445,29 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     '(allow signal)',
     // Allow POSIX IPC (required for pipes and basic process coordination)
     '(allow ipc-posix*)',
-    // Allow process exec (required for child_process.spawn to work)
+    // Allow process exec (required for child_process.spawn to work, and for
+    // /bin/bash itself to exec node/git/curl/etc as the wrapped command)
     '(allow process-exec (subpath "/"))',
+    // Allow process fork — verified required: without it, `/bin/bash -c` can
+    // run a single simple command (bash's exec-optimization replaces itself
+    // rather than forking) but fails with "fork: Operation not permitted" as
+    // soon as the command line has more than one process in it — `&&`, `;`,
+    // `|`, or a subshell. That is nearly every real shell command.
+    '(allow process-fork)',
     // Allow mach-lookup for common system calls
     '(allow mach-lookup (global-name "system.dylib"))',
+    // Allow mach-lookup for the Darwin per-user temp/cache directory helper.
+    // Verified required: without it, confstr(_CS_DARWIN_USER_TEMP_DIR) fails
+    // (git logs "confstr() failed ... using /tmp instead"), and callers that
+    // silently fall back to a literal "/tmp" then hit file-write-create
+    // denials there since only the real tmpdir() is in writableRoots.
+    '(allow mach-lookup (global-name "com.apple.bsd.dirhelper"))',
+    // Allow mach-lookup for user/group identity resolution. Verified
+    // required for correct (not just non-crashing) output from `whoami`,
+    // `id`, `ls -l`/`-la` (username column), and git's author/committer
+    // resolution when user.name/user.email aren't configured.
+    '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))',
+    '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.membership"))',
     // Allow stdout/stderr via /dev
     "(allow file-write-data (subpath \"/dev\"))",
   ];
