@@ -210,6 +210,26 @@ describe("catalog provider registration", () => {
     expect(model?.baseUrl).toBe("https://api.deepseek.com");
   });
 
+  it("replaces a catalog model's baseUrl with the configured override, verbatim", () => {
+    // The override reaches the request path only via the MODEL's own baseUrl
+    // (pi-ai never reads provider.baseUrl when streaming), and is used as
+    // typed: a catalog provider's dialect may not be openai-completions, so
+    // the "/v1" rule that applies to hand-declared gateways cannot apply here.
+    const models = buildModels([
+      catalogConfig({ baseURL: "https://mirror.internal/deepseek" }),
+    ]);
+
+    const model = models.getModel("my-deepseek", "deepseek-v4-flash");
+    expect(model?.baseUrl).toBe("https://mirror.internal/deepseek");
+  });
+
+  it("keeps the catalog's own baseUrl when no override is configured", () => {
+    const models = buildModels([catalogConfig()]);
+    expect(models.getModel("my-deepseek", "deepseek-v4-flash")?.baseUrl).toBe(
+      "https://api.deepseek.com",
+    );
+  });
+
   it("declares a non-empty efforts list for a reasoning-capable catalog model", () => {
     const models = buildModels([catalogConfig()]);
 

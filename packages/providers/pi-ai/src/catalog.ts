@@ -13,6 +13,13 @@ export interface CatalogModel {
 export interface CatalogProvider {
   id: string;
   name: string;
+  /**
+   * The provider's own address, when it declares one. Surfaced so a settings
+   * UI can show it as the default a per-provider override would replace —
+   * these differ per provider in both shape (`/v1` suffix or not) and API
+   * dialect, so it is never synthesized or normalized.
+   */
+  baseUrl?: string;
   models: CatalogModel[];
 }
 
@@ -34,6 +41,7 @@ export function listCatalogProviders(): CatalogProvider[] {
     .map((provider) => ({
       id: provider.id,
       name: provider.name,
+      baseUrl: provider.baseUrl,
       models: provider.getModels().map((model) => ({
         code: model.id,
         name: model.name,

@@ -26,6 +26,11 @@ export type PiAiProviderConfig =
       /** pi-ai's built-in provider id, e.g. "openai", "deepseek". */
       piProvider: string;
       apiKey?: string;
+      /**
+       * Replaces the catalog provider's own address (a self-hosted mirror or
+       * a corporate gateway). Used verbatim — see {@link buildCatalogProvider}.
+       */
+      baseURL?: string;
       /** User-selected model codes; an empty array means no usable models. */
       modelCodes: string[];
     }
@@ -120,6 +125,13 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
  * normalization of its own; applying it to an already-correct catalog
  * address would corrupt it.
  *
+ * `config.baseURL`, when set, replaces that address on the provider AND on
+ * every model (pi-ai reads the model's own `baseUrl` on the request path —
+ * see {@link buildModel}). It too is used verbatim: catalog addresses differ
+ * per provider in both shape (`https://api.openai.com/v1` vs
+ * `https://api.deepseek.com`) and API dialect, so the openai-completions
+ * `/v1` rule cannot be applied to an override for an arbitrary one.
+ *
  * `model.provider` is rewritten to `config.id` (not left as pi-ai's own
  * provider id) because `Models.stream`/`streamSimple` resolve the owning
  * provider via `model.provider` looked up in the same map `setProvider`
@@ -151,12 +163,16 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   const selected = new Set(config.modelCodes);
   const models = source.getModels()
     .filter((model) => selected.has(model.id))
-    .map((model) => ({ ...model, provider: config.id }));
+    .map((model) => ({
+      ...model,
+      provider: config.id,
+      ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
+    }));
 
   return {
     id: config.id,
     name: source.name,
-    baseUrl: source.baseUrl,
+    baseUrl: config.baseURL ?? source.baseUrl,
     auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
     getModels: () => models,
     stream: (model, context, options) => source.stream(model, context, options),

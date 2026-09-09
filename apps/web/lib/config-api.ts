@@ -86,6 +86,8 @@ export type Provider =
       id: string;
       name: string;
       piProvider: string;
+      /** Replaces pi-ai's own address for this provider; null means "use it". */
+      baseURL: string | null;
       apiKeyMasked: string | null;
       models: CatalogProviderModel[];
     }
@@ -114,6 +116,8 @@ export type ProviderInput =
       kind: 'catalog';
       name: string;
       piProvider: string;
+      /** Null clears the override; omitted leaves it unchanged. */
+      baseURL?: string | null;
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
       models: CatalogModelInput[];
@@ -199,6 +203,8 @@ export interface CatalogModel {
 export interface CatalogProvider {
   id: string;
   name: string;
+  /** The provider's own address, shown as the default an override replaces. */
+  baseUrl?: string;
   models: CatalogModel[];
 }
 

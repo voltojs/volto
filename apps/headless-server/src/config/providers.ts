@@ -57,6 +57,8 @@ export type Provider =
       id: string;
       name: string;
       piProvider: string;
+      /** Replaces pi-ai's own address for this provider; null means "use it". */
+      baseURL: string | null;
       apiKeyEnc: string | null;
       models: CatalogModel[];
     }
@@ -75,6 +77,7 @@ export type PublicProvider =
       id: string;
       name: string;
       piProvider: string;
+      baseURL: string | null;
       apiKeyMasked: string | null;
       models: CatalogModel[];
     }
@@ -92,6 +95,7 @@ export type ProviderInput =
       kind: "catalog";
       name: string;
       piProvider: string;
+      baseURL?: string | null;
       apiKey?: string | null;
       models: CatalogModel[];
     }
@@ -159,6 +163,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         id: provider.id,
         name: provider.name,
         piProvider: provider.piProvider,
+        baseURL: provider.baseURL ?? null,
         apiKeyMasked: masked,
         models: provider.models,
       };
@@ -243,6 +248,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
               id: crypto.randomUUID(),
               name: input.name,
               piProvider: input.piProvider,
+              baseURL: input.baseURL ?? null,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
               models: normalizeCatalogModels(input.models),
             }
@@ -289,6 +295,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           id: current.id,
           name,
           piProvider: catalogInput.piProvider ?? current.piProvider,
+          baseURL:
+            catalogInput.baseURL === undefined ? current.baseURL ?? null : catalogInput.baseURL,
           apiKeyEnc,
           models: catalogInput.models
             ? normalizeCatalogModels(catalogInput.models)
@@ -326,6 +334,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
       | {
           kind: "catalog";
           piProvider: string;
+          baseURL: string | null;
           apiKey: string | null;
           code: string;
           maxOutputTokens?: number;
@@ -353,6 +362,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
         return {
           kind: "catalog",
           piProvider: provider.piProvider,
+          // `?? null` covers a record written before catalog providers could
+          // carry an override, same read-time default as `models` above.
+          baseURL: provider.baseURL ?? null,
           apiKey,
           code: model.code,
           ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),

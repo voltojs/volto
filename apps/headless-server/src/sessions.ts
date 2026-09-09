@@ -88,6 +88,7 @@ type ResolvedCredentials =
   | {
       kind: "catalog";
       piProvider: string;
+      baseURL: string | null;
       apiKey: string | null;
       code: string;
       maxOutputTokens?: number;
@@ -130,6 +131,9 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         id: providerId ?? "default",
         piProvider: credentials.piProvider,
         apiKey: credentials.apiKey ?? undefined,
+        // Only when overridden: an absent baseURL leaves pi-ai's own catalog
+        // address in place (collection.ts's buildCatalogProvider).
+        ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
         modelCodes: [credentials.code],
       }
     : {
@@ -476,7 +480,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       projectId: requested.projectId,
       providerId: requested.providerId,
       modelId: requested.modelId,
-      baseURL: credentials.kind === "custom" ? credentials.baseURL : null,
+      // Both kinds can carry one now, and it is part of a turn's identity:
+      // sameConfig() compares it to decide whether to rebuild the agent.
+      baseURL: credentials.baseURL,
       code: credentials.code,
       // Both kinds carry an optional per-model cap now that catalog models
       // are configurable records rather than bare codes.

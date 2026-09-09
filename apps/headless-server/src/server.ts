@@ -120,6 +120,7 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           kind: "catalog",
           id: provider.id,
           piProvider: provider.piProvider,
+          ...(provider.baseURL ? { baseURL: provider.baseURL } : {}),
           modelCodes: provider.models.map((m) => m.code),
         };
         // Building the ModelPort can itself throw (e.g. an unknown

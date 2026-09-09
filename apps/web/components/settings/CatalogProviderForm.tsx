@@ -5,8 +5,6 @@ import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -114,18 +112,17 @@ function CatalogAddForm({
   const addProvider = useConfigStore((s) => s.addProvider);
   const [piProvider, setPiProvider] = useState(catalog[0]?.id ?? '');
   const [name, setName] = useState(catalog[0]?.name ?? '');
+  const [baseURL, setBaseURL] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+  // Starts empty rather than seeded with the provider's whole catalog:
+  // several providers list dozens of models, where deleting the unwanted
+  // rows is more work than adding the wanted ones. Each row's model ID box
+  // autocompletes from that provider's catalog.
+  const [models, setModels] = useState<DraftModel[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selected = catalog.find((c) => c.id === piProvider);
-
-  const toggleCode = (code: string, checked: boolean) => {
-    setSelectedCodes((codes) =>
-      checked ? [...codes, code] : codes.filter((c) => c !== code),
-    );
-  };
 
   const create = async () => {
     setSaving(true);
@@ -135,8 +132,20 @@ function CatalogAddForm({
         kind: 'catalog',
         name: name.trim() || selected?.name || piProvider,
         piProvider,
+        baseURL: baseURL.trim() || null,
         apiKey: apiKey.trim() || null,
-        models: selectedCodes.map((code) => ({ code })),
+        models: models
+          .filter((m) => m.code.trim())
+          .map((m) => ({
+            code: m.code.trim(),
+            ...(m.name.trim() ? { name: m.name.trim() } : {}),
+            ...(m.contextWindow === undefined
+              ? {}
+              : { contextWindow: m.contextWindow }),
+            ...(m.maxOutputTokens === undefined
+              ? {}
+              : { maxOutputTokens: m.maxOutputTokens }),
+          })),
       });
       onDone();
     } catch (err) {
@@ -149,76 +158,78 @@ function CatalogAddForm({
   return (
     <div className="bg-card/50 space-y-3 rounded-lg border p-3">
       <div className="grid grid-cols-2 gap-2">
-        <Select
-          items={catalog.map((c) => ({ value: c.id, label: c.name }))}
-          value={piProvider || null}
-          onValueChange={(next) => {
-            const id = String(next);
-            setPiProvider(id);
-            setSelectedCodes([]);
-            const found = catalog.find((c) => c.id === id);
-            if (found) setName(found.name);
-          }}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="选择内置 Provider" />
-          </SelectTrigger>
-          <SelectContent>
-            {catalog.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="展示名称"
-        />
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">Provider</span>
+          <Select
+            items={catalog.map((c) => ({ value: c.id, label: c.name }))}
+            value={piProvider || null}
+            onValueChange={(next) => {
+              const id = String(next);
+              setPiProvider(id);
+              // Rows belong to the previous provider's catalog; switching
+              // provider invalidates them.
+              setModels([]);
+              const found = catalog.find((c) => c.id === id);
+              if (found) setName(found.name);
+            }}
+          >
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue placeholder="选择内置 Provider" />
+            </SelectTrigger>
+            <SelectContent width="content">
+              {catalog.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">展示名称</span>
+          <Input
+            className="h-8"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="展示名称"
+          />
+        </label>
       </div>
 
-      <Input
-        type="password"
-        value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
-        placeholder="apiKey"
-        className="font-mono text-xs"
-      />
-
-      <Separator />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">baseURL</span>
+          <Input
+            className="h-8 font-mono text-xs"
+            value={baseURL}
+            onChange={(e) => setBaseURL(e.target.value)}
+            placeholder={selected?.baseUrl ?? '留空使用内置地址'}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">apiKey</span>
+          <Input
+            className="h-8 font-mono text-xs"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="apiKey"
+          />
+        </label>
+      </div>
 
       <div className="space-y-1.5">
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
           模型
         </div>
-        {(selected?.models ?? []).map((model) => (
-          <label
-            key={model.code}
-            className="flex items-center gap-2 text-sm"
-          >
-            <Checkbox
-              checked={selectedCodes.includes(model.code)}
-              onCheckedChange={(checked) =>
-                toggleCode(model.code, checked === true)
-              }
-            />
-            <span>{model.name}</span>
-            <span className="text-muted-foreground font-mono text-xs">
-              {model.code}
-            </span>
-            {model.reasoning && (
-              <Badge variant="outline" className="text-[10px]">
-                支持推理
-              </Badge>
-            )}
-          </label>
-        ))}
-        {selected && selected.models.length === 0 && (
-          <p className="text-muted-foreground text-xs">
-            该 Provider 目录下没有可选模型
-          </p>
-        )}
+        <ModelTable
+          models={models}
+          onChange={setModels}
+          reasoning="readonly"
+          codeListId="catalog-models-new"
+          emptyHint="点击「新增模型」，模型 ID 可从该 Provider 的目录中自动补全"
+          {...(selected ? { codeOptions: selected.models } : {})}
+        />
       </div>
 
       {error && <p className="text-destructive text-xs">{error}</p>}
@@ -256,6 +267,7 @@ function CatalogProviderCard({
   const removeProvider = useConfigStore((s) => s.removeProvider);
 
   const [apiKey, setApiKey] = useState('');
+  const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [models, setModels] = useState<DraftModel[]>(() =>
     toCatalogDrafts(provider.models),
   );
@@ -267,6 +279,7 @@ function CatalogProviderCard({
   const [syncedProvider, setSyncedProvider] = useState(provider);
   if (provider !== syncedProvider && !dirty) {
     setSyncedProvider(provider);
+    setBaseURL(provider.baseURL ?? '');
     setModels(toCatalogDrafts(provider.models));
   }
 
@@ -291,6 +304,10 @@ function CatalogProviderCard({
         // contract extends in spirit to "which pi-ai provider": switching it
         // is a different set of models entirely, so that's a delete+recreate,
         // same as switching kind.
+        // Empty clears the override (null), returning this provider to
+        // pi-ai's own address — distinct from omitting the field, which the
+        // gateway reads as "leave it alone".
+        baseURL: baseURL.trim() || null,
         models: models.map((m) => ({
           code: m.code,
           // An empty box means "no override" — send nothing rather than an
@@ -336,18 +353,30 @@ function CatalogProviderCard({
       onToggle={onToggle}
       onRemove={() => void remove()}
     >
-      <label className="space-y-1">
-        <span className="text-muted-foreground text-[11px]">apiKey</span>
-        <Input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={provider.apiKeyMasked ? '留空则不修改' : 'apiKey'}
-          className="h-8 font-mono text-xs"
-        />
-      </label>
-
-      <Separator />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">baseURL</span>
+          <Input
+            className="h-8 font-mono text-xs"
+            value={baseURL}
+            onChange={(e) => {
+              setDirty(true);
+              setBaseURL(e.target.value);
+            }}
+            placeholder={catalogEntry?.baseUrl ?? '留空使用内置地址'}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">apiKey</span>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={provider.apiKeyMasked ? '留空则不修改' : 'apiKey'}
+            className="h-8 font-mono text-xs"
+          />
+        </label>
+      </div>
 
       <div className="space-y-1.5">
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">

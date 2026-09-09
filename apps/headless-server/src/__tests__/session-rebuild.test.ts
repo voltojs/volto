@@ -257,6 +257,39 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
   });
 
+  it("threads a catalog credential's baseURL override into the ModelPort config", async () => {
+    // The override is only useful if it survives resolveModel -> the
+    // PiAiProviderConfig the agent's ModelPort is built from. Both ends have
+    // their own tests (providers.ts's resolveModel, collection.ts's
+    // buildCatalogProvider); this covers the projection between them.
+    const { factory, builds } = makeFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: {
+        resolveModel: async () => ({
+          kind: "catalog",
+          piProvider: "openai",
+          baseURL: "https://mirror.internal/openai",
+          apiKey: "sk-key",
+          code: "gpt-5",
+        }),
+      } as never,
+    });
+    registry.attach("s1", { write: () => {}, on: () => {} } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+    });
+
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!["providerConfig"]).toMatchObject({
+      kind: "catalog",
+      baseURL: "https://mirror.internal/openai",
+    });
+  });
+
   // -- Task 4: a catalog-kind credential now builds a real agent, targeted --
   // -- at the resolved provider/model, not a default OpenAI-bound one. ------
 
@@ -308,6 +341,12 @@ describe("session agent lifecycle", () => {
 
     // The apiKey never leaks into the SSE stream either.
     expect(written.some((chunk) => chunk.includes("sk-super-secret-token"))).toBe(false);
+
+    // No override configured: the PiAiProviderConfig must carry no baseURL at
+    // all, leaving pi-ai's own catalog address in place. An explicit
+    // `baseURL: undefined` would be indistinguishable here but is what a
+    // careless spread produces, so this asserts absence, not falsiness.
+    expect("baseURL" in providerConfig).toBe(false);
   });
 
   it("rejects a turn with an unknown projectId rather than defaulting", async () => {

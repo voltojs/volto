@@ -165,8 +165,8 @@ describe('useConfigStore', () => {
       kind: 'catalog' as const,
       name: 'OpenAI',
       piProvider: 'openai',
+      baseURL: null,
       apiKeyMasked: 'sk-…abcd',
-      modelCodes: ['gpt-5'],
       models: [
         {
           code: 'gpt-5',
@@ -203,8 +203,8 @@ describe('useConfigStore', () => {
       kind: 'catalog' as const,
       name: 'OpenAI',
       piProvider: 'openai',
+      baseURL: null,
       apiKeyMasked: 'sk-…abcd',
-      modelCodes: ['gpt-5-legacy'],
       models: [{ code: 'gpt-5-legacy' }],
     };
     // Catalog not loaded at all.
@@ -232,8 +232,8 @@ describe('useConfigStore', () => {
       kind: 'catalog' as const,
       name: 'OpenAI',
       piProvider: 'openai',
+      baseURL: null,
       apiKeyMasked: 'sk-…abcd',
-      modelCodes: ['gpt-5'],
       models: [{ code: 'gpt-5', reasoning: { efforts: [{ id: 'high', name: 'High' }] } }],
     };
     const catalog = [
@@ -268,6 +268,7 @@ describe('useConfigStore', () => {
       kind: 'catalog' as const,
       name: 'OpenAI',
       piProvider: 'openai',
+      baseURL: null,
       apiKeyMasked: null,
       models: [
         // Overrides only one of the two caps; the other must inherit.

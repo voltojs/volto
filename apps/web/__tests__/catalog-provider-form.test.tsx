@@ -22,6 +22,7 @@ const CATALOG = [
   {
     id: 'anthropic',
     name: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
     models: [
       { code: 'claude-x', name: 'Claude X', reasoning: true },
       { code: 'claude-y', name: 'Claude Y' },
@@ -51,7 +52,7 @@ afterEach(() => {
 });
 
 describe('CatalogProviderSection', () => {
-  it('lists providers from the catalog API and lets a model be ticked', async () => {
+  it('adds models to the new provider through the same table as the edit form', async () => {
     stubFetch({ 'GET /catalog/providers': CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
@@ -59,17 +60,29 @@ describe('CatalogProviderSection', () => {
 
     await user.click(await screen.findByText('新增内置 Provider'));
 
-    // The catalog provider is selected by default (first entry), so its
-    // models render without any further picking.
-    expect(await screen.findByText('Claude X')).toBeInTheDocument();
-    expect(screen.getByText('Claude Y')).toBeInTheDocument();
+    // A table, not a checkbox list — and it starts empty rather than seeded
+    // with the provider's whole catalog (several list dozens of models).
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('模型 ID 1')).not.toBeInTheDocument();
 
-    const checkbox = screen.getByRole('checkbox', { name: /Claude X/ });
-    await user.click(checkbox);
-    expect(checkbox).toHaveAttribute('data-checked');
+    await user.click(await screen.findByText('新增模型'));
+    const code = screen.getByLabelText('模型 ID 1');
+    // Codes autocomplete from the selected provider's catalog.
+    expect(code).toHaveAttribute('list', 'catalog-models-new');
+    expect(
+      document.querySelector('#catalog-models-new option[value="claude-x"]'),
+    ).not.toBeNull();
+
+    await user.type(code, 'claude-x');
+    // Once the code matches a catalog model, its values show as the
+    // placeholders each empty override box would inherit.
+    expect(screen.getByLabelText('显示名称 1')).toHaveAttribute(
+      'placeholder',
+      'Claude X',
+    );
   });
 
-  it('creates a catalog provider with the ticked model codes, never a hand-typed code', async () => {
+  it('creates a catalog provider with the table\'s rows and an optional baseURL override', async () => {
     let createdBody: unknown;
     stubFetch({
       'GET /catalog/providers': CATALOG,
@@ -113,8 +126,13 @@ describe('CatalogProviderSection', () => {
     render(<CatalogProviderSection providers={[]} />);
 
     await user.click(await screen.findByText('新增内置 Provider'));
-    await user.click(await screen.findByRole('checkbox', { name: /Claude X/ }));
+    await user.click(await screen.findByText('新增模型'));
+    await user.type(screen.getByLabelText('模型 ID 1'), 'claude-x');
     await user.type(screen.getByPlaceholderText('apiKey'), 'sk-test');
+    await user.type(
+      screen.getByPlaceholderText('https://api.anthropic.com'),
+      'https://mirror.internal',
+    );
     await user.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(createdBody).toBeDefined());
@@ -122,6 +140,7 @@ describe('CatalogProviderSection', () => {
       kind: 'catalog',
       piProvider: 'anthropic',
       apiKey: 'sk-test',
+      baseURL: 'https://mirror.internal',
       models: [{ code: 'claude-x' }],
     });
   });
@@ -148,6 +167,7 @@ describe('CatalogProviderSection', () => {
       id: 'v9',
       name: 'Anthropic',
       piProvider: 'anthropic',
+      baseURL: null,
       apiKeyMasked: 'sk-…abcd',
       models: [
         { code: 'claude-x', reasoning: { efforts: [{ id: 'high', name: 'High' }] } },
@@ -170,11 +190,17 @@ describe('CatalogProviderSection', () => {
 
     await user.type(screen.getByLabelText('显示名称 1'), '我的 Claude');
     await user.type(screen.getByLabelText('上下文窗口 1'), '200000');
+    // baseURL is editable here too, and empty means "use pi-ai's address".
+    await user.type(
+      screen.getByPlaceholderText('https://api.anthropic.com'),
+      'https://mirror.internal',
+    );
     await user.click(screen.getByRole('button', { name: /保存/ }));
 
     await waitFor(() => expect(putBody).toBeDefined());
     expect(putBody).toMatchObject({
       kind: 'catalog',
+      baseURL: 'https://mirror.internal',
       models: [
         { code: 'claude-x', name: '我的 Claude', contextWindow: 200000 },
       ],

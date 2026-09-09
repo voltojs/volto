@@ -93,6 +93,7 @@ export function ModelTable({
   reasoning = 'editable',
   codeOptions,
   codeListId,
+  emptyHint,
 }: {
   models: DraftModel[];
   onChange: (next: DraftModel[]) => void;
@@ -115,6 +116,8 @@ export function ModelTable({
   }>;
   /** Must be unique per rendered table when `codeOptions` is given. */
   codeListId?: string;
+  /** Shown in place of the default empty-state line. */
+  emptyHint?: string;
 }) {
   const patch = (index: number, next: Partial<DraftModel>) =>
     onChange(models.map((m, i) => (i === index ? { ...m, ...next } : m)));
@@ -228,7 +231,9 @@ export function ModelTable({
       })}
 
       {models.length === 0 && (
-        <p className="text-muted-foreground py-2 text-xs">还没有添加模型</p>
+        <p className="text-muted-foreground py-2 text-xs">
+          {emptyHint ?? '还没有添加模型'}
+        </p>
       )}
 
       <Button

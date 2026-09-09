@@ -256,6 +256,56 @@ describe("catalog/custom discriminator", () => {
     expect("maxOutputTokens" in bare!).toBe(false);
   });
 
+  it("round-trips a catalog provider's baseURL override and resolves it", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "DeepSeek mirror",
+      kind: "catalog",
+      piProvider: "deepseek",
+      baseURL: "https://mirror.internal/deepseek",
+      models: [{ code: "deepseek-v4-flash" }],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(created.baseURL).toBe("https://mirror.internal/deepseek");
+
+    const resolved = await store.resolveModel(created.id, "deepseek-v4-flash");
+    expect(resolved).toMatchObject({ kind: "catalog", baseURL: "https://mirror.internal/deepseek" });
+
+    // Clearing it explicitly returns the provider to pi-ai's own address;
+    // omitting the field entirely leaves the override in place.
+    await store.update(created.id, { kind: "catalog", name: "DeepSeek mirror" });
+    const untouched = await store.resolveModel(created.id, "deepseek-v4-flash");
+    expect(untouched).toMatchObject({ baseURL: "https://mirror.internal/deepseek" });
+
+    await store.update(created.id, { kind: "catalog", baseURL: null });
+    const cleared = await store.resolveModel(created.id, "deepseek-v4-flash");
+    expect(cleared).toMatchObject({ baseURL: null });
+  });
+
+  it("defaults a legacy catalog record with no baseURL field to null", async () => {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "providers.json"),
+      JSON.stringify([
+        {
+          kind: "catalog",
+          id: "legacy-no-base",
+          name: "DeepSeek",
+          piProvider: "deepseek",
+          apiKeyEnc: null,
+          models: [{ code: "deepseek-v4-flash" }],
+        },
+      ]),
+      "utf-8",
+    );
+    const store = createProviderStore(dir);
+    const [listed] = await store.listPublic();
+    expect(listed).toMatchObject({ kind: "catalog", baseURL: null });
+    expect(await store.resolveModel("legacy-no-base", "deepseek-v4-flash")).toMatchObject({
+      baseURL: null,
+    });
+  });
+
   it("rejects a non-positive contextWindow on a catalog model", async () => {
     const store = createProviderStore(dir);
     await expect(
