@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
+import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
 import { ModelSettingsPicker } from './ModelSettingsPicker';
@@ -20,6 +21,8 @@ import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { postApproval } from '@/lib/agent-config';
+import { selectPendingApprovals } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
@@ -124,6 +127,34 @@ export function ChatPanel() {
   // dispatch directly — the welcome screen is the only place that still needs
   // to create one first, via startSession.
   const handleSubmit = (content: string) => sendMessage(content);
+
+  // Approvals still waiting on the user, derived from the buffered event
+  // stream (see lib/approvals.ts) so a reconnect shows the same set as the
+  // live stream did.
+  const pendingApprovals = useChatStore((s) =>
+    selectPendingApprovals(s.events),
+  );
+
+  const handleDecide = useCallback(
+    async (
+      callId: string,
+      decision: 'allow' | 'allow_always' | 'deny',
+    ): Promise<void> => {
+      if (!currentSessionId) return;
+      try {
+        await postApproval(currentSessionId, callId, decision);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '提交审批失败，请重试';
+        useChatStore.getState().pushEvent({
+          time: Date.now(),
+          type: 'error',
+          data: { message },
+        });
+      }
+    },
+    [currentSessionId],
+  );
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentProject = projects.find(
@@ -278,11 +309,15 @@ export function ChatPanel() {
                 </div>
                 <InputBar
                   onSubmit={startSession}
-                  disabled={isGenerating || !pendingProjectId}
+                  disabled={
+                    isGenerating || !pendingProjectId || pendingApprovals.length > 0
+                  }
                   placeholder={
-                    pendingProjectId
-                      ? '描述你想要构建的内容…'
-                      : '请先选择工作区'
+                    pendingApprovals.length > 0
+                      ? '等待你的审批'
+                      : pendingProjectId
+                        ? '描述你想要构建的内容…'
+                        : '请先选择工作区'
                   }
                   toolbar={
                     <PermissionPicker
@@ -351,6 +386,17 @@ export function ChatPanel() {
         </TabsList>
         <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
           <MessageList entries={entries} />
+          {pendingApprovals.length > 0 && (
+            <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+              {pendingApprovals.map((approval) => (
+                <ApprovalCard
+                  key={approval.callId}
+                  approval={approval}
+                  onDecide={handleDecide}
+                />
+              ))}
+            </div>
+          )}
         </TabsContent>
         <TabsContent value="trajectory" keepMounted className="flex min-h-0 flex-1 flex-col">
           <TrajectoryPanel sessionId={currentSessionId} />
@@ -358,13 +404,15 @@ export function ChatPanel() {
       </Tabs>
       <InputBar
         onSubmit={handleSubmit}
-        disabled={isGenerating || missingBinding}
+        disabled={isGenerating || missingBinding || pendingApprovals.length > 0}
         isGenerating={isGenerating}
         onStop={() => void stopGeneration()}
         placeholder={
-          missingBinding
-            ? '此会话缺少绑定的项目或模型，无法发送消息'
-            : undefined
+          pendingApprovals.length > 0
+            ? '等待你的审批'
+            : missingBinding
+              ? '此会话缺少绑定的项目或模型，无法发送消息'
+              : undefined
         }
         toolbar={
           currentSessionId && currentSession ? (

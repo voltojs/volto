@@ -93,3 +93,29 @@ export async function interruptTurn(sessionId: string): Promise<boolean> {
     detail?.error ?? `Request failed with HTTP ${response.status}`,
   );
 }
+
+/**
+ * Settle one pending approval. Returns false when the gateway no longer has
+ * it pending (409) — the card is stale and should simply disappear.
+ */
+export async function postApproval(
+  sessionId: string,
+  callId: string,
+  decision: 'allow' | 'allow_always' | 'deny',
+): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/approvals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, callId, decision }),
+  });
+
+  if (response.ok) return true;
+  if (response.status === 409) return false;
+
+  const detail = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+  throw new Error(
+    detail?.error ?? `Request failed with HTTP ${response.status}`,
+  );
+}
