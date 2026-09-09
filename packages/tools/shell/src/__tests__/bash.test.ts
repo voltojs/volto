@@ -105,6 +105,24 @@ describe("bash tool", () => {
     expect(result.modelContent).toContain("fg-ok");
   });
 
+  it("reports the foreground fallback in modelContent and displayMetadata when runInBackground is requested but launch() is unavailable", async () => {
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: "fg-ok" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell);
+    const result = await tool.handler({ command: "test", runInBackground: true });
+    expect(result.isError).toBeFalsy();
+    expect(result.modelContent).toContain("fg-ok");
+    // The model needs to be told background execution didn't happen, or it
+    // will keep expecting an immediate PID from calls that actually block.
+    expect(result.modelContent).toMatch(/background/i);
+    expect(result.modelContent).toMatch(/foreground/i);
+    expect(result.displayMetadata?.backgroundFallback).toBe(true);
+  });
+
   it("definition requires CAP_SHELL_EXEC and has WRITE_HIGH risk tier", () => {
     const tool = createBashTool(mockShell(""));
     expect(tool.definition.requires).toEqual([CAP_SHELL_EXEC]);

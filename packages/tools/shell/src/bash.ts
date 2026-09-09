@@ -22,7 +22,11 @@ const bashSchema = z.object({
   runInBackground: z
     .boolean()
     .optional()
-    .describe("If true, launch in background and return immediately with a process ID"),
+    .describe(
+      "If true, launch in background and return immediately with a process ID. " +
+        "Not available under every sandbox mode — when unavailable, the command runs " +
+        "in the foreground instead and the result says so.",
+    ),
 });
 
 export function createBashTool(shell: Shell) {
@@ -50,6 +54,12 @@ export function createBashTool(shell: Shell) {
           return { modelContent: `bash background launch failed: ${message}`, isError: true };
         }
       }
+
+      // Background was requested but the active sandbox has no launch() —
+      // fall through to foreground exec below, and say so on the way out
+      // (both to the model, so it stops expecting an immediate PID, and to
+      // the UI/log channel, so a stalled-looking 30s call is explained).
+      const backgroundUnavailable = Boolean(runInBackground) && !shell.launch;
 
       let stdout = "";
       let stderr = "";
@@ -82,7 +92,10 @@ export function createBashTool(shell: Shell) {
         ? `\n\n(output truncated: ${combined.length} chars total, showing first ${OUTPUT_LIMIT})`
         : "";
       const exitNote = exitCode !== 0 ? `\n(exit code: ${exitCode})` : "";
-      const modelContent = `${content}${exitNote}${truncationNote}`;
+      const backgroundNote = backgroundUnavailable
+        ? "\n\n(background execution is not available under the active sandbox; ran in the foreground instead)"
+        : "";
+      const modelContent = `${content}${exitNote}${truncationNote}${backgroundNote}`;
 
       return {
         modelContent,
@@ -92,6 +105,7 @@ export function createBashTool(shell: Shell) {
           stderrLength: stderr.length,
           truncated,
           totalLength: combined.length,
+          ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
         },
       };
     },
