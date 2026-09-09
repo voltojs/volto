@@ -39,7 +39,7 @@ import {
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
-import { isUiPermissionMode } from "./permission-modes.js";
+import { isUiPermissionMode, buildPermissionConfig, sandboxModeFor } from "./permission-modes.js";
 import {
   createDirectoryPicker,
   PickerBusyError,
@@ -77,6 +77,13 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   directoryPicker?: ReturnType<typeof createDirectoryPicker>;
   /** Overridable chat transcript store — production writes to ~/.volto/sessions. */
   chatStore?: JsonlSessionStore;
+  /**
+   * Overridable agent constructor for the legacy shared (no-sessionId) agent
+   * below — production uses createWiredAgent. Mirrors the same seam
+   * sessions.ts exposes for per-session agents, so tests can observe how
+   * this construction site was invoked.
+   */
+  agentFactory?: typeof createWiredAgent;
 }
 
 /** Session id used when a client does not supply one. */
@@ -229,8 +236,22 @@ export function createServer(opts: ServerOptions = {}): http.Server {
   // (JsonlSessionStore), not the already-scoped TranscriptStore createWiredAgent
   // expects. Only `registry` (below) wires chatStore in, per-session, via
   // scopeToWorkspace() inside sessions.ts's rebuild().
-  const { chatStore: _rawChatStore, ...agentOpts } = opts;
-  const agent = createWiredAgent(agentOpts);
+  const { chatStore: _rawChatStore, agentFactory, ...agentOpts } = opts;
+  const buildAgent = agentFactory ?? createWiredAgent;
+  // This construction site has no sessionId, so it can never reach a
+  // permissionMode default resolved per-session (sessions.ts's EMPTY_CONFIG)
+  // and no route through it (/run without sessionId, /stream, /resume) has
+  // any way to present an approval to a human or accept a decision back.
+  // Falling back to createAgent's own defaults here would silently resolve
+  // to workspace-write + auto-allow-gate — the widest tier, by omission.
+  // Default to the "read-only" preset instead: same reasoning as
+  // EMPTY_CONFIG in sessions.ts. Its approval policy is "never", so the
+  // approval gate is never consulted and can safely stay absent.
+  const agent = buildAgent({
+    ...agentOpts,
+    permissionConfig: agentOpts.permissionConfig ?? buildPermissionConfig("read-only"),
+    sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),
+  });
   // Same fallback as createWiredAgent's own `cwd` resolution (wiring.ts) — kept
   // in sync here so /skills reports the same workspace the legacy (no
   // sessionId) agent above actually loads. This is only /skills' default: a

@@ -1353,3 +1353,36 @@ describe("POST /approvals", () => {
     expect(response.status).toBe(409);
   });
 });
+
+describe("legacy shared agent (no sessionId) permission posture", () => {
+  /**
+   * `/run` without a sessionId, `/stream`, and `/resume` all share one
+   * process-wide agent built once at createServer() time (server.ts, near
+   * the `createWiredAgent(agentOpts)` call). None of those routes can present
+   * an approval to a human or accept a decision back, so that agent must not
+   * resolve to createAgent()'s own defaults (workspace-write + auto-allow
+   * gate) by omission — it needs an explicit, narrow posture instead, same
+   * reasoning as sessions.ts's EMPTY_CONFIG.
+   */
+  it("builds the shared agent with approval: never and a non-danger-full-access sandbox", async () => {
+    const builds: Array<Record<string, unknown>> = [];
+    const stubAgent = { async *stream() {}, async resume() {} };
+    const factory = (opts: Record<string, unknown>) => {
+      builds.push(opts);
+      return stubAgent as never;
+    };
+
+    const instance = createServer({ port: 0, agentFactory: factory as never });
+    await new Promise<void>((resolve) => instance.on("listening", resolve));
+    try {
+      expect(builds).toHaveLength(1);
+      const built = builds[0]!;
+      const permissionConfig = built["permissionConfig"] as { approval?: string } | undefined;
+      expect(permissionConfig?.approval).toBe("never");
+      expect(built["sandboxMode"]).toBeDefined();
+      expect(built["sandboxMode"]).not.toBe("danger-full-access");
+    } finally {
+      await new Promise<void>((resolve) => instance.close(() => resolve()));
+    }
+  });
+});
