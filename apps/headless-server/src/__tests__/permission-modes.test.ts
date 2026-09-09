@@ -88,4 +88,13 @@ describe("normaliseUiPermissionMode", () => {
     expect(normaliseUiPermissionMode(undefined)).toBe("ask");
     expect(normaliseUiPermissionMode("nonsense")).toBe("ask");
   });
+
+  it("falls back to ask for Object.prototype member names, not their inherited value", () => {
+    // A bare `LEGACY_ALIASES[value]` lookup does not distinguish an own
+    // property from one inherited off Object.prototype, so strings like
+    // "constructor" or "toString" must not resolve to that inherited value.
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(normaliseUiPermissionMode(name)).toBe("ask");
+    }
+  });
 });
