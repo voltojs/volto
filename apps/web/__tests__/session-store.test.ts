@@ -22,8 +22,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSessionStore } from '../stores/session-store.js';
 import { useConfigStore } from '../stores/config-store.js';
 import { summary } from './helpers/session';
+import { rememberEffort } from '../lib/reasoning-preferences.js';
 
 beforeEach(() => {
+  // Reasoning-effort choices are remembered per model in localStorage
+  // (lib/reasoning-preferences.ts); a leftover entry would leak between
+  // these cases.
+  window.localStorage.clear();
   useSessionStore.setState({
     sessions: [],
     currentSessionId: null,
@@ -186,6 +191,88 @@ describe('useSessionStore', () => {
         useSessionStore.getState().sessions.find((s) => s.id === id)
           ?.reasoningEffort,
       ).toBe('eff-low');
+    });
+
+    it('prefers a previously remembered effort for the new model over its default', () => {
+      const providers = [
+        {
+          id: 'v2',
+          kind: 'custom' as const,
+          name: 'v2',
+          baseURL: '',
+          apiKeyMasked: '',
+          models: [
+            {
+              id: 'm2',
+              name: 'm2',
+              code: 'm2',
+              reasoning: {
+                efforts: [
+                  { id: 'eff-low', name: 'Low' },
+                  { id: 'eff-high', name: 'High' },
+                ],
+                defaultEffort: 'eff-low',
+              },
+            },
+          ],
+        },
+      ];
+      useConfigStore.setState({ providers });
+
+      // First session: switch to the model, then choose an effort on it.
+      const first = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionModel(first, 'v2', 'm2');
+      useSessionStore.getState().setSessionReasoningEffort(first, 'eff-high');
+
+      // A later session arriving at the same model resumes that choice
+      // instead of resetting to the model's default.
+      const second = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionModel(second, 'v2', 'm2');
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === second)
+          ?.reasoningEffort,
+      ).toBe('eff-high');
+    });
+
+    it('does not let a remembered effort override a still-valid selection', () => {
+      // Ordering rule: keep > remembered > default. A remembered value must
+      // not silently replace what the user currently has selected.
+      useConfigStore.setState({
+        providers: [
+          {
+            id: 'v2',
+            kind: 'custom' as const,
+            name: 'v2',
+            baseURL: '',
+            apiKeyMasked: '',
+            models: [
+              {
+                id: 'm2',
+                name: 'm2',
+                code: 'm2',
+                reasoning: {
+                  efforts: [
+                    { id: 'eff-low', name: 'Low' },
+                    { id: 'eff-high', name: 'High' },
+                  ],
+                  defaultEffort: 'eff-low',
+                },
+              },
+            ],
+          },
+        ],
+      });
+      // Seed a memory that differs from what the session will be holding.
+      rememberEffort('v2', 'm2', 'eff-low');
+
+      const id = useSessionStore.getState().createSession({ projectId: 'p1' });
+      useSessionStore.getState().setSessionReasoningEffort(id, 'eff-high');
+      useSessionStore.getState().setSessionModel(id, 'v2', 'm2');
+
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === id)
+          ?.reasoningEffort,
+      ).toBe('eff-high');
     });
 
     it('clears the effort when the new model has no default and no match', () => {

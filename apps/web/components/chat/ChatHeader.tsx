@@ -33,7 +33,7 @@ export function ChatHeader({ projectName, connectionState }: ChatHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
       <SidebarToggle />
-      <Separator orientation="vertical" className="h-5" />
+      <Separator orientation="vertical" className="h-5 self-center" />
 
       <div className="flex min-w-0 items-center gap-1.5">
         {projectName ? (

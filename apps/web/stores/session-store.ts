@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ConversationMessage, ContextUsageSnapshot } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import { useConfigStore } from './config-store';
+import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 
 /** The reasoning capability of the model a session is switching to, as reported by `configStore.getModelReasoning`. */
 type ReasoningCapability = Model['reasoning'];
@@ -160,7 +161,9 @@ const generateId = () => Math.random().toString(36).substring(2, 11);
 /**
  * The model-change reset rule for a session's reasoning-effort selection:
  * - still declared by the new model → keep it;
- * - not declared, but the new model has a default → use that;
+ * - not declared, but the user has chosen an effort for the new model
+ *   before → use that;
+ * - neither, but the new model has a default → use that;
  * - not declared and no default (or the new model has no reasoning
  *   capability at all) → clear it.
  *
@@ -171,12 +174,15 @@ const generateId = () => Math.random().toString(36).substring(2, 11);
 function resetReasoningEffort(
   current: string | undefined,
   reasoning: ReasoningCapability,
+  remembered: string | undefined,
 ): string | undefined {
   if (!reasoning) return undefined;
   if (current !== undefined && reasoning.efforts.some((e) => e.id === current)) {
     return current;
   }
-  return reasoning.defaultEffort;
+  // Already validated against this model's declared efforts by
+  // `rememberedEffort`, so it cannot reintroduce a stale tier here.
+  return remembered ?? reasoning.defaultEffort;
 }
 
 export const useSessionStore = create<SessionState>()((set, get) => ({
@@ -299,6 +305,11 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     const reasoning = useConfigStore
       .getState()
       .getModelReasoning(providerId, modelId);
+    const remembered = rememberedEffort(
+      providerId,
+      modelId,
+      reasoning?.efforts ?? [],
+    );
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id
@@ -309,6 +320,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               reasoningEffort: resetReasoningEffort(
                 s.reasoningEffort,
                 reasoning ?? undefined,
+                remembered,
               ),
               updatedAt: Date.now(),
             }
@@ -317,14 +329,21 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     }));
   },
 
-  setSessionReasoningEffort: (id, effort) =>
+  setSessionReasoningEffort: (id, effort) => {
+    // An explicit choice is remembered for this model, so the next session
+    // on it starts where the user left off instead of at the default.
+    const session = get().sessions.find((s) => s.id === id);
+    if (session) {
+      rememberEffort(session.providerId, session.modelId, effort);
+    }
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id
           ? { ...s, reasoningEffort: effort, updatedAt: Date.now() }
           : s,
       ),
-    })),
+    }));
+  },
 
   setSessionPermissionMode: (id, permissionMode) =>
     set((state) => ({

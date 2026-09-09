@@ -16,6 +16,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { useConversation } from '@/hooks/use-conversation';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
+import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
@@ -80,8 +81,17 @@ export function ChatPanel() {
   const pendingReasoning = useConfigStore((s) =>
     s.getModelReasoning(effectiveProviderId, effectiveModelId),
   );
+  // A new session starts at the user's last choice for this exact model,
+  // falling back to the model's own default. `rememberedEffort` validates
+  // against the declared efforts, so a stale tier can never reach a turn.
   const effectiveReasoningEffort =
-    pendingReasoningEffort ?? pendingReasoning?.defaultEffort;
+    pendingReasoningEffort ??
+    rememberedEffort(
+      effectiveProviderId,
+      effectiveModelId,
+      pendingReasoning?.efforts ?? [],
+    ) ??
+    pendingReasoning?.defaultEffort;
 
   // Fallback for entering a session by any path this component didn't itself
   // trigger the fetch for (e.g. a session already current on mount). Errors
@@ -291,7 +301,14 @@ export function ChatPanel() {
                       }}
                       efforts={pendingReasoning?.efforts ?? []}
                       effort={effectiveReasoningEffort}
-                      onEffortChange={setPendingReasoningEffort}
+                      onEffortChange={(effort) => {
+                        rememberEffort(
+                          effectiveProviderId,
+                          effectiveModelId,
+                          effort,
+                        );
+                        setPendingReasoningEffort(effort);
+                      }}
                     />
                   }
                 />

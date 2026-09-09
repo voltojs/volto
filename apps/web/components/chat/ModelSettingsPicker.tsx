@@ -67,7 +67,7 @@ export function ModelSettingsPicker({
       }}
     >
       <PopoverTrigger
-        className="hover:bg-muted flex h-7 max-w-56 items-center gap-1.5 rounded-[min(var(--radius-md),10px)] px-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none"
+        className="hover:bg-muted flex h-7 max-w-80 items-center gap-1.5 rounded-[min(var(--radius-md),10px)] px-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none"
         aria-label="模型与推理等级"
       >
         <Cpu className="text-primary/80 h-3.5 w-3.5 shrink-0" />
