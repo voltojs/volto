@@ -383,6 +383,24 @@ export interface CreateAgentOptions {
    */
   approvalGate?: ApprovalGate;
 
+  /**
+   * Approval gate for the `ask_user` tool specifically. Defaults to
+   * auto-allow — do NOT default this to `approvalGate`.
+   *
+   * `ask_user` calls `ApprovalGate.ask()` directly, bypassing the Runner,
+   * so no `request_approval` effect is ever produced and no
+   * `approval_asked` transcript event is ever emitted (the Runner is the
+   * only thing that emits it). A host's real HITL `approvalGate` — e.g. the
+   * gateway's, which deliberately has no timeout — has no UI wired to show
+   * an `ask_user` question and no way to settle it, so parking `ask_user`
+   * on that same gate hangs the turn forever with nothing visible to the
+   * user. Building a real question transport + UI is a separate feature;
+   * until that exists, `ask_user` must keep resolving immediately as it
+   * did before HITL approvals became real. Do not "helpfully" wire the
+   * permission `approvalGate` back in here without building that UI first.
+   */
+  askUserGate?: ApprovalGate;
+
   /** Event sink for observability */
   eventSink?: EventSink;
 
@@ -765,11 +783,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   const allCustomTools: Tool[] = [...(opts.tools ?? []), ...pluginData.tools];
 
-  // ask_user tool — always available, uses approvalGate + eventSink
-  const resolvedApprovalGate = opts.approvalGate ?? createAutoAllowGate();
+  // ask_user tool — always available. Deliberately NOT wired to the shared
+  // permission approvalGate: see the `askUserGate` option doc comment above
+  // for why that would hang the turn forever.
+  const resolvedAskUserGate = opts.askUserGate ?? createAutoAllowGate();
   const resolvedEventSink = opts.eventSink ?? defaultEventSink;
   allCustomTools.push(
-    createAskUserTool({ approvalGate: resolvedApprovalGate, eventSink: resolvedEventSink }),
+    createAskUserTool({ approvalGate: resolvedAskUserGate, eventSink: resolvedEventSink, id: idPort }),
   );
   if (opts.enableTaskTool) {
     const taskTool = createTaskTool(

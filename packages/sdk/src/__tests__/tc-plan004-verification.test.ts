@@ -351,3 +351,37 @@ describe("TC-012: ask_user 宿主不可用时归一为 isError", () => {
     expect(result.modelContent).toContain("not available");
   });
 });
+
+// ═══════════════════════════════════════════════
+// C1: ask_user 不得复用网关的 HITL ApprovalGate — 该 gate 无超时，
+// 一旦复用就会把整个 turn 永久挂起
+// ═══════════════════════════════════════════════
+
+describe("C1: ask_user must not be parked on a permission approvalGate that never settles", () => {
+  it("agent.run() completes even when opts.approvalGate never resolves", async () => {
+    // Mirrors the gateway's real HITL ApprovalGate: ask() parks forever with
+    // no timeout. If ask_user is ever handed this SAME gate (instead of its
+    // own auto-allow default), the turn can never finish.
+    const neverSettlingGate = { ask: () => new Promise<"allow" | "deny">(() => {}) };
+
+    const mockModel = createMockModelPort([
+      toolCallScript("c1", "ask_user", '{"question":"Continue?"}'),
+      textScript("done"),
+    ]);
+
+    const agent = createAgent({
+      modelPort: mockModel,
+      approvalGate: neverSettlingGate,
+    });
+
+    const raced = await Promise.race([
+      agent.run("please ask the user something").then((state) => ({ kind: "resolved" as const, state })),
+      new Promise<{ kind: "timeout" }>((resolve) => setTimeout(() => resolve({ kind: "timeout" }), 500)),
+    ]);
+
+    expect(raced.kind).toBe("resolved");
+    if (raced.kind === "resolved") {
+      expect(raced.state.status).toBe("done");
+    }
+  });
+});

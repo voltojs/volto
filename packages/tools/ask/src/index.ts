@@ -5,7 +5,7 @@
  * When the host lacks interactive capability, returns isError.
  */
 
-import type { ApprovalGate, EventSink } from "@volto/core";
+import type { ApprovalGate, EventSink, Id } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
@@ -19,6 +19,18 @@ export interface AskUserOptions {
   approvalGate: ApprovalGate;
   /** Event sink for emitting the ask event */
   eventSink: EventSink;
+  /**
+   * Id source used to give each call a unique gate-facing call id.
+   *
+   * A hardcoded id would let a second concurrent ask_user call overwrite
+   * the first's pending entry in any gate keyed by call id (e.g.
+   * `pending.set(call.id, ...)`), silently orphaning the first call's
+   * promise forever. Optional so existing callers that construct this tool
+   * directly (mainly tests) keep working — when omitted, a monotonic
+   * counter local to this tool instance is used instead, which is still
+   * unique per call within that instance.
+   */
+  id?: Id;
 }
 
 /**
@@ -35,6 +47,9 @@ export interface AskUserOptions {
  * with their own ApprovalGate that supports free-text responses.
  */
 export function createAskUserTool(opts: AskUserOptions): Tool {
+  // Fallback uniqueness source when no Id port is injected — still
+  // monotonic (and thus unique) per call within this tool instance.
+  let localCounter = 0;
   return defineTool({
     name: "ask_user",
     description: "Ask the user a question and return their response. Use this when you need clarification or human input.",
@@ -53,8 +68,9 @@ export function createAskUserTool(opts: AskUserOptions): Tool {
         // The gate returns "allow" or "deny" — we interpret allow as "user confirmed"
         // and deny as "user declined". For a real interactive host, the gate
         // implementation should be overridden to support free-text input.
+        const callId = opts.id ? `ask_user-${opts.id.next()}` : `ask_user-${++localCounter}`;
         const decision = await opts.approvalGate.ask(
-          { id: "ask_user", name: "ask_user", input: { question } },
+          { id: callId, name: "ask_user", input: { question } },
           "READ_ONLY",
         );
 

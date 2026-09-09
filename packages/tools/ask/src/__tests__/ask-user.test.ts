@@ -48,4 +48,39 @@ describe("ask_user", () => {
     const tool = createAskUserTool({ approvalGate: createMockApprovalGate("allow"), eventSink: createMockEventSink() });
     expect(tool.definition.requires).toEqual([]);
   });
+
+  // -- C1: a hardcoded, non-unique call id lets a second concurrent -------
+  // -- ask_user call silently overwrite the first's pending entry in any ---
+  // -- gate keyed by call id (e.g. the gateway's real approval registry), --
+  // -- orphaning the first call's promise forever.
+
+  it("lets two concurrent calls both settle instead of one orphaning the other", async () => {
+    // A gate that mimics the registry's real pending.set(call.id, ...)
+    // semantics: a second ask() with the same id silently overwrites the
+    // first's resolver, orphaning it forever. A unique id per call must
+    // prevent that collision.
+    const pending = new Map<string, (d: "allow" | "deny") => void>();
+    const gate: ApprovalGate = {
+      ask(call) {
+        return new Promise((resolve) => {
+          pending.set(call.id, resolve);
+        });
+      },
+    };
+    const sink = createMockEventSink();
+    const tool = createAskUserTool({ approvalGate: gate, eventSink: sink });
+
+    const p1 = tool.handler({ question: "first?" });
+    const p2 = tool.handler({ question: "second?" });
+
+    // Both calls must have registered distinct pending entries — otherwise
+    // the second call's ask() has already clobbered the first's.
+    expect(pending.size).toBe(2);
+
+    for (const resolve of pending.values()) resolve("allow");
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.isError).toBeFalsy();
+    expect(r2.isError).toBeFalsy();
+  });
 });
