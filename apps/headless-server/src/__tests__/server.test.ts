@@ -1319,3 +1319,37 @@ describe("Headless server", () => {
     await new Promise<void>((resolve) => picker.close(() => resolve()));
   });
 });
+
+describe("POST /approvals", () => {
+  it("rejects a body with no callId", async () => {
+    const response = await fetch(`${baseUrl}/approvals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", decision: "allow" }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects an unsupported decision", async () => {
+    const response = await fetch(`${baseUrl}/approvals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", callId: "c1", decision: "maybe" }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("answers 409 for a callId nobody is waiting on", async () => {
+    // 409 rather than a silent 200: "there was no such approval" is a real
+    // answer a client can act on (e.g. its card is stale).
+    const response = await fetch(`${baseUrl}/approvals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", callId: "ghost", decision: "allow" }),
+    });
+
+    expect(response.status).toBe(409);
+  });
+});

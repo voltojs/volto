@@ -4,6 +4,7 @@
  * Protocol routes (consumed by apps/web via `@volto/sdk/sse`):
  *   GET  /events?sessionId=   — long-lived SSE channel for one chat session
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
+ *   POST /approvals           — { sessionId, callId, decision } settles one approval
  *
  * Legacy routes (no in-repo consumer; kept for out-of-tree clients):
  *   POST /run                 — one-shot run, returns final state
@@ -418,6 +419,49 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           return;
         }
         jsonResponse(res, 202, { sessionId, interrupted: true });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 400, { error: message });
+      }
+      return;
+    }
+
+    // POST /approvals — settle one pending human approval on a session
+    if (req.method === "POST" && url.pathname === "/approvals") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          sessionId?: string;
+          callId?: string;
+          decision?: string;
+        };
+        const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
+
+        if (!body.callId) {
+          jsonResponse(res, 400, { error: "callId is required" });
+          return;
+        }
+        if (
+          body.decision !== "allow" &&
+          body.decision !== "allow_always" &&
+          body.decision !== "deny"
+        ) {
+          jsonResponse(res, 400, {
+            error: `Unsupported decision: ${String(body.decision)}`,
+          });
+          return;
+        }
+
+        // 409 rather than a silent 200: an unknown callId means the client's
+        // card is stale (the approval already settled, or the session went
+        // away), which it can surface instead of pretending it landed.
+        if (!registry.decideApproval(sessionId, body.callId, body.decision)) {
+          jsonResponse(res, 409, {
+            error: `No pending approval ${body.callId} for session ${sessionId}`,
+          });
+          return;
+        }
+
+        jsonResponse(res, 202, { sessionId, callId: body.callId, settled: true });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });
