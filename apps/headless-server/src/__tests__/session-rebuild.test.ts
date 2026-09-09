@@ -365,6 +365,28 @@ describe("session agent lifecycle", () => {
     expect(builds[0]!["permissionConfig"]).toBeDefined();
     expect(builds[0]!["sandboxMode"]).toBeDefined();
     expect(builds[0]!["approvalGate"]).toBeDefined();
+    // An omitted mode on POST /messages must resolve to "ask" specifically —
+    // not merely "some preset" — since that is the one behaviour the
+    // EMPTY_CONFIG fix below must not disturb.
+    expect(builds[0]!["permissionConfig"]).toMatchObject({ approval: "ask" });
+  });
+
+  // -- Regression: EMPTY_CONFIG backs ensureAgent(), which is the legacy ----
+  // -- POST /run route's construction path. That route is a blocking JSON ---
+  // -- response with no event channel at all — no SSE, no way for a client --
+  // -- to learn a pending approval's callId, and interrupt() can't rescue ---
+  // -- it either (it requires session.running, which only runTurn() sets). -
+  // -- If EMPTY_CONFIG's preset ever had approval: "ask" again, the first ---
+  // -- WRITE_HIGH tool call on this route would park on the gate forever ----
+  // -- with nobody able to answer it. -----------------------------------------
+  it("gives the legacy /run path (ensureAgent) a permission preset that can never park on the approval gate", async () => {
+    const { factory, builds } = makeFactory();
+    const { registry } = makeRegistry(factory);
+
+    await registry.ensureAgent("legacy-session");
+
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!["permissionConfig"]).toMatchObject({ approval: "never" });
   });
 
   it("rejects a turn with an unknown projectId rather than defaulting", async () => {

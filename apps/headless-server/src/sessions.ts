@@ -107,11 +107,21 @@ type ResolvedCredentials =
 /**
  * A session with no project/model/permission selection yet — used by
  * `ensureAgent()` for the legacy `/run` route, which never builds a
- * `TurnConfig`. `permissionMode` still defaults to "ask" here for the same
- * reason as `resolveConfig()` above: leaving it `undefined` skips rebuild()'s
- * entire permissionConfig/sandboxMode/approvalGate branch and hands this
- * legacy path the widest possible agent (workspace-write + auto-allow)
- * instead of the narrowest working tier.
+ * `TurnConfig`. `permissionMode` must still be set (not `undefined`) for the
+ * same reason as `resolveConfig()` above: leaving it `undefined` skips
+ * rebuild()'s entire permissionConfig/sandboxMode/approvalGate branch and
+ * hands this legacy path the widest possible agent (workspace-write +
+ * auto-allow) instead of the narrowest working tier.
+ *
+ * Unlike `resolveConfig()`, this must NOT default to "ask": `/run` is a
+ * blocking JSON route with no event channel at all — no SSE, no way for a
+ * client to ever learn a pending approval's `callId`, and `interrupt()`
+ * cannot rescue it either (it requires `session.running`, which only
+ * `runTurn()` sets). An "ask" preset here would let the first WRITE_HIGH
+ * tool call park on the approval gate forever with nobody able to answer
+ * it. "read-only" is `approval: "never"`, so the gate is never consulted —
+ * and it is the narrowest tier, the correct default for a caller that
+ * supplied no preference on a route that cannot ask a human.
  */
 const EMPTY_CONFIG: ResolvedConfig = {
   projectPath: undefined,
@@ -122,7 +132,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
   code: undefined,
   maxOutputTokens: undefined,
   keyFingerprint: undefined,
-  permissionMode: "ask",
+  permissionMode: "read-only",
   reasoningEffort: undefined,
 };
 
