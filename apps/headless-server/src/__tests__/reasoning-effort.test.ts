@@ -89,7 +89,7 @@ function makeRegistry(
   return registry;
 }
 
-const baseConfig = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" as const };
+const baseConfig = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
 
 describe("reasoningEffort — session-level unit tests (createSessionRegistry)", () => {
   it("a valid reasoningEffort reaches createAgent", async () => {

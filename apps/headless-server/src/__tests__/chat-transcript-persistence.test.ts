@@ -184,7 +184,7 @@ function makeRegistry(
   return registry;
 }
 
-const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" as const };
+const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
 
 describe("chat transcript wiring (jsonl)", () => {
   it("builds the agent with a chatStore scoped to the resolved project path and a stable chatSessionId", async () => {
@@ -212,7 +212,7 @@ describe("chat transcript wiring (jsonl)", () => {
     await registry.runTurn("s1", "one", config);
 
     const built = builds[0]!;
-    expect(built["chatMeta"]).toEqual({ projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" });
+    expect(built["chatMeta"]).toEqual({ projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" });
     expect(JSON.stringify(built["chatMeta"])).not.toContain("sk-secret");
   });
 

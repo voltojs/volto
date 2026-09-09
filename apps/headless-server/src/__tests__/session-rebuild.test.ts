@@ -103,7 +103,7 @@ describe("session agent lifecycle", () => {
   it("reuses the agent when the config is unchanged", async () => {
     const { builds, factory } = makeFactory();
     const { registry } = makeRegistry(factory);
-    const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" as const };
+    const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
 
     await registry.runTurn("s1", "one", config);
     await registry.runTurn("s1", "two", config);
@@ -116,10 +116,10 @@ describe("session agent lifecycle", () => {
     const { registry } = makeRegistry(factory);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
     await registry.runTurn("s1", "two", {
-      projectId: "p1", providerId: "v1", modelId: "m2", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m2", permissionMode: "ask",
     });
 
     expect(builds).toHaveLength(2);
@@ -132,7 +132,7 @@ describe("session agent lifecycle", () => {
     const { registry } = makeRegistry(factory);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
     await registry.runTurn("s1", "two", {
       projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "auto-accept",
@@ -146,7 +146,7 @@ describe("session agent lifecycle", () => {
     const { registry } = makeRegistry(factory);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
 
     expect(builds[0]!["cwd"]).toBe("/tmp");
@@ -160,10 +160,10 @@ describe("session agent lifecycle", () => {
     const { registry } = makeRegistry(factory, { projectStore });
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
     await registry.runTurn("s1", "two", {
-      projectId: "p2", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p2", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
 
     expect(builds).toHaveLength(2);
@@ -174,7 +174,7 @@ describe("session agent lifecycle", () => {
   it("does not truncate history when a turn fails between two successful turns", async () => {
     const { builds, factory } = makeFlakyFactory();
     const { registry } = makeRegistry(factory);
-    const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan" as const };
+    const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
 
     await registry.runTurn("s1", "one", config); // succeeds -> history [m1]
     await registry.runTurn("s1", "two", config); // fails -> history [m1, m1b] (not shorter, kept)
@@ -213,7 +213,7 @@ describe("session agent lifecycle", () => {
     const { registry, written } = makeRegistry(factory);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
 
     expect(written.some((chunk) => chunk.includes("sk-super-secret-token"))).toBe(false);
@@ -228,7 +228,7 @@ describe("session agent lifecycle", () => {
 
     // No projectId at all — this is exactly what a session migrated from a
     // pre-project-binding schema sends (see session-store.ts's migrate()).
-    await registry.runTurn("s1", "one", { providerId: "v1", modelId: "m1", permissionMode: "plan" });
+    await registry.runTurn("s1", "one", { providerId: "v1", modelId: "m1", permissionMode: "ask" });
 
     // No agent was ever built for this (non-)config, so the cwd fallback in
     // wiring.ts is never reached.
@@ -241,7 +241,7 @@ describe("session agent lifecycle", () => {
     const { factory, builds } = makeFactory();
     const { registry, written } = makeRegistry(factory);
 
-    await registry.runTurn("s1", "one", { projectId: "p1", providerId: "v1", permissionMode: "plan" });
+    await registry.runTurn("s1", "one", { projectId: "p1", providerId: "v1", permissionMode: "ask" });
 
     expect(builds).toHaveLength(0);
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
@@ -251,7 +251,7 @@ describe("session agent lifecycle", () => {
     const { factory, builds } = makeFactory();
     const { registry, written } = makeRegistry(factory);
 
-    await registry.runTurn("s1", "one", { projectId: "p1", modelId: "m1", permissionMode: "plan" });
+    await registry.runTurn("s1", "one", { projectId: "p1", modelId: "m1", permissionMode: "ask" });
 
     expect(builds).toHaveLength(0);
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
@@ -280,7 +280,7 @@ describe("session agent lifecycle", () => {
     created.push(registry);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
 
     expect(builds).toHaveLength(1);
@@ -315,7 +315,7 @@ describe("session agent lifecycle", () => {
     created.push(registry);
 
     await registry.runTurn("s1", "one", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "plan",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
 
     // A real agent is now built — the catalog-kind path is wired, not

@@ -67,7 +67,7 @@ const CONFIG = {
   projectId: "p1",
   providerId: "v1",
   modelId: "m1",
-  permissionMode: "plan" as const,
+  permissionMode: "ask" as const,
 };
 
 describe("registry.interrupt", () => {

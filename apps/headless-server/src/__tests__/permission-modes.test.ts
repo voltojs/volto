@@ -1,33 +1,91 @@
 import { describe, it, expect } from "vitest";
-import { buildPermissionConfig, isUiPermissionMode } from "../permission-modes.js";
+import {
+  buildPermissionConfig,
+  isUiPermissionMode,
+  normaliseUiPermissionMode,
+  sandboxModeFor,
+  UI_PERMISSION_MODES,
+} from "../permission-modes.js";
+
+describe("UI_PERMISSION_MODES", () => {
+  it("advertises the four presets in escalating order", () => {
+    expect(UI_PERMISSION_MODES).toEqual(["read-only", "ask", "auto", "full"]);
+  });
+});
 
 describe("buildPermissionConfig", () => {
-  it("uses core's plan mode for the planning tier", () => {
-    const config = buildPermissionConfig("plan");
-    expect(config.mode).toBe("plan");
-    expect(config.defaults.READ_ONLY).toBe("allow");
-    expect(config.defaults.WRITE_HIGH).toBe("deny");
+  it("maps read-only to a boundary that denies every write", () => {
+    expect(buildPermissionConfig("read-only")).toEqual({
+      sandbox: "read-only",
+      approval: "never",
+    });
   });
 
-  it("allows writes but denies irreversible operations on auto-accept", () => {
-    const config = buildPermissionConfig("auto-accept");
-    expect(config.defaults.READ_ONLY).toBe("allow");
-    expect(config.defaults.WRITE_LOW).toBe("allow");
-    expect(config.defaults.WRITE_HIGH).toBe("allow");
-    expect(config.defaults.IRREVERSIBLE).toBe("deny");
+  it("maps ask to workspace-write with human approval", () => {
+    expect(buildPermissionConfig("ask")).toEqual({
+      sandbox: "workspace-write",
+      approval: "ask",
+    });
   });
 
-  it("omits mode on auto-accept so IRREVERSIBLE is never downgraded to ask", () => {
-    // core's "auto-accept" mode maps IRREVERSIBLE to "ask", and the gateway's
-    // auto-allow gate would then wave it through silently. Setting mode here
-    // would silently defeat the deny above.
-    expect(buildPermissionConfig("auto-accept").mode).toBeUndefined();
+  it("maps auto to workspace-write without prompts", () => {
+    expect(buildPermissionConfig("auto")).toEqual({
+      sandbox: "workspace-write",
+      approval: "never",
+    });
   });
 
-  it("recognises only the two supported modes", () => {
-    expect(isUiPermissionMode("plan")).toBe(true);
-    expect(isUiPermissionMode("auto-accept")).toBe(true);
+  it("maps full to unrestricted access", () => {
+    expect(buildPermissionConfig("full")).toEqual({
+      sandbox: "danger-full-access",
+      approval: "never",
+    });
+  });
+});
+
+describe("sandboxModeFor", () => {
+  it("returns the sandbox knob each preset bundles", () => {
+    expect(sandboxModeFor("read-only")).toBe("read-only");
+    expect(sandboxModeFor("ask")).toBe("workspace-write");
+    expect(sandboxModeFor("auto")).toBe("workspace-write");
+    expect(sandboxModeFor("full")).toBe("danger-full-access");
+  });
+});
+
+describe("isUiPermissionMode", () => {
+  it("accepts every current preset", () => {
+    for (const mode of UI_PERMISSION_MODES) {
+      expect(isUiPermissionMode(mode)).toBe(true);
+    }
+  });
+
+  it("rejects retired names on the write path", () => {
+    // Legacy values are readable (see normaliseUiPermissionMode) but must
+    // never be accepted from a client request.
+    expect(isUiPermissionMode("plan")).toBe(false);
+    expect(isUiPermissionMode("auto-accept")).toBe(false);
     expect(isUiPermissionMode("default")).toBe(false);
     expect(isUiPermissionMode(undefined)).toBe(false);
+    expect(isUiPermissionMode(42)).toBe(false);
+  });
+});
+
+describe("normaliseUiPermissionMode", () => {
+  it("passes current presets through", () => {
+    expect(normaliseUiPermissionMode("full")).toBe("full");
+  });
+
+  it("migrates plan to read-only", () => {
+    expect(normaliseUiPermissionMode("plan")).toBe("read-only");
+  });
+
+  it("migrates auto-accept to auto", () => {
+    expect(normaliseUiPermissionMode("auto-accept")).toBe("auto");
+  });
+
+  it("falls back to ask for anything unrecognised", () => {
+    expect(normaliseUiPermissionMode(null)).toBe("ask");
+    expect(normaliseUiPermissionMode(undefined)).toBe("ask");
+    expect(normaliseUiPermissionMode("nonsense")).toBe("ask");
   });
 });

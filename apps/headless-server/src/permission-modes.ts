@@ -1,46 +1,67 @@
 /**
- * Permission tiers offered to the web client.
+ * The permission presets offered to clients.
  *
- * Only two tiers are exposed, and neither of them can produce an "ask"
- * decision — the gateway has no approval UI yet, and its auto-allow gate
- * would wave any "ask" through without the user ever seeing it.
+ * A preset is nothing but a bundle of core's two orthogonal knobs — the
+ * sandbox boundary and the approval policy. Core knows nothing about presets;
+ * this table is the whole of the concept, and the same sandbox value also
+ * drives the shell and filesystem decorators in wiring.ts, so the permission
+ * decision and the enforced boundary come from one source of truth.
  */
 
-import type { PermissionConfig } from "@volto/core";
+import type { ApprovalPolicy, PermissionConfig, SandboxMode } from "@volto/core";
 
-export type UiPermissionMode = "plan" | "auto-accept";
+export type UiPermissionMode = "read-only" | "ask" | "auto" | "full";
 
-export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = ["plan", "auto-accept"];
+/** In escalating order — a client renders the picker in this order. */
+export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = [
+  "read-only",
+  "ask",
+  "auto",
+  "full",
+];
+
+const PRESETS: Record<UiPermissionMode, { sandbox: SandboxMode; approval: ApprovalPolicy }> = {
+  "read-only": { sandbox: "read-only", approval: "never" },
+  ask: { sandbox: "workspace-write", approval: "ask" },
+  auto: { sandbox: "workspace-write", approval: "never" },
+  full: { sandbox: "danger-full-access", approval: "never" },
+};
+
+/**
+ * Retired preset names, still readable from persisted transcripts. Accepted
+ * only on the read path — `isUiPermissionMode` rejects them, so a client
+ * cannot ask for one.
+ */
+const LEGACY_ALIASES: Record<string, UiPermissionMode> = {
+  plan: "read-only",
+  "auto-accept": "auto",
+};
+
+/** The preset a session gets when nothing else is known. */
+const DEFAULT_MODE: UiPermissionMode = "ask";
 
 export function isUiPermissionMode(value: unknown): value is UiPermissionMode {
   return typeof value === "string" && (UI_PERMISSION_MODES as readonly string[]).includes(value);
 }
 
-export function buildPermissionConfig(mode: UiPermissionMode): PermissionConfig {
-  if (mode === "plan") {
-    // `mode` outranks `defaults` in core's resolution order, so these values
-    // are a conservative fallback; core's plan mode drives the real decision.
-    return {
-      defaults: {
-        READ_ONLY: "allow",
-        WRITE_LOW: "deny",
-        WRITE_HIGH: "deny",
-        IRREVERSIBLE: "deny",
-      },
-      mode: "plan",
-    };
+/**
+ * Coerce a persisted or otherwise untrusted value into a preset. Retired
+ * names migrate to their equivalent; anything unrecognised falls back to the
+ * default rather than to the widest tier.
+ */
+export function normaliseUiPermissionMode(value: unknown): UiPermissionMode {
+  if (isUiPermissionMode(value)) return value;
+  if (typeof value === "string" && LEGACY_ALIASES[value] !== undefined) {
+    return LEGACY_ALIASES[value];
   }
+  return DEFAULT_MODE;
+}
 
-  // Deliberately no `mode` field. Core's "auto-accept" mode maps IRREVERSIBLE
-  // to "ask"; combined with the auto-allow gate that silently permits
-  // irreversible operations. Expressing the tier through tier defaults keeps
-  // IRREVERSIBLE a hard deny. Do not "helpfully" add mode: "auto-accept" here.
-  return {
-    defaults: {
-      READ_ONLY: "allow",
-      WRITE_LOW: "allow",
-      WRITE_HIGH: "allow",
-      IRREVERSIBLE: "deny",
-    },
-  };
+export function buildPermissionConfig(mode: UiPermissionMode): PermissionConfig {
+  return { ...PRESETS[mode] };
+}
+
+/** The sandbox knob a preset bundles — what wiring.ts hands the decorators. */
+export function sandboxModeFor(mode: UiPermissionMode): SandboxMode {
+  return PRESETS[mode].sandbox;
 }
