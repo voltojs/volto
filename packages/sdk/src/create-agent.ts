@@ -390,14 +390,18 @@ export interface CreateAgentOptions {
    * `ask_user` calls `ApprovalGate.ask()` directly, bypassing the Runner,
    * so no `request_approval` effect is ever produced and no
    * `approval_asked` transcript event is ever emitted (the Runner is the
-   * only thing that emits it). A host's real HITL `approvalGate` — e.g. the
-   * gateway's, which deliberately has no timeout — has no UI wired to show
-   * an `ask_user` question and no way to settle it, so parking `ask_user`
-   * on that same gate hangs the turn forever with nothing visible to the
-   * user. Building a real question transport + UI is a separate feature;
-   * until that exists, `ask_user` must keep resolving immediately as it
-   * did before HITL approvals became real. Do not "helpfully" wire the
-   * permission `approvalGate` back in here without building that UI first.
+   * only thing that emits it). A host's real HITL `approvalGate` needs a UI
+   * wired to show an `ask_user` question and a way to settle it before it is
+   * safe to reuse for this option — otherwise `ask_user` either hangs
+   * forever with nothing visible to the user (a gate with no timeout, e.g.
+   * the gateway's) or fabricates an answer with no human involved (an
+   * auto-allow fallback). Only pass `approvalGate` here once the host's gate
+   * genuinely surfaces the call's `args`/`riskTier` to a human and can
+   * settle allow/deny for it — e.g. desktop-app's `ApprovalDialog`, which
+   * already renders any `PendingToolCall` this way. Until a host builds that,
+   * `ask_user` must keep resolving immediately as it did before HITL
+   * approvals became real: do not "helpfully" wire the permission
+   * `approvalGate` back in here without confirming the UI can display it.
    */
   askUserGate?: ApprovalGate;
 
@@ -783,9 +787,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   const allCustomTools: Tool[] = [...(opts.tools ?? []), ...pluginData.tools];
 
-  // ask_user tool — always available. Deliberately NOT wired to the shared
-  // permission approvalGate: see the `askUserGate` option doc comment above
-  // for why that would hang the turn forever.
+  // ask_user tool — always available. Defaults to auto-allow rather than
+  // falling back to the shared permission approvalGate: see the
+  // `askUserGate` option doc comment above for why that default would hang
+  // the turn forever (or worse, silently fabricate an answer) unless a host
+  // opts in with a gate whose UI can actually display the question.
   const resolvedAskUserGate = opts.askUserGate ?? createAutoAllowGate();
   const resolvedEventSink = opts.eventSink ?? defaultEventSink;
   allCustomTools.push(

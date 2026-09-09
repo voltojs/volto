@@ -115,6 +115,15 @@ export function createAgentInstance(options: AgentWiringOptions) {
     scheduler,
     permissionConfig,
     approvalGate,
+    // ask_user reuses the same approvalGate: the renderer's ApprovalDialog
+    // already displays any PendingToolCall's name/args/riskTier and writes
+    // back allow/deny, which also covers ask_user (name: "ask_user",
+    // input: { question }, riskTier: READ_ONLY) — the user sees the
+    // question's JSON payload and decides allow/deny, which the tool then
+    // maps back to "yes"/"no". The SDK defaults askUserGate to auto-allow,
+    // which would silently return "User confirmed: yes" with no human
+    // involved; this must be overridden explicitly.
+    askUserGate: approvalGate,
     initialMessages,
   });
 
