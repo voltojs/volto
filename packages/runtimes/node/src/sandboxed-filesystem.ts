@@ -50,32 +50,83 @@ export class SandboxBoundaryError extends Error {
 }
 
 /**
+ * Maximum number of symlinks dereferenced while resolving one path, mirroring
+ * the OS's own ELOOP ceiling. Guards against a symlink cycle spinning the
+ * walk below forever.
+ */
+const MAX_SYMLINK_HOPS = 40;
+
+/**
  * Resolve a path's real location, tolerating a target that does not exist
- * yet: walk up to the nearest existing ancestor, resolve that (following
- * symlinks), then re-append the missing tail. A purely lexical resolve would
- * miss a symlinked ancestor pointing out of the workspace.
+ * yet.
  *
- * When no ancestor exists at all (rare — e.g. the whole path is bogus), the
- * lexically-resolved absolute path is returned unchanged so callers still
- * get a deterministic value to compare against.
+ * `fsp.realpath` cannot be used directly: it rejects as soon as ANY
+ * component of the path is missing — including a symlink's own target. A
+ * naive "catch and walk up to the nearest existing ancestor, then
+ * re-lexically-append the tail" fallback (the previous approach here) gets
+ * this wrong for a *dangling* symlink: the symlink component itself exists,
+ * only its target doesn't, so walking up treats the symlink as "missing"
+ * and re-appends its own name under its parent — resolving it to its own
+ * lexical location instead of following it. That silently turns a symlink
+ * escape into an "allowed" write.
+ *
+ * Instead this walks the path one component at a time, exactly like a
+ * realpath implementation: for each component, `lstat` it; if it is a
+ * symlink, `readlink` it (which succeeds even when the link's target does
+ * not exist) and splice the target's components in to be resolved next,
+ * restarting from the filesystem root so any symlinks nested inside the
+ * target are also followed. A component that does not exist at all (ENOENT
+ * or any other lstat failure) stops symlink-following for that component and
+ * everything after it — the remaining tail is appended lexically, so a
+ * not-yet-created file under an otherwise-real directory still resolves
+ * predictably.
+ *
+ * This uniformly covers: a dangling symlink as the final component, a
+ * symlinked ancestor several segments up (whether or not *its* target
+ * exists), and a chain of symlinks — every hop is dereferenced via
+ * `readlink`, not assumed away.
  */
 async function realResolve(target: string): Promise<string> {
   const absolute = path.resolve(target);
-  const missing: string[] = [];
-  let current = absolute;
+  const queue = absolute.split(path.sep).filter(Boolean);
+  let resolved = path.parse(absolute).root;
+  let hops = 0;
 
-  for (;;) {
+  while (queue.length > 0) {
+    const segment = queue.shift()!;
+    const candidate = path.join(resolved, segment);
+
+    let stat: Awaited<ReturnType<typeof fsp.lstat>>;
     try {
-      const real = await fsp.realpath(current);
-      return missing.length === 0 ? real : path.join(real, ...missing.reverse());
+      stat = await fsp.lstat(candidate);
     } catch {
-      const parent = path.dirname(current);
-      // Reached the filesystem root without finding anything that exists.
-      if (parent === current) return absolute;
-      missing.push(path.basename(current));
-      current = parent;
+      // Doesn't exist (or can't be inspected): nothing left to dereference.
+      // Keep it — and everything still queued — as a lexical path.
+      resolved = candidate;
+      continue;
     }
+
+    if (!stat.isSymbolicLink()) {
+      resolved = candidate;
+      continue;
+    }
+
+    hops++;
+    if (hops > MAX_SYMLINK_HOPS) {
+      throw new Error(`Too many levels of symbolic links resolving "${target}"`);
+    }
+
+    const linkTarget = await fsp.readlink(candidate);
+    const combined = path.isAbsolute(linkTarget) ? linkTarget : path.join(resolved, linkTarget);
+    // Restart from the root with the link target's components spliced in
+    // front of whatever was still queued, so a symlink nested inside the
+    // target (or the target itself being relative) is resolved correctly
+    // too.
+    resolved = path.parse(combined).root;
+    queue.unshift(...combined.split(path.sep).filter(Boolean));
   }
+
+  return resolved;
 }
 
 /**

@@ -140,9 +140,13 @@ export function createSandboxedShell(
         }
         return realShell.exec(cmd, opts);
       },
-      launch: realShell.launch
-        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => realShell.launch!(cmd, opts)
-        : undefined,
+      // No `launch`: only danger-full-access exposes the real shell's
+      // background-launch path (see C4 — a passthrough here would let
+      // `bash({ runInBackground: true })` bypass isolation entirely, and
+      // there is nothing sandboxed on this backend for it to bypass into
+      // safely). The bash tool's `if (runInBackground && shell.launch)`
+      // guard falls back to the (still unsandboxed-with-warning) `exec`
+      // path on its own when `launch` is absent.
     };
   }
 
@@ -259,16 +263,12 @@ export function createSandboxedShell(
           }
         })();
       },
-      launch: realShell.launch
-        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => {
-            // launch() cannot use temp file lifecycle — passthrough with warning
-            console.warn(
-              "[sandbox] WARNING: launch() bypasses sandbox isolation. " +
-              "Use exec() for sandboxed execution.",
-            );
-            return realShell.launch!(cmd, opts);
-          }
-        : undefined,
+      // No `launch` (see C4): the seatbelt profile only wraps `exec`'s
+      // per-call temp-file lifecycle, so a passthrough `launch` here would
+      // run the command with zero isolation — silently, since the only
+      // signal was a `console.warn` nobody sees. Omitting it makes the bash
+      // tool's `runInBackground` path fall back to the sandboxed `exec`
+      // above instead.
     };
   }
 
@@ -342,15 +342,9 @@ export function createSandboxedShell(
           }
         })();
       },
-      launch: realShell.launch
-        ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">) => {
-            console.warn(
-              "[sandbox] WARNING: launch() bypasses sandbox isolation. " +
-              "Use exec() for sandboxed execution.",
-            );
-            return realShell.launch!(cmd, opts);
-          }
-        : undefined,
+      // No `launch` (see C4): same reasoning as the seatbelt branch above —
+      // bwrap wraps `exec`'s command string, a passthrough `launch` would
+      // run fully unisolated.
     };
   }
 

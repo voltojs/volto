@@ -248,6 +248,73 @@ describe("createSandboxedFileSystem — workspace-write", () => {
     ).rejects.toBeInstanceOf(SandboxBoundaryError);
   });
 
+  it("rejects a write through a dangling symlink whose target does not exist yet (C2)", async () => {
+    // fsp.realpath rejects when the symlink's own target is missing. The old
+    // realResolve caught that and walked up to the nearest existing
+    // ancestor (the workspace), then re-appended the symlink's own name as
+    // the "missing tail" — resolving the symlink to its own lexical
+    // location instead of following it. That made the boundary check pass
+    // for a write that actually lands outside the workspace once the real
+    // fs.write follows the link.
+    await fsp.symlink(path.join(outside, "planted.txt"), path.join(workspace, "link"));
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      { mode: "workspace-write", writableRoots: [workspace] },
+      { root: workspace },
+    );
+
+    await expect(sandboxed.write("link", "pwned")).rejects.toBeInstanceOf(SandboxBoundaryError);
+
+    await expect(fsp.access(path.join(outside, "planted.txt"))).rejects.toBeTruthy();
+  });
+
+  it("rejects a write through an ancestor symlink whose own target does not exist (C2 variant: dangling ancestor)", async () => {
+    // Not just the final component can dangle — a symlink several segments
+    // up the path can point at a location that does not exist either. The
+    // resolver must follow that link (via readlink) rather than falling
+    // back to a lexical walk-up, or the escape is invisible.
+    const missingAncestorTarget = path.join(outside, "does-not-exist-yet");
+    await fsp.mkdir(path.join(workspace, "nested"), { recursive: true });
+    await fsp.symlink(
+      missingAncestorTarget,
+      path.join(workspace, "nested", "dangling-ancestor"),
+      "dir",
+    );
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      { mode: "workspace-write", writableRoots: [workspace] },
+      { root: workspace },
+    );
+
+    await expect(
+      sandboxed.write("nested/dangling-ancestor/deeper/secret.txt", "pwned"),
+    ).rejects.toBeInstanceOf(SandboxBoundaryError);
+
+    await expect(fsp.access(missingAncestorTarget)).rejects.toBeTruthy();
+  });
+
+  it("rejects a write through a chain of symlinks that ultimately escapes the workspace (C2 variant: symlink chain)", async () => {
+    // link-a -> link-b -> outside/final.txt (missing). Both hops must be
+    // dereferenced, not just the first one.
+    await fsp.symlink(path.join(outside, "final.txt"), path.join(workspace, "link-b"));
+    await fsp.symlink(path.join(workspace, "link-b"), path.join(workspace, "link-a"));
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      { mode: "workspace-write", writableRoots: [workspace] },
+      { root: workspace },
+    );
+
+    await expect(sandboxed.write("link-a", "pwned")).rejects.toBeInstanceOf(SandboxBoundaryError);
+
+    await expect(fsp.access(path.join(outside, "final.txt"))).rejects.toBeTruthy();
+  });
+
   it("refuses a write when the inner FileSystem's construction root differs from writableRoots[0] (Finding 1)", async () => {
     // Inner fs is rooted at the whole base dir (so e.g. grep/glob can see
     // both workspace/ and outside/), but only workspace/ is writable. A

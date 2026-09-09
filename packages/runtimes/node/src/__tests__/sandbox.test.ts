@@ -334,6 +334,71 @@ describe("createSandboxedShell", () => {
   });
 });
 
+describe("createSandboxedShell — launch passthrough (C4)", () => {
+  /** A mock Shell whose `launch` is a real, unsandboxed passthrough — the
+   * shape `createSandboxedShell` receives from a real Node shell adapter. */
+  function createMockShellWithLaunch(): Shell {
+    return {
+      async *exec(cmd: string): AsyncIterable<{ type: "stdout"; data: string } | { type: "exit"; code: number }> {
+        yield { type: "stdout", data: `executed: ${cmd}` };
+        yield { type: "exit", code: 0 };
+      },
+      launch: async (cmd: string) => `mock-pid-for-${cmd}`,
+    };
+  }
+
+  it("read-only mode (backend none) does not expose a launch passthrough", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "none" });
+    expect(wrapped.launch).toBeUndefined();
+  });
+
+  it("workspace-write mode (backend none) does not expose a launch passthrough", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, {
+      mode: "workspace-write",
+      backend: "none",
+      writableRoots: ["/tmp"],
+    });
+    expect(wrapped.launch).toBeUndefined();
+  });
+
+  it("workspace-write mode (seatbelt backend) does not expose a launch passthrough", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: ["/tmp"],
+    });
+    expect(wrapped.launch).toBeUndefined();
+  });
+
+  it("read-only mode (seatbelt backend) does not expose a launch passthrough", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "seatbelt" });
+    expect(wrapped.launch).toBeUndefined();
+  });
+
+  it("workspace-write mode (bubblewrap backend) does not expose a launch passthrough", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, {
+      mode: "workspace-write",
+      backend: "bubblewrap",
+      writableRoots: ["/tmp"],
+    });
+    expect(wrapped.launch).toBeUndefined();
+  });
+
+  it("danger-full-access still exposes the real shell's launch (raw passthrough by design)", () => {
+    const mock = createMockShellWithLaunch();
+    const wrapped = createSandboxedShell(mock, { mode: "danger-full-access", backend: "none" });
+    // danger-full-access returns the real shell object itself, unwrapped —
+    // there is no sandbox boundary to enforce in this mode.
+    expect(wrapped).toBe(mock);
+    expect(wrapped.launch).toBe(mock.launch);
+  });
+});
+
 // ──────────────────────────────────────────────
 // Phase 3: buildBwrapArgs / Linux bubblewrap
 // ──────────────────────────────────────────────
