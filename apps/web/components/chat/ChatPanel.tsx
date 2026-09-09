@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
@@ -131,8 +131,17 @@ export function ChatPanel() {
   // Approvals still waiting on the user, derived from the buffered event
   // stream (see lib/approvals.ts) so a reconnect shows the same set as the
   // live stream did.
-  const pendingApprovals = useChatStore((s) =>
-    selectPendingApprovals(s.events),
+  //
+  // Subscribe to the stable `events` reference and derive outside the
+  // selector: `selectPendingApprovals` builds a fresh array every call, and
+  // useSyncExternalStore (which zustand builds on) compares snapshots by
+  // identity — returning a new array from the selector makes every snapshot
+  // look changed, which React reports as "The result of getServerSnapshot
+  // should be cached to avoid an infinite loop".
+  const events = useChatStore((s) => s.events);
+  const pendingApprovals = useMemo(
+    () => selectPendingApprovals(events),
+    [events],
   );
 
   const handleDecide = useCallback(

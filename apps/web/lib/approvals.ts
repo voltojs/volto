@@ -14,6 +14,15 @@ export interface PendingApproval {
  *
  * Derived rather than stored so a reconnect (which replays the buffer) lands
  * in the same state as a live stream, with no separate bookkeeping to drift.
+ *
+ * Returns a FRESH ARRAY on every call, so it must NOT be called inside a
+ * zustand selector: `useChatStore((s) => selectPendingApprovals(s.events))`
+ * hands useSyncExternalStore a new identity every render, which React reports
+ * as "The result of getServerSnapshot should be cached to avoid an infinite
+ * loop". Subscribe to the stable `events` reference and derive in a `useMemo`
+ * keyed on it — see ChatPanel. (`providerModels` in stores/config-store.ts
+ * solves the same problem with an explicit cache, if a caller ever needs a
+ * stable identity without a hook.)
  */
 export function selectPendingApprovals(
   events: readonly TranscriptEventInput[],
