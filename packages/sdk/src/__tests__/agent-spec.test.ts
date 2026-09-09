@@ -108,7 +108,7 @@ describe("resolveAgentSpec", () => {
   });
 
   it("permissionConfig from spec is preserved", () => {
-    const policy = { defaults: { READ_ONLY: "allow" as const, WRITE_LOW: "allow" as const, WRITE_HIGH: "ask" as const, IRREVERSIBLE: "deny" as const } };
+    const policy = { sandbox: "workspace-write" as const, approval: "ask" as const };
     const spec: AgentSpec = { name: "test", policy };
     const resolved = resolveAgentSpec(spec, new Map());
     expect(resolved.permissionConfig).toBe(policy);
@@ -149,7 +149,7 @@ describe("resolveAgentSpec", () => {
       model: "gpt-4o",
       tools: ["echo"],
       capabilities: ["test:echo"],
-      policy: { defaults: { READ_ONLY: "allow", WRITE_LOW: "allow", WRITE_HIGH: "ask", IRREVERSIBLE: "deny" } },
+      policy: { sandbox: "workspace-write", approval: "ask" },
       enableTaskTool: true,
       maxIterations: 15,
       responseFormat: { type: "json", schema: { type: "object", properties: { ok: { type: "boolean" } } } },

@@ -43,12 +43,12 @@ function createCollectingAuditSink(): AuditSink & { entries: AuditEntry[] } {
 }
 
 function createPermissionAskAll(): PermissionConfig {
-  const config = createDefaultPermissionConfig();
-  config.defaults.READ_ONLY = "ask";
-  config.defaults.WRITE_LOW = "ask";
-  config.defaults.WRITE_HIGH = "ask";
-  config.defaults.IRREVERSIBLE = "ask";
-  return config;
+  return {
+    ...createDefaultPermissionConfig(),
+    // Force "ask" for every tool regardless of risk tier (a wildcard rule
+    // outranks the sandbox/approval matrix).
+    rules: [{ toolPattern: "*", decision: "ask" }],
+  };
 }
 
 const interactiveGate: ApprovalGate = {

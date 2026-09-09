@@ -1,12 +1,14 @@
 /**
  * PermissionPolicy — pure decision logic for tool permission gating.
  *
- * Determines whether a tool call should be allowed, denied, or require
- * human approval based on the tool's risk tier and a configuration.
- * Zero I/O, zero side effects — the Runner interprets the decision.
+ * Permission is two orthogonal knobs:
+ *   - `sandbox`  — the capability boundary: how far the agent may reach.
+ *   - `approval` — the interruption policy: whether crossing a line stops
+ *                  to ask a human, or is decided outright.
  *
- * Supports permission modes (default / plan / auto-accept) and
- * configurable rule sets that take precedence over tier defaults.
+ * The sandbox mode yields a ceiling risk tier; the approval policy decides
+ * what happens below it (and whether above it may be escalated to a human).
+ * Zero I/O, zero side effects — the Runner interprets the decision.
  */
 
 import type { RiskTier } from "./tool.js";
@@ -15,8 +17,14 @@ import type { RiskTier } from "./tool.js";
 // Types
 // ──────────────────────────────────────────────
 
-/** Permission modes for batch-decision behavior */
-export type PermissionMode = "default" | "plan" | "auto-accept";
+/** The capability boundary: how far the agent may reach. */
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
+/** The interruption policy: whether crossing a line stops to ask a human. */
+export type ApprovalPolicy = "ask" | "never";
+
+/** The outcome of a permission evaluation. */
+export type Decision = "allow" | "deny" | "ask";
 
 /**
  * A single permission rule that matches tool name or capability
@@ -33,24 +41,19 @@ export interface PermissionRule {
   /** Capability match: if tool requires this capability, apply the rule */
   capability?: string;
   /** Decision to apply when matched */
-  decision: "allow" | "deny" | "ask";
+  decision: Decision;
 }
 
 export interface PermissionConfig {
-  /** Default decision per risk tier */
-  defaults: Record<RiskTier, "allow" | "deny" | "ask">;
-  /** Per-tool name overrides (takes precedence over tier defaults, after mode) */
-  toolOverrides?: Record<string, "allow" | "deny" | "ask">;
+  /** The capability boundary. */
+  sandbox: SandboxMode;
+  /** The interruption policy. */
+  approval: ApprovalPolicy;
   /**
-   * Permission mode:
-   * - "default": tier defaults + toolOverrides only
-   * - "plan": READ_ONLY → allow, all writes → deny (model produces plans only)
-   * - "auto-accept": WRITE_LOW / WRITE_HIGH → allow, IRREVERSIBLE → ask
-   */
-  mode?: PermissionMode;
-  /**
-   * Rule set — evaluated in order, first match wins.
-   * Priority: rules > mode > toolOverrides > tier defaults > ask.
+   * Rule set — evaluated in order, first match wins, and outranks the
+   * sandbox/approval matrix. This is where a deployment's static rules live,
+   * and where a host appends a session-scoped "always allow this tool"
+   * decision that a user granted at an approval prompt.
    */
   rules?: PermissionRule[];
 }
@@ -59,21 +62,17 @@ export interface PermissionConfig {
 // Helpers
 // ──────────────────────────────────────────────
 
+/** Total order over risk tiers — the matrix compares tiers, not names. */
+const TIER_RANK: Record<RiskTier, number> = {
+  READ_ONLY: 0,
+  WRITE_LOW: 1,
+  WRITE_HIGH: 2,
+  IRREVERSIBLE: 3,
+};
+
 /** Check if a risk tier is a write-class tier (not READ_ONLY) */
 export function isWriteTier(tier: RiskTier): boolean {
   return tier === "WRITE_LOW" || tier === "WRITE_HIGH" || tier === "IRREVERSIBLE";
-}
-
-/** Check if a permission rule matches a tool */
-function ruleMatchesRule(
-  rule: PermissionRule,
-  toolName: string,
-  toolCapabilities: Set<string>,
-): boolean {
-  if (rule.toolName !== undefined && rule.toolName === toolName) return true;
-  if (rule.toolPattern !== undefined && matchesPattern(toolName, rule.toolPattern)) return true;
-  if (rule.capability !== undefined && toolCapabilities.has(rule.capability)) return true;
-  return false;
 }
 
 /** Simple glob-like pattern: supports exact match and `*` suffix (e.g., "db_*") */
@@ -85,28 +84,52 @@ function matchesPattern(toolName: string, pattern: string): boolean {
   return toolName === pattern;
 }
 
+/** Check if a permission rule matches a tool */
+function ruleMatches(
+  rule: PermissionRule,
+  toolName: string,
+  toolCapabilities: Set<string>,
+): boolean {
+  if (rule.toolName !== undefined && rule.toolName === toolName) return true;
+  if (rule.toolPattern !== undefined && matchesPattern(toolName, rule.toolPattern)) return true;
+  if (rule.capability !== undefined && toolCapabilities.has(rule.capability)) return true;
+  return false;
+}
+
+// ──────────────────────────────────────────────
+// The matrix
+// ──────────────────────────────────────────────
+
+/** The highest risk tier a sandbox mode permits at all. */
+export function ceilingOf(sandbox: SandboxMode): RiskTier {
+  switch (sandbox) {
+    case "read-only":
+      return "READ_ONLY";
+    case "workspace-write":
+      return "WRITE_HIGH";
+    case "danger-full-access":
+      return "IRREVERSIBLE";
+  }
+}
+
 /**
- * Evaluate mode-specific decision for a tool.
- * Returns `undefined` if mode doesn't apply (e.g., "default" mode).
+ * Decide one (ceiling, approval, tier) cell.
+ *
+ * Above the ceiling the sandbox says no; only a human can override, so an
+ * `ask` policy escalates while `never` denies outright. At or below the
+ * ceiling `never` allows, and `ask` stops only for the tiers worth stopping
+ * for — asking about every file read would train the user to click through.
  */
-function evaluateMode(
-  mode: PermissionMode | undefined,
-  riskTier: RiskTier,
-): "allow" | "deny" | "ask" | undefined {
-  if (mode === undefined || mode === "default") return undefined;
-
-  if (mode === "plan") {
-    // plan mode: READ_ONLY → allow, all writes → deny
-    return riskTier === "READ_ONLY" ? "allow" : "deny";
+export function decide(
+  ceiling: RiskTier,
+  approval: ApprovalPolicy,
+  tier: RiskTier,
+): Decision {
+  if (TIER_RANK[tier] > TIER_RANK[ceiling]) {
+    return approval === "ask" ? "ask" : "deny";
   }
-
-  if (mode === "auto-accept") {
-    // auto-accept: WRITE_LOW / WRITE_HIGH → allow, IRREVERSIBLE → ask
-    if (riskTier === "IRREVERSIBLE") return "ask";
-    return "allow";
-  }
-
-  return undefined;
+  if (approval === "never") return "allow";
+  return TIER_RANK[tier] >= TIER_RANK.WRITE_HIGH ? "ask" : "allow";
 }
 
 // ──────────────────────────────────────────────
@@ -118,10 +141,10 @@ function evaluateMode(
  *
  * Lookup order (highest priority first):
  * 1. `rules[]` — pattern/capability-based rule set (first match wins)
- * 2. `mode` — batch mode decision (plan / auto-accept)
- * 3. `toolOverrides[toolName]` — explicit per-tool override
- * 4. `defaults[riskTier]` — tier-based default
- * 5. `"ask"` — safe fallback for unknown tiers
+ * 2. the sandbox x approval matrix
+ *
+ * There is no third layer: the matrix decides every (sandbox, approval, tier)
+ * triple, so anything after it would be unreachable.
  *
  * @param toolCapabilities - the set of capabilities the tool requires
  *                           (optional, needed for rule capability matching)
@@ -131,52 +154,24 @@ export function evaluatePermission(
   toolName: string,
   riskTier: RiskTier,
   toolCapabilities?: Set<string>,
-): "allow" | "deny" | "ask" {
-  // 1. Rule set — first match wins
+): Decision {
   if (config.rules) {
     const caps = toolCapabilities ?? new Set<string>();
     for (const rule of config.rules) {
-      if (ruleMatchesRule(rule, toolName, caps)) {
+      if (ruleMatches(rule, toolName, caps)) {
         return rule.decision;
       }
     }
   }
 
-  // 2. Mode-specific decision
-  const modeDecision = evaluateMode(config.mode, riskTier);
-  if (modeDecision !== undefined) return modeDecision;
-
-  // 3. Per-tool override
-  if (config.toolOverrides?.[toolName] !== undefined) {
-    return config.toolOverrides[toolName]!;
-  }
-
-  // 4. Tier default
-  if (config.defaults[riskTier] !== undefined) {
-    return config.defaults[riskTier]!;
-  }
-
-  // 5. Unknown tier → ask (safe fallback)
-  return "ask";
+  return decide(ceilingOf(config.sandbox), config.approval, riskTier);
 }
 
 /**
- * Create a PermissionConfig with sensible defaults:
- * - READ_ONLY → allow
- * - WRITE_LOW → allow
- * - WRITE_HIGH → ask
- * - IRREVERSIBLE → deny
+ * The default config: the "ask" preset (workspace-write + ask). The only
+ * tier that both gets work done and never performs an irreversible action
+ * behind the user's back.
  */
-export function createDefaultPermissionConfig(
-  overrides?: Record<string, "allow" | "deny" | "ask">,
-): PermissionConfig {
-  return {
-    defaults: {
-      READ_ONLY: "allow",
-      WRITE_LOW: "allow",
-      WRITE_HIGH: "ask",
-      IRREVERSIBLE: "deny",
-    },
-    toolOverrides: overrides,
-  };
+export function createDefaultPermissionConfig(): PermissionConfig {
+  return { sandbox: "workspace-write", approval: "ask" };
 }

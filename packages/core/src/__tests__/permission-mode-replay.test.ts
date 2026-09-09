@@ -10,7 +10,7 @@ import type { ToolDefinition } from "../index.js";
 // Replay: permission mode decisions are deterministic
 // ──────────────────────────────────────────────
 
-describe("permission mode — replay / deep-equal determinism", () => {
+describe("permission knobs — replay / deep-equal determinism", () => {
   const tools: ToolDefinition[] = [
     {
       name: "read_file",
@@ -35,15 +35,7 @@ describe("permission mode — replay / deep-equal determinism", () => {
   };
 
   it("plan mode denies write tools — two runs produce identical state", () => {
-    const config: PermissionConfig = {
-      defaults: {
-        READ_ONLY: "allow",
-        WRITE_LOW: "allow",
-        WRITE_HIGH: "ask",
-        IRREVERSIBLE: "deny",
-      },
-      mode: "plan",
-    };
+    const config: PermissionConfig = { sandbox: "read-only", approval: "never" };
 
     function runSequence() {
       let state = createInitialState();
@@ -83,16 +75,8 @@ describe("permission mode — replay / deep-equal determinism", () => {
     }
   });
 
-  it("auto-accept mode allows WRITE_HIGH but asks IRREVERSIBLE — deterministic", () => {
-    const config: PermissionConfig = {
-      defaults: {
-        READ_ONLY: "allow",
-        WRITE_LOW: "allow",
-        WRITE_HIGH: "ask",
-        IRREVERSIBLE: "deny",
-      },
-      mode: "auto-accept",
-    };
+  it("auto-accept mode allows WRITE_HIGH but denies IRREVERSIBLE — deterministic", () => {
+    const config: PermissionConfig = { sandbox: "workspace-write", approval: "never" };
 
     function runSequence() {
       let state = createInitialState();
@@ -104,7 +88,7 @@ describe("permission mode — replay / deep-equal determinism", () => {
       expect(permWriteHigh).toBe("allow");
 
       const permIrrev = evaluatePermission(config, "rm_rf", "IRREVERSIBLE", new Set(["shell:exec"]));
-      expect(permIrrev).toBe("ask");
+      expect(permIrrev).toBe("deny");
 
       return { messages: state.messages, status: state.status };
     }
@@ -114,5 +98,20 @@ describe("permission mode — replay / deep-equal determinism", () => {
 
     expect(run1.status).toEqual(run2.status);
     expect(run1.messages.length).toEqual(run2.messages.length);
+  });
+
+  it("a rule appended mid-session stays part of the input, not hidden state", () => {
+    // The gateway grants "always allow this tool" by appending to rules. That
+    // must not make replay non-deterministic: rules are input, so replaying
+    // the same config object yields the same decisions both times.
+    const config: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
+    expect(evaluatePermission(config, "bash", "WRITE_HIGH")).toBe("ask");
+
+    config.rules = [{ toolName: "bash", decision: "allow" }];
+    const first = evaluatePermission(config, "bash", "WRITE_HIGH");
+    const second = evaluatePermission(config, "bash", "WRITE_HIGH");
+
+    expect(first).toBe("allow");
+    expect(second).toBe(first);
   });
 });

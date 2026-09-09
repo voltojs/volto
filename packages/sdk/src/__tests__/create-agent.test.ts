@@ -161,14 +161,7 @@ describe("createAgent — SDK facade", () => {
         modelPort: mockModel,
         tools: [createEchoTool()],
         capabilities: new Set(["test:echo"]),
-        permissionConfig: {
-          defaults: {
-            READ_ONLY: "allow",
-            WRITE_LOW: "allow",
-            WRITE_HIGH: "allow",
-            IRREVERSIBLE: "allow",
-          },
-        },
+        permissionConfig: { sandbox: "danger-full-access", approval: "never" },
       });
 
       const state = await agent.run("echo test");
@@ -710,14 +703,7 @@ describe("createAgent — SDK facade", () => {
         approvalGate: gate,
         sessionStore: flakyStore,
         resolveContextLayers: async () => [{ id: "user-memory", text: "LAYER MARKER TEXT" }],
-        permissionConfig: {
-          defaults: {
-            READ_ONLY: "allow",
-            WRITE_LOW: "allow",
-            WRITE_HIGH: "ask",
-            IRREVERSIBLE: "deny",
-          },
-        },
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
       });
 
       // Fire the turn but don't await — the runner parks in
@@ -800,14 +786,7 @@ describe("createAgent — SDK facade", () => {
         sessionStore: flakyStore,
         chatStore,
         chatSessionId: "chat-s1",
-        permissionConfig: {
-          defaults: {
-            READ_ONLY: "allow",
-            WRITE_LOW: "allow",
-            WRITE_HIGH: "ask",
-            IRREVERSIBLE: "deny",
-          },
-        },
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
       });
 
       const runPromise = agent.run("do it");
@@ -906,14 +885,7 @@ describe("createAgent — SDK facade", () => {
         chatStore,
         chatSessionId: "chat-s1",
         initialTurn: 4,
-        permissionConfig: {
-          defaults: {
-            READ_ONLY: "allow",
-            WRITE_LOW: "allow",
-            WRITE_HIGH: "ask",
-            IRREVERSIBLE: "deny",
-          },
-        },
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
       });
 
       const runPromise = agent.run("do it");
@@ -992,14 +964,7 @@ describe("createAgent — SDK facade", () => {
         chatStore,
         chatSessionId: "chat-s1",
         initialStep: 1,
-        permissionConfig: {
-          defaults: {
-            READ_ONLY: "allow",
-            WRITE_LOW: "allow",
-            WRITE_HIGH: "ask",
-            IRREVERSIBLE: "deny",
-          },
-        },
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
       });
 
       const runPromise = agent.run("do it");

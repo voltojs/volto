@@ -18,6 +18,7 @@
 
 import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
+import type { SandboxMode } from "@volto/core";
 import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
@@ -28,8 +29,8 @@ import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 // SandboxConfig (Plan 009 §4.3)
 // ──────────────────────────────────────────────
 
-/** Three-tier isolation mode — platform-agnostic semantics */
-export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+/** Three-tier isolation mode — platform-agnostic semantics (re-exported from @volto/core) */
+export type { SandboxMode };
 
 /** Platform backend selection */
 export type SandboxBackend = "seatbelt" | "bubblewrap" | "none";

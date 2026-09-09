@@ -4,6 +4,7 @@ import {
   evaluatePermission,
   createDefaultPermissionConfig,
 } from "../permission-policy.js";
+import type { PermissionConfig } from "../permission-policy.js";
 import type { ToolDefinition } from "../tool.js";
 
 const readTool: ToolDefinition = {
@@ -86,7 +87,10 @@ describe("TC-E9: ToolRouter 能力门控 + 权限策略联合", () => {
   });
 
   it("permission policy: tool override changes bash from 'ask' to 'deny'", () => {
-    const config = createDefaultPermissionConfig({ bash: "deny" });
+    const config: PermissionConfig = {
+      ...createDefaultPermissionConfig(),
+      rules: [{ toolName: "bash", decision: "deny" }],
+    };
     expect(evaluatePermission(config, "bash", "WRITE_HIGH")).toBe("deny");
   });
 

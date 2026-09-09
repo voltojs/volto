@@ -63,14 +63,7 @@ describe("SDK resume() — positive paths", () => {
       capabilities: new Set(["test:danger"]),
       approvalGate: gate,
       sessionStore: store,
-      permissionConfig: {
-        defaults: {
-          READ_ONLY: "allow",
-          WRITE_LOW: "allow",
-          WRITE_HIGH: "ask",
-          IRREVERSIBLE: "deny",
-        },
-      },
+      permissionConfig: { sandbox: "workspace-write", approval: "ask" },
     });
 
     // Fire the first turn but don't await — the runner will park in
@@ -127,14 +120,7 @@ describe("SDK resume() — positive paths", () => {
       capabilities: new Set(["test:danger"]),
       approvalGate: deferredGate,
       sessionStore: sharedStore,
-      permissionConfig: {
-        defaults: {
-          READ_ONLY: "allow",
-          WRITE_LOW: "allow",
-          WRITE_HIGH: "ask",
-          IRREVERSIBLE: "deny",
-        },
-      },
+      permissionConfig: { sandbox: "workspace-write", approval: "ask" },
     });
     const dangling1 = agent1.run("first round");
     await new Promise((r) => setTimeout(r, 30));
@@ -154,14 +140,7 @@ describe("SDK resume() — positive paths", () => {
       tools: [makeDangerousTool()],
       capabilities: new Set(["test:danger"]),
       sessionStore: sharedStore,
-      permissionConfig: {
-        defaults: {
-          READ_ONLY: "allow",
-          WRITE_LOW: "allow",
-          WRITE_HIGH: "ask",
-          IRREVERSIBLE: "deny",
-        },
-      },
+      permissionConfig: { sandbox: "workspace-write", approval: "ask" },
     });
 
     const finalState = await agent2.resume(sessionId, "allow");
