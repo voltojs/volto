@@ -230,20 +230,15 @@ describe("buildSeatbeltProfile", () => {
     expect(profile).toContain("(allow network*)");
   });
 
-  it("network enabled: also denies loopback (R2 — a sandboxed process must not reach the gateway's own control plane on 127.0.0.1)", () => {
+  it("network enabled: no loopback-specific deny (reverted — see buildSeatbeltProfile's comment; a sandboxed curl reaching 127.0.0.1 is refused at the route instead)", () => {
     const profile = buildSeatbeltProfile({
       mode: "workspace-write",
       writableRoots: ["/workspace"],
       network: { enabled: true },
     });
-    expect(profile).toContain('(deny network* (remote ip "localhost:*"))');
-    // The loopback deny must come after the general allow so it wins (SBPL
-    // resolves the more specific rule for an operation regardless of order,
-    // verified empirically in the real-execution suite below — this just
-    // locks in the intended shape of the profile).
-    const allowIdx = profile.indexOf("(allow network*)");
-    const denyIdx = profile.indexOf('(deny network* (remote ip "localhost:*"))');
-    expect(denyIdx).toBeGreaterThan(allowIdx);
+    expect(profile).toContain("(allow network*)");
+    expect(profile).not.toContain("localhost");
+    expect(profile).not.toContain("remote ip");
   });
 
   it("network disabled: no loopback-specific deny needed (the blanket deny already covers it)", () => {
@@ -754,20 +749,31 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
   });
 
   // ──────────────────────────────────────────────
-  // R2 — loopback egress is refused even with network enabled
-  //
-  // Demonstrated escape: with `network: { enabled: true }`, the profile
-  // used to emit only `(allow network*)`, which includes loopback — a
-  // sandboxed `curl` could reach the gateway's own HTTP control plane on
-  // 127.0.0.1 (e.g. POST /approvals) and self-approve a pending tool call.
-  // These tests really start a throwaway HTTP server and really shell out
-  // to sandbox-exec — no config-string assertions.
+  // R2 (reverted) — the loopback-deny SBPL rule that used to live here
+  // turned out to block ALL egress, not just loopback (see
+  // buildSeatbeltProfile's comment). These tests now prove the revert
+  // actually restored general egress: a local HTTP server on 127.0.0.1 AND
+  // one on this machine's own LAN address must both be reachable from
+  // inside the sandbox when network is enabled. Using two local servers
+  // (never an external URL) because this test process's own shell may
+  // itself be sandboxed and unable to reach the internet, which would make
+  // an external probe inconclusive either way.
   // ──────────────────────────────────────────────
-  describe("R2 — real loopback denial under network: enabled", () => {
-    it("a sandboxed curl cannot reach a real local HTTP server on 127.0.0.1", async () => {
+  describe("R2 (reverted) — general egress works again under network: enabled", () => {
+    /** A non-internal IPv4 address of this host, or undefined if none is configured. */
+    function lanAddress(): string | undefined {
+      for (const addrs of Object.values(os.networkInterfaces())) {
+        for (const addr of addrs ?? []) {
+          if (addr.family === "IPv4" && !addr.internal) return addr.address;
+        }
+      }
+      return undefined;
+    }
+
+    it("a sandboxed curl CAN reach a real local HTTP server on 127.0.0.1", async () => {
       const scratch = makeScratch();
       const server = http.createServer((_req, res) => {
-        res.end("should-not-be-reached");
+        res.end("reached-loopback");
       });
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
       const port = (server.address() as AddressInfo).port;
@@ -784,19 +790,25 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
           shell.exec(`curl -sS --max-time 3 http://127.0.0.1:${port}/`),
         );
 
-        expect(code).not.toBe(0);
-        expect(out).not.toContain("should-not-be-reached");
+        expect(code).toBe(0);
+        expect(out).toContain("reached-loopback");
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     });
 
-    it("a sandboxed curl cannot reach a real local HTTP server on ::1 (IPv6 loopback)", async () => {
+    it("a sandboxed curl CAN reach a real local HTTP server on this host's LAN address", async () => {
+      const lan = lanAddress();
+      if (!lan) {
+        // No LAN interface configured on this machine (e.g. some CI
+        // sandboxes) — nothing to probe.
+        return;
+      }
       const scratch = makeScratch();
       const server = http.createServer((_req, res) => {
-        res.end("should-not-be-reached");
+        res.end("reached-lan");
       });
-      await new Promise<void>((resolve) => server.listen(0, "::1", () => resolve()));
+      await new Promise<void>((resolve) => server.listen(0, lan, () => resolve()));
       const port = (server.address() as AddressInfo).port;
 
       try {
@@ -808,38 +820,11 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
         });
 
         const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 "http://[::1]:${port}/"`),
+          shell.exec(`curl -sS --max-time 3 http://${lan}:${port}/`),
         );
 
-        expect(code).not.toBe(0);
-        expect(out).not.toContain("should-not-be-reached");
-      } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-      }
-    });
-
-    it("the literal hostname 'localhost' is refused too, not just the bare IP", async () => {
-      const scratch = makeScratch();
-      const server = http.createServer((_req, res) => {
-        res.end("should-not-be-reached");
-      });
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-      const port = (server.address() as AddressInfo).port;
-
-      try {
-        const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
-          mode: "workspace-write",
-          backend: "seatbelt",
-          writableRoots: [scratch],
-          network: { enabled: true },
-        });
-
-        const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 http://localhost:${port}/`),
-        );
-
-        expect(code).not.toBe(0);
-        expect(out).not.toContain("should-not-be-reached");
+        expect(code).toBe(0);
+        expect(out).toContain("reached-lan");
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }

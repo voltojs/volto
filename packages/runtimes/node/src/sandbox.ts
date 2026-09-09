@@ -490,31 +490,18 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
   //    and socat bridges loopback TCP → unix socket)
   if (networkEnabled) {
     lines.push("(allow network*)");
-    // R2: deny loopback egress even though general network is allowed. A
-    // sandboxed `bash` with `(allow network*)` can otherwise reach the
-    // gateway's own HTTP control plane on 127.0.0.1 — including routes like
-    // POST /approvals, which is gated only by an Origin check that a
-    // same-host curl trivially bypasses (curl sends no Origin header at
-    // all). `(remote ip "localhost:*")` is the one host literal SBPL
-    // accepts here ("host must be * or localhost in network address" is a
-    // hard parser error for any other literal, including "127.0.0.1"), and
-    // it is resolved against the actual remote address of the connection —
-    // verified empirically to cover IPv4 loopback (127.0.0.1), IPv6 loopback
-    // (::1), and the literal hostname "localhost" (which resolves to one of
-    // those addresses before the connection is made), while leaving
-    // unrelated egress (e.g. https://example.com) unaffected. `deny` here
-    // wins over the `(allow network*)` above regardless of line order —
-    // SBPL resolves the more specific rule for an operation, the same
-    // "deny overrides allow" precedent already used for the read-only
-    // overlays below.
-    //
-    // Not a complete fix on its own: this closes the network path into
-    // /approvals, but the route itself still has no authentication, so
-    // anything else that can reach the gateway's port (a different local
-    // process, a proxy allowedHost that happens to resolve back to this
-    // host, etc.) is still unauthenticated. See the wiring.ts comment next
-    // to buildSandboxConfigs.
-    lines.push('(deny network* (remote ip "localhost:*"))');
+    // A previous revision added `(deny network* (remote ip "localhost:*"))`
+    // here to keep a sandboxed process off the gateway's own control plane
+    // (e.g. POST /approvals). Reverted: verified on-host with two local HTTP
+    // servers — one bound to 127.0.0.1, one to this machine's LAN address —
+    // that the filter does not narrow the deny to loopback at all; it
+    // blocks ALL egress, loopback and LAN alike (baseline `(allow
+    // network*)` alone reaches both; adding the "localhost:*" deny refuses
+    // both). Seatbelt appears to degrade this particular filter into a
+    // match-all deny rather than actually evaluating the remote address.
+    // Loopback cannot be selectively filtered here — the control plane is
+    // protected at the route instead (see apps/headless-server's
+    // POST /approvals per-connection token). Do not re-add this rule.
   } else {
     lines.push("(deny network*)");
   }
@@ -536,14 +523,14 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  * the same absolute paths inside the namespace as outside, but write
  * permissions are restricted by mount flags.
  *
- * KNOWN GAP (R2 parity): `--unshare-net` is all-or-nothing — bwrap has no
- * per-destination network filter comparable to seatbelt's `(remote ip
- * "localhost:*")` deny (see buildSeatbeltProfile). When network is enabled
- * on Linux there is currently no way to block loopback egress while keeping
- * general egress working; a sandboxed process with network enabled can
- * reach a control-plane HTTP server bound to 127.0.0.1 same as it could
- * before the seatbelt fix. This is not implemented here — flagging it
- * plainly rather than pretending the two backends have equivalent coverage.
+ * KNOWN GAP: `--unshare-net` is all-or-nothing — bwrap has no per-destination
+ * network filter. When network is enabled on Linux, a sandboxed process can
+ * reach a control-plane HTTP server bound to 127.0.0.1, same as on macOS
+ * (buildSeatbeltProfile's `(allow network*)` has no loopback carve-out
+ * either — see that function's own comment for why one was tried and
+ * reverted). The control plane is protected at the route instead, not by
+ * either sandbox backend — see apps/headless-server's POST /approvals
+ * per-connection token.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {
   const writableRoots = config.writableRoots ?? [];
