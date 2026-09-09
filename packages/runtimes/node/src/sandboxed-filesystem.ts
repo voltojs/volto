@@ -11,6 +11,21 @@
  * Only `write` is intercepted. Read-side operations pass through: a sandbox
  * bounds what may be *changed*, while what may be *seen* is the capability
  * gate's job.
+ *
+ * ## Architectural limitation: check-then-act (TOCTOU)
+ *
+ * `assertWritable` realpaths the write target and compares it against the
+ * configured writable roots, and only then hands the path to the inner
+ * filesystem to write. Between that check and the actual write, a symlink on
+ * the path could be retargeted, redirecting the write somewhere the check
+ * never saw. Closing the window would require writing through an already
+ * verified handle rather than a path re-resolved at write time — a change
+ * this decorator does not attempt. `createSandboxedShell` is designed the
+ * same way (its boundary check and the shell process it spawns are also two
+ * separate steps), so the limitation is shared across both sandboxed
+ * adapters. In the agent scenarios this sandbox serves, the residual risk is
+ * low: racing the check already implies control over the very workspace the
+ * sandbox is protecting.
  */
 
 import * as fsp from "node:fs/promises";
