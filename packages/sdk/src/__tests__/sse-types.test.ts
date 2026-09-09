@@ -13,6 +13,7 @@ import {
   type SSEMessage,
   type ErrorData,
   type ConnectionState,
+  type ConnectedData,
 } from "../sse/types.js";
 
 // ---------------------------------------------------------------------------
@@ -25,13 +26,16 @@ describe("SSEFrameType enum", () => {
     expect(SSEFrameType.DELTA).toBe("delta");
     expect(SSEFrameType.HEARTBEAT).toBe("heartbeat");
     expect(SSEFrameType.ERROR).toBe("error");
+    expect(SSEFrameType.CONNECTED).toBe("connected");
   });
 
-  it("has exactly 4 frame types", () => {
+  it("has exactly 5 frame types", () => {
+    // CONNECTED added for the once-per-connection approval token (see
+    // sessions.ts's `attach` and this file's ConnectedData test below).
     const keys = Object.keys(SSEFrameType) as Array<
       keyof typeof SSEFrameType
     >;
-    expect(keys).toHaveLength(4);
+    expect(keys).toHaveLength(5);
   });
 });
 
@@ -102,6 +106,17 @@ describe("ConnectionState", () => {
   it("accepts valid state values", () => {
     const states: ConnectionState[] = ["connecting", "connected", "disconnected"];
     expect(states).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConnectedData
+// ---------------------------------------------------------------------------
+
+describe("ConnectedData", () => {
+  it("carries just the per-connection token", () => {
+    const data: ConnectedData = { token: "tok-abc" };
+    expect(data.token).toBe("tok-abc");
   });
 });
 

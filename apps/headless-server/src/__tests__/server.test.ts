@@ -546,9 +546,12 @@ describe("Headless server", () => {
     const config = await createTestProjectAndModel();
     const frames = await collectProtocolTurn(sessionId, "hi", config);
 
-    // Every frame rides one of the four v2 kinds.
+    // Every frame rides one of the five v2 kinds (CONNECTED added for the
+    // per-connection approval token — see sessions.ts's `attach`).
     const kinds = new Set(frames.map((f) => f.event));
-    expect([...kinds].every((k) => ["event", "delta", "heartbeat", "error"].includes(k))).toBe(true);
+    expect(
+      [...kinds].every((k) => ["event", "delta", "heartbeat", "error", "connected"].includes(k)),
+    ).toBe(true);
 
     // Text flows as delta frames carrying TranscriptDelta increments...
     const textPieces = frames
@@ -739,7 +742,13 @@ describe("Headless server", () => {
       );
       channelB.stop();
 
-      const replayed = channelB.frames;
+      // Every fresh connection also gets exactly one CONNECTED frame (its
+      // own per-connection approval token) right away — that is not part of
+      // the replay buffer (a new connection always gets a NEW token, never
+      // a replayed one; see sessions.ts's `attach`), so it is excluded here
+      // rather than treated as one of the replayed frames THE GATE checks.
+      expect(channelB.frames.filter((f) => f.event === "connected")).toHaveLength(1);
+      const replayed = channelB.frames.filter((f) => f.event !== "connected");
 
       // THE GATE: nothing the reconnect delivers is a delta frame. The replay
       // buffer only ever holds event frames, and by the time B attached the
@@ -1343,7 +1352,10 @@ describe("POST /approvals", () => {
 
   it("answers 409 for a callId nobody is waiting on", async () => {
     // 409 rather than a silent 200: "there was no such approval" is a real
-    // answer a client can act on (e.g. its card is stale).
+    // answer a client can act on (e.g. its card is stale). No /events
+    // channel was ever attached for "s1" in this describe block, so this
+    // exercises the "no live connection, nothing to protect" branch of
+    // decideApproval — see sessions.ts's own doc comment.
     const response = await fetch(`${baseUrl}/approvals`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1351,6 +1363,253 @@ describe("POST /approvals", () => {
     });
 
     expect(response.status).toBe(409);
+  });
+});
+
+/**
+ * A minimal ApprovalGate-shaped interface, local to these tests — avoids
+ * pulling in `@volto/core`'s full `ApprovalGate` type just for a structural
+ * cast.
+ */
+interface StubApprovalGate {
+  ask(call: { id: string; name: string; input: unknown }, tier: string): Promise<"allow" | "deny">;
+}
+
+/**
+ * An agent stub that, once its turn starts, calls straight into the real
+ * `approvalGate` the registry built it with (see sessions.ts's `rebuild` —
+ * `approvalGate: session.approvals.gate` is only passed when the turn's
+ * `permissionMode` is set) and parks on its decision, exactly like a real
+ * WRITE_HIGH tool call would under the "ask" preset. `asked` resolves the
+ * instant the gate is consulted, so a test can synchronize on "the approval
+ * is now genuinely pending" without polling.
+ */
+function makeApprovalPendingFactory() {
+  let resolveAsked!: () => void;
+  const asked = new Promise<void>((resolve) => {
+    resolveAsked = resolve;
+  });
+  let resultText = "";
+  const factory = (opts: Record<string, unknown>) => {
+    const approvalGate = opts["approvalGate"] as StubApprovalGate | undefined;
+    return {
+      async *stream() {
+        if (!approvalGate) {
+          yield { type: "text_delta", data: { text: "no-gate" } };
+          return;
+        }
+        resolveAsked();
+        const decision = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        resultText = decision;
+        yield { type: "text_delta", data: { text: `decision:${decision}` } };
+      },
+      async getState() {
+        return { messages: [] };
+      },
+    };
+  };
+  return { factory, asked, getResultText: () => resultText };
+}
+
+/** Boots a dedicated server instance with a custom agentFactory (not modelPort). */
+async function startEphemeralServerWithFactory(
+  factory: unknown,
+): Promise<{ base: string; close(): Promise<void> }> {
+  const instance = createServer({ port: 0, agentFactory: factory as never });
+  await new Promise<void>((resolve) => instance.on("listening", resolve));
+  const addr = instance.address();
+  const base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+  return { base, close: () => new Promise<void>((resolve) => instance.close(() => resolve())) };
+}
+
+/** Extract the token from a channel's CONNECTED frame, waiting for it to arrive. */
+async function connectedToken(channel: { frames: ProtocolFrame[] }): Promise<string> {
+  await until(() => channel.frames.some((f) => f.event === "connected"), 2000, "no CONNECTED frame arrived");
+  const frame = channel.frames.find((f) => f.event === "connected")!;
+  return (frame.data as { token: string }).token;
+}
+
+describe("POST /approvals — per-connection token binding (real turn, real approval gate)", () => {
+  it("no token: rejected with 403, approval stays pending", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-token-no-token-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+      expect(typeof token).toBe("string");
+      expect(token.length).toBeGreaterThan(10);
+
+      const config = await createTestProjectAndModel();
+      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await asked;
+
+      const noToken = await post("/approvals", { sessionId, callId: "call-1", decision: "allow" }, base);
+      expect(noToken.status).toBe(403);
+
+      // Still pending: the *right* token settles it right after.
+      const withToken = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+      );
+      expect(withToken.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("wrong token: rejected with 403, approval stays pending", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-token-wrong-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createTestProjectAndModel();
+      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await asked;
+
+      const wrongToken = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token: `not-${token}` },
+        base,
+      );
+      expect(wrongToken.status).toBe(403);
+
+      // Still pending: the *right* token settles it right after.
+      const withToken = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+      );
+      expect(withToken.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("right token: 202, and the gate actually settles (the stub observes the decision)", async () => {
+    const { factory, asked, getResultText } = makeApprovalPendingFactory();
+    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-token-right-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createTestProjectAndModel();
+      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+      );
+      expect(response.status).toBe(202);
+
+      await until(() => getResultText() === "allow", 2000, "gate never actually settled");
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("a wrong token is never distinguishable from an unknown callId: both answer 403 when a connection exists", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-token-uniform-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createTestProjectAndModel();
+      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await asked;
+
+      const wrongTokenKnownCall = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token: "wrong" },
+        base,
+      );
+      const wrongTokenUnknownCall = await post(
+        "/approvals",
+        { sessionId, callId: "totally-unknown", decision: "allow", token: "wrong" },
+        base,
+      );
+
+      // Same status either way, and the message only ever echoes back the
+      // caller's OWN callId (never reveals anything the caller didn't
+      // already know) — an unauthenticated caller learns nothing about
+      // whether "call-1" is actually pending versus made up.
+      expect(wrongTokenKnownCall.status).toBe(403);
+      expect(wrongTokenUnknownCall.status).toBe(403);
+      expect((wrongTokenKnownCall.data as { error: string }).error).toBe(
+        "No pending approval call-1 for session " + sessionId,
+      );
+      expect((wrongTokenUnknownCall.data as { error: string }).error).toBe(
+        "No pending approval totally-unknown for session " + sessionId,
+      );
+
+      // The real approval is still there, waiting.
+      const settle = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+      );
+      expect(settle.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("self-dismantling property: a second /events subscription for the same session denies every pending approval", async () => {
+    const { factory, asked, getResultText } = makeApprovalPendingFactory();
+    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-token-dismantle-${Date.now()}`;
+    const channelA = openEventChannel(sessionId, undefined, base);
+    let channelB: ReturnType<typeof openEventChannel> | undefined;
+    try {
+      await channelA.opened;
+      const tokenA = await connectedToken(channelA);
+
+      const config = await createTestProjectAndModel();
+      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await asked;
+
+      // A second subscriber — e.g. an attacker who reaches /events for the
+      // same sessionId to try to steal the token — opens its own channel.
+      channelB = openEventChannel(sessionId, undefined, base);
+      await channelB.opened;
+      const tokenB = await connectedToken(channelB);
+      expect(tokenB).not.toBe(tokenA);
+
+      // The act of attaching a new connection is what dismantles the
+      // attack: every pending approval is denied, regardless of who
+      // subscribed — see sessions.ts's `detach`.
+      await until(() => getResultText() === "deny", 2000, "pending approval was not denied");
+
+      // Already settled: even the CURRENT connection's own valid token
+      // cannot re-settle it.
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token: tokenB },
+        base,
+      );
+      expect(response.status).toBe(409);
+    } finally {
+      channelA.stop();
+      channelB?.stop();
+      await close();
+    }
   });
 });
 

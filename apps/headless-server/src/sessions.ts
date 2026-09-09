@@ -198,6 +198,28 @@ function fingerprintApiKey(apiKey: string): string {
 }
 
 /**
+ * Constant-time comparison of two tokens. A plain `===` leaks timing
+ * information proportional to the length of the matching prefix, which
+ * matters here: the token's only job is to be an unguessable secret, so
+ * comparing it must not itself become a side channel.
+ */
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still run a same-length comparison so a length mismatch takes the same
+    // code path as a same-length mismatch instead of short-circuiting
+    // immediately (timingSafeEqual itself throws on unequal lengths).
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** Outcome of `decideApproval` — see its doc comment for the full contract. */
+export type ApprovalDecisionResult = "ok" | "forbidden" | "unknown";
+
+/**
  * Highest `turn` ordinal among a session's `turn_start` events, or
  * `undefined` for an empty or turn-less log. Passed to createAgent() as
  * `initialTurn` (via WiringOptions) so a rebuilt agent instance continues
@@ -237,6 +259,14 @@ function highestStepInTurn(events: readonly TranscriptEvent[], turn: number): nu
 interface Connection {
   res: http.ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
+  /**
+   * Fresh random token generated in `attach()` and delivered to the client
+   * exactly once, over this exact connection, as the CONNECTED frame's
+   * payload — see the module comment on `decideApproval` for why this is
+   * what makes `POST /approvals` safe against a sandboxed process that can
+   * reach the gateway's own port but never saw this channel.
+   */
+  token: string;
 }
 
 interface Session {
@@ -435,10 +465,21 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // intermediary that would otherwise wait for a full buffer before flushing.
     res.write(": connected\n\n");
 
+    // A fresh token for this exact connection — see decideApproval's own
+    // comment for the threat this defeats. Generated with real randomness
+    // (crypto.randomBytes, not core's deterministic Random port): this is
+    // app-layer gateway code, not packages/core, so genuine unpredictability
+    // is the correct call here. Sent once, over this channel only, as a
+    // named CONNECTED frame (not folded into the anonymous ": connected"
+    // comment above — a comment line is invisible to the EventSource API,
+    // so it could never actually reach the client's JS).
+    const token = crypto.randomBytes(32).toString("hex");
+    res.write(sse.formatSSEFrame(session.mapper.connected(token)));
+
     const heartbeat = setInterval(() => {
       res.write(sse.formatSSEFrame(session.mapper.heartbeat()));
     }, heartbeatInterval);
-    session.connection = { res, heartbeat };
+    session.connection = { res, heartbeat, token };
 
     const since = lastEventId ? Number.parseInt(lastEventId, 10) : NaN;
     if (!Number.isNaN(since)) {
@@ -817,6 +858,48 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return true;
   }
 
+  /**
+   * Settle one pending approval, bound to the SSE connection it was shown
+   * on.
+   *
+   * `POST /approvals` is a stateless HTTP route: any local process that can
+   * reach the gateway's port could otherwise settle a pending approval just
+   * by guessing its `callId` — including a sandboxed `bash` the model
+   * itself controls, which knows its own callId (see the R2 sandbox rule
+   * that used to (mis)guard this, now reverted — packages/runtimes/node's
+   * sandbox.ts). Binding the decision to the per-connection token minted in
+   * `attach()` closes that: only whoever is subscribed to this session's
+   * `/events` channel ever learns the token.
+   *
+   * A session can only ever have a pending approval while it also has a
+   * live connection — `POST /messages` refuses to start a turn without one
+   * (see server.ts's `hasConnection` check) — so the token is checked only
+   * when a connection exists; a session with no connection at all (never
+   * attached, or already detached) falls straight through to the ordinary
+   * unknown-callId case, which needs no token to answer safely since it can
+   * have no pending approval to leak.
+   *
+   * The token check runs BEFORE looking at whether `callId` is known, and
+   * by itself does not distinguish "wrong token, `callId` happens to be
+   * pending" from "wrong token, `callId` is unknown" — both answer
+   * `"forbidden"` — so an unauthenticated caller learns nothing about
+   * whether a given `callId` is actually pending.
+   */
+  function decideApproval(
+    sessionId: string,
+    callId: string,
+    decision: ApprovalDecision,
+    token: string | undefined,
+  ): ApprovalDecisionResult {
+    const session = sessions.get(sessionId);
+    const connection = session?.connection;
+    if (connection && (!token || !tokensMatch(token, connection.token))) {
+      return "forbidden";
+    }
+    if (!session?.approvals.settle(callId, decision)) return "unknown";
+    return "ok";
+  }
+
   /** Close every connection and drop all sessions (used on shutdown). */
   function closeAll(): void {
     for (const session of sessions.values()) {
@@ -832,11 +915,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     hasConnection,
     runTurn,
     interrupt,
-    decideApproval: (sessionId: string, callId: string, decision: ApprovalDecision): boolean => {
-      const session = sessions.get(sessionId);
-      if (!session) return false;
-      return session.approvals.settle(callId, decision);
-    },
+    decideApproval,
     ensureAgent,
     closeAll,
     size: () => sessions.size,

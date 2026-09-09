@@ -29,7 +29,8 @@ export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const { sendMessage, stopGeneration, connectionState } = useChatAgent();
+  const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
+    useChatAgent();
   const { entries, usage, messages } = useConversation();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
@@ -151,7 +152,12 @@ export function ChatPanel() {
     ): Promise<void> => {
       if (!currentSessionId) return;
       try {
-        await postApproval(currentSessionId, callId, decision);
+        await postApproval(
+          currentSessionId,
+          callId,
+          decision,
+          getApprovalToken(),
+        );
       } catch (error) {
         const message =
           error instanceof Error ? error.message : '提交审批失败，请重试';
@@ -162,7 +168,7 @@ export function ChatPanel() {
         });
       }
     },
-    [currentSessionId],
+    [currentSessionId, getApprovalToken],
   );
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);

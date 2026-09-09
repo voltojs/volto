@@ -454,6 +454,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           sessionId?: string;
           callId?: string;
           decision?: string;
+          token?: string;
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
@@ -472,10 +473,22 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           return;
         }
 
+        // Bound to the SSE connection the approval was shown on — see
+        // sessions.ts's decideApproval for the full threat model. A missing
+        // or wrong token answers 403 with the exact same message an unknown
+        // callId gets below, and is checked first, so an unauthenticated
+        // caller can never learn whether a given callId is actually pending.
+        const result = registry.decideApproval(sessionId, body.callId, body.decision, body.token);
+        if (result === "forbidden") {
+          jsonResponse(res, 403, {
+            error: `No pending approval ${body.callId} for session ${sessionId}`,
+          });
+          return;
+        }
         // 409 rather than a silent 200: an unknown callId means the client's
         // card is stale (the approval already settled, or the session went
         // away), which it can surface instead of pretending it landed.
-        if (!registry.decideApproval(sessionId, body.callId, body.decision)) {
+        if (result === "unknown") {
           jsonResponse(res, 409, {
             error: `No pending approval ${body.callId} for session ${sessionId}`,
           });

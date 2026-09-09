@@ -97,16 +97,29 @@ export async function interruptTurn(sessionId: string): Promise<boolean> {
 /**
  * Settle one pending approval. Returns false when the gateway no longer has
  * it pending (409) — the card is stale and should simply disappear.
+ *
+ * `token` is the per-connection approval token learned from the session's
+ * `/events` channel (the SSE client's `getConnectionToken()` — see
+ * use-chat-agent.ts). The gateway requires it and answers 403 for a missing
+ * or wrong one, thrown here like any other non-409 failure: unlike a stale
+ * card (409), a rejected token is not something the UI should silently shrug
+ * off.
  */
 export async function postApproval(
   sessionId: string,
   callId: string,
   decision: 'allow' | 'allow_always' | 'deny',
+  token: string | null,
 ): Promise<boolean> {
   const response = await fetch(`${SERVER_URL}/approvals`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, callId, decision }),
+    body: JSON.stringify({
+      sessionId,
+      callId,
+      decision,
+      ...(token ? { token } : {}),
+    }),
   });
 
   if (response.ok) return true;

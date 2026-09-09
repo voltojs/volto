@@ -55,6 +55,23 @@ describe("createEventMapper", () => {
     const mapper = createEventMapper({ now: () => 42 });
     expect(mapper.heartbeat().data).toEqual({ timestamp: 42 });
   });
+
+  it("builds a connected frame carrying the token verbatim", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    const frame = mapper.connected("secret-token");
+
+    expect(frame.event).toBe(SSEFrameType.CONNECTED);
+    expect(frame.data).toEqual({ token: "secret-token" });
+  });
+
+  it("a connected frame does not consume an id, same as heartbeat", () => {
+    const mapper = createEventMapper({ now: () => 1 });
+    mapper.event(ASSISTANT);
+    mapper.connected("secret-token");
+    // Deltas/connected/heartbeat share the last authoritative event's id —
+    // replay only ever needs to resume from an EVENT frame.
+    expect(mapper.event(ASSISTANT).id).toBe("2");
+  });
 });
 
 describe("formatSSEFrame", () => {

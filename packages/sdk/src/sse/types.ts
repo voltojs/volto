@@ -18,6 +18,10 @@
  * gets persisted, so a client projects live and historical data with one
  * function. `DELTA` carries a streaming increment that is never persisted;
  * losing one is self-healing because the next EVENT replaces the partial.
+ * `CONNECTED` carries the fresh per-connection approval token (see
+ * `ConnectedData`) exactly once, right after the channel opens — only a
+ * subscriber of this exact connection ever learns it, which is what makes
+ * `POST /approvals`'s token check meaningful (see sessions.ts's `attach`).
  */
 export enum SSEFrameType {
   EVENT = "event",
@@ -25,6 +29,8 @@ export enum SSEFrameType {
   HEARTBEAT = "heartbeat",
   /** Transport-level failure only. Agent errors travel as transcript events. */
   ERROR = "error",
+  /** Sent once per connection, immediately after it opens. See `ConnectedData`. */
+  CONNECTED = "connected",
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +61,21 @@ export interface ErrorData {
   message: string;
   /** Whether the client may safely retry. */
   retryable: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Connected payload
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload of the once-per-connection `CONNECTED` frame — a fresh random
+ * token bound to this exact SSE connection. The client must echo it back on
+ * `POST /approvals` for any approval it was shown on this channel; the
+ * server rejects a missing or mismatched token with 403 (see
+ * `apps/headless-server`'s `sessions.ts`/`server.ts`).
+ */
+export interface ConnectedData {
+  token: string;
 }
 
 // ---------------------------------------------------------------------------

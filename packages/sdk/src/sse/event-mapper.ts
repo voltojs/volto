@@ -7,7 +7,7 @@
  * the event id counter used for Last-Event-ID recovery.
  */
 
-import { SSEFrameType, type SSEMessage, type ErrorData } from "./types.js";
+import { SSEFrameType, type SSEMessage, type ErrorData, type ConnectedData } from "./types.js";
 import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
 
 export interface EventMapperOptions {
@@ -52,7 +52,18 @@ export function createEventMapper(options: EventMapperOptions = {}) {
     };
   }
 
-  return { event, delta, heartbeat, error };
+  /**
+   * The once-per-connection frame carrying the fresh approval token. Shares
+   * the heartbeat's id-counter discipline (does not increment `eventId`):
+   * it is connection-scoped, not part of the replayable transcript, and
+   * must never be replayed to a reconnecting client from the shared buffer
+   * (a new connection always gets a new token) — see sessions.ts's `attach`.
+   */
+  function connected(token: string): SSEMessage<ConnectedData> {
+    return { id: String(eventId), event: SSEFrameType.CONNECTED, data: { token }, timestamp: now() };
+  }
+
+  return { event, delta, heartbeat, error, connected };
 }
 
 /** Serialize an `SSEMessage` into the SSE wire format. */

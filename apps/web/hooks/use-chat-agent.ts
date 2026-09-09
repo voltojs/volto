@@ -25,6 +25,13 @@ interface UseChatAgentReturn {
   /** Cancels the turn currently streaming, if any. */
   stopGeneration: () => Promise<void>;
   connectionState: ConnectionState;
+  /**
+   * The current session's per-connection approval token, or null before the
+   * channel has delivered one (or when there is no active connection). The
+   * gateway's `POST /approvals` requires this — see lib/agent-config.ts's
+   * `postApproval`.
+   */
+  getApprovalToken: () => string | null;
 }
 
 /** How long to wait for the SSE channel before giving up on a send. */
@@ -222,5 +229,9 @@ export function useChatAgent(): UseChatAgentReturn {
     }
   }, []);
 
-  return { sendMessage, stopGeneration, connectionState };
+  const getApprovalToken = useCallback((): string | null => {
+    return connectionRef.current?.client.getConnectionToken() ?? null;
+  }, []);
+
+  return { sendMessage, stopGeneration, connectionState, getApprovalToken };
 }

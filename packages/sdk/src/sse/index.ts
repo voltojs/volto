@@ -14,6 +14,7 @@ export type {
   SSEMessage,
   ConnectionState,
   ErrorData,
+  ConnectedData,
 } from "./types.js";
 
 // Server

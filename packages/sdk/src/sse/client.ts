@@ -20,6 +20,7 @@ import {
   type SSEMessage,
   type ConnectionState,
   type ErrorData,
+  type ConnectedData,
 } from "./types.js";
 import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
 
@@ -88,6 +89,12 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
   let reconnectAttempts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEventId = "";
+  /**
+   * The fresh per-connection approval token learned from the CONNECTED
+   * frame. Reset to null on every disconnect/reconnect — a new connection
+   * always gets a new token, and the caller must never send a stale one.
+   */
+  let connectionToken: string | null = null;
   let factory: EventSourceFactory =
     typeof globalThis.EventSource !== "undefined"
       ? (u: string) => new globalThis.EventSource(u) as unknown as EventSourceLike
@@ -126,6 +133,8 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
       for (const handler of errorHandlers) {
         handler(message.data as ErrorData);
       }
+    } else if (message.event === SSEFrameType.CONNECTED) {
+      connectionToken = (message.data as ConnectedData).token;
     }
   }
 
@@ -137,6 +146,11 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
   function handleError(): void {
     eventSource?.close();
     eventSource = null;
+    // The connection just died: whatever token it carried is no longer
+    // live on the server (a dropped channel settles every pending approval
+    // as "deny" — see sessions.ts's `detach`), and a reconnect gets an
+    // entirely new one. Never let a stale token linger across this gap.
+    connectionToken = null;
 
     if (autoReconnect && reconnectAttempts < maxReconnectAttempts) {
       setState("disconnected");
@@ -222,6 +236,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     setState("disconnected");
     reconnectAttempts = 0;
     lastEventId = "";
+    connectionToken = null;
   }
 
   /** Subscribe to authoritative transcript events. Returns an unsubscribe function. */
@@ -269,6 +284,15 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     return lastEventId;
   }
 
+  /**
+   * The current connection's approval token, or null before the CONNECTED
+   * frame has arrived (or after a disconnect). Callers must send this back
+   * verbatim on `POST /approvals` for any approval shown on this channel.
+   */
+  function getConnectionToken(): string | null {
+    return connectionToken;
+  }
+
   /** Tear down all listeners and cancel reconnect. */
   function destroy(): void {
     disconnect();
@@ -287,6 +311,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     onStateChange,
     getState,
     getLastEventId,
+    getConnectionToken,
     setEventSourceFactory,
     destroy,
   };

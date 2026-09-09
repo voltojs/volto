@@ -314,6 +314,57 @@ describe("SSEClient", () => {
     });
   });
 
+  describe("connection token", () => {
+    it("is null before the CONNECTED frame arrives", () => {
+      const client = createClient();
+      client.connect();
+      instances[0]!.emitOpen();
+
+      expect(client.getConnectionToken()).toBeNull();
+
+      client.disconnect();
+    });
+
+    it("captures the token from the CONNECTED frame", () => {
+      const client = createClient();
+      client.connect();
+      instances[0]!.emitOpen();
+
+      instances[0]!.emitEvent("connected", { token: "tok-abc" });
+
+      expect(client.getConnectionToken()).toBe("tok-abc");
+
+      client.disconnect();
+    });
+
+    it("clears the token on disconnect", () => {
+      const client = createClient();
+      client.connect();
+      instances[0]!.emitOpen();
+      instances[0]!.emitEvent("connected", { token: "tok-abc" });
+
+      client.disconnect();
+
+      expect(client.getConnectionToken()).toBeNull();
+    });
+
+    it("clears the token on a connection error, before any reconnect delivers a new one", () => {
+      const client = createClient("http://localhost:3000/sse", {
+        reconnectDelay: 100,
+        maxReconnectAttempts: 3,
+      });
+      client.connect();
+      instances[0]!.emitOpen();
+      instances[0]!.emitEvent("connected", { token: "tok-abc" });
+      expect(client.getConnectionToken()).toBe("tok-abc");
+
+      instances[0]!.emitError();
+      expect(client.getConnectionToken()).toBeNull();
+
+      client.disconnect();
+    });
+  });
+
   describe("error subscriptions", () => {
     it("should deliver error frames to onError subscribers but not onEvent/onDelta", () => {
       const client = createClient();
