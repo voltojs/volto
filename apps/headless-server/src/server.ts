@@ -54,7 +54,7 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
    * enforced against every request's `Origin` header. Defaults to the
    * `apps/web` dev server's own origin — a browser is the threat surface a
    * local gateway needs to worry about (it can enumerate providers, drive
-   * the agent with `permissionMode: "auto-accept"`, and read the response
+   * the agent at the `full` permission preset, and read the response
    * cross-origin if this were `"*"`). Non-browser clients (curl, any
    * out-of-tree host) send no `Origin` header at all and are never
    * subject to this check. Set to `"*"` to deliberately expose the gateway

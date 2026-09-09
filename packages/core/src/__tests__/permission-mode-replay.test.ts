@@ -34,7 +34,7 @@ describe("permission knobs — replay / deep-equal determinism", () => {
     maxTokens: 100,
   };
 
-  it("plan mode denies write tools — two runs produce identical state", () => {
+  it("read-only + never denies write tools — two runs produce identical state", () => {
     const config: PermissionConfig = { sandbox: "read-only", approval: "never" };
 
     function runSequence() {
@@ -51,7 +51,7 @@ describe("permission knobs — replay / deep-equal determinism", () => {
 
       // Simulate permission check for bash tool
       const perm = evaluatePermission(config, "bash", "WRITE_HIGH", new Set(["shell:exec"]));
-      expect(perm).toBe("deny"); // plan mode denies write
+      expect(perm).toBe("deny"); // read-only ceiling denies every write tier
 
       const r3 = step(state, {
         type: "tool_result",
@@ -75,7 +75,7 @@ describe("permission knobs — replay / deep-equal determinism", () => {
     }
   });
 
-  it("auto-accept mode allows WRITE_HIGH but denies IRREVERSIBLE — deterministic", () => {
+  it("workspace-write + never allows WRITE_HIGH but denies IRREVERSIBLE — deterministic", () => {
     const config: PermissionConfig = { sandbox: "workspace-write", approval: "never" };
 
     function runSequence() {
