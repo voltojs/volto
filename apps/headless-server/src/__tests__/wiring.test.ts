@@ -464,12 +464,10 @@ describe("buildSandboxConfigs (R1 — fs and shell sides share one set of writab
     expect(fsConfig?.network).toBeUndefined();
   });
 
-  it("both sides drop the .git overlay and keep .env read-only", () => {
+  it("neither side carries any overlay exceptions — writableRoots is the whole policy", () => {
     const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
-    expect(fsConfig?.readOnlyOverlays).toEqual([".env"]);
-    expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
-    expect(fsConfig?.readOnlyOverlays).not.toContain(".git");
-    expect(shellConfig?.readOnlyOverlays).not.toContain(".git");
+    expect(fsConfig?.readOnlyOverlays).toEqual([]);
+    expect(shellConfig?.readOnlyOverlays).toEqual([]);
   });
 
   it("both sides get the identical writable roots: cwd, literal /tmp, and os.tmpdir()", () => {
@@ -481,7 +479,7 @@ describe("buildSandboxConfigs (R1 — fs and shell sides share one set of writab
   it("read-only mode still gets the same shell-side network/overlay treatment", () => {
     const { shellConfig } = buildSandboxConfigs("read-only", "/workspace");
     expect(shellConfig?.network).toEqual({ enabled: true });
-    expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
+    expect(shellConfig?.readOnlyOverlays).toEqual([]);
   });
 });
 
@@ -531,15 +529,15 @@ describe("buildSandboxConfigs — real sandbox execution proves the R1 decision 
     return code;
   }
 
-  it("a shell write to .env is refused; a shell write to .git/hooks/post-commit succeeds", async () => {
+  it("a shell write to .env now succeeds too — no overlay exceptions left (policy change, not a regression)", async () => {
     const cwd = makeWorkspace();
     fsSync.mkdirSync(path.join(cwd, ".git", "hooks"), { recursive: true });
     fsSync.writeFileSync(path.join(cwd, ".env"), "SECRET=1");
     const { shell } = buildReal(cwd);
 
     const envWrite = await drainShell(shell.exec(`echo overwritten > .env`));
-    expect(envWrite).not.toBe(0);
-    expect(fsSync.readFileSync(path.join(cwd, ".env"), "utf-8")).toBe("SECRET=1");
+    expect(envWrite).toBe(0);
+    expect(fsSync.readFileSync(path.join(cwd, ".env"), "utf-8")).toBe("overwritten\n");
 
     const hookWrite = await drainShell(
       shell.exec(`echo '#!/bin/sh' > .git/hooks/post-commit`),
@@ -548,12 +546,12 @@ describe("buildSandboxConfigs — real sandbox execution proves the R1 decision 
     expect(fsSync.existsSync(path.join(cwd, ".git", "hooks", "post-commit"))).toBe(true);
   });
 
-  it("an fs.write to .env is refused; an fs.write to .git/hooks/post-commit succeeds (fs side now matches the shell side)", async () => {
+  it("an fs.write to .env now succeeds too — no overlay exceptions left (fs side still matches the shell side)", async () => {
     const cwd = makeWorkspace();
     fsSync.mkdirSync(path.join(cwd, ".git", "hooks"), { recursive: true });
     const { fs } = buildReal(cwd);
 
-    await expect(fs.write(".env", "SECRET=1")).rejects.toThrow(/read-only/);
+    await expect(fs.write(".env", "SECRET=1")).resolves.toBeUndefined();
     await expect(fs.write(".git/hooks/post-commit", "#!/bin/sh\n")).resolves.toBeUndefined();
     expect(fsSync.existsSync(path.join(cwd, ".git", "hooks", "post-commit"))).toBe(true);
   });

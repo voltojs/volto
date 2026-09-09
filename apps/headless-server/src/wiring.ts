@@ -146,55 +146,54 @@ export interface SandboxConfigs {
 }
 
 /**
- * The writable roots granted in `workspace-write` mode, and the paths that
- * stay read-only within them — shared by BOTH the fs and shell sandbox
- * configs below (dsh's precedent: one helper feeding both the Seatbelt
- * grant and the in-process fs fence "so they can never drift apart"). A
- * previous version of this file gave the shell config `readOnlyOverlays:
- * [".env"]` while the fs config kept the adapter's default `[".git",
- * ".env"]` — the worst combination, since it advertised a `.git` guard that
- * a single `bash` line bypassed anyway. Both sides now read from these same
- * two arrays.
+ * The writable roots granted in `workspace-write` mode — shared by BOTH the
+ * fs and shell sandbox configs below (dsh's precedent: one helper feeding
+ * both the Seatbelt grant and the in-process fs fence "so they can never
+ * drift apart"). A previous version of this file also carried a
+ * `readOnlyOverlays` array (first just `.git`, later narrowed to `.env`
+ * only) — dropped entirely per the owner's ruling: align with
+ * `deepseek-harness`, whose sandbox has no overlay exceptions at all.
+ * `writableRoots` is now the whole policy, same as there. See the
+ * `RESIDUAL_RISK` comment on `buildSandboxConfigs` for why an overlay over
+ * any single file (`.git`, `.env`, or otherwise) was never the right fix.
  *
  * `WRITABLE_ROOTS` includes both `os.tmpdir()` (the real per-user scratch
  * dir the process gets, e.g. macOS's `/var/folders/.../T`) and the literal
  * `/tmp` (conventional scratch space that `os.tmpdir()` does NOT point to on
  * macOS) — dsh includes both for the same reason.
- *
- * `READ_ONLY_OVERLAYS` deliberately does NOT include `.git`. See the
- * `RESIDUAL_RISK` comment on `buildSandboxConfigs` for why the owner ruled
- * that keeping `.git` writable is the correct call, not an oversight.
  */
 function writableRootsFor(cwd: string): string[] {
   return [cwd, "/tmp", os.tmpdir()];
 }
 
-const READ_ONLY_OVERLAYS: string[] = [".env"];
-
 /**
- * RESIDUAL RISK — read this before touching `readOnlyOverlays` again.
+ * RESIDUAL RISK — read this before adding a `readOnlyOverlays` entry back.
  *
- * `workspace-write` means the agent can plant a file anywhere in the
- * workspace that later executes on the user's own say-so: a `package.json`
- * script, a `Makefile` target, `.vscode/tasks.json`, a CI config file,
- * `node_modules/.bin/*`, or — yes — a `.git/hooks/*` hook. One `npm test`,
- * one editor-triggered task, one `git commit`, runs whatever was planted.
- * `.git/hooks` is one path among many with this property, not a special
- * case; a read-only overlay over `.git` alone stops none of the others and
- * only hides the shape of the problem. This is inherent to what
- * `workspace-write` grants — a full write boundary around the workspace —
- * not a gap in this file. Do not re-add a `.git` overlay as a "fix": if the
- * real goal is to stop a workspace file from executing, that has to happen
- * where execution is gated (the permission layer's WRITE_HIGH/IRREVERSIBLE
- * tiers on `git_commit`/`git_push`, or wherever `npm test`/CI is invoked),
- * not in the sandbox's file-write boundary.
+ * `workspace-write` makes the whole workspace writable, with no exceptions.
+ * That includes files which later EXECUTE on the user's own say-so: a
+ * `package.json` script, a `Makefile` target, `.vscode/tasks.json`, a CI
+ * config file, `node_modules/.bin/*`, `.git/hooks/*`. One `npm test`, one
+ * editor-triggered task, one `git commit`, runs whatever was planted.
+ *
+ * An overlay only ever blocked WRITES to one named path. It was tried twice
+ * — first over `.git`, then narrowed to `.env` — and dropped both times for
+ * the same reason: it protects an arbitrary single file while leaving every
+ * other execute-later target (and, for `.env` specifically, the actual
+ * secrets risk — a `cat .env` READ the model puts straight into its own
+ * answer, which no write-boundary ever touched) completely uncovered. This
+ * is inherent to what the `workspace-write` tier grants, not a gap in this
+ * file. If the real goal is to stop a workspace file from executing or a
+ * secret from being read, that has to happen where execution/exposure is
+ * actually gated — the permission layer's WRITE_HIGH/IRREVERSIBLE tiers on
+ * `git_commit`/`git_push`, wherever `npm test`/CI is invoked, or a read-side
+ * policy — not in the sandbox's file-write boundary.
  */
 export function buildSandboxConfigs(
   mode: SandboxMode | undefined,
   cwd: string,
 ): SandboxConfigs {
   const base: SandboxConfig | null = mode
-    ? { mode, writableRoots: writableRootsFor(cwd), readOnlyOverlays: READ_ONLY_OVERLAYS }
+    ? { mode, writableRoots: writableRootsFor(cwd), readOnlyOverlays: [] }
     : null;
   return {
     // `network: { enabled: true }` on the shell config only: egress is not a
