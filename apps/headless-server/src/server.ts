@@ -552,7 +552,11 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           jsonResponse(res, 400, { error: "name is required" });
           return;
         }
-        jsonResponse(res, 201, await providerStore.create(body as Parameters<typeof providerStore.create>[0]));
+        const created = await providerStore.create(body as Parameters<typeof providerStore.create>[0]);
+        // Same shape as GET /providers: clients merge this response straight
+        // into their provider list, so it must carry the inlined `models`
+        // (a catalog PublicProvider only has `modelCodes` on its own).
+        jsonResponse(res, 201, (await withReasoningCapability([created]))[0]);
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
       }
@@ -565,7 +569,12 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         const id = decodeURIComponent(url.pathname.slice("/providers/".length));
         const body = JSON.parse(await readBody(req)) as Parameters<typeof providerStore.update>[1];
         const updated = await providerStore.update(id, body);
-        jsonResponse(res, updated ? 200 : 404, updated ?? { error: "Not found" });
+        // Shape-identical to GET /providers — see POST above.
+        jsonResponse(
+          res,
+          updated ? 200 : 404,
+          updated ? (await withReasoningCapability([updated]))[0] : { error: "Not found" },
+        );
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
       }

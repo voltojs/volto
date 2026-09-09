@@ -80,6 +80,23 @@ function post(path: string, body: unknown, base: string = baseUrl): Promise<{ st
   });
 }
 
+function put(path: string, body: unknown, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, base);
+    const payload = JSON.stringify(body);
+    const req = http.request(url, { method: "PUT", headers: { "Content-Type": "application/json" } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        resolve({ status: res.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString("utf-8")) });
+      });
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 function getSse(path: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
@@ -1045,6 +1062,53 @@ describe("Headless server", () => {
     expect(model).toBeDefined();
     expect(model!.reasoning).toBeDefined();
     expect(model!.reasoning!.efforts.length).toBeGreaterThan(0);
+  });
+
+  it("POST and PUT /providers return the same catalog shape as GET (inlined models, not just modelCodes)", async () => {
+    // Clients merge the write response straight into the list they got from
+    // GET, so a write that answered with the bare PublicProvider left a
+    // catalog record with no `models` array at all — every consumer that
+    // walks `provider.models` then crashed until the next full reload.
+    const { data: catalog } = await getJson("/catalog/providers");
+    const catalogProviders = catalog as Array<{ id: string; models: Array<{ code: string; reasoning: boolean }> }>;
+    let target: { piProvider: string; code: string } | undefined;
+    for (const provider of catalogProviders) {
+      const model = provider.models.find((m) => m.reasoning);
+      if (model) {
+        target = { piProvider: provider.id, code: model.code };
+        break;
+      }
+    }
+    expect(target).toBeDefined();
+
+    const created = await post("/providers", {
+      name: "Catalog write-shape provider",
+      kind: "catalog",
+      piProvider: target!.piProvider,
+      apiKey: "sk-write-shape-secret",
+      modelCodes: [target!.code],
+    });
+    expect(created.status).toBe(201);
+    const createdProvider = created.data as {
+      id: string;
+      models?: Array<{ code: string; reasoning?: { efforts: unknown[] } }>;
+    };
+    expect(createdProvider.models).toBeDefined();
+    expect(createdProvider.models![0]!.code).toBe(target!.code);
+    expect(createdProvider.models![0]!.reasoning).toBeDefined();
+    expect(JSON.stringify(created.data)).not.toContain("sk-write-shape-secret");
+
+    const updated = await put(`/providers/${encodeURIComponent(createdProvider.id)}`, {
+      kind: "catalog",
+      modelCodes: [target!.code],
+    });
+    expect(updated.status).toBe(200);
+    const updatedProvider = updated.data as {
+      models?: Array<{ code: string; reasoning?: { efforts: unknown[] } }>;
+    };
+    expect(updatedProvider.models).toBeDefined();
+    expect(updatedProvider.models![0]!.code).toBe(target!.code);
+    expect(updatedProvider.models![0]!.reasoning).toBeDefined();
   });
 
   it("GET /providers omits the reasoning key entirely for a model with no reasoning capability", async () => {
