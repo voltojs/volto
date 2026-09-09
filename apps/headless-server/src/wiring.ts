@@ -146,46 +146,68 @@ export interface SandboxConfigs {
 }
 
 /**
- * Build the sandbox configs handed to the fs and shell decorators from a
- * single sandbox mode. Split into two — rather than one shared config — so
- * the shell side can diverge from the fs side (C5: the sandbox bounds file
- * writes only):
+ * The writable roots granted in `workspace-write` mode, and the paths that
+ * stay read-only within them — shared by BOTH the fs and shell sandbox
+ * configs below (dsh's precedent: one helper feeding both the Seatbelt
+ * grant and the in-process fs fence "so they can never drift apart"). A
+ * previous version of this file gave the shell config `readOnlyOverlays:
+ * [".env"]` while the fs config kept the adapter's default `[".git",
+ * ".env"]` — the worst combination, since it advertised a `.git` guard that
+ * a single `bash` line bypassed anyway. Both sides now read from these same
+ * two arrays.
  *
- * - `network: { enabled: true }` on the shell config: egress is not a
- *   file-write boundary, and `SandboxConfig.network` defaults to disabled
- *   (the profile then emits `(deny network*)`), which broke `npm install` /
- *   `curl` / `pip` under every sandboxed tier. The adapter's own
- *   conservative default is left alone (a caller that says nothing about
- *   network still gets denied-by-default) — this is the gateway's own
- *   policy choice, made here rather than in the adapter.
- * - `readOnlyOverlays: [".env"]` on the shell config (dropping the
- *   adapter's default `.git` entry): the default denies writes under
- *   `<cwd>/.git`, so `git commit`, `git add`, `git checkout` and `git stash`
- *   all failed in the two tiers meant for doing work. Git writes are
- *   governed by the permission layer instead — `git_commit` is WRITE_HIGH
- *   and `git_push` is IRREVERSIBLE, already covered by the decision matrix
- *   — so the sandbox no longer needs to also gate them. `.env` stays
- *   denied: unlike `.git`, no legitimate shell workflow needs to write a
- *   secrets file, so keeping it read-only is pure defense-in-depth with no
- *   working-tier cost.
+ * `WRITABLE_ROOTS` includes both `os.tmpdir()` (the real per-user scratch
+ * dir the process gets, e.g. macOS's `/var/folders/.../T`) and the literal
+ * `/tmp` (conventional scratch space that `os.tmpdir()` does NOT point to on
+ * macOS) — dsh includes both for the same reason.
  *
- * The fs config keeps the adapter's own defaults (`.git` + `.env` read-only;
- * no network concept on a FileSystem port): a model using the edit/write
- * tool directly on `.git`/`.env` has no comparable permission-layer gate the
- * way shelled-out git commands do.
+ * `READ_ONLY_OVERLAYS` deliberately does NOT include `.git`. See the
+ * `RESIDUAL_RISK` comment on `buildSandboxConfigs` for why the owner ruled
+ * that keeping `.git` writable is the correct call, not an oversight.
+ */
+function writableRootsFor(cwd: string): string[] {
+  return [cwd, "/tmp", os.tmpdir()];
+}
+
+const READ_ONLY_OVERLAYS: string[] = [".env"];
+
+/**
+ * RESIDUAL RISK — read this before touching `readOnlyOverlays` again.
+ *
+ * `workspace-write` means the agent can plant a file anywhere in the
+ * workspace that later executes on the user's own say-so: a `package.json`
+ * script, a `Makefile` target, `.vscode/tasks.json`, a CI config file,
+ * `node_modules/.bin/*`, or — yes — a `.git/hooks/*` hook. One `npm test`,
+ * one editor-triggered task, one `git commit`, runs whatever was planted.
+ * `.git/hooks` is one path among many with this property, not a special
+ * case; a read-only overlay over `.git` alone stops none of the others and
+ * only hides the shape of the problem. This is inherent to what
+ * `workspace-write` grants — a full write boundary around the workspace —
+ * not a gap in this file. Do not re-add a `.git` overlay as a "fix": if the
+ * real goal is to stop a workspace file from executing, that has to happen
+ * where execution is gated (the permission layer's WRITE_HIGH/IRREVERSIBLE
+ * tiers on `git_commit`/`git_push`, or wherever `npm test`/CI is invoked),
+ * not in the sandbox's file-write boundary.
  */
 export function buildSandboxConfigs(
   mode: SandboxMode | undefined,
   cwd: string,
 ): SandboxConfigs {
   const base: SandboxConfig | null = mode
-    ? { mode, writableRoots: [cwd, os.tmpdir()] }
+    ? { mode, writableRoots: writableRootsFor(cwd), readOnlyOverlays: READ_ONLY_OVERLAYS }
     : null;
   return {
+    // `network: { enabled: true }` on the shell config only: egress is not a
+    // file-write boundary, and `SandboxConfig.network` defaults to disabled
+    // (the profile then emits `(deny network*)`), which broke `npm install`
+    // / `curl` / `pip` under every sandboxed tier. The adapter's own
+    // conservative default is left alone (a caller that says nothing about
+    // network still gets denied-by-default) — this is the gateway's own
+    // policy choice, made here rather than in the adapter. The fs side has
+    // no network concept at all (a FileSystem port has no egress), so it
+    // gets no such override.
     fsConfig: base,
-    shellConfig: base
-      ? { ...base, network: { enabled: true }, readOnlyOverlays: [".env"] }
-      : null,
+    shellConfig: base ? { ...base, network: { enabled: true } } : null,
   };
 }
 

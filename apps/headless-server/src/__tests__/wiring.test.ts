@@ -1,16 +1,29 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createWiredAgent, DEFAULT_SYSTEM_PROMPT, buildSandboxConfigs } from "../wiring.js";
 import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
+import {
+  createNodeFileSystem,
+  createNodeShell,
+  createSandboxedFileSystem,
+  createSandboxedShell,
+} from "@volto/runtime-node";
 
 let tempConfigDir: string;
 let tempProjectDir: string;
 let tempHomeDir: string;
 let originalConfigDir: string | undefined;
 let originalHome: string | undefined;
+
+// Captured before any test's beforeEach overrides process.env["HOME"] to a
+// dir under os.tmpdir() — the R1 "outside every writable root" test below
+// needs a real path that stays outside cwd/tmp/os.tmpdir() even though
+// os.homedir() would otherwise track the hijacked $HOME.
+const REAL_HOME = os.homedir();
 
 // User-level instruction/skill probing hangs off the REAL home directory
 // (os.homedir() honors $HOME on POSIX), so every test needs an isolated
@@ -434,7 +447,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
   });
 });
 
-describe("buildSandboxConfigs (C5 — sandbox bounds file writes only)", () => {
+describe("buildSandboxConfigs (R1 — fs and shell sides share one set of writable roots/overlays)", () => {
   it("no mode: both configs are null (adapters stay undecorated)", () => {
     const { fsConfig, shellConfig } = buildSandboxConfigs(undefined, "/workspace");
     expect(fsConfig).toBeNull();
@@ -446,23 +459,138 @@ describe("buildSandboxConfigs (C5 — sandbox bounds file writes only)", () => {
     expect(shellConfig?.network).toEqual({ enabled: true });
   });
 
-  it("shell config drops the .git overlay but keeps .env read-only", () => {
-    const { shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+  it("fs config has no network field at all (a FileSystem port has no egress concept)", () => {
+    const { fsConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(fsConfig?.network).toBeUndefined();
+  });
+
+  it("both sides drop the .git overlay and keep .env read-only", () => {
+    const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(fsConfig?.readOnlyOverlays).toEqual([".env"]);
     expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
+    expect(fsConfig?.readOnlyOverlays).not.toContain(".git");
     expect(shellConfig?.readOnlyOverlays).not.toContain(".git");
   });
 
-  it("fs config keeps the adapter's own defaults untouched (no network override, no overlays field)", () => {
-    const { fsConfig } = buildSandboxConfigs("workspace-write", "/workspace");
-    expect(fsConfig?.network).toBeUndefined();
-    expect(fsConfig?.readOnlyOverlays).toBeUndefined();
-    expect(fsConfig?.mode).toBe("workspace-write");
-    expect(fsConfig?.writableRoots).toEqual(["/workspace", os.tmpdir()]);
+  it("both sides get the identical writable roots: cwd, literal /tmp, and os.tmpdir()", () => {
+    const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(fsConfig?.writableRoots).toEqual(["/workspace", "/tmp", os.tmpdir()]);
+    expect(shellConfig?.writableRoots).toEqual(["/workspace", "/tmp", os.tmpdir()]);
   });
 
   it("read-only mode still gets the same shell-side network/overlay treatment", () => {
     const { shellConfig } = buildSandboxConfigs("read-only", "/workspace");
     expect(shellConfig?.network).toEqual({ enabled: true });
     expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
+  });
+});
+
+// ──────────────────────────────────────────────
+// R1 (real seatbelt execution, darwin only) — the fs and shell sides of
+// buildSandboxConfigs' output are wired through the REAL sandbox adapters
+// and actually executed, not just asserted on config values. This is what
+// the reviewer's round found missing: overlay enforcement had only ever
+// been checked as a string in the config, never exercised through
+// sandbox-exec or the fs decorator's real write path.
+// ──────────────────────────────────────────────
+describe("buildSandboxConfigs — real sandbox execution proves the R1 decision (darwin only)", () => {
+  if (process.platform !== "darwin") {
+    it.skip("skipped: seatbelt is a macOS-only backend", () => {});
+    return;
+  }
+
+  const scratchDirs: string[] = [];
+  afterEach(() => {
+    for (const dir of scratchDirs.splice(0)) {
+      fsSync.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function makeWorkspace(): string {
+    const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), "wiring-sandbox-test-"));
+    scratchDirs.push(dir);
+    return dir;
+  }
+
+  /** Build the real shell + fs decorators the gateway wires up for a workspace. */
+  function buildReal(cwd: string) {
+    const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", cwd);
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: cwd }), {
+      ...shellConfig!,
+      backend: "seatbelt",
+    });
+    const fs = createSandboxedFileSystem(createNodeFileSystem({ root: cwd }), fsConfig!, { root: cwd });
+    return { shell, fs };
+  }
+
+  async function drainShell(events: AsyncIterable<{ type: string; code?: number }>): Promise<number | undefined> {
+    let code: number | undefined;
+    for await (const ev of events) {
+      if (ev.type === "exit") code = ev.code;
+    }
+    return code;
+  }
+
+  it("a shell write to .env is refused; a shell write to .git/hooks/post-commit succeeds", async () => {
+    const cwd = makeWorkspace();
+    fsSync.mkdirSync(path.join(cwd, ".git", "hooks"), { recursive: true });
+    fsSync.writeFileSync(path.join(cwd, ".env"), "SECRET=1");
+    const { shell } = buildReal(cwd);
+
+    const envWrite = await drainShell(shell.exec(`echo overwritten > .env`));
+    expect(envWrite).not.toBe(0);
+    expect(fsSync.readFileSync(path.join(cwd, ".env"), "utf-8")).toBe("SECRET=1");
+
+    const hookWrite = await drainShell(
+      shell.exec(`echo '#!/bin/sh' > .git/hooks/post-commit`),
+    );
+    expect(hookWrite).toBe(0);
+    expect(fsSync.existsSync(path.join(cwd, ".git", "hooks", "post-commit"))).toBe(true);
+  });
+
+  it("an fs.write to .env is refused; an fs.write to .git/hooks/post-commit succeeds (fs side now matches the shell side)", async () => {
+    const cwd = makeWorkspace();
+    fsSync.mkdirSync(path.join(cwd, ".git", "hooks"), { recursive: true });
+    const { fs } = buildReal(cwd);
+
+    await expect(fs.write(".env", "SECRET=1")).rejects.toThrow(/read-only/);
+    await expect(fs.write(".git/hooks/post-commit", "#!/bin/sh\n")).resolves.toBeUndefined();
+    expect(fsSync.existsSync(path.join(cwd, ".git", "hooks", "post-commit"))).toBe(true);
+  });
+
+  it("shell writes to the workspace, /tmp, and os.tmpdir() all succeed; a write outside every root is refused", async () => {
+    const cwd = makeWorkspace();
+    const { shell } = buildReal(cwd);
+
+    const insideWorkspace = await drainShell(shell.exec(`touch ./inside.txt`));
+    expect(insideWorkspace).toBe(0);
+    expect(fsSync.existsSync(path.join(cwd, "inside.txt"))).toBe(true);
+
+    const tmpTarget = path.join("/tmp", `wiring-sandbox-probe-${process.pid}.txt`);
+    const tmpWrite = await drainShell(shell.exec(`touch "${tmpTarget}"`));
+    expect(tmpWrite).toBe(0);
+    expect(fsSync.existsSync(tmpTarget)).toBe(true);
+    fsSync.rmSync(tmpTarget, { force: true });
+
+    const osTmpTarget = path.join(os.tmpdir(), `wiring-sandbox-probe-${process.pid}.txt`);
+    const osTmpWrite = await drainShell(shell.exec(`touch "${osTmpTarget}"`));
+    expect(osTmpWrite).toBe(0);
+    expect(fsSync.existsSync(osTmpTarget)).toBe(true);
+    fsSync.rmSync(osTmpTarget, { force: true });
+
+    // The real $HOME is outside every writable root (cwd / /tmp /
+    // os.tmpdir()) — the exact scenario from the task's manual verification
+    // list. Uses REAL_HOME (captured at module load) rather than
+    // os.homedir(), because this file's top-level beforeEach points $HOME
+    // at a directory under os.tmpdir() for unrelated tests, which would
+    // make os.homedir() resolve to somewhere INSIDE a writable root here.
+    const outsideTarget = path.join(REAL_HOME, `wiring-sandbox-should-fail-${process.pid}.txt`);
+    try {
+      const outsideWrite = await drainShell(shell.exec(`touch "${outsideTarget}"`));
+      expect(outsideWrite).not.toBe(0);
+      expect(fsSync.existsSync(outsideTarget)).toBe(false);
+    } finally {
+      fsSync.rmSync(outsideTarget, { force: true });
+    }
   });
 });
