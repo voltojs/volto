@@ -23,7 +23,7 @@ type Mode = "auto" | "ask" | "deny";
 const MODE_OPTIONS: Array<{ value: Mode; label: string; hint: string }> = [
   { value: "auto", label: "自动允许", hint: "所有工具调用直接执行" },
   { value: "ask", label: "高风险询问", hint: "写入/不可逆操作弹窗确认" },
-  { value: "deny", label: "全部拒绝", hint: "拒绝任何工具调用（只读模式）" },
+  { value: "deny", label: "只读", hint: "读取放行，任何写入一律拒绝" },
 ];
 
 interface Props {
