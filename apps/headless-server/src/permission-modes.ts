@@ -52,7 +52,9 @@ export function isUiPermissionMode(value: unknown): value is UiPermissionMode {
 export function normaliseUiPermissionMode(value: unknown): UiPermissionMode {
   if (isUiPermissionMode(value)) return value;
   if (typeof value === "string" && Object.hasOwn(LEGACY_ALIASES, value)) {
-    return LEGACY_ALIASES[value];
+    // Object.hasOwn already proved `value` is an own key, so the lookup
+    // cannot be undefined despite noUncheckedIndexedAccess.
+    return LEGACY_ALIASES[value]!;
   }
   return DEFAULT_MODE;
 }

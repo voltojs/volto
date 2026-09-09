@@ -135,7 +135,7 @@ describe("session agent lifecycle", () => {
       projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
     });
     await registry.runTurn("s1", "two", {
-      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "auto-accept",
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "auto",
     });
 
     expect(builds).toHaveLength(2);
