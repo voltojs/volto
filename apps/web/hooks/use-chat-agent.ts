@@ -179,6 +179,10 @@ export function useChatAgent(): UseChatAgentReturn {
           providerId: session?.providerId ?? null,
           modelId: session?.modelId ?? null,
           permissionMode: session?.permissionMode,
+          // The session is the single source of truth for the tier: the
+          // picker writes it there, and omitting it here silently ran every
+          // turn at the provider's own default no matter what the user chose.
+          reasoningEffort: session?.reasoningEffort,
         });
       } catch (error) {
         const message =

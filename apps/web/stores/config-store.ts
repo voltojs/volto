@@ -30,15 +30,44 @@ export type {
  * code itself so callers ("the models under this provider, with an id and
  * a name" — pickers, validity checks) never see a missing name.
  */
+/**
+ * Identity cache for the catalog branch below.
+ *
+ * That branch builds fresh `Model` objects on every call, which makes it
+ * unusable inside a zustand selector: `useConfigStore((s) => s.findModel(...))`
+ * compares snapshots by reference, so a new object each render is an
+ * "infinite loop" warning and a re-render storm. Keyed by the provider object
+ * so a `set()` that replaces the provider (the only way its models can change)
+ * naturally misses the cache; the catalog list is stored alongside so a later
+ * catalog load — which changes display names — misses it too.
+ */
+const catalogModelsCache = new WeakMap<
+  object,
+  WeakMap<object, Model[]>
+>();
+
+/**
+ * Shared default for the parameter below — a fresh `[]` literal would be a new
+ * reference on every call and would thrash `catalogModelsCache` between the
+ * callers that pass a catalog and those that don't.
+ */
+const NO_CATALOG: CatalogProvider[] = [];
+
 export function providerModels(
   provider: Provider,
-  catalogProviders: CatalogProvider[] = [],
+  catalogProviders: CatalogProvider[] = NO_CATALOG,
 ): Model[] {
   if (provider.kind === 'catalog') {
+    // Keyed by both, so a caller that passes no catalog cannot evict the
+    // entry a selector depends on (and vice versa) — an alternating
+    // single-slot cache would still hand out a new array every render.
+    const byCatalog = catalogModelsCache.get(provider);
+    const cached = byCatalog?.get(catalogProviders);
+    if (cached) return cached;
     const catalogEntry = catalogProviders.find(
       (c) => c.id === provider.piProvider,
     );
-    return provider.models.map((m) => {
+    const models = provider.models.map((m) => {
       const catalogModel = catalogEntry?.models.find((cm) => cm.code === m.code);
       return {
         id: m.code,
@@ -47,6 +76,10 @@ export function providerModels(
         ...(m.reasoning ? { reasoning: m.reasoning } : {}),
       };
     });
+    const slot = byCatalog ?? new WeakMap<object, Model[]>();
+    slot.set(catalogProviders, models);
+    if (!byCatalog) catalogModelsCache.set(provider, slot);
+    return models;
   }
   return provider.models;
 }

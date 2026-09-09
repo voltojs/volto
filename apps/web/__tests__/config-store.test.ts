@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { useConfigStore } from '../stores/config-store.js';
+import { useConfigStore, providerModels } from '../stores/config-store.js';
 
 const PROJECT = { id: 'p1', name: 'demo', path: '/tmp/demo', createdAt: 1 };
 const PROVIDER = {
@@ -220,6 +220,46 @@ describe('useConfigStore', () => {
     expect(useConfigStore.getState().findModel('v5', 'gpt-5-legacy')?.name).toBe(
       'gpt-5-legacy',
     );
+  });
+
+  it('returns a reference-stable model for an unchanged catalog provider, and a fresh one once it changes', () => {
+    // These are read through zustand selectors (`useConfigStore((s) =>
+    // s.findModel(...))`), which compare snapshots by reference: rebuilding
+    // the model object on every call is React's "getSnapshot should be cached"
+    // infinite loop. Reference identity is the contract, not an optimization.
+    const provider = {
+      id: 'v6',
+      kind: 'catalog' as const,
+      name: 'OpenAI',
+      piProvider: 'openai',
+      apiKeyMasked: 'sk-…abcd',
+      modelCodes: ['gpt-5'],
+      models: [{ code: 'gpt-5', reasoning: { efforts: [{ id: 'high', name: 'High' }] } }],
+    };
+    const catalog = [
+      { id: 'openai', name: 'OpenAI', models: [{ code: 'gpt-5', name: 'GPT-5' }] },
+    ];
+    useConfigStore.setState({ providers: [provider], catalogProviders: catalog });
+
+    const first = useConfigStore.getState().findModel('v6', 'gpt-5');
+    expect(useConfigStore.getState().findModel('v6', 'gpt-5')).toBe(first);
+    // Interleaving a call that passes no catalog (ChatPanel's default-model
+    // path does exactly this) must not evict the selector's entry.
+    providerModels(provider);
+    expect(useConfigStore.getState().findModel('v6', 'gpt-5')).toBe(first);
+    expect(useConfigStore.getState().getModelReasoning('v6', 'gpt-5')).toBe(
+      first!.reasoning,
+    );
+
+    // A newly loaded catalog changes display names, so the cache must miss.
+    useConfigStore.setState({
+      catalogProviders: [
+        { id: 'openai', name: 'OpenAI', models: [{ code: 'gpt-5', name: 'GPT-5 Turbo' }] },
+      ],
+    });
+    const renamed = useConfigStore.getState().findModel('v6', 'gpt-5');
+    expect(renamed).not.toBe(first);
+    expect(renamed?.name).toBe('GPT-5 Turbo');
   });
 
   it('drops a removed provider from local state', async () => {
