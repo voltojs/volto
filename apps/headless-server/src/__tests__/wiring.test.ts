@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createWiredAgent, DEFAULT_SYSTEM_PROMPT } from "../wiring.js";
+import { createWiredAgent, DEFAULT_SYSTEM_PROMPT, buildSandboxConfigs } from "../wiring.js";
 import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
 
@@ -431,5 +431,38 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
 
     const toolResult = requests[1]!.messages.find((m) => m.role === "tool");
     expect(JSON.stringify(toolResult)).toContain("Unknown or non-invocable skill: hollow");
+  });
+});
+
+describe("buildSandboxConfigs (C5 — sandbox bounds file writes only)", () => {
+  it("no mode: both configs are null (adapters stay undecorated)", () => {
+    const { fsConfig, shellConfig } = buildSandboxConfigs(undefined, "/workspace");
+    expect(fsConfig).toBeNull();
+    expect(shellConfig).toBeNull();
+  });
+
+  it("shell config enables network unconditionally, even though the adapter default is disabled", () => {
+    const { shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(shellConfig?.network).toEqual({ enabled: true });
+  });
+
+  it("shell config drops the .git overlay but keeps .env read-only", () => {
+    const { shellConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
+    expect(shellConfig?.readOnlyOverlays).not.toContain(".git");
+  });
+
+  it("fs config keeps the adapter's own defaults untouched (no network override, no overlays field)", () => {
+    const { fsConfig } = buildSandboxConfigs("workspace-write", "/workspace");
+    expect(fsConfig?.network).toBeUndefined();
+    expect(fsConfig?.readOnlyOverlays).toBeUndefined();
+    expect(fsConfig?.mode).toBe("workspace-write");
+    expect(fsConfig?.writableRoots).toEqual(["/workspace", os.tmpdir()]);
+  });
+
+  it("read-only mode still gets the same shell-side network/overlay treatment", () => {
+    const { shellConfig } = buildSandboxConfigs("read-only", "/workspace");
+    expect(shellConfig?.network).toEqual({ enabled: true });
+    expect(shellConfig?.readOnlyOverlays).toEqual([".env"]);
   });
 });

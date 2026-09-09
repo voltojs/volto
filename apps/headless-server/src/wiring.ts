@@ -14,6 +14,7 @@ import {
   createSandboxedFileSystem,
   createSandboxedShell,
 } from "@volto/runtime-node";
+import type { SandboxConfig } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import {
   dedupeInstructions,
@@ -138,6 +139,56 @@ export interface WiringOptions {
   initialStep?: number;
 }
 
+/** The fs- and shell-side sandbox configs built from one sandbox mode. */
+export interface SandboxConfigs {
+  fsConfig: SandboxConfig | null;
+  shellConfig: SandboxConfig | null;
+}
+
+/**
+ * Build the sandbox configs handed to the fs and shell decorators from a
+ * single sandbox mode. Split into two — rather than one shared config — so
+ * the shell side can diverge from the fs side (C5: the sandbox bounds file
+ * writes only):
+ *
+ * - `network: { enabled: true }` on the shell config: egress is not a
+ *   file-write boundary, and `SandboxConfig.network` defaults to disabled
+ *   (the profile then emits `(deny network*)`), which broke `npm install` /
+ *   `curl` / `pip` under every sandboxed tier. The adapter's own
+ *   conservative default is left alone (a caller that says nothing about
+ *   network still gets denied-by-default) — this is the gateway's own
+ *   policy choice, made here rather than in the adapter.
+ * - `readOnlyOverlays: [".env"]` on the shell config (dropping the
+ *   adapter's default `.git` entry): the default denies writes under
+ *   `<cwd>/.git`, so `git commit`, `git add`, `git checkout` and `git stash`
+ *   all failed in the two tiers meant for doing work. Git writes are
+ *   governed by the permission layer instead — `git_commit` is WRITE_HIGH
+ *   and `git_push` is IRREVERSIBLE, already covered by the decision matrix
+ *   — so the sandbox no longer needs to also gate them. `.env` stays
+ *   denied: unlike `.git`, no legitimate shell workflow needs to write a
+ *   secrets file, so keeping it read-only is pure defense-in-depth with no
+ *   working-tier cost.
+ *
+ * The fs config keeps the adapter's own defaults (`.git` + `.env` read-only;
+ * no network concept on a FileSystem port): a model using the edit/write
+ * tool directly on `.git`/`.env` has no comparable permission-layer gate the
+ * way shelled-out git commands do.
+ */
+export function buildSandboxConfigs(
+  mode: SandboxMode | undefined,
+  cwd: string,
+): SandboxConfigs {
+  const base: SandboxConfig | null = mode
+    ? { mode, writableRoots: [cwd, os.tmpdir()] }
+    : null;
+  return {
+    fsConfig: base,
+    shellConfig: base
+      ? { ...base, network: { enabled: true }, readOnlyOverlays: [".env"] }
+      : null,
+  };
+}
+
 export function createWiredAgent(opts: WiringOptions = {}) {
   const cwd = opts.cwd ?? process.cwd();
   // User-level, not workspace-relative: the default used to land a
@@ -149,12 +200,14 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   // directory itself (see stores/sqlite's createStore).
   const dbPath = opts.dbPath ?? path.join(getConfigPath("db"), "sessions.db");
 
-  // One sandbox knob drives both paths. Without a mode the adapters stay
-  // undecorated — the legacy routes and tests that build an agent with no
-  // permission preset keep their prior behaviour.
-  const sandboxConfig = opts.sandboxMode
-    ? { mode: opts.sandboxMode, writableRoots: [cwd, os.tmpdir()] }
-    : null;
+  // One sandbox knob drives both paths — see buildSandboxConfigs for how (and
+  // why) the fs and shell sides diverge (C5). Without a mode both stay null
+  // and the adapters stay undecorated — the legacy routes and tests that
+  // build an agent with no permission preset keep their prior behaviour.
+  const { fsConfig: sandboxConfig, shellConfig: shellSandboxConfig } = buildSandboxConfigs(
+    opts.sandboxMode,
+    cwd,
+  );
   const rawFs = createNodeFileSystem({ root: cwd });
   const rawShell = createNodeShell({ defaultCwd: cwd });
   // The third argument is the root `rawFs` itself resolves relative paths
@@ -163,7 +216,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   const fs = sandboxConfig
     ? createSandboxedFileSystem(rawFs, sandboxConfig, { root: cwd })
     : rawFs;
-  const shell = sandboxConfig ? createSandboxedShell(rawShell, sandboxConfig) : rawShell;
+  const shell = shellSandboxConfig ? createSandboxedShell(rawShell, shellSandboxConfig) : rawShell;
   const network = createNodeNetwork();
   const model = opts.model ?? DEFAULT_MODEL;
   const modelPort = opts.modelPort ?? createPiAiModelPort(
