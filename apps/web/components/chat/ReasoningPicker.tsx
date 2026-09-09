@@ -48,7 +48,7 @@ export function ReasoningPicker({
         <Brain className="text-primary/80 h-3.5 w-3.5" />
         <SelectValue placeholder="推理等级" />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
+      <SelectContent alignItemWithTrigger={false} width="content">
         {efforts.map((effort) => (
           <SelectItem key={effort.id} value={effort.id}>
             {effort.name}

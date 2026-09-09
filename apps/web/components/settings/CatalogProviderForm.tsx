@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { fetchCatalogProviders, type CatalogProvider } from '@/lib/config-api';
+import { ProviderShell } from './ProviderShell';
 
 type CatalogKindProvider = Extract<Provider, { kind: 'catalog' }>;
 
@@ -31,6 +32,8 @@ export function CatalogProviderSection({
   const [catalog, setCatalog] = useState<CatalogProvider[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  /** Which existing provider's editor is unfolded; at most one at a time. */
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +58,7 @@ export function CatalogProviderSection({
   );
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
         内置 Provider
       </div>
@@ -65,6 +68,12 @@ export function CatalogProviderSection({
           key={provider.id}
           provider={provider}
           catalog={catalog}
+          expanded={openId === provider.id}
+          onToggle={() =>
+            setOpenId((current) =>
+              current === provider.id ? null : provider.id,
+            )
+          }
         />
       ))}
       {catalogProviders.length === 0 && !adding && (
@@ -234,9 +243,13 @@ function CatalogAddForm({
 function CatalogProviderCard({
   provider,
   catalog,
+  expanded,
+  onToggle,
 }: {
   provider: CatalogKindProvider;
   catalog: CatalogProvider[] | null;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const editProvider = useConfigStore((s) => s.editProvider);
   const removeProvider = useConfigStore((s) => s.removeProvider);
@@ -287,35 +300,37 @@ function CatalogProviderCard({
   };
 
   return (
-    <div className="bg-card/50 space-y-3 rounded-lg border p-3">
-      <div className="flex items-center gap-2">
-        <div className="flex-1 font-medium">{provider.name}</div>
-        <Badge variant="outline" className="font-mono">
-          {provider.piProvider}
-        </Badge>
-        {provider.apiKeyMasked && (
-          <Badge variant="outline" className="font-mono">
-            {provider.apiKeyMasked}
+    <ProviderShell
+      name={provider.name}
+      badges={
+        <>
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+            {provider.piProvider}
           </Badge>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
-          onClick={() => void remove()}
-          aria-label="删除供应商"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <Input
-        type="password"
-        value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
-        placeholder={provider.apiKeyMasked ? '留空则不修改 apiKey' : 'apiKey'}
-        className="font-mono text-xs"
-      />
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+            {selectedCodes.length} 个模型
+          </Badge>
+          {provider.apiKeyMasked && (
+            <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+              {provider.apiKeyMasked}
+            </Badge>
+          )}
+        </>
+      }
+      expanded={expanded}
+      onToggle={onToggle}
+      onRemove={() => void remove()}
+    >
+      <label className="space-y-1">
+        <span className="text-muted-foreground text-[11px]">apiKey</span>
+        <Input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={provider.apiKeyMasked ? '留空则不修改' : 'apiKey'}
+          className="h-8 font-mono text-xs"
+        />
+      </label>
 
       <Separator />
 
@@ -365,6 +380,6 @@ function CatalogProviderCard({
       >
         {saving ? '保存中…' : '保存'}
       </Button>
-    </div>
+    </ProviderShell>
   );
 }

@@ -67,7 +67,10 @@ export function ModelPicker({
           placeholder={providerId && !valid ? '模型已失效，请重选' : '选择模型'}
         />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
+      {/* Model names routinely outrun the trigger ("DeepSeek V4 Flash Vision
+          Exp" beside a trigger showing "MiMo-V2.5"), so the list sizes to its
+          own content rather than being clipped to the trigger's width. */}
+      <SelectContent alignItemWithTrigger={false} width="content">
         {providers.map((provider) => (
           <SelectGroup key={provider.id}>
             <SelectLabel>{provider.name}</SelectLabel>

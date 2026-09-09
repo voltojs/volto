@@ -61,6 +61,12 @@ describe('CustomProviderSection', () => {
     const user = userEvent.setup();
     render(<CustomProviderSection providers={[PROVIDER]} />);
 
+    // Collapsed by default: the row shows identity only, no form.
+    expect(screen.getByText('MiMo')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('mimo-v2.5')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '编辑供应商' }));
+
     // All pre-existing fields are visible, pre-filled from the provider.
     expect(screen.getByDisplayValue('MiMo')).toBeInTheDocument();
     expect(

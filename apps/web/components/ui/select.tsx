@@ -70,8 +70,17 @@ function SelectContent({
   align = 'center',
   alignOffset = 0,
   alignItemWithTrigger = false,
+  width = 'anchor',
   ...props
-}: SelectPrimitive.Popup.Props &
+}: SelectPrimitive.Popup.Props & {
+  /**
+   * `anchor` (default) locks the popup to the trigger's width, which
+   * truncates any item longer than the trigger. `content` lets it grow to
+   * fit its longest item instead — still never narrower than the trigger,
+   * and never wider than the space actually available beside it.
+   */
+  width?: 'anchor' | 'content';
+} &
   Pick<
     SelectPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
@@ -90,7 +99,14 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg shadow-md ring-1 duration-100 data-[align-trigger=true]:animate-none',
+            'bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 relative isolate z-50 min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg shadow-md ring-1 duration-100 data-[align-trigger=true]:animate-none',
+            // A hard cap in addition to --available-height: a long model list
+            // would otherwise stretch to the full viewport, and the popup
+            // scrolls internally (overflow-y-auto above) instead.
+            'max-h-[min(20rem,var(--available-height))]',
+            width === 'content'
+              ? 'w-max min-w-(--anchor-width) max-w-(--available-width)'
+              : 'w-(--anchor-width)',
             className,
           )}
           {...props}

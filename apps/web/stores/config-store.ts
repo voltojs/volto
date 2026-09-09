@@ -107,7 +107,8 @@ interface ConfigState {
   /** Returns the created project so callers can select it immediately. */
   addProject: (input: { name: string; path: string }) => Promise<Project>;
   removeProject: (id: string) => Promise<void>;
-  addProvider: (input: ProviderInput) => Promise<void>;
+  /** Returns the created provider so callers can open it for editing immediately. */
+  addProvider: (input: ProviderInput) => Promise<Provider>;
   editProvider: (id: string, input: ProviderUpdateInput) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
 
@@ -163,6 +164,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   addProvider: async (input) => {
     const provider = await api.createProvider(input);
     set((state) => ({ providers: [...state.providers, provider] }));
+    return provider;
   },
 
   editProvider: async (id, input) => {
