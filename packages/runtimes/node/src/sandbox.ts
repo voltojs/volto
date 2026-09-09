@@ -467,7 +467,6 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     // `id`, `ls -l`/`-la` (username column), and git's author/committer
     // resolution when user.name/user.email aren't configured.
     '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))',
-    '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.membership"))',
     // Allow stdout/stderr via /dev
     "(allow file-write-data (subpath \"/dev\"))",
   ];
@@ -484,13 +483,38 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
 
   // Network — three-state semantics:
   // enabled=false  → deny all (default)
-  // enabled=true + empty allowedHosts → allow all
-  // enabled=true + non-empty allowedHosts → allow all
+  // enabled=true + empty allowedHosts → allow all (except loopback, see below)
+  // enabled=true + non-empty allowedHosts → allow all (except loopback)
   //   (the proxy runs OUTSIDE the sandbox and enforces the allowlist;
   //    the sandboxed process only needs to reach the proxy via loopback,
   //    and socat bridges loopback TCP → unix socket)
   if (networkEnabled) {
     lines.push("(allow network*)");
+    // R2: deny loopback egress even though general network is allowed. A
+    // sandboxed `bash` with `(allow network*)` can otherwise reach the
+    // gateway's own HTTP control plane on 127.0.0.1 — including routes like
+    // POST /approvals, which is gated only by an Origin check that a
+    // same-host curl trivially bypasses (curl sends no Origin header at
+    // all). `(remote ip "localhost:*")` is the one host literal SBPL
+    // accepts here ("host must be * or localhost in network address" is a
+    // hard parser error for any other literal, including "127.0.0.1"), and
+    // it is resolved against the actual remote address of the connection —
+    // verified empirically to cover IPv4 loopback (127.0.0.1), IPv6 loopback
+    // (::1), and the literal hostname "localhost" (which resolves to one of
+    // those addresses before the connection is made), while leaving
+    // unrelated egress (e.g. https://example.com) unaffected. `deny` here
+    // wins over the `(allow network*)` above regardless of line order —
+    // SBPL resolves the more specific rule for an operation, the same
+    // "deny overrides allow" precedent already used for the read-only
+    // overlays below.
+    //
+    // Not a complete fix on its own: this closes the network path into
+    // /approvals, but the route itself still has no authentication, so
+    // anything else that can reach the gateway's port (a different local
+    // process, a proxy allowedHost that happens to resolve back to this
+    // host, etc.) is still unauthenticated. See the wiring.ts comment next
+    // to buildSandboxConfigs.
+    lines.push('(deny network* (remote ip "localhost:*"))');
   } else {
     lines.push("(deny network*)");
   }
@@ -511,6 +535,15 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  * All mount options use identity mounts (src == dest) — the process sees
  * the same absolute paths inside the namespace as outside, but write
  * permissions are restricted by mount flags.
+ *
+ * KNOWN GAP (R2 parity): `--unshare-net` is all-or-nothing — bwrap has no
+ * per-destination network filter comparable to seatbelt's `(remote ip
+ * "localhost:*")` deny (see buildSeatbeltProfile). When network is enabled
+ * on Linux there is currently no way to block loopback egress while keeping
+ * general egress working; a sandboxed process with network enabled can
+ * reach a control-plane HTTP server bound to 127.0.0.1 same as it could
+ * before the seatbelt fix. This is not implemented here — flagging it
+ * plainly rather than pretending the two backends have equivalent coverage.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {
   const writableRoots = config.writableRoots ?? [];

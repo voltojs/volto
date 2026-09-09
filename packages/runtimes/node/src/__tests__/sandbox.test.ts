@@ -7,6 +7,8 @@ import type { Shell, ShellEvent } from "@volto/core";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 
 /** Drain a Shell.exec() AsyncIterable into its stdout/stderr text and exit code. */
 async function drain(events: AsyncIterable<ShellEvent>): Promise<{ out: string; code: number | undefined }> {
@@ -226,6 +228,31 @@ describe("buildSeatbeltProfile", () => {
       network: { enabled: true },
     });
     expect(profile).toContain("(allow network*)");
+  });
+
+  it("network enabled: also denies loopback (R2 — a sandboxed process must not reach the gateway's own control plane on 127.0.0.1)", () => {
+    const profile = buildSeatbeltProfile({
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      network: { enabled: true },
+    });
+    expect(profile).toContain('(deny network* (remote ip "localhost:*"))');
+    // The loopback deny must come after the general allow so it wins (SBPL
+    // resolves the more specific rule for an operation regardless of order,
+    // verified empirically in the real-execution suite below — this just
+    // locks in the intended shape of the profile).
+    const allowIdx = profile.indexOf("(allow network*)");
+    const denyIdx = profile.indexOf('(deny network* (remote ip "localhost:*"))');
+    expect(denyIdx).toBeGreaterThan(allowIdx);
+  });
+
+  it("network disabled: no loopback-specific deny needed (the blanket deny already covers it)", () => {
+    const profile = buildSeatbeltProfile({
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      network: { enabled: false },
+    });
+    expect(profile).not.toContain("localhost");
   });
 
   it("escapes double-quote in path names", () => {
@@ -724,5 +751,174 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
     const write = await drain(shell.exec(`touch "${target}"`));
     expect(write.code).not.toBe(0);
     expect(fs.existsSync(target)).toBe(false);
+  });
+
+  // ──────────────────────────────────────────────
+  // R2 — loopback egress is refused even with network enabled
+  //
+  // Demonstrated escape: with `network: { enabled: true }`, the profile
+  // used to emit only `(allow network*)`, which includes loopback — a
+  // sandboxed `curl` could reach the gateway's own HTTP control plane on
+  // 127.0.0.1 (e.g. POST /approvals) and self-approve a pending tool call.
+  // These tests really start a throwaway HTTP server and really shell out
+  // to sandbox-exec — no config-string assertions.
+  // ──────────────────────────────────────────────
+  describe("R2 — real loopback denial under network: enabled", () => {
+    it("a sandboxed curl cannot reach a real local HTTP server on 127.0.0.1", async () => {
+      const scratch = makeScratch();
+      const server = http.createServer((_req, res) => {
+        res.end("should-not-be-reached");
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      const port = (server.address() as AddressInfo).port;
+
+      try {
+        const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+          mode: "workspace-write",
+          backend: "seatbelt",
+          writableRoots: [scratch],
+          network: { enabled: true },
+        });
+
+        const { code, out } = await drain(
+          shell.exec(`curl -sS --max-time 3 http://127.0.0.1:${port}/`),
+        );
+
+        expect(code).not.toBe(0);
+        expect(out).not.toContain("should-not-be-reached");
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    it("a sandboxed curl cannot reach a real local HTTP server on ::1 (IPv6 loopback)", async () => {
+      const scratch = makeScratch();
+      const server = http.createServer((_req, res) => {
+        res.end("should-not-be-reached");
+      });
+      await new Promise<void>((resolve) => server.listen(0, "::1", () => resolve()));
+      const port = (server.address() as AddressInfo).port;
+
+      try {
+        const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+          mode: "workspace-write",
+          backend: "seatbelt",
+          writableRoots: [scratch],
+          network: { enabled: true },
+        });
+
+        const { code, out } = await drain(
+          shell.exec(`curl -sS --max-time 3 "http://[::1]:${port}/"`),
+        );
+
+        expect(code).not.toBe(0);
+        expect(out).not.toContain("should-not-be-reached");
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    it("the literal hostname 'localhost' is refused too, not just the bare IP", async () => {
+      const scratch = makeScratch();
+      const server = http.createServer((_req, res) => {
+        res.end("should-not-be-reached");
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      const port = (server.address() as AddressInfo).port;
+
+      try {
+        const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+          mode: "workspace-write",
+          backend: "seatbelt",
+          writableRoots: [scratch],
+          network: { enabled: true },
+        });
+
+        const { code, out } = await drain(
+          shell.exec(`curl -sS --max-time 3 http://localhost:${port}/`),
+        );
+
+        expect(code).not.toBe(0);
+        expect(out).not.toContain("should-not-be-reached");
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+  });
+
+  // ──────────────────────────────────────────────
+  // R4 — dropping the opendirectoryd.membership mach-lookup does not
+  // regress the commands the reviewer's necessity matrix checked.
+  // ──────────────────────────────────────────────
+  describe("R4 — membership mach-lookup removal does not regress identity commands", () => {
+    it("whoami returns a real (non-empty) username", async () => {
+      const scratch = makeScratch();
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: false },
+      });
+      const { code, out } = await drain(shell.exec("whoami"));
+      expect(code).toBe(0);
+      expect(out.trim().length).toBeGreaterThan(0);
+    });
+
+    it("id returns uid/gid, not an error", async () => {
+      const scratch = makeScratch();
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: false },
+      });
+      const { code, out } = await drain(shell.exec("id"));
+      expect(code).toBe(0);
+      expect(out).toContain("uid=");
+    });
+
+    it("ls -la resolves the username column instead of a raw uid", async () => {
+      const scratch = makeScratch();
+      fs.writeFileSync(path.join(scratch, "probe.txt"), "x");
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: false },
+      });
+      const { code, out } = await drain(shell.exec("ls -la probe.txt"));
+      expect(code).toBe(0);
+      expect(out).toContain("probe.txt");
+      // Without opendirectoryd.libinfo, ls falls back to a raw numeric uid
+      // in the owner column instead of resolving it to a name. Assert the
+      // real, resolved username shows up — this is what `membership`'s
+      // removal must NOT regress (libinfo alone is claimed sufficient).
+      expect(out).toContain(os.userInfo().username);
+    });
+
+    it("git commit --allow-empty succeeds with no confstr warning on stderr", async () => {
+      const scratch = makeScratch();
+      const { code, out } = await drain(
+        createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+          mode: "workspace-write",
+          backend: "seatbelt",
+          writableRoots: [scratch],
+          // The adapter's own default overlay set (".git", ".env") would
+          // block `git init` from creating .git in the first place — that
+          // is a different, deliberate policy (see wiring.ts's
+          // buildSandboxConfigs for where it's overridden at the gateway
+          // level) and not what this test is checking. Empty it out here so
+          // this test isolates the one thing it's verifying: that removing
+          // the `membership` mach-lookup doesn't regress git's identity
+          // resolution.
+          readOnlyOverlays: [],
+          network: { enabled: false },
+        }).exec(
+          `git init -q && git config user.email "t@example.com" && git config user.name "T" && git commit --allow-empty -m probe`,
+        ),
+      );
+      expect(code).toBe(0);
+      expect(out).not.toContain("confstr");
+    });
   });
 });
