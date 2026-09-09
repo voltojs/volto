@@ -3,6 +3,7 @@
  * Assembles adapters, provider, tools, and store into a createAgent call.
  */
 
+import * as os from "node:os";
 import * as path from "node:path";
 import { createAgent } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
@@ -152,7 +153,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   // undecorated — the legacy routes and tests that build an agent with no
   // permission preset keep their prior behaviour.
   const sandboxConfig = opts.sandboxMode
-    ? { mode: opts.sandboxMode, writableRoots: [cwd] }
+    ? { mode: opts.sandboxMode, writableRoots: [cwd, os.tmpdir()] }
     : null;
   const rawFs = createNodeFileSystem({ root: cwd });
   const rawShell = createNodeShell({ defaultCwd: cwd });
