@@ -5,7 +5,7 @@
  *   GET  /events?sessionId=   — long-lived SSE channel for one chat session
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
  *
- * Legacy routes (consumed by apps/ide-extension and apps/chat-adapter):
+ * Legacy routes (no in-repo consumer; kept for out-of-tree clients):
  *   POST /run                 — one-shot run, returns final state
  *   POST /resume              — HITL resume with decision
  *   GET  /stream?message=     — one-shot SSE of raw internal events
@@ -54,8 +54,8 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
    * `apps/web` dev server's own origin — a browser is the threat surface a
    * local gateway needs to worry about (it can enumerate providers, drive
    * the agent with `permissionMode: "auto-accept"`, and read the response
-   * cross-origin if this were `"*"`). Non-browser clients (`apps/ide-extension`,
-   * `apps/chat-adapter`, curl) send no `Origin` header at all and are never
+   * cross-origin if this were `"*"`). Non-browser clients (curl, any
+   * out-of-tree host) send no `Origin` header at all and are never
    * subject to this check. Set to `"*"` to deliberately expose the gateway
    * to any origin, or to a different origin for another trusted deployment.
    * Falls back to the `VOLTO_CORS_ORIGIN` env var, then to the dev default —
@@ -245,8 +245,8 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
   /**
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
-   * `apps/ide-extension`, `apps/chat-adapter`) sends none and is never
-   * subject to this check — there is nothing for CORS to protect there.
+   * any out-of-tree host) sends none and is never subject to this check —
+   * there is nothing for CORS to protect there.
    */
   function isOriginAllowed(origin: string | undefined): boolean {
     if (origin === undefined) return true;
