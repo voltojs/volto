@@ -63,4 +63,51 @@ describe('selectPendingApprovals', () => {
     // A reconnect can replay a decision whose ask fell outside the buffer.
     expect(selectPendingApprovals([decided('ghost')])).toEqual([]);
   });
+
+  it('carries the tool input from the already-streamed tool call', () => {
+    // The approval event deliberately does NOT carry arguments (that is how
+    // drift between "what was approved" and "what runs" is avoided). They are
+    // recovered from the tool_use block that was already streamed.
+    const events: TranscriptEventInput[] = [
+      {
+        time: 1,
+        type: 'assistant_message',
+        data: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call-1',
+              name: 'bash',
+              input: { command: 'rm -rf build' },
+            },
+          ],
+        },
+      },
+      {
+        time: 2,
+        type: 'approval_asked',
+        data: { callId: 'call-1', name: 'bash', riskTier: 'WRITE_HIGH' },
+      },
+    ] as TranscriptEventInput[];
+
+    const pending = selectPendingApprovals(events);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.input).toEqual({ command: 'rm -rf build' });
+  });
+
+  it('still returns the approval when no tool_use block is in the buffer', () => {
+    // A reconnect can replay a buffer whose tool_use fell off the front. The
+    // approval must still render -- without arguments, but never suppressed.
+    const events: TranscriptEventInput[] = [
+      {
+        time: 1,
+        type: 'approval_asked',
+        data: { callId: 'call-1', name: 'bash', riskTier: 'WRITE_HIGH' },
+      },
+    ] as TranscriptEventInput[];
+
+    const pending = selectPendingApprovals(events);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.input).toBeUndefined();
+  });
 });
