@@ -1,0 +1,109 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fsp from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { createBrowserAuth } from "../browser-auth.js";
+
+let dir: string;
+
+beforeEach(async () => {
+  dir = await fsp.mkdtemp(path.join(os.tmpdir(), "volto-auth-"));
+});
+afterEach(async () => {
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
+function reqWith(headers: Record<string, string>, url = "/") {
+  return { url, headers } as unknown as import("node:http").IncomingMessage;
+}
+
+describe("createBrowserAuth", () => {
+  it("mints a launch token that is not guessable-short", async () => {
+    const auth = await createBrowserAuth({ dir });
+    expect(auth.launchToken.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it("puts the token on the root url as its only auth input", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const url = new URL(auth.authenticatedUrl("http://localhost:3100/ignored?a=b#c"));
+    expect(url.pathname).toBe("/");
+    expect(url.hash).toBe("");
+    expect(url.searchParams.get("token")).toBe(auth.launchToken);
+    expect([...url.searchParams.keys()]).toEqual(["token"]);
+  });
+
+  it("persists its signing secret across instances", async () => {
+    const first = await createBrowserAuth({ dir });
+    const cookie = first.cookieHeaderFor(Date.now());
+    const value = cookie.split(";")[0]!;
+
+    // A second instance over the same dir must accept the first one's cookie.
+    const second = await createBrowserAuth({ dir });
+    expect(second.authorize(reqWith({ cookie: value })).ok).toBe(true);
+  });
+
+  it("accepts a valid launch token and asks the caller to redirect to a clean url", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const result = auth.authorize(reqWith({}, `/?token=${auth.launchToken}`));
+
+    expect(result.ok).toBe(false);
+    expect(result.redirectTo).toBe("/");
+    expect(result.setCookie).toBeDefined();
+    // The token must not survive in the address bar.
+    expect(result.redirectTo).not.toContain("token");
+  });
+
+  it("issues an HttpOnly SameSite=Strict cookie", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const cookie = auth.cookieHeaderFor(Date.now());
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Strict");
+    expect(cookie).toContain("Path=/");
+  });
+
+  it("accepts a bearer token", async () => {
+    const auth = await createBrowserAuth({ dir });
+    expect(auth.authorize(reqWith({ authorization: `Bearer ${auth.launchToken}` })).ok).toBe(true);
+  });
+
+  it("rejects a tampered cookie", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const cookie = auth.cookieHeaderFor(Date.now()).split(";")[0]!;
+    const tampered = `${cookie.slice(0, -1)}${cookie.endsWith("A") ? "B" : "A"}`;
+    expect(auth.authorize(reqWith({ cookie: tampered })).ok).toBe(false);
+  });
+
+  it("rejects a cookie signed by a different secret", async () => {
+    const other = await fsp.mkdtemp(path.join(os.tmpdir(), "volto-auth-other-"));
+    const foreign = await createBrowserAuth({ dir: other });
+    const auth = await createBrowserAuth({ dir });
+
+    const cookie = foreign.cookieHeaderFor(Date.now()).split(";")[0]!;
+    expect(auth.authorize(reqWith({ cookie })).ok).toBe(false);
+
+    await fsp.rm(other, { recursive: true, force: true });
+  });
+
+  it("rejects an expired cookie", async () => {
+    const auth = await createBrowserAuth({ dir, maxAgeDays: 1 });
+    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const cookie = auth.cookieHeaderFor(twoDaysAgo).split(";")[0]!;
+    expect(auth.authorize(reqWith({ cookie })).ok).toBe(false);
+  });
+
+  it("rejects an empty or absent credential", async () => {
+    const auth = await createBrowserAuth({ dir });
+    expect(auth.authorize(reqWith({})).ok).toBe(false);
+    expect(auth.authorize(reqWith({ cookie: "" })).ok).toBe(false);
+    expect(auth.authorize(reqWith({ authorization: "Bearer " })).ok).toBe(false);
+  });
+
+  it("writes its secret file with owner-only permissions", async () => {
+    await createBrowserAuth({ dir });
+    const entries = await fsp.readdir(dir);
+    const secret = entries.find((e) => e.includes("auth"));
+    expect(secret).toBeDefined();
+    const stat = await fsp.stat(path.join(dir, secret!));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
+});
