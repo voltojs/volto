@@ -5,7 +5,7 @@
  */
 
 import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
-import type { ReasoningEffortId } from "./ports.js";
+import type { ApprovalDenialReason, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
@@ -646,6 +646,37 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
   return errorResult(state, `executing_tools: unexpected input type "${input.type}"`);
 }
 
+/**
+ * The tool result a denied call reports back to the MODEL.
+ *
+ * The reason matters to what the model does next. Told "the user denied
+ * this", it asks a follow-up question — correct when a human clicked deny,
+ * useless when the connection dropped and nobody is there to answer. The
+ * fail-closed paths therefore say so, and say not to ask.
+ *
+ * `user` and an absent reason produce the identical original wording, so
+ * recorded replays of user denials are unaffected.
+ */
+function denialMessageFor(toolName: string, reason?: ApprovalDenialReason): string {
+  switch (reason) {
+    case "connection-lost":
+      return (
+        `Tool "${toolName}" was denied automatically: the client connection dropped ` +
+        `while the approval was pending, so it was refused rather than left running. ` +
+        `Nobody is currently connected to answer — do not ask for confirmation. ` +
+        `Stop and report that the request needs to be retried once reconnected.`
+      );
+    case "interrupted":
+      return (
+        `Tool "${toolName}" was denied automatically: the turn was interrupted while ` +
+        `the approval was pending. This was not a judgement on the call itself. ` +
+        `Stop the current line of work rather than asking for confirmation.`
+      );
+    default:
+      return `Tool "${toolName}" was denied by the user.`;
+  }
+}
+
 function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "approval_decision") {
     const approvedTool = state.pendingApprovalTool;
@@ -673,7 +704,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         {
           type: "tool_result",
           toolUseId: input.toolCallId,
-          content: `Tool "${approvedTool.name}" was denied by the user.`,
+          content: denialMessageFor(approvedTool.name, input.reason),
           isError: true,
         },
       ],

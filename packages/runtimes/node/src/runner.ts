@@ -1399,6 +1399,9 @@ export function createRunner(opts: RunnerOptions): Runner {
           type: "approval_decision",
           toolCallId: e.toolCall.id,
           decision,
+          // Carried into the reducer too, not just the transcript: it decides
+          // what the denial's tool result tells the model.
+          ...(reason !== undefined ? { reason } : {}),
         }));
         recorder.record(
           "approval_decision",
