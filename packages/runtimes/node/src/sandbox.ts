@@ -24,6 +24,7 @@ import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
+import type { SandboxEnforcement } from "./sandbox-enforcement.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -88,6 +89,14 @@ export interface SandboxConfig {
   /** When true, throw at construction time if sandbox is unavailable. Default: false */
   failIfUnavailable?: boolean;
 }
+
+/**
+ * A sandboxed Shell plus the enforcement fact the selected backend achieves.
+ * The fact is a property of the RUNTIME (which backend was actually
+ * selected), never of the config (what was asked for) — that gap is where a
+ * dead sandbox hides.
+ */
+export type SandboxedShell = Shell & { readonly sandboxEnforcement: SandboxEnforcement };
 
 // ──────────────────────────────────────────────
 // Backend detection (Plan 009 Phase 0)
@@ -173,12 +182,15 @@ function stripEnvFrom(
 export function createSandboxedShell(
   realShell: Shell,
   config: SandboxConfig,
-): Shell {
+): SandboxedShell {
   const backend = config.backend ?? detectBackend();
 
-  // danger-full-access: no isolation, passthrough
+  // danger-full-access: no isolation, passthrough. It confines nothing by
+  // definition, so it reports `none` rather than pretending otherwise.
   if (config.mode === "danger-full-access") {
-    return realShell;
+    return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
+      sandboxEnforcement: "none" as const,
+    }) as SandboxedShell;
   }
 
   // Unsupported platform with failIfUnavailable: throw at construction
@@ -198,6 +210,7 @@ export function createSandboxedShell(
     const stripped = config.strippedEnvVars ?? [];
     const strippedPatterns = config.strippedEnvPatterns ?? [];
     return {
+      sandboxEnforcement: "none",
       exec(cmd: string, opts?: ShellExecOptions) {
         if (!warned) {
           warned = true;
@@ -283,7 +296,13 @@ export function createSandboxedShell(
     }
     const profileContent = buildSeatbeltProfile(resolvedConfig);
 
+    // Both confining backends govern every file effect this config asks for.
+    // A future Landlock-only path or an ABI too old for one of the rules must
+    // report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = "full";
+
     return {
+      sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
           let profilePath: string | undefined;
@@ -375,7 +394,13 @@ export function createSandboxedShell(
     const bwrapArgs = buildBwrapArgs(resolvedConfig);
     let warned = false;
 
+    // Both confining backends govern every file effect this config asks for.
+    // A future Landlock-only path or an ABI too old for one of the rules must
+    // report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = "full";
+
     return {
+      sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
@@ -440,8 +465,10 @@ export function createSandboxedShell(
     };
   }
 
-  // Fallback (should not reach here)
-  return realShell;
+  // Fallback (should not reach here — backend is always one of the three above)
+  return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
+    sandboxEnforcement: "none" as const,
+  }) as SandboxedShell;
 }
 
 // ──────────────────────────────────────────────

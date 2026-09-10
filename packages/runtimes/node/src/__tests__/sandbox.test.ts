@@ -290,11 +290,13 @@ describe("buildSeatbeltProfile", () => {
 });
 
 describe("createSandboxedShell", () => {
-  it("danger-full-access: returns real shell directly (passthrough)", () => {
+  it("danger-full-access: passthrough with sandboxEnforcement none", () => {
     const mock = createMockShell();
     const wrapped = createSandboxedShell(mock, { mode: "danger-full-access", backend: "none" });
-    // Wrapped shell should be the exact same reference as the mock
-    expect(wrapped).toBe(mock);
+    // Returns a prototype-preserving copy (not the same reference) because
+    // sandboxEnforcement must be attached without mutating the caller's object.
+    expect(wrapped.sandboxEnforcement).toBe("none");
+    expect(typeof wrapped.exec).toBe("function");
   });
 
   it("unsupported backend (none) + failIfUnavailable: throws at construction", () => {
@@ -432,9 +434,10 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
   it("danger-full-access still exposes the real shell's launch (raw passthrough by design)", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, { mode: "danger-full-access", backend: "none" });
-    // danger-full-access returns the real shell object itself, unwrapped —
-    // there is no sandbox boundary to enforce in this mode.
-    expect(wrapped).toBe(mock);
+    // danger-full-access returns a prototype-preserving passthrough —
+    // there is no sandbox boundary to enforce in this mode. The launch
+    // method must survive the copy.
+    expect(wrapped.sandboxEnforcement).toBe("none");
     expect(wrapped.launch).toBe(mock.launch);
   });
 });
@@ -989,5 +992,41 @@ describe("deniedReadPaths", () => {
     delete process.env["OPENAI_API_KEY"];
     delete process.env["VOLTO_TEST_PLAIN"];
     await fsp.rm(base, { recursive: true, force: true });
+  });
+});
+
+// ──────────────────────────────────────────────
+// sandboxEnforcement — the shell decorator self-reports which enforcement
+// level the selected backend actually achieves. The fact belongs to the
+// RUNTIME (which backend was actually selected), not to the config (what
+// was asked for) — that gap is where a dead sandbox hides.
+// ──────────────────────────────────────────────
+
+describe("sandboxEnforcement", () => {
+  itDarwin("reports full when seatbelt is the selected backend", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "workspace-write",
+      writableRoots: [os.tmpdir()],
+    });
+    expect(shell.sandboxEnforcement).toBe("full");
+  });
+
+  it("reports none when no backend confines the process", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "workspace-write",
+      writableRoots: [os.tmpdir()],
+      backend: "none",
+      // Task 4 flips this default to true; the passthrough path only exists
+      // for callers that opt out explicitly.
+      failIfUnavailable: false,
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
+  });
+
+  it("reports none for danger-full-access, which confines nothing by definition", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "danger-full-access",
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
   });
 });
