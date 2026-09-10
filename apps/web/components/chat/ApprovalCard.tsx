@@ -9,7 +9,7 @@ interface ApprovalCardProps {
   approval: PendingApproval;
   onDecide: (
     callId: string,
-    decision: 'allow' | 'allow_always' | 'deny',
+    decision: 'allow' | 'deny',
   ) => Promise<void>;
 }
 
@@ -34,7 +34,7 @@ function formatApprovalInput(input: Record<string, unknown>): string {
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const [busy, setBusy] = useState(false);
 
-  const decide = async (decision: 'allow' | 'allow_always' | 'deny') => {
+  const decide = async (decision: 'allow' | 'deny') => {
     if (busy) return;
     setBusy(true);
     try {
@@ -70,14 +70,6 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
           允许一次
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void decide('allow_always')}
-        >
-          本会话总是允许
         </Button>
         <Button
           size="sm"

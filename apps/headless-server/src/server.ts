@@ -567,7 +567,6 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         }
         if (
           body.decision !== "allow" &&
-          body.decision !== "allow_always" &&
           body.decision !== "deny"
         ) {
           jsonResponse(res, 400, {

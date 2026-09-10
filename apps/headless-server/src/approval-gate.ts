@@ -16,8 +16,16 @@
 
 import type { ApprovalGate, PendingToolCall, RiskTier } from "@volto/core";
 
-/** What a client may answer at an approval prompt. */
-export type ApprovalDecision = "allow" | "allow_always" | "deny";
+/**
+ * What a client may answer at an approval prompt.
+ *
+ * One-shot only. A session-scoped "always allow" used to exist here; it was
+ * removed because a grant that outlives model switches, project switches and
+ * a downgrade of the permission preset is a scope no user can predict --
+ * granting it under `auto` left `bash` running after a downgrade to
+ * `read-only`. If a persistent grant returns, it must be turn-scoped.
+ */
+export type ApprovalDecision = "allow" | "deny";
 
 export interface PendingApproval {
   callId: string;
@@ -36,16 +44,7 @@ export interface ApprovalRegistry {
   size(): number;
 }
 
-export interface ApprovalRegistryOptions {
-  /**
-   * Called when a user grants "always allow" for a tool, before the call is
-   * resolved — the caller appends a session-scoped permission rule so the
-   * next call of the same tool is never asked about again.
-   */
-  onAlwaysAllow: (toolName: string) => void;
-}
-
-export function createApprovalRegistry(opts: ApprovalRegistryOptions): ApprovalRegistry {
+export function createApprovalRegistry(): ApprovalRegistry {
   const pending = new Map<string, PendingApproval>();
 
   const gate: ApprovalGate = {
@@ -63,10 +62,7 @@ export function createApprovalRegistry(opts: ApprovalRegistryOptions): ApprovalR
       const entry = pending.get(callId);
       if (!entry) return false;
       pending.delete(callId);
-      // The rule is recorded before the call resolves, so the very next
-      // permission evaluation in this turn already sees it.
-      if (decision === "allow_always") opts.onAlwaysAllow(entry.toolName);
-      entry.resolve(decision === "deny" ? "deny" : "allow");
+      entry.resolve(decision);
       return true;
     },
 

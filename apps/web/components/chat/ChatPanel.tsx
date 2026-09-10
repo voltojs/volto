@@ -148,7 +148,7 @@ export function ChatPanel() {
   const handleDecide = useCallback(
     async (
       callId: string,
-      decision: 'allow' | 'allow_always' | 'deny',
+      decision: 'allow' | 'deny',
     ): Promise<void> => {
       if (!currentSessionId) return;
       try {

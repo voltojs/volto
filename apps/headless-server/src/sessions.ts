@@ -22,7 +22,6 @@ import { resolveProjectPath, unknownProjectMessage, type createProjectStore } fr
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
 import { getConfigDirRealPath } from "./config/paths.js";
-import type { PermissionRule } from "@volto/core";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
@@ -287,17 +286,9 @@ interface Session {
    */
   abort: AbortController | null;
   /**
-   * Pending human approvals for this session, plus the write path a
-   * "always allow" answer takes. Lives on the session rather than on the
-   * agent so a rebuild (model switch, project switch) keeps the rules the
-   * user already granted.
+   * Pending human approvals for this session.
    */
   approvals: ApprovalRegistry;
-  /**
-   * Permission rules the user granted at approval prompts. Re-injected on
-   * every rebuild — a config change must not silently revoke them.
-   */
-  dynamicRules: PermissionRule[];
   lastUsed: number;
 }
 
@@ -377,16 +368,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         buffer: [],
         running: false,
         abort: null,
-        approvals: createApprovalRegistry({
-          onAlwaysAllow: (toolName) => {
-            const session = sessions.get(sessionId);
-            if (!session) return;
-            // Unshift, not push: a later grant must outrank an earlier
-            // deny rule for the same tool.
-            session.dynamicRules.unshift({ toolName, decision: "allow" });
-          },
-        }),
-        dynamicRules: [],
+        approvals: createApprovalRegistry(),
         lastUsed: Date.now(),
       };
       sessions.set(sessionId, session);
@@ -685,13 +667,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
         ? {
-            permissionConfig: {
-              ...buildPermissionConfig(config.permissionMode),
-              // Same array reference on every rebuild: the Runner re-reads
-              // config.rules at each evaluation, so a grant made mid-turn
-              // takes effect immediately without rebuilding the agent.
-              rules: session.dynamicRules,
-            },
+            permissionConfig: buildPermissionConfig(config.permissionMode),
             sandboxMode: sandboxModeFor(config.permissionMode),
             approvalGate: session.approvals.gate,
           }

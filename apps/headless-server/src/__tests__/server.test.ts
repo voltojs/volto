@@ -7,6 +7,8 @@ import { WebSocket } from "ws";
 import { createServer, type HeadlessServer } from "../server.js";
 import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
+import { buildSandboxConfigs } from "../wiring.js";
+import { buildPermissionConfig } from "../permission-modes.js";
 import {
   applyPartial,
   buildTurnRecords,
@@ -14,6 +16,8 @@ import {
   textScript,
   toConversationView,
   toolCallScript,
+  decide,
+  ceilingOf,
 } from "@volto/core";
 import type {
   ConversationMessage,
@@ -1619,6 +1623,36 @@ describe("POST /approvals", () => {
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it("rejects allow_always instead of silently downgrading it to allow", async () => {
+    // The retired grant. An old client must get a clear error, never a
+    // one-shot allow it did not ask for.
+    const response = await fetch(`${baseUrl}/approvals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${launchToken}`,
+      },
+      body: JSON.stringify({
+        sessionId: "s1",
+        callId: "c1",
+        decision: "allow_always",
+        token: "whatever",
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("a downgrade is not overridden by anything granted earlier", async () => {
+    // I2's original defect shape: an approval granted under `auto` kept bash
+    // running after the preset was downgraded to `read-only`. With one-shot
+    // grants there is nothing left to outlive the downgrade.
+    const { fsConfig } = buildSandboxConfigs("read-only", "/workspace", []);
+    expect(fsConfig?.mode).toBe("read-only");
+    const config = buildPermissionConfig("read-only");
+    expect(config.rules).toBeUndefined();
+    expect(decide(ceilingOf(config.sandbox), config.approval, "WRITE_HIGH")).toBe("deny");
   });
 });
 

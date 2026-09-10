@@ -136,7 +136,7 @@ export async function interruptTurn(sessionId: string): Promise<boolean> {
 export async function postApproval(
   sessionId: string,
   callId: string,
-  decision: 'allow' | 'allow_always' | 'deny',
+  decision: 'allow' | 'deny',
   token: string | null,
 ): Promise<boolean> {
   const response = await fetch(`${SERVER_URL}/approvals`, {
