@@ -46,6 +46,8 @@ import {
   PickerUnsupportedError,
 } from "./fs/directory-picker.js";
 import { CommandTimeoutError } from "./fs/command-runner.js";
+import { createBrowserAuth } from "./auth/browser-auth.js";
+import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
@@ -92,12 +94,44 @@ const DEFAULT_SESSION_ID = "default";
 /** The web app's own dev origin — see `ServerOptions.corsOrigin`. */
 const DEFAULT_CORS_ORIGIN = "http://localhost:6100";
 
+/** Hard cap on request bodies. Any larger POST is refused with 413. */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** Hosts the gateway is allowed to bind. Anything else is refused at startup. */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+/**
+ * Raised when a request body exceeds MAX_BODY_BYTES. Call sites map this to
+ * 413; other body errors stay 400.
+ */
+export class BodyTooLargeError extends Error {
+  constructor() {
+    super(`Request body exceeds the ${MAX_BODY_BYTES} byte limit`);
+    this.name = "BodyTooLargeError";
+  }
+}
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject);
+    let total = 0;
+    let rejected = false;
+    req.on("data", (chunk: Buffer) => {
+      if (rejected) return;
+      total += chunk.length;
+      if (total > MAX_BODY_BYTES) {
+        rejected = true;
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (!rejected) resolve(Buffer.concat(chunks).toString("utf-8"));
+    });
+    req.on("error", (err) => {
+      if (!rejected) reject(err);
+    });
   });
 }
 
@@ -227,8 +261,33 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
   );
 }
 
-export function createServer(opts: ServerOptions = {}): http.Server {
+/**
+ * The http.Server returned by createServer, plus the per-process auth
+ * material tests and the startup log need.
+ */
+export interface HeadlessServer extends http.Server {
+  /** Per-process launch token. Not persisted; dies with the process. */
+  readonly launchToken: string;
+  /** Root URL carrying the launch token as its only auth input. */
+  readonly authenticatedUrl: string;
+}
+
+export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
   const port = opts.port ?? 3100;
+  const host = opts.host ?? "127.0.0.1";
+
+  // The client may name any absolute path as a project root and the agent
+  // runs arbitrary commands, so a non-loopback bind would expose this
+  // machine to the network. Refuse at startup rather than warn.
+  if (!LOOPBACK_HOSTS.has(host)) {
+    throw new Error(
+      `Refusing to bind to non-loopback host "${host}": the gateway exposes this machine's filesystem and an arbitrary-command agent. Bind to 127.0.0.1, localhost, or ::1.`,
+    );
+  }
+
+  const auth = await createBrowserAuth();
+  const guard = createAuthGuard(auth, { publicPaths: ["/health"] });
+
   const corsOrigin = opts.corsOrigin ?? process.env["VOLTO_CORS_ORIGIN"] ?? DEFAULT_CORS_ORIGIN;
   // The legacy shared agent (used by /resume, /stream, /ws when no sessionId is
   // given) has no per-session scoping, so it never gets the durable transcript
@@ -326,11 +385,33 @@ export function createServer(opts: ServerOptions = {}): http.Server {
       res.end(JSON.stringify(body));
     }
 
-    // CORS preflight
+    // CORS preflight — answered before the auth guard so a browser can
+    // discover the allowed headers without already holding credentials.
     if (req.method === "OPTIONS") {
       res.writeHead(204, corsHeaders);
       res.end();
       return;
+    }
+
+    // Auth guard. AFTER preflight, BEFORE any route matching: an
+    // unauthenticated caller must get 401 — never a route-dependent 404
+    // that would leak which paths exist. Covers /events (SSE) as well;
+    // the WebSocket upgrade path is wired separately below.
+    if (!guard(req, res)) {
+      return;
+    }
+
+    /** Map a BodyTooLargeError to 413. Returns true when handled. */
+    function respondBodyError(err: unknown): boolean {
+      if (err instanceof BodyTooLargeError) {
+        jsonResponse(res, 413, { error: "Request body too large" });
+        // Destroy only after the 413 has been flushed to the socket —
+        // tearing the connection down first makes the client see a socket
+        // error instead of the status code.
+        res.once("finish", () => req.destroy());
+        return true;
+      }
+      return false;
     }
 
     // GET /events — protocol SSE channel bound to a chat session
@@ -422,6 +503,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         jsonResponse(res, 202, { sessionId, accepted: true });
         void registry.runTurn(sessionId, body.message, turnConfig);
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });
       }
@@ -441,13 +523,29 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         }
         jsonResponse(res, 202, { sessionId, interrupted: true });
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });
       }
       return;
     }
 
-    // POST /approvals — settle one pending human approval on a session
+    // POST /approvals — settle one pending human approval on a session.
+    //
+    // Two independent gates protect this route — do not delete either:
+    //
+    // 1. The global auth guard (createAuthGuard, above) rejects any request
+    //    without a valid cookie/bearer/query token. It keeps external
+    //    processes (another user's curl, a malicious local script) from
+    //    reaching this endpoint at all.
+    //
+    // 2. The per-connection approval token (body.token, checked by
+    //    registry.decideApproval below) is bound to the SSE connection the
+    //    approval card was shown on. It keeps a *different tab of the same
+    //    user* — or any client that shares the origin cookie — from
+    //    settling an approval that was never presented to it.
+    //
+    // Both are required. Deleting either one reopens a distinct hole.
     if (req.method === "POST" && url.pathname === "/approvals") {
       try {
         const body = JSON.parse(await readBody(req)) as {
@@ -476,8 +574,9 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         // Bound to the SSE connection the approval was shown on — see
         // sessions.ts's decideApproval for the full threat model. A missing
         // or wrong token answers 403 with the exact same message an unknown
-        // callId gets below, and is checked first, so an unauthenticated
-        // caller can never learn whether a given callId is actually pending.
+        // callId gets below, and is checked first, so a caller without the
+        // connection token can never learn whether a given callId is
+        // actually pending.
         const result = registry.decideApproval(sessionId, body.callId, body.decision, body.token);
         if (result === "forbidden") {
           jsonResponse(res, 403, {
@@ -497,6 +596,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
         jsonResponse(res, 202, { sessionId, callId: body.callId, settled: true });
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 400, { error: message });
       }
@@ -516,6 +616,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         const state = await target.run(body.message);
         jsonResponse(res, 200, { state });
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 500, { error: message });
       }
@@ -532,6 +633,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         const state = await agent.resume(body.sessionId, body.decision);
         jsonResponse(res, 200, { state });
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);
         jsonResponse(res, 500, { error: message });
       }
@@ -593,6 +695,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         }
         jsonResponse(res, 201, await projectStore.create({ name: body.name, path: body.path }));
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         const status = err instanceof InvalidPathError ? 400 : 500;
         jsonResponse(res, status, { error: err instanceof Error ? err.message : String(err) });
       }
@@ -644,6 +747,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         // (a catalog PublicProvider only has `modelCodes` on its own).
         jsonResponse(res, 201, (await withReasoningCapability([created]))[0]);
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
@@ -662,6 +766,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
           updated ? (await withReasoningCapability([updated]))[0] : { error: "Not found" },
         );
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
@@ -798,6 +903,7 @@ export function createServer(opts: ServerOptions = {}): http.Server {
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {
+        if (respondBodyError(err)) return;
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
@@ -889,17 +995,37 @@ export function createServer(opts: ServerOptions = {}): http.Server {
     jsonResponse(res, 404, { error: "Not found" });
   });
 
-  // WebSocket server on the same HTTP server
-  const wss = new WebSocketServer({ server: httpServer });
+  // WebSocket server on the same HTTP server. `noServer` so the upgrade
+  // path can run the same auth guard the HTTP request chain uses — a WS
+  // handshake does not pass through the createServer request handler.
+  const wss = new WebSocketServer({ noServer: true });
 
-  wss.on("connection", (socket: WebSocket, req: http.IncomingMessage) => {
+  httpServer.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
 
     if (url.pathname !== "/ws") {
-      socket.close(1008, "Invalid path");
+      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+      socket.destroy();
       return;
     }
 
+    // Same credential check as the HTTP guard. A valid query-token
+    // exchange (isAuthorized) is accepted: a WS handshake cannot complete
+    // a 302 + Set-Cookie redirect, and the token was still valid.
+    if (!isAuthorized(auth.authorize(req))) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  });
+
+  wss.on("connection", (socket: WebSocket, req: http.IncomingMessage) => {
+    // Path and credentials were already validated in the upgrade handler.
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const message = url.searchParams.get("message") ?? "";
     const sink = createWsEventSink(socket);
     const abortController = new AbortController();
@@ -927,16 +1053,28 @@ export function createServer(opts: ServerOptions = {}): http.Server {
 
   httpServer.on("close", () => registry.closeAll());
 
-  const host = opts.host ?? "127.0.0.1";
+  // Configured-port URL for the return value. The listen callback re-derives
+  // the real port (relevant when port: 0 asked the OS to pick one).
+  const authenticatedUrl = auth.authenticatedUrl(`http://${host}:${port}`);
 
   httpServer.listen(port, host, () => {
-    console.log(`Headless server listening on http://${host}:${port}`);
+    const addr = httpServer.address();
+    const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
+    const url = auth.authenticatedUrl(`http://${host}:${actualPort}`);
+    console.log(`Headless server listening on http://${host}:${actualPort}`);
+    console.log(`Open this URL to authenticate: ${url}`);
   });
 
-  return httpServer;
+  return Object.assign(httpServer, {
+    launchToken: auth.launchToken,
+    authenticatedUrl,
+  });
 }
 
 // Start server when run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  createServer();
+  createServer().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
 }

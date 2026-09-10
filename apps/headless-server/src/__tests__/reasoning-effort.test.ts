@@ -11,7 +11,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createSessionRegistry } from "../sessions.js";
-import { createServer } from "../server.js";
+import { createServer, type HeadlessServer } from "../server.js";
 import { createStore as createJsonlStore } from "@volto/store-jsonl";
 import type { ReducerState, Message, ModelPort } from "@volto/core";
 
@@ -186,18 +186,30 @@ describe("reasoningEffort — session-level unit tests (createSessionRegistry)",
 // -- HTTP-level: POST /messages must answer 400 (not a mid-stream SSE error) --
 // -- for an unsupported effort, and never even trigger the turn. -------------
 
-function post(pathname: string, body: unknown, base: string): Promise<{ status: number; data: unknown }> {
+function post(
+  pathname: string,
+  body: unknown,
+  base: string,
+  token: string,
+): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const url = new URL(pathname, base);
     const payload = JSON.stringify(body);
-    const req = http.request(url, { method: "POST", headers: { "Content-Type": "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf-8");
-        resolve({ status: res.statusCode ?? 0, data: JSON.parse(raw) });
-      });
-    });
+    const req = http.request(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf-8");
+          resolve({ status: res.statusCode ?? 0, data: JSON.parse(raw) });
+        });
+      },
+    );
     req.on("error", reject);
     req.write(payload);
     req.end();
@@ -212,14 +224,16 @@ const MOCK_MODEL: ModelPort = {
 };
 
 describe("POST /messages — reasoningEffort validated before ack (HTTP level)", () => {
-  let server: http.Server;
+  let server: HeadlessServer;
   let baseUrl: string;
   let configDir: string;
+  let launchToken: string;
 
   beforeAll(async () => {
     configDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-reasoning-effort-http-"));
     process.env["VOLTO_CONFIG_DIR"] = configDir;
-    server = createServer({ port: 0, modelPort: MOCK_MODEL });
+    server = await createServer({ port: 0, modelPort: MOCK_MODEL });
+    launchToken = server.launchToken;
     await new Promise<void>((resolve) => {
       server.on("listening", () => {
         const addr = server.address();
@@ -244,7 +258,12 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
     providerId: string;
     modelId: string;
   }> {
-    const project = await post("/projects", { name: "reasoning-effort-test", path: process.cwd() }, baseUrl);
+    const project = await post(
+      "/projects",
+      { name: "reasoning-effort-test", path: process.cwd() },
+      baseUrl,
+      launchToken,
+    );
     const provider = await post(
       "/providers",
       {
@@ -252,6 +271,7 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
         models: [{ name: "reasoning-model", code: "reasoning-model", reasoning: true }],
       },
       baseUrl,
+      launchToken,
     );
     const providerData = provider.data as { id: string; models: Array<{ id: string }> };
     return {
@@ -262,7 +282,10 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
   }
 
   function openEvents(sessionId: string): void {
-    const req = http.get(new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl));
+    const req = http.get(
+      new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, baseUrl),
+      { headers: { Authorization: `Bearer ${launchToken}` } },
+    );
     openRequests.push(req);
   }
 
@@ -277,6 +300,7 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
       "/messages",
       { sessionId, message: "hi", ...config, reasoningEffort: "nonexistent-level" },
       baseUrl,
+      launchToken,
     );
 
     expect(res.status).toBe(400);
@@ -299,6 +323,7 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
       "/messages",
       { sessionId, message: "hi", ...config, reasoningEffort: "low" },
       baseUrl,
+      launchToken,
     );
 
     expect(res.status).toBe(202);
@@ -322,14 +347,22 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
     openEvents(sessionId);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    await post("/messages", { sessionId, message: "hi", ...config, reasoningEffort: "low" }, baseUrl);
+    await post(
+      "/messages",
+      { sessionId, message: "hi", ...config, reasoningEffort: "low" },
+      baseUrl,
+      launchToken,
+    );
 
     // The turn runs asynchronously over SSE; poll GET /sessions/:id until the
     // session_meta event has landed.
     let data: { reasoningEffort?: string } | undefined;
     for (let i = 0; i < 40; i++) {
       const res = await new Promise<{ status: number; data: unknown }>((resolve, reject) => {
-        http.get(new URL(`/sessions/${encodeURIComponent(sessionId)}`, baseUrl), (r) => {
+        http.get(
+          new URL(`/sessions/${encodeURIComponent(sessionId)}`, baseUrl),
+          { headers: { Authorization: `Bearer ${launchToken}` } },
+          (r) => {
           const chunks: Buffer[] = [];
           r.on("data", (chunk: Buffer) => chunks.push(chunk));
           r.on("end", () =>
@@ -354,12 +387,15 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
     openEvents(sessionId);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    await post("/messages", { sessionId, message: "hi", ...config }, baseUrl);
+    await post("/messages", { sessionId, message: "hi", ...config }, baseUrl, launchToken);
 
     let found: { reasoningEffort?: string } | undefined;
     for (let i = 0; i < 40; i++) {
       const res = await new Promise<{ status: number; data: unknown }>((resolve, reject) => {
-        http.get(new URL("/sessions", baseUrl), (r) => {
+        http.get(
+          new URL("/sessions", baseUrl),
+          { headers: { Authorization: `Bearer ${launchToken}` } },
+          (r) => {
           const chunks: Buffer[] = [];
           r.on("data", (chunk: Buffer) => chunks.push(chunk));
           r.on("end", () =>

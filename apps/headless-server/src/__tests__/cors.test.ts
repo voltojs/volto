@@ -24,7 +24,7 @@ const MOCK_MODEL: ModelPort = {
 
 async function startServer(opts: ServerOptions = {}): Promise<{ server: http.Server; baseUrl: string }> {
   process.env["VOLTO_CONFIG_DIR"] = await fs.mkdtemp(path.join(os.tmpdir(), "volto-cors-"));
-  const server = createServer({ port: 0, modelPort: MOCK_MODEL, ...opts });
+  const server = await createServer({ port: 0, modelPort: MOCK_MODEL, ...opts });
   const baseUrl = await new Promise<string>((resolve) => {
     server.on("listening", () => {
       const addr = server.address();
