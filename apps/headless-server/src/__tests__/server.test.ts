@@ -495,6 +495,27 @@ describe("authentication", () => {
     ).rejects.toThrow(/401/);
   });
 
+  it("refuses an unauthenticated upgrade to a non-/ws path with 401, not 404", async () => {
+    // Same constraint as the HTTP guard: an unauthenticated caller must not
+    // learn which upgrade paths exist by comparing 401 (/ws) vs 404 (elsewhere).
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/definitely-not-ws`;
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        ws.on("open", () => {
+          ws.close();
+          resolve();
+        });
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_req, res) => {
+          reject(new Error(`upgrade rejected with ${res.statusCode}`));
+        });
+      }),
+    ).rejects.toThrow(/401/);
+  });
+
   it("refuses to start on a non-loopback bind", async () => {
     await expect(
       createServer({ port: 0, host: "0.0.0.0", modelPort: MOCK_MODEL }),

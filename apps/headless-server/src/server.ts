@@ -1001,19 +1001,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on("upgrade", (req, socket, head) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-
-    if (url.pathname !== "/ws") {
-      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+    // Auth BEFORE path matching, same as the HTTP guard: an unauthenticated
+    // caller must get 401 for ANY upgrade path — never a 404 that would
+    // leak which paths exist. A valid query-token exchange (isAuthorized)
+    // is accepted: a WS handshake cannot complete a 302 + Set-Cookie
+    // redirect, and the token was still valid.
+    if (!isAuthorized(auth.authorize(req))) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
 
-    // Same credential check as the HTTP guard. A valid query-token
-    // exchange (isAuthorized) is accepted: a WS handshake cannot complete
-    // a 302 + Set-Cookie redirect, and the token was still valid.
-    if (!isAuthorized(auth.authorize(req))) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    if (url.pathname !== "/ws") {
+      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
