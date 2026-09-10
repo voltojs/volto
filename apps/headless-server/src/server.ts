@@ -424,9 +424,18 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       const sessionId = url.searchParams.get("sessionId") ?? DEFAULT_SESSION_ID;
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        // `no-transform` is the one that matters in front of Next.js: its
+        // rewrite proxy gzips the response when the client advertises
+        // Accept-Encoding, and a gzip encoder buffers input until it has a
+        // block to emit. On a never-ending stream of small frames that means
+        // the browser receives the gzip header and then nothing — EventSource
+        // fires `open` and no data ever arrives. curl does not send
+        // Accept-Encoding by default, which is why every curl check of this
+        // endpoint passed while the app was dead.
+        "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         // Defeats proxy buffering, which would otherwise stall the stream.
+        // nginx-specific; Next.js ignores it, hence `no-transform` above.
         "X-Accel-Buffering": "no",
         ...corsHeaders,
       });

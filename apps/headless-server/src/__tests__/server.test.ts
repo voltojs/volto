@@ -492,6 +492,23 @@ describe("authentication", () => {
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
   });
 
+  it("marks the SSE stream no-transform so a proxy cannot compress it", async () => {
+    // Not cosmetic. The web app reaches the gateway through a Next.js
+    // rewrite, and Next gzips a proxied response whenever the client sends
+    // Accept-Encoding -- which every browser does and curl does not. A gzip
+    // encoder buffers input until it has a block to emit, so on a
+    // never-ending stream of small frames the browser got the gzip header
+    // and then nothing: EventSource fired `open` and no event ever arrived.
+    // The whole chat UI was dead while every curl check of this endpoint
+    // passed. `no-transform` is what tells the proxy to leave the body alone.
+    const response = await fetch(`${baseUrl}/events?sessionId=hdr-check`, {
+      headers: { ...authHeaders(), "Accept-Encoding": "gzip, deflate, br" },
+    });
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("cache-control")).toContain("no-transform");
+    void response.body?.cancel();
+  });
+
   it("refuses a WebSocket upgrade without credentials", async () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr ? addr.port : 0;
