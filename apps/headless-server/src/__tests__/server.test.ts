@@ -516,6 +516,55 @@ describe("authentication", () => {
     ).rejects.toThrow(/401/);
   });
 
+  it("refuses an authenticated WebSocket upgrade with a disallowed Origin", async () => {
+    // Different localhost ports are same-site, so the SameSite=Strict cookie
+    // WOULD be sent — Origin is the check that stops another localhost page
+    // from driving /ws with the user's cookie. Must reject even when
+    // credentials are present (cookie or bearer).
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/ws?message=hi`;
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl, {
+          origin: "http://localhost:9999",
+          headers: authHeaders(),
+        });
+        ws.on("open", () => {
+          ws.close();
+          resolve();
+        });
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_req, res) => {
+          reject(new Error(`upgrade rejected with ${res.statusCode}`));
+        });
+      }),
+    ).rejects.toThrow(/403/);
+  });
+
+  it("accepts an authenticated WebSocket upgrade from the configured origin", async () => {
+    // Allowed Origin + credentials must still complete the handshake.
+    // (Missing Origin is covered by the unauthenticated 401 tests above and
+    // by "WebSocket /ws receives events" in the functional suite.)
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/ws?message=hi`;
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(wsUrl, {
+        origin: "http://localhost:6100",
+        headers: authHeaders(),
+      });
+      ws.on("open", () => {
+        ws.close();
+        resolve();
+      });
+      ws.on("error", reject);
+      ws.on("unexpected-response", (_req, res) => {
+        reject(new Error(`upgrade rejected with ${res.statusCode}`));
+      });
+    });
+  });
+
   it("refuses to start on a non-loopback bind", async () => {
     await expect(
       createServer({ port: 0, host: "0.0.0.0", modelPort: MOCK_MODEL }),

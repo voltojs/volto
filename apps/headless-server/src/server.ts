@@ -1001,6 +1001,19 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on("upgrade", (req, socket, head) => {
+    // Origin BEFORE auth, mirroring the HTTP chain (isOriginAllowed above):
+    // different localhost ports are same-site, so the SameSite=Strict cookie
+    // WOULD be sent to us from another page on localhost — Origin is the
+    // only check that stops a malicious localhost page from driving /ws
+    // with the user's cookie. Missing Origin (curl, Node `ws` without
+    // `origin`) stays allowed, same as HTTP.
+    const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+    if (!isOriginAllowed(originHeader)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
     // Auth BEFORE path matching, same as the HTTP guard: an unauthenticated
     // caller must get 401 for ANY upgrade path — never a 404 that would
     // leak which paths exist. A valid query-token exchange (isAuthorized)
@@ -1064,6 +1077,15 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     const url = auth.authenticatedUrl(`http://${host}:${actualPort}`);
     console.log(`Headless server listening on http://${host}:${actualPort}`);
     console.log(`Open this URL to authenticate: ${url}`);
+    // When a concrete web origin is configured (the common dev setup — the
+    // web app rewrites /gateway/* to this gateway), also print the proxied
+    // token URL so the browser lands on the UI's own origin and the cookie
+    // is minted where the UI will send it from.
+    if (corsOrigin !== "*" && /^https?:\/\//.test(corsOrigin)) {
+      const webUrl = new URL("/gateway", corsOrigin);
+      webUrl.searchParams.set("token", auth.launchToken);
+      console.log(`Or open the web app URL: ${webUrl.toString()}`);
+    }
   });
 
   return Object.assign(httpServer, {
