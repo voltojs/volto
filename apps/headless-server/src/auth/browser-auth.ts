@@ -174,7 +174,40 @@ export async function createBrowserAuth(
   }
 
   function authorize(req: IncomingMessage): AuthResult {
-    // 1. Cookie. Only a present, non-empty volto_auth is a credential.
+    // 1. Query token FIRST — it is the strongest credential this process
+    //    hands out (fresh per process, never persisted), so it has to be
+    //    able to override a stale cookie.
+    //
+    //    Checking it last deadlocked the login: rotate the signing secret
+    //    (change VOLTO_CONFIG_DIR, delete a corrupt auth-secret, run a
+    //    second instance on the same localhost cookie host) and the browser
+    //    still presents its old, unexpired cookie. That cookie fails closed
+    //    below, and a brand-new valid launch URL could never get past it —
+    //    while the cookie is HttpOnly with a 7-day Max-Age, so the page had
+    //    no way to clear it either. The only exit was the browser's own
+    //    settings, which nothing in the 401 mentions.
+    //
+    //    Only a VALID token short-circuits. A wrong or absent one falls
+    //    through, so a crafted `?token=wrong` link cannot lock out a caller
+    //    who already holds a good cookie.
+    let queryToken: string | null = null;
+    try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      queryToken = url.searchParams.get("token");
+    } catch {
+      queryToken = null;
+    }
+    if (queryToken !== null && queryToken !== "" && tokensMatch(queryToken, launchToken)) {
+      // Valid token: mint the cookie and redirect to a clean root URL so the
+      // token does not survive in the address bar.
+      return {
+        ok: false,
+        setCookie: cookieHeaderFor(Date.now()),
+        redirectTo: "/",
+      };
+    }
+
+    // 2. Cookie. Only a present, non-empty volto_auth is a credential.
     //    Unrelated cookies on the origin must not block the launch-token
     //    exchange. A presented-but-invalid volto_auth fails closed.
     const cookieHeader = getHeader(req, "cookie");
@@ -189,7 +222,7 @@ export async function createBrowserAuth(
       // Cookie header without volto_auth — fall through.
     }
 
-    // 2. Authorization: Bearer <launchToken>. Only a non-empty Bearer token
+    // 3. Authorization: Bearer <launchToken>. Only a non-empty Bearer token
     //    is a credential; other schemes and empty tokens fall through.
     const authorization = getHeader(req, "authorization");
     if (authorization !== undefined) {
@@ -206,23 +239,6 @@ export async function createBrowserAuth(
         // Empty bearer token — fall through.
       }
       // Non-Bearer scheme (e.g. Basic) — fall through.
-    }
-
-    // 3. Query token. Valid token redirects to a clean root URL and sets the
-    //    cookie so the token does not survive in the address bar.
-    let queryToken: string | null = null;
-    try {
-      const url = new URL(req.url ?? "/", "http://localhost");
-      queryToken = url.searchParams.get("token");
-    } catch {
-      queryToken = null;
-    }
-    if (queryToken !== null && queryToken !== "" && tokensMatch(queryToken, launchToken)) {
-      return {
-        ok: false,
-        setCookie: cookieHeaderFor(Date.now()),
-        redirectTo: "/",
-      };
     }
 
     return { ok: false };

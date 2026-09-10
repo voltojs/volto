@@ -5,13 +5,22 @@ import * as path from "node:path";
 import { createBrowserAuth } from "../browser-auth.js";
 
 let dir: string;
+const extraDirs: string[] = [];
 
 beforeEach(async () => {
   dir = await fsp.mkdtemp(path.join(os.tmpdir(), "volto-auth-"));
 });
 afterEach(async () => {
   await fsp.rm(dir, { recursive: true, force: true });
+  await Promise.all(extraDirs.splice(0).map((d) => fsp.rm(d, { recursive: true, force: true })));
 });
+
+/** A second config dir, so a test can rotate the signing secret. */
+async function freshDir(): Promise<string> {
+  const d = await fsp.mkdtemp(path.join(os.tmpdir(), "volto-auth-alt-"));
+  extraDirs.push(d);
+  return d;
+}
 
 function reqWith(headers: Record<string, string>, url = "/") {
   return { url, headers } as unknown as import("node:http").IncomingMessage;
@@ -108,16 +117,41 @@ describe("createBrowserAuth", () => {
     expect(result.setCookie).toBeDefined();
   });
 
-  it("fail-closes on a present but invalid volto_auth even with a valid query token", async () => {
+  it("fail-closes on a present but invalid volto_auth when no valid token is offered", async () => {
     const auth = await createBrowserAuth({ dir });
     const cookie = auth.cookieHeaderFor(Date.now()).split(";")[0]!;
     const tampered = `${cookie.slice(0, -1)}${cookie.endsWith("A") ? "B" : "A"}`;
-    const result = auth.authorize(
-      reqWith({ cookie: tampered }, `/?token=${auth.launchToken}`),
-    );
+    const result = auth.authorize(reqWith({ cookie: tampered }));
     expect(result.ok).toBe(false);
     expect(result.setCookie).toBeUndefined();
     expect(result.redirectTo).toBeUndefined();
+  });
+
+  it("lets a valid launch token override a stale cookie", async () => {
+    // Reproduced live before the fix: rotate the signing secret and the
+    // browser keeps presenting its old, unexpired cookie. With the cookie
+    // checked first, that dead cookie beat a brand-new valid launch URL and
+    // the page showed a bare {"error":"Unauthorized"} — HttpOnly and a
+    // 7-day Max-Age left no way to clear it from the app itself.
+    const stale = await createBrowserAuth({ dir });
+    const staleCookie = stale.cookieHeaderFor(Date.now()).split(";")[0]!;
+
+    const rotated = await createBrowserAuth({ dir: await freshDir() });
+    const result = rotated.authorize(
+      reqWith({ cookie: staleCookie }, `/?token=${rotated.launchToken}`),
+    );
+
+    expect(result.redirectTo).toBe("/");
+    expect(result.setCookie).toBeDefined();
+  });
+
+  it("does not let a wrong query token lock out a caller holding a good cookie", async () => {
+    // The flip side of the reorder: `?token=wrong` must fall through rather
+    // than fail closed, or any crafted link becomes a logout button.
+    const auth = await createBrowserAuth({ dir });
+    const cookie = auth.cookieHeaderFor(Date.now()).split(";")[0]!;
+    const result = auth.authorize(reqWith({ cookie }, "/sessions?token=wrong"));
+    expect(result.ok).toBe(true);
   });
 
   it("falls through to the query token when Authorization is not Bearer", async () => {
