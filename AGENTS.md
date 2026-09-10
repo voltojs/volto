@@ -43,6 +43,7 @@
 
 - **能力门控 vs 权限策略** 职责分离：门控（ToolRouter）决定"工具是否对模型可见"，权限（PermissionPolicy）决定"可见工具是否放行（allow / deny / ask）"。改动二者之一时勿混淆职责。
 - 静态门:`pnpm turbo run typecheck`、`pnpm turbo run lint`、`pnpm turbo run test`。
+- **计划最终要出自测报告时,用 `writing-selftest-reports` skill —— 在写 plan 时就用,不是等到最后要报告时**。它要求 plan 顶部建功能点台账、每个 task 末尾追加证据、末尾单独一个 task 由全新上下文生成报告。到最后才想起来,执行痕迹只剩 git 历史,报告只能靠考古重建。
 
 ---
 
