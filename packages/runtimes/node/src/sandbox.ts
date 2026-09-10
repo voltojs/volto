@@ -385,8 +385,11 @@ export function createSandboxedShell(
   // ── macOS seatbelt branch ──
   if (backend === "seatbelt") {
     const seatbeltBinary = resolvedConfig.seatbeltBinary ?? "sandbox-exec";
-    // failIfUnavailable: check that the configured runner is actually present
-    if (resolvedConfig.failIfUnavailable && !runnerBinaryAvailable(seatbeltBinary)) {
+    // Probe once at construction: failIfUnavailable decides whether a missing
+    // runner is a hard error, and the same fact feeds the honest
+    // `sandboxEnforcement` report below.
+    const seatbeltRunnerPresent = runnerBinaryAvailable(seatbeltBinary);
+    if (resolvedConfig.failIfUnavailable && !seatbeltRunnerPresent) {
       throw new Error(
         `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
         "Install sandbox-exec or set failIfUnavailable to false.",
@@ -394,10 +397,13 @@ export function createSandboxedShell(
     }
     const profileContent = buildSeatbeltProfile(resolvedConfig);
 
-    // Both confining backends govern every file effect this config asks for.
-    // A future Landlock-only path or an ABI too old for one of the rules must
-    // report "partial" here instead — see sandbox-enforcement.ts.
-    const sandboxEnforcement: SandboxEnforcement = "full";
+    // Enforcement is a RUNTIME fact, not a config claim. A missing runner that
+    // we deliberately did not throw on (failIfUnavailable: false) confines
+    // nothing — report "none" instead of pretending "full". When the runner is
+    // present both confining backends govern every file effect this config
+    // asks for; a future Landlock-only path or an ABI too old for one of the
+    // rules must report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = seatbeltRunnerPresent ? "full" : "none";
 
     return {
       sandboxEnforcement,
@@ -493,8 +499,11 @@ export function createSandboxedShell(
   // ── Linux bubblewrap branch ──
   if (backend === "bubblewrap") {
     const bwrapBinary = resolvedConfig.bwrapBinary ?? "bwrap";
-    // failIfUnavailable: check that the configured runner is present
-    if (resolvedConfig.failIfUnavailable && !runnerBinaryAvailable(bwrapBinary)) {
+    // Probe once at construction: failIfUnavailable decides whether a missing
+    // runner is a hard error, and the same fact feeds the honest
+    // `sandboxEnforcement` report below.
+    const bwrapRunnerPresent = runnerBinaryAvailable(bwrapBinary);
+    if (resolvedConfig.failIfUnavailable && !bwrapRunnerPresent) {
       throw new Error(
         `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
         "Install bubblewrap (apt install bubblewrap) or set failIfUnavailable to false.",
@@ -502,31 +511,29 @@ export function createSandboxedShell(
     }
 
     const bwrapArgs = buildBwrapArgs(resolvedConfig);
-    let warned = false;
 
-    // Both confining backends govern every file effect this config asks for.
-    // A future Landlock-only path or an ABI too old for one of the rules must
-    // report "partial" here instead — see sandbox-enforcement.ts.
-    const sandboxEnforcement: SandboxEnforcement = "full";
+    // Enforcement is a RUNTIME fact, not a config claim. A missing runner that
+    // we deliberately did not throw on (failIfUnavailable: false) confines
+    // nothing — report "none" instead of pretending "full". When the runner is
+    // present both confining backends govern every file effect this config
+    // asks for; a future Landlock-only path or an ABI too old for one of the
+    // rules must report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = bwrapRunnerPresent ? "full" : "none";
 
     return {
       sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
+          // A missing runner is infrastructure failure, not a command failure.
+          // Detected before any wrapping so it can never read as the latter,
+          // and NEVER falling through to an unconfined realShell.exec.
+          if (!runnerBinaryAvailable(bwrapBinary)) {
+            yield* missingRunnerEvents(bwrapBinary);
+            return;
+          }
+
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
-            if (!warned && !runnerBinaryAvailable(bwrapBinary)) {
-              warned = true;
-              console.warn(
-                `[sandbox] WARNING: ${bwrapBinary} not found on PATH. ` +
-                "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
-              );
-              // Still strip env vars even without isolation — the caller
-              // asked for them gone, and env stripping needs no backend.
-              yield* realShell.exec(cmd, withStrippedEnv(opts));
-              return;
-            }
-
             // Start egress proxy if needed
             let envPrefix = "";
             if (needsProxy) {

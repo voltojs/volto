@@ -9,6 +9,7 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as http from "node:http";
+import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 
 const itDarwin = process.platform === "darwin" ? it : it.skip;
@@ -529,7 +530,7 @@ describe("buildBwrapArgs", () => {
 });
 
 describe("createSandboxedShell - Linux bubblewrap branch", () => {
-  it("non-Linux with explicit bubblewrap backend: warn + passthrough", async () => {
+  it("non-Linux with explicit bubblewrap backend: refuses as INFRASTRUCTURE FAILURE, never unconfined", async () => {
     if (process.platform === "linux") return; // skip on actual Linux
     const mock = createMockShell();
     const wrapped = createSandboxedShell(mock, {
@@ -538,17 +539,19 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
       readOnlyOverlays: [],
       network: { enabled: false },
       backend: "bubblewrap",
-      // The probeBinary check is now live under the default; opt out so this
-      // test still exercises the warn+passthrough path on non-Linux.
+      // Opt out of the construction-time throw so this test can observe the
+      // exec-time behaviour: a missing bwrap must refuse, never passthrough.
       failIfUnavailable: false,
     });
-    const events: Array<{ type: string; data?: string }> = [];
-    for await (const event of wrapped.exec("echo test")) {
-      events.push(event);
-    }
-    const stdout = events.filter((e) => e.type === "stdout").map((e) => e.data).join("");
-    // On non-Linux, bubblewrap is not available — falls back to warn + passthrough
-    expect(stdout).toContain("echo test");
+    // Enforcement is a runtime fact: with no bwrap there is nothing confining.
+    expect(wrapped.sandboxEnforcement).toBe("none");
+    const result = await drain(wrapped.exec("echo test"));
+    expect(result.out).toContain("[sandbox] INFRASTRUCTURE FAILURE");
+    expect(result.code).toBe(126);
+    // The mock shell echoes `executed: ${cmd}` — unconfined passthrough must
+    // not have happened.
+    expect(result.out).not.toContain("executed:");
+    expect(result.out).not.toContain("echo test");
   });
 
   it("non-Linux + failIfUnavailable + bubblewrap backend: throws", () => {
@@ -566,6 +569,13 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
 
   it("bubblewrap exec command contains correct bwrap args", async () => {
     if (process.platform !== "linux") return; // bwrap only available on Linux
+    // A missing bwrap refuses at exec time (INFRASTRUCTURE FAILURE) and never
+    // reaches command construction — skip rather than fail on a host without it.
+    try {
+      execFileSync("which", ["bwrap"], { stdio: "ignore" });
+    } catch {
+      return;
+    }
     // Capture the actual command passed to the mock shell
     let capturedCmd = "";
     const capturingShell: Shell = {
@@ -1046,6 +1056,30 @@ describe("sandboxEnforcement", () => {
     });
     expect(shell.sandboxEnforcement).toBe("none");
   });
+
+  it("reports none when the bubblewrap runner is missing under an explicit opt-out", () => {
+    // failIfUnavailable:false lets construction succeed, but a missing runner
+    // confines nothing — enforcement must not claim "full".
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "workspace-write",
+      writableRoots: [os.tmpdir()],
+      backend: "bubblewrap",
+      bwrapBinary: "/nonexistent/volto-bwrap",
+      failIfUnavailable: false,
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
+  });
+
+  it("reports none when the seatbelt runner is missing under an explicit opt-out", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "workspace-write",
+      writableRoots: [os.tmpdir()],
+      backend: "seatbelt",
+      seatbeltBinary: "/nonexistent/volto-sandbox-exec",
+      failIfUnavailable: false,
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
+  });
 });
 
 // ──────────────────────────────────────────────
@@ -1072,6 +1106,8 @@ describe("runner failure vs denial", () => {
     const result = await drain(shell.exec("echo hello"));
     expect(result.out).toContain("[sandbox] INFRASTRUCTURE FAILURE");
     expect(result.out).not.toContain("hello");
+    // missingRunnerEvents' deliberate exit code for "nothing was executed".
+    expect(result.code).toBe(126);
 
     await fsp.rm(base, { recursive: true, force: true });
   });
