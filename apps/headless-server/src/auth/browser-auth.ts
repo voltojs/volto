@@ -174,18 +174,23 @@ export async function createBrowserAuth(
   }
 
   function authorize(req: IncomingMessage): AuthResult {
-    // 1. Cookie. A non-empty cookie is a presented credential: if it fails,
-    //    do not fall through to weaker channels.
+    // 1. Cookie. Only a present, non-empty volto_auth is a credential.
+    //    Unrelated cookies on the origin must not block the launch-token
+    //    exchange. A presented-but-invalid volto_auth fails closed.
     const cookieHeader = getHeader(req, "cookie");
     if (cookieHeader !== undefined && cookieHeader !== "") {
       const value = extractCookieValue(cookieHeader, COOKIE_NAME);
-      if (value !== null && value !== "" && verifyCookieValue(value)) {
-        return { ok: true };
+      if (value !== null && value !== "") {
+        if (verifyCookieValue(value)) {
+          return { ok: true };
+        }
+        return { ok: false };
       }
-      return { ok: false };
+      // Cookie header without volto_auth — fall through.
     }
 
-    // 2. Authorization: Bearer <launchToken>
+    // 2. Authorization: Bearer <launchToken>. Only a non-empty Bearer token
+    //    is a credential; other schemes and empty tokens fall through.
     const authorization = getHeader(req, "authorization");
     if (authorization !== undefined) {
       const match = /^Bearer\s+(.*)$/i.exec(authorization);
@@ -194,9 +199,13 @@ export async function createBrowserAuth(
         if (token !== "" && tokensMatch(token, launchToken)) {
           return { ok: true };
         }
+        if (token !== "") {
+          // Non-empty bearer that failed verification — fail closed.
+          return { ok: false };
+        }
+        // Empty bearer token — fall through.
       }
-      // Authorization header present but invalid — same opaque failure.
-      return { ok: false };
+      // Non-Bearer scheme (e.g. Basic) — fall through.
     }
 
     // 3. Query token. Valid token redirects to a clean root URL and sets the

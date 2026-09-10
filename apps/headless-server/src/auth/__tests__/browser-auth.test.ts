@@ -98,6 +98,38 @@ describe("createBrowserAuth", () => {
     expect(auth.authorize(reqWith({ authorization: "Bearer " })).ok).toBe(false);
   });
 
+  it("falls through to the query token when the cookie header has no volto_auth", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const result = auth.authorize(
+      reqWith({ cookie: "other=1; theme=dark" }, `/?token=${auth.launchToken}`),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.redirectTo).toBe("/");
+    expect(result.setCookie).toBeDefined();
+  });
+
+  it("fail-closes on a present but invalid volto_auth even with a valid query token", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const cookie = auth.cookieHeaderFor(Date.now()).split(";")[0]!;
+    const tampered = `${cookie.slice(0, -1)}${cookie.endsWith("A") ? "B" : "A"}`;
+    const result = auth.authorize(
+      reqWith({ cookie: tampered }, `/?token=${auth.launchToken}`),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.setCookie).toBeUndefined();
+    expect(result.redirectTo).toBeUndefined();
+  });
+
+  it("falls through to the query token when Authorization is not Bearer", async () => {
+    const auth = await createBrowserAuth({ dir });
+    const result = auth.authorize(
+      reqWith({ authorization: "Basic dXNlcjpwYXNz" }, `/?token=${auth.launchToken}`),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.redirectTo).toBe("/");
+    expect(result.setCookie).toBeDefined();
+  });
+
   it("writes its secret file with owner-only permissions", async () => {
     await createBrowserAuth({ dir });
     const entries = await fsp.readdir(dir);
