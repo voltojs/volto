@@ -22,6 +22,7 @@ export type { SandboxPolicy, NodeSandboxOptions, SandboxMode, SandboxBackend, Sa
 export type { SandboxEnforcement, SandboxBackendName, RunnerFailureRule } from "./sandbox-enforcement.js";
 export { classifyRunnerFailure, DENIAL_SIGNATURES, RUNNER_FAILURE_RULES } from "./sandbox-enforcement.js";
 export { createSandboxedFileSystem, SandboxBoundaryError } from "./sandboxed-filesystem.js";
+export type { SandboxedFileSystem } from "./sandboxed-filesystem.js";
 export { createSandboxProxy, isHostAllowed } from "./sandbox-proxy.js";
 export type { SandboxProxy, SandboxProxyConfig } from "./sandbox-proxy.js";
 export { createNodeSecrets } from "./secrets.js";

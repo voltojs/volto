@@ -37,6 +37,16 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { FileSystem, SandboxMode } from "@volto/core";
 import type { SandboxConfig } from "./sandbox.js";
+import type { SandboxEnforcement } from "./sandbox-enforcement.js";
+
+/**
+ * A sandboxed FileSystem plus its enforcement fact. Unlike the shell side
+ * there is no external runner to crash and no kernel ABI to vary: this
+ * decorator is an in-process path check that is either applied or not.
+ */
+export type SandboxedFileSystem = FileSystem & {
+  readonly sandboxEnforcement: SandboxEnforcement;
+};
 
 /**
  * A write the sandbox refused. Thrown, not returned: the fs tool layer
@@ -171,10 +181,13 @@ export function createSandboxedFileSystem(
    * defaulted.
    */
   options: { root: string },
-): FileSystem {
-  // No restriction to add — hand back the original rather than paying for a
-  // wrapper on every call.
-  if (config.mode === "danger-full-access") return fs;
+): SandboxedFileSystem {
+  // No restriction to add — hand back a copy of the original rather than
+  // paying for a wrapper on every call. A copy, not the same reference:
+  // sandboxEnforcement must be attached without mutating the caller's object.
+  if (config.mode === "danger-full-access") {
+    return { ...fs, sandboxEnforcement: "none" as const };
+  }
 
   const mode = config.mode;
   const innerRoot = path.resolve(options.root);
@@ -285,6 +298,9 @@ export function createSandboxedFileSystem(
 
   return {
     ...fs,
+    // The path checks above are always applied in this branch — there is no
+    // "partial" for an in-process decorator.
+    sandboxEnforcement: "full" as const,
     async write(target: string, data: string): Promise<void> {
       // The inner FileSystem resolves relative paths against innerRoot (the
       // root it was constructed with), so the boundary check must resolve
