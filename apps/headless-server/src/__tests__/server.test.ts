@@ -476,6 +476,18 @@ describe("authentication", () => {
     expect(response.headers.get("set-cookie")).toContain("volto_auth=");
   });
 
+  it("puts CORS headers on the 401 so a cross-origin caller reads the status", async () => {
+    // Without them the browser surfaces a CORS network error instead, and
+    // the app cannot tell "not authenticated" from "gateway is down".
+    const response = await fetch(`${baseUrl}/providers`, {
+      headers: { Origin: "http://localhost:6100" },
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:6100");
+    // Auth is cookie-based, so credentialed responses must be allowed too.
+    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
   it("refuses a WebSocket upgrade without credentials", async () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr ? addr.port : 0;

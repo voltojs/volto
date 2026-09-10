@@ -342,6 +342,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
+      // Auth is cookie-based, so a cross-origin caller must be told its
+      // credentials may ride along — without this the browser discards the
+      // response even on a 200. Omitted under "*": the pair is illegal and
+      // makes the browser reject every response.
+      ...(corsOrigin === "*" ? {} : { "Access-Control-Allow-Credentials": "true" }),
     };
   }
 
@@ -397,7 +402,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // unauthenticated caller must get 401 — never a route-dependent 404
     // that would leak which paths exist. Covers /events (SSE) as well;
     // the WebSocket upgrade path is wired separately below.
-    if (!guard(req, res)) {
+    if (!guard(req, res, corsHeaders)) {
       return;
     }
 

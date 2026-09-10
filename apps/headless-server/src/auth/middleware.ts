@@ -25,8 +25,16 @@ export interface AuthGuardOptions {
 /**
  * Returns true when the request may proceed; false when the guard has
  * already written the response.
+ *
+ * `corsHeaders` must be the same headers the route handlers use. Without
+ * them a cross-origin caller sees a CORS network error instead of the 401
+ * and cannot tell "not authenticated" apart from "gateway is down".
  */
-export type AuthGuard = (req: IncomingMessage, res: ServerResponse) => boolean;
+export type AuthGuard = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  corsHeaders?: Record<string, string>,
+) => boolean;
 
 function pathnameOf(url: string | undefined): string {
   try {
@@ -50,7 +58,7 @@ export function isAuthorized(result: AuthResult): boolean {
 export function createAuthGuard(auth: BrowserAuth, opts: AuthGuardOptions): AuthGuard {
   const publicPaths = new Set(opts.publicPaths);
 
-  return function guard(req, res): boolean {
+  return function guard(req, res, corsHeaders = {}): boolean {
     if (publicPaths.has(pathnameOf(req.url))) {
       return true;
     }
@@ -68,16 +76,20 @@ export function createAuthGuard(auth: BrowserAuth, opts: AuthGuardOptions): Auth
       res.writeHead(302, {
         Location: result.redirectTo,
         "Set-Cookie": result.setCookie,
+        ...corsHeaders,
       });
       res.end();
       return false;
     }
 
     // Every other failure — missing, malformed, or invalid credentials —
-    // answers with the same minimal 401.
+    // answers with the same minimal 401. It carries CORS headers so a
+    // cross-origin client reads the status rather than a network error;
+    // the body stays byte-identical regardless of why it was refused.
     res.writeHead(401, {
       "Content-Type": "application/json",
       "Content-Length": Buffer.byteLength(UNAUTHORIZED_BODY),
+      ...corsHeaders,
     });
     res.end(UNAUTHORIZED_BODY);
     return false;
