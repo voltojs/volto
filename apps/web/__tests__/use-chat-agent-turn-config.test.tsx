@@ -23,7 +23,10 @@ vi.mock('@/lib/agent-config', async () => {
     ...actual,
     // The hook awaits an open channel before posting; a no-op client keeps
     // this test on the turn-config assembly rather than SSE plumbing.
-    createSSEClient: () => ({
+    // `createGatewaySSEClient` is the factory the hook actually calls —
+    // overriding only `createSSEClient` would let the real EventSource path
+    // run.
+    createGatewaySSEClient: () => ({
       // `ensureConnection` resolves off the first 'open' state change; report
       // it asynchronously so the hook has subscribed by the time it lands. The hook resolves on 'connected', not 'open'.
       onStateChange: (cb: (state: string) => void) => {

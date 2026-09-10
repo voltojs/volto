@@ -35,7 +35,9 @@ function stubFetch(routes: Record<string, unknown>): void {
     'fetch',
     async (input: string | URL, init?: { method?: string; body?: string }) => {
       const url = String(input);
-      const key = `${init?.method ?? 'GET'} ${new URL(url).pathname}`;
+      // SERVER_URL is a same-origin path (`/gateway`); resolve against a
+      // dummy base so `new URL` accepts both relative and absolute forms.
+      const key = `${init?.method ?? 'GET'} ${new URL(url, 'http://localhost').pathname}`;
       const body = routes[key];
       if (body === undefined) throw new Error(`Unstubbed route: ${key}`);
       return { ok: true, json: async () => body } as Response;
@@ -53,7 +55,7 @@ afterEach(() => {
 
 describe('CatalogProviderSection', () => {
   it('does not offer a pi-ai provider that is already configured', async () => {
-    stubFetch({ 'GET /catalog/providers': CATALOG });
+    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     const existing = {
@@ -77,7 +79,7 @@ describe('CatalogProviderSection', () => {
   });
 
   it('adds models to the new provider through the same table as the edit form', async () => {
-    stubFetch({ 'GET /catalog/providers': CATALOG });
+    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     render(<CatalogProviderSection providers={[]} />);
@@ -109,8 +111,8 @@ describe('CatalogProviderSection', () => {
   it('creates a catalog provider with the table\'s rows and an optional baseURL override', async () => {
     let createdBody: unknown;
     stubFetch({
-      'GET /catalog/providers': CATALOG,
-      'POST /providers': (() => {
+      [`GET ${SERVER_URL}/catalog/providers`]: CATALOG,
+      [`POST ${SERVER_URL}/providers`]: (() => {
         return {
           kind: 'catalog',
           id: 'p1',
@@ -175,7 +177,7 @@ describe('CatalogProviderSection', () => {
       'fetch',
       async (input: string | URL, init?: { method?: string; body?: string }) => {
         const url = String(input);
-        if (new URL(url).pathname === '/catalog/providers') {
+        if (new URL(url, 'http://localhost').pathname === `${SERVER_URL}/catalog/providers`) {
           return { ok: true, json: async () => CATALOG } as Response;
         }
         if (init?.method === 'PUT') {

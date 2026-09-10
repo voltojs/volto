@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import {
+  createGatewaySSEClient,
   createSSEClient,
   eventsUrl,
   interruptTurn,
@@ -67,7 +68,8 @@ export function useChatAgent(): UseChatAgentReturn {
 
       existing?.client.destroy();
 
-      const client = createSSEClient(eventsUrl(sessionId));
+      // Cookie auth: the EventSource must carry credentials, same as fetch.
+      const client = createGatewaySSEClient(eventsUrl(sessionId));
 
       client.onStateChange(setConnectionState);
 

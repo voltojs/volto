@@ -162,6 +162,8 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${SERVER_URL}${path}`, {
+    // Cookie auth (Route P): the gateway rejects unauthenticated calls.
+    credentials: 'include',
     ...init,
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
   });

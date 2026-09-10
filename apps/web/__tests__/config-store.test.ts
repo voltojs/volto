@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useConfigStore, providerModels } from '../stores/config-store.js';
+import { SERVER_URL } from '../lib/agent-config.js';
 
 const PROJECT = { id: 'p1', name: 'demo', path: '/tmp/demo', createdAt: 1 };
 const PROVIDER = {
@@ -35,7 +36,9 @@ function stubFetch(routes: Record<string, unknown>): void {
     'fetch',
     async (input: string | URL, init?: { method?: string }) => {
       const url = String(input);
-      const key = `${init?.method ?? 'GET'} ${new URL(url).pathname}`;
+      // SERVER_URL is a same-origin path (`/gateway`); resolve against a
+      // dummy base so `new URL` accepts both relative and absolute forms.
+      const key = `${init?.method ?? 'GET'} ${new URL(url, 'http://localhost').pathname}`;
       const body = routes[key];
       if (body === undefined) throw new Error(`Unstubbed route: ${key}`);
       return { ok: true, json: async () => body } as Response;
@@ -60,9 +63,9 @@ afterEach(() => {
 describe('useConfigStore', () => {
   it('loads projects, providers and the catalog', async () => {
     stubFetch({
-      'GET /projects': [PROJECT],
-      'GET /providers': [PROVIDER],
-      'GET /catalog/providers': [],
+      [`GET ${SERVER_URL}/projects`]: [PROJECT],
+      [`GET ${SERVER_URL}/providers`]: [PROVIDER],
+      [`GET ${SERVER_URL}/catalog/providers`]: [],
     });
 
     await useConfigStore.getState().load();
@@ -105,7 +108,7 @@ describe('useConfigStore', () => {
   });
 
   it('appends a created project to local state and returns it', async () => {
-    stubFetch({ 'POST /projects': PROJECT });
+    stubFetch({ [`POST ${SERVER_URL}/projects`]: PROJECT });
     const created = await useConfigStore
       .getState()
       .addProject({ name: 'demo', path: '/tmp/demo' });
@@ -306,7 +309,7 @@ describe('useConfigStore', () => {
 
   it('drops a removed provider from local state', async () => {
     useConfigStore.setState({ providers: [PROVIDER] });
-    stubFetch({ 'DELETE /providers/v1': { removed: true } });
+    stubFetch({ [`DELETE ${SERVER_URL}/providers/v1`]: { removed: true } });
     await useConfigStore.getState().removeProvider('v1');
     expect(useConfigStore.getState().providers).toEqual([]);
   });

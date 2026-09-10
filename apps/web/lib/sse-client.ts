@@ -1,7 +1,9 @@
 // Subpath import keeps Node-only SDK dependencies out of the browser bundle.
-import { createSSEClient } from '@volto/sdk/sse';
+// Cookie auth (Route P): reuse the credentials-carrying factory so a future
+// caller of this singleton cannot silently drop cookies on the SSE stream.
+import { createGatewaySSEClient } from './agent-config';
 
-type SSEClientInstance = ReturnType<typeof createSSEClient>;
+type SSEClientInstance = ReturnType<typeof createGatewaySSEClient>;
 
 let client: SSEClientInstance | null = null;
 let currentUrl: string | null = null;
@@ -20,7 +22,7 @@ export function getSSEClient(url: string): SSEClientInstance {
     client.destroy();
   }
 
-  client = createSSEClient(url);
+  client = createGatewaySSEClient(url);
   currentUrl = url;
   return client;
 }
