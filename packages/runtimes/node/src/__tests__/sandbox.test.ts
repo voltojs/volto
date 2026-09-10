@@ -932,6 +932,10 @@ describe("deniedReadPaths", () => {
 
     const read = await drain(shell.exec(`cat ${JSON.stringify(path.join(secrets, "token"))}`));
     expect(read.out).not.toContain("SECRET_VALUE");
+    // The read itself must have been refused — empty output alone is also
+    // what a broken sandbox-exec or a malformed profile would produce.
+    expect(read.code).not.toBe(0);
+    expect(read.out).toContain("Operation not permitted");
 
     // A read outside the denied path is unaffected — the rule must be narrow.
     const other = await drain(shell.exec("head -1 /etc/hosts"));
