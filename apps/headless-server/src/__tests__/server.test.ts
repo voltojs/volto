@@ -4,9 +4,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import { createServer } from "../server.js";
+import { createServer, type HeadlessServer } from "../server.js";
 import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
+import { buildSandboxConfigs } from "../wiring.js";
+import { buildPermissionConfig } from "../permission-modes.js";
 import {
   applyPartial,
   buildTurnRecords,
@@ -14,6 +16,8 @@ import {
   textScript,
   toConversationView,
   toolCallScript,
+  decide,
+  ceilingOf,
 } from "@volto/core";
 import type {
   ConversationMessage,
@@ -36,12 +40,14 @@ const MOCK_MODEL: ModelPort = {
   },
 };
 
-let server: http.Server;
+let server: HeadlessServer;
 let baseUrl: string;
+let launchToken: string;
 
 beforeAll(async () => {
   process.env["VOLTO_CONFIG_DIR"] = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
-  server = createServer({ port: 0, modelPort: MOCK_MODEL });
+  server = await createServer({ port: 0, modelPort: MOCK_MODEL });
+  launchToken = server.launchToken;
   // Wait for the server to start. Binding to an explicit host (as opposed to
   // the previous no-host call, which bound synchronously) routes through
   // Node's async listen path even for a literal IP, so `address()` is only
@@ -62,45 +68,77 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-function post(path: string, body: unknown, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
+/** Bearer headers for the main server's launch token (or a given one). */
+function authHeaders(token: string = launchToken): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function post(
+  path: string,
+  body: unknown,
+  base: string = baseUrl,
+  token: string = launchToken,
+): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, base);
     const payload = JSON.stringify(body);
-    const req = http.request(url, { method: "POST", headers: { "Content-Type": "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf-8");
-        resolve({ status: res.statusCode ?? 0, data: JSON.parse(raw) });
-      });
-    });
+    const req = http.request(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf-8");
+          resolve({ status: res.statusCode ?? 0, data: JSON.parse(raw) });
+        });
+      },
+    );
     req.on("error", reject);
     req.write(payload);
     req.end();
   });
 }
 
-function put(path: string, body: unknown, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
+function put(
+  path: string,
+  body: unknown,
+  base: string = baseUrl,
+  token: string = launchToken,
+): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, base);
     const payload = JSON.stringify(body);
-    const req = http.request(url, { method: "PUT", headers: { "Content-Type": "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        resolve({ status: res.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString("utf-8")) });
-      });
-    });
+    const req = http.request(
+      url,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            data: JSON.parse(Buffer.concat(chunks).toString("utf-8")),
+          });
+        });
+      },
+    );
     req.on("error", reject);
     req.write(payload);
     req.end();
   });
 }
 
-function getSse(path: string): Promise<string[]> {
+function getSse(path: string, token: string = launchToken): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
-    http.get(url, (res) => {
+    http.get(url, { headers: authHeaders(token) }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (chunk: Buffer) => chunks.push(chunk));
       res.on("end", () => {
@@ -160,12 +198,13 @@ function collectProtocolTurn(
   message: string,
   config: Record<string, unknown> = {},
   base: string = baseUrl,
+  token: string = launchToken,
 ): Promise<ProtocolFrame[]> {
   return new Promise((resolve, reject) => {
     const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, base);
     const timer = setTimeout(() => reject(new Error("timed out waiting for turn frames")), 10_000);
 
-    const req = http.get(url, (res) => {
+    const req = http.get(url, { headers: authHeaders(token) }, (res) => {
       let raw = "";
       let idle: ReturnType<typeof setTimeout> | undefined;
       const scheduleIdle = (): void => {
@@ -183,7 +222,7 @@ function collectProtocolTurn(
       res.on("error", reject);
 
       // The channel must be attached before the turn is triggered.
-      post("/messages", { sessionId, message, ...config }, base).catch(reject);
+      post("/messages", { sessionId, message, ...config }, base, token).catch(reject);
     });
     req.on("error", (err) => {
       // destroy() after resolving surfaces here; ignore once we already resolved.
@@ -231,9 +270,13 @@ async function startSessionWithOneTurn(): Promise<string> {
   return sessionId;
 }
 
-function getJson(path: string, base: string = baseUrl): Promise<{ status: number; data: unknown }> {
+function getJson(
+  path: string,
+  base: string = baseUrl,
+  token: string = launchToken,
+): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
-    http.get(new URL(path, base), (res) => {
+    http.get(new URL(path, base), { headers: authHeaders(token) }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () =>
@@ -244,16 +287,23 @@ function getJson(path: string, base: string = baseUrl): Promise<{ status: number
   });
 }
 
-function del(path: string): Promise<{ status: number; data: unknown }> {
+function del(path: string, token: string = launchToken): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
-    const req = http.request(new URL(path, baseUrl), { method: "DELETE" }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => chunks.push(c));
-      res.on("end", () =>
-        resolve({ status: res.statusCode ?? 0, data: JSON.parse(Buffer.concat(chunks).toString()) }),
-      );
-      res.on("error", reject);
-    });
+    const req = http.request(
+      new URL(path, baseUrl),
+      { method: "DELETE", headers: authHeaders(token) },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            data: JSON.parse(Buffer.concat(chunks).toString()),
+          }),
+        );
+        res.on("error", reject);
+      },
+    );
     req.on("error", reject);
     req.end();
   });
@@ -267,12 +317,16 @@ function del(path: string): Promise<{ status: number; data: unknown }> {
  */
 async function startEphemeralServer(
   modelPort: ModelPort,
-): Promise<{ base: string; close(): Promise<void> }> {
-  const instance = createServer({ port: 0, modelPort });
+): Promise<{ base: string; launchToken: string; close(): Promise<void> }> {
+  const instance = await createServer({ port: 0, modelPort });
   await new Promise<void>((resolve) => instance.on("listening", resolve));
   const addr = instance.address();
   const base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
-  return { base, close: () => new Promise<void>((resolve) => instance.close(() => resolve())) };
+  return {
+    base,
+    launchToken: instance.launchToken,
+    close: () => new Promise<void>((resolve) => instance.close(() => resolve())),
+  };
 }
 
 /** Resolves once `pred` holds (polling every 25ms); rejects after `timeoutMs`. */
@@ -301,6 +355,7 @@ function openEventChannel(
   sessionId: string,
   lastEventId: string | undefined,
   base: string,
+  token: string = launchToken,
 ): { frames: ProtocolFrame[]; opened: Promise<void>; stop(): void } {
   const frames: ProtocolFrame[] = [];
   const url = new URL(`/events?sessionId=${encodeURIComponent(sessionId)}`, base);
@@ -335,10 +390,9 @@ function openEventChannel(
     });
   };
 
-  const req =
-    lastEventId !== undefined
-      ? http.get(url, { headers: { "last-event-id": lastEventId } }, handleResponse)
-      : http.get(url, handleResponse);
+  const headers: Record<string, string> = { ...authHeaders(token) };
+  if (lastEventId !== undefined) headers["last-event-id"] = lastEventId;
+  const req = http.get(url, { headers }, handleResponse);
   req.on("error", () => {
     // Same story on the request side: destroy() rejects the socket.
   });
@@ -374,6 +428,193 @@ async function pickFreeCatalogTarget(
   throw new Error("no unconfigured catalog provider matched");
 }
 
+describe("authentication", () => {
+  it("refuses an unauthenticated request to every non-public route", async () => {
+    for (const [method, route] of [
+      ["GET", "/providers"],
+      ["POST", "/providers"],
+      ["GET", "/projects"],
+      ["POST", "/projects"],
+      ["GET", "/sessions"],
+      ["POST", "/messages"],
+      ["POST", "/interrupt"],
+      ["POST", "/fs/pick-directory"],
+    ] as const) {
+      const response = await fetch(`${baseUrl}${route}`, {
+        method,
+        ...(method === "POST" ? { body: "{}", headers: { "Content-Type": "application/json" } } : {}),
+      });
+      expect(response.status, `${method} ${route}`).toBe(401);
+    }
+  });
+
+  it("keeps /health public", async () => {
+    const response = await fetch(`${baseUrl}/health`);
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts a bearer token", async () => {
+    const response = await fetch(`${baseUrl}/projects`, {
+      headers: { Authorization: `Bearer ${launchToken}` },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses an SSE subscription without credentials", async () => {
+    const response = await fetch(`${baseUrl}/events?sessionId=x`);
+    expect(response.status).toBe(401);
+  });
+
+  it("answers every rejection with the same body", async () => {
+    // A caller must not learn whether a route or session exists.
+    const a = await fetch(`${baseUrl}/providers`);
+    const b = await fetch(`${baseUrl}/nonexistent-route`);
+    expect(a.status).toBe(b.status);
+    expect(await a.text()).toBe(await b.text());
+  });
+
+  it("exchanges a valid query token for a cookie and a clean redirect", async () => {
+    const response = await fetch(`${baseUrl}/?token=${launchToken}`, { redirect: "manual" });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("set-cookie")).toContain("volto_auth=");
+  });
+
+  it("puts CORS headers on the 401 so a cross-origin caller reads the status", async () => {
+    // Without them the browser surfaces a CORS network error instead, and
+    // the app cannot tell "not authenticated" from "gateway is down".
+    const response = await fetch(`${baseUrl}/providers`, {
+      headers: { Origin: "http://localhost:6100" },
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:6100");
+    // Auth is cookie-based, so credentialed responses must be allowed too.
+    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("marks the SSE stream no-transform so a proxy cannot compress it", async () => {
+    // Not cosmetic. The web app reaches the gateway through a Next.js
+    // rewrite, and Next gzips a proxied response whenever the client sends
+    // Accept-Encoding -- which every browser does and curl does not. A gzip
+    // encoder buffers input until it has a block to emit, so on a
+    // never-ending stream of small frames the browser got the gzip header
+    // and then nothing: EventSource fired `open` and no event ever arrived.
+    // The whole chat UI was dead while every curl check of this endpoint
+    // passed. `no-transform` is what tells the proxy to leave the body alone.
+    const response = await fetch(`${baseUrl}/events?sessionId=hdr-check`, {
+      headers: { ...authHeaders(), "Accept-Encoding": "gzip, deflate, br" },
+    });
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("cache-control")).toContain("no-transform");
+    void response.body?.cancel();
+  });
+
+  it("refuses a WebSocket upgrade without credentials", async () => {
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/ws?message=hi`;
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        ws.on("open", () => {
+          ws.close();
+          resolve();
+        });
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_req, res) => {
+          reject(new Error(`upgrade rejected with ${res.statusCode}`));
+        });
+      }),
+    ).rejects.toThrow(/401/);
+  });
+
+  it("refuses an unauthenticated upgrade to a non-/ws path with 401, not 404", async () => {
+    // Same constraint as the HTTP guard: an unauthenticated caller must not
+    // learn which upgrade paths exist by comparing 401 (/ws) vs 404 (elsewhere).
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/definitely-not-ws`;
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        ws.on("open", () => {
+          ws.close();
+          resolve();
+        });
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_req, res) => {
+          reject(new Error(`upgrade rejected with ${res.statusCode}`));
+        });
+      }),
+    ).rejects.toThrow(/401/);
+  });
+
+  it("refuses an authenticated WebSocket upgrade with a disallowed Origin", async () => {
+    // Different localhost ports are same-site, so the SameSite=Strict cookie
+    // WOULD be sent — Origin is the check that stops another localhost page
+    // from driving /ws with the user's cookie. Must reject even when
+    // credentials are present (cookie or bearer).
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/ws?message=hi`;
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl, {
+          origin: "http://localhost:9999",
+          headers: authHeaders(),
+        });
+        ws.on("open", () => {
+          ws.close();
+          resolve();
+        });
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_req, res) => {
+          reject(new Error(`upgrade rejected with ${res.statusCode}`));
+        });
+      }),
+    ).rejects.toThrow(/403/);
+  });
+
+  it("accepts an authenticated WebSocket upgrade from the configured origin", async () => {
+    // Allowed Origin + credentials must still complete the handshake.
+    // (Missing Origin is covered by the unauthenticated 401 tests above and
+    // by "WebSocket /ws receives events" in the functional suite.)
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const wsUrl = `ws://localhost:${port}/ws?message=hi`;
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(wsUrl, {
+        origin: "http://localhost:6100",
+        headers: authHeaders(),
+      });
+      ws.on("open", () => {
+        ws.close();
+        resolve();
+      });
+      ws.on("error", reject);
+      ws.on("unexpected-response", (_req, res) => {
+        reject(new Error(`upgrade rejected with ${res.statusCode}`));
+      });
+    });
+  });
+
+  it("refuses to start on a non-loopback bind", async () => {
+    await expect(
+      createServer({ port: 0, host: "0.0.0.0", modelPort: MOCK_MODEL }),
+    ).rejects.toThrow(/loopback/i);
+  });
+
+  it("caps a request body at 1 MiB with 413", async () => {
+    const huge = "x".repeat(1024 * 1024 + 1);
+    const response = await fetch(`${baseUrl}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message: huge }),
+    });
+    expect(response.status).toBe(413);
+  });
+});
+
 describe("Headless server", () => {
   it("GET /health returns ok", async () => {
     const url = new URL("/health", baseUrl);
@@ -391,7 +632,7 @@ describe("Headless server", () => {
   });
 
   it("GET /skills lists discovered skills with their invocation flags", async () => {
-    const response = await fetch(`${baseUrl}/skills`);
+    const response = await fetch(`${baseUrl}/skills`, { headers: authHeaders() });
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       skills: Array<{ name: string; description: string; modelInvocable: boolean; userInvocable: boolean }>;
@@ -484,7 +725,7 @@ describe("Headless server", () => {
   it("WebSocket /ws receives events", async () => {
     const events = await new Promise<unknown[]>((resolve, reject) => {
       const wsUrl = new URL("/ws?message=hi", baseUrl).toString().replace("http", "ws");
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl, { headers: authHeaders() });
       const received: unknown[] = [];
 
       ws.on("message", (data: Buffer) => {
@@ -604,11 +845,17 @@ describe("Headless server", () => {
     try {
       const base = toolServer.base;
       const sessionId = "session-consistency-gate";
-      const project = await post("/projects", { name: "gate-project", path: process.cwd() }, base);
+      const project = await post(
+        "/projects",
+        { name: "gate-project", path: process.cwd() },
+        base,
+        toolServer.launchToken,
+      );
       const provider = await post(
         "/providers",
         { name: "gate-provider", models: [{ name: "gate-model", code: "gate-model" }] },
         base,
+        toolServer.launchToken,
       );
       const config = {
         projectId: (project.data as { id: string }).id,
@@ -616,7 +863,13 @@ describe("Headless server", () => {
         modelId: (provider.data as { models: Array<{ id: string }> }).models[0]!.id,
       };
 
-      const frames = await collectProtocolTurn(sessionId, "list this directory", config, base);
+      const frames = await collectProtocolTurn(
+        sessionId,
+        "list this directory",
+        config,
+        base,
+        toolServer.launchToken,
+      );
 
       // Premise: the turn really did call a tool and got a result back.
       const eventTypes = frames
@@ -644,7 +897,7 @@ describe("Headless server", () => {
 
       // The history side: what GET /sessions/:id projects from the persisted
       // transcript (readConversation = toConversationView(buildTurnRecords)).
-      const detail = await getJson(`/sessions/${sessionId}`, base);
+      const detail = await getJson(`/sessions/${sessionId}`, base, toolServer.launchToken);
       expect(detail.status).toBe(200);
       const stored = (detail.data as { messages: ConversationMessage[] }).messages;
 
@@ -690,9 +943,14 @@ describe("Headless server", () => {
       const config = await createTestProjectAndModel();
 
       // ── Connection A: attach, trigger the turn, abort mid-stream. ──
-      const channelA = openEventChannel(sessionId, undefined, base);
+      const channelA = openEventChannel(sessionId, undefined, base, slowServer.launchToken);
       await channelA.opened;
-      const postResult = await post("/messages", { sessionId, message: "hi", ...config }, base);
+      const postResult = await post(
+        "/messages",
+        { sessionId, message: "hi", ...config },
+        base,
+        slowServer.launchToken,
+      );
       expect(postResult.status).toBe(202);
       await until(
         () => channelA.frames.some((f) => f.event === "delta"),
@@ -716,7 +974,11 @@ describe("Headless server", () => {
       // below can only ever see event frames.
       await until(
         async () => {
-          const { status, data } = await getJson(`/sessions/${sessionId}`, base);
+          const { status, data } = await getJson(
+            `/sessions/${sessionId}`,
+            base,
+            slowServer.launchToken,
+          );
           return status === 200 && (data as { messages: unknown[] }).messages.length >= 2;
         },
         5_000,
@@ -730,7 +992,7 @@ describe("Headless server", () => {
       // connection A had processed (turn_start), so everything authoritative
       // from user_message onward must come back.
       const lastEventId = channelA.frames.find((f) => f.event === "event")!.id;
-      const channelB = openEventChannel(sessionId, lastEventId, base);
+      const channelB = openEventChannel(sessionId, lastEventId, base, slowServer.launchToken);
       await channelB.opened;
       await until(
         () =>
@@ -843,7 +1105,7 @@ describe("Headless server", () => {
     const config = await createTestProjectAndModel();
     await collectProtocolTurn(sessionId, "hello", config);
 
-    const response = await fetch(`${baseUrl}/sessions`);
+    const response = await fetch(`${baseUrl}/sessions`, { headers: authHeaders() });
     const body = (await response.json()) as { sessions: Array<{ id: string; title: string }> };
     const session = body.sessions.find((s) => s.id === sessionId);
     expect(session).toBeDefined();
@@ -870,7 +1132,7 @@ describe("Headless server", () => {
 
   it("GET /sessions/:id sends context usage as numbers only", async () => {
     const sessionId = await startSessionWithOneTurn();
-    const response = await fetch(`${baseUrl}/sessions/${sessionId}`);
+    const response = await fetch(`${baseUrl}/sessions/${sessionId}`, { headers: authHeaders() });
     const body = (await response.json()) as { contextUsage: unknown };
     const serialized = JSON.stringify(body.contextUsage);
 
@@ -898,19 +1160,19 @@ describe("Headless server", () => {
   describe("DELETE /sessions/:id", () => {
     it("removes the session from the list and the detail endpoint", async () => {
       const sessionId = await startSessionWithOneTurn();
-      const response = await fetch(`${baseUrl}/sessions/${sessionId}`, { method: "DELETE" });
+      const response = await fetch(`${baseUrl}/sessions/${sessionId}`, { method: "DELETE", headers: authHeaders() });
       expect(response.status).toBe(204);
 
-      const list = await fetch(`${baseUrl}/sessions`);
+      const list = await fetch(`${baseUrl}/sessions`, { headers: authHeaders() });
       const body = (await list.json()) as { sessions: Array<{ id: string }> };
       expect(body.sessions.some((s) => s.id === sessionId)).toBe(false);
 
-      const detail = await fetch(`${baseUrl}/sessions/${sessionId}`);
+      const detail = await fetch(`${baseUrl}/sessions/${sessionId}`, { headers: authHeaders() });
       expect(detail.status).toBe(404);
     });
 
     it("404s an unknown session", async () => {
-      const response = await fetch(`${baseUrl}/sessions/nope`, { method: "DELETE" });
+      const response = await fetch(`${baseUrl}/sessions/nope`, { method: "DELETE", headers: authHeaders() });
       expect(response.status).toBe(404);
       // Asserting the status alone would still pass if the route were deleted
       // entirely (the server's catch-all also 404s) — pin the body too, so
@@ -925,12 +1187,12 @@ describe("Headless server", () => {
       const sessionId = await startSessionWithOneTurn();
       const patch = await fetch(`${baseUrl}/sessions/${sessionId}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title: "重构上下文注入" }),
       });
       expect(patch.status).toBe(204);
 
-      const list = await fetch(`${baseUrl}/sessions`);
+      const list = await fetch(`${baseUrl}/sessions`, { headers: authHeaders() });
       const body = (await list.json()) as { sessions: Array<{ id: string; title: string }> };
       expect(body.sessions.find((s) => s.id === sessionId)?.title).toBe("重构上下文注入");
     });
@@ -940,7 +1202,7 @@ describe("Headless server", () => {
       for (const title of ["", "x".repeat(201)]) {
         const response = await fetch(`${baseUrl}/sessions/${sessionId}`, {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders() },
           body: JSON.stringify({ title }),
         });
         expect(response.status).toBe(400);
@@ -950,7 +1212,7 @@ describe("Headless server", () => {
     it("404s an unknown session", async () => {
       const response = await fetch(`${baseUrl}/sessions/nope`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title: "x" }),
       });
       expect(response.status).toBe(404);
@@ -968,7 +1230,7 @@ describe("Headless server", () => {
 
       const patch = await fetch(`${baseUrl}/sessions/${sessionId}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title: "renamed" }),
       });
       expect(patch.status).toBe(204);
@@ -1233,7 +1495,7 @@ describe("Headless server", () => {
   });
 
   it("POST /fs/pick-directory returns the chosen path", async () => {
-    const picker = createServer({
+    const picker = await createServer({
       port: 0,
       modelPort: MOCK_MODEL,
       directoryPicker: { pick: async () => "/tmp/chosen" },
@@ -1242,7 +1504,10 @@ describe("Headless server", () => {
     const addr = picker.address();
     const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
 
-    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    const response = await fetch(`${url}/fs/pick-directory`, {
+      method: "POST",
+      headers: authHeaders(picker.launchToken),
+    });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ path: "/tmp/chosen" });
 
@@ -1250,7 +1515,7 @@ describe("Headless server", () => {
   });
 
   it("POST /fs/pick-directory reports a cancellation as a null path", async () => {
-    const picker = createServer({
+    const picker = await createServer({
       port: 0,
       modelPort: MOCK_MODEL,
       directoryPicker: { pick: async () => null },
@@ -1259,7 +1524,10 @@ describe("Headless server", () => {
     const addr = picker.address();
     const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
 
-    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    const response = await fetch(`${url}/fs/pick-directory`, {
+      method: "POST",
+      headers: authHeaders(picker.launchToken),
+    });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ path: null });
 
@@ -1267,7 +1535,7 @@ describe("Headless server", () => {
   });
 
   it("POST /fs/pick-directory maps an unsupported platform to 501", async () => {
-    const picker = createServer({
+    const picker = await createServer({
       port: 0,
       modelPort: MOCK_MODEL,
       directoryPicker: {
@@ -1280,14 +1548,17 @@ describe("Headless server", () => {
     const addr = picker.address();
     const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
 
-    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    const response = await fetch(`${url}/fs/pick-directory`, {
+      method: "POST",
+      headers: authHeaders(picker.launchToken),
+    });
     expect(response.status).toBe(501);
 
     await new Promise<void>((resolve) => picker.close(() => resolve()));
   });
 
   it("POST /fs/pick-directory maps a busy picker to 409", async () => {
-    const picker = createServer({
+    const picker = await createServer({
       port: 0,
       modelPort: MOCK_MODEL,
       directoryPicker: {
@@ -1300,7 +1571,10 @@ describe("Headless server", () => {
     const addr = picker.address();
     const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
 
-    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    const response = await fetch(`${url}/fs/pick-directory`, {
+      method: "POST",
+      headers: authHeaders(picker.launchToken),
+    });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "A directory picker is already open" });
 
@@ -1308,7 +1582,7 @@ describe("Headless server", () => {
   });
 
   it("POST /fs/pick-directory maps a timeout to 504", async () => {
-    const picker = createServer({
+    const picker = await createServer({
       port: 0,
       modelPort: MOCK_MODEL,
       directoryPicker: {
@@ -1321,7 +1595,10 @@ describe("Headless server", () => {
     const addr = picker.address();
     const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
 
-    const response = await fetch(`${url}/fs/pick-directory`, { method: "POST" });
+    const response = await fetch(`${url}/fs/pick-directory`, {
+      method: "POST",
+      headers: authHeaders(picker.launchToken),
+    });
     expect(response.status).toBe(504);
     expect(await response.json()).toEqual({ error: "osascript timed out after 120000ms" });
 
@@ -1333,7 +1610,7 @@ describe("POST /approvals", () => {
   it("rejects a body with no callId", async () => {
     const response = await fetch(`${baseUrl}/approvals`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ sessionId: "s1", decision: "allow" }),
     });
 
@@ -1343,7 +1620,7 @@ describe("POST /approvals", () => {
   it("rejects an unsupported decision", async () => {
     const response = await fetch(`${baseUrl}/approvals`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ sessionId: "s1", callId: "c1", decision: "maybe" }),
     });
 
@@ -1358,11 +1635,41 @@ describe("POST /approvals", () => {
     // decideApproval — see sessions.ts's own doc comment.
     const response = await fetch(`${baseUrl}/approvals`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ sessionId: "s1", callId: "ghost", decision: "allow" }),
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it("rejects allow_always instead of silently downgrading it to allow", async () => {
+    // The retired grant. An old client must get a clear error, never a
+    // one-shot allow it did not ask for.
+    const response = await fetch(`${baseUrl}/approvals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${launchToken}`,
+      },
+      body: JSON.stringify({
+        sessionId: "s1",
+        callId: "c1",
+        decision: "allow_always",
+        token: "whatever",
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("a downgrade is not overridden by anything granted earlier", async () => {
+    // I2's original defect shape: an approval granted under `auto` kept bash
+    // running after the preset was downgraded to `read-only`. With one-shot
+    // grants there is nothing left to outlive the downgrade.
+    const { fsConfig } = buildSandboxConfigs("read-only", "/workspace", []);
+    expect(fsConfig?.mode).toBe("read-only");
+    const config = buildPermissionConfig("read-only");
+    expect(config.rules).toBeUndefined();
+    expect(decide(ceilingOf(config.sandbox), config.approval, "WRITE_HIGH")).toBe("deny");
   });
 });
 
@@ -1372,7 +1679,10 @@ describe("POST /approvals", () => {
  * cast.
  */
 interface StubApprovalGate {
-  ask(call: { id: string; name: string; input: unknown }, tier: string): Promise<"allow" | "deny">;
+  ask(
+    call: { id: string; name: string; input: unknown },
+    tier: string,
+  ): Promise<"allow" | "deny" | { decision: "allow" | "deny"; reason?: string }>;
 }
 
 /**
@@ -1399,7 +1709,9 @@ function makeApprovalPendingFactory() {
           return;
         }
         resolveAsked();
-        const decision = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        const raw = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        // The gate may answer with a bare decision or an ApprovalResult.
+        const decision = typeof raw === "string" ? raw : raw.decision;
         resultText = decision;
         yield { type: "text_delta", data: { text: `decision:${decision}` } };
       },
@@ -1414,12 +1726,16 @@ function makeApprovalPendingFactory() {
 /** Boots a dedicated server instance with a custom agentFactory (not modelPort). */
 async function startEphemeralServerWithFactory(
   factory: unknown,
-): Promise<{ base: string; close(): Promise<void> }> {
-  const instance = createServer({ port: 0, agentFactory: factory as never });
+): Promise<{ base: string; launchToken: string; close(): Promise<void> }> {
+  const instance = await createServer({ port: 0, agentFactory: factory as never });
   await new Promise<void>((resolve) => instance.on("listening", resolve));
   const addr = instance.address();
   const base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
-  return { base, close: () => new Promise<void>((resolve) => instance.close(() => resolve())) };
+  return {
+    base,
+    launchToken: instance.launchToken,
+    close: () => new Promise<void>((resolve) => instance.close(() => resolve())),
+  };
 }
 
 /** Extract the token from a channel's CONNECTED frame, waiting for it to arrive. */
@@ -1432,9 +1748,9 @@ async function connectedToken(channel: { frames: ProtocolFrame[] }): Promise<str
 describe("POST /approvals — per-connection token binding (real turn, real approval gate)", () => {
   it("no token: rejected with 403, approval stays pending", async () => {
     const { factory, asked } = makeApprovalPendingFactory();
-    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
     const sessionId = `approval-token-no-token-${Date.now()}`;
-    const channel = openEventChannel(sessionId, undefined, base);
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
     try {
       await channel.opened;
       const token = await connectedToken(channel);
@@ -1442,10 +1758,20 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
       expect(token.length).toBeGreaterThan(10);
 
       const config = await createTestProjectAndModel();
-      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
       await asked;
 
-      const noToken = await post("/approvals", { sessionId, callId: "call-1", decision: "allow" }, base);
+      const noToken = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow" },
+        base,
+        ephemeralToken,
+      );
       expect(noToken.status).toBe(403);
 
       // Still pending: the *right* token settles it right after.
@@ -1453,7 +1779,8 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token },
         base,
-      );
+        ephemeralToken,
+        );
       expect(withToken.status).toBe(202);
     } finally {
       channel.stop();
@@ -1463,22 +1790,28 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
 
   it("wrong token: rejected with 403, approval stays pending", async () => {
     const { factory, asked } = makeApprovalPendingFactory();
-    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
     const sessionId = `approval-token-wrong-${Date.now()}`;
-    const channel = openEventChannel(sessionId, undefined, base);
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
     try {
       await channel.opened;
       const token = await connectedToken(channel);
 
       const config = await createTestProjectAndModel();
-      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
       await asked;
 
       const wrongToken = await post(
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token: `not-${token}` },
         base,
-      );
+        ephemeralToken,
+        );
       expect(wrongToken.status).toBe(403);
 
       // Still pending: the *right* token settles it right after.
@@ -1486,7 +1819,8 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token },
         base,
-      );
+        ephemeralToken,
+        );
       expect(withToken.status).toBe(202);
     } finally {
       channel.stop();
@@ -1496,22 +1830,28 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
 
   it("right token: 202, and the gate actually settles (the stub observes the decision)", async () => {
     const { factory, asked, getResultText } = makeApprovalPendingFactory();
-    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
     const sessionId = `approval-token-right-${Date.now()}`;
-    const channel = openEventChannel(sessionId, undefined, base);
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
     try {
       await channel.opened;
       const token = await connectedToken(channel);
 
       const config = await createTestProjectAndModel();
-      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
       await asked;
 
       const response = await post(
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token },
         base,
-      );
+        ephemeralToken,
+        );
       expect(response.status).toBe(202);
 
       await until(() => getResultText() === "allow", 2000, "gate never actually settled");
@@ -1523,27 +1863,34 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
 
   it("a wrong token is never distinguishable from an unknown callId: both answer 403 when a connection exists", async () => {
     const { factory, asked } = makeApprovalPendingFactory();
-    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
     const sessionId = `approval-token-uniform-${Date.now()}`;
-    const channel = openEventChannel(sessionId, undefined, base);
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
     try {
       await channel.opened;
       const token = await connectedToken(channel);
 
       const config = await createTestProjectAndModel();
-      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
       await asked;
 
       const wrongTokenKnownCall = await post(
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token: "wrong" },
         base,
-      );
+        ephemeralToken,
+        );
       const wrongTokenUnknownCall = await post(
         "/approvals",
         { sessionId, callId: "totally-unknown", decision: "allow", token: "wrong" },
         base,
-      );
+        ephemeralToken,
+        );
 
       // Same status either way, and the message only ever echoes back the
       // caller's OWN callId (never reveals anything the caller didn't
@@ -1563,7 +1910,8 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token },
         base,
-      );
+        ephemeralToken,
+        );
       expect(settle.status).toBe(202);
     } finally {
       channel.stop();
@@ -1573,21 +1921,26 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
 
   it("self-dismantling property: a second /events subscription for the same session denies every pending approval", async () => {
     const { factory, asked, getResultText } = makeApprovalPendingFactory();
-    const { base, close } = await startEphemeralServerWithFactory(factory);
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
     const sessionId = `approval-token-dismantle-${Date.now()}`;
-    const channelA = openEventChannel(sessionId, undefined, base);
+    const channelA = openEventChannel(sessionId, undefined, base, ephemeralToken);
     let channelB: ReturnType<typeof openEventChannel> | undefined;
     try {
       await channelA.opened;
       const tokenA = await connectedToken(channelA);
 
       const config = await createTestProjectAndModel();
-      await post("/messages", { sessionId, message: "hi", permissionMode: "ask", ...config }, base);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
       await asked;
 
       // A second subscriber — e.g. an attacker who reaches /events for the
       // same sessionId to try to steal the token — opens its own channel.
-      channelB = openEventChannel(sessionId, undefined, base);
+      channelB = openEventChannel(sessionId, undefined, base, ephemeralToken);
       await channelB.opened;
       const tokenB = await connectedToken(channelB);
       expect(tokenB).not.toBe(tokenA);
@@ -1603,7 +1956,8 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
         "/approvals",
         { sessionId, callId: "call-1", decision: "allow", token: tokenB },
         base,
-      );
+        ephemeralToken,
+        );
       expect(response.status).toBe(409);
     } finally {
       channelA.stop();
@@ -1631,7 +1985,7 @@ describe("legacy shared agent (no sessionId) permission posture", () => {
       return stubAgent as never;
     };
 
-    const instance = createServer({ port: 0, agentFactory: factory as never });
+    const instance = await createServer({ port: 0, agentFactory: factory as never });
     await new Promise<void>((resolve) => instance.on("listening", resolve));
     try {
       expect(builds).toHaveLength(1);

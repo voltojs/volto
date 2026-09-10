@@ -1,21 +1,47 @@
 /**
  * Agent transport configuration.
  *
- * The web app talks to `apps/headless-server` over the shared SSE protocol.
+ * Route P: the browser talks to the gateway at the same-origin `/gateway`
+ * prefix (Next.js rewrites it to the real server — see next.config.ts).
+ * Authentication is cookie-based, so every outbound request must carry
+ * credentials: `fetch` gets `credentials: 'include'`, and the SSE
+ * `EventSource` gets `withCredentials: true`.
+ *
  * Importing from `@volto/sdk/sse` rather than the package root keeps Node-only
  * dependencies (runtime-node, tools-shell, sqlite store) out of the browser
  * bundle — the SSE subtree only depends on protocol types.
  */
 
 import { createSSEClient } from '@volto/sdk/sse';
-import type { ConnectionState } from '@volto/sdk/sse';
+import type { ConnectionState, EventSourceLike } from '@volto/sdk/sse';
 
 export { createSSEClient };
 export type { ConnectionState };
 
-/** Base URL of the headless server. */
-export const SERVER_URL =
-  process.env.NEXT_PUBLIC_AGENT_SERVER_URL ?? 'http://localhost:3100';
+/**
+ * Same-origin prefix the Next.js rewrite proxies to the gateway.
+ * Cookie auth only works because the browser sees a single origin — never
+ * point this at an absolute cross-origin URL.
+ */
+export const SERVER_URL = '/gateway';
+
+/**
+ * Create an SSE client whose EventSource carries cookies.
+ *
+ * The SDK's default factory builds a bare `EventSource`, which does not send
+ * credentials. Pinning `withCredentials` here keeps the long-lived stream on
+ * the same credential path as every fetch below.
+ */
+export function createGatewaySSEClient(url: string) {
+  const client = createSSEClient(url);
+  client.setEventSourceFactory(
+    (u) =>
+      new EventSource(u, {
+        withCredentials: true,
+      }) as unknown as EventSourceLike,
+  );
+  return client;
+}
 
 /** URL of the long-lived SSE channel for a chat session. */
 export function eventsUrl(sessionId: string): string {
@@ -42,6 +68,7 @@ export async function postMessage(
 ): Promise<void> {
   const response = await fetch(`${SERVER_URL}/messages`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sessionId,
@@ -79,6 +106,7 @@ export async function postMessage(
 export async function interruptTurn(sessionId: string): Promise<boolean> {
   const response = await fetch(`${SERVER_URL}/interrupt`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId }),
   });
@@ -108,11 +136,12 @@ export async function interruptTurn(sessionId: string): Promise<boolean> {
 export async function postApproval(
   sessionId: string,
   callId: string,
-  decision: 'allow' | 'allow_always' | 'deny',
+  decision: 'allow' | 'deny',
   token: string | null,
 ): Promise<boolean> {
   const response = await fetch(`${SERVER_URL}/approvals`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sessionId,

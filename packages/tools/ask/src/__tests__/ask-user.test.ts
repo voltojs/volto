@@ -35,6 +35,33 @@ describe("ask_user", () => {
     expect(result.modelContent).toContain("no");
   });
 
+  it("normalizes an ApprovalResult allow the same as a bare allow", async () => {
+    // Gates may answer with { decision } instead of a bare string; comparing
+    // an object to "allow" is always false and would flip yes into no.
+    const gate: ApprovalGate = {
+      async ask() {
+        return { decision: "allow" as const };
+      },
+    };
+    const sink = createMockEventSink();
+    const tool = createAskUserTool({ approvalGate: gate, eventSink: sink });
+    const result = await tool.handler({ question: "Continue?" });
+    expect(result.isError).toBeFalsy();
+    expect(result.modelContent).toContain("yes");
+  });
+
+  it("normalizes an ApprovalResult deny the same as a bare deny", async () => {
+    const gate: ApprovalGate = {
+      async ask() {
+        return { decision: "deny" as const, reason: "user" as const };
+      },
+    };
+    const sink = createMockEventSink();
+    const tool = createAskUserTool({ approvalGate: gate, eventSink: sink });
+    const result = await tool.handler({ question: "Proceed?" });
+    expect(result.modelContent).toContain("no");
+  });
+
   it("returns isError when gate throws (host unavailable)", async () => {
     const gate: ApprovalGate = { async ask() { throw new Error("no host"); } };
     const sink = createMockEventSink();

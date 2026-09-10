@@ -17,7 +17,11 @@ import {
 
 function stubFetch(handler: (path: string) => { status: number; body: unknown }): void {
   vi.stubGlobal('fetch', async (input: string | URL) => {
-    const { status, body } = handler(new URL(String(input)).pathname);
+    // SERVER_URL is a same-origin path (`/gateway`); resolve against a dummy
+    // base so `new URL` accepts both relative and absolute forms.
+    const { status, body } = handler(
+      new URL(String(input), 'http://localhost').pathname,
+    );
     return {
       ok: status >= 200 && status < 300,
       status,

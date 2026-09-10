@@ -69,10 +69,15 @@ export function createAskUserTool(opts: AskUserOptions): Tool {
         // and deny as "user declined". For a real interactive host, the gate
         // implementation should be overridden to support free-text input.
         const callId = opts.id ? `ask_user-${opts.id.next()}` : `ask_user-${++localCounter}`;
-        const decision = await opts.approvalGate.ask(
+        // A gate may answer with a bare decision or with an ApprovalResult
+        // (reason attached). Normalize before comparing — `object === "allow"`
+        // is always false, which would silently report every confirmation as
+        // a decline.
+        const raw = await opts.approvalGate.ask(
           { id: callId, name: "ask_user", input: { question } },
           "READ_ONLY",
         );
+        const decision = typeof raw === "string" ? raw : raw.decision;
 
         if (decision === "allow") {
           return {

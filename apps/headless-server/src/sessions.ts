@@ -21,7 +21,7 @@ import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
-import type { PermissionRule } from "@volto/core";
+import { getConfigDirRealPath } from "./config/paths.js";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
@@ -286,17 +286,9 @@ interface Session {
    */
   abort: AbortController | null;
   /**
-   * Pending human approvals for this session, plus the write path a
-   * "always allow" answer takes. Lives on the session rather than on the
-   * agent so a rebuild (model switch, project switch) keeps the rules the
-   * user already granted.
+   * Pending human approvals for this session.
    */
   approvals: ApprovalRegistry;
-  /**
-   * Permission rules the user granted at approval prompts. Re-injected on
-   * every rebuild — a config change must not silently revoke them.
-   */
-  dynamicRules: PermissionRule[];
   lastUsed: number;
 }
 
@@ -376,16 +368,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         buffer: [],
         running: false,
         abort: null,
-        approvals: createApprovalRegistry({
-          onAlwaysAllow: (toolName) => {
-            const session = sessions.get(sessionId);
-            if (!session) return;
-            // Unshift, not push: a later grant must outrank an earlier
-            // deny rule for the same tool.
-            session.dynamicRules.unshift({ toolName, decision: "allow" });
-          },
-        }),
-        dynamicRules: [],
+        approvals: createApprovalRegistry(),
         lastUsed: Date.now(),
       };
       sessions.set(sessionId, session);
@@ -493,8 +476,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
   function detach(session: Session): void {
     // A dropped channel means nobody can answer — deny rather than leave a
-    // tool call parked forever, and never allow by default.
-    session.approvals.settleAll("deny");
+    // tool call parked forever, and never allow by default. Tagged
+    // `connection-lost` so the user can tell this from their own deny click.
+    session.approvals.settleAll("deny", "connection-lost");
     if (!session.connection) return;
     clearInterval(session.connection.heartbeat);
     session.connection = null;
@@ -661,9 +645,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // against that ordinal. Only consumed by the SDK's cross-process resume
     // fallback Runner; ordinary new turns ignore it entirely.
     const initialStep = initialTurn !== undefined ? await resolveInitialStep(session.id, initialTurn) : undefined;
+    // Real path of the credential dir, denied to the sandbox on both the
+    // shell and fs sides. Resolved here (async context) rather than inside
+    // buildSandboxConfigs, which stays synchronous.
+    const configDirRealPath = await getConfigDirRealPath();
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
+      configDirRealPath,
       ...(credentials
         ? {
             model: credentials.code,
@@ -679,13 +668,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
       ...(config.permissionMode
         ? {
-            permissionConfig: {
-              ...buildPermissionConfig(config.permissionMode),
-              // Same array reference on every rebuild: the Runner re-reads
-              // config.rules at each evaluation, so a grant made mid-turn
-              // takes effect immediately without rebuilding the agent.
-              rules: session.dynamicRules,
-            },
+            permissionConfig: buildPermissionConfig(config.permissionMode),
             sandboxMode: sandboxModeFor(config.permissionMode),
             approvalGate: session.approvals.gate,
           }
@@ -853,7 +836,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   function interrupt(sessionId: string): boolean {
     const session = sessions.get(sessionId);
     if (!session?.running || !session.abort) return false;
-    session.approvals.settleAll("deny");
+    // Tagged `interrupted` — distinct from a user denying a single call.
+    session.approvals.settleAll("deny", "interrupted");
     session.abort.abort();
     return true;
   }

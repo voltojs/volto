@@ -31,9 +31,13 @@ const MOCK_MODEL: ModelPort = {
   },
 };
 
-function getJson(baseUrl: string, pathname: string): Promise<{ status: number; data: unknown }> {
+function getJson(
+  baseUrl: string,
+  pathname: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
-    http.get(new URL(pathname, baseUrl), (res) => {
+    http.get(new URL(pathname, baseUrl), { headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () =>
@@ -44,27 +48,34 @@ function getJson(baseUrl: string, pathname: string): Promise<{ status: number; d
   });
 }
 
-async function startServer(): Promise<{ server: http.Server; baseUrl: string; configDir: string }> {
+async function startServer(): Promise<{
+  server: http.Server;
+  baseUrl: string;
+  configDir: string;
+  launchToken: string;
+}> {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-corrupt-"));
   process.env["VOLTO_CONFIG_DIR"] = configDir;
-  const server = createServer({ port: 0, modelPort: MOCK_MODEL });
+  const server = await createServer({ port: 0, modelPort: MOCK_MODEL });
   const baseUrl = await new Promise<string>((resolve) => {
     server.on("listening", () => {
       const addr = server.address();
       if (addr && typeof addr === "object") resolve(`http://localhost:${addr.port}`);
     });
   });
-  return { server, baseUrl, configDir };
+  return { server, baseUrl, configDir, launchToken: server.launchToken };
 }
 
 describe("corrupt config file handling stays request-scoped", () => {
   it("GET /projects returns 500 for a corrupt file and the server stays responsive", async () => {
-    const { server, baseUrl, configDir } = await startServer();
+    const { server, baseUrl, configDir, launchToken } = await startServer();
     try {
       await fs.mkdir(configDir, { recursive: true });
       await fs.writeFile(path.join(configDir, "projects.json"), "{not valid json", "utf-8");
 
-      const broken = await getJson(baseUrl, "/projects");
+      const broken = await getJson(baseUrl, "/projects", {
+        Authorization: `Bearer ${launchToken}`,
+      });
       expect(broken.status).toBe(500);
       expect((broken.data as { error?: string }).error).toMatch(/could not be parsed|corrupt/i);
 
@@ -79,12 +90,14 @@ describe("corrupt config file handling stays request-scoped", () => {
   });
 
   it("GET /providers returns 500 for a corrupt file and the server stays responsive", async () => {
-    const { server, baseUrl, configDir } = await startServer();
+    const { server, baseUrl, configDir, launchToken } = await startServer();
     try {
       await fs.mkdir(configDir, { recursive: true });
       await fs.writeFile(path.join(configDir, "providers.json"), "{not valid json", "utf-8");
 
-      const broken = await getJson(baseUrl, "/providers");
+      const broken = await getJson(baseUrl, "/providers", {
+        Authorization: `Bearer ${launchToken}`,
+      });
       expect(broken.status).toBe(500);
       expect((broken.data as { error?: string }).error).toMatch(/could not be parsed|corrupt/i);
 

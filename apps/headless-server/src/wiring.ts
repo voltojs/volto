@@ -25,7 +25,7 @@ import {
 } from "@volto/core";
 import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
-import { getConfigPath } from "./config/paths.js";
+import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
 
 /**
@@ -137,6 +137,14 @@ export interface WiringOptions {
    * at 1. Omit together with `initialTurn` when no transcript exists yet.
    */
   initialStep?: number;
+  /**
+   * Real path of the credential directory, denied to the sandboxed process
+   * on both the shell and fs sides. Callers in an async context should
+   * resolve it via `getConfigDirRealPath()`; when omitted, the lexical
+   * `getConfigDir()` is passed and the sandbox adapters realpath it
+   * themselves at construction.
+   */
+  configDirRealPath?: string;
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -188,12 +196,55 @@ function writableRootsFor(cwd: string): string[] {
  * `git_commit`/`git_push`, wherever `npm test`/CI is invoked, or a read-side
  * policy — not in the sandbox's file-write boundary.
  */
+/**
+ * Environment variable NAMES whose values are treated as secrets and removed
+ * from every sandboxed child process.
+ *
+ * Patterns, not an exact list, and deliberately so. The file-side fence over
+ * the credential dir (`deniedReadPaths`) is worth nothing while a one-line
+ * `echo $OPENAI_API_KEY` walks around it, and an exact list only ever covers
+ * the providers someone remembered on the day they wrote it. Matching on the
+ * shape of the name covers the next provider's key the day the host exports
+ * it.
+ *
+ * Scoped to secret-shaped names rather than an allow-list of "safe"
+ * variables: the sandboxed process still has to run `git`, `npm`, `cargo`
+ * and friends, all of which read host-specific variables (`PNPM_HOME`,
+ * `NVM_DIR`, `JAVA_HOME`, proxy settings) that an allow-list would break.
+ *
+ * `SSH_AUTH_SOCK` is knowingly NOT stripped — it is a credential channel,
+ * but removing it breaks `git push` over ssh, which is squarely inside what
+ * `workspace-write` is meant to allow. Closing that one belongs to the
+ * permission layer's tier for `git_push`, not to env stripping.
+ */
+export const SECRET_ENV_PATTERNS: readonly RegExp[] = [
+  /API_?KEY/i,
+  /(^|_)KEY$/i,
+  /TOKEN/i,
+  /SECRET/i,
+  /PASSWORD/i,
+  /PASSWD/i,
+  /CREDENTIAL/i,
+];
+
 export function buildSandboxConfigs(
   mode: SandboxMode | undefined,
   cwd: string,
+  /**
+   * Real paths of directories the sandboxed process must never read — the
+   * gateway's own credential dir. Passed in rather than resolved here:
+   * realpath is async and this function stays synchronous so both configs
+   * are constructed in one deterministic step.
+   */
+  deniedReadPaths: string[] = [],
 ): SandboxConfigs {
   const base: SandboxConfig | null = mode
-    ? { mode, writableRoots: writableRootsFor(cwd), readOnlyOverlays: [] }
+    ? {
+        mode,
+        writableRoots: writableRootsFor(cwd),
+        readOnlyOverlays: [],
+        deniedReadPaths,
+      }
     : null;
   return {
     // `network: { enabled: true }` on the shell config only: egress is not a
@@ -205,8 +256,17 @@ export function buildSandboxConfigs(
     // policy choice, made here rather than in the adapter. The fs side has
     // no network concept at all (a FileSystem port has no egress), so it
     // gets no such override.
+    //
+    // `strippedEnvPatterns` is shell-only for the same reason: a FileSystem
+    // port has no environment.
     fsConfig: base,
-    shellConfig: base ? { ...base, network: { enabled: true } } : null,
+    shellConfig: base
+      ? {
+          ...base,
+          network: { enabled: true },
+          strippedEnvPatterns: [...SECRET_ENV_PATTERNS],
+        }
+      : null,
   };
 }
 
@@ -225,9 +285,14 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   // why) the fs and shell sides diverge (C5). Without a mode both stay null
   // and the adapters stay undecorated — the legacy routes and tests that
   // build an agent with no permission preset keep their prior behaviour.
+  // The credential dir is denied to the sandbox on both sides; callers in
+  // an async context pass its realpath (getConfigDirRealPath), otherwise the
+  // lexical form goes in and the adapters resolve it themselves.
+  const configDirRealPath = opts.configDirRealPath ?? getConfigDir();
   const { fsConfig: sandboxConfig, shellConfig: shellSandboxConfig } = buildSandboxConfigs(
     opts.sandboxMode,
     cwd,
+    [configDirRealPath],
   );
   const rawFs = createNodeFileSystem({ root: cwd });
   const rawShell = createNodeShell({ defaultCwd: cwd });

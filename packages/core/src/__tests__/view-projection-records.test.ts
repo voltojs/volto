@@ -165,6 +165,29 @@ describe("buildTurnRecords", () => {
     });
   });
 
+  it("carries the denial reason on the gated call when the event supplies one", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 120, type: "assistant_message", data: { content: [], stopReason: "tool_use", durationMs: 5 }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "bash", input: {} }, turn: 1, step: 1 },
+      { time: 135, type: "approval_asked", data: { callId: "c1", name: "bash", riskTier: "WRITE_HIGH" }, turn: 1, step: 1 },
+      {
+        time: 140,
+        type: "approval_decision",
+        data: { callId: "c1", decision: "deny", reason: "connection-lost" },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    expect(buildTurnRecords(events)[0]!.steps[0]!.toolCalls[0]!.approval).toEqual({
+      riskTier: "WRITE_HIGH",
+      decision: "deny",
+      reason: "connection-lost",
+    });
+  });
+
   it("records retries and the model error on the step", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

@@ -24,3 +24,13 @@ export function getConfigPath(name: string, dir = getConfigDir()): string {
 export async function ensureConfigDir(dir = getConfigDir()): Promise<void> {
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
 }
+
+/**
+ * The credential directory's real path. The sandbox compares real paths, so a
+ * caller that passes the lexical form gets a rule that silently never matches.
+ */
+export async function getConfigDirRealPath(): Promise<string> {
+  const dir = getConfigDir();
+  await ensureConfigDir(dir);
+  return fs.realpath(dir);
+}

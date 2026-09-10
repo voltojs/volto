@@ -366,10 +366,141 @@ describe("createSandboxedFileSystem — danger-full-access", () => {
     expect(onDisk).toBe("data");
   });
 
-  it("returns the very same object rather than a wrapper", () => {
+  it("returns a copy carrying sandboxEnforcement none, not the same reference", () => {
     const inner = createNodeFileSystem({ root: workspace });
-    expect(
-      createSandboxedFileSystem(inner, { mode: "danger-full-access" }, { root: workspace }),
-    ).toBe(inner);
+    const wrapped = createSandboxedFileSystem(inner, { mode: "danger-full-access" }, { root: workspace });
+    // Returns a copy (not the same reference) because sandboxEnforcement
+    // must be attached without mutating the caller's object — mirroring
+    // createSandboxedShell.
+    expect(wrapped).not.toBe(inner);
+    expect(wrapped.sandboxEnforcement).toBe("none");
+    expect(typeof wrapped.write).toBe("function");
+    // The caller's original stays unadorned.
+    expect((inner as { sandboxEnforcement?: unknown }).sandboxEnforcement).toBeUndefined();
+  });
+});
+
+describe("createSandboxedFileSystem — deniedReadPaths", () => {
+  it("rejects a read of a file inside a denied path with SandboxBoundaryError", async () => {
+    const creds = path.join(workspace, "creds");
+    await fsp.mkdir(creds, { recursive: true });
+    await fsp.writeFile(path.join(creds, "token"), "SECRET", "utf-8");
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    await expect(sandboxed.read("creds/token")).rejects.toBeInstanceOf(SandboxBoundaryError);
+  });
+
+  it("still allows reads of files outside the denied path", async () => {
+    const creds = path.join(workspace, "creds");
+    await fsp.mkdir(creds, { recursive: true });
+    await fsp.writeFile(path.join(creds, "token"), "SECRET", "utf-8");
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    const result = await sandboxed.read("existing.txt");
+    expect(result.content).toContain("hello");
+  });
+
+  it("rejects stat and list against a denied path", async () => {
+    const creds = path.join(workspace, "creds");
+    await fsp.mkdir(creds, { recursive: true });
+    await fsp.writeFile(path.join(creds, "token"), "SECRET", "utf-8");
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    await expect(sandboxed.stat("creds/token")).rejects.toBeInstanceOf(SandboxBoundaryError);
+    await expect(sandboxed.list("creds")).rejects.toBeInstanceOf(SandboxBoundaryError);
+  });
+
+  it("filters denied paths out of glob results", async () => {
+    const creds = path.join(workspace, "creds");
+    await fsp.mkdir(creds, { recursive: true });
+    await fsp.writeFile(path.join(creds, "token"), "SECRET", "utf-8");
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    const result = await sandboxed.glob("**/*");
+    expect(result.paths.some((p) => p.includes("token"))).toBe(false);
+    expect(result.paths.some((p) => p.includes("existing.txt"))).toBe(true);
+  });
+
+  it("names the denied path on the error and explains it cannot be worked around", async () => {
+    const creds = path.join(workspace, "creds");
+    await fsp.mkdir(creds, { recursive: true });
+    await fsp.writeFile(path.join(creds, "token"), "SECRET", "utf-8");
+
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    const error = await sandboxed.read("creds/token").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SandboxBoundaryError);
+    expect((error as SandboxBoundaryError).message).toContain("creds/token");
+  });
+});
+
+describe("createSandboxedFileSystem — enforcement", () => {
+  it("reports full for a confining mode", () => {
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      { mode: "workspace-write", writableRoots: [workspace] },
+      { root: workspace },
+    );
+    expect(sandboxed.sandboxEnforcement).toBe("full");
+  });
+
+  it("reports none for danger-full-access", () => {
+    const inner = createNodeFileSystem({ root: workspace });
+    const sandboxed = createSandboxedFileSystem(
+      inner,
+      { mode: "danger-full-access" },
+      { root: workspace },
+    );
+    expect(sandboxed.sandboxEnforcement).toBe("none");
   });
 });

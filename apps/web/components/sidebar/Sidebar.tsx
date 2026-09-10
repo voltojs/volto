@@ -18,6 +18,15 @@ import { cn } from '@/lib/utils';
 import { ProjectList } from './ProjectList';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 
+/**
+ * Whether a config-load failure is the gateway refusing our credentials.
+ * Matched on the message because the store keeps only the text — the
+ * gateway answers every rejection with the same `{"error":"Unauthorized"}`.
+ */
+function isUnauthorized(message: string): boolean {
+  return /unauthorized/i.test(message);
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
@@ -133,8 +142,19 @@ export function Sidebar() {
 
         <div className="flex-1 overflow-y-auto px-2 pt-1 pb-2">
           {error ? (
-            <div className="border-destructive/30 bg-destructive/10 text-destructive mx-1 mt-2 rounded-md border px-2.5 py-2 text-xs">
-              无法连接 agent 服务：{error}
+            <div className="border-destructive/30 bg-destructive/10 text-destructive mx-1 mt-2 space-y-1.5 rounded-md border px-2.5 py-2 text-xs">
+              <p>无法连接 agent 服务：{error}</p>
+              {/* An unauthenticated 401 is the one failure the user can fix
+                  themselves, but only if told how: the launch URL is printed
+                  once on the gateway's stdout and the cookie is HttpOnly, so
+                  nothing on this page can recover the session on its own. */}
+              {isUnauthorized(error) ? (
+                <p className="opacity-90">
+                  会话凭据缺失或已失效。请在启动网关的终端里找到
+                  <span className="font-mono"> Open this URL to authenticate </span>
+                  那一行，打开它重新认证。
+                </p>
+              ) : null}
             </div>
           ) : (
             <ProjectList />

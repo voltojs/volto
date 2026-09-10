@@ -85,6 +85,47 @@ describe("reducer: request_approval flow", () => {
     expect(lastMsg.role).toBe("tool");
   });
 
+  it("tells the model WHY a denial happened, not just that it did", () => {
+    // The reason reaches the model, not only the UI. Told "the user denied
+    // this", the model asks a follow-up question -- right when a human
+    // clicked deny, useless when the connection dropped and nobody is there
+    // to answer it. Observed live before this fix: the model replied
+    // "命令执行被用户拒绝... 请确认是否允许执行该命令" to an empty room.
+    function denialTextFor(reason?: "user" | "connection-lost" | "interrupted"): string {
+      let state = stateWithPendingTools();
+      state = step(state, { type: "request_approval", toolCallId: "t1" }, ctx).state;
+      const result = step(
+        state,
+        {
+          type: "approval_decision",
+          toolCallId: "t1",
+          decision: "deny",
+          ...(reason !== undefined ? { reason } : {}),
+        },
+        ctx,
+      );
+      const lastMsg = result.state.messages[result.state.messages.length - 1]!;
+      const block = (lastMsg as { content: Array<{ content: string }> }).content[0]!;
+      return block.content;
+    }
+
+    // A dropped connection must not be attributed to the user, and must tell
+    // the model to stop rather than ask.
+    const lost = denialTextFor("connection-lost");
+    expect(lost).toContain("connection dropped");
+    expect(lost).not.toContain("by the user");
+    expect(lost).toContain("do not ask for confirmation");
+
+    const interrupted = denialTextFor("interrupted");
+    expect(interrupted).toContain("interrupted");
+    expect(interrupted).not.toContain("by the user");
+
+    // A real user denial keeps the original wording verbatim, and so does an
+    // absent reason -- recorded replays of user denials must not shift.
+    expect(denialTextFor("user")).toBe('Tool "edit_file" was denied by the user.');
+    expect(denialTextFor()).toBe('Tool "edit_file" was denied by the user.');
+  });
+
   it("deny with remaining tools continues executing_tools", () => {
     const state: ReducerState = createInitialState({
       status: "executing_tools",

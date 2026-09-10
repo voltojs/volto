@@ -28,6 +28,16 @@
 3. **错误不中断循环** — 工具 / 模型错误一律归一化为 `isError: true` 的 `ToolResult` 或 `ModelError` input 回喂，**绝不抛异常中断主循环**。
 4. **可验证** — `pnpm turbo run typecheck lint test` 通过 + 给出手工验收步骤（或对应 Phase 的 Acceptance Criteria 全绿）。
 
+## 2.1 沙箱与边界测试纪律（不可协商）
+
+沙箱曾经**整整三轮 review 都没有生效**（`sandbox-exec -p` 该传 `-f`），而测试全绿。原因是断言没有触碰真实边界。
+
+- **禁止断言「输出为空」来证明拒绝。** 从未执行的沙箱、拼错的命令、崩溃的 runner 都产生空输出。要断言**拒绝本身**：非零退出码 **加上** 该后端方言的拒绝签名。
+- **每个平台断言自己的方言**：Seatbelt→`Operation not permitted`、bwrap→`Read-only file system`。禁止用跨后端并集——并集会声称某后端根本不产生的拒绝。
+- **先判 runner failure，再判 denial。** 前者意味着命令根本没跑（沙箱基础设施故障），后者意味着隔离正常工作。见 `packages/runtimes/node/src/sandbox-enforcement.ts`。
+- **平台相关的测试必须显式 skip**（`itDarwin` 之类），不得在别的平台上假绿。
+- **`enforcement` 是运行时事实，不是配置声明。** 任何「有沙箱」的断言都要读 `sandboxEnforcement`，不能读 `config.mode`。
+
 ## 3. 代码改动硬性约束
 
 - **每次代码改动后必须运行 `pnpm turbo run typecheck lint test`**（受影响包即可，用 `--filter`），通过才算完成。
@@ -116,6 +126,7 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 | 文档                | 路径                        | 用途                                                     | 时效 |
 | ------------------- | --------------------------- | -------------------------------------------------------- | ---- |
 | 架构设计文档        | `docs/pure-agent-core.md`   | 纯函数内核架构、模块分解、ports 契约——纯度铁律的出处      | 长期有效 |
+| **安全立场**        | `SAFETY.md`                 | 威胁模型：防「模型犯错」，**不承诺**防「模型被诱导」；边界的实际强度与已知不保护项 | 长期有效 |
 | 特性设计（spec）    | `docs/superpowers/specs/`   | 每个特性的设计取舍，文件名带日期                          | 写作时点的决策记录 |
 | 特性实施方案（plan） | `docs/superpowers/plans/`   | 与 spec 一一对应的分任务实施方案与验收标准                | 写作时点的执行记录 |
 | 演进路线图          | `docs/roadmap.md`           | 内核平台化的方向与不变量                                  | 历史方向文档，里程碑表不再跟踪进度 |

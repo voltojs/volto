@@ -1,54 +1,33 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
+import type { PendingToolCall } from "@volto/core";
 import { createApprovalRegistry } from "../approval-gate.js";
 
 const call = (id: string, name = "bash") => ({ id, name, input: {} });
 
 describe("createApprovalRegistry", () => {
   it("keeps ask() pending until a decision settles it", async () => {
-    const registry = createApprovalRegistry({ onAlwaysAllow: () => {} });
+    const registry = createApprovalRegistry();
 
     const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
     expect(registry.size()).toBe(1);
 
     registry.settle("c1", "allow");
 
-    await expect(pending).resolves.toBe("allow");
+    await expect(pending).resolves.toEqual({ decision: "allow", reason: "user" });
     expect(registry.size()).toBe(0);
   });
 
   it("resolves deny for a denied call", async () => {
-    const registry = createApprovalRegistry({ onAlwaysAllow: () => {} });
+    const registry = createApprovalRegistry();
 
     const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
     registry.settle("c1", "deny");
 
-    await expect(pending).resolves.toBe("deny");
-  });
-
-  it("records an always-allow rule before resolving allow", async () => {
-    const onAlwaysAllow = vi.fn();
-    const registry = createApprovalRegistry({ onAlwaysAllow });
-
-    const pending = registry.gate.ask(call("c1", "write_file"), "WRITE_HIGH");
-    registry.settle("c1", "allow_always");
-
-    await expect(pending).resolves.toBe("allow");
-    expect(onAlwaysAllow).toHaveBeenCalledWith("write_file");
-  });
-
-  it("does not record a rule for a one-shot allow", async () => {
-    const onAlwaysAllow = vi.fn();
-    const registry = createApprovalRegistry({ onAlwaysAllow });
-
-    const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
-    registry.settle("c1", "allow");
-    await pending;
-
-    expect(onAlwaysAllow).not.toHaveBeenCalled();
+    await expect(pending).resolves.toEqual({ decision: "deny", reason: "user" });
   });
 
   it("reports false for an unknown callId and leaves others pending", async () => {
-    const registry = createApprovalRegistry({ onAlwaysAllow: () => {} });
+    const registry = createApprovalRegistry();
 
     const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
 
@@ -56,46 +35,56 @@ describe("createApprovalRegistry", () => {
     expect(registry.size()).toBe(1);
 
     registry.settle("c1", "allow");
-    await expect(pending).resolves.toBe("allow");
+    await expect(pending).resolves.toEqual({ decision: "allow", reason: "user" });
   });
 
   it("settles a callId only once", async () => {
-    const registry = createApprovalRegistry({ onAlwaysAllow: () => {} });
+    const registry = createApprovalRegistry();
 
     const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
     expect(registry.settle("c1", "allow")).toBe(true);
     expect(registry.settle("c1", "deny")).toBe(false);
 
-    await expect(pending).resolves.toBe("allow");
+    await expect(pending).resolves.toEqual({ decision: "allow", reason: "user" });
   });
 
   it("fails closed: settleAll denies every pending approval", async () => {
-    const registry = createApprovalRegistry({ onAlwaysAllow: () => {} });
+    const registry = createApprovalRegistry();
 
     const first = registry.gate.ask(call("c1"), "WRITE_HIGH");
     const second = registry.gate.ask(call("c2"), "IRREVERSIBLE");
 
-    registry.settleAll("deny");
+    registry.settleAll("deny", "connection-lost");
 
-    await expect(first).resolves.toBe("deny");
-    await expect(second).resolves.toBe("deny");
+    await expect(first).resolves.toEqual({ decision: "deny", reason: "connection-lost" });
+    await expect(second).resolves.toEqual({ decision: "deny", reason: "connection-lost" });
     expect(registry.size()).toBe(0);
   });
-});
 
-describe("always-allow rule accumulation", () => {
-  it("unshifts a granted tool so it outranks an earlier deny", async () => {
-    const rules: Array<{ toolName?: string; decision: string }> = [
-      { toolName: "bash", decision: "deny" },
-    ];
-    const registry = createApprovalRegistry({
-      onAlwaysAllow: (toolName) => rules.unshift({ toolName, decision: "allow" }),
+  it("labels a mass settlement with why it happened", async () => {
+    const registry = createApprovalRegistry();
+    const asked = registry.gate.ask(
+      { id: "c1", name: "bash", input: {} } as PendingToolCall,
+      "WRITE_HIGH",
+    );
+
+    registry.settleAll("deny", "connection-lost");
+
+    await expect(asked).resolves.toEqual({
+      decision: "deny",
+      reason: "connection-lost",
     });
+  });
 
-    const pending = registry.gate.ask(call("c1", "bash"), "WRITE_HIGH");
-    registry.settle("c1", "allow_always");
-    await pending;
+  it("labels a user decision as such", async () => {
+    const registry = createApprovalRegistry();
+    const asked = registry.gate.ask(
+      { id: "c1", name: "bash", input: {} } as PendingToolCall,
+      "WRITE_HIGH",
+    );
 
-    expect(rules[0]).toEqual({ toolName: "bash", decision: "allow" });
+    registry.settle("c1", "deny");
+
+    await expect(asked).resolves.toEqual({ decision: "deny", reason: "user" });
   });
 });

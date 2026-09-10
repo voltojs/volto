@@ -11,6 +11,7 @@
 
 import type { ContentBlock } from "./state.js";
 import type {
+  ApprovalDenialReason,
   TokenUsage,
   TranscriptEvent,
   TranscriptEventMap,
@@ -60,9 +61,13 @@ export interface ToolCallRecord {
    * Approval gating for this call. Present from the moment `approval_asked`
    * is recorded (risk tier alone); `decision` is filled in only when the
    * `approval_decision` event arrives — absent means still pending, never
-   * "allowed".
+   * "allowed". `reason` is present only when the gate supplied one.
    */
-  approval?: { riskTier: string; decision?: "allow" | "deny" };
+  approval?: {
+    riskTier: string;
+    decision?: "allow" | "deny";
+    reason?: ApprovalDenialReason;
+  };
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
 }
@@ -330,7 +335,13 @@ export function buildTurnRecords(
       case "approval_decision": {
         const data = event.data as TranscriptEventMap["approval_decision"];
         const call = findCall(turnFor(event), data.callId);
-        if (call && call.approval) call.approval = { ...call.approval, decision: data.decision };
+        if (call && call.approval) {
+          call.approval = {
+            ...call.approval,
+            decision: data.decision,
+            ...(data.reason !== undefined ? { reason: data.reason } : {}),
+          };
+        }
         break;
       }
 
@@ -431,6 +442,12 @@ export interface ConversationToolCall {
   result?: string;
   isError?: boolean;
   durationMs?: number;
+  /**
+   * Approval gating outcome for this call, when it went through a gate.
+   * Carried so a UI can tell a user denial from a fail-closed one after a
+   * reconnect, when the live `ApprovalCard` is already gone.
+   */
+  approval?: { decision?: "allow" | "deny"; reason?: ApprovalDenialReason };
 }
 
 export type ConversationBlock =
@@ -524,6 +541,18 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                 ...(call?.content !== undefined ? { result: call.content } : {}),
                 ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                 ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+                ...(call?.approval !== undefined
+                  ? {
+                      approval: {
+                        ...(call.approval.decision !== undefined
+                          ? { decision: call.approval.decision }
+                          : {}),
+                        ...(call.approval.reason !== undefined
+                          ? { reason: call.approval.reason }
+                          : {}),
+                      },
+                    }
+                  : {}),
               },
             });
           }

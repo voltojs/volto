@@ -24,6 +24,8 @@ import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
+import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
+import type { SandboxEnforcement } from "./sandbox-enforcement.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -53,13 +55,84 @@ export interface SandboxConfig {
   readOnlyOverlays?: string[];
   /** Network egress settings. Default: disabled (blocked) */
   network?: SandboxNetworkConfig;
+  /**
+   * Absolute paths the sandboxed process may not READ. Distinct from
+   * `readOnlyOverlays`, which only bounds writes: these are credential
+   * locations (the gateway's own config dir) whose contents would let a
+   * sandboxed command authenticate to the control plane that is supposed to
+   * be governing it. Resolved with realpath at construction — seatbelt
+   * matches real paths, and on macOS `/tmp`, `/var` and `os.tmpdir()` are
+   * all symlinks.
+   */
+  deniedReadPaths?: string[];
+  /**
+   * Environment variable names removed from the child process. A sandboxed
+   * command inherits the gateway's environment verbatim, so a secret passed
+   * by env var is readable with `echo $NAME` regardless of any file rule.
+   */
+  strippedEnvVars?: string[];
+  /**
+   * Regexes matched against environment variable NAMES; a name matching any
+   * of them is removed exactly as `strippedEnvVars` would.
+   *
+   * An exact list cannot keep up with what a host happens to export
+   * (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, the next provider's
+   * key), and a file-side fence over the credential dir is worth nothing
+   * while `echo $OPENAI_API_KEY` walks around it. Patterns judge a variable
+   * by what it is called, so a newly added provider key is covered the day
+   * the host exports it rather than the day someone remembers to list it.
+   */
+  strippedEnvPatterns?: RegExp[];
   /** Linux: enable seccomp filter to block unix socket escape. Default: true */
   seccomp?: boolean;
   /** Auto-detect backend: darwin→seatbelt, linux→bubblewrap, rest→none. Default: auto */
   backend?: SandboxBackend;
-  /** When true, throw at construction time if sandbox is unavailable. Default: false */
+  /**
+   * When true (the default), a confining mode with no working isolation
+   * throws at construction instead of running unconfined.
+   *
+   * Setting it to `false` only suppresses that throw — it does NOT promise an
+   * unconfined process, because "unavailable" covers two different things and
+   * they opt out differently:
+   *
+   * - **No backend for this platform** (`backend: "none"`): construction
+   *   succeeds and commands run UNCONFINED, with a warning. Env stripping
+   *   still applies — it needs no backend. This is a test/e2e affordance;
+   *   production callers get the default and never reach it.
+   * - **Backend selected but its runner binary is missing** (no
+   *   `sandbox-exec` / `bwrap`): construction succeeds, but every `exec`
+   *   refuses with an infrastructure-failure frame and exit 126. A half-
+   *   present backend is a broken environment, not a platform without one,
+   *   and quietly running unconfined there is the failure this phase exists
+   *   to prevent.
+   *
+   * Either way `sandboxEnforcement` reports `none`, which is the field a
+   * caller should branch on rather than inferring confinement from the mode.
+   * To run without isolation deliberately, use `danger-full-access`.
+   */
   failIfUnavailable?: boolean;
+  /**
+   * Path or name of the seatbelt runner binary. Default: "sandbox-exec".
+   * Overridable so tests can inject a broken runner and prove that a runner
+   * failure is reported as infrastructure failure rather than as a command
+   * failure — without this, a missing or mis-invoked runner exits nonzero
+   * with a diagnostic on stderr and reads as an ordinary command failure.
+   */
+  seatbeltBinary?: string;
+  /**
+   * Path or name of the bubblewrap runner binary. Default: "bwrap".
+   * Same rationale as `seatbeltBinary`.
+   */
+  bwrapBinary?: string;
 }
+
+/**
+ * A sandboxed Shell plus the enforcement fact the selected backend achieves.
+ * The fact is a property of the RUNTIME (which backend was actually
+ * selected), never of the config (what was asked for) — that gap is where a
+ * dead sandbox hides.
+ */
+export type SandboxedShell = Shell & { readonly sandboxEnforcement: SandboxEnforcement };
 
 // ──────────────────────────────────────────────
 // Backend detection (Plan 009 Phase 0)
@@ -95,9 +168,116 @@ export function probeBinary(name: string): boolean {
   }
 }
 
+/**
+ * Whether the configured sandbox runner binary is actually invocable.
+ * Absolute paths are checked with `which` too (it resolves them); bare
+ * names go through the PATH probe.
+ */
+function runnerBinaryAvailable(bin: string): boolean {
+  return probeBinary(bin);
+}
+
+/**
+ * Prefix on the synthetic stderr line emitted when the sandbox RUNNER
+ * failed. Distinct wording from any denial so a reader (and the model)
+ * can tell "the sandbox blocked this" from "the sandbox is broken".
+ */
+const INFRA_FAILURE_PREFIX = "[sandbox] INFRASTRUCTURE FAILURE:";
+
+/**
+ * Pass through a wrapped run's events, buffering stderr so the exit event
+ * can be preceded by an infrastructure-failure note when the runner (not
+ * the command) is what failed.
+ *
+ * `exit` is already the last event of the stream, so holding only it back
+ * costs nothing in streaming terms.
+ */
+async function* withRunnerFailureClassification(
+  events: AsyncIterable<ShellEvent>,
+  backend: SandboxBackendName,
+): AsyncIterable<ShellEvent> {
+  let stderrBuf = "";
+  let exitEvent: ShellEvent | undefined;
+
+  for await (const event of events) {
+    if (event.type === "stderr") stderrBuf += event.data;
+    if (event.type === "exit") {
+      exitEvent = event;
+      continue;
+    }
+    yield event;
+  }
+
+  if (exitEvent !== undefined) {
+    const code = exitEvent.type === "exit" ? exitEvent.code : undefined;
+    const fatal = classifyRunnerFailure(backend, code, stderrBuf);
+    if (fatal !== null) {
+      yield {
+        type: "stderr",
+        data:
+          `\n${INFRA_FAILURE_PREFIX} the sandbox runner refused or crashed before ` +
+          `running the command, so NOTHING was executed. This is not a denial ` +
+          `and not a failure of the command itself: ${fatal}\n`,
+      };
+    }
+    yield exitEvent;
+  }
+}
+
+/**
+ * Emit the infrastructure-failure pair (stderr + exit) for a runner binary
+ * that is not present on this system. Short-circuits before any wrapping so
+ * a missing runner is never reported as an ordinary command failure.
+ */
+function* missingRunnerEvents(runner: string): Iterable<ShellEvent> {
+  yield {
+    type: "stderr",
+    data:
+      `${INFRA_FAILURE_PREFIX} the sandbox runner "${runner}" was not found on this ` +
+      `system, so NOTHING was executed. This is not a denial and not a failure ` +
+      `of the command itself: the sandbox infrastructure is unavailable.\n`,
+  };
+  yield { type: "exit", code: 126 };
+}
+
 // ──────────────────────────────────────────────
 // Shell decorator (Plan 009 §4.2)
 // ──────────────────────────────────────────────
+
+/**
+ * Return `opts` with `strippedNames` and every name matching
+ * `strippedPatterns` removed from the child environment.
+ *
+ * Builds the env from `process.env` (plus any caller-supplied `opts.env`)
+ * so PATH and the rest of the inherited environment survive — spawn's
+ * `env` replaces the whole environment rather than merging.
+ */
+function stripEnvFrom(
+  opts: ShellExecOptions | undefined,
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[] = [],
+): ShellExecOptions | undefined {
+  if (strippedNames.length === 0 && strippedPatterns.length === 0) return opts;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  Object.assign(env, opts?.env ?? {});
+  for (const name of strippedNames) delete env[name];
+  for (const name of Object.keys(env)) {
+    for (const pattern of strippedPatterns) {
+      // A /g or /y regex carries lastIndex across calls and would skip
+      // names on a later pass; reset before every test so a caller-supplied
+      // pattern behaves the same on every variable.
+      pattern.lastIndex = 0;
+      if (pattern.test(name)) {
+        delete env[name];
+        break;
+      }
+    }
+  }
+  return { ...opts, env };
+}
 
 /**
  * Create a Shell decorator that wraps commands in a sandbox.
@@ -105,31 +285,50 @@ export function probeBinary(name: string): boolean {
  * - macOS: `sandbox-exec -p <profile-file> /bin/bash -c <escaped cmd>`
  * - Linux: `bwrap <args> -- /bin/bash -c <escaped cmd>` (Phase 3)
  * - danger-full-access: passthrough (no wrapping)
- * - Other platform: passthrough + console.warn (unless failIfUnavailable)
+ * - Other platform: throw at construction (unless `failIfUnavailable: false`,
+ *   which then runs unconfined — see the field's docs for how that differs
+ *   from a selected backend whose runner binary is missing)
  */
 export function createSandboxedShell(
   realShell: Shell,
   config: SandboxConfig,
-): Shell {
+): SandboxedShell {
   const backend = config.backend ?? detectBackend();
 
-  // danger-full-access: no isolation, passthrough
+  // danger-full-access: no isolation, passthrough. It confines nothing by
+  // definition, so it reports `none` rather than pretending otherwise.
   if (config.mode === "danger-full-access") {
-    return realShell;
+    return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
+      sandboxEnforcement: "none" as const,
+    }) as SandboxedShell;
   }
 
-  // Unsupported platform with failIfUnavailable: throw at construction
-  if (backend === "none" && config.failIfUnavailable) {
+  // Default CHANGED: a confining mode with nothing to confine it is refused.
+  // Silently running unconfined under a mode that promises confinement is
+  // the failure this whole phase exists to prevent — it makes "I thought I
+  // had a sandbox" a startup error instead of a discovery after the fact.
+  // An explicit `failIfUnavailable: false` remains the escape hatch.
+  const failIfUnavailable = config.failIfUnavailable ?? true;
+
+  if (backend === "none" && failIfUnavailable) {
     throw new Error(
-      "[sandbox] Sandbox not available on this platform and failIfUnavailable is true. " +
-      "Set failIfUnavailable to false to allow passthrough, or provide a supported backend.",
+      `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
+      `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
+      `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
+      `failIfUnavailable: false to accept an unconfined process under this mode.`,
     );
   }
 
-  // Unsupported platform without failIfUnavailable: warn once then passthrough
+  // Explicit opt-out: warn once then passthrough.
   if (backend === "none") {
     let warned = false;
+    // Env stripping needs no isolation backend — honour it anyway, or a
+    // secret-bearing variable survives into the child on every platform
+    // that happens to lack seatbelt/bwrap.
+    const stripped = config.strippedEnvVars ?? [];
+    const strippedPatterns = config.strippedEnvPatterns ?? [];
     return {
+      sandboxEnforcement: "none",
       exec(cmd: string, opts?: ShellExecOptions) {
         if (!warned) {
           warned = true;
@@ -138,7 +337,7 @@ export function createSandboxedShell(
             "Commands will run without isolation. This is a security risk.",
           );
         }
-        return realShell.exec(cmd, opts);
+        return realShell.exec(cmd, stripEnvFrom(opts, stripped, strippedPatterns));
       },
       // No `launch`: only danger-full-access exposes the real shell's
       // background-launch path (see C4 — a passthrough here would let
@@ -155,6 +354,9 @@ export function createSandboxedShell(
   const isWriteMode = config.mode === "workspace-write";
   const resolvedConfig: SandboxConfig = {
     ...config,
+    // Pin the resolved default so the seatbelt/bwrap probeBinary checks
+    // below see the same value the none-backend check above already used.
+    failIfUnavailable,
     // Verified required: seatbelt's `(subpath "...")` match is evaluated
     // against the REAL (symlink-resolved) path of the file being touched,
     // not the literal string in the profile. On macOS both `/tmp` (→
@@ -169,7 +371,17 @@ export function createSandboxedShell(
     readOnlyOverlays: isWriteMode
       ? (config.readOnlyOverlays ?? [".git", ".env"])
       : config.readOnlyOverlays,
+    // Same realpath discipline as writableRoots above — a deny rule built
+    // from a lexical path silently never matches on macOS.
+    deniedReadPaths: config.deniedReadPaths?.map(resolveRealRootPath),
   };
+
+  const strippedEnvVars = resolvedConfig.strippedEnvVars ?? [];
+  const strippedEnvPatterns = resolvedConfig.strippedEnvPatterns ?? [];
+
+  function withStrippedEnv(opts: ShellExecOptions | undefined): ShellExecOptions | undefined {
+    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns);
+  }
 
   // ── Egress proxy setup (Phase 4: lazy start on first exec) ──
   const needsProxy =
@@ -196,18 +408,40 @@ export function createSandboxedShell(
 
   // ── macOS seatbelt branch ──
   if (backend === "seatbelt") {
-    // failIfUnavailable: check that sandbox-exec is actually present
-    if (resolvedConfig.failIfUnavailable && !probeBinary("sandbox-exec")) {
+    const seatbeltBinary = resolvedConfig.seatbeltBinary ?? "sandbox-exec";
+    // Probe once at construction: failIfUnavailable decides whether a missing
+    // runner is a hard error, and the same fact feeds the honest
+    // `sandboxEnforcement` report below.
+    const seatbeltRunnerPresent = runnerBinaryAvailable(seatbeltBinary);
+    if (resolvedConfig.failIfUnavailable && !seatbeltRunnerPresent) {
       throw new Error(
-        "[sandbox] sandbox-exec binary not found on PATH and failIfUnavailable is true. " +
-        "Install sandbox-exec or set failIfUnavailable to false.",
+        `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
+        "Install sandbox-exec, or use mode \"danger-full-access\" to run without isolation " +
+        "deliberately. Setting failIfUnavailable: false only moves the refusal from " +
+        "construction to execution here — it does not grant an unconfined process.",
       );
     }
     const profileContent = buildSeatbeltProfile(resolvedConfig);
 
+    // Enforcement is a RUNTIME fact, not a config claim. A missing runner that
+    // we deliberately did not throw on (failIfUnavailable: false) confines
+    // nothing — report "none" instead of pretending "full". When the runner is
+    // present both confining backends govern every file effect this config
+    // asks for; a future Landlock-only path or an ABI too old for one of the
+    // rules must report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = seatbeltRunnerPresent ? "full" : "none";
+
     return {
+      sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
+          // A missing runner is infrastructure failure, not a command failure.
+          // Detected before any wrapping so it can never read as the latter.
+          if (!runnerBinaryAvailable(seatbeltBinary)) {
+            yield* missingRunnerEvents(seatbeltBinary);
+            return;
+          }
+
           let profilePath: string | undefined;
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
@@ -252,11 +486,15 @@ export function createSandboxedShell(
             // parse the path itself as a profile, which fails with
             // "unbound variable: <path>" — every sandboxed command exits 65.
             const wrappedCmd = envPrefix
-              ? `${envPrefix} && sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`
-              : `sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+              ? `${envPrefix} && ${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`
+              : `${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
 
-            // Yield through all events from the wrapped command
-            for await (const event of realShell.exec(wrappedCmd, opts)) {
+            // Yield through all events from the wrapped command, classifying
+            // a runner crash (e.g. the -p defect) as infrastructure failure.
+            for await (const event of withRunnerFailureClassification(
+              realShell.exec(wrappedCmd, withStrippedEnv(opts)),
+              backend as SandboxBackendName,
+            )) {
               yield event;
             }
           } catch (err) {
@@ -286,39 +524,51 @@ export function createSandboxedShell(
 
   // ── Linux bubblewrap branch ──
   if (backend === "bubblewrap") {
-    // failIfUnavailable: check that bwrap is present
-    if (resolvedConfig.failIfUnavailable && !probeBinary("bwrap")) {
+    const bwrapBinary = resolvedConfig.bwrapBinary ?? "bwrap";
+    // Probe once at construction: failIfUnavailable decides whether a missing
+    // runner is a hard error, and the same fact feeds the honest
+    // `sandboxEnforcement` report below.
+    const bwrapRunnerPresent = runnerBinaryAvailable(bwrapBinary);
+    if (resolvedConfig.failIfUnavailable && !bwrapRunnerPresent) {
       throw new Error(
-        "[sandbox] bwrap (bubblewrap) binary not found on PATH and failIfUnavailable is true. " +
-        "Install bubblewrap (apt install bubblewrap) or set failIfUnavailable to false.",
+        `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
+        "Install bubblewrap (apt install bubblewrap), or use mode \"danger-full-access\" to run " +
+        "without isolation deliberately. Setting failIfUnavailable: false only moves the refusal " +
+        "from construction to execution here — it does not grant an unconfined process.",
       );
     }
 
     const bwrapArgs = buildBwrapArgs(resolvedConfig);
-    let warned = false;
+
+    // Enforcement is a RUNTIME fact, not a config claim. A missing runner that
+    // we deliberately did not throw on (failIfUnavailable: false) confines
+    // nothing — report "none" instead of pretending "full". When the runner is
+    // present both confining backends govern every file effect this config
+    // asks for; a future Landlock-only path or an ABI too old for one of the
+    // rules must report "partial" here instead — see sandbox-enforcement.ts.
+    const sandboxEnforcement: SandboxEnforcement = bwrapRunnerPresent ? "full" : "none";
 
     return {
+      sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
+          // A missing runner is infrastructure failure, not a command failure.
+          // Detected before any wrapping so it can never read as the latter,
+          // and NEVER falling through to an unconfined realShell.exec.
+          if (!runnerBinaryAvailable(bwrapBinary)) {
+            yield* missingRunnerEvents(bwrapBinary);
+            return;
+          }
+
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
-            if (!warned && !probeBinary("bwrap")) {
-              warned = true;
-              console.warn(
-                "[sandbox] WARNING: bwrap not found on PATH. " +
-                "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
-              );
-              yield* realShell.exec(cmd, opts);
-              return;
-            }
-
             // Start egress proxy if needed
             let envPrefix = "";
             if (needsProxy) {
               const p = await ensureProxy();
               if (probeBinary("socat")) {
                 const socatPort = 18080 + (++socatPortCounter);
-                
+
                 socatProc = spawn("socat", [
                   `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
                   `UNIX-CONNECT:${p.socketPath}`,
@@ -344,9 +594,12 @@ export function createSandboxedShell(
               : escapedCmd;
             // Shell-escape each bwrap arg to handle paths with spaces
             const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-            const wrappedCmd = `bwrap ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
+            const wrappedCmd = `${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
 
-            yield* realShell.exec(wrappedCmd, opts);
+            yield* withRunnerFailureClassification(
+              realShell.exec(wrappedCmd, withStrippedEnv(opts)),
+              backend as SandboxBackendName,
+            );
           } finally {
             if (socatProc) {
               try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ }
@@ -360,8 +613,10 @@ export function createSandboxedShell(
     };
   }
 
-  // Fallback (should not reach here)
-  return realShell;
+  // Fallback (should not reach here — backend is always one of the three above)
+  return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
+    sandboxEnforcement: "none" as const,
+  }) as SandboxedShell;
 }
 
 // ──────────────────────────────────────────────
@@ -481,6 +736,21 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     lines.push(`(deny file-write* (subpath "${escapeSeatbeltPath(overlay)}"))`);
   }
 
+  // Denied reads — credential dirs the sandboxed process must never see.
+  // Placed after the blanket `(allow file-read-data (subpath "/"))` so the
+  // deny actually overrides it (same ordering discipline as the overlays).
+  //
+  // Verified on-host: `(deny file-read* (subpath ...))` does NOT deny — the
+  // wildcard form silently no-ops and `cat` still returns the secret.
+  // `(deny file-read-data ...)` does deny. file-read-metadata is denied too
+  // so `ls` of the credential dir also fails rather than leaking filenames.
+  const deniedReads = config.deniedReadPaths ?? [];
+  for (const p of deniedReads) {
+    const escaped = escapeSeatbeltPath(p);
+    lines.push(`(deny file-read-data (subpath "${escaped}"))`);
+    lines.push(`(deny file-read-metadata (subpath "${escaped}"))`);
+  }
+
   // Network — three-state semantics:
   // enabled=false  → deny all (default)
   // enabled=true + empty allowedHosts → allow all (except loopback, see below)
@@ -555,6 +825,19 @@ export function buildBwrapArgs(config: SandboxConfig): string[] {
   // Read-only overlays (must come AFTER --bind to override the writable mount)
   for (const overlay of readOnlyOverlays) {
     args.push("--ro-bind", overlay, overlay);
+  }
+
+  // Denied reads — bubblewrap has no deny semantics, so mask the path with
+  // an empty tmpfs. Reads see an empty directory instead of the credential
+  // contents. Must come AFTER --ro-bind / / (and any --bind of a parent)
+  // for the mask to win the mount ordering.
+  // PARITY NOTE: this is not equivalent to seatbelt's `(deny file-read-data)`.
+  // A process that already holds an open fd to a file under the path keeps
+  // reading it, and the path still exists (as an empty dir) rather than
+  // being refused. Good enough to keep credentials unreadable to a fresh
+  // sandboxed command; not a byte-for-byte match of the macOS rule.
+  for (const p of config.deniedReadPaths ?? []) {
+    args.push("--tmpfs", p);
   }
 
   // Network isolation (default: disabled)

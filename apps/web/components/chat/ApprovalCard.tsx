@@ -9,8 +9,21 @@ interface ApprovalCardProps {
   approval: PendingApproval;
   onDecide: (
     callId: string,
-    decision: 'allow' | 'allow_always' | 'deny',
+    decision: 'allow' | 'deny',
   ) => Promise<void>;
+}
+
+/**
+ * Render the tool arguments for a human about to authorize them. A single
+ * string argument (the common `bash` case) is shown raw so the command is
+ * readable; anything else is pretty-printed JSON.
+ */
+function formatApprovalInput(input: Record<string, unknown>): string {
+  const values = Object.values(input);
+  // The common `bash` case is a single string argument; show it raw so the
+  // command reads as a command rather than as escaped JSON.
+  if (values.length === 1 && typeof values[0] === 'string') return values[0];
+  return JSON.stringify(input, null, 2);
 }
 
 /**
@@ -21,7 +34,7 @@ interface ApprovalCardProps {
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const [busy, setBusy] = useState(false);
 
-  const decide = async (decision: 'allow' | 'allow_always' | 'deny') => {
+  const decide = async (decision: 'allow' | 'deny') => {
     if (busy) return;
     setBusy(true);
     try {
@@ -45,17 +58,18 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           </span>
         </span>
       </div>
+      {approval.input !== undefined ? (
+        <pre className="bg-background/60 text-muted-foreground mt-2 max-h-40 overflow-auto rounded border p-2 font-mono text-xs whitespace-pre-wrap">
+          {formatApprovalInput(approval.input)}
+        </pre>
+      ) : (
+        <p className="text-muted-foreground mt-2 text-xs">
+          （该调用的参数已不在回放缓冲区内，无法显示）
+        </p>
+      )}
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
           允许一次
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void decide('allow_always')}
-        >
-          本会话总是允许
         </Button>
         <Button
           size="sm"

@@ -5,6 +5,7 @@
 
 import type { ContentBlock } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
+import type { ApprovalDenialReason } from "./ports.js";
 
 /** User sent a message */
 export interface UserMessageInput {
@@ -68,6 +69,16 @@ export interface ApprovalDecisionInput {
   type: "approval_decision";
   toolCallId: string;
   decision: "allow" | "deny";
+  /**
+   * Why the decision came out this way, when the gate supplied it.
+   *
+   * Reaches the MODEL, not just the UI: the tool result the reducer
+   * synthesizes for a denial names who denied it, and telling the model a
+   * dropped connection was "the user" makes it ask a follow-up question
+   * nobody is there to answer. Optional so existing inputs and recorded
+   * replays stay valid.
+   */
+  reason?: ApprovalDenialReason;
 }
 
 /** Cancel requested */

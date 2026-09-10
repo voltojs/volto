@@ -85,7 +85,9 @@ export interface ServerSessionDetail {
 
 /** Lists every session the server has durably recorded. */
 export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
-  const response = await fetch(`${SERVER_URL}/sessions`);
+  const response = await fetch(`${SERVER_URL}/sessions`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list sessions: HTTP ${response.status}`);
   }
@@ -97,7 +99,10 @@ export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
 export async function fetchServerSessionDetail(
   id: string,
 ): Promise<ServerSessionDetail | null> {
-  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`);
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}`,
+    { credentials: 'include' },
+  );
   if (response.status === 404) return null;
   if (!response.ok) {
     const message = await readErrorMessage(
@@ -113,7 +118,10 @@ export async function fetchServerSessionDetail(
 export async function fetchServerTrajectory(
   id: string,
 ): Promise<TrajectoryView | null> {
-  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}/trajectory`);
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/trajectory`,
+    { credentials: 'include' },
+  );
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new TrajectoryUnavailableError(
@@ -141,6 +149,7 @@ export async function renameServerSession(
 ): Promise<void> {
   const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
+    credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title }),
     signal,
@@ -157,6 +166,7 @@ export async function renameServerSession(
 export async function deleteServerSession(id: string): Promise<void> {
   const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok && response.status !== 404) {
     throw new Error(`Failed to delete session ${id}: HTTP ${response.status}`);

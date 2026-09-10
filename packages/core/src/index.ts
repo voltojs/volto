@@ -99,6 +99,8 @@ export type {
   SkillRegistry,
   EventSink,
   ApprovalGate,
+  ApprovalDenialReason,
+  ApprovalResult,
   Clock,
   Id,
   Random,
