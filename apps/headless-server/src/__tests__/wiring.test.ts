@@ -668,3 +668,13 @@ describe("buildSandboxConfigs — real sandbox execution proves the R1 decision 
     }
   });
 });
+
+describe("buildSandboxConfigs — confining modes refuse to run unconfined", () => {
+  it("refuses to build a confining agent when the platform cannot confine", () => {
+    // The gateway must fail loudly at startup rather than serve an agent whose
+    // advertised permission preset is not actually enforced.
+    const { shellConfig } = buildSandboxConfigs("workspace-write", "/workspace", []);
+    expect(shellConfig).not.toBeNull();
+    expect(shellConfig?.failIfUnavailable).not.toBe(false);
+  });
+});

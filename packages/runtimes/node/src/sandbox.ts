@@ -87,7 +87,7 @@ export interface SandboxConfig {
   seccomp?: boolean;
   /** Auto-detect backend: darwin→seatbelt, linux→bubblewrap, rest→none. Default: auto */
   backend?: SandboxBackend;
-  /** When true, throw at construction time if sandbox is unavailable. Default: false */
+  /** When true, throw at construction time if sandbox is unavailable. Default: true */
   failIfUnavailable?: boolean;
   /**
    * Path or name of the seatbelt runner binary. Default: "sandbox-exec".
@@ -263,7 +263,7 @@ function stripEnvFrom(
  * - macOS: `sandbox-exec -p <profile-file> /bin/bash -c <escaped cmd>`
  * - Linux: `bwrap <args> -- /bin/bash -c <escaped cmd>` (Phase 3)
  * - danger-full-access: passthrough (no wrapping)
- * - Other platform: passthrough + console.warn (unless failIfUnavailable)
+ * - Other platform: throw at construction (unless `failIfUnavailable: false`)
  */
 export function createSandboxedShell(
   realShell: Shell,
@@ -279,15 +279,23 @@ export function createSandboxedShell(
     }) as SandboxedShell;
   }
 
-  // Unsupported platform with failIfUnavailable: throw at construction
-  if (backend === "none" && config.failIfUnavailable) {
+  // Default CHANGED: a confining mode with nothing to confine it is refused.
+  // Silently running unconfined under a mode that promises confinement is
+  // the failure this whole phase exists to prevent — it makes "I thought I
+  // had a sandbox" a startup error instead of a discovery after the fact.
+  // An explicit `failIfUnavailable: false` remains the escape hatch.
+  const failIfUnavailable = config.failIfUnavailable ?? true;
+
+  if (backend === "none" && failIfUnavailable) {
     throw new Error(
-      "[sandbox] Sandbox not available on this platform and failIfUnavailable is true. " +
-      "Set failIfUnavailable to false to allow passthrough, or provide a supported backend.",
+      `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
+      `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
+      `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
+      `failIfUnavailable: false to accept an unconfined process under this mode.`,
     );
   }
 
-  // Unsupported platform without failIfUnavailable: warn once then passthrough
+  // Explicit opt-out: warn once then passthrough.
   if (backend === "none") {
     let warned = false;
     // Env stripping needs no isolation backend — honour it anyway, or a
@@ -322,6 +330,9 @@ export function createSandboxedShell(
   const isWriteMode = config.mode === "workspace-write";
   const resolvedConfig: SandboxConfig = {
     ...config,
+    // Pin the resolved default so the seatbelt/bwrap probeBinary checks
+    // below see the same value the none-backend check above already used.
+    failIfUnavailable,
     // Verified required: seatbelt's `(subpath "...")` match is evaluated
     // against the REAL (symlink-resolved) path of the file being touched,
     // not the literal string in the profile. On macOS both `/tmp` (→

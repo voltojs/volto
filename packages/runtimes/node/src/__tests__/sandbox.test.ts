@@ -305,14 +305,15 @@ describe("createSandboxedShell", () => {
       mode: "workspace-write",
       backend: "none",
       failIfUnavailable: true,
-    })).toThrow("failIfUnavailable is true");
+    })).toThrow(/no sandbox backend/i);
   });
 
-  it("unsupported backend (none) without failIfUnavailable: warn + passthrough", async () => {
+  it("unsupported backend (none) + explicit opt-out: warn + passthrough", async () => {
     const mock = createMockShell();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "none",
+      failIfUnavailable: false,
     });
     const events: Array<{ type: string; data?: string }> = [];
     for await (const event of wrapped.exec("echo hello")) {
@@ -356,6 +357,7 @@ describe("createSandboxedShell", () => {
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "none",
+      failIfUnavailable: false,
     });
     // Run same command twice — events must be identical (no Date.now / Math.random)
     const run = async () => {
@@ -391,7 +393,7 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
 
   it("read-only mode (backend none) does not expose a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
-    const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "none" });
+    const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "none", failIfUnavailable: false });
     expect(wrapped.launch).toBeUndefined();
   });
 
@@ -401,6 +403,7 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
       mode: "workspace-write",
       backend: "none",
       writableRoots: ["/tmp"],
+      failIfUnavailable: false,
     });
     expect(wrapped.launch).toBeUndefined();
   });
@@ -427,6 +430,8 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
       mode: "workspace-write",
       backend: "bubblewrap",
       writableRoots: ["/tmp"],
+      // Launch-passthrough shape test — does not require bwrap to be installed.
+      failIfUnavailable: false,
     });
     expect(wrapped.launch).toBeUndefined();
   });
@@ -526,6 +531,9 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
       readOnlyOverlays: [],
       network: { enabled: false },
       backend: "bubblewrap",
+      // The probeBinary check is now live under the default; opt out so this
+      // test still exercises the warn+passthrough path on non-Linux.
+      failIfUnavailable: false,
     });
     const events: Array<{ type: string; data?: string }> = [];
     for await (const event of wrapped.exec("echo test")) {
@@ -566,6 +574,8 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
       readOnlyOverlays: ["/workspace/.git"],
       network: { enabled: false },
       backend: "bubblewrap", // force bubblewrap backend even on macOS
+      // Command-construction test — does not require bwrap to be installed.
+      failIfUnavailable: false,
     });
     for await (const _event of wrapped.exec("ls -la")) { /* drain */ }
     expect(capturedCmd).toContain("bwrap");
@@ -1016,7 +1026,7 @@ describe("sandboxEnforcement", () => {
       mode: "workspace-write",
       writableRoots: [os.tmpdir()],
       backend: "none",
-      // Task 4 flips this default to true; the passthrough path only exists
+      // Task 5 flips this default to true; the passthrough path only exists
       // for callers that opt out explicitly.
       failIfUnavailable: false,
     });
@@ -1045,8 +1055,11 @@ describe("runner failure vs denial", () => {
       mode: "workspace-write",
       writableRoots: [base],
       // Reproduces the -p defect's shape: the runner refuses before the
-      // wrapped command ever runs.
+      // wrapped command ever runs. Opt out of the construction-time probe
+      // so the failure surfaces at exec time, which is what this test is
+      // about.
       seatbeltBinary: "/usr/bin/sandbox-exec-does-not-exist",
+      failIfUnavailable: false,
     });
 
     const result = await drain(shell.exec("echo hello"));
@@ -1085,5 +1098,41 @@ describe("runner failure vs denial", () => {
     expect(result.out).not.toContain("[sandbox] INFRASTRUCTURE FAILURE");
 
     await fsp.rm(base, { recursive: true, force: true });
+  });
+});
+
+// ──────────────────────────────────────────────
+// no backend available — a confining mode with nothing to confine it is
+// refused by default. Silently running unconfined under a mode that
+// promises confinement is the failure this phase exists to prevent.
+// ──────────────────────────────────────────────
+
+describe("no backend available", () => {
+  it("refuses to construct a confining shell when nothing can confine it", () => {
+    expect(() =>
+      createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+        mode: "workspace-write",
+        writableRoots: [os.tmpdir()],
+        backend: "none",
+      }),
+    ).toThrow(/no sandbox backend/i);
+  });
+
+  it("still allows an explicit opt-out", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "workspace-write",
+      writableRoots: [os.tmpdir()],
+      backend: "none",
+      failIfUnavailable: false,
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
+  });
+
+  it("never blocks danger-full-access, which asks for no confinement", () => {
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
+      mode: "danger-full-access",
+      backend: "none",
+    });
+    expect(shell.sandboxEnforcement).toBe("none");
   });
 });
