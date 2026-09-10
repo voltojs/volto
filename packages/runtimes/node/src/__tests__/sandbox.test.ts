@@ -414,13 +414,20 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
       mode: "workspace-write",
       backend: "seatbelt",
       writableRoots: ["/tmp"],
+      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      failIfUnavailable: false,
     });
     expect(wrapped.launch).toBeUndefined();
   });
 
   it("read-only mode (seatbelt backend) does not expose a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
-    const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "seatbelt" });
+    const wrapped = createSandboxedShell(mock, {
+      mode: "read-only",
+      backend: "seatbelt",
+      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      failIfUnavailable: false,
+    });
     expect(wrapped.launch).toBeUndefined();
   });
 
