@@ -1030,3 +1030,60 @@ describe("sandboxEnforcement", () => {
     expect(shell.sandboxEnforcement).toBe("none");
   });
 });
+
+// ──────────────────────────────────────────────
+// runner failure vs denial — a runner that refuses before the wrapped
+// command ever ran is INFRASTRUCTURE FAILURE (nothing was executed), not
+// a denial and not an ordinary command failure. Conflating the two is how
+// a broken sandbox-exec stayed invisible.
+// ──────────────────────────────────────────────
+
+describe("runner failure vs denial", () => {
+  itDarwin("labels a broken runner as infrastructure failure, not a command failure", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-runnerfail-")));
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+      // Reproduces the -p defect's shape: the runner refuses before the
+      // wrapped command ever runs.
+      seatbeltBinary: "/usr/bin/sandbox-exec-does-not-exist",
+    });
+
+    const result = await drain(shell.exec("echo hello"));
+    expect(result.out).toContain("[sandbox] INFRASTRUCTURE FAILURE");
+    expect(result.out).not.toContain("hello");
+
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  itDarwin("does NOT label a genuine denial as infrastructure failure", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-denial-")));
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+    });
+
+    // Writing outside the writable root: confinement working as intended.
+    const result = await drain(shell.exec("touch /etc/volto-should-not-exist"));
+    expect(result.code).not.toBe(0);
+    // Seatbelt's own dialect -- not a cross-backend union.
+    expect(result.out.toLowerCase()).toContain("operation not permitted");
+    expect(result.out).not.toContain("[sandbox] INFRASTRUCTURE FAILURE");
+
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  itDarwin("leaves an ordinary failing command alone", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-plainfail-")));
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+    });
+
+    const result = await drain(shell.exec("ls /definitely-not-here"));
+    expect(result.code).not.toBe(0);
+    expect(result.out).not.toContain("[sandbox] INFRASTRUCTURE FAILURE");
+
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+});

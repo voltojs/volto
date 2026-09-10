@@ -24,6 +24,7 @@ import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
+import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
 import type { SandboxEnforcement } from "./sandbox-enforcement.js";
 
 // ──────────────────────────────────────────────
@@ -88,6 +89,19 @@ export interface SandboxConfig {
   backend?: SandboxBackend;
   /** When true, throw at construction time if sandbox is unavailable. Default: false */
   failIfUnavailable?: boolean;
+  /**
+   * Path or name of the seatbelt runner binary. Default: "sandbox-exec".
+   * Overridable so tests can inject a broken runner and prove that a runner
+   * failure is reported as infrastructure failure rather than as a command
+   * failure — without this, a missing or mis-invoked runner exits nonzero
+   * with a diagnostic on stderr and reads as an ordinary command failure.
+   */
+  seatbeltBinary?: string;
+  /**
+   * Path or name of the bubblewrap runner binary. Default: "bwrap".
+   * Same rationale as `seatbeltBinary`.
+   */
+  bwrapBinary?: string;
 }
 
 /**
@@ -130,6 +144,78 @@ export function probeBinary(name: string): boolean {
     probeCache.set(name, false);
     return false;
   }
+}
+
+/**
+ * Whether the configured sandbox runner binary is actually invocable.
+ * Absolute paths are checked with `which` too (it resolves them); bare
+ * names go through the PATH probe.
+ */
+function runnerBinaryAvailable(bin: string): boolean {
+  return probeBinary(bin);
+}
+
+/**
+ * Prefix on the synthetic stderr line emitted when the sandbox RUNNER
+ * failed. Distinct wording from any denial so a reader (and the model)
+ * can tell "the sandbox blocked this" from "the sandbox is broken".
+ */
+const INFRA_FAILURE_PREFIX = "[sandbox] INFRASTRUCTURE FAILURE:";
+
+/**
+ * Pass through a wrapped run's events, buffering stderr so the exit event
+ * can be preceded by an infrastructure-failure note when the runner (not
+ * the command) is what failed.
+ *
+ * `exit` is already the last event of the stream, so holding only it back
+ * costs nothing in streaming terms.
+ */
+async function* withRunnerFailureClassification(
+  events: AsyncIterable<ShellEvent>,
+  backend: SandboxBackendName,
+): AsyncIterable<ShellEvent> {
+  let stderrBuf = "";
+  let exitEvent: ShellEvent | undefined;
+
+  for await (const event of events) {
+    if (event.type === "stderr") stderrBuf += event.data;
+    if (event.type === "exit") {
+      exitEvent = event;
+      continue;
+    }
+    yield event;
+  }
+
+  if (exitEvent !== undefined) {
+    const code = exitEvent.type === "exit" ? exitEvent.code : undefined;
+    const fatal = classifyRunnerFailure(backend, code, stderrBuf);
+    if (fatal !== null) {
+      yield {
+        type: "stderr",
+        data:
+          `\n${INFRA_FAILURE_PREFIX} the sandbox runner refused or crashed before ` +
+          `running the command, so NOTHING was executed. This is not a denial ` +
+          `and not a failure of the command itself: ${fatal}\n`,
+      };
+    }
+    yield exitEvent;
+  }
+}
+
+/**
+ * Emit the infrastructure-failure pair (stderr + exit) for a runner binary
+ * that is not present on this system. Short-circuits before any wrapping so
+ * a missing runner is never reported as an ordinary command failure.
+ */
+function* missingRunnerEvents(runner: string): Iterable<ShellEvent> {
+  yield {
+    type: "stderr",
+    data:
+      `${INFRA_FAILURE_PREFIX} the sandbox runner "${runner}" was not found on this ` +
+      `system, so NOTHING was executed. This is not a denial and not a failure ` +
+      `of the command itself: the sandbox infrastructure is unavailable.\n`,
+  };
+  yield { type: "exit", code: 126 };
 }
 
 // ──────────────────────────────────────────────
@@ -287,10 +373,11 @@ export function createSandboxedShell(
 
   // ── macOS seatbelt branch ──
   if (backend === "seatbelt") {
-    // failIfUnavailable: check that sandbox-exec is actually present
-    if (resolvedConfig.failIfUnavailable && !probeBinary("sandbox-exec")) {
+    const seatbeltBinary = resolvedConfig.seatbeltBinary ?? "sandbox-exec";
+    // failIfUnavailable: check that the configured runner is actually present
+    if (resolvedConfig.failIfUnavailable && !runnerBinaryAvailable(seatbeltBinary)) {
       throw new Error(
-        "[sandbox] sandbox-exec binary not found on PATH and failIfUnavailable is true. " +
+        `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
         "Install sandbox-exec or set failIfUnavailable to false.",
       );
     }
@@ -305,6 +392,13 @@ export function createSandboxedShell(
       sandboxEnforcement,
       exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> {
         return (async function* () {
+          // A missing runner is infrastructure failure, not a command failure.
+          // Detected before any wrapping so it can never read as the latter.
+          if (!runnerBinaryAvailable(seatbeltBinary)) {
+            yield* missingRunnerEvents(seatbeltBinary);
+            return;
+          }
+
           let profilePath: string | undefined;
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
@@ -349,11 +443,15 @@ export function createSandboxedShell(
             // parse the path itself as a profile, which fails with
             // "unbound variable: <path>" — every sandboxed command exits 65.
             const wrappedCmd = envPrefix
-              ? `${envPrefix} && sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`
-              : `sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+              ? `${envPrefix} && ${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`
+              : `${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
 
-            // Yield through all events from the wrapped command
-            for await (const event of realShell.exec(wrappedCmd, withStrippedEnv(opts))) {
+            // Yield through all events from the wrapped command, classifying
+            // a runner crash (e.g. the -p defect) as infrastructure failure.
+            for await (const event of withRunnerFailureClassification(
+              realShell.exec(wrappedCmd, withStrippedEnv(opts)),
+              backend as SandboxBackendName,
+            )) {
               yield event;
             }
           } catch (err) {
@@ -383,10 +481,11 @@ export function createSandboxedShell(
 
   // ── Linux bubblewrap branch ──
   if (backend === "bubblewrap") {
-    // failIfUnavailable: check that bwrap is present
-    if (resolvedConfig.failIfUnavailable && !probeBinary("bwrap")) {
+    const bwrapBinary = resolvedConfig.bwrapBinary ?? "bwrap";
+    // failIfUnavailable: check that the configured runner is present
+    if (resolvedConfig.failIfUnavailable && !runnerBinaryAvailable(bwrapBinary)) {
       throw new Error(
-        "[sandbox] bwrap (bubblewrap) binary not found on PATH and failIfUnavailable is true. " +
+        `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
         "Install bubblewrap (apt install bubblewrap) or set failIfUnavailable to false.",
       );
     }
@@ -405,10 +504,10 @@ export function createSandboxedShell(
         return (async function* () {
           let socatProc: ReturnType<typeof import("node:child_process").spawn> | undefined;
           try {
-            if (!warned && !probeBinary("bwrap")) {
+            if (!warned && !runnerBinaryAvailable(bwrapBinary)) {
               warned = true;
               console.warn(
-                "[sandbox] WARNING: bwrap not found on PATH. " +
+                `[sandbox] WARNING: ${bwrapBinary} not found on PATH. ` +
                 "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
               );
               // Still strip env vars even without isolation — the caller
@@ -423,7 +522,7 @@ export function createSandboxedShell(
               const p = await ensureProxy();
               if (probeBinary("socat")) {
                 const socatPort = 18080 + (++socatPortCounter);
-                
+
                 socatProc = spawn("socat", [
                   `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
                   `UNIX-CONNECT:${p.socketPath}`,
@@ -449,9 +548,12 @@ export function createSandboxedShell(
               : escapedCmd;
             // Shell-escape each bwrap arg to handle paths with spaces
             const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-            const wrappedCmd = `bwrap ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
+            const wrappedCmd = `${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
 
-            yield* realShell.exec(wrappedCmd, withStrippedEnv(opts));
+            yield* withRunnerFailureClassification(
+              realShell.exec(wrappedCmd, withStrippedEnv(opts)),
+              backend as SandboxBackendName,
+            );
           } finally {
             if (socatProc) {
               try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ }
