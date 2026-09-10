@@ -69,6 +69,18 @@ export interface SandboxConfig {
    * by env var is readable with `echo $NAME` regardless of any file rule.
    */
   strippedEnvVars?: string[];
+  /**
+   * Regexes matched against environment variable NAMES; a name matching any
+   * of them is removed exactly as `strippedEnvVars` would.
+   *
+   * An exact list cannot keep up with what a host happens to export
+   * (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, the next provider's
+   * key), and a file-side fence over the credential dir is worth nothing
+   * while `echo $OPENAI_API_KEY` walks around it. Patterns judge a variable
+   * by what it is called, so a newly added provider key is covered the day
+   * the host exports it rather than the day someone remembers to list it.
+   */
+  strippedEnvPatterns?: RegExp[];
   /** Linux: enable seccomp filter to block unix socket escape. Default: true */
   seccomp?: boolean;
   /** Auto-detect backend: darwin→seatbelt, linux→bubblewrap, rest→none. Default: auto */
@@ -116,22 +128,37 @@ export function probeBinary(name: string): boolean {
 // ──────────────────────────────────────────────
 
 /**
- * Return `opts` with `strippedNames` removed from the child environment.
+ * Return `opts` with `strippedNames` and every name matching
+ * `strippedPatterns` removed from the child environment.
+ *
  * Builds the env from `process.env` (plus any caller-supplied `opts.env`)
  * so PATH and the rest of the inherited environment survive — spawn's
  * `env` replaces the whole environment rather than merging.
  */
 function stripEnvFrom(
   opts: ShellExecOptions | undefined,
-  strippedNames: string[],
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[] = [],
 ): ShellExecOptions | undefined {
-  if (strippedNames.length === 0) return opts;
+  if (strippedNames.length === 0 && strippedPatterns.length === 0) return opts;
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) env[k] = v;
   }
   Object.assign(env, opts?.env ?? {});
   for (const name of strippedNames) delete env[name];
+  for (const name of Object.keys(env)) {
+    for (const pattern of strippedPatterns) {
+      // A /g or /y regex carries lastIndex across calls and would skip
+      // names on a later pass; reset before every test so a caller-supplied
+      // pattern behaves the same on every variable.
+      pattern.lastIndex = 0;
+      if (pattern.test(name)) {
+        delete env[name];
+        break;
+      }
+    }
+  }
   return { ...opts, env };
 }
 
@@ -169,6 +196,7 @@ export function createSandboxedShell(
     // secret-bearing variable survives into the child on every platform
     // that happens to lack seatbelt/bwrap.
     const stripped = config.strippedEnvVars ?? [];
+    const strippedPatterns = config.strippedEnvPatterns ?? [];
     return {
       exec(cmd: string, opts?: ShellExecOptions) {
         if (!warned) {
@@ -178,7 +206,7 @@ export function createSandboxedShell(
             "Commands will run without isolation. This is a security risk.",
           );
         }
-        return realShell.exec(cmd, stripEnvFrom(opts, stripped));
+        return realShell.exec(cmd, stripEnvFrom(opts, stripped, strippedPatterns));
       },
       // No `launch`: only danger-full-access exposes the real shell's
       // background-launch path (see C4 — a passthrough here would let
@@ -215,9 +243,10 @@ export function createSandboxedShell(
   };
 
   const strippedEnvVars = resolvedConfig.strippedEnvVars ?? [];
+  const strippedEnvPatterns = resolvedConfig.strippedEnvPatterns ?? [];
 
   function withStrippedEnv(opts: ShellExecOptions | undefined): ShellExecOptions | undefined {
-    return stripEnvFrom(opts, strippedEnvVars);
+    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns);
   }
 
   // ── Egress proxy setup (Phase 4: lazy start on first exec) ──

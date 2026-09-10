@@ -3,7 +3,12 @@ import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createWiredAgent, DEFAULT_SYSTEM_PROMPT, buildSandboxConfigs } from "../wiring.js";
+import {
+  createWiredAgent,
+  DEFAULT_SYSTEM_PROMPT,
+  buildSandboxConfigs,
+  SECRET_ENV_PATTERNS,
+} from "../wiring.js";
 import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
 import {
@@ -482,18 +487,72 @@ describe("buildSandboxConfigs (R1 — fs and shell sides share one set of writab
     expect(shellConfig?.readOnlyOverlays).toEqual([]);
   });
 
-  it("denies the credential dir on both sides and strips the auth token env var on the shell side", () => {
+  it("denies the credential dir on both sides and strips secret env vars on the shell side", () => {
     const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", "/workspace", [
       "/home/user/.volto",
     ]);
     expect(fsConfig?.deniedReadPaths).toEqual(["/home/user/.volto"]);
     expect(shellConfig?.deniedReadPaths).toEqual(["/home/user/.volto"]);
-    expect(shellConfig?.strippedEnvVars).toEqual(["VOLTO_AUTH_TOKEN"]);
+    expect(shellConfig?.strippedEnvPatterns).toEqual([...SECRET_ENV_PATTERNS]);
     // A FileSystem port has no environment — nothing to strip there.
-    expect(fsConfig?.strippedEnvVars).toBeUndefined();
+    expect(fsConfig?.strippedEnvPatterns).toBeUndefined();
   });
 
-  it("no mode: deniedReadPaths and strippedEnvVars stay absent (configs are null)", () => {
+  describe("SECRET_ENV_PATTERNS", () => {
+    /** Match the way stripEnvFrom does: any pattern hitting the NAME strips it. */
+    function stripped(name: string): boolean {
+      return SECRET_ENV_PATTERNS.some((p) => {
+        p.lastIndex = 0;
+        return p.test(name);
+      });
+    }
+
+    it("strips the provider credentials that were demonstrably readable before", () => {
+      // Verified live: a sandboxed `echo $OPENAI_API_KEY` returned the value
+      // while the file-side fence over ~/.volto was already in place.
+      for (const name of [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "NPM_TOKEN",
+        "DB_PASSWORD",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "VOLTO_AUTH_TOKEN",
+        "SSH_KEY",
+      ]) {
+        expect(stripped(name), `${name} should be stripped`).toBe(true);
+      }
+    });
+
+    it("leaves the variables a sandboxed build actually needs", () => {
+      // An allow-list would break all of these; that is why the rule matches
+      // secret-shaped names instead.
+      for (const name of [
+        "PATH",
+        "HOME",
+        "SHELL",
+        "LANG",
+        "TERM",
+        "TMPDIR",
+        "PWD",
+        "USER",
+        "NVM_DIR",
+        "PNPM_HOME",
+        "JAVA_HOME",
+        "CARGO_HOME",
+        "HTTP_PROXY",
+        "NODE_OPTIONS",
+        // Knowingly kept: stripping it breaks `git push` over ssh.
+        "SSH_AUTH_SOCK",
+      ]) {
+        expect(stripped(name), `${name} should survive`).toBe(false);
+      }
+    });
+  });
+
+  it("no mode: deniedReadPaths and strippedEnvPatterns stay absent (configs are null)", () => {
     const { fsConfig, shellConfig } = buildSandboxConfigs(undefined, "/workspace", ["/x"]);
     expect(fsConfig).toBeNull();
     expect(shellConfig).toBeNull();

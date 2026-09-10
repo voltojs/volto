@@ -961,4 +961,33 @@ describe("deniedReadPaths", () => {
     delete process.env["VOLTO_TEST_SECRET"];
     await fsp.rm(base, { recursive: true, force: true });
   });
+
+  itDarwin("strips pattern-matched names while leaving the rest of the env intact", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-stripenv2-")));
+    // The exact leak demonstrated on this branch: the file-side fence over
+    // the credential dir was already in place and `echo $OPENAI_API_KEY`
+    // still printed the key, because the strip list named one variable that
+    // does not exist.
+    process.env["OPENAI_API_KEY"] = "LEAKED_OPENAI";
+    process.env["VOLTO_TEST_PLAIN"] = "KEPT_PLAIN";
+
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+      strippedEnvPatterns: [/API_?KEY/i],
+    });
+
+    const result = await drain(
+      shell.exec("echo ${OPENAI_API_KEY:-ABSENT} ${VOLTO_TEST_PLAIN:-MISSING}"),
+    );
+    expect(result.out).not.toContain("LEAKED_OPENAI");
+    expect(result.out).toContain("ABSENT");
+    // PATH and friends must survive — spawn's `env` replaces the whole
+    // environment, so an over-eager strip breaks every command.
+    expect(result.out).toContain("KEPT_PLAIN");
+
+    delete process.env["OPENAI_API_KEY"];
+    delete process.env["VOLTO_TEST_PLAIN"];
+    await fsp.rm(base, { recursive: true, force: true });
+  });
 });

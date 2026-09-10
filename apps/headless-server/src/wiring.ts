@@ -196,6 +196,37 @@ function writableRootsFor(cwd: string): string[] {
  * `git_commit`/`git_push`, wherever `npm test`/CI is invoked, or a read-side
  * policy — not in the sandbox's file-write boundary.
  */
+/**
+ * Environment variable NAMES whose values are treated as secrets and removed
+ * from every sandboxed child process.
+ *
+ * Patterns, not an exact list, and deliberately so. The file-side fence over
+ * the credential dir (`deniedReadPaths`) is worth nothing while a one-line
+ * `echo $OPENAI_API_KEY` walks around it, and an exact list only ever covers
+ * the providers someone remembered on the day they wrote it. Matching on the
+ * shape of the name covers the next provider's key the day the host exports
+ * it.
+ *
+ * Scoped to secret-shaped names rather than an allow-list of "safe"
+ * variables: the sandboxed process still has to run `git`, `npm`, `cargo`
+ * and friends, all of which read host-specific variables (`PNPM_HOME`,
+ * `NVM_DIR`, `JAVA_HOME`, proxy settings) that an allow-list would break.
+ *
+ * `SSH_AUTH_SOCK` is knowingly NOT stripped — it is a credential channel,
+ * but removing it breaks `git push` over ssh, which is squarely inside what
+ * `workspace-write` is meant to allow. Closing that one belongs to the
+ * permission layer's tier for `git_push`, not to env stripping.
+ */
+export const SECRET_ENV_PATTERNS: readonly RegExp[] = [
+  /API_?KEY/i,
+  /(^|_)KEY$/i,
+  /TOKEN/i,
+  /SECRET/i,
+  /PASSWORD/i,
+  /PASSWD/i,
+  /CREDENTIAL/i,
+];
+
 export function buildSandboxConfigs(
   mode: SandboxMode | undefined,
   cwd: string,
@@ -226,14 +257,14 @@ export function buildSandboxConfigs(
     // no network concept at all (a FileSystem port has no egress), so it
     // gets no such override.
     //
-    // `strippedEnvVars` is shell-only for the same reason: a FileSystem
-    // port has no environment. Task 3 may add more names here.
+    // `strippedEnvPatterns` is shell-only for the same reason: a FileSystem
+    // port has no environment.
     fsConfig: base,
     shellConfig: base
       ? {
           ...base,
           network: { enabled: true },
-          strippedEnvVars: ["VOLTO_AUTH_TOKEN"],
+          strippedEnvPatterns: [...SECRET_ENV_PATTERNS],
         }
       : null,
   };
