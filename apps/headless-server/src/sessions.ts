@@ -476,8 +476,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
   function detach(session: Session): void {
     // A dropped channel means nobody can answer — deny rather than leave a
-    // tool call parked forever, and never allow by default.
-    session.approvals.settleAll("deny");
+    // tool call parked forever, and never allow by default. Tagged
+    // `connection-lost` so the user can tell this from their own deny click.
+    session.approvals.settleAll("deny", "connection-lost");
     if (!session.connection) return;
     clearInterval(session.connection.heartbeat);
     session.connection = null;
@@ -835,7 +836,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   function interrupt(sessionId: string): boolean {
     const session = sessions.get(sessionId);
     if (!session?.running || !session.abort) return false;
-    session.approvals.settleAll("deny");
+    // Tagged `interrupted` — distinct from a user denying a single call.
+    session.approvals.settleAll("deny", "interrupted");
     session.abort.abort();
     return true;
   }

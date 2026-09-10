@@ -1389,7 +1389,10 @@ export function createRunner(opts: RunnerOptions): Runner {
           { callId: e.toolCall.id, name: e.toolCall.name, riskTier: e.riskTier },
           { step: stepCounter },
         );
-        const decision = await opts.approvalGate.ask(e.toolCall, e.riskTier);
+        const raw = await opts.approvalGate.ask(e.toolCall, e.riskTier);
+        // A gate may answer with a bare decision or with a reason attached.
+        const decision = typeof raw === "string" ? raw : raw.decision;
+        const reason = typeof raw === "string" ? undefined : raw.reason;
         if (decision === "allow") approvedToolCallIds.add(e.toolCall.id);
         else deniedToolCallIds.add(e.toolCall.id);
         forwardEmit(feed({
@@ -1397,7 +1400,11 @@ export function createRunner(opts: RunnerOptions): Runner {
           toolCallId: e.toolCall.id,
           decision,
         }));
-        recorder.record("approval_decision", { callId: e.toolCall.id, decision }, { step: stepCounter });
+        recorder.record(
+          "approval_decision",
+          { callId: e.toolCall.id, decision, ...(reason !== undefined ? { reason } : {}) },
+          { step: stepCounter },
+        );
         // Audit: record approval decision
         if (opts.auditSink) {
           opts.auditSink.record({

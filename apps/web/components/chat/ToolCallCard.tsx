@@ -7,6 +7,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import type { ConversationToolCall } from '@volto/sdk/sse';
+import { denialNoteFor } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
 
 interface ToolCallCardProps {
@@ -28,6 +29,15 @@ function StatusIcon({ call }: ToolCallCardProps) {
 
 /** Collapsed summary of one tool call, expandable to show args and output. */
 export function ToolCallCard({ call }: ToolCallCardProps) {
+  // Settled-approval rendering. The pending `ApprovalCard` vanishes the
+  // moment a decision lands; without this line a fail-closed denial
+  // (connection lost, turn interrupted) would look identical to a click the
+  // user made — or to a silent disappearance.
+  const denialNote =
+    call.approval?.decision === 'deny'
+      ? denialNoteFor(call.approval.reason)
+      : null;
+
   return (
     <Collapsible
       className={cn(
@@ -49,6 +59,12 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
           <StatusIcon call={call} />
         </span>
       </CollapsibleTrigger>
+
+      {denialNote && (
+        <div className="text-muted-foreground border-t px-2.5 py-1.5 text-[11px]">
+          {denialNote}
+        </div>
+      )}
 
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
         <div className="space-y-2 border-t px-2.5 py-2">

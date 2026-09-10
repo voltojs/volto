@@ -351,7 +351,12 @@ export interface TranscriptEventMap {
     orderInBatch: number;
   };
   approval_asked: { callId: string; name: string; riskTier: string };
-  approval_decision: { callId: string; decision: "allow" | "deny" };
+  approval_decision: {
+    callId: string;
+    decision: "allow" | "deny";
+    /** Why, when the gate supplied it. Optional so existing replays stay valid. */
+    reason?: ApprovalDenialReason;
+  };
 
   // ── Context ──
   /** Static-prefix snapshot; written only when its hash changes. */
@@ -472,8 +477,30 @@ export interface EventSink {
 // ApprovalGate — HITL approval
 // ──────────────────────────────────────────────
 
+/**
+ * Why an approval ended in `deny`. Recorded so a user can tell a decision
+ * they made from one the system made for them — a dropped connection denies
+ * fail-closed, which is correct, but silently doing so leaves the user
+ * unable to tell that from their own click, or to know a retry is possible.
+ */
+export type ApprovalDenialReason = "user" | "connection-lost" | "interrupted";
+
+/** An approval outcome with the reason attached. */
+export interface ApprovalResult {
+  decision: "allow" | "deny";
+  reason?: ApprovalDenialReason;
+}
+
 export interface ApprovalGate {
-  ask(call: PendingToolCall, riskTier: RiskTier): Promise<"allow" | "deny">;
+  /**
+   * Decide one pending call. A bare `"allow"` / `"deny"` stays valid so
+   * existing gates need no change; returning an {@link ApprovalResult}
+   * additionally records WHY.
+   */
+  ask(
+    call: PendingToolCall,
+    riskTier: RiskTier,
+  ): Promise<"allow" | "deny" | ApprovalResult>;
 }
 
 // ──────────────────────────────────────────────

@@ -1,4 +1,22 @@
-import type { TranscriptEventInput, TranscriptEventMap } from '@volto/core';
+import type {
+  ApprovalDenialReason,
+  TranscriptEventInput,
+  TranscriptEventMap,
+} from '@volto/core';
+
+/**
+ * User-facing wording for a settled denial, keyed by the reason the gate
+ * recorded. `connection-lost` is the one denial the user did not make —
+ * saying so, and saying it can be retried, is the whole point of carrying
+ * the reason.
+ */
+export function denialNoteFor(reason?: ApprovalDenialReason): string {
+  return reason === 'connection-lost'
+    ? '因连接中断被自动拒绝，可重新发送该请求'
+    : reason === 'interrupted'
+      ? '因本轮被中断而拒绝'
+      : '你拒绝了该操作';
+}
 
 /** One approval the agent is currently blocked on. */
 export interface PendingApproval {

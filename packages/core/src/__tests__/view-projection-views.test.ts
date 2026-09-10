@@ -212,6 +212,62 @@ describe("toConversationView", () => {
     expect(blocks[1]).toEqual({ type: "text", text: "answer" });
   });
 
+  it("folds the approval denial reason onto the tool_call block", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 120,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "bash", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "bash", input: {} }, turn: 1, step: 1 },
+      {
+        time: 135,
+        type: "approval_asked",
+        data: { callId: "c1", name: "bash", riskTier: "WRITE_HIGH" },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 140,
+        type: "approval_decision",
+        data: { callId: "c1", decision: "deny", reason: "connection-lost" },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 150,
+        type: "tool_result",
+        data: {
+          callId: "c1",
+          name: "bash",
+          content: 'Tool "bash" was denied by the user.',
+          isError: true,
+          orderInBatch: 0,
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const blocks = toConversationView(buildTurnRecords(events)).messages[0]!.blocks;
+    const toolBlock = blocks.find((b) => b.type === "tool_call");
+    expect(toolBlock).toMatchObject({
+      type: "tool_call",
+      call: {
+        id: "c1",
+        approval: { decision: "deny", reason: "connection-lost" },
+      },
+    });
+  });
+
   it("marks a message streaming while its step has a partial", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

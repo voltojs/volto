@@ -493,6 +493,78 @@ describe("Runner transcript capture", () => {
   });
 });
 
+describe("Runner transcript capture — denial reason", () => {
+  const dangerousTool: ToolDefinition = {
+    name: "dangerous_op",
+    description: "a WRITE_HIGH tool gated by HITL approval",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    requires: [],
+    riskTier: "WRITE_HIGH",
+  };
+  const ctx: StepContext = { tools: [dangerousTool], model: "test-model" };
+
+  function oneToolThenDone() {
+    return createMockModelPort([
+      [toolUseStart("c1", "dangerous_op"), toolUseDelta("c1", "{}"), modelDone("tool_use")],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+  }
+
+  it("records the reason a gate attached to its decision", async () => {
+    const { store, events } = fakeChatStore();
+    const reasonGate: ApprovalGate = {
+      ask: async () => ({ decision: "deny" as const, reason: "connection-lost" as const }),
+    };
+
+    const runner = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: reasonGate,
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "go" });
+
+    const decided = firstOf<{ callId: string; decision: string; reason?: string }>(
+      events,
+      "approval_decision",
+    );
+    expect(decided).toEqual({
+      callId: "c1",
+      decision: "deny",
+      reason: "connection-lost",
+    });
+  });
+
+  it("omits reason when the gate answers with a bare decision", async () => {
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: oneToolThenDone(),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      permissionConfig: createDefaultPermissionConfig(),
+      approvalGate: createAutoAllowGate(),
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "go" });
+
+    const decided = firstOf<{ callId: string; decision: string; reason?: string }>(
+      events,
+      "approval_decision",
+    );
+    expect(decided).toEqual({ callId: "c1", decision: "allow" });
+    expect(Object.hasOwn(decided!, "reason")).toBe(false);
+  });
+});
+
 describe("Runner transcript capture — approval_asked dedup across resume", () => {
   const dangerousTool: ToolDefinition = {
     name: "dangerous_op",

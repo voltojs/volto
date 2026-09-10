@@ -1662,7 +1662,10 @@ describe("POST /approvals", () => {
  * cast.
  */
 interface StubApprovalGate {
-  ask(call: { id: string; name: string; input: unknown }, tier: string): Promise<"allow" | "deny">;
+  ask(
+    call: { id: string; name: string; input: unknown },
+    tier: string,
+  ): Promise<"allow" | "deny" | { decision: "allow" | "deny"; reason?: string }>;
 }
 
 /**
@@ -1689,7 +1692,9 @@ function makeApprovalPendingFactory() {
           return;
         }
         resolveAsked();
-        const decision = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        const raw = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        // The gate may answer with a bare decision or an ApprovalResult.
+        const decision = typeof raw === "string" ? raw : raw.decision;
         resultText = decision;
         yield { type: "text_delta", data: { text: `decision:${decision}` } };
       },

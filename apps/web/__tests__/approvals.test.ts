@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { selectPendingApprovals } from '@/lib/approvals';
+import { denialNoteFor, selectPendingApprovals } from '@/lib/approvals';
 import type { TranscriptEventInput } from '@volto/core';
+
+describe('denialNoteFor', () => {
+  it('distinguishes a dropped connection from a user click', () => {
+    expect(denialNoteFor('connection-lost')).toBe(
+      '因连接中断被自动拒绝，可重新发送该请求',
+    );
+    expect(denialNoteFor('interrupted')).toBe('因本轮被中断而拒绝');
+    expect(denialNoteFor('user')).toBe('你拒绝了该操作');
+    // Legacy events carry no reason — fall back to the user wording.
+    expect(denialNoteFor(undefined)).toBe('你拒绝了该操作');
+  });
+});
 
 const asked = (callId: string, name = 'bash'): TranscriptEventInput => ({
   time: 1,

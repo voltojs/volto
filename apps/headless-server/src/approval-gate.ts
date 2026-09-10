@@ -12,9 +12,18 @@
  * connection or an interrupted turn must never leave a tool call silently
  * allowed. There is deliberately no timeout: an approval that hangs for hours
  * is more visible to a human than one that quietly resolved itself.
+ *
+ * Denials carry a reason so the UI (and the audit log) can tell a click the
+ * user made from a fail-closed path the gateway took on their behalf.
  */
 
-import type { ApprovalGate, PendingToolCall, RiskTier } from "@volto/core";
+import type {
+  ApprovalDenialReason,
+  ApprovalGate,
+  ApprovalResult,
+  PendingToolCall,
+  RiskTier,
+} from "@volto/core";
 
 /**
  * What a client may answer at an approval prompt.
@@ -30,16 +39,16 @@ export type ApprovalDecision = "allow" | "deny";
 export interface PendingApproval {
   callId: string;
   toolName: string;
-  resolve: (decision: "allow" | "deny") => void;
+  resolve: (result: ApprovalResult) => void;
 }
 
 export interface ApprovalRegistry {
   /** The port handed to createAgent(). */
   readonly gate: ApprovalGate;
-  /** Settle one pending approval. Returns false when `callId` is unknown. */
+  /** Settle one pending approval as a user decision. False when callId is unknown. */
   settle(callId: string, decision: ApprovalDecision): boolean;
   /** Settle every pending approval at once — the fail-closed path. */
-  settleAll(decision: "allow" | "deny"): void;
+  settleAll(decision: ApprovalDecision, reason: ApprovalDenialReason): void;
   /** How many approvals are waiting on a human. */
   size(): number;
 }
@@ -48,8 +57,8 @@ export function createApprovalRegistry(): ApprovalRegistry {
   const pending = new Map<string, PendingApproval>();
 
   const gate: ApprovalGate = {
-    ask(call: PendingToolCall, _riskTier: RiskTier): Promise<"allow" | "deny"> {
-      return new Promise<"allow" | "deny">((resolve) => {
+    ask(call: PendingToolCall, _riskTier: RiskTier): Promise<ApprovalResult> {
+      return new Promise<ApprovalResult>((resolve) => {
         pending.set(call.id, { callId: call.id, toolName: call.name, resolve });
       });
     },
@@ -62,13 +71,13 @@ export function createApprovalRegistry(): ApprovalRegistry {
       const entry = pending.get(callId);
       if (!entry) return false;
       pending.delete(callId);
-      entry.resolve(decision);
+      entry.resolve({ decision, reason: "user" });
       return true;
     },
 
-    settleAll(decision: "allow" | "deny"): void {
+    settleAll(decision: ApprovalDecision, reason: ApprovalDenialReason): void {
       for (const entry of pending.values()) {
-        entry.resolve(decision);
+        entry.resolve({ decision, reason });
       }
       pending.clear();
     },
