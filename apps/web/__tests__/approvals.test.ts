@@ -122,4 +122,43 @@ describe('selectPendingApprovals', () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.input).toBeUndefined();
   });
+
+  it('survives an assistant_message with no usable content', () => {
+    // This runs inside ChatPanel's useMemo: a throw takes down the entire
+    // chat pane, not just the approval card. A malformed or partial event
+    // must degrade to "no arguments recovered", never to a blank screen.
+    for (const content of [undefined, null, 'not-an-array', 42]) {
+      const events = [
+        { time: 1, type: 'assistant_message', data: { content } },
+        {
+          time: 2,
+          type: 'approval_asked',
+          data: { callId: 'call-1', name: 'bash', riskTier: 'WRITE_HIGH' },
+        },
+      ] as unknown as TranscriptEventInput[];
+
+      expect(() => selectPendingApprovals(events)).not.toThrow();
+      // The approval still surfaces — losing the arguments must never hide
+      // the fact that something is waiting on the user.
+      expect(selectPendingApprovals(events)).toHaveLength(1);
+    }
+  });
+
+  it('survives a content array holding a malformed block', () => {
+    const events = [
+      {
+        time: 1,
+        type: 'assistant_message',
+        data: { content: [null, { type: 'text', text: 'hi' }] },
+      },
+      {
+        time: 2,
+        type: 'approval_asked',
+        data: { callId: 'call-1', name: 'bash', riskTier: 'WRITE_HIGH' },
+      },
+    ] as unknown as TranscriptEventInput[];
+
+    expect(() => selectPendingApprovals(events)).not.toThrow();
+    expect(selectPendingApprovals(events)).toHaveLength(1);
+  });
 });

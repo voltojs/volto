@@ -64,9 +64,15 @@ export function selectPendingApprovals(
       // `data` is the union of every payload; narrow it to this event's shape
       // the same way the core projections (transcript/view-projection) do.
       const data = event.data as TranscriptEventMap['assistant_message'];
-      for (const block of data.content) {
-        if (block.type === 'tool_use') {
-          inputs.set(block.id, block.input);
+      // Guarded rather than trusted: this runs inside ChatPanel's useMemo, so
+      // a throw here takes down the whole chat pane, not just the approval
+      // card. A malformed or partial event must degrade to "no arguments
+      // recovered", never to a blank screen.
+      if (Array.isArray(data?.content)) {
+        for (const block of data.content) {
+          if (block?.type === 'tool_use') {
+            inputs.set(block.id, block.input);
+          }
         }
       }
       continue;
