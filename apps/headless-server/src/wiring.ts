@@ -25,7 +25,7 @@ import {
 } from "@volto/core";
 import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
-import { getConfigPath } from "./config/paths.js";
+import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
 
 /**
@@ -137,6 +137,14 @@ export interface WiringOptions {
    * at 1. Omit together with `initialTurn` when no transcript exists yet.
    */
   initialStep?: number;
+  /**
+   * Real path of the credential directory, denied to the sandboxed process
+   * on both the shell and fs sides. Callers in an async context should
+   * resolve it via `getConfigDirRealPath()`; when omitted, the lexical
+   * `getConfigDir()` is passed and the sandbox adapters realpath it
+   * themselves at construction.
+   */
+  configDirRealPath?: string;
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -191,9 +199,21 @@ function writableRootsFor(cwd: string): string[] {
 export function buildSandboxConfigs(
   mode: SandboxMode | undefined,
   cwd: string,
+  /**
+   * Real paths of directories the sandboxed process must never read — the
+   * gateway's own credential dir. Passed in rather than resolved here:
+   * realpath is async and this function stays synchronous so both configs
+   * are constructed in one deterministic step.
+   */
+  deniedReadPaths: string[] = [],
 ): SandboxConfigs {
   const base: SandboxConfig | null = mode
-    ? { mode, writableRoots: writableRootsFor(cwd), readOnlyOverlays: [] }
+    ? {
+        mode,
+        writableRoots: writableRootsFor(cwd),
+        readOnlyOverlays: [],
+        deniedReadPaths,
+      }
     : null;
   return {
     // `network: { enabled: true }` on the shell config only: egress is not a
@@ -205,8 +225,17 @@ export function buildSandboxConfigs(
     // policy choice, made here rather than in the adapter. The fs side has
     // no network concept at all (a FileSystem port has no egress), so it
     // gets no such override.
+    //
+    // `strippedEnvVars` is shell-only for the same reason: a FileSystem
+    // port has no environment. Task 3 may add more names here.
     fsConfig: base,
-    shellConfig: base ? { ...base, network: { enabled: true } } : null,
+    shellConfig: base
+      ? {
+          ...base,
+          network: { enabled: true },
+          strippedEnvVars: ["VOLTO_AUTH_TOKEN"],
+        }
+      : null,
   };
 }
 
@@ -225,9 +254,14 @@ export function createWiredAgent(opts: WiringOptions = {}) {
   // why) the fs and shell sides diverge (C5). Without a mode both stay null
   // and the adapters stay undecorated — the legacy routes and tests that
   // build an agent with no permission preset keep their prior behaviour.
+  // The credential dir is denied to the sandbox on both sides; callers in
+  // an async context pass its realpath (getConfigDirRealPath), otherwise the
+  // lexical form goes in and the adapters resolve it themselves.
+  const configDirRealPath = opts.configDirRealPath ?? getConfigDir();
   const { fsConfig: sandboxConfig, shellConfig: shellSandboxConfig } = buildSandboxConfigs(
     opts.sandboxMode,
     cwd,
+    [configDirRealPath],
   );
   const rawFs = createNodeFileSystem({ root: cwd });
   const rawShell = createNodeShell({ defaultCwd: cwd });

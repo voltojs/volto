@@ -53,6 +53,22 @@ export interface SandboxConfig {
   readOnlyOverlays?: string[];
   /** Network egress settings. Default: disabled (blocked) */
   network?: SandboxNetworkConfig;
+  /**
+   * Absolute paths the sandboxed process may not READ. Distinct from
+   * `readOnlyOverlays`, which only bounds writes: these are credential
+   * locations (the gateway's own config dir) whose contents would let a
+   * sandboxed command authenticate to the control plane that is supposed to
+   * be governing it. Resolved with realpath at construction — seatbelt
+   * matches real paths, and on macOS `/tmp`, `/var` and `os.tmpdir()` are
+   * all symlinks.
+   */
+  deniedReadPaths?: string[];
+  /**
+   * Environment variable names removed from the child process. A sandboxed
+   * command inherits the gateway's environment verbatim, so a secret passed
+   * by env var is readable with `echo $NAME` regardless of any file rule.
+   */
+  strippedEnvVars?: string[];
   /** Linux: enable seccomp filter to block unix socket escape. Default: true */
   seccomp?: boolean;
   /** Auto-detect backend: darwin→seatbelt, linux→bubblewrap, rest→none. Default: auto */
@@ -100,6 +116,26 @@ export function probeBinary(name: string): boolean {
 // ──────────────────────────────────────────────
 
 /**
+ * Return `opts` with `strippedNames` removed from the child environment.
+ * Builds the env from `process.env` (plus any caller-supplied `opts.env`)
+ * so PATH and the rest of the inherited environment survive — spawn's
+ * `env` replaces the whole environment rather than merging.
+ */
+function stripEnvFrom(
+  opts: ShellExecOptions | undefined,
+  strippedNames: string[],
+): ShellExecOptions | undefined {
+  if (strippedNames.length === 0) return opts;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  Object.assign(env, opts?.env ?? {});
+  for (const name of strippedNames) delete env[name];
+  return { ...opts, env };
+}
+
+/**
  * Create a Shell decorator that wraps commands in a sandbox.
  *
  * - macOS: `sandbox-exec -p <profile-file> /bin/bash -c <escaped cmd>`
@@ -129,6 +165,10 @@ export function createSandboxedShell(
   // Unsupported platform without failIfUnavailable: warn once then passthrough
   if (backend === "none") {
     let warned = false;
+    // Env stripping needs no isolation backend — honour it anyway, or a
+    // secret-bearing variable survives into the child on every platform
+    // that happens to lack seatbelt/bwrap.
+    const stripped = config.strippedEnvVars ?? [];
     return {
       exec(cmd: string, opts?: ShellExecOptions) {
         if (!warned) {
@@ -138,7 +178,7 @@ export function createSandboxedShell(
             "Commands will run without isolation. This is a security risk.",
           );
         }
-        return realShell.exec(cmd, opts);
+        return realShell.exec(cmd, stripEnvFrom(opts, stripped));
       },
       // No `launch`: only danger-full-access exposes the real shell's
       // background-launch path (see C4 — a passthrough here would let
@@ -169,7 +209,16 @@ export function createSandboxedShell(
     readOnlyOverlays: isWriteMode
       ? (config.readOnlyOverlays ?? [".git", ".env"])
       : config.readOnlyOverlays,
+    // Same realpath discipline as writableRoots above — a deny rule built
+    // from a lexical path silently never matches on macOS.
+    deniedReadPaths: config.deniedReadPaths?.map(resolveRealRootPath),
   };
+
+  const strippedEnvVars = resolvedConfig.strippedEnvVars ?? [];
+
+  function withStrippedEnv(opts: ShellExecOptions | undefined): ShellExecOptions | undefined {
+    return stripEnvFrom(opts, strippedEnvVars);
+  }
 
   // ── Egress proxy setup (Phase 4: lazy start on first exec) ──
   const needsProxy =
@@ -256,7 +305,7 @@ export function createSandboxedShell(
               : `sandbox-exec -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
 
             // Yield through all events from the wrapped command
-            for await (const event of realShell.exec(wrappedCmd, opts)) {
+            for await (const event of realShell.exec(wrappedCmd, withStrippedEnv(opts))) {
               yield event;
             }
           } catch (err) {
@@ -308,7 +357,9 @@ export function createSandboxedShell(
                 "[sandbox] WARNING: bwrap not found on PATH. " +
                 "Commands will run without isolation. Install bubblewrap: apt install bubblewrap",
               );
-              yield* realShell.exec(cmd, opts);
+              // Still strip env vars even without isolation — the caller
+              // asked for them gone, and env stripping needs no backend.
+              yield* realShell.exec(cmd, withStrippedEnv(opts));
               return;
             }
 
@@ -346,7 +397,7 @@ export function createSandboxedShell(
             const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
             const wrappedCmd = `bwrap ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
 
-            yield* realShell.exec(wrappedCmd, opts);
+            yield* realShell.exec(wrappedCmd, withStrippedEnv(opts));
           } finally {
             if (socatProc) {
               try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ }
@@ -481,6 +532,21 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     lines.push(`(deny file-write* (subpath "${escapeSeatbeltPath(overlay)}"))`);
   }
 
+  // Denied reads — credential dirs the sandboxed process must never see.
+  // Placed after the blanket `(allow file-read-data (subpath "/"))` so the
+  // deny actually overrides it (same ordering discipline as the overlays).
+  //
+  // Verified on-host: `(deny file-read* (subpath ...))` does NOT deny — the
+  // wildcard form silently no-ops and `cat` still returns the secret.
+  // `(deny file-read-data ...)` does deny. file-read-metadata is denied too
+  // so `ls` of the credential dir also fails rather than leaking filenames.
+  const deniedReads = config.deniedReadPaths ?? [];
+  for (const p of deniedReads) {
+    const escaped = escapeSeatbeltPath(p);
+    lines.push(`(deny file-read-data (subpath "${escaped}"))`);
+    lines.push(`(deny file-read-metadata (subpath "${escaped}"))`);
+  }
+
   // Network — three-state semantics:
   // enabled=false  → deny all (default)
   // enabled=true + empty allowedHosts → allow all (except loopback, see below)
@@ -555,6 +621,19 @@ export function buildBwrapArgs(config: SandboxConfig): string[] {
   // Read-only overlays (must come AFTER --bind to override the writable mount)
   for (const overlay of readOnlyOverlays) {
     args.push("--ro-bind", overlay, overlay);
+  }
+
+  // Denied reads — bubblewrap has no deny semantics, so mask the path with
+  // an empty tmpfs. Reads see an empty directory instead of the credential
+  // contents. Must come AFTER --ro-bind / / (and any --bind of a parent)
+  // for the mask to win the mount ordering.
+  // PARITY NOTE: this is not equivalent to seatbelt's `(deny file-read-data)`.
+  // A process that already holds an open fd to a file under the path keeps
+  // reading it, and the path still exists (as an empty dir) rather than
+  // being refused. Good enough to keep credentials unreadable to a fresh
+  // sandboxed command; not a byte-for-byte match of the macOS rule.
+  for (const p of config.deniedReadPaths ?? []) {
+    args.push("--tmpfs", p);
   }
 
   // Network isolation (default: disabled)

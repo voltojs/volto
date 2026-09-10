@@ -6,11 +6,16 @@
  * root with a lexical check. That is not enough for a sandbox mode: it has no
  * notion of read-only, it cannot see through a symlink that points out of the
  * workspace, and it does not protect `.git` / `.env` inside an otherwise
- * writable tree. This decorator adds exactly those three things.
+ * writable tree. This decorator adds exactly those three things — plus, when
+ * `deniedReadPaths` is set, a read-side fence over named credential
+ * directories.
  *
- * Only `write` is intercepted. Read-side operations pass through: a sandbox
+ * `write` is intercepted unconditionally. Read-side operations (`read` /
+ * `stat` / `list` / `glob` / `grep`) pass through by default — a sandbox
  * bounds what may be *changed*, while what may be *seen* is the capability
- * gate's job.
+ * gate's job — EXCEPT when they target a path under `deniedReadPaths`, which
+ * is the one class of read the sandbox itself must refuse: those directories
+ * hold the gateway's own authentication material.
  *
  * ## Architectural limitation: check-then-act (TOCTOU)
  *
@@ -177,6 +182,7 @@ export function createSandboxedFileSystem(
     path.resolve(root),
   );
   const readOnlyOverlays = config.readOnlyOverlays ?? [".git", ".env"];
+  const rawDeniedReadPaths = (config.deniedReadPaths ?? []).map((p) => path.resolve(p));
 
   // Real (symlink-resolved) writable roots are computed lazily and cached:
   // createSandboxedFileSystem must stay synchronous (callers construct it
@@ -188,6 +194,46 @@ export function createSandboxedFileSystem(
       realWritableRootsPromise = Promise.all(rawWritableRoots.map(realResolveRoot));
     }
     return realWritableRootsPromise;
+  }
+
+  // Same lazy-resolve discipline as the writable roots above — denied read
+  // paths must be compared in real-path terms or the check silently misses
+  // on macOS's symlinked /tmp and /var.
+  let realDeniedReadPathsPromise: Promise<string[]> | undefined;
+  function getRealDeniedReadPaths(): Promise<string[]> {
+    if (!realDeniedReadPathsPromise) {
+      realDeniedReadPathsPromise = Promise.all(rawDeniedReadPaths.map(realResolveRoot));
+    }
+    return realDeniedReadPathsPromise;
+  }
+
+  /** Resolve a target the same way the boundary checks do (absolute + real). */
+  function toCandidate(target: string): string {
+    return path.isAbsolute(target) ? target : path.join(innerRoot, target);
+  }
+
+  /**
+   * Whether `target` (a path or a path-shaped string from a result list)
+   * lands under any denied read path. Returns the matching denied root, or
+   * undefined.
+   */
+  async function findDeniedRoot(target: string): Promise<string | undefined> {
+    const denied = await getRealDeniedReadPaths();
+    if (denied.length === 0) return undefined;
+    const resolved = await realResolve(toCandidate(target));
+    return denied.find((d) => isWithin(resolved, d));
+  }
+
+  async function assertReadable(target: string): Promise<void> {
+    const hit = await findDeniedRoot(target);
+    if (hit !== undefined) {
+      throw new SandboxBoundaryError(
+        target,
+        mode,
+        `Cannot read "${target}": it is inside a denied credential directory. ` +
+          `This is not a restriction you can work around — ask the user if you need the contents.`,
+      );
+    }
   }
 
   async function assertWritable(target: string): Promise<void> {
@@ -247,6 +293,39 @@ export function createSandboxedFileSystem(
       const candidate = path.isAbsolute(target) ? target : path.join(innerRoot, target);
       await assertWritable(candidate);
       await fs.write(target, data);
+    },
+    async read(target: string, offset?: number, limit?: number) {
+      await assertReadable(target);
+      return fs.read(target, offset, limit);
+    },
+    async stat(target: string) {
+      await assertReadable(target);
+      return fs.stat(target);
+    },
+    async list(dir: string) {
+      await assertReadable(dir);
+      return fs.list(dir);
+    },
+    async glob(pattern: string) {
+      const result = await fs.glob(pattern);
+      if (rawDeniedReadPaths.length === 0) return result;
+      const kept: string[] = [];
+      for (const p of result.paths) {
+        if ((await findDeniedRoot(p)) === undefined) kept.push(p);
+      }
+      return { paths: kept };
+    },
+    async grep(query: string, opts?: { path?: string; glob?: string; limit?: number }) {
+      if (opts?.path !== undefined) {
+        await assertReadable(opts.path);
+      }
+      const result = await fs.grep(query, opts);
+      if (rawDeniedReadPaths.length === 0) return result;
+      const kept: typeof result.matches = [];
+      for (const m of result.matches) {
+        if ((await findDeniedRoot(m.path)) === undefined) kept.push(m);
+      }
+      return { ...result, matches: kept };
     },
   };
 }

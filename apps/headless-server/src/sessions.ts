@@ -21,6 +21,7 @@ import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
+import { getConfigDirRealPath } from "./config/paths.js";
 import type { PermissionRule } from "@volto/core";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
@@ -661,9 +662,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // against that ordinal. Only consumed by the SDK's cross-process resume
     // fallback Runner; ordinary new turns ignore it entirely.
     const initialStep = initialTurn !== undefined ? await resolveInitialStep(session.id, initialTurn) : undefined;
+    // Real path of the credential dir, denied to the sandbox on both the
+    // shell and fs sides. Resolved here (async context) rather than inside
+    // buildSandboxConfigs, which stays synchronous.
+    const configDirRealPath = await getConfigDirRealPath();
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
+      configDirRealPath,
       ...(credentials
         ? {
             model: credentials.code,

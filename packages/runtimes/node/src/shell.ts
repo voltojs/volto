@@ -30,6 +30,11 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
         cwd,
         shell: true,
         stdio: ["ignore", "pipe", "pipe"],
+        // Omit `env` entirely when not supplied so the child inherits
+        // process.env (spawn's default). Passing an explicit env replaces
+        // the whole environment — that is what the sandbox relies on to
+        // strip secret-bearing variables.
+        ...(opts?.env ? { env: opts.env } : {}),
       });
 
       // Shared async queue — stdout and stderr events are pushed here

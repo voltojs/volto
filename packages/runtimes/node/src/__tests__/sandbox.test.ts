@@ -5,10 +5,13 @@ import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
 import type { Shell, ShellEvent } from "@volto/core";
 import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+
+const itDarwin = process.platform === "darwin" ? it : it.skip;
 
 /** Drain a Shell.exec() AsyncIterable into its stdout/stderr text and exit code. */
 async function drain(events: AsyncIterable<ShellEvent>): Promise<{ out: string; code: number | undefined }> {
@@ -905,5 +908,53 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
       expect(code).toBe(0);
       expect(out).not.toContain("confstr");
     });
+  });
+});
+
+// ──────────────────────────────────────────────
+// deniedReadPaths / strippedEnvVars — the sandbox must refuse reads of
+// named credential paths and remove named environment variables from the
+// child, so a sandboxed command cannot authenticate as the gateway itself.
+// ──────────────────────────────────────────────
+
+describe("deniedReadPaths", () => {
+  itDarwin("refuses to read a denied path while other reads still work", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-denyread-")));
+    const secrets = path.join(base, "creds");
+    await fsp.mkdir(secrets);
+    await fsp.writeFile(path.join(secrets, "token"), "SECRET_VALUE", "utf-8");
+
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+      deniedReadPaths: [secrets],
+    });
+
+    const read = await drain(shell.exec(`cat ${JSON.stringify(path.join(secrets, "token"))}`));
+    expect(read.out).not.toContain("SECRET_VALUE");
+
+    // A read outside the denied path is unaffected — the rule must be narrow.
+    const other = await drain(shell.exec("head -1 /etc/hosts"));
+    expect(other.code).toBe(0);
+
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  itDarwin("strips the named environment variables from the child", async () => {
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-stripenv-")));
+    process.env["VOLTO_TEST_SECRET"] = "LEAKED";
+
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+      strippedEnvVars: ["VOLTO_TEST_SECRET"],
+    });
+
+    const result = await drain(shell.exec("echo ${VOLTO_TEST_SECRET:-ABSENT}"));
+    expect(result.out).toContain("ABSENT");
+    expect(result.out).not.toContain("LEAKED");
+
+    delete process.env["VOLTO_TEST_SECRET"];
+    await fsp.rm(base, { recursive: true, force: true });
   });
 });

@@ -481,6 +481,23 @@ describe("buildSandboxConfigs (R1 — fs and shell sides share one set of writab
     expect(shellConfig?.network).toEqual({ enabled: true });
     expect(shellConfig?.readOnlyOverlays).toEqual([]);
   });
+
+  it("denies the credential dir on both sides and strips the auth token env var on the shell side", () => {
+    const { fsConfig, shellConfig } = buildSandboxConfigs("workspace-write", "/workspace", [
+      "/home/user/.volto",
+    ]);
+    expect(fsConfig?.deniedReadPaths).toEqual(["/home/user/.volto"]);
+    expect(shellConfig?.deniedReadPaths).toEqual(["/home/user/.volto"]);
+    expect(shellConfig?.strippedEnvVars).toEqual(["VOLTO_AUTH_TOKEN"]);
+    // A FileSystem port has no environment — nothing to strip there.
+    expect(fsConfig?.strippedEnvVars).toBeUndefined();
+  });
+
+  it("no mode: deniedReadPaths and strippedEnvVars stay absent (configs are null)", () => {
+    const { fsConfig, shellConfig } = buildSandboxConfigs(undefined, "/workspace", ["/x"]);
+    expect(fsConfig).toBeNull();
+    expect(shellConfig).toBeNull();
+  });
 });
 
 // ──────────────────────────────────────────────

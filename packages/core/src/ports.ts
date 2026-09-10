@@ -224,6 +224,14 @@ export interface ShellExecOptions {
   timeout?: number;
   runInBackground?: boolean;
   abortSignal?: AbortSignal;
+  /**
+   * Environment for the child process. When supplied, it replaces the
+   * inherited environment entirely (matching `child_process.spawn`'s `env`
+   * semantics) — callers that want inheritance must merge `process.env`
+   * themselves. Used by the sandbox to strip secret-bearing variables from
+   * a sandboxed child.
+   */
+  env?: Record<string, string>;
 }
 
 export interface Shell {
