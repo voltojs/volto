@@ -1171,6 +1171,32 @@ describe("no backend available", () => {
     expect(shell.sandboxEnforcement).toBe("none");
   });
 
+  itDarwin("opting out of the throw does NOT grant an unconfined process when the runner is merely missing", async () => {
+    // The two flavours of "unavailable" opt out differently, and the field's
+    // docs now say so. Pinned because the difference is easy to erase by
+    // accident and the safe half is the non-obvious one:
+    //
+    //   backend "none"        -> no backend exists here; opt-out runs unconfined
+    //   runner binary missing -> a backend was selected and is broken; opt-out
+    //                            still refuses to execute
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "volto-optout-")));
+
+    const brokenRunner = createSandboxedShell(createNodeShell({ defaultCwd: base }), {
+      mode: "workspace-write",
+      writableRoots: [base],
+      seatbeltBinary: "/usr/bin/sandbox-exec-not-installed",
+      failIfUnavailable: false,
+    });
+    expect(brokenRunner.sandboxEnforcement).toBe("none");
+
+    const result = await drain(brokenRunner.exec("echo MUST_NOT_RUN"));
+    expect(result.out).toContain("[sandbox] INFRASTRUCTURE FAILURE");
+    expect(result.out).not.toContain("MUST_NOT_RUN");
+    expect(result.code).toBe(126);
+
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
   it("never blocks danger-full-access, which asks for no confinement", () => {
     const shell = createSandboxedShell(createNodeShell({ defaultCwd: os.tmpdir() }), {
       mode: "danger-full-access",

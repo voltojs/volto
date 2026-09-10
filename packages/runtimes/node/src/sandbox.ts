@@ -87,7 +87,29 @@ export interface SandboxConfig {
   seccomp?: boolean;
   /** Auto-detect backend: darwin→seatbelt, linux→bubblewrap, rest→none. Default: auto */
   backend?: SandboxBackend;
-  /** When true, throw at construction time if sandbox is unavailable. Default: true */
+  /**
+   * When true (the default), a confining mode with no working isolation
+   * throws at construction instead of running unconfined.
+   *
+   * Setting it to `false` only suppresses that throw — it does NOT promise an
+   * unconfined process, because "unavailable" covers two different things and
+   * they opt out differently:
+   *
+   * - **No backend for this platform** (`backend: "none"`): construction
+   *   succeeds and commands run UNCONFINED, with a warning. Env stripping
+   *   still applies — it needs no backend. This is a test/e2e affordance;
+   *   production callers get the default and never reach it.
+   * - **Backend selected but its runner binary is missing** (no
+   *   `sandbox-exec` / `bwrap`): construction succeeds, but every `exec`
+   *   refuses with an infrastructure-failure frame and exit 126. A half-
+   *   present backend is a broken environment, not a platform without one,
+   *   and quietly running unconfined there is the failure this phase exists
+   *   to prevent.
+   *
+   * Either way `sandboxEnforcement` reports `none`, which is the field a
+   * caller should branch on rather than inferring confinement from the mode.
+   * To run without isolation deliberately, use `danger-full-access`.
+   */
   failIfUnavailable?: boolean;
   /**
    * Path or name of the seatbelt runner binary. Default: "sandbox-exec".
@@ -263,7 +285,9 @@ function stripEnvFrom(
  * - macOS: `sandbox-exec -p <profile-file> /bin/bash -c <escaped cmd>`
  * - Linux: `bwrap <args> -- /bin/bash -c <escaped cmd>` (Phase 3)
  * - danger-full-access: passthrough (no wrapping)
- * - Other platform: throw at construction (unless `failIfUnavailable: false`)
+ * - Other platform: throw at construction (unless `failIfUnavailable: false`,
+ *   which then runs unconfined — see the field's docs for how that differs
+ *   from a selected backend whose runner binary is missing)
  */
 export function createSandboxedShell(
   realShell: Shell,
@@ -392,7 +416,9 @@ export function createSandboxedShell(
     if (resolvedConfig.failIfUnavailable && !seatbeltRunnerPresent) {
       throw new Error(
         `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
-        "Install sandbox-exec or set failIfUnavailable to false.",
+        "Install sandbox-exec, or use mode \"danger-full-access\" to run without isolation " +
+        "deliberately. Setting failIfUnavailable: false only moves the refusal from " +
+        "construction to execution here — it does not grant an unconfined process.",
       );
     }
     const profileContent = buildSeatbeltProfile(resolvedConfig);
@@ -506,7 +532,9 @@ export function createSandboxedShell(
     if (resolvedConfig.failIfUnavailable && !bwrapRunnerPresent) {
       throw new Error(
         `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
-        "Install bubblewrap (apt install bubblewrap) or set failIfUnavailable to false.",
+        "Install bubblewrap (apt install bubblewrap), or use mode \"danger-full-access\" to run " +
+        "without isolation deliberately. Setting failIfUnavailable: false only moves the refusal " +
+        "from construction to execution here — it does not grant an unconfined process.",
       );
     }
 
