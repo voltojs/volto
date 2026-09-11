@@ -99,6 +99,15 @@ describe("buildPermissionReminder", () => {
     }
   });
 
+  it("targets the refused effect, not tool substitution in general", () => {
+    // Must stay consistent with policyDenialMessage, which the model sees on
+    // the same refusal; both used to read as a blanket ban on trying another
+    // tool, which would forbid a write_file -> edit_file fallback.
+    const text = buildPermissionReminder(ask);
+    expect(text).toMatch(/do not reach the refused effect through a different tool/i);
+    expect(text).toMatch(/work that was not refused is ordinary tool selection/i);
+  });
+
   it("frames a change as a change when a previous config is given", () => {
     const text = buildPermissionReminder(auto, ask);
     expect(text).toMatch(/changed/i);

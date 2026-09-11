@@ -194,9 +194,11 @@ export function policyDenialMessage(toolName: string, config: PermissionConfig):
     `Tool "${toolName}" was refused by the permission policy in force for this ` +
     `session (sandbox: ${config.sandbox}, approval: ${config.approval}). This is ` +
     `a boundary the user configured deliberately, not a failure of the tool.\n\n` +
-    `Do not attempt the same effect through another tool — in particular, do not ` +
-    `use \`bash\` to run an equivalent command. Stop this line of work and tell ` +
-    `the user what was refused and which permission setting would allow it.`
+    `Do not route around this refusal: do not reach the refused effect through ` +
+    `another tool, and in particular do not use \`bash\` to run an equivalent ` +
+    `command. Picking a different tool for work that was not refused is ordinary ` +
+    `tool selection and stays fine. Stop this line of work and tell the user ` +
+    `what was refused and which permission setting would allow it.`
   );
 }
 
@@ -222,7 +224,9 @@ export function userDenialMessage(toolName: string): string {
     `Do not route around the refusal: do not reach the declined effect through ` +
     `another tool — in particular, do not use \`bash\` to run an equivalent ` +
     `command — and do not re-issue the same call hoping for a different answer. ` +
-    `Stop this line of work and tell the user what you were about to do and why, ` +
-    `so they can decide how to proceed; do not improvise a substitute.`
+    `Picking a different tool for work that was not declined is ordinary tool ` +
+    `selection and stays fine. Stop this line of work and tell the user what you ` +
+    `were about to do and why, so they can decide how to proceed; do not ` +
+    `improvise a substitute.`
   );
 }

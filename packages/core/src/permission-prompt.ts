@@ -81,12 +81,19 @@ function ceilingLine(config: PermissionConfig): string | null {
   return `- Operations classified ${refused.join(" / ")} are above this session's ceiling and are refused outright.`;
 }
 
+/**
+ * Scoped to reaching a REFUSED effect by another route, not to switching
+ * tools at all: falling back from `write_file` to `edit_file` is ordinary
+ * tool selection and must stay allowed. Kept consistent with
+ * `policyDenialMessage`, which the model sees on the same refusal.
+ */
 const NO_ROUTING_AROUND =
   "If a tool is refused by this policy, that is a boundary the user configured, " +
-  "not a malfunction. Do not reach the same effect through a different tool — in " +
-  "particular, do not use `bash` to perform an operation a named tool just " +
-  "refused. Stop and tell the user what was refused and which permission setting " +
-  "would allow it.";
+  "not a malfunction. Do not route around a refusal: do not reach the refused " +
+  "effect through a different tool, and in particular do not use `bash` to " +
+  "perform an operation a named tool just refused. Picking a different tool for " +
+  "work that was not refused is ordinary tool selection and stays fine. Stop and " +
+  "tell the user what was refused and which permission setting would allow it.";
 
 /**
  * Build the reminder text for a permission configuration.

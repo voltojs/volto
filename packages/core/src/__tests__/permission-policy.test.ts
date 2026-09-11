@@ -162,6 +162,15 @@ describe("policyDenialMessage", () => {
     expect(msg).toMatch(/do not use `bash`/i);
   });
 
+  it("forbids reaching the REFUSED effect another way, not switching tools at all", () => {
+    // Read literally, "do not attempt the same effect through another tool"
+    // banned the write_file -> edit_file fallback this docblock promises to
+    // keep. The prohibition has to name the refused effect, and say so.
+    const msg = policyDenialMessage("git_push", autoConfig);
+    expect(msg).toMatch(/do not reach the refused effect through another tool/i);
+    expect(msg).toMatch(/work that was not refused is ordinary tool selection/i);
+  });
+
   it("gives a constructive exit instead of leaving the model stuck", () => {
     const msg = policyDenialMessage("git_push", autoConfig);
     expect(msg).toMatch(/tell the user/i);
