@@ -10,6 +10,7 @@ import {
   EMPTY_CELL,
   KIND_BADGE_CLASS,
   KIND_LABELS,
+  REMINDER_KIND_LABELS,
   TAB_LABELS,
   drawerTabsFor,
   formatDuration,
@@ -125,6 +126,11 @@ function OverviewTab({
               进入子会话 →
             </button>
           </div>
+        </Field>
+      )}
+      {row.reminderKind && (
+        <Field label="来源">
+          <Cell text={REMINDER_KIND_LABELS[row.reminderKind]} />
         </Field>
       )}
     </div>
