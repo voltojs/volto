@@ -7,6 +7,8 @@ import {
   isToolInteraction,
   isKeyMessage,
 } from "../compactor.js";
+import { buildPermissionReminder } from "../permission-prompt.js";
+import type { PermissionConfig } from "../permission-policy.js";
 import { createCharTokenizer, createFixedTokenizer } from "../testing/char-tokenizer.js";
 import type { Message } from "../state.js";
 
@@ -98,6 +100,16 @@ describe("isKeyMessage — permission reminders", () => {
         "<system-reminder>\nThe permission boundary for this session has changed. It is now:\n\n- You cannot write to the filesystem at all.\n</system-reminder>",
     };
     expect(isKeyMessage(msg)).toBe(true);
+  });
+
+  it("recognises the real generator's output, not just a hand-typed copy", () => {
+    const config: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
+    const previous: PermissionConfig = { sandbox: "read-only", approval: "never" };
+
+    // First announcement and mid-session change take different opening lines;
+    // both must survive compaction, so both must be recognised here.
+    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config) })).toBe(true);
+    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
   });
 });
 
