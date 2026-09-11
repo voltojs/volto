@@ -518,6 +518,46 @@ describe("toTrajectoryView", () => {
     expect(contextRow.inputDetail).toMatch(/^<<<layer id="base" bytes="\d+">>>\n/);
   });
 
+  it("emits a reminder row per context_reminder, tagged with its source kind", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      {
+        time: 105,
+        type: "context_reminder",
+        data: { kind: "permission_boundary", text: "you may not write outside the workspace" },
+        turn: 1,
+      },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+    ]);
+
+    const rows = toTrajectoryView(buildTurnRecords(events), events).rows;
+    const row = rows.find((r) => r.kind === "reminder")!;
+    expect(row).toBeDefined();
+    expect(row.reminderKind).toBe("permission_boundary");
+    expect(row.outputDetail).toBe("you may not write outside the workspace");
+  });
+
+  it("never lets a context_reminder reach the conversation view", () => {
+    const withReminder = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 105, type: "context_reminder", data: { kind: "self_correction", text: "fix X" }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "hi" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+    const withoutReminder = withReminder.filter((e) => e.type !== "context_reminder");
+
+    const viewWith = toConversationView(buildTurnRecords(withReminder));
+    const viewWithout = toConversationView(buildTurnRecords(withoutReminder));
+    expect(viewWith).toEqual(viewWithout);
+  });
+
   it("marks a sub-agent row with its child session and does not inline it", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

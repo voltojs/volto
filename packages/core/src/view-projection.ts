@@ -13,6 +13,7 @@ import type { ContentBlock } from "./state.js";
 import type {
   ApprovalDenialReason,
   TokenUsage,
+  ContextReminderKind,
   TranscriptEvent,
   TranscriptEventMap,
   TurnEndReason,
@@ -387,8 +388,12 @@ export function buildTurnRecords(
 
       default:
         // Log-only: session_meta, request_header, context_assembled,
-        // compaction, budget_exceeded, subagent_finished. They carry audit
-        // detail the trajectory view reads straight off the event list.
+        // compaction, context_reminder, budget_exceeded, subagent_finished.
+        // They carry audit detail the trajectory view reads straight off the
+        // event list, and structurally never enter a TurnRecord — which is
+        // why toConversationView (built from TurnRecord[], not raw events)
+        // can never render one. Do not add a case here for context_reminder;
+        // that would break the "never leaks into chat" guarantee.
         break;
     }
   }
@@ -670,7 +675,7 @@ export interface TrajectoryRow {
   index: number;
   /** Stable across incremental rebuilds — never an array index. */
   id: string;
-  kind: "user" | "context" | "assistant" | "tool" | "subagent" | "compaction" | "error";
+  kind: "user" | "context" | "assistant" | "tool" | "subagent" | "compaction" | "error" | "reminder";
   turn: number;
   step?: number;
   /** Single-line, non-Markdown summary; the UI ellipsises overflow. */
@@ -686,6 +691,8 @@ export interface TrajectoryRow {
   metrics?: { ttftMs?: number; durationMs: number; usage?: TokenUsage };
   /** Present on a sub-agent row; the child's own session, read separately. */
   childSessionId?: string;
+  /** Set only on `kind:"reminder"` rows — which dynamic injection produced this. */
+  reminderKind?: ContextReminderKind;
 }
 
 export interface TrajectoryView {
@@ -720,7 +727,9 @@ export function toTrajectoryView(
     }
   }
 
-  const contextEvents = events.filter((e) => e.type === "request_header" || e.type === "compaction");
+  const contextEvents = events.filter(
+    (e) => e.type === "request_header" || e.type === "compaction" || e.type === "context_reminder",
+  );
 
   for (const turn of records) {
     for (const event of contextEvents) {
@@ -739,7 +748,7 @@ export function toTrajectoryView(
             .join("\n\n"),
           schemaDetail: JSON.stringify(data.tools, null, 2),
         });
-      } else {
+      } else if (event.type === "compaction") {
         const data = event.data as TranscriptEventMap["compaction"];
         rows.push({
           index: 0,
@@ -749,6 +758,18 @@ export function toTrajectoryView(
           summary: `compacted ${data.replacedCount} messages`,
           startedAt: event.time,
           outputDetail: data.summaryText,
+        });
+      } else if (event.type === "context_reminder") {
+        const data = event.data as TranscriptEventMap["context_reminder"];
+        rows.push({
+          index: 0,
+          id: `${turn.turn}:reminder:${event.seq}`,
+          kind: "reminder",
+          reminderKind: data.kind,
+          turn: turn.turn,
+          summary: summarise(data.text),
+          startedAt: event.time,
+          outputDetail: data.text,
         });
       }
     }
