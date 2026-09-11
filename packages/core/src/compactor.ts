@@ -106,7 +106,9 @@ export function isToolInteraction(msg: Message): boolean {
 /**
  * A permission reminder states the boundary the model is operating under.
  * Summarising it away leaves the model believing it may do things the policy
- * refuses, so it is never compressible.
+ * refuses, so `decideCompaction` excludes it from the compressible set
+ * outright — the same absolute exemption pinned messages get, not the
+ * "compressed last" ordering `isKeyMessage` buys.
  *
  * Matched case-insensitively: the first announcement opens with "Permission
  * boundary for this session:" and a mid-session change with "The permission
@@ -121,9 +123,10 @@ export function isPermissionReminder(msg: Message): boolean {
 }
 
 /**
- * A message is "key" — never compressible — when it carries information the
- * model must not lose across a compaction: file paths, incomplete todos, or
- * permission boundaries.
+ * A message is "key" when it carries information the model must not lose
+ * across a compaction: file paths, incomplete todos, or permission
+ * boundaries. This is a SORT KEY — key messages are compressed LAST, not
+ * exempted. Only pinned messages and permission reminders are truly exempt.
  */
 export function isKeyMessage(msg: Message): boolean {
   return isPermissionReminder(msg) || hasIncompleteTodos(msg) || extractFilePaths(msg).length > 0;
@@ -185,10 +188,17 @@ export function decideCompaction(
   // Key messages — those carrying file paths or incomplete todos — are deprioritized
   // (compressed last) rather than absolutely exempt. This ensures the summary prompt
   // captures their content while keeping the compaction surface wide enough for
-  // long conversations. Pinned messages remain absolutely exempt.
+  // long conversations.
+  //
+  // Two things ARE absolutely exempt: pinned messages, and the permission
+  // reminder. Deprioritizing the reminder is not enough — in a long session
+  // where every tool interaction is already compressed and the budget is still
+  // exceeded, "compress last" still means compressed, and a summarised
+  // boundary is a lost boundary: the fingerprint has not changed, so it is
+  // never re-announced and the model silently stops knowing what it may do.
   const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
   const compressible = recencyEligible.filter(
-    (item) => !pinnedIndices.has(item.index),
+    (item) => !pinnedIndices.has(item.index) && !isPermissionReminder(item.msg),
   );
 
   // Among compressible, prefer compressing old tool interactions,

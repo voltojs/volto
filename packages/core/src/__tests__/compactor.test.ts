@@ -6,6 +6,7 @@ import {
   hasIncompleteTodos,
   isToolInteraction,
   isKeyMessage,
+  isPermissionReminder,
 } from "../compactor.js";
 import { buildPermissionReminder } from "../permission-prompt.js";
 import type { PermissionConfig } from "../permission-policy.js";
@@ -110,6 +111,48 @@ describe("isKeyMessage — permission reminders", () => {
     // both must survive compaction, so both must be recognised here.
     expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config) })).toBe(true);
     expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
+  });
+});
+
+describe("decideCompaction — the permission reminder is exempt, not merely last", () => {
+  const config: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
+
+  /** A history long enough that "compress everything else first" is not a way out. */
+  function historyWithReminder(): Message[] {
+    const reminder = userMsg(buildPermissionReminder(config));
+    const filler: Message[] = [];
+    for (let i = 0; i < 12; i++) {
+      filler.push(toolUseMsg("read_file", `t${i}`), toolResultMsg(`t${i}`, `result ${i}`));
+    }
+    return [sysMsg("System prompt"), reminder, ...filler, userMsg("latest"), assistantMsg("ok")];
+  }
+
+  it("keeps the reminder even when the budget forces every other message out", () => {
+    const messages = historyWithReminder();
+    // maxTokens = 1 with a fixed tokenizer: the greedy loop can never get
+    // under budget, so it takes everything it is allowed to take. Whatever
+    // survives here survives because it was exempt, not because it sorted last.
+    const decision = decideCompaction(messages, {
+      maxTokens: 1,
+      recentKeepCount: 2,
+      tokenizer: createFixedTokenizer(100),
+    });
+
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.compressibleMessages.some(isPermissionReminder)).toBe(false);
+    expect(decision.preservedMessages.some(isPermissionReminder)).toBe(true);
+  });
+
+  it("still compresses the rest of the history", () => {
+    // Guards the opposite failure: exempting the reminder must not shrink the
+    // compaction surface to nothing.
+    const decision = decideCompaction(historyWithReminder(), {
+      maxTokens: 1,
+      recentKeepCount: 2,
+      tokenizer: createFixedTokenizer(100),
+    });
+
+    expect(decision.compressibleMessages.length).toBeGreaterThan(10);
   });
 });
 
