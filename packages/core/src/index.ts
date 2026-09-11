@@ -206,6 +206,9 @@ export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./
 export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule } from "./permission-policy.js";
 
+// PermissionPrompt — model-facing description of the permission boundary
+export { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
+
 // Text extraction — shared helpers for Message → string
 export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
 
