@@ -382,7 +382,8 @@ export function createRunner(opts: RunnerOptions): Runner {
    *   - model_done → assistant_message
    *   - tool_use_complete → tool_call
    *   - tool_result → tool_result (transcript shape)
-   *   - budget_exceeded / steering_queued → same-name transcript events
+   *   - budget_exceeded / steering_queued / context_reminder → same-name
+   *     transcript events
    *   - user_message (only ever emitted for the initial idle feed) → covered
    *     by the runner-originated record at run(), which now streams too
    * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
@@ -727,7 +728,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             });
           }
         } catch {
-          /* Memory query failure is non-fatal */
+          /* Memory query and the best-effort audit write are both non-fatal */
         }
       }
     }

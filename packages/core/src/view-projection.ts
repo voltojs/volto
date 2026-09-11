@@ -710,8 +710,9 @@ function summarise(text: string, max = 120): string {
  *
  * Takes the raw `events` alongside the records because a few rows are pure
  * log detail that never enters a turn record — `request_header` (the prompt
- * and tool catalogue as sent) and `compaction`. Their detail would otherwise
- * have to be duplicated into `TurnRecord`, widening it for one consumer.
+ * and tool catalogue as sent), `compaction`, and `context_reminder`. Their
+ * detail would otherwise have to be duplicated into `TurnRecord`, widening it
+ * for one consumer.
  */
 export function toTrajectoryView(
   records: readonly TurnRecord[],
