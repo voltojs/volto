@@ -550,6 +550,11 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       if (!summaryText) return messages;
 
+      recorder.record("compaction", {
+        replacedCount: decision.compressibleMessages.length,
+        summaryText,
+      });
+
       // Re-order: [...system, summary, ...non-system preserved (recent)].
       // The summary represents *earlier* dropped messages, so it must sit
       // before the recent kept messages — appending it would make the model

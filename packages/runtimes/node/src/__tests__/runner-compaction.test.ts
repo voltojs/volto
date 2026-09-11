@@ -12,6 +12,7 @@ import type {
   StepContext,
   ReducerState,
   CompactionConfig,
+  TranscriptEventInput,
 } from "@volto/core";
 
 /**
@@ -150,6 +151,70 @@ describe("Runner — compaction wiring", () => {
       )
       .join("|");
     expect(flat).toContain("now-user");
+  });
+
+  it("records a compaction transcript event with the replaced count and summary", async () => {
+    const history = makeMessages(20, "old");
+    const systemMsg: Message = { role: "system", content: "you are helpful" };
+    const initial: ReducerState = {
+      messages: [systemMsg, ...history],
+      pendingTools: [],
+      status: "idle",
+      tokenBudget: undefined,
+      tokensUsed: 0,
+      maxIterations: 20,
+      iterationCount: 0,
+      readFiles: [],
+      _accumulatedText: "",
+      _accumulatedReasoning: "",
+      _accumulatedToolCalls: [],
+      _toolResultBuffer: {},
+      queuedUserInputs: [],
+      toolCallCount: 0,
+      maxToolCalls: undefined,
+      maxCostDollars: undefined,
+      maxTokensPerTurn: undefined,
+      maxWallclockMs: undefined,
+      maxLoopCount: undefined,
+      selfCorrectionCount: 0,
+      maxSelfCorrections: undefined,
+    };
+
+    const spy = createSpyModelPort([
+      textScript("SUMMARY-OF-OLD-MESSAGES"),
+      textScript("ack"),
+    ]);
+
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    // `appendEvents` must accept TranscriptEventInput[]: the looser {type,data}
+    // shape is NOT assignable to TranscriptStore.appendEvents (TS2322) and
+    // would fail the typecheck gate. Cast on push, mirroring the existing
+    // fixture in runner.test.ts.
+    const chatStore = {
+      async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+        events.push(...(batch as unknown as Array<{ type: string; data: Record<string, unknown> }>));
+      },
+    };
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: initial,
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 50,
+        recentKeepCount: 2,
+      },
+      chatStore,
+      chatSessionId: "chat-1",
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    const compactionEvent = events.find((e) => e.type === "compaction");
+    expect(compactionEvent).toBeDefined();
+    expect(compactionEvent!.data.summaryText).toBe("SUMMARY-OF-OLD-MESSAGES");
+    expect(compactionEvent!.data.replacedCount).toBeGreaterThan(0);
   });
 
   it("skips compaction when below the threshold", async () => {

@@ -173,9 +173,9 @@ export function foldContextUsageEvent(
     case "compaction": {
       const data = event.data as TranscriptEventMap["compaction"];
       // Compaction replaces the surface with a summary: both counters restart
-      // from what actually remains. Note: the Runner does not yet emit this
-      // event (see the "not yet recorded" comment on ports.ts); this arm is
-      // implemented ahead of that so the fold is ready once it does.
+      // from what actually remains. This arm started firing once the Runner
+      // wired up recorder.record("compaction", ...); note it resets the
+      // counters even though compaction does not rewrite state.messages.
       return {
         ...fold,
         pendingTokens: 0,
