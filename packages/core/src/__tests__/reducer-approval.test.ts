@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { step, createInitialState } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
 import type { ToolDefinition } from "../tool.js";
+import { userDenialMessage } from "../permission-policy.js";
 
 const writeTool: ToolDefinition = {
   name: "edit_file",
@@ -120,10 +121,24 @@ describe("reducer: request_approval flow", () => {
     expect(interrupted).toContain("interrupted");
     expect(interrupted).not.toContain("by the user");
 
-    // A real user denial keeps the original wording verbatim, and so does an
-    // absent reason -- recorded replays of user denials must not shift.
-    expect(denialTextFor("user")).toBe('Tool "edit_file" was denied by the user.');
-    expect(denialTextFor()).toBe('Tool "edit_file" was denied by the user.');
+    // A real user denial, and an absent reason, both produce the shared
+    // userDenialMessage wording -- byte-identical, so a resumed transcript
+    // (which synthesizes the same text) still matches the live history.
+    expect(denialTextFor("user")).toBe(userDenialMessage("edit_file"));
+    expect(denialTextFor()).toBe(userDenialMessage("edit_file"));
+  });
+
+  it("tells a user-denied model to stop rather than route around the refusal", () => {
+    // The motivating failure: a refused git_push re-run through `bash`. On the
+    // default preset (workspace-write + ask) an IRREVERSIBLE tool is asked
+    // about, never policy-denied, so THIS is the only text the model sees.
+    const text = userDenialMessage("git_push");
+    expect(text).toContain("denied by the user");
+    expect(text).toMatch(/do not use `bash`/i);
+    expect(text).toMatch(/stop this line of work/i);
+    // A user declining one call is not a configured boundary; do not send
+    // them off to edit a permission setting.
+    expect(text).not.toMatch(/permission setting/i);
   });
 
   it("deny with remaining tools continues executing_tools", () => {

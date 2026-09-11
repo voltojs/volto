@@ -199,3 +199,30 @@ export function policyDenialMessage(toolName: string, config: PermissionConfig):
     `the user what was refused and which permission setting would allow it.`
   );
 }
+
+/**
+ * The model-facing wording for a tool call a human reviewed and declined.
+ *
+ * Deliberately distinct from `policyDenialMessage`: a configured policy refuses
+ * a whole class of calls and names the setting that would change it, whereas
+ * this is one person answering "no" to one proposal. Telling them to go edit a
+ * permission setting would misread that answer.
+ *
+ * It still has to carry the same three things, because the observed failure —
+ * a refused `git_push` re-run through `bash` — happens on this path too, and on
+ * the default preset (`workspace-write` + `ask`) it is the ONLY path an
+ * IRREVERSIBLE tool ever takes. As in `policyDenialMessage`, the prohibition is
+ * scoped to reaching the REFUSED effect another way, not to switching tools.
+ */
+export function userDenialMessage(toolName: string): string {
+  return (
+    `Tool "${toolName}" was denied by the user: they reviewed this specific ` +
+    `call and declined it. That is a considered answer to what you proposed, ` +
+    `not a failure of the tool.\n\n` +
+    `Do not route around the refusal: do not reach the declined effect through ` +
+    `another tool — in particular, do not use \`bash\` to run an equivalent ` +
+    `command — and do not re-issue the same call hoping for a different answer. ` +
+    `Stop this line of work and tell the user what you were about to do and why, ` +
+    `so they can decide how to proceed; do not improvise a substitute.`
+  );
+}

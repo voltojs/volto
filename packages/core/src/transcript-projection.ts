@@ -30,6 +30,7 @@
 
 import type { Message, ToolResultContent, ToolUseContent } from "./state.js";
 import type { TranscriptEvent, TranscriptEventMap } from "./ports.js";
+import { userDenialMessage } from "./permission-policy.js";
 
 /** A projected message paired with the time of the event that produced it. */
 export interface ProjectedMessage {
@@ -226,7 +227,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const block: ToolResultContent = {
           type: "tool_result",
           toolUseId: data.callId,
-          content: `Tool "${name}" was denied by the user.`,
+          content: userDenialMessage(name),
           isError: true,
         };
         const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };

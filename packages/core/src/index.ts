@@ -204,7 +204,7 @@ export {
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
 // PermissionPolicy — pure permission decision logic
-export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage } from "./permission-policy.js";
+export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage, userDenialMessage } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule } from "./permission-policy.js";
 
 // PermissionPrompt — model-facing description of the permission boundary

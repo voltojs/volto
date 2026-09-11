@@ -11,6 +11,7 @@ import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
 import type { ContextLayer } from "./context-assembler.js";
 import type { PermissionConfig } from "./permission-policy.js";
+import { userDenialMessage } from "./permission-policy.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
@@ -690,8 +691,9 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
  * useless when the connection dropped and nobody is there to answer. The
  * fail-closed paths therefore say so, and say not to ask.
  *
- * `user` and an absent reason produce the identical original wording, so
- * recorded replays of user denials are unaffected.
+ * `user` and an absent reason share one wording — `userDenialMessage` — which
+ * transcript-projection.ts synthesizes too, so a resumed session's history
+ * matches the live one byte for byte.
  */
 function denialMessageFor(toolName: string, reason?: ApprovalDenialReason): string {
   switch (reason) {
@@ -709,7 +711,7 @@ function denialMessageFor(toolName: string, reason?: ApprovalDenialReason): stri
         `Stop the current line of work rather than asking for confirmation.`
       );
     default:
-      return `Tool "${toolName}" was denied by the user.`;
+      return userDenialMessage(toolName);
   }
 }
 

@@ -1013,8 +1013,17 @@ export function createRunner(opts: RunnerOptions): Runner {
       toolCall: { id: toolCall.id, name: toolCall.name, input: toolCall.input },
     });
     if (preOutcome.action === "deny") {
+      // Same three things a policy denial says, for the same reason: a bare
+      // "denied by hook" reads like a malfunction and invites the model to
+      // retry the refused effect through `bash`.
       return stamp({
-        modelContent: `Tool "${toolCall.name}" denied by hook: ${preOutcome.reason}`,
+        modelContent:
+          `Tool "${toolCall.name}" was denied by a preToolUse hook: ${preOutcome.reason}\n\n` +
+          `A hook is a rule this deployment installed deliberately, not a ` +
+          `failure of the tool. Do not route around the refusal: do not reach ` +
+          `the refused effect through another tool, and in particular do not ` +
+          `use \`bash\` to run an equivalent command. Stop this line of work ` +
+          `and report what was refused and the reason given.`,
         isError: true,
       });
     }
