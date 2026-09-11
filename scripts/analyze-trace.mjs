@@ -197,7 +197,9 @@ const totalCostUsd = costEvents.length > 0
 
 // Approval / self-correct counts
 const approvals = events.filter((e) => e.type === "approval_decision").length;
-const selfCorrects = events.filter((e) => e.type === "self_correct").length;
+const selfCorrects = events.filter(
+  (e) => e.type === "context_reminder" && e.data?.kind === "self_correction",
+).length;
 const modelRetries = events.filter((e) => e.type === "model_retry").length;
 
 // ─── machine-readable output ─────────────────────────────────
