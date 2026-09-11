@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
 import type { ReducerState } from "@volto/core";
+import { buildPermissionReminder, isPermissionReminder } from "@volto/core";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
 const created: Array<{ closeAll: () => void }> = [];
@@ -185,6 +186,47 @@ describe("session agent lifecycle", () => {
 
     const seeded = builds.at(-1)!["initialMessages"] as Array<{ content: string }>;
     expect(seeded.some((m) => m.content === "m1")).toBe(true);
+  });
+
+  it("drops the stale permission reminder when a tier switch rebuilds the agent", async () => {
+    // The captured history describes the OLD boundary, and the fresh agent
+    // has no `_announcedPermission` to compare against, so it announces the
+    // new one as a first announcement. Reseeding the old text verbatim would
+    // leave the model reading "you cannot write at all" immediately followed
+    // by "writes are confined to the workspace", with nothing saying which
+    // one is in force -- one more contradiction per switch.
+    const builds: Array<Record<string, unknown>> = [];
+    const messages: Array<{ role: string; content: string }> = [
+      { role: "user", content: buildPermissionReminder({ sandbox: "read-only", approval: "never" }) },
+      { role: "user", content: "one" },
+      { role: "assistant", content: "m1" },
+    ];
+    const factory = (opts: Record<string, unknown>) => {
+      builds.push(opts);
+      return {
+        async *stream() {
+          yield { type: "text_delta", data: { text: "hi" } };
+        },
+        getState: () => ({ messages: [...messages] }) as unknown as ReducerState,
+      };
+    };
+    const { registry } = makeRegistry(factory as ReturnType<typeof makeFactory>["factory"]);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "read-only",
+    });
+    await registry.runTurn("s1", "two", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "auto",
+    });
+
+    expect(builds).toHaveLength(2);
+    const seeded = builds[1]!["initialMessages"] as Array<{ role: string; content: string }>;
+    expect(seeded.some((m) => isPermissionReminder(m as never))).toBe(false);
+    // Everything that is not a reminder survives untouched.
+    expect(seeded).toEqual([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "m1" },
+    ]);
   });
 
   it("emits an error frame and clears running when resolveConfig throws", async () => {

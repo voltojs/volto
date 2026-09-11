@@ -12,7 +12,7 @@ import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
 import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core";
-import { projectMessages } from "@volto/core";
+import { projectMessages, isPermissionReminder } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
@@ -633,6 +633,22 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return highestStepInTurn(persisted.events, turn);
   }
 
+  /**
+   * History to seed a rebuilt agent with, minus any permission reminder the
+   * previous agent injected.
+   *
+   * A rebuild is how a tier switch takes effect, and the captured history
+   * still describes the OLD boundary. The fresh agent starts with no
+   * `_announcedPermission`, so it announces the new boundary as a first
+   * announcement — leaving the model with two contradictory descriptions and
+   * nothing marking the older one as superseded, one more per switch. A
+   * superseded boundary description is worse than none, and dropping the
+   * stale ones also makes that first-announcement framing correct again.
+   */
+  function seedHistory(history: Message[]): Message[] {
+    return history.filter((msg) => !isPermissionReminder(msg));
+  }
+
   /** Construct an agent for the resolved config, seeding prior history. */
   async function rebuild(
     session: Session,
@@ -649,6 +665,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // shell and fs sides. Resolved here (async context) rather than inside
     // buildSandboxConfigs, which stays synchronous.
     const configDirRealPath = await getConfigDirRealPath();
+    const seeded = seedHistory(session.history);
     session.agent = buildAgent({
       ...wiring,
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
@@ -674,7 +691,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           }
         : {}),
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      ...(session.history.length > 0 ? { initialMessages: session.history } : {}),
+      ...(seeded.length > 0 ? { initialMessages: seeded } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
       ...(initialStep !== undefined ? { initialStep } : {}),
       ...(chatStore
