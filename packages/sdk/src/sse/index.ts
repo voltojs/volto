@@ -80,3 +80,4 @@ export type {
 } from "@volto/core";
 export { classifyCommandRisk } from "@volto/core";
 export type { CommandRiskKind } from "@volto/core";
+export type { ContextReminderKind } from "@volto/core";
