@@ -3,7 +3,7 @@
  * 详情抽屉的 per-kind tab 结构。无 React、无副作用，独立可测。
  */
 
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
 
 export const EMPTY_CELL = '（无）';
 
@@ -15,6 +15,7 @@ export const KIND_LABELS: Record<TrajectoryRow['kind'], string> = {
   subagent: '子agent',
   compaction: '压缩',
   error: '错误',
+  reminder: '提醒',
 };
 
 export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
@@ -25,6 +26,13 @@ export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
   subagent: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
   compaction: 'border-border bg-muted text-muted-foreground',
   error: 'border-destructive/30 bg-destructive/10 text-destructive',
+  reminder: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+};
+
+export const REMINDER_KIND_LABELS: Record<ContextReminderKind, string> = {
+  permission_boundary: '权限边界',
+  self_correction: '自我纠正',
+  retrieval: '检索片段',
 };
 
 /** 无耗时返回 null（调用方渲染 EMPTY_CELL）；<1s 用 ms，其余一位小数秒。 */
@@ -62,6 +70,7 @@ const TOOL_TABS: readonly DrawerTabKey[] = ['overview', 'input', 'output', 'sche
 const ASSISTANT_TABS: readonly DrawerTabKey[] = ['overview', 'output', 'thinking', 'timing'];
 const CONTEXT_TABS: readonly DrawerTabKey[] = ['overview', 'layers', 'schema'];
 const INFO_TABS: readonly DrawerTabKey[] = ['overview'];
+const REMINDER_TABS: readonly DrawerTabKey[] = ['overview', 'output'];
 
 /** 抽屉 tab 结构按行类型裁剪（spec §四 表格的唯一实现处）。 */
 export function drawerTabsFor(kind: TrajectoryRow['kind']): readonly DrawerTabKey[] {
@@ -73,6 +82,9 @@ export function drawerTabsFor(kind: TrajectoryRow['kind']): readonly DrawerTabKe
       return ASSISTANT_TABS;
     case 'context':
       return CONTEXT_TABS;
+    case 'reminder':
+    case 'compaction':
+      return REMINDER_TABS;
     default:
       return INFO_TABS;
   }

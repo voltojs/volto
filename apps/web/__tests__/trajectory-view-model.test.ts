@@ -8,12 +8,13 @@ import {
   EMPTY_CELL,
   locationLabel,
   parseSystemLayers,
+  REMINDER_KIND_LABELS,
 } from '@/lib/trajectory-view-model';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
 
 describe('KIND_LABELS / KIND_BADGE_CLASS', () => {
   it('covers every row kind with a zh label and badge classes', () => {
-    const kinds = ['user', 'context', 'assistant', 'tool', 'subagent', 'compaction', 'error'] as const;
+    const kinds = ['user', 'context', 'assistant', 'tool', 'subagent', 'compaction', 'error', 'reminder'] as const;
     for (const kind of kinds) {
       expect(KIND_LABELS[kind]).toBeTruthy();
       expect(KIND_BADGE_CLASS[kind]).toBeTruthy();
@@ -66,8 +67,11 @@ describe('drawerTabsFor', () => {
   });
   it('gives simple rows only the overview', () => {
     expect(drawerTabsFor('user')).toEqual(['overview']);
-    expect(drawerTabsFor('compaction')).toEqual(['overview']);
     expect(drawerTabsFor('error')).toEqual(['overview']);
+  });
+  it('gives reminder and compaction rows an output tab so the full text is readable', () => {
+    expect(drawerTabsFor('reminder')).toEqual(['overview', 'output']);
+    expect(drawerTabsFor('compaction')).toEqual(['overview', 'output']);
   });
   it('labels every tab key in zh', () => {
     expect(TAB_LABELS.overview).toBe('概述');
@@ -116,5 +120,15 @@ describe('parseSystemLayers', () => {
   it('returns [] for legacy or unexpected formats', () => {
     expect(parseSystemLayers('## user-memory\nUser\n\n## project-memory\nX')).toEqual([]);
     expect(parseSystemLayers('')).toEqual([]);
+  });
+});
+
+describe('REMINDER_KIND_LABELS', () => {
+  it('covers every ContextReminderKind with a zh label', () => {
+    const kinds: ContextReminderKind[] = ['permission_boundary', 'self_correction', 'retrieval'];
+    for (const kind of kinds) {
+      expect(REMINDER_KIND_LABELS[kind]).toBeTruthy();
+    }
+    expect(REMINDER_KIND_LABELS.permission_boundary).toBe('权限边界');
   });
 });
