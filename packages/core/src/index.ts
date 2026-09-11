@@ -330,3 +330,7 @@ export type { ModelPortScript } from "./testing/mock-model-port.js";
 
 // Testing tokenizer utilities
 export { createCharTokenizer, createFixedTokenizer, createMappedTokenizer } from "./testing/char-tokenizer.js";
+
+// Command risk classifier — display-only labelling for the approval prompt, never a permission gate
+export { classifyCommandRisk } from "./command-risk.js";
+export type { CommandRiskKind } from "./command-risk.js";

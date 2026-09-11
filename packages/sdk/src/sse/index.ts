@@ -78,3 +78,5 @@ export type {
   ContextUsageSnapshot,
   ContextUsageHeaderEstimate,
 } from "@volto/core";
+export { classifyCommandRisk } from "@volto/core";
+export type { CommandRiskKind } from "@volto/core";
