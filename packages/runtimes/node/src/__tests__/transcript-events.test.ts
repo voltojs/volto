@@ -491,6 +491,45 @@ describe("Runner transcript capture", () => {
     });
     await expect(runner.run({ type: "user_message", content: "hi" })).resolves.toBeDefined();
   });
+
+  it("records a context_reminder when the permission boundary is announced", async () => {
+    const model = createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]);
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [],
+        model: "test-model",
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
+      },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const data = firstOf<{ kind: string; text: string }>(events, "context_reminder");
+    expect(data).toBeDefined();
+    expect(data!.kind).toBe("permission_boundary");
+    expect(typeof data!.text).toBe("string");
+  });
+
+  it("does not throw when no chatStore is configured", async () => {
+    const model = createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]);
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [],
+        model: "test-model",
+        permissionConfig: { sandbox: "workspace-write", approval: "ask" },
+      },
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await expect(runner.run({ type: "user_message", content: "hi" })).resolves.toBeDefined();
+  });
 });
 
 describe("Runner transcript capture — denial reason", () => {

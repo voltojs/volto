@@ -19,6 +19,7 @@ import type {
   SessionStore,
   TranscriptStore,
   TranscriptEventInput,
+  TranscriptEventMap,
   ApprovalGate,
   CompactionConfig,
   Message,
@@ -386,7 +387,7 @@ export function createRunner(opts: RunnerOptions): Runner {
    *     by the runner-originated record at run(), which now streams too
    * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
    * — they are not transcript events and are never persisted. A few raw
-   * events have no transcript counterpart (error / cancelled / self_correct);
+   * events have no transcript counterpart (error / cancelled);
    * they keep flowing for observability (see the report for the decision
    * table).
    */
@@ -477,10 +478,14 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record("budget_exceeded", { reason: event.data["reason"] as string });
           continue;
 
+        case "context_reminder":
+          recorder.record("context_reminder", event.data as TranscriptEventMap["context_reminder"]);
+          continue;
+
         default:
-          // Raw events with no transcript counterpart (error / cancelled /
-          // self_correct, and any future reducer event) keep flowing for
-          // observability — see the comment above the switch. Note the
+          // Raw events with no transcript counterpart (error / cancelled,
+          // and any future reducer event) keep flowing for observability —
+          // see the comment above the switch. Note the
           // reducer's model_error AgentInput produces a generic "error" emit
           // (reducer.ts handleCallingModel), never one literally typed
           // "model_error": model_error transcript events are recorded
