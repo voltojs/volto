@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import type { StepContext, ModelPort, ModelRequest, ModelEvent, MemoryStore, MemoryEntry } from "@volto/core";
+import type {
+  StepContext,
+  ModelPort,
+  ModelRequest,
+  ModelEvent,
+  MemoryStore,
+  MemoryEntry,
+  TranscriptEventInput,
+} from "@volto/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 
@@ -118,6 +126,42 @@ describe("Runner RAG pipeline", () => {
 
     expect(model.lastRequest).toBeDefined();
     expect(model.lastRequest!.layerOrigins).toContainEqual({ id: "user-memory", messageIndex: 0 });
+  });
+
+  it("records the retrieved fragments as a context_reminder", async () => {
+    const memoryStore = createMockMemoryStore([
+      { id: "1", text: "relevant fact A" },
+      { id: "2", text: "relevant fact B" },
+    ]);
+    const model = createMockModelPort();
+
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    // `appendEvents` must accept TranscriptEventInput[]: the looser {type,data}
+    // shape is NOT assignable to TranscriptStore.appendEvents (TS2322) and
+    // would fail the typecheck gate. Cast on push, mirroring the existing
+    // fixture in runner.test.ts.
+    const chatStore = {
+      async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+        events.push(...(batch as unknown as Array<{ type: string; data: Record<string, unknown> }>));
+      },
+    };
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: { memoryStore, topK: 2 },
+      chatStore,
+      chatSessionId: "chat-1",
+    });
+
+    await runner.run({ type: "user_message", content: "question" });
+
+    const reminder = events.find((e) => e.type === "context_reminder");
+    expect(reminder).toBeDefined();
+    expect(reminder!.data.kind).toBe("retrieval");
+    expect(reminder!.data.text as string).toContain("relevant fact A");
+    expect(reminder!.data.text as string).toContain("relevant fact B");
+    expect(reminder!.data.displayMetadata).toEqual({ fragmentCount: 2 });
   });
 });
 

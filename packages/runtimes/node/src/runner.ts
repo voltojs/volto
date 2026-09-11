@@ -713,11 +713,18 @@ export function createRunner(opts: RunnerOptions): Runner {
           const fragments = await memoryStore.query(queryText, topK);
           if (fragments.length > 0) {
             const index = computeRAGInjectionIndex(finalCacheBreakpoints, finalMessages.length);
-            const ragMessage: Message = {
-              role: "user",
-              content: buildRAGMessage(fragments.map((f) => f.text)),
-            };
+            // Keep the exact injected string in a local: the audit event must
+            // carry the same value the model saw, not a re-derived copy, and
+            // reading it here avoids narrowing Message['content'] (string |
+            // ContentBlock[]) at the recorder call.
+            const ragText = buildRAGMessage(fragments.map((f) => f.text));
+            const ragMessage: Message = { role: "user", content: ragText };
             finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
+            recorder.record("context_reminder", {
+              kind: "retrieval",
+              text: ragText,
+              displayMetadata: { fragmentCount: fragments.length },
+            });
           }
         } catch {
           /* Memory query failure is non-fatal */
