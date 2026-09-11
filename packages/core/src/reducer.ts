@@ -10,9 +10,11 @@ import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
 import type { ContextLayer } from "./context-assembler.js";
+import type { PermissionConfig } from "./permission-policy.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
+import { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
 
 // ──────────────────────────────────────────────
 // Public types
@@ -37,6 +39,12 @@ export interface StepContext {
   contextLayers?: ContextLayer[];
   /** Adapter-owned reasoning effort, passed through to ModelPort.stream. */
   reasoningEffort?: ReasoningEffortId;
+  /**
+   * The permission boundary in force. Supplied so the reducer can tell the
+   * model about it — the model otherwise discovers the boundary only by
+   * hitting it. Pure data; the reducer never enforces with it.
+   */
+  permissionConfig?: PermissionConfig;
 }
 
 // ──────────────────────────────────────────────
@@ -69,6 +77,10 @@ export interface ReducerState extends AgentState {
    * deterministic for replay.
    */
   _toolResultBuffer: Record<string, ToolResultMessage>;
+  /** Fingerprint of the permission config the model was last told about. */
+  _announcedPermission?: string;
+  /** The config behind `_announcedPermission`, kept so a change can be framed as one. */
+  _announcedPermissionConfig?: PermissionConfig;
 }
 
 // ──────────────────────────────────────────────
@@ -222,11 +234,35 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       role: "user" as const,
       content: input.content,
     };
+
+    // Announce the permission boundary when it is new or has changed. The
+    // reminder goes in as an ordinary user-role message at the TAIL of the
+    // history, never into the assembled static prefix: prompt caches match on
+    // a prefix, so describing a mid-session change up front would invalidate
+    // the whole cached prefix on every switch. Unchanged boundaries cost
+    // nothing — no message, no tokens.
+    const announcements: Message[] = [];
+    let announced = state._announcedPermission;
+    let announcedConfig = state._announcedPermissionConfig;
+    if (ctx.permissionConfig) {
+      const fingerprint = permissionFingerprint(ctx.permissionConfig);
+      if (fingerprint !== announced) {
+        announcements.push({
+          role: "user",
+          content: buildPermissionReminder(ctx.permissionConfig, announcedConfig),
+        });
+        announced = fingerprint;
+        announcedConfig = ctx.permissionConfig;
+      }
+    }
+
     const newState: ReducerState = {
       ...state,
-      messages: [...state.messages, userMsg],
+      messages: [...state.messages, ...announcements, userMsg],
       status: "calling_model",
       iterationCount: 0,
+      _announcedPermission: announced,
+      _announcedPermissionConfig: announcedConfig,
     };
     const effects: Effect[] = [
       buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
