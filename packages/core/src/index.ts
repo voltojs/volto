@@ -91,6 +91,7 @@ export type {
   TranscriptEventType,
   TranscriptEventInput,
   TranscriptEvent,
+  ContextReminderKind,
   TranscriptStore,
   TranscriptReader,
   SkillInvocationPolicy,

@@ -294,6 +294,9 @@ export interface ChatSessionMeta {
 /** Why a turn ended. */
 export type TurnEndReason = "done" | "error" | "cancelled" | "budget_exceeded";
 
+/** The closed set of dynamic mid-conversation injections this session can audit. */
+export type ContextReminderKind = "permission_boundary" | "self_correction" | "retrieval";
+
 /**
  * The vocabulary of the durable session log. One entry per significant
  * moment; detail comes from the density of the vocabulary, not from any
@@ -367,8 +370,17 @@ export interface TranscriptEventMap {
     params: { model?: string; temperature?: number; maxTokens?: number };
   };
   context_assembled: { layerOrigins: Array<{ id: string; messageIndex: number }> };
-  /** not yet recorded */
   compaction: { replacedCount: number; summaryText: string };
+  /** A dynamic mid-conversation injection: a message appended or spliced in
+   * at runtime, distinct from the static system-prompt layers audited via
+   * request_header. `text` must be the exact string the model saw — never a
+   * re-derived summary of it. */
+  context_reminder: {
+    kind: ContextReminderKind;
+    text: string;
+    /** UI-only structured detail (e.g. retrieval fragment count); never sent to the model. */
+    displayMetadata?: Record<string, unknown>;
+  };
 
   // ── Input ──
   user_message: { content: string | ContentBlock[] };
