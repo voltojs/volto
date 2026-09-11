@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { denialNoteFor, selectPendingApprovals } from '@/lib/approvals';
+import { denialNoteFor, riskNoteFor, selectPendingApprovals } from '@/lib/approvals';
 import type { TranscriptEventInput } from '@volto/core';
 
 describe('denialNoteFor', () => {
@@ -11,6 +11,16 @@ describe('denialNoteFor', () => {
     expect(denialNoteFor('user')).toBe('你拒绝了该操作');
     // Legacy events carry no reason — fall back to the user wording.
     expect(denialNoteFor(undefined)).toBe('你拒绝了该操作');
+  });
+});
+
+describe('riskNoteFor', () => {
+  it('explains each recognised kind in Chinese', () => {
+    expect(riskNoteFor('irreversible-push')).toBe('推送到远端，无法撤销');
+    expect(riskNoteFor('recursive-delete')).toBe('递归删除文件');
+    expect(riskNoteFor('remote-script-execution')).toBe('下载并执行远程脚本');
+    expect(riskNoteFor('public-publish')).toBe('发布到公共 registry');
+    expect(riskNoteFor('discards-uncommitted')).toBe('丢弃未提交的改动');
   });
 });
 

@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
+import { classifyCommandRisk } from '@volto/sdk/sse';
 import { Button } from '@/components/ui/button';
+import { riskNoteFor } from '@/lib/approvals';
 import type { PendingApproval } from '@/lib/approvals';
 
 interface ApprovalCardProps {
@@ -27,12 +29,25 @@ function formatApprovalInput(input: Record<string, unknown>): string {
 }
 
 /**
+ * Risk notes for the command being approved, derived from the SAME input the
+ * card renders — never carried on the approval event, which deliberately
+ * omits arguments so a second copy cannot drift from the one that executes.
+ */
+function riskNotesFor(input: Record<string, unknown> | undefined): string[] {
+  if (!input) return [];
+  const values = Object.values(input);
+  if (values.length === 0 || typeof values[0] !== 'string') return [];
+  return classifyCommandRisk(values[0]).map(riskNoteFor);
+}
+
+/**
  * Rendered inline at the end of the feed rather than as a modal: approving a
  * tool call needs the surrounding context of what the agent was doing, and a
  * modal covers exactly that.
  */
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const [busy, setBusy] = useState(false);
+  const riskNotes = riskNotesFor(approval.input);
 
   const decide = async (decision: 'allow' | 'deny') => {
     if (busy) return;
@@ -67,6 +82,13 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           （该调用的参数已不在回放缓冲区内，无法显示）
         </p>
       )}
+      {riskNotes.length > 0 ? (
+        <ul className="text-destructive/90 mt-2 space-y-0.5 text-xs">
+          {riskNotes.map((note) => (
+            <li key={note}>· {note}</li>
+          ))}
+        </ul>
+      ) : null}
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
           允许一次

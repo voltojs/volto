@@ -3,6 +3,7 @@ import type {
   TranscriptEventInput,
   TranscriptEventMap,
 } from '@volto/core';
+import type { CommandRiskKind } from '@volto/sdk/sse';
 
 /**
  * User-facing wording for a settled denial, keyed by the reason the gate
@@ -16,6 +17,30 @@ export function denialNoteFor(reason?: ApprovalDenialReason): string {
     : reason === 'interrupted'
       ? '因本轮被中断而拒绝'
       : '你拒绝了该操作';
+}
+
+/**
+ * User-facing wording for a recognised command risk.
+ *
+ * The classifier lives in core and stays language-neutral, returning stable
+ * kinds; the Chinese copy belongs here, the same split `denialNoteFor` uses.
+ *
+ * This is an explanation, not a warning gate: the command is already shown in
+ * full above it, and nothing here changes what the buttons do.
+ */
+export function riskNoteFor(kind: CommandRiskKind): string {
+  switch (kind) {
+    case 'irreversible-push':
+      return '推送到远端，无法撤销';
+    case 'recursive-delete':
+      return '递归删除文件';
+    case 'remote-script-execution':
+      return '下载并执行远程脚本';
+    case 'public-publish':
+      return '发布到公共 registry';
+    case 'discards-uncommitted':
+      return '丢弃未提交的改动';
+  }
 }
 
 /** One approval the agent is currently blocked on. */
