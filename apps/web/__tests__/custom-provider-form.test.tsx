@@ -77,8 +77,8 @@ describe('CustomProviderSection', () => {
     expect(screen.getByDisplayValue('128000')).toBeInTheDocument();
     expect(screen.getByDisplayValue('4096')).toBeInTheDocument();
 
-    // Flip the reasoning toggle on, then save.
-    await user.click(screen.getByRole('switch'));
+    // Flip the reasoning checkbox on, then save.
+    await user.click(screen.getByRole('checkbox', { name: /支持推理/ }));
     await user.click(screen.getByRole('button', { name: /保存/ }));
 
     await waitFor(() => expect(putBody).toBeDefined());

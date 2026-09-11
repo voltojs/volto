@@ -86,9 +86,9 @@ describe('CatalogProviderSection', () => {
 
     await user.click(await screen.findByText('新增内置 Provider'));
 
-    // A table, not a checkbox list — and it starts empty rather than seeded
-    // with the provider's whole catalog (several list dozens of models).
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    // A table, not a pre-checked catalog dump — and it starts empty rather
+    // than seeded with the provider's whole catalog (several list dozens of
+    // models).
     expect(screen.queryByLabelText('模型 ID 1')).not.toBeInTheDocument();
 
     await user.click(await screen.findByText('新增模型'));
@@ -106,6 +106,45 @@ describe('CatalogProviderSection', () => {
       'placeholder',
       'Claude X',
     );
+    // The catalog's reasoning flag seeds the row's checkbox, so a newly
+    // added reasoning model starts checked and is still user-toggleable.
+    expect(screen.getByRole('checkbox', { name: /支持推理/ })).toBeChecked();
+  });
+
+  it('bulk-adds unselected catalog models through the available-models dialog', async () => {
+    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(<CatalogProviderSection providers={[]} />);
+    await user.click(await screen.findByText('新增内置 Provider'));
+
+    // Seed one model by hand so the dialog must exclude it.
+    await user.click(await screen.findByText('新增模型'));
+    await user.type(screen.getByLabelText('模型 ID 1'), 'claude-x');
+
+    await user.click(screen.getByRole('button', { name: /获取可用模型/ }));
+    // Dialog body text is unique — the trigger button shares the title string.
+    expect(
+      await screen.findByText('从该 Provider 的目录中勾选尚未添加的模型。'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('claude-x')).not.toBeInTheDocument();
+    expect(screen.getByText('claude-y')).toBeInTheDocument();
+
+    // Tick the row via its label, then confirm.
+    await user.click(screen.getByText('claude-y'));
+    await user.click(screen.getByRole('button', { name: /添加/ }));
+
+    // Dialog closed; the draft now has both rows.
+    expect(
+      screen.queryByText('从该 Provider 的目录中勾选尚未添加的模型。'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('claude-x')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('claude-y')).toBeInTheDocument();
+    // claude-y has no catalog reasoning flag, so its checkbox starts off.
+    const reasoningBoxes = screen.getAllByRole('checkbox', { name: /支持推理/ });
+    expect(reasoningBoxes).toHaveLength(2);
+    expect(reasoningBoxes[0]).toBeChecked();
+    expect(reasoningBoxes[1]).not.toBeChecked();
   });
 
   it('creates a catalog provider with the table\'s rows and an optional baseURL override', async () => {
@@ -167,11 +206,13 @@ describe('CatalogProviderSection', () => {
       piProvider: 'anthropic',
       apiKey: 'sk-test',
       baseURL: 'https://mirror.internal',
-      models: [{ code: 'claude-x' }],
+      // claude-x is reasoning-capable in CATALOG, so the seeded checkbox
+      // submits `reasoning: true` as an explicit override.
+      models: [{ code: 'claude-x', reasoning: true }],
     });
   });
 
-  it('edits a catalog model as a form row and saves its overrides, never a reasoning flag', async () => {
+  it('edits a catalog model as a form row and saves a reasoning override', async () => {
     let putBody: Record<string, unknown> | undefined;
     vi.stubGlobal(
       'fetch',
@@ -206,16 +247,18 @@ describe('CatalogProviderSection', () => {
 
     await user.click(await screen.findByRole('button', { name: '编辑供应商' }));
 
-    // The model list is a form, not a checkbox list: the enabled model's own
-    // fields are editable in place and no unticked catalog model is shown.
+    // The model list is a form: the enabled model's own fields are editable
+    // in place and no unticked catalog model is shown.
     expect(screen.getByDisplayValue('claude-x')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('claude-y')).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    // Reasoning is pi-ai's fact about the model, never a control here.
-    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    // Reasoning is an editable checkbox seeded from the resolved capability.
+    const reasoning = screen.getByRole('checkbox', { name: /支持推理/ });
+    expect(reasoning).toBeChecked();
 
     await user.type(screen.getByLabelText('显示名称 1'), '我的 Claude');
     await user.type(screen.getByLabelText('上下文窗口 1'), '200000');
+    // User unchecks reasoning; the save body carries the explicit override.
+    await user.click(reasoning);
     // baseURL is editable here too, and empty means "use pi-ai's address".
     await user.type(
       screen.getByPlaceholderText('https://api.anthropic.com'),
@@ -228,9 +271,13 @@ describe('CatalogProviderSection', () => {
       kind: 'catalog',
       baseURL: 'https://mirror.internal',
       models: [
-        { code: 'claude-x', name: '我的 Claude', contextWindow: 200000 },
+        {
+          code: 'claude-x',
+          name: '我的 Claude',
+          contextWindow: 200000,
+          reasoning: false,
+        },
       ],
     });
-    expect(JSON.stringify(putBody)).not.toContain('reasoning');
   });
 });

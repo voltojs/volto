@@ -256,6 +256,29 @@ describe("catalog/custom discriminator", () => {
     expect("maxOutputTokens" in bare!).toBe(false);
   });
 
+  it("round-trips a catalog model's reasoning override and omits it when unset", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [
+        { code: "gpt-5", reasoning: false },
+        // Absent stays absent — same contract as the other catalog overrides.
+        { code: "gpt-5-mini" },
+      ],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(created.models[0]).toEqual({ code: "gpt-5", reasoning: false });
+    expect(Object.keys(created.models[1]!)).toEqual(["code"]);
+
+    const resolved = await store.resolveModel(created.id, "gpt-5");
+    expect(resolved).toMatchObject({ kind: "catalog", code: "gpt-5", reasoning: false });
+    const bare = await store.resolveModel(created.id, "gpt-5-mini");
+    expect(bare).toBeDefined();
+    expect("reasoning" in bare!).toBe(false);
+  });
+
   it("rejects a second record for a pi-ai provider that is already configured", async () => {
     const store = createProviderStore(dir);
     await store.create({

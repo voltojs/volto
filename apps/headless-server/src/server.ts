@@ -171,6 +171,13 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           piProvider: provider.piProvider,
           ...(provider.baseURL ? { baseURL: provider.baseURL } : {}),
           modelCodes: provider.models.map((m) => m.code),
+          // Stored per-model overrides feed the ModelPort so describeModel
+          // (and later turns) see the user's declared intent, not just pi-ai.
+          reasoningOverrides: Object.fromEntries(
+            provider.models.flatMap((m) =>
+              m.reasoning === undefined ? [] : [[m.code, m.reasoning] as const],
+            ),
+          ),
         };
         // Building the ModelPort can itself throw (e.g. an unknown
         // piProvider — collection.ts's buildCatalogProvider). Isolate that
@@ -200,9 +207,14 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               // silently freezing a number that should keep tracking pi-ai.
               // Consumers that want the effective value merge it themselves
               // from GET /catalog/providers (see web's providerModels).
-              return { ...model, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+              //
+              // The stored boolean override is stripped here and replaced by
+              // the resolved capability object — never both on the wire.
+              const { reasoning: _storedFlag, ...rest } = model;
+              return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
             } catch {
-              return model;
+              const { reasoning: _storedFlag, ...rest } = model;
+              return rest;
             }
           }),
         );

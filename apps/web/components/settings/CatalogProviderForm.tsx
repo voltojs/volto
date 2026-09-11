@@ -156,6 +156,7 @@ function CatalogAddForm({
             ...(m.maxOutputTokens === undefined
               ? {}
               : { maxOutputTokens: m.maxOutputTokens }),
+            reasoning: m.reasoning,
           })),
       });
       onDone();
@@ -236,7 +237,6 @@ function CatalogAddForm({
         <ModelTable
           models={models}
           onChange={setModels}
-          reasoning="readonly"
           codeListId="catalog-models-new"
           emptyHint="点击「新增模型」，模型 ID 可从该 Provider 的目录中自动补全"
           {...(selected ? { codeOptions: selected.models } : {})}
@@ -330,6 +330,9 @@ function CatalogProviderCard({
           ...(m.maxOutputTokens === undefined
             ? {}
             : { maxOutputTokens: m.maxOutputTokens }),
+          // Explicit boolean: the checkbox is the user's declared intent for
+          // this model, stored as an override of pi-ai's catalog flag.
+          reasoning: m.reasoning,
         })),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       });
@@ -404,7 +407,6 @@ function CatalogProviderCard({
             setDirty(true);
             setModels(next);
           }}
-          reasoning="readonly"
           codeListId={`catalog-models-${provider.id}`}
           {...(catalogEntry ? { codeOptions: catalogEntry.models } : {})}
         />

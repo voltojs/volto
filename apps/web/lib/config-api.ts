@@ -58,8 +58,8 @@ export interface CatalogProviderModel {
   maxOutputTokens?: number;
   /**
    * Present only when the model declares reasoning-effort tiers, same
-   * contract as `Model['reasoning']`. Read-only: reasoning capability comes
-   * from pi-ai, never from a stored flag on a catalog model.
+   * contract as `Model['reasoning']`. Derived from pi-ai's catalog, possibly
+   * suppressed by a stored per-model override (see `CatalogModelInput.reasoning`).
    */
   reasoning?: NonNullable<Model['reasoning']>;
 }
@@ -70,6 +70,12 @@ export interface CatalogModelInput {
   name?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
+  /**
+   * User override of pi-ai's catalog reasoning flag. `false` forces the model
+   * non-reasoning; `true` keeps/forces reasoning (efforts still come from
+   * pi-ai when it declares them). Always sent by the settings form.
+   */
+  reasoning?: boolean;
 }
 
 /**

@@ -94,6 +94,8 @@ type ResolvedCredentials =
       apiKey: string | null;
       code: string;
       maxOutputTokens?: number;
+      /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
+      reasoning?: boolean;
     }
   | {
       kind: "custom";
@@ -155,6 +157,11 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // address in place (collection.ts's buildCatalogProvider).
         ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
         modelCodes: [credentials.code],
+        // Same for reasoning: only a stored override is forwarded, so an
+        // untouched model keeps tracking pi-ai's catalog flag.
+        ...(credentials.reasoning !== undefined
+          ? { reasoningOverrides: { [credentials.code]: credentials.reasoning } }
+          : {}),
       }
     : {
         kind: "custom",

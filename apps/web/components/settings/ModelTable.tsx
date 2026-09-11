@@ -1,11 +1,13 @@
 'use client';
 
-import { Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { ListPlus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import type { Model } from '@/stores/config-store';
 import type { CatalogProviderModel } from '@/lib/config-api';
+import { AvailableModelsDialog } from './AvailableModelsDialog';
 
 /**
  * A draft model row needs a React key that stays stable for the row's whole
@@ -44,8 +46,8 @@ export function toDraftModels(models: Model[]): DraftModel[] {
 
 /**
  * Catalog models have no server-assigned id — they are keyed by pi-ai's own
- * code — and no stored reasoning flag: `reasoning` here is what the gateway
- * resolved from pi-ai's catalog, shown read-only.
+ * code. `reasoning` is the gateway-resolved capability (pi-ai's catalog,
+ * possibly suppressed by a stored override), normalized to a checkbox seed.
  */
 export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
   return models.map((m) => ({
@@ -90,7 +92,6 @@ const GRID =
 export function ModelTable({
   models,
   onChange,
-  reasoning = 'editable',
   codeOptions,
   codeListId,
   emptyHint,
@@ -98,21 +99,18 @@ export function ModelTable({
   models: DraftModel[];
   onChange: (next: DraftModel[]) => void;
   /**
-   * `readonly` renders `reasoning` as a fact rather than a control — for
-   * catalog models, where which thinking levels exist belongs to the model
-   * and is read from pi-ai, not declared here.
-   */
-  reasoning?: 'editable' | 'readonly';
-  /**
    * Known models offered as code autocomplete (typing a new code stays
    * allowed). Their `name` / token caps are also shown as each row's
    * placeholders — the value inherited when that box is left empty.
+   * Matching a code also seeds that row's reasoning checkbox from the
+   * catalog flag, so a newly added reasoning model starts checked.
    */
   codeOptions?: Array<{
     code: string;
     name: string;
     contextWindow?: number;
     maxOutputTokens?: number;
+    reasoning?: boolean;
   }>;
   /** Must be unique per rendered table when `codeOptions` is given. */
   codeListId?: string;
@@ -121,6 +119,9 @@ export function ModelTable({
 }) {
   const patch = (index: number, next: Partial<DraftModel>) =>
     onChange(models.map((m, i) => (i === index ? { ...m, ...next } : m)));
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const selectedCodes = models.map((m) => m.code).filter((c) => c.trim());
 
   return (
     <div className="space-y-1.5">
@@ -154,7 +155,18 @@ export function ModelTable({
               placeholder="model-id"
               aria-label={`模型 ID ${index + 1}`}
               list={codeOptions ? codeListId : undefined}
-              onChange={(e) => patch(index, { code: e.target.value })}
+              onChange={(e) => {
+                const code = e.target.value;
+                const match = codeOptions?.find((o) => o.code === code);
+                patch(index, {
+                  code,
+                  // Seed from the catalog only when the typed code matches;
+                  // a later toggle still wins until the code changes again.
+                  ...(match?.reasoning !== undefined
+                    ? { reasoning: match.reasoning }
+                    : {}),
+                });
+              }}
             />
             <Input
               className="h-8 text-xs"
@@ -198,24 +210,13 @@ export function ModelTable({
               }
             />
             <div className="flex justify-center">
-              {reasoning === 'editable' ? (
-                <Switch
-                  checked={model.reasoning}
-                  aria-label={`支持推理 ${index + 1}`}
-                  onCheckedChange={(checked) =>
-                    patch(index, { reasoning: checked === true })
-                  }
-                />
-              ) : (
-                <span
-                  className="text-muted-foreground text-xs"
-                  title={
-                    model.reasoning ? '该模型支持推理' : '该模型不支持推理'
-                  }
-                >
-                  {model.reasoning ? '✓' : '—'}
-                </span>
-              )}
+              <Checkbox
+                checked={model.reasoning}
+                aria-label={`支持推理 ${index + 1}`}
+                onCheckedChange={(checked) =>
+                  patch(index, { reasoning: checked === true })
+                }
+              />
             </div>
             <Button
               variant="ghost"
@@ -236,15 +237,53 @@ export function ModelTable({
         </p>
       )}
 
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground gap-1"
-        onClick={() => onChange([...models, emptyDraftModel()])}
-      >
-        <Plus className="h-3 w-3" />
-        新增模型
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground gap-1"
+          onClick={() => onChange([...models, emptyDraftModel()])}
+        >
+          <Plus className="h-3 w-3" />
+          新增模型
+        </Button>
+        {codeOptions && codeOptions.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground gap-1"
+            onClick={() => setPickerOpen(true)}
+          >
+            <ListPlus className="h-3 w-3" />
+            获取可用模型
+          </Button>
+        )}
+      </div>
+
+      {codeOptions && (
+        <AvailableModelsDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          options={codeOptions}
+          selectedCodes={selectedCodes}
+          onAdd={(codes) => {
+            const byCode = new Map(codeOptions.map((o) => [o.code, o]));
+            const added = codes.map((code) => {
+              const match = byCode.get(code);
+              return {
+                clientKey: crypto.randomUUID(),
+                id: '',
+                // Empty name / caps inherit the catalog values through
+                // placeholders, same as typing a matching code by hand.
+                name: '',
+                code,
+                reasoning: match?.reasoning ?? false,
+              } satisfies DraftModel;
+            });
+            onChange([...models, ...added]);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -30,10 +30,10 @@ export interface Model {
  * of what pi-ai's catalog already reports, so an omitted field means "use
  * the catalog's value" rather than "unset".
  *
- * Deliberately carries no `reasoning` flag: which thinking levels a model
- * supports belongs to that exact model and is read from pi-ai, never
- * declared by the user (a hand-set flag here could only ever disagree with
- * the provider).
+ * `reasoning` is a user override of pi-ai's catalog flag: `false` forces the
+ * model non-reasoning even when pi-ai declares efforts; `true` keeps/forces
+ * reasoning (the effort list still comes from pi-ai when available). Omitted
+ * means "follow the catalog".
  */
 export interface CatalogModel {
   code: string;
@@ -41,6 +41,7 @@ export interface CatalogModel {
   name?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
+  reasoning?: boolean;
 }
 
 /**
@@ -231,6 +232,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         ...(m.name === undefined || m.name === "" ? {} : { name: m.name }),
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
+        ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
       };
     });
   }
@@ -366,6 +368,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           apiKey: string | null;
           code: string;
           maxOutputTokens?: number;
+          /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
+          reasoning?: boolean;
         }
       | {
           kind: "custom";
@@ -396,6 +400,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           apiKey,
           code: model.code,
           ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+          ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         };
       }
 

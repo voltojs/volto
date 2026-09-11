@@ -332,6 +332,39 @@ describe("session agent lifecycle", () => {
     });
   });
 
+  it("threads a catalog credential's reasoning override into the ModelPort config", async () => {
+    // Same projection contract as the baseURL test above: a stored override
+    // is only useful if it survives resolveModel -> PiAiProviderConfig.
+    const { factory, builds } = makeFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: {
+        resolveModel: async () => ({
+          kind: "catalog",
+          piProvider: "deepseek",
+          baseURL: null,
+          apiKey: "sk-key",
+          code: "deepseek-v4-flash",
+          reasoning: false,
+        }),
+      } as never,
+    });
+    registry.attach("s1", { write: () => {}, on: () => {} } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "deepseek-v4-flash", permissionMode: "ask",
+    });
+
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!["providerConfig"]).toMatchObject({
+      kind: "catalog",
+      modelCodes: ["deepseek-v4-flash"],
+      reasoningOverrides: { "deepseek-v4-flash": false },
+    });
+  });
+
   // -- Task 4: a catalog-kind credential now builds a real agent, targeted --
   // -- at the resolved provider/model, not a default OpenAI-bound one. ------
 

@@ -256,6 +256,66 @@ describe("catalog provider registration", () => {
     });
   });
 
+  it("applies a user reasoning override on a catalog model, winning over pi-ai", () => {
+    // deepseek-v4-flash is reasoning-capable in pi-ai's catalog; a stored
+    // `false` override must suppress it. The inverse (forcing `true` on a
+    // non-reasoning model) is covered by getSupportedThinkingLevels' default
+    // level set for a `reasoning: true` model with no explicit map.
+    const forcedOff = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-v4-flash"],
+        reasoningOverrides: { "deepseek-v4-flash": false },
+      },
+    ]);
+    expect(forcedOff.getModel("deepseek", "deepseek-v4-flash")?.reasoning).toBe(false);
+    expect(describeModelInfo(forcedOff, "deepseek", "deepseek-v4-flash").reasoning).toBeUndefined();
+
+    // No override: the catalog's own flag survives untouched.
+    const untouched = buildModels([catalogConfig()]);
+    expect(untouched.getModel("deepseek", "deepseek-v4-flash")?.reasoning).toBe(true);
+  });
+
+  it("synthesizes an unknown catalog code from the first reasoning model when the user forces reasoning on", () => {
+    // deepseek-flash is not in pi-ai's deepseek catalog (only deepseek-v4-*).
+    // Without synthesis, describeModel would throw and the settings form
+    // would lose the user's checked reasoning flag on reload.
+    const models = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-flash", "deepseek-v4-flash"],
+        reasoningOverrides: { "deepseek-flash": true },
+      },
+    ]);
+
+    const synthesized = models.getModel("deepseek", "deepseek-flash");
+    expect(synthesized?.reasoning).toBe(true);
+    // Efforts come from the catalog's first reasoning model (deepseek-v4-flash).
+    const info = describeModelInfo(models, "deepseek", "deepseek-flash");
+    expect(info.reasoning?.efforts.map((e) => e.id)).toEqual(
+      describeModelInfo(models, "deepseek", "deepseek-v4-flash").reasoning?.efforts.map(
+        (e) => e.id,
+      ),
+    );
+  });
+
+  it("does not synthesize an unknown catalog code without a reasoning override", () => {
+    const models = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-flash", "deepseek-v4-flash"],
+      },
+    ]);
+    expect(models.getModel("deepseek", "deepseek-flash")).toBeUndefined();
+    expect(() => describeModelInfo(models, "deepseek", "deepseek-flash")).toThrow();
+  });
+
   it("preserves the catalog model's other compat fields while overriding the role", () => {
     const models = buildModels([catalogConfig()]);
     const model = models.getModel("deepseek", "deepseek-v4-flash");

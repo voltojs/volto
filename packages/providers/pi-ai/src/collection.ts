@@ -2,6 +2,7 @@ import {
   createModels,
   createProvider,
   getSupportedThinkingLevels,
+  type Api,
   type ApiKeyAuth,
   type Model,
   type Models,
@@ -37,6 +38,13 @@ export type PiAiProviderConfig =
       baseURL?: string;
       /** User-selected model codes; an empty array means no usable models. */
       modelCodes: string[];
+      /**
+       * Per-model user override of pi-ai's catalog `reasoning` flag.
+       * `false` forces the model non-reasoning; `true` forces reasoning
+       * (default thinking levels when the catalog itself declares none).
+       * A model absent from this map keeps the catalog's own value.
+       */
+      reasoningOverrides?: Record<string, boolean>;
     }
   | {
       kind: "custom";
@@ -192,6 +200,59 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
  * same helper the custom-provider path uses — makes the no-env-fallback
  * behavior structural rather than dependent on the UI always supplying a key.
  */
+/**
+ * One catalog model entry the user enabled whose code is not in this build's
+ * pi-ai catalog (a newly released model, or a typo). Synthesized only when
+ * the user also declared `reasoning: true` — otherwise the code simply is
+ * not in the Models collection, same as before.
+ *
+ * Template choice:
+ * - First reasoning-capable catalog model → inherit its thinkingLevelMap
+ *   (real efforts for that provider family).
+ * - No reasoning model in the catalog at all → take any catalog model as a
+ *   structural template, force `reasoning: true` and drop `thinkingLevelMap`
+ *   so `getSupportedThinkingLevels` yields the same default level set a
+ *   hand-declared custom model gets (minimal/low/medium/high).
+ */
+function synthesizeUnknownCatalogModel(
+  source: Provider,
+  code: string,
+  piProvider: string,
+  baseURL: string | undefined,
+): Model<Api> {
+  const catalogModels = source.getModels();
+  const reasoningTemplate = catalogModels.find((m) => m.reasoning);
+  const structural = reasoningTemplate ?? catalogModels[0];
+
+  if (structural) {
+    return {
+      ...structural,
+      id: code,
+      name: code,
+      reasoning: true,
+      // No reasoning template: drop any inherited map so the default level
+      // set applies. `undefined` is equivalent to absent for the optional
+      // access in getSupportedThinkingLevels.
+      ...(reasoningTemplate ? {} : { thinkingLevelMap: undefined }),
+      ...(baseURL ? { baseUrl: baseURL } : {}),
+    } as Model<Api>;
+  }
+
+  // Empty catalog — degrade to a custom-like OpenAI-completions stub.
+  return {
+    id: code,
+    name: code,
+    api: "openai-completions",
+    provider: piProvider,
+    baseUrl: baseURL ?? source.baseUrl ?? "https://api.openai.com",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
+    maxTokens: DEFAULT_MAX_TOKENS,
+  } satisfies Model<"openai-completions"> as Model<Api>;
+}
+
 function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   const source = builtinProviders().find((provider) => provider.id === config.piProvider);
   if (!source) {
@@ -199,7 +260,10 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   }
 
   const selected = new Set(config.modelCodes);
-  const models = source.getModels()
+  const catalogModels = source.getModels();
+  const knownIds = new Set(catalogModels.map((m) => m.id));
+
+  const models = catalogModels
     .filter((model) => selected.has(model.id))
     .map((model) => ({
       ...model,
@@ -215,8 +279,25 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
             },
           }
         : {}),
+      // User override wins over the catalog's own flag. Setting `reasoning:
+      // true` on a catalog model that declares none still yields the default
+      // thinking-level set via getSupportedThinkingLevels (see buildModel).
+      ...(config.reasoningOverrides?.[model.id] !== undefined
+        ? { reasoning: config.reasoningOverrides[model.id] }
+        : {}),
       ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
     }));
+
+  // Enabled codes the catalog does not know: synthesize a reasoning-capable
+  // entry so describeModel / effort validation keep working instead of
+  // dropping the user's declared intent on the floor.
+  for (const code of config.modelCodes) {
+    if (knownIds.has(code)) continue;
+    if (config.reasoningOverrides?.[code] !== true) continue;
+    models.push(
+      synthesizeUnknownCatalogModel(source, code, config.piProvider, config.baseURL),
+    );
+  }
 
   return {
     id: config.piProvider,
