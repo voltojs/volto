@@ -182,7 +182,7 @@ describe("P0-1: self_correct input handled by reducer", () => {
     expect(last.content).toBe("[BUDGET EXHAUSTED]");
   });
 
-  it("emits a self_correct event observable by hooks/telemetry", () => {
+  it("emits a context_reminder carrying the repair prompt text", () => {
     const state0 = driveToCallingModel();
     const r = step(state0, {
       type: "self_correct",
@@ -192,11 +192,13 @@ describe("P0-1: self_correct input handled by reducer", () => {
 
     const evt = r.effects.find(
       (e): e is Extract<Effect, { type: "emit" }> =>
-        e.type === "emit" && e.event.type === "self_correct",
+        e.type === "emit" && e.event.type === "context_reminder",
     );
     expect(evt).toBeDefined();
-    expect(evt!.event.data.consumesBudget).toBe(true);
-    expect(evt!.event.data.correctionCount).toBe(1);
+    expect(evt!.event.data.kind).toBe("self_correction");
+    expect(evt!.event.data.text).toBe("fix");
+    expect((evt!.event.data.displayMetadata as { consumesBudget: boolean }).consumesBudget).toBe(true);
+    expect((evt!.event.data.displayMetadata as { correctionCount: number }).correctionCount).toBe(1);
   });
 
   it("replay-equivalence: identical input sequence reproduces identical state", () => {

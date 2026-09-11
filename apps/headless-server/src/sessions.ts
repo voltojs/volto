@@ -304,9 +304,9 @@ interface Session {
  * Since task-r6 the Runner double-writes every transcript event it persists,
  * so the non-delta vocabulary on the stream is the transcript's own: each
  * event carries the exact stamp ({time, turn?, step?}) that was recorded, on
- * top of `{type, data}`. A few raw events with no transcript counterpart
- * (reducer residuals like error/cancelled/self_correct, plus tool
- * effect-channel events from displayMetadata.pendingEvents) still ride
+ * top of `{type, data}`. A few raw events with no transcript counterpart —
+ * observability residuals (error / cancelled), plus tool
+ * effect-channel events from displayMetadata.pendingEvents — still ride
  * without a stamp.
  */
 interface ChannelEvent {
@@ -394,7 +394,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * step?}` it persists, so these ride verbatim `event` frames whose payload
    * the client projects exactly like a stored event (spec §6.1 isomorphism).
    * Channel events without a transcript stamp — the reducer's unmapped
-   * observability residuals (error/cancelled/self_correct) and tool
+   * observability residuals (error / cancelled) and tool
    * effect-channel events — are not part of the transcript vocabulary and
    * are dropped here (the raw `/stream` and `/ws` endpoints still expose
    * them). Turn boundaries need no mapper-side bookkeeping: they are

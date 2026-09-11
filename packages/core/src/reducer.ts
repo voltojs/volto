@@ -180,24 +180,24 @@ export function step(
   // the determinism / replay contract.
   if (input.type === "self_correct" && state.status !== "done") {
     const repairMsg = { role: "user" as const, content: input.repairPrompt };
+    const correctionCount = input.consumesBudget
+      ? state.selfCorrectionCount + 1
+      : state.selfCorrectionCount;
     return {
       state: {
         ...state,
         messages: [...state.messages, repairMsg],
-        selfCorrectionCount: input.consumesBudget
-          ? state.selfCorrectionCount + 1
-          : state.selfCorrectionCount,
+        selfCorrectionCount: correctionCount,
       },
       effects: [
         {
           type: "emit",
           event: {
-            type: "self_correct",
+            type: "context_reminder",
             data: {
-              consumesBudget: input.consumesBudget,
-              correctionCount: input.consumesBudget
-                ? state.selfCorrectionCount + 1
-                : state.selfCorrectionCount,
+              kind: "self_correction",
+              text: input.repairPrompt,
+              displayMetadata: { consumesBudget: input.consumesBudget, correctionCount },
             },
           },
         },
