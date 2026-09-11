@@ -37,6 +37,7 @@ import {
   filterVisibleTools,
   routeToolCall,
   evaluatePermission,
+  policyDenialMessage,
   decideCompaction,
   classifyError,
   annotateUntrusted,
@@ -1155,7 +1156,10 @@ export function createRunner(opts: RunnerOptions): Runner {
                   type: "tool_result",
                   toolCallId: toolCall.id,
                   toolName: toolCall.name,
-                  result: { modelContent: `Tool "${toolCall.name}" denied by permission policy`, isError: true },
+                  result: {
+                    modelContent: policyDenialMessage(toolCall.name, opts.permissionConfig),
+                    isError: true,
+                  },
                 }));
                 if (getStatus() !== "executing_tools") break;
                 continue;

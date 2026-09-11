@@ -57,7 +57,7 @@ describe("permission knobs — replay / deep-equal determinism", () => {
         type: "tool_result",
         toolCallId: "call-1",
         toolName: "bash",
-        result: { modelContent: 'Tool "bash" denied by permission policy', isError: true },
+        result: { modelContent: expect.stringContaining('Tool "bash" was refused'), isError: true },
       }, ctx);
       state = r3.state;
 

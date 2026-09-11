@@ -175,3 +175,27 @@ export function evaluatePermission(
 export function createDefaultPermissionConfig(): PermissionConfig {
   return { sandbox: "workspace-write", approval: "ask" };
 }
+
+/**
+ * The model-facing wording for a tool refused by the permission matrix.
+ *
+ * Replaces a bare "denied by permission policy", which reads like a
+ * malfunction and invites the model to retry through a different tool. Three
+ * things have to be said: that a human configured this deliberately, that
+ * reaching the same effect another way defeats it, and what the user can
+ * change — a refusal with no exit leaves the model looping or improvising.
+ *
+ * The prohibition is scoped to an EQUIVALENT path, not to switching tools at
+ * all: falling back from `write_file` to `edit_file` is ordinary tool
+ * selection and must stay allowed.
+ */
+export function policyDenialMessage(toolName: string, config: PermissionConfig): string {
+  return (
+    `Tool "${toolName}" was refused by the permission policy in force for this ` +
+    `session (sandbox: ${config.sandbox}, approval: ${config.approval}). This is ` +
+    `a boundary the user configured deliberately, not a failure of the tool.\n\n` +
+    `Do not attempt the same effect through another tool — in particular, do not ` +
+    `use \`bash\` to run an equivalent command. Stop this line of work and tell ` +
+    `the user what was refused and which permission setting would allow it.`
+  );
+}

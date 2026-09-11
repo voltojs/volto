@@ -83,7 +83,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("denied");
+        expect(block!.content).toContain("refused");
       }
     });
   });
@@ -154,7 +154,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("denied");
+        expect(block!.content).toContain("refused");
       }
     });
   });
@@ -191,7 +191,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("denied");
+        expect(block!.content).toContain("refused");
       }
     });
   });

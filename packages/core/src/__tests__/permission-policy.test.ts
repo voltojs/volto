@@ -5,6 +5,7 @@ import {
   ceilingOf,
   decide,
   isWriteTier,
+  policyDenialMessage,
 } from "../permission-policy.js";
 import type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision } from "../permission-policy.js";
 import type { RiskTier } from "../tool.js";
@@ -138,5 +139,38 @@ describe("isWriteTier", () => {
     expect(isWriteTier("WRITE_LOW")).toBe(true);
     expect(isWriteTier("WRITE_HIGH")).toBe(true);
     expect(isWriteTier("IRREVERSIBLE")).toBe(true);
+  });
+});
+
+describe("policyDenialMessage", () => {
+  const autoConfig: PermissionConfig = { sandbox: "workspace-write", approval: "never" };
+
+  it("names the tool and states the configured boundary", () => {
+    const msg = policyDenialMessage("git_push", autoConfig);
+    expect(msg).toContain('"git_push"');
+    expect(msg).toContain("workspace-write");
+    expect(msg).toContain("approval: never");
+  });
+
+  it("says this is a configured boundary, not a tool malfunction", () => {
+    const msg = policyDenialMessage("git_push", autoConfig);
+    expect(msg).toMatch(/not a failure of the tool/i);
+  });
+
+  it("forbids routing around it and names bash specifically", () => {
+    const msg = policyDenialMessage("git_push", autoConfig);
+    expect(msg).toMatch(/do not use `bash`/i);
+  });
+
+  it("gives a constructive exit instead of leaving the model stuck", () => {
+    const msg = policyDenialMessage("git_push", autoConfig);
+    expect(msg).toMatch(/tell the user/i);
+    expect(msg).toMatch(/permission setting/i);
+  });
+
+  it("reflects the actual config rather than a fixed string", () => {
+    const readOnly: PermissionConfig = { sandbox: "read-only", approval: "never" };
+    expect(policyDenialMessage("write_file", readOnly)).toContain("read-only");
+    expect(policyDenialMessage("write_file", readOnly)).not.toContain("workspace-write");
   });
 });
