@@ -97,6 +97,7 @@ describe("prompt cache prefix stability", () => {
 
     const a = assembleContext({ messages: first.state.messages, tools: [] });
     const b = assembleContext({ messages: second.state.messages, tools: [] });
+    expect(b.staticPrefixLength).toBe(a.staticPrefixLength);
     expect(b.messages.slice(0, a.staticPrefixLength)).toEqual(
       a.messages.slice(0, a.staticPrefixLength),
     );
