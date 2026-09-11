@@ -104,11 +104,29 @@ export function isToolInteraction(msg: Message): boolean {
 }
 
 /**
+ * A permission reminder states the boundary the model is operating under.
+ * Summarising it away leaves the model believing it may do things the policy
+ * refuses, so it is never compressible.
+ *
+ * Matched case-insensitively: the first announcement opens with "Permission
+ * boundary for this session:" and a mid-session change with "The permission
+ * boundary for this session has changed." — both must be caught.
+ */
+export function isPermissionReminder(msg: Message): boolean {
+  return (
+    typeof msg.content === "string" &&
+    msg.content.includes("<system-reminder>") &&
+    msg.content.toLowerCase().includes("permission boundary for this session")
+  );
+}
+
+/**
  * A message is "key" — never compressible — when it carries information the
- * model must not lose across a compaction: file paths or incomplete todos.
+ * model must not lose across a compaction: file paths, incomplete todos, or
+ * permission boundaries.
  */
 export function isKeyMessage(msg: Message): boolean {
-  return hasIncompleteTodos(msg) || extractFilePaths(msg).length > 0;
+  return isPermissionReminder(msg) || hasIncompleteTodos(msg) || extractFilePaths(msg).length > 0;
 }
 
 // ──────────────────────────────────────────────

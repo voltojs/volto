@@ -77,6 +77,30 @@ describe("isKeyMessage", () => {
   });
 });
 
+describe("isKeyMessage — permission reminders", () => {
+  it("treats a permission reminder as key", () => {
+    const msg = {
+      role: "user" as const,
+      content:
+        "<system-reminder>\nPermission boundary for this session:\n\n- Filesystem writes are confined to the workspace.\n</system-reminder>",
+    };
+    expect(isKeyMessage(msg)).toBe(true);
+  });
+
+  it("does not treat ordinary user text as key", () => {
+    expect(isKeyMessage({ role: "user", content: "please refactor this" })).toBe(false);
+  });
+
+  it("also treats a change announcement as key", () => {
+    const msg = {
+      role: "user" as const,
+      content:
+        "<system-reminder>\nThe permission boundary for this session has changed. It is now:\n\n- You cannot write to the filesystem at all.\n</system-reminder>",
+    };
+    expect(isKeyMessage(msg)).toBe(true);
+  });
+});
+
 describe("hasIncompleteTodos", () => {
   it("detects checkbox style todos", () => {
     const msg = userMsg("Tasks:\n- [ ] Fix the bug\n- [x] Write tests");

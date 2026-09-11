@@ -199,6 +199,7 @@ export {
   hasIncompleteTodos,
   isToolInteraction,
   isKeyMessage,
+  isPermissionReminder,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
