@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { denialNoteFor, riskNoteFor, selectPendingApprovals } from '@/lib/approvals';
+import { riskNotesFor } from '@/components/chat/ApprovalCard';
 import type { TranscriptEventInput } from '@volto/core';
 
 describe('denialNoteFor', () => {
@@ -21,6 +22,23 @@ describe('riskNoteFor', () => {
     expect(riskNoteFor('remote-script-execution')).toBe('下载并执行远程脚本');
     expect(riskNoteFor('public-publish')).toBe('发布到公共 registry');
     expect(riskNoteFor('discards-uncommitted')).toBe('丢弃未提交的改动');
+  });
+});
+
+describe('riskNotesFor', () => {
+  it('yields no notes for a multi-field input, even when the first value is a dangerous command', () => {
+    // Object.values order would put the dangerous command first here; the
+    // extraction boundary (soleStringArg) must still refuse to classify it,
+    // because formatApprovalInput renders this same input as JSON, not as a
+    // bare command. Classifying anyway would describe a different string
+    // than what the user sees on screen.
+    expect(
+      riskNotesFor({ command: 'rm -rf build', cwd: '/tmp' }),
+    ).toEqual([]);
+  });
+
+  it('still yields notes for a single-string input', () => {
+    expect(riskNotesFor({ command: 'rm -rf build' })).toEqual(['递归删除文件']);
   });
 });
 

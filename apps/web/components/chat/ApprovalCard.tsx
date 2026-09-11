@@ -16,28 +16,44 @@ interface ApprovalCardProps {
 }
 
 /**
+ * The sole string argument of a tool call, when that is what the input is —
+ * the common `bash` case. Returns undefined for anything else, which is what
+ * keeps the rendered command and the risk notes describing the same thing:
+ * both callers below read the command through this one function.
+ *
+ * Deliberately does not look up `input.command` by name: that would couple
+ * this generic approval card to one tool's schema. A multi-field input (e.g.
+ * `bash` with a `cwd` alongside `command`) falls back to JSON display and no
+ * risk notes below — an accepted false negative, not a schema-specific reach.
+ */
+export function soleStringArg(input: Record<string, unknown>): string | undefined {
+  const values = Object.values(input);
+  return values.length === 1 && typeof values[0] === 'string' ? values[0] : undefined;
+}
+
+/**
  * Render the tool arguments for a human about to authorize them. A single
  * string argument (the common `bash` case) is shown raw so the command is
  * readable; anything else is pretty-printed JSON.
  */
 function formatApprovalInput(input: Record<string, unknown>): string {
-  const values = Object.values(input);
-  // The common `bash` case is a single string argument; show it raw so the
-  // command reads as a command rather than as escaped JSON.
-  if (values.length === 1 && typeof values[0] === 'string') return values[0];
-  return JSON.stringify(input, null, 2);
+  return soleStringArg(input) ?? JSON.stringify(input, null, 2);
 }
 
 /**
  * Risk notes for the command being approved, derived from the SAME input the
  * card renders — never carried on the approval event, which deliberately
  * omits arguments so a second copy cannot drift from the one that executes.
+ *
+ * Routes through `soleStringArg`, the same extraction `formatApprovalInput`
+ * uses, so the classified string and the displayed string can never diverge:
+ * a multi-field input yields no notes rather than risk classifying whichever
+ * field `Object.values` happens to put first.
  */
-function riskNotesFor(input: Record<string, unknown> | undefined): string[] {
+export function riskNotesFor(input: Record<string, unknown> | undefined): string[] {
   if (!input) return [];
-  const values = Object.values(input);
-  if (values.length === 0 || typeof values[0] !== 'string') return [];
-  return classifyCommandRisk(values[0]).map(riskNoteFor);
+  const command = soleStringArg(input);
+  return command === undefined ? [] : classifyCommandRisk(command).map(riskNoteFor);
 }
 
 /**
