@@ -34,10 +34,23 @@ export function permissionFingerprint(config: PermissionConfig): string {
   return `${config.sandbox}/${config.approval}/${rules}`;
 }
 
+/**
+ * Describe the filesystem write boundary.
+ *
+ * The sandbox mode fixes the SCOPE of writes; what happens when the agent
+ * reaches past that scope comes from `decide`, never from a hand-written
+ * assumption. Under `read-only` a write sits above the ceiling, so an `ask`
+ * approval policy escalates it to the user instead of refusing it — telling
+ * the model "every write is refused" there would be simply false.
+ */
 function writeBoundaryLine(config: PermissionConfig): string {
   switch (config.sandbox) {
-    case "read-only":
-      return "- You cannot write to the filesystem at all. Every write is refused.";
+    case "read-only": {
+      const onWrite = decide(ceilingOf(config.sandbox), config.approval, "WRITE_LOW");
+      return onWrite === "deny"
+        ? "- You cannot write to the filesystem at all. Every write is refused."
+        : "- You cannot write to the filesystem on your own. Every write is put to the user for approval first.";
+    }
     case "workspace-write":
       return "- Filesystem writes are confined to the workspace. Writes outside it are refused.";
     case "danger-full-access":

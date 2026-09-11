@@ -1,10 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { permissionFingerprint, buildPermissionReminder } from "../permission-prompt.js";
 import type { PermissionConfig } from "../permission-policy.js";
+import { ceilingOf, decide } from "../permission-policy.js";
 
 const ask: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
 const auto: PermissionConfig = { sandbox: "workspace-write", approval: "never" };
 const readOnly: PermissionConfig = { sandbox: "read-only", approval: "never" };
+/**
+ * The sixth (sandbox x approval) combination. Unreachable through the four
+ * host presets, reachable through the SDK's public `permissionConfig`, and
+ * the one cell where a write above the ceiling is escalated rather than
+ * refused.
+ */
+const readOnlyAsk: PermissionConfig = { sandbox: "read-only", approval: "ask" };
+const full: PermissionConfig = { sandbox: "danger-full-access", approval: "never" };
+const fullAsk: PermissionConfig = { sandbox: "danger-full-access", approval: "ask" };
+const allConfigs = [ask, auto, readOnly, readOnlyAsk, full, fullAsk];
 
 describe("permissionFingerprint", () => {
   it("is stable for the same config", () => {
@@ -33,7 +44,7 @@ describe("buildPermissionReminder", () => {
   });
 
   it("never leaks host preset names", () => {
-    for (const config of [ask, auto, readOnly]) {
+    for (const config of allConfigs) {
       const text = buildPermissionReminder(config);
       for (const preset of ["read-only mode", "ask mode", "auto mode", "full mode"]) {
         expect(text).not.toContain(preset);
@@ -47,6 +58,27 @@ describe("buildPermissionReminder", () => {
 
   it("says nothing may be written under read-only", () => {
     expect(buildPermissionReminder(readOnly)).toMatch(/cannot write/i);
+    expect(buildPermissionReminder(readOnly)).toMatch(/every write is refused/i);
+  });
+
+  it("does not claim writes are refused under read-only + ask, where they are escalated", () => {
+    // decide("READ_ONLY", "ask", "WRITE_LOW") === "ask": a write above the
+    // ceiling goes to the user, it is not refused. The sentence is derived
+    // from that decision so it cannot drift from it.
+    expect(decide("READ_ONLY", "ask", "WRITE_LOW")).toBe("ask");
+    const text = buildPermissionReminder(readOnlyAsk);
+    expect(text).not.toMatch(/every write is refused/i);
+    expect(text).toMatch(/cannot write to the filesystem on your own/i);
+    expect(text).toMatch(/approval/i);
+  });
+
+  it("never says a tier is refused when the matrix would escalate it", () => {
+    // The whole-file invariant: the reminder is derived from the matrix, so
+    // no config may describe as refused a write the matrix sends to a human.
+    for (const config of allConfigs) {
+      if (decide(ceilingOf(config.sandbox), config.approval, "WRITE_LOW") === "deny") continue;
+      expect(buildPermissionReminder(config)).not.toMatch(/every write is refused/i);
+    }
   });
 
   it("announces that high-risk calls stop to ask when approval is ask", () => {
@@ -62,7 +94,7 @@ describe("buildPermissionReminder", () => {
   });
 
   it("carries the no-routing-around rule in every config", () => {
-    for (const config of [ask, auto, readOnly]) {
+    for (const config of allConfigs) {
       expect(buildPermissionReminder(config)).toMatch(/do not use `bash`/i);
     }
   });
