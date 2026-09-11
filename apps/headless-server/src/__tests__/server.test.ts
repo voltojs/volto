@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { WebSocket } from "ws";
 import { createServer, type HeadlessServer } from "../server.js";
 import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
+import { RevealUnsupportedError } from "../fs/path-revealer.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
 import { buildSandboxConfigs } from "../wiring.js";
 import { buildPermissionConfig } from "../permission-modes.js";
@@ -439,6 +440,7 @@ describe("authentication", () => {
       ["POST", "/messages"],
       ["POST", "/interrupt"],
       ["POST", "/fs/pick-directory"],
+      ["POST", "/fs/reveal"],
     ] as const) {
       const response = await fetch(`${baseUrl}${route}`, {
         method,
@@ -1601,6 +1603,72 @@ describe("Headless server", () => {
     });
     expect(response.status).toBe(504);
     expect(await response.json()).toEqual({ error: "osascript timed out after 120000ms" });
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/reveal opens the file manager for an absolute path", async () => {
+    const revealed: string[] = [];
+    const picker = await createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      pathRevealer: {
+        reveal: async (target: string) => {
+          revealed.push(target);
+        },
+      },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/reveal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(picker.launchToken),
+      },
+      body: JSON.stringify({ path: "/tmp/project" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(revealed).toEqual(["/tmp/project"]);
+
+    await new Promise<void>((resolve) => picker.close(() => resolve()));
+  });
+
+  it("POST /fs/reveal rejects a missing path with 400", async () => {
+    const response = await fetch(`${baseUrl}/fs/reveal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("POST /fs/reveal maps an unsupported platform to 501", async () => {
+    const picker = await createServer({
+      port: 0,
+      modelPort: MOCK_MODEL,
+      pathRevealer: {
+        reveal: async () => {
+          throw new RevealUnsupportedError("no file manager here");
+        },
+      },
+    });
+    await new Promise<void>((resolve) => picker.on("listening", resolve));
+    const addr = picker.address();
+    const url = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+
+    const response = await fetch(`${url}/fs/reveal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(picker.launchToken),
+      },
+      body: JSON.stringify({ path: "/tmp/x" }),
+    });
+    expect(response.status).toBe(501);
 
     await new Promise<void>((resolve) => picker.close(() => resolve()));
   });

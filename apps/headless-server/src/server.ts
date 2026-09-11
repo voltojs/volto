@@ -45,6 +45,11 @@ import {
   PickerBusyError,
   PickerUnsupportedError,
 } from "./fs/directory-picker.js";
+import {
+  createPathRevealer,
+  RevealInvalidPathError,
+  RevealUnsupportedError,
+} from "./fs/path-revealer.js";
 import { CommandTimeoutError } from "./fs/command-runner.js";
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
@@ -77,6 +82,8 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   host?: string;
   /** Overridable directory picker — production uses the native dialog. */
   directoryPicker?: ReturnType<typeof createDirectoryPicker>;
+  /** Overridable path revealer — production opens Finder/Explorer. */
+  pathRevealer?: ReturnType<typeof createPathRevealer>;
   /** Overridable chat transcript store — production writes to ~/.volto/sessions. */
   chatStore?: JsonlSessionStore;
   /**
@@ -321,6 +328,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
   const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
+  const pathRevealer = opts.pathRevealer ?? createPathRevealer();
   const chatStore = opts.chatStore ?? createJsonlStore({ directory: path.join(getConfigDir(), "sessions") });
   const registry = createSessionRegistry({ ...opts, projectStore, providerStore, chatStore });
 
@@ -989,6 +997,31 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         if (err instanceof PickerBusyError) {
           jsonResponse(res, 409, { error: message });
         } else if (err instanceof PickerUnsupportedError) {
+          jsonResponse(res, 501, { error: message });
+        } else if (err instanceof CommandTimeoutError) {
+          jsonResponse(res, 504, { error: message });
+        } else {
+          jsonResponse(res, 500, { error: message });
+        }
+      }
+      return;
+    }
+
+    // POST /fs/reveal — open the OS file manager with the path selected
+    if (req.method === "POST" && url.pathname === "/fs/reveal") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { path?: unknown };
+        if (typeof body.path !== "string" || body.path.trim() === "") {
+          jsonResponse(res, 400, { error: "path is required" });
+          return;
+        }
+        await pathRevealer.reveal(body.path);
+        jsonResponse(res, 200, { ok: true });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof RevealInvalidPathError) {
+          jsonResponse(res, 400, { error: message });
+        } else if (err instanceof RevealUnsupportedError) {
           jsonResponse(res, 501, { error: message });
         } else if (err instanceof CommandTimeoutError) {
           jsonResponse(res, 504, { error: message });

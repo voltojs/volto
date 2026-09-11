@@ -235,3 +235,13 @@ export const deleteProvider = (id: string) =>
  */
 export const pickDirectory = () =>
   request<{ path: string | null }>('/fs/pick-directory', { method: 'POST' });
+
+/**
+ * Ask the gateway to reveal an absolute path in the OS file manager
+ * (Finder / Explorer / xdg-open). Runs on the gateway's machine.
+ */
+export const revealPath = (path: string) =>
+  request<{ ok: true }>('/fs/reveal', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });

@@ -1,12 +1,22 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ChevronRight, FolderGit2, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronRight,
+  Copy,
+  FolderGit2,
+  FolderOpen,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
+import { revealPath } from '@/lib/config-api';
 import { cancelPendingTitleWriteBack, runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
 import { Button } from '@/components/ui/button';
@@ -15,6 +25,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { SessionItem } from './SessionItem';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
@@ -45,6 +62,14 @@ export function ProjectList() {
     name: string;
     sessionCount: number;
   } | null>(null);
+  // The row whose action menu is open. Controlled so the hover buttons stay
+  // mounted while the menu is open — unmounting the trigger (via
+  // `hidden group-hover:flex` once the pointer leaves the row toward the
+  // portaled popup) detaches the positioner's anchor and the popup jumps
+  // to the origin.
+  const [menuOpenProjectId, setMenuOpenProjectId] = useState<string | null>(
+    null,
+  );
   // Guards against a double-click firing two DELETE requests for the same
   // session: a ref (not state) so the check is up to date even if the second
   // click lands before a re-render from the first click's state update. The
@@ -119,14 +144,18 @@ export function ProjectList() {
           <div key={project.id}>
             <div
               className={cn(
-                'group text-sidebar-foreground hover:bg-sidebar-accent relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors',
+                'group text-sidebar-foreground relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors',
+                {
+                  'bg-sidebar-accent': menuOpenProjectId === project.id,
+                  'hover:bg-sidebar-accent': menuOpenProjectId !== project.id,
+                },
               )}
               onClick={() => setExpandedId(expanded ? null : project.id)}
             >
               <ChevronRight
                 className={cn(
                   'text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150',
-                  expanded && 'rotate-90',
+                  { 'rotate-90': expanded },
                 )}
               />
               <FolderGit2 className="text-primary/80 h-4 w-4 shrink-0" />
@@ -141,14 +170,103 @@ export function ProjectList() {
                 <TooltipContent side="right">{project.path}</TooltipContent>
               </Tooltip>
               {projectSessions.length > 0 && (
-                <span className="text-muted-foreground font-mono text-[10px]">
+                <span
+                  className={cn(
+                    'text-muted-foreground/70 font-mono text-[10px]',
+                    {
+                      'opacity-0': menuOpenProjectId === project.id,
+                      // Yield the right edge to the hover action buttons.
+                      'group-hover:opacity-0': menuOpenProjectId !== project.id,
+                    },
+                  )}
+                >
                   {projectSessions.length}
                 </span>
               )}
-              {/* Absolutely positioned so appearing on hover never pushes the
-                  name/count above — a plain `hidden group-hover:flex` sibling
-                  would grow the flex row and jitter the whole item. */}
-              <div className="bg-sidebar-accent absolute right-1 hidden items-center gap-0.5 pl-1 group-hover:flex">
+              <div
+                className={cn(
+                  'absolute right-1 flex items-center gap-0.5 pl-1',
+                  {
+                    'opacity-100': menuOpenProjectId === project.id,
+                    'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100':
+                      menuOpenProjectId !== project.id,
+                  },
+                )}
+              >
+                <DropdownMenu
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setMenuOpenProjectId(project.id);
+                    }
+                  }}
+                  onOpenChangeComplete={(open) => {
+                    if (!open) {
+                      setMenuOpenProjectId((id) =>
+                        id === project.id ? null : id,
+                      );
+                    }
+                  }}
+                >
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="工作区菜单"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    }
+                  >
+                    <MoreHorizontal className="h-3 w-3" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        try {
+                          await revealPath(project.path);
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error
+                              ? err.message
+                              : '无法在文件管理器中显示',
+                          );
+                        }
+                      }}
+                    >
+                      <FolderOpen />在 Finder 中显示
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(project.path);
+                          toast.success('已复制工作目录');
+                        } catch {
+                          toast.error('复制失败');
+                        }
+                      }}
+                    >
+                      <Copy />
+                      复制工作目录
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        setProjectPendingDelete({
+                          id: project.id,
+                          name: project.name,
+                          sessionCount: projectSessions.length,
+                        });
+                      }}
+                    >
+                      <Trash2 />
+                      删除工作区
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -167,22 +285,6 @@ export function ProjectList() {
                   </TooltipTrigger>
                   <TooltipContent side="top">新建对话</TooltipContent>
                 </Tooltip>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setProjectPendingDelete({
-                      id: project.id,
-                      name: project.name,
-                      sessionCount: projectSessions.length,
-                    });
-                  }}
-                  aria-label="删除项目"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
               </div>
             </div>
 
@@ -225,7 +327,9 @@ export function ProjectList() {
                           title,
                           previousTitle: session.title,
                           setTitle: (id, t) =>
-                            useSessionStore.getState().updateSessionTitle(id, t),
+                            useSessionStore
+                              .getState()
+                              .updateSessionTitle(id, t),
                           rename: renameServerSession,
                           setError,
                         });
