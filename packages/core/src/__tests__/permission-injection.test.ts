@@ -142,4 +142,31 @@ describe("permission reminder audit event", () => {
     ).length;
     expect(count).toBe(0);
   });
+
+  it("emits exactly one changed reminder when the config changes", () => {
+    const first = sendUser(createInitialState(), "one", ctx(ask));
+    const ready = { ...first.state, status: "idle" as const };
+    const second = sendUser(ready, "two", ctx(auto));
+
+    const emits = second.effects.filter(
+      (e): e is Extract<Effect, { type: "emit" }> =>
+        e.type === "emit" && e.event.type === "context_reminder",
+    );
+    expect(emits).toHaveLength(1);
+    const data = emits[0]!.event.data;
+    expect(data.kind).toBe("permission_boundary");
+
+    // Turn 1's reminder is still in `state.messages`, so match the injected
+    // message by content: the newly injected reminder must be byte-identical
+    // to the recorded audit text.
+    const reminders = second.state.messages.filter(
+      (m) => typeof m.content === "string" && m.content.includes("<system-reminder>"),
+    );
+    expect(reminders).toHaveLength(2);
+    expect(reminders[1]!.content).toBe(data.text);
+
+    // And the recorded text carries the "changed" framing, not a repeat of the
+    // first announcement.
+    expect(data.text).toMatch(/changed/i);
+  });
 });

@@ -162,6 +162,15 @@ describe("Runner RAG pipeline", () => {
     expect(reminder!.data.text as string).toContain("relevant fact A");
     expect(reminder!.data.text as string).toContain("relevant fact B");
     expect(reminder!.data.displayMetadata).toEqual({ fragmentCount: 2 });
+
+    // Byte-for-byte: the audit `text` must be exactly the string injected into
+    // the model request, not merely a copy that overlaps it.
+    const msgs = model.lastMessages as Array<{ role: string; content: string }>;
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes("Retrieved Context"),
+    );
+    expect(ragMsg).toBeDefined();
+    expect(ragMsg!.content).toBe(reminder!.data.text);
   });
 });
 

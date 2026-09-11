@@ -214,7 +214,10 @@ describe("Runner — compaction wiring", () => {
     const compactionEvent = events.find((e) => e.type === "compaction");
     expect(compactionEvent).toBeDefined();
     expect(compactionEvent!.data.summaryText).toBe("SUMMARY-OF-OLD-MESSAGES");
-    expect(compactionEvent!.data.replacedCount).toBeGreaterThan(0);
+    // 19 equals the number of dropped messages
+    // (`decision.compressibleMessages.length`). Pinning the literal catches a
+    // regression that reported the total message count or the kept count.
+    expect(compactionEvent!.data.replacedCount).toBe(19);
   });
 
   it("skips compaction when below the threshold", async () => {
