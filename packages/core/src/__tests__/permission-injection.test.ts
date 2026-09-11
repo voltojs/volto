@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { step, createInitialState } from "../reducer.js";
 import type { StepContext } from "../reducer.js";
+import type { Effect } from "../effect.js";
 import type { PermissionConfig } from "../permission-policy.js";
 import { assembleContext } from "../context-assembler.js";
 
@@ -112,5 +113,33 @@ describe("prompt cache prefix stability", () => {
     expect(second.state.messages.slice(0, first.state.messages.length)).toEqual(
       first.state.messages,
     );
+  });
+});
+
+describe("permission reminder audit event", () => {
+  it("emits a context_reminder alongside the injected message", () => {
+    const r = sendUser(createInitialState(), "hi", ctx(ask));
+    const reminderText = r.state.messages.find(
+      (m) => typeof m.content === "string" && m.content.includes("<system-reminder>"),
+    )!.content as string;
+
+    const evt = r.effects.find(
+      (e): e is Extract<Effect, { type: "emit" }> =>
+        e.type === "emit" && e.event.type === "context_reminder",
+    );
+    expect(evt).toBeDefined();
+    expect(evt!.event.data.kind).toBe("permission_boundary");
+    expect(evt!.event.data.text).toBe(reminderText);
+  });
+
+  it("does not emit again while the config is unchanged", () => {
+    const first = sendUser(createInitialState(), "one", ctx(ask));
+    const ready = { ...first.state, status: "idle" as const };
+    const second = sendUser(ready, "two", ctx(ask));
+    const count = second.effects.filter(
+      (e): e is Extract<Effect, { type: "emit" }> =>
+        e.type === "emit" && e.event.type === "context_reminder",
+    ).length;
+    expect(count).toBe(0);
   });
 });

@@ -245,12 +245,15 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
     const announcements: Message[] = [];
     let announced = state._announcedPermission;
     let announcedConfig = state._announcedPermissionConfig;
+    const emittedReminders: Effect[] = [];
     if (ctx.permissionConfig) {
       const fingerprint = permissionFingerprint(ctx.permissionConfig);
       if (fingerprint !== announced) {
-        announcements.push({
-          role: "user",
-          content: buildPermissionReminder(ctx.permissionConfig, announcedConfig),
+        const reminderText = buildPermissionReminder(ctx.permissionConfig, announcedConfig);
+        announcements.push({ role: "user", content: reminderText });
+        emittedReminders.push({
+          type: "emit",
+          event: { type: "context_reminder", data: { kind: "permission_boundary", text: reminderText } },
         });
         announced = fingerprint;
         announcedConfig = ctx.permissionConfig;
@@ -267,6 +270,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
     };
     const effects: Effect[] = [
       buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
+      ...emittedReminders,
       {
         type: "emit",
         event: { type: "user_message", data: { content: input.content } },
