@@ -165,8 +165,11 @@ describe("Runner hooks integration (M13)", () => {
     expect(state.status).toBe("done");
     expect(toolExecuted).toBe(false);
     expect(mockModel.callCount).toBe(2);
-    // Tool result is isError — model sees denial and responds
-    const toolResultMsg = state.messages[2] as unknown as { content: Array<{ content: string; isError?: boolean }> };
+    // Tool result is isError — model sees denial and responds. Index 3, not
+    // 2: createAgent always resolves a permissionConfig (defaulted when not
+    // given), so the reducer injects a permission-boundary reminder message
+    // ahead of the real user turn on index 0, shifting everything after it.
+    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string; isError?: boolean }> };
     expect(toolResultMsg.content[0]!.isError).toBe(true);
     expect(toolResultMsg.content[0]!.content).toContain("hook blocked echo");
   });
@@ -207,7 +210,8 @@ describe("Runner hooks integration (M13)", () => {
 
     const state = await agent.run("echo hello");
     expect(state.status).toBe("done");
-    const toolResultMsg = state.messages[2] as unknown as { content: Array<{ content: string }> };
+    // Index 3: see the permission-boundary reminder note above.
+    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string }> };
     expect(toolResultMsg.content[0]!.content).toContain("modified-input");
   });
 
@@ -242,7 +246,8 @@ describe("Runner hooks integration (M13)", () => {
 
     const state = await agent.run("echo secret");
     expect(state.status).toBe("done");
-    const toolResultMsg = state.messages[2] as unknown as { content: Array<{ content: string }> };
+    // Index 3: see the permission-boundary reminder note above.
+    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string }> };
     expect(toolResultMsg.content[0]!.content).toBe("REDACTED");
   });
 

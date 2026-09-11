@@ -115,6 +115,9 @@ describe("TC-E8: SDK + Runner Compaction 端到端", () => {
 
     // Only 1 model call (no summarization).
     expect(spy.calls).toHaveLength(1);
-    expect(spy.calls[0]!.messages).toHaveLength(1);
+    // 2, not 1: createAgent always resolves a permissionConfig (defaulted
+    // when not given), so the reducer injects a permission-boundary
+    // reminder message ahead of the real user turn on the first call.
+    expect(spy.calls[0]!.messages).toHaveLength(2);
   });
 });

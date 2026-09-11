@@ -929,6 +929,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     toolDefs.push(...trimmed);
   }
 
+  // ── Permission config ─────────────────────
+  const permissionConfig = resolve(opts.permissionConfig, "permissionConfig") ?? createDefaultPermissionConfig();
+
   // ── Step context ─────────────────────────
   const resolvedReasoningEffort = resolve(opts.reasoningEffort, "reasoningEffort");
   const stepContext: StepContext = {
@@ -938,6 +941,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     temperature: resolve(opts.temperature, "temperature"),
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
+    permissionConfig,
     ...(resolvedReasoningEffort !== undefined
       ? { reasoningEffort: ReasoningEffortId(resolvedReasoningEffort) }
       : {}),
@@ -965,8 +969,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     return tool.handler(call.input);
   };
 
-  // ── Permission config ─────────────────────
-  const permissionConfig = resolve(opts.permissionConfig, "permissionConfig") ?? createDefaultPermissionConfig();
+  // ── Approval gate ──────────────────────────
   const approvalGate = opts.approvalGate ?? createAutoAllowGate();
 
   // ── Session store ─────────────────────────

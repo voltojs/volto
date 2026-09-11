@@ -57,9 +57,15 @@ describe("createAgent — SDK facade", () => {
       const state = await agent.run("Hi there");
 
       expect(state.status).toBe("done");
-      expect(state.messages).toHaveLength(2);
-      expect(state.messages[0]).toMatchObject({ role: "user", content: "Hi there" });
-      expect(state.messages[1]).toMatchObject({
+      // 3, not 2: createAgent always resolves a permissionConfig (defaulting
+      // via createDefaultPermissionConfig() when none is given), so the
+      // reducer's handleIdle injects a role:"user" permission-boundary
+      // reminder ahead of the real input on the first turn (packages/core's
+      // permission-injection feature, wired to real sessions by this task).
+      expect(state.messages).toHaveLength(3);
+      expect(state.messages[0]).toMatchObject({ role: "user" });
+      expect(state.messages[1]).toMatchObject({ role: "user", content: "Hi there" });
+      expect(state.messages[2]).toMatchObject({
         role: "assistant",
         content: [{ type: "text", text: "Hello from the agent!" }],
       });
@@ -74,11 +80,14 @@ describe("createAgent — SDK facade", () => {
       const agent = createAgent({ modelPort: mockModel });
 
       const state1 = await agent.run("Turn 1");
-      expect(state1.messages).toHaveLength(2);
+      // +1 for the first-turn permission-boundary reminder (see above).
+      expect(state1.messages).toHaveLength(3);
 
       const state2 = await agent.run("Turn 2");
-      expect(state2.messages).toHaveLength(4);
-      expect(state2.messages[3]).toMatchObject({
+      // The reminder only fires once per unchanged config, so turn 2 adds
+      // just its own user+assistant pair on top of turn 1's 3 messages.
+      expect(state2.messages).toHaveLength(5);
+      expect(state2.messages[4]).toMatchObject({
         role: "assistant",
         content: [{ type: "text", text: "Second reply" }],
       });
@@ -102,9 +111,9 @@ describe("createAgent — SDK facade", () => {
 
       expect(state.status).toBe("done");
       expect(mockModel.callCount).toBe(2);
-      // user, assistant(tool_use), tool_result, assistant(text)
-      expect(state.messages).toHaveLength(4);
-      expect(state.messages[2]).toMatchObject({ role: "tool" });
+      // permission reminder, user, assistant(tool_use), tool_result, assistant(text)
+      expect(state.messages).toHaveLength(5);
+      expect(state.messages[3]).toMatchObject({ role: "tool" });
     });
   });
 
@@ -637,13 +646,17 @@ describe("createAgent — SDK facade", () => {
       });
 
       const state1 = await agent.run("Turn 1");
-      expect(state1.messages).toHaveLength(2);
+      // +1 for the first-turn permission-boundary reminder (see the
+      // "minimal config" describe block above for why).
+      expect(state1.messages).toHaveLength(3);
 
       await expect(agent.run("Turn 2 (fails)")).rejects.toThrow("resolveContextLayers failed");
 
       const state2 = await agent.run("Turn 2 (retry)");
-      expect(state2.messages).toHaveLength(4);
-      expect(state2.messages[3]).toMatchObject({
+      // The reminder does not re-fire (config unchanged), so the retried
+      // turn only adds its own user+assistant pair on top of turn 1's 3.
+      expect(state2.messages).toHaveLength(5);
+      expect(state2.messages[4]).toMatchObject({
         role: "assistant",
         content: [{ type: "text", text: "Second reply" }],
       });

@@ -221,9 +221,12 @@ describe("createAgent with plugins (M13)", () => {
     const state = await agent.run("echo from plugin");
     expect(state.status).toBe("done");
     expect(mockModel.callCount).toBe(2);
-    // user, assistant(tool_use), tool_result, assistant(text)
-    expect(state.messages).toHaveLength(4);
-    const toolResult = state.messages[2] as unknown as { content: Array<{ content: string }> };
+    // permission reminder, user, assistant(tool_use), tool_result, assistant(text).
+    // The reminder is always index 0: createAgent always resolves a
+    // permissionConfig (defaulted when not given), so the reducer injects a
+    // permission-boundary reminder ahead of the real user turn on turn 1.
+    expect(state.messages).toHaveLength(5);
+    const toolResult = state.messages[3] as unknown as { content: Array<{ content: string }> };
     expect(toolResult.content[0]!.content).toContain("from plugin");
   });
 

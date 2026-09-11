@@ -24,11 +24,14 @@ describe("createAgent initialMessages", () => {
 
     const finalState = await agent.run("第二条消息");
 
-    // messages 顺序：priorHistory(2) + 本轮 user(1) + 本轮 assistant(1)
-    expect(finalState.messages).toHaveLength(4);
+    // Message order: priorHistory(2) + this turn's permission-boundary
+    // reminder(1, first turn always announces since createAgent always
+    // resolves a permissionConfig) + this turn's user(1) + assistant(1).
+    expect(finalState.messages).toHaveLength(5);
     expect(finalState.messages[0]).toEqual(priorHistory[0]);
     expect(finalState.messages[1]).toEqual(priorHistory[1]);
-    expect(finalState.messages[2]).toEqual({ role: "user", content: "第二条消息" });
+    expect(finalState.messages[2]).toMatchObject({ role: "user" });
+    expect(finalState.messages[3]).toEqual({ role: "user", content: "第二条消息" });
   });
 
   it("puts systemPrompt before initialMessages when both are provided", async () => {

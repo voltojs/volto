@@ -6,7 +6,7 @@ import {
   type SlashCommand,
 } from "../commands.js";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@volto/core";
+import { createMockModelPort, textScript, isPermissionReminder } from "@volto/core";
 import type { SkillRegistry } from "@volto/core";
 
 // ──────────────────────────────────────────────
@@ -118,8 +118,11 @@ describe("createAgent with commands (M13)", () => {
 
     const state = await agent.run("/hello");
     expect(state.status).toBe("done");
-    // The user message should be the rendered template, not "/hello"
-    const userMsg = state.messages.find((m) => m.role === "user");
+    // The user message should be the rendered template, not "/hello".
+    // Exclude the permission-boundary reminder (a role: "user" message the
+    // reducer injects ahead of the real input on the first turn) so this
+    // grabs the actual expanded command, not the reminder.
+    const userMsg = state.messages.find((m) => m.role === "user" && !isPermissionReminder(m));
     expect(userMsg).toBeDefined();
     expect((userMsg as { content: string }).content).toBe("Say hello to the user");
   });
@@ -133,7 +136,7 @@ describe("createAgent with commands (M13)", () => {
 
     const state = await agent.run("/unknown args");
     expect(state.status).toBe("done");
-    const userMsg = state.messages.find((m) => m.role === "user");
+    const userMsg = state.messages.find((m) => m.role === "user" && !isPermissionReminder(m));
     expect((userMsg as { content: string }).content).toContain("Unknown command");
   });
 
@@ -146,7 +149,7 @@ describe("createAgent with commands (M13)", () => {
 
     const state = await agent.run("just chatting");
     expect(state.status).toBe("done");
-    const userMsg = state.messages.find((m) => m.role === "user");
+    const userMsg = state.messages.find((m) => m.role === "user" && !isPermissionReminder(m));
     expect((userMsg as { content: string }).content).toBe("just chatting");
   });
 
