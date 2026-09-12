@@ -76,7 +76,6 @@ beforeEach(() => {
     deltas: [],
     isGenerating: false,
     subagents: {},
-    openSubagentId: null,
   });
 });
 

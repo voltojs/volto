@@ -20,7 +20,6 @@ function resetStore(): void {
     isGenerating: false,
     currentSessionId: null,
     subagents: {},
-    openSubagentId: null,
   });
 }
 
@@ -263,11 +262,9 @@ describe('useChatStore', () => {
         status: 'done',
         durationMs: 123,
       });
-      store.openSubagent('s-a');
       store.resetSubagents();
       const state = useChatStore.getState();
       expect(state.subagents).toEqual({});
-      expect(state.openSubagentId).toBeNull();
     });
 
     it('markSubagentFinished on a missing bucket creates an empty error bucket', () => {
@@ -295,13 +292,6 @@ describe('useChatStore', () => {
       const bucket = useChatStore.getState().subagents['s-b']!;
       expect(bucket.events).toHaveLength(1);
       expect(bucket.deltas).toEqual([]);
-    });
-
-    it('openSubagent / closeSubagent toggle the pane target', () => {
-      useChatStore.getState().openSubagent('s-c');
-      expect(useChatStore.getState().openSubagentId).toBe('s-c');
-      useChatStore.getState().closeSubagent();
-      expect(useChatStore.getState().openSubagentId).toBeNull();
     });
   });
 });

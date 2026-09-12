@@ -51,7 +51,7 @@ function messageTexts(entries: ChatEntry[]): string[] {
 
 beforeEach(() => {
   clearSubagentCache();
-  useChatStore.setState({ subagents: {}, openSubagentId: null });
+  useChatStore.setState({ subagents: {} });
   fetchSessionEventsMock.mockReset();
 });
 

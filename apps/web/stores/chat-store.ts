@@ -74,8 +74,6 @@ interface ChatState {
   currentSessionId: string | null;
   /** Sub-agent transcripts, keyed by opaque childSessionId. */
   subagents: Record<string, SubagentBucket>;
-  /** Which sub-agent card the pane is showing; null = pane closed. */
-  openSubagentId: string | null;
 
   /** Appends an authoritative event and clears the streaming tail it supersedes. */
   pushEvent: (event: TranscriptEventInput) => void;
@@ -95,9 +93,7 @@ interface ChatState {
     isError: boolean,
     durationMs?: number,
   ) => void;
-  openSubagent: (id: string) => void;
-  closeSubagent: () => void;
-  /** Drops every bucket and the pane selection — used on session switch. */
+  /** Drops every bucket — used on session switch. */
   resetSubagents: () => void;
   /** Replaces the whole log — used when loading a session from the server. */
   setEvents: (events: TranscriptEventInput[]) => void;
@@ -118,7 +114,6 @@ export const useChatStore = create<ChatState>((set) => ({
   isGenerating: false,
   currentSessionId: null,
   subagents: {},
-  openSubagentId: null,
 
   pushEvent: (event) =>
     set((state) => ({
@@ -173,11 +168,7 @@ export const useChatStore = create<ChatState>((set) => ({
       return { subagents: { ...state.subagents, [childId]: bucket } };
     }),
 
-  openSubagent: (id) => set({ openSubagentId: id }),
-
-  closeSubagent: () => set({ openSubagentId: null }),
-
-  resetSubagents: () => set({ subagents: {}, openSubagentId: null }),
+  resetSubagents: () => set({ subagents: {} }),
 
   setEvents: (events) => set({ events, deltas: [] }),
 

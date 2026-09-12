@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
-import { SubagentPane } from './SubagentPane';
 import { InputBar } from './InputBar';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
@@ -15,6 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
 import { useChatStore } from '@/stores/chat-store';
+import { usePaneStore } from '@/stores/pane-store';
+import { RightPane } from '@/components/pane/RightPane';
 import { useConversation } from '@/hooks/use-conversation';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
@@ -146,24 +147,21 @@ export function ChatPanel() {
     [events],
   );
 
-  // 右侧子代理分栏：openSubagentId 决定分栏是否渲染；开/关走
-  // useChatStore.getState() 的命令式入口并保持回调引用稳定——Task 11 的
+  // 子代理卡片点击后经 pane-store 开 RightPane 标签；走
+  // usePaneStore.getState() 的命令式入口并保持回调引用稳定——Task 11 的
   // memo 比较器依赖回调身份，内联箭头函数每帧新建会让 memo 失效。
-  const openSubagentId = useChatStore((s) => s.openSubagentId);
-  const openSubagent = useCallback(
-    (childId: string) => useChatStore.getState().openSubagent(childId),
-    [],
-  );
-  const closeSubagent = useCallback(
-    () => useChatStore.getState().closeSubagent(),
-    [],
-  );
+  const openSubagent = useCallback((childId: string) => {
+    usePaneStore
+      .getState()
+      .openTab({
+        kind: 'subagent',
+        id: `subagent:${childId}`,
+        childSessionId: childId,
+      });
+  }, []);
 
   const handleDecide = useCallback(
-    async (
-      callId: string,
-      decision: 'allow' | 'deny',
-    ): Promise<void> => {
+    async (callId: string, decision: 'allow' | 'deny'): Promise<void> => {
       if (!currentSessionId) return;
       try {
         await postApproval(
@@ -193,7 +191,10 @@ export function ChatPanel() {
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
   // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
   const currentModel = useConfigStore((s) =>
-    s.findModel(currentSession?.providerId ?? null, currentSession?.modelId ?? null),
+    s.findModel(
+      currentSession?.providerId ?? null,
+      currentSession?.modelId ?? null,
+    ),
   );
   const currentReasoning = useConfigStore((s) =>
     s.getModelReasoning(
@@ -339,7 +340,9 @@ export function ChatPanel() {
                 <InputBar
                   onSubmit={startSession}
                   disabled={
-                    isGenerating || !pendingProjectId || pendingApprovals.length > 0
+                    isGenerating ||
+                    !pendingProjectId ||
+                    pendingApprovals.length > 0
                   }
                   placeholder={
                     pendingApprovals.length > 0
@@ -404,40 +407,49 @@ export function ChatPanel() {
             : '未连接 agent 服务，请确认 headless-server 已在 http://localhost:3100 启动'}
         </div>
       )}
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as 'chat' | 'trajectory')}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <TabsList className="mx-4 mt-2">
-          <TabsTrigger value="chat">对话</TabsTrigger>
-          <TabsTrigger value="trajectory">轨迹</TabsTrigger>
-        </TabsList>
-        <TabsContent
-          value="chat"
-          keepMounted
-          className="flex min-h-0 flex-1 flex-row"
+      {/* 对话/轨迹主区 + RightPane 同排：pane 挂在 Tabs 外层，跨主 tab 切换常驻。 */}
+      <div className="flex min-h-0 flex-1 flex-row">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) =>
+            setActiveTab(value as 'chat' | 'trajectory')
+          }
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <MessageList entries={entries} onOpenSubagent={openSubagent} />
-            {pendingApprovals.length > 0 && (
-              <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
-                {pendingApprovals.map((approval) => (
-                  <ApprovalCard
-                    key={approval.callId}
-                    approval={approval}
-                    onDecide={handleDecide}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          {openSubagentId !== null && <SubagentPane onClose={closeSubagent} />}
-        </TabsContent>
-        <TabsContent value="trajectory" keepMounted className="flex min-h-0 flex-1 flex-col">
-          <TrajectoryPanel sessionId={currentSessionId} />
-        </TabsContent>
-      </Tabs>
+          <TabsList className="mx-4 mt-2">
+            <TabsTrigger value="chat">对话</TabsTrigger>
+            <TabsTrigger value="trajectory">轨迹</TabsTrigger>
+          </TabsList>
+          <TabsContent
+            value="chat"
+            keepMounted
+            className="flex min-h-0 flex-1 flex-row"
+          >
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <MessageList entries={entries} onOpenSubagent={openSubagent} />
+              {pendingApprovals.length > 0 && (
+                <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+                  {pendingApprovals.map((approval) => (
+                    <ApprovalCard
+                      key={approval.callId}
+                      approval={approval}
+                      onDecide={handleDecide}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent
+            value="trajectory"
+            keepMounted
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <TrajectoryPanel sessionId={currentSessionId} />
+          </TabsContent>
+        </Tabs>
+        <RightPane />
+      </div>
       <InputBar
         onSubmit={handleSubmit}
         disabled={isGenerating || missingBinding || pendingApprovals.length > 0}

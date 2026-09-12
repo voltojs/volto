@@ -8,7 +8,7 @@ import { MessageList } from '@/components/chat/MessageList';
 import type { PaneTab } from '@/stores/pane-store';
 
 /**
- * RightPane 的子代理标签体——SubagentPane 内容体平移（行为矩阵逐行保留：
+ * RightPane 的子代理标签体——内容体自旧版独立执行分栏整体平移（行为矩阵逐行保留：
  * 加载 → 错误+重试 → 运行中桶 → entries 空判无记录 → 列表）。关闭职责归
  * RightPane 标签栏，本组件不再渲染关闭按钮。
  */
