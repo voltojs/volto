@@ -80,4 +80,25 @@ describe('FileTreeTab', () => {
     render(<FileTreeTab tab={tab} />);
     expect(await screen.findByText('boom')).toBeDefined();
   });
+
+  it('remounts fresh when the projectId changes (stale expansion and cache dropped)', async () => {
+    treeMock.mockImplementation((pid: string, rel = '') =>
+      Promise.resolve({
+        path: rel,
+        entries:
+          rel === ''
+            ? [{ name: 'src', type: 'dir', size: 0 }]
+            : [{ name: `${pid}-child.ts`, type: 'file', size: 1 }],
+      }),
+    );
+    const { rerender } = render(<FileTreeTab tab={tab} />);
+    fireEvent.click(await screen.findByText('src'));
+    expect(await screen.findByText('p1-child.ts')).toBeDefined();
+    const next = { kind: 'files', id: 'files:p2', projectId: 'p2' } as const;
+    rerender(<FileTreeTab tab={next} />);
+    // 无 key 修复时：src 仍展开且复用 p1 缓存的子项，点击只会收起，p2-child.ts 永不出现。
+    fireEvent.click(await screen.findByText('src'));
+    expect(await screen.findByText('p2-child.ts')).toBeDefined();
+    expect(treeMock).toHaveBeenLastCalledWith('p2', 'src');
+  });
 });

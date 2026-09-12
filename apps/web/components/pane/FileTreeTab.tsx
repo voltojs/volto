@@ -16,7 +16,9 @@ const SEARCH_DEBOUNCE_MS = 300;
  */
 export function FileTreeTab({ tab }: { tab: PaneTab }) {
   if (tab.kind !== 'files') return null;
-  return <FileTree projectId={tab.projectId} />;
+  // key=projectId：项目变更即重挂载，expanded / 目录缓存 / 搜索状态全部丢弃——
+  // 两个 files 标签切回时不得看到上一个项目的展开态与缓存子项。
+  return <FileTree key={tab.projectId} projectId={tab.projectId} />;
 }
 
 function FileTree({ projectId }: { projectId: string }) {
@@ -57,19 +59,31 @@ function FileTree({ projectId }: { projectId: string }) {
 
   // 防抖搜索：effect 只负责计时器；搜索模式进出（setSearching / 清 matches）
   // 由 onChange 处理，避免 effect 体内同步 setState 触发级联渲染。
+  // cancelled 最新写入保护：过期请求的响应不得覆盖新 matches / 提前清 searching
+  // （与 use-subagent-conversation.ts 同一模式）。
   useEffect(() => {
     const q = filter.trim();
     if (q === '') return;
+    let cancelled = false;
     const timer = setTimeout(() => {
       searchFsFiles(projectId, q)
         .then((r) => {
+          if (cancelled) return;
           setMatches(r.matches);
           setError(null);
         })
-        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-        .finally(() => setSearching(false));
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [filter, projectId]);
 
   const toggle = useCallback(
