@@ -904,6 +904,31 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       }
     }
 
+    // GET /sessions/:id/events — raw persisted events for one session. Serves
+    // sub-agent pane hydration (spec 2026-09-12 §4.4): no projection, wire-order
+    // events, same auth as every other /sessions route. Unknown ids answer
+    // 200 + empty (the /trajectory contract), so a child session that never
+    // wrote anything renders an empty pane instead of an error.
+    if (req.method === "GET") {
+      const eventsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/events$/);
+      if (eventsMatch) {
+        const id = decodeURIComponent(eventsMatch[1]!);
+        try {
+          const record = await chatStore.readSession(id);
+          jsonResponse(res, 200, { sessionId: id, events: record?.events ?? [] });
+        } catch (err: unknown) {
+          if (err instanceof TranscriptFormatError) {
+            jsonResponse(res, 410, {
+              error: "This session was written by an older version and cannot be read by this build.",
+            });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+    }
+
     // PATCH /sessions/:id — rename. Titles are session_meta (last-wins), so a
     // rename is an appended meta event, not an in-place edit of the log.
     if (req.method === "PATCH" && url.pathname.startsWith("/sessions/")) {

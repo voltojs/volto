@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createStore } from "@volto/store-jsonl";
+import type { ModelPort } from "@volto/core";
+import { createServer } from "../server.js";
 
 let tempDir: string;
 
@@ -56,5 +58,66 @@ describe("GET /sessions/:id/trajectory", () => {
     const assistant = view.rows.find((r) => r.kind === "assistant")!;
     expect(assistant.metrics!.durationMs).toBe(80);
     expect(view.rows.map((r) => r.index)).toEqual(view.rows.map((_, i) => i + 1));
+  });
+});
+
+// Text-only model port standing in for the legacy shared agent — these tests
+// only exercise read routes, no turn is ever run through it.
+const MODEL_PORT: ModelPort = {
+  async *stream() {
+    yield { type: "text_delta", text: "" };
+    yield { type: "done", stopReason: "end_turn" };
+  },
+};
+
+describe("GET /sessions/:id/events", () => {
+  let base = "";
+  let launchToken = "";
+  let closeServer = async (): Promise<void> => {};
+  let chatStore: ReturnType<typeof createStore>;
+
+  beforeEach(async () => {
+    // createServer writes its auth secret into the config dir — point
+    // VOLTO_CONFIG_DIR at this test's own temp dir (created by the outer
+    // beforeEach) so nothing touches the real ~/.volto.
+    process.env["VOLTO_CONFIG_DIR"] = tempDir;
+    chatStore = createStore({ directory: tempDir });
+    const instance = await createServer({ port: 0, modelPort: MODEL_PORT, chatStore });
+    await new Promise<void>((resolve) => instance.on("listening", resolve));
+    const addr = instance.address();
+    base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+    launchToken = instance.launchToken;
+    closeServer = () => new Promise<void>((resolve) => instance.close(() => resolve()));
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  async function request(method: string, requestPath: string): Promise<{ status: number; body: string }> {
+    const response = await fetch(`${base}${requestPath}`, {
+      method,
+      headers: { Authorization: `Bearer ${launchToken}` },
+    });
+    return { status: response.status, body: await response.text() };
+  }
+
+  it("GET /sessions/:id/events returns raw persisted events", async () => {
+    await chatStore.appendEvents(null, "sess-ev", [
+      { time: 1, type: "session_meta", data: {} },
+      { time: 2, type: "user_message", data: { content: "hi" } },
+    ] as never);
+    const res = await request("GET", "/sessions/sess-ev/events");
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as { sessionId: string; events: unknown[] };
+    expect(body.sessionId).toBe("sess-ev");
+    expect(body.events).toHaveLength(2);
+    expect((body.events[1] as { type: string }).type).toBe("user_message");
+  });
+
+  it("GET /sessions/:id/events answers 200 + empty for unknown id", async () => {
+    const res = await request("GET", "/sessions/nope/events");
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).events).toEqual([]);
   });
 });
