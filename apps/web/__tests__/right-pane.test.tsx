@@ -16,6 +16,7 @@ const subagentTab = (childId: string) =>
     kind: 'subagent',
     id: `subagent:${childId}`,
     childSessionId: childId,
+    view: 'chat',
   }) as const;
 
 beforeEach(() => {

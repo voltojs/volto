@@ -10,7 +10,7 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
 export type PaneTab =
-  | { kind: 'subagent'; id: string; childSessionId: string }
+  | { kind: 'subagent'; id: string; childSessionId: string; view: 'chat' | 'trajectory' }
   | { kind: 'files'; id: string; projectId: string }
   | { kind: 'file-preview'; id: string; projectId: string; path: string }
   | { kind: 'trajectory-detail'; id: string; sessionId: string; rowId: string; row: TrajectoryRow }
@@ -53,6 +53,18 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
         const existing = state.tabs.find((t) => t.id === tab.id);
         if (existing === undefined) {
           return { tabs: [...state.tabs, tab], activeTabId: tab.id };
+        }
+        // 子代理标签的 view 随载荷覆盖：卡片点击开 chat，「查看执行过程」
+        // 开 trajectory——同一标签只换视图不新建。
+        if (
+          existing.kind === 'subagent' &&
+          tab.kind === 'subagent' &&
+          existing.view !== tab.view
+        ) {
+          return {
+            tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
+            activeTabId: tab.id,
+          };
         }
         // 轨迹行的行快照随流式演进：重新点击同一行即刷新载荷。
         if (

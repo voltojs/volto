@@ -157,6 +157,7 @@ export function ChatPanel() {
         kind: 'subagent',
         id: `subagent:${childId}`,
         childSessionId: childId,
+        view: 'chat',
       });
   }, []);
 

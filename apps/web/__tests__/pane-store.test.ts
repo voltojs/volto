@@ -9,7 +9,7 @@ import {
 } from '@/stores/pane-store';
 
 const subagentTab = (childId: string): PaneTab => ({
-  kind: 'subagent', id: `subagent:${childId}`, childSessionId: childId,
+  kind: 'subagent', id: `subagent:${childId}`, childSessionId: childId, view: 'chat' as const,
 });
 
 beforeEach(() => {
@@ -43,6 +43,15 @@ describe('openTab', () => {
     usePaneStore.getState().openTab(mk(row2));
     expect(usePaneStore.getState().tabs).toHaveLength(1);
     expect(usePaneStore.getState().tabs[0]).toMatchObject({ kind: 'trajectory-detail', row: row2 });
+  });
+
+  it('overwrites the subagent view and re-activates on re-open', () => {
+    usePaneStore.getState().openTab({ kind: 'subagent', id: 'subagent:a', childSessionId: 'a', view: 'chat' });
+    usePaneStore.getState().openTab(subagentTab('b')); // 激活别的标签
+    usePaneStore.getState().openTab({ kind: 'subagent', id: 'subagent:a', childSessionId: 'a', view: 'trajectory' });
+    expect(usePaneStore.getState().tabs).toHaveLength(2);
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:a')).toMatchObject({ view: 'trajectory' });
+    expect(usePaneStore.getState().activeTabId).toBe('subagent:a');
   });
 });
 

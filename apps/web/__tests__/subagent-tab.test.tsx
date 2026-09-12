@@ -24,7 +24,7 @@ const assistant = (text: string): TranscriptEventInput => ({
   step: 1,
 });
 
-const tab = (childId: string) => ({ kind: 'subagent', id: `subagent:${childId}`, childSessionId: childId }) as const;
+const tab = (childId: string) => ({ kind: 'subagent', id: `subagent:${childId}`, childSessionId: childId, view: 'chat' }) as const;
 
 beforeEach(() => {
   clearSubagentCache();
