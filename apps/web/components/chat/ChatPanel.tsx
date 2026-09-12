@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { MessageList } from './MessageList';
+import { SubagentPane } from './SubagentPane';
 import { InputBar } from './InputBar';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
@@ -143,6 +144,19 @@ export function ChatPanel() {
   const pendingApprovals = useMemo(
     () => selectPendingApprovals(events),
     [events],
+  );
+
+  // 右侧子代理分栏：openSubagentId 决定分栏是否渲染；开/关走
+  // useChatStore.getState() 的命令式入口并保持回调引用稳定——Task 11 的
+  // memo 比较器依赖回调身份，内联箭头函数每帧新建会让 memo 失效。
+  const openSubagentId = useChatStore((s) => s.openSubagentId);
+  const openSubagent = useCallback(
+    (childId: string) => useChatStore.getState().openSubagent(childId),
+    [],
+  );
+  const closeSubagent = useCallback(
+    () => useChatStore.getState().closeSubagent(),
+    [],
   );
 
   const handleDecide = useCallback(
@@ -399,19 +413,26 @@ export function ChatPanel() {
           <TabsTrigger value="chat">对话</TabsTrigger>
           <TabsTrigger value="trajectory">轨迹</TabsTrigger>
         </TabsList>
-        <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
-          <MessageList entries={entries} />
-          {pendingApprovals.length > 0 && (
-            <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
-              {pendingApprovals.map((approval) => (
-                <ApprovalCard
-                  key={approval.callId}
-                  approval={approval}
-                  onDecide={handleDecide}
-                />
-              ))}
-            </div>
-          )}
+        <TabsContent
+          value="chat"
+          keepMounted
+          className="flex min-h-0 flex-1 flex-row"
+        >
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <MessageList entries={entries} onOpenSubagent={openSubagent} />
+            {pendingApprovals.length > 0 && (
+              <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+                {pendingApprovals.map((approval) => (
+                  <ApprovalCard
+                    key={approval.callId}
+                    approval={approval}
+                    onDecide={handleDecide}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          {openSubagentId !== null && <SubagentPane onClose={closeSubagent} />}
         </TabsContent>
         <TabsContent value="trajectory" keepMounted className="flex min-h-0 flex-1 flex-col">
           <TrajectoryPanel sessionId={currentSessionId} />
