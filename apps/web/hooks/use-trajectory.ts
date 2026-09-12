@@ -32,8 +32,8 @@ interface StoredState {
 const IDLE_STORED: StoredState = { rows: null, error: null, loading: false };
 
 /**
- * 某一会话的服务端行：缓存命中即用，未命中拉取。主轨迹面板与 pane 的
- * 轨迹快照标签（TrajectoryTab）各持一个实例。
+ * 某一会话的服务端行：缓存命中即用，未命中拉取。主轨迹面板与 pane
+ * 子代理标签的轨迹子视图（SubagentTrajectoryView）各持一个实例。
  *
  * 展示状态在渲染期按 (sessionId, nonce) 键派生（react-hooks 禁止 effect
  * 内同步 setState）：缓存命中 → 缓存行；本层的异步结果未到前一律 loading。

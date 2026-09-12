@@ -7,8 +7,6 @@ import {
   FileImage,
   FileText,
   FolderTree,
-  Info,
-  ListTree,
   X,
 } from 'lucide-react';
 import {
@@ -16,11 +14,9 @@ import {
   PANE_WIDTH_DEFAULT,
   type PaneTab,
 } from '@/stores/pane-store';
-import { KIND_LABELS } from '@/lib/trajectory-view-model';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
 import { SubagentTab } from './SubagentTab';
-import { TrajectoryTab } from './TrajectoryTab';
 
 /**
  * RightPane shell：顶部标签栏 + 内容区分发。shell 对标签类型零感知——
@@ -33,9 +29,6 @@ const PANE_TAB_RENDERERS: {
   subagent: SubagentTab,
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
-  // 行详情回归抽屉，Task 4 删除键（PaneTab 联合成员一并移除）。
-  'trajectory-detail': undefined,
-  trajectory: TrajectoryTab,
 };
 
 const IMAGE_EXTS = new Set([
@@ -62,10 +55,6 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
       )
         ? FileImage
         : FileText;
-    case 'trajectory-detail':
-      return Info;
-    case 'trajectory':
-      return ListTree;
   }
 }
 
@@ -77,10 +66,6 @@ function tabTitle(tab: PaneTab): string {
       return '文件';
     case 'file-preview':
       return tab.path.split('/').at(-1) ?? tab.path;
-    case 'trajectory-detail':
-      return `${KIND_LABELS[tab.row.kind]} 详情`;
-    case 'trajectory':
-      return `轨迹 …${tab.sessionId.slice(-6)}`;
   }
 }
 

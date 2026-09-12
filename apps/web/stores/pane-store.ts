@@ -1,20 +1,17 @@
 /**
  * RightPane 的标签状态：tabs（有序）+ activeTabId + width。
- * PaneTab 是判别联合——每个标签自带数据引用（childSessionId / projectId+path /
- * sessionId+rowId），因此切会话不清空标签，跨会话内容各自成立。
+ * PaneTab 是判别联合——每个标签自带数据引用（childSessionId / projectId /
+ * projectId+path），因此切会话不清空标签，跨会话内容各自成立。
  * tabs 纯内存（刷新即空，重新点开即可）；只有 width 持久化。
  */
 
 import { create } from 'zustand';
 import type { StoreApi, UseBoundStore } from 'zustand';
-import type { TrajectoryRow } from '@volto/sdk/sse';
 
 export type PaneTab =
   | { kind: 'subagent'; id: string; childSessionId: string; view: 'chat' | 'trajectory' }
   | { kind: 'files'; id: string; projectId: string }
-  | { kind: 'file-preview'; id: string; projectId: string; path: string }
-  | { kind: 'trajectory-detail'; id: string; sessionId: string; rowId: string; row: TrajectoryRow }
-  | { kind: 'trajectory'; id: string; sessionId: string };
+  | { kind: 'file-preview'; id: string; projectId: string; path: string };
 
 export const PANE_WIDTH_MIN = 320;
 export const PANE_WIDTH_MAX = 720;
@@ -60,17 +57,6 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
           existing.kind === 'subagent' &&
           tab.kind === 'subagent' &&
           existing.view !== tab.view
-        ) {
-          return {
-            tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
-            activeTabId: tab.id,
-          };
-        }
-        // 轨迹行的行快照随流式演进：重新点击同一行即刷新载荷。
-        if (
-          existing.kind === 'trajectory-detail' &&
-          tab.kind === 'trajectory-detail' &&
-          existing.row !== tab.row
         ) {
           return {
             tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),

@@ -35,16 +35,6 @@ describe('openTab', () => {
     expect(usePaneStore.getState().activeTabId).toBe('subagent:a');
   });
 
-  it('overwrites the trajectory-detail row snapshot on re-open', () => {
-    const row = { id: 'r1', kind: 'assistant' } as never;
-    const row2 = { id: 'r1', kind: 'tool_call' } as never;
-    const mk = (r: never): PaneTab => ({ kind: 'trajectory-detail', id: 'row:s1:r1', sessionId: 's1', rowId: 'r1', row: r });
-    usePaneStore.getState().openTab(mk(row));
-    usePaneStore.getState().openTab(mk(row2));
-    expect(usePaneStore.getState().tabs).toHaveLength(1);
-    expect(usePaneStore.getState().tabs[0]).toMatchObject({ kind: 'trajectory-detail', row: row2 });
-  });
-
   it('overwrites the subagent view and re-activates on re-open', () => {
     usePaneStore.getState().openTab({ kind: 'subagent', id: 'subagent:a', childSessionId: 'a', view: 'chat' });
     usePaneStore.getState().openTab(subagentTab('b')); // 激活别的标签
