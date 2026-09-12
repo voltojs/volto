@@ -24,8 +24,7 @@ interface TrajectoryDrawerProps {
   row: TrajectoryRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 打开该子代理行的执行过程（子代理分栏）。 */
-  onOpenSubagent: (childSessionId: string) => void;
+  onDrillDown: (row: TrajectoryRow) => void;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -55,15 +54,12 @@ function Code({ text }: { text: string }) {
 
 function OverviewTab({
   row,
-  onOpenSubagent,
+  onDrillDown,
 }: {
   row: TrajectoryRow;
-  onOpenSubagent: (childSessionId: string) => void;
+  onDrillDown: (row: TrajectoryRow) => void;
 }) {
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
-  // 先落成局部常量：闭包里拿不到 `row.childSessionId` 的收窄（TS 属性收窄
-  // 不跨函数边界），这里收敛成 string 供按钮回调直接使用。
-  const childSessionId = row.kind === 'subagent' ? row.childSessionId : undefined;
   return (
     <div className="divide-y">
       <Field label="层级">
@@ -116,15 +112,15 @@ function OverviewTab({
           )}
         </>
       )}
-      {childSessionId !== undefined && (
+      {row.kind === 'subagent' && row.childSessionId && (
         <Field label="子会话">
           <div className="flex items-center justify-between gap-2">
             <code className="text-muted-foreground min-w-0 truncate font-mono text-[11px]">
-              {childSessionId}
+              {row.childSessionId}
             </code>
             <button
               type="button"
-              onClick={() => onOpenSubagent(childSessionId)}
+              onClick={() => onDrillDown(row)}
               className="text-primary hover:bg-primary/10 shrink-0 rounded px-2 py-1 text-xs font-medium"
             >
               查看执行过程 →
@@ -141,7 +137,7 @@ function OverviewTab({
   );
 }
 
-export function TrajectoryDrawer({ row, open, onOpenChange, onOpenSubagent }: TrajectoryDrawerProps) {
+export function TrajectoryDrawer({ row, open, onOpenChange, onDrillDown }: TrajectoryDrawerProps) {
   if (row === null) {
     return (
       <Drawer open={false} onOpenChange={onOpenChange}>
@@ -170,7 +166,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange, onOpenSubagent }: Tr
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {tabs.map((key) => (
               <TabsContent key={key} value={key} className="min-h-0">
-                <TabBody row={row} tab={key} onOpenSubagent={onOpenSubagent} />
+                <TabBody row={row} tab={key} onDrillDown={onDrillDown} />
               </TabsContent>
             ))}
           </div>
@@ -183,15 +179,15 @@ export function TrajectoryDrawer({ row, open, onOpenChange, onOpenSubagent }: Tr
 function TabBody({
   row,
   tab,
-  onOpenSubagent,
+  onDrillDown,
 }: {
   row: TrajectoryRow;
   tab: DrawerTabKey;
-  onOpenSubagent: (childSessionId: string) => void;
+  onDrillDown: (row: TrajectoryRow) => void;
 }) {
   switch (tab) {
     case 'overview':
-      return <OverviewTab row={row} onOpenSubagent={onOpenSubagent} />;
+      return <OverviewTab row={row} onDrillDown={onDrillDown} />;
     case 'input':
       return <Code text={row.inputDetail ?? EMPTY_CELL} />;
     case 'output': {

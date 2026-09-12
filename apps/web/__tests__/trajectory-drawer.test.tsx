@@ -1,6 +1,6 @@
 /**
- * TrajectoryDrawer：子代理行的「查看执行过程 →」按钮统一路由到
- * onOpenSubagent（Task 10 起抽屉不再自行下钻，入口统一到子代理分栏）。
+ * TrajectoryDrawer：子代理行的「查看执行过程 →」按钮触发下钻回调
+ * onDrillDown（携带整行，语义 = 下钻该子会话的轨迹审计行）。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -19,17 +19,19 @@ const subagentRow: TrajectoryRow = {
 };
 
 describe('TrajectoryDrawer', () => {
-  it('sub-agent rows open the pane via onOpenSubagent', () => {
-    const onOpenSubagent = vi.fn();
+  it('sub-agent rows drill into the child trajectory via onDrillDown', () => {
+    const onDrillDown = vi.fn();
     render(
       <TrajectoryDrawer
         open
         row={subagentRow}
         onOpenChange={vi.fn()}
-        onOpenSubagent={onOpenSubagent}
+        onDrillDown={onDrillDown}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /查看执行过程/ }));
-    expect(onOpenSubagent).toHaveBeenCalledWith('s-sub-0');
+    const drilled = onDrillDown.mock.calls[0]?.[0] as TrajectoryRow | undefined;
+    expect(drilled?.childSessionId).toBe('s-sub-0');
+    expect(onDrillDown).toHaveBeenCalledWith(subagentRow);
   });
 });
