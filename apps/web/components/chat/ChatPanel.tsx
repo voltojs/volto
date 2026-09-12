@@ -279,7 +279,19 @@ export function ChatPanel() {
   if (entries.length === 0) {
     return (
       <div className="flex h-full flex-col">
-        <ChatHeader />
+        <ChatHeader
+          onOpenFiles={
+            currentProject
+              ? () =>
+                  usePaneStore.getState().openTab({
+                    kind: 'files',
+                    id: `files:${currentProject.id}`,
+                    projectId: currentProject.id,
+                  })
+              : undefined
+          }
+          filesEnabled={currentProject !== undefined}
+        />
         <div className="bg-grain flex flex-1 flex-col items-center justify-center px-4">
           <div className="mb-8 max-w-2xl text-center">
             <div className="mb-5 flex items-center justify-center gap-3">
@@ -392,6 +404,17 @@ export function ChatPanel() {
       <ChatHeader
         projectName={currentProject?.name}
         connectionState={connectionState}
+        onOpenFiles={
+          currentProject
+            ? () =>
+                usePaneStore.getState().openTab({
+                  kind: 'files',
+                  id: `files:${currentProject.id}`,
+                  projectId: currentProject.id,
+                })
+            : undefined
+        }
+        filesEnabled={currentProject !== undefined}
       />
       {showOffline && (
         <div

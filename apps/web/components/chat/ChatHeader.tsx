@@ -1,6 +1,6 @@
 'use client';
 
-import { FolderGit2 } from 'lucide-react';
+import { FolderGit2, FolderTree } from 'lucide-react';
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -15,6 +15,8 @@ import type { ConnectionState } from '@/lib/agent-config';
 interface ChatHeaderProps {
   projectName?: string | null;
   connectionState?: ConnectionState;
+  onOpenFiles?: () => void;
+  filesEnabled?: boolean;
 }
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
@@ -29,7 +31,12 @@ const CONNECTION_DOT: Record<ConnectionState, string> = {
   disconnected: 'bg-destructive',
 };
 
-export function ChatHeader({ projectName, connectionState }: ChatHeaderProps) {
+export function ChatHeader({
+  projectName,
+  connectionState,
+  onOpenFiles,
+  filesEnabled,
+}: ChatHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
       <SidebarToggle />
@@ -66,6 +73,26 @@ export function ChatHeader({ projectName, connectionState }: ChatHeaderProps) {
               }
             />
             <TooltipContent>{CONNECTION_LABEL[connectionState]}</TooltipContent>
+          </Tooltip>
+        )}
+        {(onOpenFiles !== undefined || filesEnabled !== undefined) && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="文件"
+                  onClick={onOpenFiles}
+                  disabled={filesEnabled !== true}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
+                >
+                  <FolderTree className="h-4 w-4" />
+                </button>
+              }
+            />
+            <TooltipContent>
+              {filesEnabled ? '浏览项目文件' : '当前会话未绑定项目'}
+            </TooltipContent>
           </Tooltip>
         )}
         <ThemeToggle />
