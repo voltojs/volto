@@ -268,6 +268,35 @@ describe("toConversationView", () => {
     });
   });
 
+  it("tool_call blocks carry childSessionId and startedAt for sub-agent calls", () => {
+    // The SDK appends the subagent_started bracket straight to the store while
+    // the parent flushes its buffered tool_call at batch end — the parked
+    // order below, which the tool_call must claim.
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 120,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "task", input: { message: "go" } }],
+          stopReason: "tool_use",
+          durationMs: 10,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "subagent_started", data: { childSessionId: "p-sub-9", label: "task", depth: 1 }, turn: 1, step: 1 },
+      { time: 140, type: "tool_call", data: { callId: "c1", name: "task", input: { message: "go" } }, turn: 1, step: 1 },
+    ]);
+
+    const block = toConversationView(buildTurnRecords(events))
+      .messages.flatMap((m) => m.blocks)
+      .find((b) => b.type === "tool_call");
+    expect(block && block.type === "tool_call" && block.call.childSessionId).toBe("p-sub-9");
+    expect(block && block.type === "tool_call" && block.call.startedAt).toBe(140);
+  });
+
   it("marks a message streaming while its step has a partial", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

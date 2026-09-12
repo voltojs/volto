@@ -447,6 +447,10 @@ export interface ConversationToolCall {
   result?: string;
   isError?: boolean;
   durationMs?: number;
+  /** Set when this call delegated to a sub-agent; points at its own session. */
+  childSessionId?: string;
+  /** When the call started (the subagent_started bracket's dispatch time). */
+  startedAt?: number;
   /**
    * Approval gating outcome for this call, when it went through a gate.
    * Carried so a UI can tell a user denial from a fail-closed one after a
@@ -546,6 +550,8 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                 ...(call?.content !== undefined ? { result: call.content } : {}),
                 ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                 ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+                ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
+                ...(call?.startedAt !== undefined ? { startedAt: call.startedAt } : {}),
                 ...(call?.approval !== undefined
                   ? {
                       approval: {
