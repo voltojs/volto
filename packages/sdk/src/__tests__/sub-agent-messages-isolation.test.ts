@@ -139,6 +139,53 @@ describe("task sub-agent — messages isolation", () => {
     expect(mainDeltas.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("sub-agent transcript events keep their envelope stamps (time) through the tagged sink", async () => {
+    // 网关的 frame()/asTranscriptEvent 靠信封上的 time 截识别 transcript 事件；
+    // tagEventSink 若重建信封丢掉 time，子代理的 transcript 事件会在网关被整类
+    // 丢弃（deltas 因走 delta 分支幸存）——运行中的面板就只剩 delta 可渲染。
+    const spy = createMessagesSpy([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go" })),
+      textScript("sub speaks"),
+      textScript("main wraps up"),
+    ]);
+
+    const received: Array<{ type: string; depth: number | undefined; time: unknown; turn: unknown; step: unknown }> = [];
+    const agent = createAgent({
+      modelPort: spy,
+      enableTaskTool: true,
+      eventSink: {
+        emit(ev) {
+          received.push({
+            type: ev.type,
+            depth:
+              typeof ev.data["agentDepth"] === "number"
+                ? (ev.data["agentDepth"] as number)
+                : undefined,
+            time: (ev as { time?: unknown }).time,
+            turn: (ev as { turn?: unknown }).turn,
+            step: (ev as { step?: unknown }).step,
+          });
+        },
+      },
+    });
+
+    await agent.run("hi");
+
+    // 子代理的 transcript 事件（非 delta——delta 是原始流增量，无戳）必须
+    // 保留 runner 盖的 time 戳；turn/step 若源上有，也必须原样透传。
+    const subTranscript = received.filter(
+      (e) => e.type !== "text_delta" && (e.depth ?? 0) >= 1,
+    );
+    expect(subTranscript.length).toBeGreaterThanOrEqual(1);
+    for (const e of subTranscript) {
+      expect(typeof e.time).toBe("number");
+    }
+    const subModelCallStart = subTranscript.find((e) => e.type === "model_call_start");
+    expect(subModelCallStart).toBeDefined();
+    expect(subModelCallStart!.turn).toBeDefined();
+    expect(subModelCallStart!.step).toBeDefined();
+  });
+
   it("sub-agent events carry childSessionId so parallel dispatches are attributable", async () => {
     const spy = createMessagesSpy([
       toolCallScript("c1", "task", JSON.stringify({ message: "go" })),

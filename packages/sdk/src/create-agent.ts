@@ -1722,8 +1722,14 @@ function tagEventSink(
 ): EventSink {
   return {
     emit(event) {
+      // Spread the whole envelope: the runner's transcript emissions carry
+      // {time, turn?, step?} stamps the gateway's frame() narrows on —
+      // rebuilding {type, data} stripped them, so every sub-agent transcript
+      // event was dropped at the gateway (deltas survived because the delta
+      // branch reads data alone) and any live sub-agent view froze on its
+      // first fetch snapshot.
       inner.emit({
-        type: event.type,
+        ...event,
         data: {
           ...event.data,
           agentDepth: depth,
