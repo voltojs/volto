@@ -133,10 +133,9 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
 }
 
 /**
- * RightPane 的轨迹详情标签：TrajectoryDrawer 内容体的整体平移——row 快照随
- * 标签载荷存于 pane-store，渲染与 Drawer 时代逐字段一致。两处差异：外层无
+ * RightPane 的轨迹详情标签：row 快照随标签载荷存于 pane-store。外层无
  * Drawer chrome（标题归 shell 标签栏，摘要留为内容体首行的描述文字）；子会话
- * 行的「查看执行过程 →」不再回调父级，直接往 pane-store 开 trajectory 标签。
+ * 行的「查看执行过程 →」直接往 pane-store 开 trajectory 标签。
  */
 export function TrajectoryDetailTab({ tab }: { tab: PaneTab }) {
   // 无 hooks，渲染期窄化即安全；换 kind 即换组件类型 → remount。
