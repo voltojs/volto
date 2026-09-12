@@ -51,6 +51,12 @@ import {
   RevealUnsupportedError,
 } from "./fs/path-revealer.js";
 import { CommandTimeoutError } from "./fs/command-runner.js";
+import {
+  listDirectory,
+  searchFiles,
+  readFilePayload,
+  fsErrorStatus,
+} from "./fs/files.js";
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 
@@ -1065,6 +1071,73 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         } else {
           jsonResponse(res, 500, { error: message });
         }
+      }
+      return;
+    }
+
+    // GET /fs/tree — list one directory of a registered project (read-only)
+    if (req.method === "GET" && url.pathname === "/fs/tree") {
+      const projectId = url.searchParams.get("projectId");
+      const rel = url.searchParams.get("path") ?? "";
+      if (projectId === null || projectId === "") {
+        jsonResponse(res, 400, { error: "projectId is required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        const entries = await listDirectory(projectRoot, rel);
+        jsonResponse(res, 200, { path: rel, entries });
+      } catch (err: unknown) {
+        const mapped = fsErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /fs/search — filename search confined to the project root
+    if (req.method === "GET" && url.pathname === "/fs/search") {
+      const projectId = url.searchParams.get("projectId");
+      const q = url.searchParams.get("q");
+      if (projectId === null || projectId === "" || q === null || q === "") {
+        jsonResponse(res, 400, { error: "projectId and q are required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        jsonResponse(res, 200, { matches: await searchFiles(projectRoot, q) });
+      } catch (err: unknown) {
+        const mapped = fsErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /fs/file — one file's preview payload (text/image/binary)
+    if (req.method === "GET" && url.pathname === "/fs/file") {
+      const projectId = url.searchParams.get("projectId");
+      const rel = url.searchParams.get("path");
+      if (projectId === null || projectId === "" || rel === null || rel === "") {
+        jsonResponse(res, 400, { error: "projectId and path are required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        jsonResponse(res, 200, await readFilePayload(projectRoot, rel));
+      } catch (err: unknown) {
+        const mapped = fsErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
       }
       return;
     }

@@ -173,3 +173,19 @@ export async function readFilePayload(projectRoot: string, rel: string): Promise
     size: st.size,
   };
 }
+
+/** Map this module's domain errors onto HTTP statuses; null = not ours (500). */
+export function fsErrorStatus(err: unknown): { status: number; message: string } | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (
+    err instanceof PathOutsideProjectError ||
+    err instanceof NotADirectoryError ||
+    err instanceof FileTooLargeError
+  ) {
+    return { status: 400, message };
+  }
+  if (typeof err === "object" && err !== null && (err as NodeJS.ErrnoException).code === "ENOENT") {
+    return { status: 404, message: "Not found" };
+  }
+  return null;
+}
