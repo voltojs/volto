@@ -1,0 +1,83 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { FileTreeTab } from '@/components/pane/FileTreeTab';
+import { usePaneStore } from '@/stores/pane-store';
+import { fetchFsTree, searchFsFiles } from '@/lib/fs-api';
+
+vi.mock('@/lib/fs-api', () => ({ fetchFsTree: vi.fn(), searchFsFiles: vi.fn() }));
+const treeMock = vi.mocked(fetchFsTree);
+const searchMock = vi.mocked(searchFsFiles);
+
+const tab = { kind: 'files', id: 'files:p1', projectId: 'p1' } as const;
+
+beforeEach(() => {
+  usePaneStore.setState({ tabs: [tab], activeTabId: 'files:p1' });
+  treeMock.mockReset();
+  searchMock.mockReset();
+  treeMock.mockResolvedValue({
+    path: '',
+    entries: [
+      { name: 'src', type: 'dir', size: 0 },
+      { name: 'README.md', type: 'file', size: 5 },
+    ],
+  });
+  searchMock.mockResolvedValue({ matches: ['src/a.ts'] });
+});
+
+describe('FileTreeTab', () => {
+  it('loads and renders the root lazily', async () => {
+    render(<FileTreeTab tab={tab} />);
+    expect(await screen.findByText('README.md')).toBeDefined();
+    expect(treeMock).toHaveBeenCalledWith('p1', '');
+  });
+
+  it('expands a directory on demand', async () => {
+    treeMock.mockResolvedValueOnce({
+      path: '',
+      entries: [{ name: 'src', type: 'dir', size: 0 }],
+    });
+    treeMock.mockResolvedValueOnce({
+      path: 'src',
+      entries: [{ name: 'a.ts', type: 'file', size: 3 }],
+    });
+    render(<FileTreeTab tab={tab} />);
+    fireEvent.click(await screen.findByText('src'));
+    expect(await screen.findByText('a.ts')).toBeDefined();
+    expect(treeMock).toHaveBeenLastCalledWith('p1', 'src');
+  });
+
+  it('opens a file-preview tab when a file is clicked', async () => {
+    render(<FileTreeTab tab={tab} />);
+    fireEvent.click(await screen.findByText('README.md'));
+    const { tabs, activeTabId } = usePaneStore.getState();
+    expect(tabs.find((t) => t.id === 'preview:p1:README.md')).toMatchObject({
+      kind: 'file-preview',
+      projectId: 'p1',
+      path: 'README.md',
+    });
+    expect(activeTabId).toBe('preview:p1:README.md');
+  });
+
+  it('switches to search results when the filter is non-empty (debounced)', async () => {
+    // shouldAdvanceTime: vitest fake timers + RTL findBy* 需要真实时间流逝推进
+    // waitFor 的轮询与 React 调度提交（testing-library 只识别 jest 全局，vitest 下
+    // 纯假定时器会让 findByText 永久挂起——实测 verbatim 版本挂死，见 task-9-report.md）。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<FileTreeTab tab={tab} />);
+      await screen.findByText('README.md');
+      fireEvent.change(screen.getByPlaceholderText('搜索文件名'), { target: { value: 'a.ts' } });
+      await vi.advanceTimersByTimeAsync(300);
+      expect(await screen.findByText('src/a.ts')).toBeDefined();
+      expect(searchMock).toHaveBeenCalledWith('p1', 'a.ts');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows an error with retry when the tree fetch fails', async () => {
+    treeMock.mockRejectedValue(new Error('boom'));
+    render(<FileTreeTab tab={tab} />);
+    expect(await screen.findByText('boom')).toBeDefined();
+  });
+});

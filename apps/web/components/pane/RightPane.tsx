@@ -17,6 +17,7 @@ import {
   type PaneTab,
 } from '@/stores/pane-store';
 import { KIND_LABELS } from '@/lib/trajectory-view-model';
+import { FileTreeTab } from './FileTreeTab';
 import { SubagentTab } from './SubagentTab';
 import { TrajectoryDetailTab } from './TrajectoryDetailTab';
 import { TrajectoryTab } from './TrajectoryTab';
@@ -30,7 +31,7 @@ const PANE_TAB_RENDERERS: {
   readonly [K in PaneTab['kind']]: ComponentType<{ tab: PaneTab }> | undefined;
 } = {
   subagent: SubagentTab,
-  files: undefined, // Task 9 注册
+  files: FileTreeTab,
   'file-preview': undefined, // Task 10 注册
   'trajectory-detail': TrajectoryDetailTab,
   trajectory: TrajectoryTab,
