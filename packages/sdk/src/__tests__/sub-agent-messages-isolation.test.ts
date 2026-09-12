@@ -138,4 +138,69 @@ describe("task sub-agent — messages isolation", () => {
     expect(subDeltas.length).toBeGreaterThanOrEqual(1);
     expect(mainDeltas.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("sub-agent events carry childSessionId so parallel dispatches are attributable", async () => {
+    const spy = createMessagesSpy([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go" })),
+      textScript("sub speaks"),
+      textScript("main wraps up"),
+    ]);
+
+    const received: Array<{ type: string; depth: number | undefined; childId: unknown }> = [];
+    const agent = createAgent({
+      modelPort: spy,
+      enableTaskTool: true,
+      // 无 chatSessionId 时 childSessionId 退化为 undefined —— 用两个 agent 分别断言。
+      chatSessionId: "sess-test",
+      eventSink: {
+        emit(ev) {
+          received.push({
+            type: ev.type,
+            depth: typeof ev.data["agentDepth"] === "number" ? (ev.data["agentDepth"] as number) : undefined,
+            childId: ev.data["childSessionId"],
+          });
+        },
+      },
+    });
+
+    await agent.run("hi");
+
+    const tagged = received.filter((e) => (e.depth ?? 0) >= 1);
+    expect(tagged.length).toBeGreaterThanOrEqual(1);
+    for (const e of tagged) {
+      expect(String(e.childId)).toMatch(/^sess-test-sub-/);
+    }
+  });
+
+  it("without chatSessionId, sub-agent events carry no childSessionId (degenerate path)", async () => {
+    const spy = createMessagesSpy([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go" })),
+      textScript("sub speaks"),
+      textScript("main wraps up"),
+    ]);
+
+    const received: Array<{ type: string; depth: number | undefined; childId: unknown }> = [];
+    const agent = createAgent({
+      modelPort: spy,
+      enableTaskTool: true,
+      // 不传 chatSessionId：没有可归属的父会话，childSessionId 必须缺席。
+      eventSink: {
+        emit(ev) {
+          received.push({
+            type: ev.type,
+            depth: typeof ev.data["agentDepth"] === "number" ? (ev.data["agentDepth"] as number) : undefined,
+            childId: ev.data["childSessionId"],
+          });
+        },
+      },
+    });
+
+    await agent.run("hi");
+
+    const tagged = received.filter((e) => (e.depth ?? 0) >= 1);
+    expect(tagged.length).toBeGreaterThanOrEqual(1);
+    for (const e of tagged) {
+      expect(e.childId).toBeUndefined();
+    }
+  });
 });

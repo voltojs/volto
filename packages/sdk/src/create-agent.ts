@@ -1710,12 +1710,15 @@ function extractInputText(input: AgentInput): string {
  * Wrap an EventSink so every emitted event is tagged with the originating
  * agent depth and an optional label. Used by sub-agents so the host can
  * distinguish nested output from the main agent's stream without breaking
- * existing event payload shapes.
+ * existing event payload shapes. `childSessionId` (when the sub-agent has a
+ * real parent session to link back to) makes parallel dispatches
+ * attributable on the shared parent channel.
  */
 function tagEventSink(
   inner: EventSink,
   depth: number,
   label?: string,
+  childSessionId?: string,
 ): EventSink {
   return {
     emit(event) {
@@ -1725,6 +1728,7 @@ function tagEventSink(
           ...event.data,
           agentDepth: depth,
           ...(label !== undefined ? { agentLabel: label } : {}),
+          ...(childSessionId !== undefined ? { childSessionId } : {}),
         },
       });
     },
@@ -1860,7 +1864,7 @@ function createSubAgentExecutor(
 
     const currentSink = getCurrentEventSink();
     const taggedSink = currentSink
-      ? tagEventSink(currentSink, depth, "task")
+      ? tagEventSink(currentSink, depth, "task", childSessionId)
       : undefined;
 
     const subRunner = createRunner({
