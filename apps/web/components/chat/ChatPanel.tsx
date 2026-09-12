@@ -435,7 +435,13 @@ export function ChatPanel() {
           {openSubagentId !== null && <SubagentPane onClose={closeSubagent} />}
         </TabsContent>
         <TabsContent value="trajectory" keepMounted className="flex min-h-0 flex-1 flex-col">
-          <TrajectoryPanel sessionId={currentSessionId} />
+          <TrajectoryPanel
+            sessionId={currentSessionId}
+            onOpenSubagent={(id) => {
+              openSubagent(id);
+              setActiveTab('chat');
+            }}
+          />
         </TabsContent>
       </Tabs>
       <InputBar

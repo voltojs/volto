@@ -11,9 +11,11 @@ import type { TrajectoryRow } from '@volto/sdk/sse';
 interface TrajectoryPanelProps {
   /** 当前会话 id（根层级）。 */
   sessionId: string | null;
+  /** 打开某条子代理行的执行过程（子代理分栏）。缺省时该入口不生效。 */
+  onOpenSubagent?: (childSessionId: string) => void;
 }
 
-export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
+export function TrajectoryPanel({ sessionId, onOpenSubagent }: TrajectoryPanelProps) {
   const feed = useTrajectory();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -26,9 +28,8 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
     setDrawerOpen(true);
   };
 
-  const onDrillDown = (row: TrajectoryRow) => {
-    if (row.childSessionId === undefined) return;
-    feed.drillTo(row.childSessionId, `子会话 …${row.childSessionId.slice(-6)}`);
+  const handleOpenSubagent = (childSessionId: string) => {
+    onOpenSubagent?.(childSessionId);
     setSelectedId(null);
     setDrawerOpen(false);
   };
@@ -43,28 +44,6 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {feed.drillPath.length > 0 && (
-        <div className="border-b px-3 py-1.5 text-xs">
-          <button
-            type="button"
-            onClick={() => {
-              feed.drillBack();
-              setSelectedId(null);
-            }}
-            className="text-primary hover:bg-primary/10 rounded px-1 py-0.5"
-          >
-            会话
-          </button>
-          {feed.drillPath.map((level) => (
-            <span key={level.sessionId} className="text-muted-foreground">
-              {' / '}
-              {level.label}
-            </span>
-          ))}
-          <span className="text-muted-foreground/60 ml-2 text-[10px]">子会话快照</span>
-        </div>
-      )}
-
       {feed.error !== null ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
           <p
@@ -101,7 +80,7 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
         row={selectedRow}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        onDrillDown={onDrillDown}
+        onOpenSubagent={handleOpenSubagent}
       />
     </div>
   );
