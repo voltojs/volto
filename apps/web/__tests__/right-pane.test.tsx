@@ -8,6 +8,8 @@ vi.mock('@/lib/sessions-api', () => ({
   fetchSessionEvents: vi.fn().mockResolvedValue({ sessionId: 'x', events: [] }),
 }));
 Element.prototype.scrollIntoView ??= () => {};
+// jsdom 30 尚未实现 pointer capture；拖拽测试只需要事件派发路径。
+Element.prototype.setPointerCapture ??= () => {};
 
 const subagentTab = (childId: string) =>
   ({
@@ -50,6 +52,24 @@ describe('RightPane', () => {
     render(<RightPane />);
     fireEvent.click(screen.getByRole('button', { name: /关闭 子代理/ }));
     expect(usePaneStore.getState().tabs).toHaveLength(0);
+  });
+
+  it('resets drag state on pointercancel so later moves cannot jump the width', () => {
+    usePaneStore.setState({
+      tabs: [subagentTab('a')],
+      activeTabId: 'subagent:a',
+      width: 500,
+    });
+    render(<RightPane />);
+    const handle = screen.getByRole('separator');
+    // 先证明拖拽路径本身有效：下压后移动 50px → 宽度 450。
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100 });
+    fireEvent.pointerMove(handle, { clientX: 150 });
+    expect(usePaneStore.getState().width).toBe(450);
+    // 取消后（触摸/笔接管、强制释放 capture），后续无按键 move 不得再改宽。
+    fireEvent.pointerCancel(handle);
+    fireEvent.pointerMove(handle, { clientX: 200 });
+    expect(usePaneStore.getState().width).toBe(450);
   });
 
   it('exposes a resize handle that persists a new width', () => {

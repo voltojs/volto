@@ -131,6 +131,7 @@ export function RightPane() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onDoubleClick={() => setWidth(PANE_WIDTH_DEFAULT)}
       />
       <div className="flex min-w-0 flex-1 flex-col border-l">
