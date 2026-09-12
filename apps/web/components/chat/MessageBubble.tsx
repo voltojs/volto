@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
   message: ConversationMessage;
+  onOpenSubagent?: (childSessionId: string) => void;
 }
 
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -22,7 +23,7 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
 });
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onOpenSubagent }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
 
@@ -78,7 +79,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               );
             }
             if (block.type === 'tool_call') {
-              return <ToolCallCard key={block.call.id} call={block.call} />;
+              return (
+                <ToolCallCard
+                  key={block.call.id}
+                  call={block.call}
+                  onOpenSubagent={onOpenSubagent}
+                />
+              );
             }
             const isStreamingTail =
               message.isStreaming && index === message.blocks.length - 1;

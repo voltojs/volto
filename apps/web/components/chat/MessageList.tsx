@@ -6,10 +6,19 @@ import { MessageBubble } from './MessageBubble';
 import { ErrorNotice } from './ErrorNotice';
 import { Notice } from './Notice';
 
-function renderEntry(entry: ChatEntry) {
+function renderEntry(
+  entry: ChatEntry,
+  onOpenSubagent?: (childSessionId: string) => void,
+) {
   switch (entry.kind) {
     case 'message':
-      return <MessageBubble key={entry.message.id} message={entry.message} />;
+      return (
+        <MessageBubble
+          key={entry.message.id}
+          message={entry.message}
+          onOpenSubagent={onOpenSubagent}
+        />
+      );
     case 'error':
       return <ErrorNotice key={entry.key} text={entry.text} time={entry.time} />;
     case 'notice':
@@ -17,7 +26,13 @@ function renderEntry(entry: ChatEntry) {
   }
 }
 
-export function MessageList({ entries }: { entries: ChatEntry[] }) {
+export function MessageList({
+  entries,
+  onOpenSubagent,
+}: {
+  entries: ChatEntry[];
+  onOpenSubagent?: (childSessionId: string) => void;
+}) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,7 +44,13 @@ export function MessageList({ entries }: { entries: ChatEntry[] }) {
       {/* No dividers between entries: user turns are right-aligned bubbles and
           agent turns flow on the left, so the thread reads as one continuous
           conversation rather than a list of separated rows. */}
-      <div className="mx-auto max-w-3xl px-6 py-2">{entries.map(renderEntry)}</div>
+      {/* The callback is captured in an inline closure instead of passing
+          `renderEntry` straight to `map` (map would feed the index as the
+          second argument); the reference handed down stays whatever the
+          caller passed, so downstream memo comparators see a stable prop. */}
+      <div className="mx-auto max-w-3xl px-6 py-2">
+        {entries.map((entry) => renderEntry(entry, onOpenSubagent))}
+      </div>
       <div ref={bottomRef} />
     </div>
   );
