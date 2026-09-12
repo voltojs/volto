@@ -1,15 +1,17 @@
 /**
  * Client for `apps/headless-server`'s durable transcript endpoints
- * (`GET /sessions`, `GET /sessions/:id`, `GET /sessions/:id/trajectory`) —
- * the jsonl store's chat history, already projected server-side into the
- * shared `ConversationView` / `TrajectoryView` shapes re-exported by
- * `@volto/sdk/sse`.
+ * (`GET /sessions`, `GET /sessions/:id`, `GET /sessions/:id/trajectory`,
+ * `GET /sessions/:id/events`) — the jsonl store's chat history, already
+ * projected server-side into the shared `ConversationView` /
+ * `TrajectoryView` shapes re-exported by `@volto/sdk/sse` (the raw-events
+ * endpoint is the exception: wire-order events, projected client-side).
  */
 
 import { SERVER_URL } from './agent-config';
 import type {
   ConversationMessage,
   ContextUsageSnapshot,
+  TranscriptEventInput,
   TrajectoryView,
 } from '@volto/sdk/sse';
 
@@ -130,6 +132,35 @@ export async function fetchServerTrajectory(
     );
   }
   return (await response.json()) as TrajectoryView;
+}
+
+/**
+ * Fetches one session's raw persisted events — no projection, wire order.
+ * Serves sub-agent pane hydration: unknown ids answer 200 + empty (the
+ * /trajectory contract), so there is no 404 branch here. 410 = a
+ * legacy-format transcript this build cannot read (same server-side
+ * `TranscriptFormatError` mapping as the detail/trajectory endpoints, hence
+ * the shared `TrajectoryUnavailableError`), the rest are network/server
+ * faults.
+ */
+export async function fetchSessionEvents(
+  id: string,
+): Promise<{ sessionId: string; events: TranscriptEventInput[] }> {
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/events`,
+    { credentials: 'include' },
+  );
+  if (!response.ok) {
+    const message = await readErrorMessage(
+      response,
+      `Failed to load events ${id}: HTTP ${response.status}`,
+    );
+    throw new TrajectoryUnavailableError(response.status, message);
+  }
+  return (await response.json()) as {
+    sessionId: string;
+    events: TranscriptEventInput[];
+  };
 }
 
 /**

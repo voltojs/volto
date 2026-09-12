@@ -9,6 +9,7 @@ import {
   fetchServerSessions,
   fetchServerSessionDetail,
   fetchServerTrajectory,
+  fetchSessionEvents,
   renameServerSession,
   deleteServerSession,
   TrajectoryUnavailableError,
@@ -188,6 +189,53 @@ describe('fetchServerTrajectory', () => {
     const err: unknown = await fetchServerTrajectory('s1').catch(
       (e: unknown) => e,
     );
+    expect(err).toBeInstanceOf(TrajectoryUnavailableError);
+    expect((err as TrajectoryUnavailableError).kind).toBe('network');
+  });
+});
+
+describe('fetchSessionEvents', () => {
+  const body = {
+    sessionId: 's-sub-0',
+    events: [
+      { time: 1, type: 'user_message', data: { content: 'go' }, turn: 1 },
+    ],
+  };
+
+  it('GETs the raw events endpoint and returns the parsed body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchSessionEvents('s-sub-0')).resolves.toEqual(body);
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/sessions\/s-sub-0\/events$/);
+  });
+
+  it('encodes the session id into the path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchSessionEvents('a/b');
+    expect(String(fetchMock.mock.calls[0]![0])).toMatch(/\/sessions\/a%2Fb\/events$/);
+  });
+
+  // Unknown ids answer 200 + empty per the server contract, so there is no
+  // 404 branch — the 410 branch is the one that matters: the pane must be
+  // able to tell "legacy transcript, retry is pointless" from a transient
+  // fault, same as the detail/trajectory endpoints.
+  it('rejects with a legacy-kind TrajectoryUnavailableError for HTTP 410', async () => {
+    stubFetch(() => ({ status: 410, body: { error: 'legacy store' } }));
+
+    const err: unknown = await fetchSessionEvents('s1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TrajectoryUnavailableError);
+    expect((err as TrajectoryUnavailableError).kind).toBe('legacy');
+    expect((err as Error).message).toBe('legacy store');
+  });
+
+  it('rejects with a network-kind TrajectoryUnavailableError for HTTP 500', async () => {
+    stubFetch(() => ({ status: 500, body: { error: 'boom' } }));
+
+    const err: unknown = await fetchSessionEvents('s1').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TrajectoryUnavailableError);
     expect((err as TrajectoryUnavailableError).kind).toBe('network');
   });
