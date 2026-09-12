@@ -323,6 +323,14 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** Sub-agent routing tags, present only on events the tagged sink emitted. */
+function routingTags(data: Record<string, unknown>): { agentDepth?: number; childSessionId?: string } {
+  const tags: { agentDepth?: number; childSessionId?: string } = {};
+  if (typeof data["agentDepth"] === "number") tags.agentDepth = data["agentDepth"];
+  if (typeof data["childSessionId"] === "string") tags.childSessionId = data["childSessionId"];
+  return tags;
+}
+
 /**
  * Narrow a channel event to the transcript contract. The runtime
  * discriminator is the `time` stamp: since task-r6 the Runner's recorder
@@ -404,9 +412,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   function frame(session: Session, event: ChannelEvent): sse.SSEMessage | null {
     switch (event.type) {
       case "text_delta":
-        return session.mapper.delta({ kind: "text", text: asString(event.data["text"]) });
+        return session.mapper.delta({ kind: "text", text: asString(event.data["text"]), ...routingTags(event.data) });
       case "reasoning_delta":
-        return session.mapper.delta({ kind: "reasoning", text: asString(event.data["text"]) });
+        return session.mapper.delta({ kind: "reasoning", text: asString(event.data["text"]), ...routingTags(event.data) });
       case "tool_use_delta":
         return session.mapper.delta({
           kind: "tool_use",
@@ -415,6 +423,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           // it optional so applyPartial folds in what is present.
           ...(typeof event.data["toolName"] === "string" ? { name: event.data["toolName"] as string } : {}),
           argumentsDelta: asString(event.data["argumentsDelta"]),
+          ...routingTags(event.data),
         });
       default: {
         const transcript = asTranscriptEvent(event);

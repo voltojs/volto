@@ -480,3 +480,60 @@ describe("chat transcript wiring (jsonl)", () => {
     expect(turnStarts).toEqual([1, 2, 3]);
   });
 });
+
+/**
+ * Agent stub whose stream() yields one sub-agent (tagged) text delta followed
+ * by one main-agent (untagged) text delta — the exact pair frame()'s delta
+ * branches must tell apart when forwarding routing tags to the wire.
+ */
+function makeTaggedDeltaFactory() {
+  const factory = () => ({
+    async *stream() {
+      yield { type: "text_delta", data: { text: "x", agentDepth: 1, childSessionId: "p-sub-1" } };
+      yield { type: "text_delta", data: { text: "y" } };
+    },
+    getState: () => ({ messages: [] }) as unknown as ReducerState,
+  });
+  return { factory };
+}
+
+describe("frame() — sub-agent routing tags on delta frames", () => {
+  it("forwards agentDepth/childSessionId on tagged deltas and leaves untagged deltas unchanged", async () => {
+    const { factory } = makeTaggedDeltaFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: { resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-secret", code: "m" }) } as never,
+    });
+    // Attach an SSE connection that collects every raw frame written to it.
+    const frames: string[] = [];
+    registry.attach("s1", {
+      write: (chunk: string) => {
+        frames.push(chunk);
+        return true;
+      },
+      on: () => {},
+    } as never);
+    created.push(registry);
+
+    await registry.runTurn("s1", "hi", config);
+
+    // The tagged delta reaches the wire with both routing tags on its payload.
+    const taggedFrame = frames.find((f) => f.includes("event: delta") && f.includes("p-sub-1"));
+    expect(taggedFrame).toBeDefined();
+    const payload = JSON.parse(taggedFrame!.split("data: ")[1]!);
+    expect(payload.agentDepth).toBe(1);
+    expect(payload.childSessionId).toBe("p-sub-1");
+
+    // Both deltas were framed (tagged + untagged) — the untagged one must not
+    // grow the routing keys at all (backward compatibility: no new keys on
+    // untagged traffic).
+    const deltaFrames = frames.filter((f) => f.includes("event: delta"));
+    expect(deltaFrames.length).toBeGreaterThanOrEqual(2);
+    const untaggedFrame = deltaFrames.find((f) => !f.includes("p-sub-1"));
+    expect(untaggedFrame).toBeDefined();
+    const untaggedPayload = JSON.parse(untaggedFrame!.split("data: ")[1]!);
+    expect("agentDepth" in untaggedPayload).toBe(false);
+    expect("childSessionId" in untaggedPayload).toBe(false);
+  });
+});
