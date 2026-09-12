@@ -148,7 +148,11 @@ export function TrajectoryDetailTab({ tab }: { tab: PaneTab }) {
       <p className="text-muted-foreground shrink-0 truncate px-4 pt-3 text-xs">
         {row.summary}
       </p>
-      <Tabs defaultValue={tabs[0]} className="min-h-0 flex-1">
+      {/* key=row.id：切换两个 detail 标签时重挂内层 Tabs（同 FileTreeTab /
+          FilePreviewTab 的 key 重挂模式）。row 换 kind 后 tab 集变化，非受控
+          Tabs 的激活值不得跨行残留——@base-ui/react 1.7.0 虽有 missing-tab
+          自动回退，显式重挂不依赖该行为、语义确定。 */}
+      <Tabs key={row.id} defaultValue={tabs[0]} className="min-h-0 flex-1">
         <TabsList className="mx-4 mt-3">
           {tabs.map((key) => (
             <TabsTrigger key={key} value={key}>

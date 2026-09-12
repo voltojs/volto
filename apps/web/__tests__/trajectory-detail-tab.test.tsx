@@ -64,4 +64,20 @@ describe('TrajectoryDetailTab', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
+
+  // 回归（review Important）：RightPane 对同类标签不换组件实例，内层 Tabs 又是
+  // defaultValue 非受控（仅挂载时读取）——切到 tabs 集更小的行时激活值仍停在
+  // 已删除的 tab 上，标签栏显示 概览 而内容体空白。row-key 强制重挂（同
+  // FilePreviewTab 的 path-key 模式）。
+  it('remounts the inner Tabs on row change so a narrower kind never blanks the body', () => {
+    const toolRow = row({ id: 'r1', kind: 'tool' });
+    const userRow = row({ id: 'r2', kind: 'user' });
+    const { rerender } = render(<TrajectoryDetailTab tab={tab(toolRow)} />);
+    fireEvent.click(screen.getByText('结果'));
+    expect(screen.getByText('hello')).toBeDefined();
+    rerender(<TrajectoryDetailTab tab={tab(userRow)} />);
+    // user 行只有 概览 一个 tab：不重挂则激活值停留在已删除的 结果 → 空白。
+    expect(screen.queryByText('hello')).toBeNull();
+    expect(screen.getByText('用户')).toBeDefined();
+  });
 });
