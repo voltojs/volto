@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
+import { memo } from 'react';
 import { ChevronRight, CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import {
   Collapsible,
@@ -9,12 +9,10 @@ import {
 } from '@/components/ui/collapsible';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { denialNoteFor } from '@/lib/approvals';
-import { formatDuration } from '@/lib/trajectory-view-model';
 import { cn } from '@/lib/utils';
 
 interface ToolCallCardProps {
   call: ConversationToolCall;
-  onOpenSubagent?: (childSessionId: string) => void;
 }
 
 function StatusIcon({ call }: ToolCallCardProps) {
@@ -36,8 +34,7 @@ function StatusIcon({ call }: ToolCallCardProps) {
  * content is fixed for a given call, so identity comparison would defeat the
  * memo; compare only the fields that actually move during a live run —
  * result/isError land together at tool_result, approval decision at
- * approval_decision — plus the callback the pane button fires. Exported for
- * the comparator test.
+ * approval_decision. Exported for the comparator test.
  */
 export function toolCallCardComparator(
   a: ToolCallCardProps,
@@ -47,15 +44,13 @@ export function toolCallCardComparator(
     a.call.id === b.call.id &&
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
-    a.call.approval?.decision === b.call.approval?.decision &&
-    a.onOpenSubagent === b.onOpenSubagent
+    a.call.approval?.decision === b.call.approval?.decision
   );
 }
 
 /** Collapsed summary of one tool call, expandable to show args and output. */
 export const ToolCallCard = memo(function ToolCallCard({
   call,
-  onOpenSubagent,
 }: ToolCallCardProps) {
   // Settled-approval rendering. The pending `ApprovalCard` vanishes the
   // moment a decision lands; without this line a fail-closed denial
@@ -64,25 +59,6 @@ export const ToolCallCard = memo(function ToolCallCard({
   const denialNote =
     call.approval?.decision === 'deny'
       ? denialNoteFor(call.approval.reason)
-      : null;
-
-  // While a sub-agent delegation is still running (no result yet) a live
-  // elapsed counter ticks next to the spinner; once the result lands,
-  // durationMs takes over and the interval is torn down. Plain calls never
-  // enter this branch.
-  const isRunning = call.result === undefined && call.childSessionId !== undefined;
-  // Ticking clock for the running elapsed counter. `Date.now()` lives in the
-  // interval — never in render — so each tick merely snapshots the current
-  // time into state and elapsed derives from that snapshot.
-  const [now, setNow] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    if (!isRunning) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [isRunning]);
-  const elapsed =
-    isRunning && call.startedAt !== undefined && now !== undefined
-      ? formatDuration(now - call.startedAt)
       : null;
 
   return (
@@ -100,16 +76,6 @@ export const ToolCallCard = memo(function ToolCallCard({
         {typeof call.durationMs === 'number' && (
           <span className="text-muted-foreground/70 font-mono text-[10px]">
             · {call.durationMs}ms
-          </span>
-        )}
-        {/* Next to the spinner while the sub-agent runs. The label is pure
-            props, so it shows immediately; the number lands with the first
-            interval tick (Date.now() never runs during render). "运行中"
-            keeps its own span so it stays a distinct text unit. */}
-        {isRunning && (
-          <span className="text-muted-foreground/70 font-mono text-[10px]">
-            {elapsed && <>· {elapsed} · </>}
-            <span>运行中</span>
           </span>
         )}
         <span className="ml-auto shrink-0">
@@ -159,18 +125,6 @@ export const ToolCallCard = memo(function ToolCallCard({
           )}
         </div>
       </CollapsibleContent>
-
-      {/* Inside the Collapsible root but outside CollapsibleContent, so the
-          pane stays reachable while the card is collapsed. */}
-      {call.childSessionId !== undefined && onOpenSubagent !== undefined && (
-        <button
-          type="button"
-          onClick={() => onOpenSubagent(call.childSessionId!)}
-          className="text-primary hover:bg-primary/10 border-t px-2.5 py-1.5 text-xs font-medium w-full text-left"
-        >
-          查看执行过程 →
-        </button>
-      )}
     </Collapsible>
   );
 }, toolCallCardComparator);

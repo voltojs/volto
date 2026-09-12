@@ -5,6 +5,7 @@ import { Check, ChevronRight, Copy } from 'lucide-react';
 import type { ConversationMessage } from '@volto/sdk/sse';
 import { StreamRenderer } from './StreamRenderer';
 import { Markdown } from './Markdown';
+import { SubagentCard } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
 import {
   Collapsible,
@@ -79,13 +80,18 @@ export function MessageBubble({ message, onOpenSubagent }: MessageBubbleProps) {
               );
             }
             if (block.type === 'tool_call') {
-              return (
-                <ToolCallCard
-                  key={block.call.id}
-                  call={block.call}
-                  onOpenSubagent={onOpenSubagent}
-                />
-              );
+              // Sub-agent delegations render as a compact single clickable
+              // row (SubagentCard); plain calls keep the collapsible card.
+              if (block.call.childSessionId !== undefined) {
+                return (
+                  <SubagentCard
+                    key={block.call.id}
+                    call={block.call}
+                    onOpenSubagent={onOpenSubagent}
+                  />
+                );
+              }
+              return <ToolCallCard key={block.call.id} call={block.call} />;
             }
             const isStreamingTail =
               message.isStreaming && index === message.blocks.length - 1;

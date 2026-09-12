@@ -23,14 +23,12 @@ describe('memo hardening', () => {
   });
 
   it('ToolCallCard comparator ignores args identity but reacts to result/approval changes', () => {
-    const base = { call: { id: 'c1', name: 'task', args: {} }, onOpenSubagent: undefined };
+    const base = { call: { id: 'c1', name: 'task', args: {} } };
     const sameArgs = {
       call: { id: 'c1', name: 'task', args: { fresh: {} } },
-      onOpenSubagent: undefined,
     };
     const withResult = {
       call: { id: 'c1', name: 'task', args: {}, result: 'done' },
-      onOpenSubagent: undefined,
     };
     expect(toolCallCardComparator(base as never, sameArgs as never)).toBe(true);
     expect(toolCallCardComparator(base as never, withResult as never)).toBe(
