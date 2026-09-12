@@ -1,9 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TrajectoryList } from './TrajectoryList';
-import { usePaneStore } from '@/stores/pane-store';
+import { TrajectoryDrawer } from './TrajectoryDrawer';
 import { useTrajectory } from '@/hooks/use-trajectory';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -14,17 +15,15 @@ interface TrajectoryPanelProps {
 
 export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
   const feed = useTrajectory();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // 选中行 → RightPane 开详情标签；row 快照随标签载荷存 pane-store，
-  // 重读同一行即刷新（见 pane-store.openTab）。
+  const selectedRow = feed.rows.find((r) => r.id === selectedId) ?? null;
+
+  // 行详情回归抽屉：选中行快照存本地 state，抽屉自包含渲染。
   const onSelect = (row: TrajectoryRow) => {
-    usePaneStore.getState().openTab({
-      kind: 'trajectory-detail',
-      id: `row:${sessionId ?? ''}:${row.id}`,
-      sessionId: sessionId ?? '',
-      rowId: row.id,
-      row,
-    });
+    setSelectedId(row.id);
+    setDrawerOpen(true);
   };
 
   if (sessionId === null) {
@@ -60,9 +59,20 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          <TrajectoryList rows={feed.rows} streamingRowId={feed.streamingRowId} onSelect={onSelect} />
+          <TrajectoryList
+            rows={feed.rows}
+            streamingRowId={feed.streamingRowId}
+            selectedId={selectedId}
+            onSelect={onSelect}
+          />
         </div>
       )}
+
+      <TrajectoryDrawer
+        row={selectedRow}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </div>
   );
 }

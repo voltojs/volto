@@ -2,10 +2,11 @@
 
 import type { ReactNode } from 'react';
 
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Markdown } from '@/components/chat/Markdown';
+import { usePaneStore } from '@/stores/pane-store';
 import { cn } from '@/lib/utils';
-import { usePaneStore, type PaneTab } from '@/stores/pane-store';
 import {
   EMPTY_CELL,
   KIND_BADGE_CLASS,
@@ -19,6 +20,12 @@ import {
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
+
+interface TrajectoryDrawerProps {
+  row: TrajectoryRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -47,8 +54,9 @@ function Code({ text }: { text: string }) {
 
 function OverviewTab({ row }: { row: TrajectoryRow }) {
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
-  // 提取为 const：onClick 闭包里 TS 无法沿用 row.childSessionId 的属性窄化。
-  const childSessionId = row.kind === 'subagent' ? row.childSessionId : undefined;
+  // 守卫保持原 truthiness 判断；落到 const 是因为属性收窄不带入 onClick 闭包。
+  const childSessionId =
+    row.kind === 'subagent' && row.childSessionId ? row.childSessionId : null;
   return (
     <div className="divide-y">
       <Field label="层级">
@@ -101,7 +109,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
           )}
         </>
       )}
-      {childSessionId !== undefined && (
+      {childSessionId !== null && (
         <Field label="子会话">
           <div className="flex items-center justify-between gap-2">
             <code className="text-muted-foreground min-w-0 truncate font-mono text-[11px]">
@@ -111,9 +119,10 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
               type="button"
               onClick={() =>
                 usePaneStore.getState().openTab({
-                  kind: 'trajectory',
-                  id: `trajectory:${childSessionId}`,
-                  sessionId: childSessionId,
+                  kind: 'subagent',
+                  id: `subagent:${childSessionId}`,
+                  childSessionId,
+                  view: 'trajectory',
                 })
               }
               className="text-primary hover:bg-primary/10 shrink-0 rounded px-2 py-1 text-xs font-medium"
@@ -132,44 +141,42 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
   );
 }
 
-/**
- * RightPane 的轨迹详情标签：row 快照随标签载荷存于 pane-store。外层无
- * Drawer chrome（标题归 shell 标签栏，摘要留为内容体首行的描述文字）；子会话
- * 行的「查看执行过程 →」直接往 pane-store 开 trajectory 标签。
- */
-export function TrajectoryDetailTab({ tab }: { tab: PaneTab }) {
-  // 无 hooks，渲染期窄化即安全；换 kind 即换组件类型 → remount。
-  if (tab.kind !== 'trajectory-detail') return null;
-  const row = tab.row;
+export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerProps) {
+  if (row === null) {
+    return (
+      <Drawer open={false} onOpenChange={onOpenChange}>
+        <DrawerContent title="轨迹详情" />
+      </Drawer>
+    );
+  }
+
   const tabs = drawerTabsFor(row.kind);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <p className="text-muted-foreground shrink-0 truncate px-4 pt-3 text-xs">
-        {row.summary}
-      </p>
-      {/* key=row.id：切换两个 detail 标签时重挂内层 Tabs（同 FileTreeTab /
-          FilePreviewTab 的 key 重挂模式）。row 换 kind 后 tab 集变化，非受控
-          Tabs 的激活值不得跨行残留——@base-ui/react 1.7.0 虽有 missing-tab
-          自动回退，显式重挂不依赖该行为、语义确定。 */}
-      <Tabs key={row.id} defaultValue={tabs[0]} className="min-h-0 flex-1">
-        <TabsList className="mx-4 mt-3">
-          {tabs.map((key) => (
-            <TabsTrigger key={key} value={key}>
-              {TAB_LABELS[key]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
+        title={`${KIND_LABELS[row.kind]} · ${locationLabel(row)}`}
+        description={row.summary}
+      >
+        <Tabs defaultValue={tabs[0]} className="min-h-0 flex-1">
+          <TabsList className="mx-4 mt-3">
+            {tabs.map((key) => (
+              <TabsTrigger key={key} value={key}>
+                {TAB_LABELS[key]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {tabs.map((key) => (
-            <TabsContent key={key} value={key} className="min-h-0">
-              <TabBody row={row} tab={key} />
-            </TabsContent>
-          ))}
-        </div>
-      </Tabs>
-    </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {tabs.map((key) => (
+              <TabsContent key={key} value={key} className="min-h-0">
+                <TabBody row={row} tab={key} />
+              </TabsContent>
+            ))}
+          </div>
+        </Tabs>
+      </DrawerContent>
+    </Drawer>
   );
 }
 

@@ -20,7 +20,6 @@ import { KIND_LABELS } from '@/lib/trajectory-view-model';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
 import { SubagentTab } from './SubagentTab';
-import { TrajectoryDetailTab } from './TrajectoryDetailTab';
 import { TrajectoryTab } from './TrajectoryTab';
 
 /**
@@ -34,7 +33,8 @@ const PANE_TAB_RENDERERS: {
   subagent: SubagentTab,
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
-  'trajectory-detail': TrajectoryDetailTab,
+  // 行详情回归抽屉，Task 4 删除键（PaneTab 联合成员一并移除）。
+  'trajectory-detail': undefined,
   trajectory: TrajectoryTab,
 };
 
