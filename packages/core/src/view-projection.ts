@@ -102,6 +102,15 @@ export interface TurnRecord {
   userInput: UserInputRecord[];
   steps: StepRecord[];
   error?: string;
+  /**
+   * A sub-agent dispatch announced by `subagent_started` whose `tool_call`
+   * event has not been flushed yet — the runner buffers tool_call events to
+   * batch end, so a running dispatch has no ToolCallRecord to carry the link.
+   * Present only while that window is open; cleared once the flush lands and
+   * the parking claim moves onto the record. At most one per turn (the
+   * parking map's existing single-slot shape).
+   */
+  pendingSubagent?: { label: string; childSessionId: string; startedAt: number };
 }
 
 // ──────────────────────────────────────────────
@@ -210,10 +219,11 @@ export function buildTurnRecords(
    * flushed yet, keyed by turn number. The SDK appends the bracket straight
    * to the store while the parent runner flushes its buffered `tool_call` at
    * batch end, so the on-disk order can be inverted; a parked start is
-   * claimed by the first same-named call that arrives, or garbage-collected
-   * with the projection if none ever does.
+   * claimed by the first same-named call that arrives, and one that never is
+   * surfaces on its turn record as `pendingSubagent` (the dispatch is still
+   * running — the conversation view links the block from there).
    */
-  const pendingSubagents = new Map<number, TranscriptEventMap["subagent_started"]>();
+  const pendingSubagents = new Map<number, TranscriptEvent<"subagent_started">>();
 
   for (const event of events) {
     switch (event.type) {
@@ -303,8 +313,8 @@ export function buildTurnRecords(
         // before this buffered flush. Only a name match may claim it — a
         // parked start whose call never arrives simply stays parked.
         const pending = pendingSubagents.get(turn.turn);
-        if (pending && data.name === pending.label && call.childSessionId === undefined) {
-          call.childSessionId = pending.childSessionId;
+        if (pending && data.name === pending.data.label && call.childSessionId === undefined) {
+          call.childSessionId = pending.data.childSessionId;
           pendingSubagents.delete(turn.turn);
         }
         break;
@@ -375,7 +385,9 @@ export function buildTurnRecords(
           call.childSessionId = data.childSessionId;
           pendingSubagents.delete(turn.turn);
         } else {
-          pendingSubagents.set(turn.turn, data);
+          // The whole event is parked, not just its data: the dispatch start
+          // time the surfaced `pendingSubagent` needs lives on the envelope.
+          pendingSubagents.set(turn.turn, event as TranscriptEvent<"subagent_started">);
         }
         break;
       }
@@ -395,6 +407,21 @@ export function buildTurnRecords(
         // can never render one. Do not add a case here for context_reminder;
         // that would break the "never leaks into chat" guarantee.
         break;
+    }
+  }
+
+  // A start still parked when the log ends is a dispatch in flight — its
+  // tool_call is buffered until batch end, so no ToolCallRecord carries the
+  // link yet. Surface it on the turn for the conversation view; the claim in
+  // the tool_call case above already removed it once the flush landed.
+  for (const [turnNo, pending] of pendingSubagents) {
+    const turn = turns.find((t) => t.turn === turnNo);
+    if (turn) {
+      turn.pendingSubagent = {
+        label: pending.data.label,
+        childSessionId: pending.data.childSessionId,
+        startedAt: pending.time,
+      };
     }
   }
 
@@ -541,31 +568,52 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
           } else if (block.type === "tool_use") {
             flush();
             const call = step.toolCalls.find((c) => c.callId === block.id);
-            blocks.push({
-              type: "tool_call",
-              call: {
-                id: block.id,
-                name: block.name,
-                args: block.input,
-                ...(call?.content !== undefined ? { result: call.content } : {}),
-                ...(call?.isError !== undefined ? { isError: call.isError } : {}),
-                ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
-                ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
-                ...(call?.startedAt !== undefined ? { startedAt: call.startedAt } : {}),
-                ...(call?.approval !== undefined
-                  ? {
-                      approval: {
-                        ...(call.approval.decision !== undefined
-                          ? { decision: call.approval.decision }
-                          : {}),
-                        ...(call.approval.reason !== undefined
-                          ? { reason: call.approval.reason }
-                          : {}),
-                      },
-                    }
-                  : {}),
-              },
-            });
+            if (call !== undefined) {
+              blocks.push({
+                type: "tool_call",
+                call: {
+                  id: block.id,
+                  name: block.name,
+                  args: block.input,
+                  ...(call?.content !== undefined ? { result: call.content } : {}),
+                  ...(call?.isError !== undefined ? { isError: call.isError } : {}),
+                  ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+                  ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
+                  ...(call?.startedAt !== undefined ? { startedAt: call.startedAt } : {}),
+                  ...(call?.approval !== undefined
+                    ? {
+                        approval: {
+                          ...(call.approval.decision !== undefined
+                            ? { decision: call.approval.decision }
+                            : {}),
+                          ...(call.approval.reason !== undefined
+                            ? { reason: call.approval.reason }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                },
+              });
+            } else if (turn.pendingSubagent !== undefined && turn.pendingSubagent.label === block.name) {
+              // The dispatch is still running: its buffered tool_call has not
+              // flushed, so no record matches — link the block from the parked
+              // start, whose time is the real dispatch start.
+              blocks.push({
+                type: "tool_call",
+                call: {
+                  id: block.id,
+                  name: block.name,
+                  args: block.input,
+                  childSessionId: turn.pendingSubagent.childSessionId,
+                  startedAt: turn.pendingSubagent.startedAt,
+                },
+              });
+            } else {
+              blocks.push({
+                type: "tool_call",
+                call: { id: block.id, name: block.name, args: block.input },
+              });
+            }
           }
           // Image blocks have no chat representation yet.
         }

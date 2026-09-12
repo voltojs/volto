@@ -297,6 +297,52 @@ describe("toConversationView", () => {
     expect(block && block.type === "tool_call" && block.call.startedAt).toBe(140);
   });
 
+  it("a running sub-agent (parked start, tool_call not yet flushed) links its block", () => {
+    // Live on-disk order: the assistant_message (tool_use block) lands first,
+    // subagent_started is written at dispatch start, and tool_call is buffered
+    // until batch end — so while the dispatch runs there is no tool_call event.
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 120,
+        type: "assistant_message",
+        data: { content: [{ type: "tool_use", id: "c1", name: "task", input: {} }], durationMs: 5 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "subagent_started", data: { childSessionId: "p-sub-7", label: "task", depth: 1 }, turn: 1 },
+    ]);
+    const view = toConversationView(buildTurnRecords(events));
+    const block = view.messages.flatMap((m) => m.blocks).find((b) => b.type === "tool_call");
+    expect(block && block.type === "tool_call" && block.call.childSessionId).toBe("p-sub-7");
+    expect(block && block.type === "tool_call" && block.call.startedAt).toBe(130);
+  });
+
+  it("once the tool_call flushes and claims the start, the record wins (no duplicate attach)", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 120,
+        type: "assistant_message",
+        data: { content: [{ type: "tool_use", id: "c1", name: "task", input: {} }], durationMs: 5 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "subagent_started", data: { childSessionId: "p-sub-7", label: "task", depth: 1 }, turn: 1 },
+      { time: 200, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 210, type: "tool_result", data: { callId: "c1", content: "done", isError: false, orderInBatch: 0 }, turn: 1, step: 1 },
+    ]);
+    const records = buildTurnRecords(events);
+    expect(records[0]!.pendingSubagent).toBeUndefined();
+    const view = toConversationView(records);
+    const block = view.messages.flatMap((m) => m.blocks).find((b) => b.type === "tool_call");
+    // From the record, not the parked start.
+    expect(block && block.type === "tool_call" && block.call.childSessionId).toBe("p-sub-7");
+    expect(block && block.type === "tool_call" && block.call.result).toBe("done");
+  });
+
   it("marks a message streaming while its step has a partial", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
