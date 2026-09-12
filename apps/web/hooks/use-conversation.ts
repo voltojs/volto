@@ -137,11 +137,14 @@ export function useConversation(): ConversationFeed {
 
     // The event buffer belongs to exactly one session; whatever is still in
     // it belongs to the session just left, so it must never project into the
-    // next session's feed.
+    // next session's feed. The sub-agent buckets are per-session the same
+    // way — a leftover childSessionId from the outgoing session must not be
+    // openable in the next one.
     const chat = useChatStore.getState();
     if (chat.currentSessionId !== currentSessionId) {
       chat.setEvents([]);
       chat.setSessionId(currentSessionId);
+      chat.resetSubagents();
       // 切走即丢弃上一会话的轨迹缓存行：缓存于切换前，可能缺少离开期间
       // 在服务端完成的轮次，切回时须重拉而不是命中陈旧缓存。
       if (previous !== null) dropCachedTrajectory(previous);

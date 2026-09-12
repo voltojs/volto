@@ -10,6 +10,7 @@ import {
   type ConnectionState,
 } from '@/lib/agent-config';
 import { useChatStore } from '@/stores/chat-store';
+import { deltaChildId, eventChildId } from '@/lib/subagent-routing';
 import { useSessionStore } from '@/stores/session-store';
 
 type SSEClient = ReturnType<typeof createSSEClient>;
@@ -45,7 +46,9 @@ const CONNECT_TIMEOUT_MS = 10_000;
  * a `POST /messages` trigger — the server streams the turn back over the
  * channel. Authoritative transcript events land on `onEvent`, streaming
  * increments on `onDelta`, and pre-stream `error` frames on `onError`; all
- * are forwarded into the chat store untouched.
+ * are forwarded into the chat store — main-conversation frames into the
+ * shared buffers, tagged sub-agent frames into their per-childSessionId
+ * buckets (lib/subagent-routing.ts).
  * Message assembly no longer happens here — the projection
  * (lib/projection.ts) derives the chat feed from the buffered events and
  * deltas, and the server echoes the user's own message back as a
@@ -73,15 +76,43 @@ export function useChatAgent(): UseChatAgentReturn {
 
       client.onStateChange(setConnectionState);
 
+      // Sub-agent frames (agentDepth > 0) are routed into their per-child
+      // buckets and never touch the main buffers — a tagged flood therefore
+      // cannot pollute or freeze the conversation feed. Depth-0 traffic,
+      // including the subagent_started/subagent_finished brackets, stays on
+      // the main feed; the finish bracket additionally closes the child's
+      // bucket. Untagged depth>0 frames (refreshed ring buffer, old server)
+      // still leave the main feed — they land in the UNTAGGED_BUCKET.
       client.onEvent((event) => {
-        useChatStore.getState().pushEvent(event);
-        if (event.type === 'turn_end') {
-          useChatStore.getState().setGenerating(false);
+        const chat = useChatStore.getState();
+        const childId = eventChildId(event);
+        if (childId) {
+          chat.pushSubagentEvent(childId, event);
+          return;
         }
+        chat.pushEvent(event);
+        if (event.type === 'subagent_finished') {
+          const data = event.data as {
+            childSessionId?: string;
+            isError?: boolean;
+            durationMs?: number;
+          };
+          if (typeof data.childSessionId === 'string') {
+            chat.markSubagentFinished(
+              data.childSessionId,
+              data.isError === true,
+              data.durationMs,
+            );
+          }
+        }
+        if (event.type === 'turn_end') chat.setGenerating(false);
       });
 
       client.onDelta((delta) => {
-        useChatStore.getState().pushDelta(delta);
+        const chat = useChatStore.getState();
+        const childId = deltaChildId(delta);
+        if (childId) chat.pushSubagentDelta(childId, delta);
+        else chat.pushDelta(delta);
       });
 
       // Protocol `error` frames (pre-stream failures: config resolution,
