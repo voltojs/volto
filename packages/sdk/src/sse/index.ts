@@ -15,6 +15,7 @@ export type {
   ConnectionState,
   ErrorData,
   ConnectedData,
+  TaggedTranscriptDelta,
 } from "./types.js";
 
 // Server

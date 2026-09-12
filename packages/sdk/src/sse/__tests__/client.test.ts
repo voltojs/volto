@@ -251,6 +251,27 @@ describe("SSEClient", () => {
       client.disconnect();
     });
 
+    it("should deliver tagged deltas with routing metadata to onDelta subscribers", () => {
+      const client = createClient();
+      const handler = vi.fn();
+
+      client.onDelta(handler);
+      client.connect();
+      instances[0]!.emitOpen();
+
+      const TAGGED_DELTA = { kind: "text", text: "hi", agentDepth: 1, childSessionId: "s-sub-0" };
+      instances[0]!.emitEvent("delta", TAGGED_DELTA);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(TAGGED_DELTA);
+      expect(handler.mock.calls[0]![0]).toMatchObject({
+        agentDepth: 1,
+        childSessionId: "s-sub-0",
+      });
+
+      client.disconnect();
+    });
+
     it("should support multiple subscribers for the same frame kind", () => {
       const client = createClient();
       const h1 = vi.fn();

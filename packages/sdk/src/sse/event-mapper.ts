@@ -7,8 +7,8 @@
  * the event id counter used for Last-Event-ID recovery.
  */
 
-import { SSEFrameType, type SSEMessage, type ErrorData, type ConnectedData } from "./types.js";
-import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
+import { SSEFrameType, type SSEMessage, type ErrorData, type ConnectedData, type TaggedTranscriptDelta } from "./types.js";
+import type { TranscriptEventInput } from "@volto/core";
 
 export interface EventMapperOptions {
   /** Starting value for the event id counter. @default 0 */
@@ -34,8 +34,12 @@ export function createEventMapper(options: EventMapperOptions = {}) {
     return { id: String(++eventId), event: SSEFrameType.EVENT, data: input, timestamp: now() };
   }
 
-  /** A streaming increment. Shares the last event's id — it is not replayable. */
-  function delta(increment: TranscriptDelta): SSEMessage<TranscriptDelta> {
+  /**
+   * A streaming increment. Shares the last event's id — it is not replayable.
+   * Accepts `TaggedTranscriptDelta` so sub-agent routing tags ride along
+   * verbatim; plain deltas (the common case) are unchanged on the wire.
+   */
+  function delta(increment: TaggedTranscriptDelta): SSEMessage<TaggedTranscriptDelta> {
     return { id: String(eventId), event: SSEFrameType.DELTA, data: increment, timestamp: now() };
   }
 

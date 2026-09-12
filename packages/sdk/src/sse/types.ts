@@ -11,6 +11,8 @@
 // Frame type enum
 // ---------------------------------------------------------------------------
 
+import type { TranscriptDelta } from "@volto/core";
+
 /**
  * Wire frame kinds.
  *
@@ -62,6 +64,20 @@ export interface ErrorData {
   /** Whether the client may safely retry. */
   retryable: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Tagged delta payload
+// ---------------------------------------------------------------------------
+
+/**
+ * A delta frame that may carry sub-agent routing metadata. Fields are
+ * optional and absent on main-agent deltas; old clients ignore them and
+ * old servers never send them (spec 2026-09-12 §4.2).
+ */
+export type TaggedTranscriptDelta = TranscriptDelta & {
+  agentDepth?: number;
+  childSessionId?: string;
+};
 
 // ---------------------------------------------------------------------------
 // Connected payload

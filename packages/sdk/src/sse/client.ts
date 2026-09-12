@@ -21,8 +21,9 @@ import {
   type ConnectionState,
   type ErrorData,
   type ConnectedData,
+  type TaggedTranscriptDelta,
 } from "./types.js";
-import type { TranscriptDelta, TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@volto/core";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -105,7 +106,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
         };
 
   const eventHandlers = new Set<(event: TranscriptEventInput) => void>();
-  const deltaHandlers = new Set<(delta: TranscriptDelta) => void>();
+  const deltaHandlers = new Set<(delta: TaggedTranscriptDelta) => void>();
   const errorHandlers = new Set<(data: ErrorData) => void>();
   const stateListeners = new Set<(state: ConnectionState) => void>();
 
@@ -127,7 +128,7 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
       }
     } else if (message.event === SSEFrameType.DELTA) {
       for (const handler of deltaHandlers) {
-        handler(message.data as TranscriptDelta);
+        handler(message.data as TaggedTranscriptDelta);
       }
     } else if (message.event === SSEFrameType.ERROR) {
       for (const handler of errorHandlers) {
@@ -247,8 +248,13 @@ export function createSSEClient(url: string, options: SSEClientOptions = {}) {
     };
   }
 
-  /** Subscribe to streaming increments. Returns an unsubscribe function. */
-  function onDelta(handler: (delta: TranscriptDelta) => void): () => void {
+  /**
+   * Subscribe to streaming increments. Handlers receive a
+   * `TaggedTranscriptDelta`: sub-agent deltas carry `agentDepth` /
+   * `childSessionId`, main-agent deltas are plain. Returns an unsubscribe
+   * function.
+   */
+  function onDelta(handler: (delta: TaggedTranscriptDelta) => void): () => void {
     deltaHandlers.add(handler);
     return () => {
       deltaHandlers.delete(handler);

@@ -84,3 +84,18 @@ describe("formatSSEFrame", () => {
     expect(wire.endsWith("\n\n")).toBe(true);
   });
 });
+
+describe("event mapper — tagged deltas", () => {
+  it("delta frames carry agentDepth/childSessionId when present", () => {
+    const mapper = createEventMapper();
+    const frame = mapper.delta({ kind: "text", text: "hi", agentDepth: 1, childSessionId: "s-sub-0" });
+    expect(frame.event).toBe(SSEFrameType.DELTA);
+    expect(frame.data).toEqual({ kind: "text", text: "hi", agentDepth: 1, childSessionId: "s-sub-0" });
+  });
+
+  it("untagged deltas stay unchanged (backward compatible)", () => {
+    const mapper = createEventMapper();
+    const frame = mapper.delta({ kind: "text", text: "hi" });
+    expect(frame.data).toEqual({ kind: "text", text: "hi" });
+  });
+});
