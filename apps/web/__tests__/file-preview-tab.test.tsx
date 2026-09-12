@@ -47,6 +47,17 @@ describe('FilePreviewTab', () => {
     expect(await screen.findByText(/不支持预览二进制文件/)).toBeDefined();
   });
 
+  it('remounts on path change so the previous file never flashes', async () => {
+    fileMock.mockResolvedValueOnce({ kind: 'text', content: 'aaa', truncated: false, size: 3 });
+    const { rerender } = render(<FilePreviewTab tab={tab('a.ts')} />);
+    expect(await screen.findByText('aaa')).toBeDefined();
+    fileMock.mockResolvedValueOnce({ kind: 'text', content: 'bbb', truncated: false, size: 3 });
+    rerender(<FilePreviewTab tab={tab('b.ts')} />);
+    // b.ts 拉取期间不得残留 a.ts 内容（path-keyed 重挂载清空旧 state）
+    expect(screen.queryByText('aaa')).toBeNull();
+    expect(await screen.findByText('bbb')).toBeDefined();
+  });
+
   it('offers retry on fetch failure', async () => {
     fileMock.mockRejectedValueOnce(new Error('网络故障'));
     render(<FilePreviewTab tab={tab('x.ts')} />);

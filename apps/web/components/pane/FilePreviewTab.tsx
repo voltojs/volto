@@ -37,7 +37,9 @@ const MARKDOWN_EXTS = new Set(['.md', '.mdx']);
  */
 export function FilePreviewTab({ tab }: { tab: PaneTab }) {
   if (tab.kind !== 'file-preview') return null;
-  return <FilePreview projectId={tab.projectId} path={tab.path} />;
+  // key=projectId:path：切换两个已打开的 file-preview 标签时重挂载，旧文件的
+  // payload / error / 重试视图不得残留到新文件的加载期（同 FileTreeTab 的 key 模式）。
+  return <FilePreview key={`${tab.projectId}:${tab.path}`} projectId={tab.projectId} path={tab.path} />;
 }
 
 function FilePreview({ projectId, path }: { projectId: string; path: string }) {
