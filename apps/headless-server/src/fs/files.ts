@@ -7,6 +7,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import type { Stats } from "node:fs";
 import * as path from "node:path";
 
 export class PathOutsideProjectError extends Error {}
@@ -77,4 +78,98 @@ export async function listDirectory(projectRoot: string, rel: string): Promise<F
   return withStats
     .filter((e): e is FsEntry => e !== null && !IGNORED_DIRS.has(e.name))
     .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1));
+}
+
+export class FileTooLargeError extends Error {}
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_BYTES = 512 * 1024;
+const BINARY_SNIFF_BYTES = 8192;
+
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".ico": "image/x-icon", ".bmp": "image/bmp", ".avif": "image/avif",
+};
+
+export type FsFileData =
+  | { kind: "text"; content: string; truncated: boolean; size: number }
+  | { kind: "image"; base64: string; mediaType: string; size: number }
+  | { kind: "binary"; size: number };
+
+/** BFS the project (ignored/hidden dirs pruned), capped on hits and visits. */
+export async function searchFiles(
+  projectRoot: string,
+  query: string,
+  cap = 200,
+): Promise<string[]> {
+  const needle = query.toLowerCase();
+  const root = await fs.realpath(projectRoot);
+  const matches: string[] = [];
+  let visited = 0;
+  const queue: Array<{ abs: string; rel: string; depth: number }> = [
+    { abs: root, rel: "", depth: 0 },
+  ];
+  while (queue.length > 0 && matches.length < cap && visited < 2000) {
+    const { abs, rel, depth } = queue.shift()!;
+    let names: string[];
+    try {
+      names = await fs.readdir(abs);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (visited >= 2000 || matches.length >= cap) break;
+      visited++;
+      if (name.startsWith(".") || IGNORED_DIRS.has(name)) continue;
+      const childRel = rel === "" ? name : `${rel}/${name}`;
+      let st: Stats;
+      try {
+        st = await fs.stat(path.join(abs, name));
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (depth < 16) queue.push({ abs: path.join(abs, name), rel: childRel, depth: depth + 1 });
+      } else if (name.toLowerCase().includes(needle)) {
+        matches.push(childRel);
+      }
+    }
+  }
+  return matches;
+}
+
+export async function readFilePayload(projectRoot: string, rel: string): Promise<FsFileData> {
+  const abs = await resolveWithinRoot(projectRoot, rel);
+  const st = await fs.stat(abs);
+  if (st.isDirectory()) throw new NotADirectoryError(`Not a file: ${rel}`);
+  const mime = IMAGE_MIME[path.extname(rel).toLowerCase()];
+  if (mime !== undefined) {
+    if (st.size > MAX_IMAGE_BYTES) {
+      throw new FileTooLargeError(`Image too large to preview (${st.size} bytes)`);
+    }
+    const buf = await fs.readFile(abs);
+    return { kind: "image", base64: buf.toString("base64"), mediaType: mime, size: st.size };
+  }
+  // Read at most MAX_TEXT_BYTES even for huge files — open + read bounds the
+  // buffer instead of slurping then slicing.
+  const cap = Math.min(st.size, MAX_TEXT_BYTES);
+  const buf = Buffer.alloc(cap);
+  const handle = await fs.open(abs, "r");
+  try {
+    await handle.read(buf, 0, cap, 0);
+  } finally {
+    await handle.close();
+  }
+  // A NUL byte in the prefix is the cheapest reliable binary sniff — UTF-8
+  // text never contains one.
+  if (buf.subarray(0, Math.min(cap, BINARY_SNIFF_BYTES)).includes(0)) {
+    return { kind: "binary", size: st.size };
+  }
+  return {
+    kind: "text",
+    content: buf.toString("utf8"),
+    truncated: st.size > MAX_TEXT_BYTES,
+    size: st.size,
+  };
 }
