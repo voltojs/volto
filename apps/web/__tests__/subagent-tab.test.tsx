@@ -6,12 +6,24 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SubagentTab } from '@/components/pane/SubagentTab';
 import { useChatStore } from '@/stores/chat-store';
+import { usePaneStore } from '@/stores/pane-store';
 import { clearSubagentCache } from '@/lib/subagent-cache';
-import { fetchSessionEvents } from '@/lib/sessions-api';
+import { clearTrajectoryCache } from '@/lib/trajectory-cache';
+import { fetchSessionEvents, fetchServerTrajectory } from '@/lib/sessions-api';
 import type { TranscriptEventInput } from '@volto/sdk/sse';
 
-vi.mock('@/lib/sessions-api', () => ({ fetchSessionEvents: vi.fn() }));
+vi.mock('@/lib/sessions-api', () => {
+  // useStoredRows 以 instanceof 识别 trajectory 接口失败，mock 工厂必须
+  // 提供同类形状的类（照抄 sessions-api 的 TrajectoryUnavailableError）。
+  class TrajectoryUnavailableError extends Error {}
+  return {
+    fetchSessionEvents: vi.fn(),
+    fetchServerTrajectory: vi.fn(),
+    TrajectoryUnavailableError,
+  };
+});
 const fetchSessionEventsMock = vi.mocked(fetchSessionEvents);
+const fetchServerTrajectoryMock = vi.mocked(fetchServerTrajectory);
 
 Element.prototype.scrollIntoView ??= () => {};
 
@@ -28,8 +40,11 @@ const tab = (childId: string) => ({ kind: 'subagent', id: `subagent:${childId}`,
 
 beforeEach(() => {
   clearSubagentCache();
+  clearTrajectoryCache();
   useChatStore.setState({ events: [], deltas: [], subagents: {} });
+  usePaneStore.setState({ tabs: [], activeTabId: null });
   fetchSessionEventsMock.mockReset();
+  fetchServerTrajectoryMock.mockReset();
 });
 
 describe('SubagentTab', () => {
@@ -85,5 +100,35 @@ describe('SubagentTab', () => {
     fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-2', events: [] });
     render(<SubagentTab tab={tab('s-sub-2')} />);
     expect(await screen.findByText(/已完成/)).toBeDefined();
+  });
+
+  it('shows the trajectory sub-view with stored rows and switches via the tab payload', async () => {
+    useChatStore.setState({
+      subagents: { 's-sub-0': { events: [userGo], deltas: [], status: 'done' } },
+    });
+    fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-0', events: [] });
+    fetchServerTrajectoryMock.mockResolvedValue({
+      rows: [{ index: 1, id: 'a1', kind: 'user', turn: 1, summary: 'go', startedAt: 1 }],
+    });
+    const trajectoryTab = {
+      kind: 'subagent',
+      id: 'subagent:s-sub-0',
+      childSessionId: 's-sub-0',
+      view: 'trajectory',
+    } as const;
+    const { rerender } = render(<SubagentTab tab={trajectoryTab} />);
+    // 对话面板 keepMounted（隐藏挂载），其消息 div 与轨迹行 span 同时在 DOM
+    // 中——审计行断言以 TrajectoryRowItem 实际渲染为准：summary 在 <span>
+    // 里，用 span 选择器锁定，避免命中对话气泡的 div。
+    expect(await screen.findByText('go', { selector: 'span' })).toBeDefined();
+    // 切回对话：openTab 用 view:'chat' 载荷覆盖同一标签 → 组件受控于载荷，
+    // 用覆盖后的最新 tab 重渲染，对话消息流出现、轨迹面板卸载。
+    usePaneStore
+      .getState()
+      .openTab({ kind: 'subagent', id: 'subagent:s-sub-0', childSessionId: 's-sub-0', view: 'chat' });
+    rerender(
+      <SubagentTab tab={usePaneStore.getState().tabs.find((t) => t.id === 'subagent:s-sub-0')!} />,
+    );
+    expect(await screen.findByText('go', { selector: 'p, span, div' })).toBeDefined();
   });
 });
