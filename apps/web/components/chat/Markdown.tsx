@@ -1,6 +1,6 @@
 'use client';
 
-import { isValidElement, useState, type ReactNode } from 'react';
+import { isValidElement, memo, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
@@ -136,7 +136,10 @@ interface MarkdownProps {
   className?: string;
 }
 
-export function Markdown({ content, className }: MarkdownProps) {
+export const Markdown = memo(function Markdown({
+  content,
+  className,
+}: MarkdownProps) {
   return (
     <div className={cn('text-sm', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
@@ -144,4 +147,4 @@ export function Markdown({ content, className }: MarkdownProps) {
       </ReactMarkdown>
     </div>
   );
-}
+});

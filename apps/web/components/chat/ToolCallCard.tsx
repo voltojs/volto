@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { ChevronRight, CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import {
   Collapsible,
@@ -30,8 +30,33 @@ function StatusIcon({ call }: ToolCallCardProps) {
   );
 }
 
+/**
+ * Skip re-render unless something observable changed. `args` (and the call
+ * object itself) churn identity on every projection rebuild while their
+ * content is fixed for a given call, so identity comparison would defeat the
+ * memo; compare only the fields that actually move during a live run —
+ * result/isError land together at tool_result, approval decision at
+ * approval_decision — plus the callback the pane button fires. Exported for
+ * the comparator test.
+ */
+export function toolCallCardComparator(
+  a: ToolCallCardProps,
+  b: ToolCallCardProps,
+): boolean {
+  return (
+    a.call.id === b.call.id &&
+    a.call.result === b.call.result &&
+    a.call.isError === b.call.isError &&
+    a.call.approval?.decision === b.call.approval?.decision &&
+    a.onOpenSubagent === b.onOpenSubagent
+  );
+}
+
 /** Collapsed summary of one tool call, expandable to show args and output. */
-export function ToolCallCard({ call, onOpenSubagent }: ToolCallCardProps) {
+export const ToolCallCard = memo(function ToolCallCard({
+  call,
+  onOpenSubagent,
+}: ToolCallCardProps) {
   // Settled-approval rendering. The pending `ApprovalCard` vanishes the
   // moment a decision lands; without this line a fail-closed denial
   // (connection lost, turn interrupted) would look identical to a click the
@@ -148,4 +173,4 @@ export function ToolCallCard({ call, onOpenSubagent }: ToolCallCardProps) {
       )}
     </Collapsible>
   );
-}
+}, toolCallCardComparator);
