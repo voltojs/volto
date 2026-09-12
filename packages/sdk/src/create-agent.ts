@@ -1770,6 +1770,10 @@ function createSubAgentExecutor(
     // if the store ever wrote it.
     const childSessionId = parentChatSessionId ? `${parentChatSessionId}-sub-${idPort.next()}` : undefined;
     const startedAt = nowMs();
+    // The parent's live sink, read once per dispatch (hoisted from the runner
+    // construction below: the brackets must reach it first, and nothing
+    // reassigns the turn sink between here and there).
+    const currentSink = getCurrentEventSink();
 
     if (chatStore && parentChatSessionId && childSessionId) {
       bestEffortAppend(chatStore, parentChatSessionId, [
@@ -1797,6 +1801,28 @@ function createSubAgentExecutor(
       ]);
     }
 
+    // Live path (Task 5c): the same bracket also rides the parent's event
+    // sink so SSE clients see it in real time — the store write above alone
+    // only reaches replay/resume. Brackets are parent-level events: never
+    // tagged agentDepth (they must stay on the main feed, not be routed into
+    // a child bucket), and the parent turn stamp is mandatory — an unstamped
+    // bracket would fall into a phantom turn 0 in the client projection.
+    // Emission needs only a child session to link (childSessionId implies
+    // parentChatSessionId); it deliberately does not depend on the chatStore,
+    // whose absence only disables persistence. Sink absent → skipped silently.
+    // The stamp rides along as top-level extras on the sink payload, the same
+    // convention the Runner's toSinkEvent uses for streamed transcript events
+    // (task-r6 isomorphism).
+    if (childSessionId) {
+      const startedBracket: TranscriptEventInput<"subagent_started"> = {
+        time: startedAt,
+        type: "subagent_started",
+        data: { childSessionId, label: "task", depth },
+        turn,
+      };
+      currentSink?.emit(startedBracket);
+    }
+
     const finishSubAgent = (isError: boolean): void => {
       if (chatStore && parentChatSessionId && childSessionId) {
         bestEffortAppend(chatStore, parentChatSessionId, [
@@ -1807,6 +1833,15 @@ function createSubAgentExecutor(
             turn,
           },
         ]);
+      }
+      if (childSessionId) {
+        const finishedBracket: TranscriptEventInput<"subagent_finished"> = {
+          time: nowMs(),
+          type: "subagent_finished",
+          data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+          turn,
+        };
+        currentSink?.emit(finishedBracket);
       }
     };
 
@@ -1862,7 +1897,8 @@ function createSubAgentExecutor(
       ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
     };
 
-    const currentSink = getCurrentEventSink();
+    // currentSink was read at the top of this dispatch (the brackets emitted
+    // there need it before the runner exists); reuse the same snapshot here.
     const taggedSink = currentSink
       ? tagEventSink(currentSink, depth, "task", childSessionId)
       : undefined;

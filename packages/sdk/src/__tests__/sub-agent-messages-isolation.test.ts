@@ -203,4 +203,45 @@ describe("task sub-agent — messages isolation", () => {
       expect(e.childId).toBeUndefined();
     }
   });
+
+  it("brackets ride the live event sink with the parent's turn stamp", async () => {
+    const spy = createMessagesSpy([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go" })),
+      textScript("sub speaks"),
+      textScript("main wraps up"),
+    ]);
+
+    const received: Array<{ type: string; turn: unknown; childId: unknown; agentDepth: unknown }> = [];
+    const agent = createAgent({
+      modelPort: spy,
+      enableTaskTool: true,
+      chatSessionId: "sess-bracket",
+      eventSink: {
+        emit(ev) {
+          received.push({
+            type: ev.type,
+            turn: (ev as { turn?: unknown }).turn,
+            childId: ev.data["childSessionId"],
+            agentDepth: ev.data["agentDepth"],
+          });
+        },
+      },
+    });
+
+    await agent.run("hi");
+
+    const started = received.filter((e) => e.type === "subagent_started");
+    const finished = received.filter((e) => e.type === "subagent_finished");
+    expect(started).toHaveLength(1);
+    expect(finished).toHaveLength(1);
+    // 父 turn 戳：无 turn 的 bracket 会在客户端投影里掉进幽灵 turn 0。
+    expect(typeof started[0]!.turn).toBe("number");
+    expect(typeof finished[0]!.turn).toBe("number");
+    // 父级事件：绝不能带 agentDepth（否则会被客户端路由进子桶）。
+    expect(started[0]!.agentDepth).toBeUndefined();
+    expect(finished[0]!.agentDepth).toBeUndefined();
+    // childSessionId 与持久化 bracket 一致（opaque，前缀断言）。
+    expect(String(started[0]!.childId)).toMatch(/^sess-bracket-sub-/);
+    expect(String(finished[0]!.childId)).toMatch(/^sess-bracket-sub-/);
+  });
 });
