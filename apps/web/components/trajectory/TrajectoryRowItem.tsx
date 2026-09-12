@@ -14,7 +14,7 @@ interface TrajectoryRowItemProps {
   /** 该行是进行中的流式输出（脉冲指示点）。 */
   streaming: boolean;
   isSelected: boolean;
-  onSelect: (row: TrajectoryRow) => void;
+  onSelect?: (row: TrajectoryRow) => void;
 }
 
 export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: TrajectoryRowItemProps) {
@@ -22,7 +22,7 @@ export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: Traj
   return (
     <button
       type="button"
-      onClick={() => onSelect(row)}
+      onClick={() => onSelect?.(row)}
       className={cn(
         'hover:bg-muted/60 flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
         row.isError && 'bg-destructive/5 border-destructive/20 hover:bg-destructive/10',

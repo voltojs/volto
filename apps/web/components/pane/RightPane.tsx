@@ -18,6 +18,8 @@ import {
 } from '@/stores/pane-store';
 import { KIND_LABELS } from '@/lib/trajectory-view-model';
 import { SubagentTab } from './SubagentTab';
+import { TrajectoryDetailTab } from './TrajectoryDetailTab';
+import { TrajectoryTab } from './TrajectoryTab';
 
 /**
  * RightPane shell：顶部标签栏 + 内容区分发。shell 对标签类型零感知——
@@ -30,8 +32,8 @@ const PANE_TAB_RENDERERS: {
   subagent: SubagentTab,
   files: undefined, // Task 9 注册
   'file-preview': undefined, // Task 10 注册
-  'trajectory-detail': undefined, // Task 8 注册
-  trajectory: undefined, // Task 8 注册
+  'trajectory-detail': TrajectoryDetailTab,
+  trajectory: TrajectoryTab,
 };
 
 const IMAGE_EXTS = new Set([

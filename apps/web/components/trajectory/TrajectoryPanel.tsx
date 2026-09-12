@@ -1,10 +1,9 @@
 'use client';
 
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TrajectoryList } from './TrajectoryList';
-import { TrajectoryDrawer } from './TrajectoryDrawer';
+import { usePaneStore } from '@/stores/pane-store';
 import { useTrajectory } from '@/hooks/use-trajectory';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -15,22 +14,17 @@ interface TrajectoryPanelProps {
 
 export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
   const feed = useTrajectory();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const selectedRow =
-    feed.rows.find((r) => r.id === selectedId) ?? null;
-
+  // 选中行 → RightPane 开详情标签；row 快照随标签载荷存 pane-store，
+  // 重读同一行即刷新（见 pane-store.openTab）。
   const onSelect = (row: TrajectoryRow) => {
-    setSelectedId(row.id);
-    setDrawerOpen(true);
-  };
-
-  const onDrillDown = (row: TrajectoryRow) => {
-    if (row.childSessionId === undefined) return;
-    feed.drillTo(row.childSessionId, `子会话 …${row.childSessionId.slice(-6)}`);
-    setSelectedId(null);
-    setDrawerOpen(false);
+    usePaneStore.getState().openTab({
+      kind: 'trajectory-detail',
+      id: `row:${sessionId ?? ''}:${row.id}`,
+      sessionId: sessionId ?? '',
+      rowId: row.id,
+      row,
+    });
   };
 
   if (sessionId === null) {
@@ -43,28 +37,6 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {feed.drillPath.length > 0 && (
-        <div className="border-b px-3 py-1.5 text-xs">
-          <button
-            type="button"
-            onClick={() => {
-              feed.drillBack();
-              setSelectedId(null);
-            }}
-            className="text-primary hover:bg-primary/10 rounded px-1 py-0.5"
-          >
-            会话
-          </button>
-          {feed.drillPath.map((level) => (
-            <span key={level.sessionId} className="text-muted-foreground">
-              {' / '}
-              {level.label}
-            </span>
-          ))}
-          <span className="text-muted-foreground/60 ml-2 text-[10px]">子会话快照</span>
-        </div>
-      )}
-
       {feed.error !== null ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
           <p
@@ -88,21 +60,9 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          <TrajectoryList
-            rows={feed.rows}
-            streamingRowId={feed.streamingRowId}
-            selectedId={selectedId}
-            onSelect={onSelect}
-          />
+          <TrajectoryList rows={feed.rows} streamingRowId={feed.streamingRowId} onSelect={onSelect} />
         </div>
       )}
-
-      <TrajectoryDrawer
-        row={selectedRow}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        onDrillDown={onDrillDown}
-      />
     </div>
   );
 }

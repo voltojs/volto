@@ -7,8 +7,9 @@ import type { TrajectoryRow } from '@volto/sdk/sse';
 interface TrajectoryListProps {
   rows: TrajectoryRow[];
   streamingRowId: string | null;
-  selectedId: string | null;
-  onSelect: (row: TrajectoryRow) => void;
+  /** 选中高亮 + 点击回调：无选中语义的列表（如 pane 的轨迹快照标签）可省。 */
+  selectedId?: string | null;
+  onSelect?: (row: TrajectoryRow) => void;
   /** 行数为零时的占位文案。 */
   emptyHint?: string;
 }
