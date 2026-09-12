@@ -290,7 +290,9 @@ export function ChatPanel() {
                   })
               : undefined
           }
-          filesEnabled={currentProject !== undefined}
+          // 欢迎分支不渲染 RightPane，files 标签无处展示——按钮一律禁用
+          // （「当前会话未绑定项目」tooltip），避免可点但无效果的死按钮。
+          filesEnabled={false}
         />
         <div className="bg-grain flex flex-1 flex-col items-center justify-center px-4">
           <div className="mb-8 max-w-2xl text-center">
