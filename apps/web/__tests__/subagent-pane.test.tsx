@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SubagentPane } from '@/components/chat/SubagentPane';
 import { useChatStore } from '@/stores/chat-store';
 import { clearSubagentCache } from '@/lib/subagent-cache';
@@ -88,5 +88,61 @@ describe('SubagentPane', () => {
     render(<SubagentPane onClose={vi.fn()} />);
     // 无缓存 + 桶终态也会先拉一次盘上记录；空态在拉取落定后出现。
     expect(await screen.findByText('无执行记录')).toBeDefined();
+  });
+
+  // 行为矩阵第 4 行（fix wave）：no-record 判据放宽为「entries 为空」——
+  // openSubagentId 有值但桶从未建出（openSubagent 不建桶）、盘上也为空时，
+  // 不再渲染空白 MessageList。
+  it('shows the no-record empty state when no bucket exists and the durable log is empty', async () => {
+    useChatStore.setState({
+      openSubagentId: 's-sub-missing',
+      subagents: {},
+    });
+    fetchSessionEventsMock.mockResolvedValue({
+      sessionId: 's-sub-missing',
+      events: [],
+    });
+    render(<SubagentPane onClose={vi.fn()} />);
+    expect(await screen.findByText('无执行记录')).toBeDefined();
+  });
+
+  // 行为矩阵第 3 行：运行中桶的 entries 为空属「等待首事件」，不判无记录。
+  it('keeps the waiting MessageList for a running bucket whose entries are still empty', async () => {
+    useChatStore.setState({
+      openSubagentId: 's-sub-wait',
+      subagents: {
+        's-sub-wait': { events: [], deltas: [], status: 'running' },
+      },
+    });
+    fetchSessionEventsMock.mockResolvedValue({
+      sessionId: 's-sub-wait',
+      events: [],
+    });
+    render(<SubagentPane onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.queryByText('加载执行记录…')).toBeNull();
+    });
+    expect(screen.queryByText('无执行记录')).toBeNull();
+  });
+
+  // 行为矩阵第 2 行（fix wave）：拉取失败渲染错误 + 重试按钮；重试命中
+  // 改写后的 mock（resolve）后错误消失、盘上内容渲染出来。
+  it('offers retry when the durable feed fails and recovers when it is clicked', async () => {
+    useChatStore.setState({
+      openSubagentId: 's-sub-err',
+      subagents: {},
+    });
+    fetchSessionEventsMock.mockRejectedValueOnce(new Error('网络故障'));
+    render(<SubagentPane onClose={vi.fn()} />);
+    expect(await screen.findByText('网络故障')).toBeDefined();
+    expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
+
+    fetchSessionEventsMock.mockResolvedValue({
+      sessionId: 's-sub-err',
+      events: [userGo, assistant('recovered from disk')],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText(/recovered from disk/)).toBeDefined();
+    expect(screen.queryByText('网络故障')).toBeNull();
   });
 });
