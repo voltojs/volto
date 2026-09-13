@@ -63,6 +63,6 @@ describe('useSlashCommandItems', () => {
     vi.stubGlobal('fetch', stubFetch({ '/commands': { commands: [] }, '/skills': { skills: [] } }));
     act(() => result.current.retry());
     await waitFor(() => expect(result.current.error).toBeNull());
-    expect(result.current.items.map((i) => i.name)).toEqual(['clear']);
+    await waitFor(() => expect(result.current.items.map((i) => i.name)).toEqual(['clear']));
   });
 });
