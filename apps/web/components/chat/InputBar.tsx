@@ -202,12 +202,19 @@ export function InputBar({
                   const current = filePropsRef.current;
                   const next = drillPath(entry);
                   if (!current || next === undefined) return;
-                  // 在触发字符之后插入（range.to），保留 '@'：suggestion 的 range
-                  // 覆盖含 '@' 的整段匹配文本，若整体替换，'@' 随之消失、匹配无法
-                  // 重挂（实测 getText 变 'src/' 而非 '@src/'，面板直接关闭）。
-                  // 从 range.to 插入 → '@src/'，caret 落在 '/' 后，query 改写为
-                  // 'src/'，onUpdate 以新查询重灌面板。
-                  current.editor.chain().focus().insertContentAt(current.range.to, next).run();
+                  // 只替换 query 段 [range.from+1, range.to]，保留触发字符 '@'：
+                  // suggestion 的 range 覆盖含 '@' 的整段匹配文本，整体替换会把 '@'
+                  // 一并吃掉、匹配无法重挂（实测 getText 变 'src/' 而非 '@src/'，面板
+                  // 直接关闭）；仅在 range.to 追加则 filter 模式（@src/com）会拼接成
+                  // '@src/comsrc/components/'。替换 query 段两种模式皆正确：根目录
+                  // （空 query，from+1===to）= 纯插入 → '@src/'；filter（@src/com）
+                  // = 'com' → 'src/components/' → '@src/components/'，caret 落 '/'
+                  // 后，query 改写重挂，onUpdate 以新查询重灌面板。
+                  current.editor
+                    .chain()
+                    .focus()
+                    .insertContentAt({ from: current.range.from + 1, to: current.range.to }, next)
+                    .run();
                 },
               }),
               onOpenChange: (open) => {

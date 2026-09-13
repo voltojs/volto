@@ -115,6 +115,25 @@ describe('InputBar @ 文件面板', () => {
     expect(editor.getText()).toBe('@src/');
   });
 
+  it('filter 模式进目录：@src/com 点击 components → @src/components/（只替换 query 段，保留 @）', async () => {
+    vi.stubGlobal('fetch', stubFetch({
+      // 顺序敏感：'path=src%2F' 必须在 '/fs/tree' 之前命中
+      'path=src%2F': {
+        path: 'src/',
+        entries: [
+          { name: 'components', type: 'dir', size: 0 },
+          { name: 'main.ts', type: 'file', size: 1 },
+        ],
+      },
+      '/fs/tree': TREE,
+    }));
+    const { editor } = setup();
+    act(() => void editor.commands.insertContent('@src/com'));
+    await waitFor(() => expect(screen.getByText('components')).toBeTruthy());
+    fireEvent.click(screen.getByText('components').closest('button')!);
+    expect(editor.getText()).toBe('@src/components/');
+  });
+
   it('选中文件后发送 → onSubmit 收到 @路径 纯文本', async () => {
     vi.stubGlobal('fetch', stubFetch({ '/fs/tree': TREE }));
     const { editor, onSubmit } = setup();
