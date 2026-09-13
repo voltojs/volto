@@ -1,6 +1,5 @@
 'use client';
 
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -8,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
@@ -27,7 +27,7 @@ export function ChatHeader({ title, paneToggle }: ChatHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
       <SidebarToggle />
-      <Separator orientation="vertical" className="h-5 self-center" />
+      <Separator orientation="vertical" className="h-5 !self-center" />
 
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="text-foreground/90 truncate font-mono text-[13px]">
