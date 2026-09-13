@@ -293,7 +293,12 @@ export function InputBar({
         'data-testid': 'input-editor',
       },
       handleKeyDown: (_view, event) => {
-        if (panelOpenRef.current) return false;
+        // 按「面板实际存活」放行而非仅看 panelOpenRef：/@ 会让两个 suggestion
+        // 同时激活，Escape 被其中一个插件独占消费（someProp 首个 truthy 即停，
+        // 实测 file-mention 插件先于 slash 注册）→ 其 onExit 翻假 panelOpenRef，
+        // 另一面板仍开——只看 panelOpenRef 会让下一个 Enter 漏过门控直接提交
+        // 原文。两个 ref 恰好镜像各自面板活性（onStart 记录 / onExit 置空）。
+        if (slashPropsRef.current || filePropsRef.current) return false;
         if (event.key === 'Enter' && event.shiftKey) {
           event.preventDefault();
           editorRef.current?.chain().focus().setHardBreak().run();

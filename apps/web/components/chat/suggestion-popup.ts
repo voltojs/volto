@@ -11,15 +11,19 @@ export interface SuggestionPanelHandle {
 export const SUGGESTION_GAP_PX = 4;
 /** top-start anchoring computed at APPLY time (element height is live here),
  *  because the plugin's first computePosition measures the empty panel (h=0)
- *  and the content growth may not retrigger its elementResize observer. */
+ *  and the content growth may not retrigger its elementResize observer.
+ *  Both axes clamp at 8px: vertically guards insufficient space above (no flip
+ *  logic), horizontally keeps a w-80 panel inside the right viewport edge on
+ *  narrow windows. */
 export function applyTopStartAnchor(
   element: HTMLElement,
   caretRect: DOMRect | null,
   gap: number = SUGGESTION_GAP_PX,
 ): void {
   if (!caretRect) return;
+  const maxLeft = window.innerWidth - element.offsetWidth - 8;
   element.style.position = 'fixed'; // caretRect is viewport coords
-  element.style.left = `${caretRect.left}px`;
+  element.style.left = `${Math.max(8, Math.min(caretRect.left, maxLeft))}px`;
   element.style.top = `${Math.max(8, caretRect.top - element.offsetHeight - gap)}px`;
 }
 

@@ -1,7 +1,7 @@
 // apps/web/components/chat/SlashPanel.tsx
 'use client';
 
-import { forwardRef, useImperativeHandle, useMemo, Fragment } from 'react';
+import { forwardRef, useImperativeHandle, useMemo, Fragment, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useSlashCommandItems } from '@/hooks/use-slash-command-items';
@@ -35,6 +35,16 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
         if (item) onSelect(item);
       },
     });
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    // 键盘导航越过可视窗口时把 active 行滚进视野（面板 max-h-64，搜索可返回
+    // 200 行；block:'nearest' 不打扰已在视野内的高亮）。查询此刻的 DOM 而非
+    // 缓存行引用——行列表随 filtered 整体重渲染，索引会过期。
+    useEffect(() => {
+      panelRef.current
+        ?.querySelector('[data-item-name][aria-selected="true"]')
+        ?.scrollIntoView({ block: 'nearest' });
+    }, [nav.activeIndex]);
 
     useImperativeHandle(
       ref,
@@ -56,6 +66,7 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
 
     return (
       <div
+        ref={panelRef}
         data-testid="slash-panel"
         className="bg-popover z-50 max-h-64 w-80 overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
       >

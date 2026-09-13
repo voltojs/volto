@@ -1,9 +1,19 @@
 // apps/web/components/chat/__tests__/slash-panel.test.tsx
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { createRef } from 'react';
 import { SlashPanel, type SlashPanelHandle } from '../SlashPanel';
 import { clearSlashCommandCache } from '@/hooks/use-slash-command-items';
+
+// jsdom 未实现 Element.scrollIntoView（真实浏览器都有），而 panel 的 active 行
+// 滚动跟随 effect 依赖它——文件级补缺，同一个 vi.fn 兼作断言探针。
+const scrollIntoViewSpy = vi.fn();
+beforeAll(() => {
+  HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+});
+afterAll(() => {
+  delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+});
 
 function stubFetch(routes: Record<string, unknown>) {
   return vi.fn(async (input: string | URL | Request) => {
@@ -60,5 +70,25 @@ describe('SlashPanel', () => {
     fireEvent.click(screen.getByText('/plan').closest('button')!);
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: 'template', name: 'plan' }));
     expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
+  });
+
+  it('ArrowDown 移动高亮时对 active 行 scrollIntoView（长列表滚动跟随）', async () => {
+    vi.stubGlobal('fetch', stubFetch({
+      '/commands': {
+        commands: [
+          { name: 'plan', description: '制定计划' },
+          { name: 'review', description: '审查改动' },
+        ],
+      },
+      '/skills': { skills: [] },
+    }));
+    const ref = createRef<SlashPanelHandle>();
+    render(<SlashPanel ref={ref} query="" projectId="p1" onSelect={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('/review')).toBeTruthy());
+    scrollIntoViewSpy.mockClear(); // 挂载期首次 effect（若行已渲染）不计入断言
+    act(() => {
+      ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    });
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
   });
 });

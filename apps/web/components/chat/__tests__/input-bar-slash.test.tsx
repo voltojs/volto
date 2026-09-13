@@ -77,6 +77,20 @@ describe('applyTopStartAnchor（top-start 应用时锚定）', () => {
     expect(element.style.top).toBe('8px'); // max(8, 20 − 40 − 4)
   });
 
+  it('caretRect.left 超出视口右缘时水平钳制（8px 边距，垂直逻辑不变）', () => {
+    const element = el(40);
+    Object.defineProperty(element, 'offsetWidth', { value: 320, configurable: true });
+    const original = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true });
+    try {
+      applyTopStartAnchor(element, new DOMRect(5000, 100, 0, 0));
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: original, configurable: true });
+    }
+    expect(element.style.left).toBe('696px'); // 1024 − 320 − 8
+    expect(element.style.top).toBe('56px'); // 100 − 40 − 4，垂直不受水平钳制影响
+  });
+
   it('caretRect 为 null 时不写任何样式', () => {
     const element = el(40);
     applyTopStartAnchor(element, null);
@@ -167,5 +181,28 @@ describe('InputBar / 斜杠命令面板', () => {
     act(() => void editor.commands.insertContent('做个深色模式'));
     fireEvent.click(sendButton());
     expect(onSubmit).toHaveBeenCalledWith('/plan 做个深色模式');
+  });
+
+  it('/@ 双激活：Escape 只关 @ 面板，存活的斜杠面板继续吞咽 Enter（门控按面板活性判定）', async () => {
+    // 无 /fs/tree 路由 → @ 面板进错误态（面板仍挂载）。注意消费顺序：prosemirror
+    // 插件表里 file-mention 先于 slash-command-suggestion（实测 plugin keys 顺序，
+    // Mention 插件注册位置早于自定义扩展），Escape 由 @ 插件独占消费（someProp
+    // 首个 truthy 即停）→ 只关 @ 面板，斜杠面板存活——与评审预写的方向相反，
+    // 但机制相同：单一 panelOpenRef 在 Escape 后必然说谎，须按面板活性放行。
+    vi.stubGlobal('fetch', stubFetch(ROUTES));
+    const { editor, onSubmit } = setup();
+    const editorEl = () => document.querySelector('[data-testid="input-editor"]')!;
+    act(() => void editor.commands.insertContent('/@'));
+    await waitFor(() => expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeTruthy());
+    await waitFor(() => expect(document.body.querySelector('[data-testid="file-mention-panel"]')).toBeTruthy());
+    fireEvent.keyDown(editorEl(), { key: 'Escape', bubbles: true, cancelable: true });
+    expect(document.body.querySelector('[data-testid="file-mention-panel"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeTruthy();
+    // 存活的斜杠面板吞咽 Enter（query '@' 无匹配）：不提交原文、不插段落（旧门控
+    // 只看 panelOpenRef 时，Escape 已把它翻假，Enter 会漏过门控直接 submit）
+    fireEvent.keyDown(editorEl(), { key: 'Enter', bubbles: true, cancelable: true });
+    expect(editor.getText()).toBe('/@');
+    expect(editor.getJSON().content?.length).toBe(1);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

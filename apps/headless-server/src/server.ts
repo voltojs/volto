@@ -6,6 +6,16 @@
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
  *   POST /approvals           — { sessionId, callId, decision } settles one approval
  *
+ * Input-command & workspace routes (consumed by apps/web input bar / panes):
+ *   GET  /commands            — slash command templates for the `/` panel
+ *   GET  /skills?projectId=   — user-invocable skills for the `/` panel
+ *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
+ *   GET  /sessions            — list sessions; /sessions/:id (+ /trajectory,
+ *                               /events) read, PATCH rename, DELETE remove
+ *   GET|POST /projects, DELETE /projects/:id — project registry
+ *   GET|POST /providers, PUT|DELETE /providers/:id — model provider config
+ *   GET  /catalog/providers   — provider catalog for the add-provider flow
+ *
  * Legacy routes (no in-repo consumer; kept for out-of-tree clients):
  *   POST /run                 — one-shot run, returns final state
  *   POST /resume              — HITL resume with decision

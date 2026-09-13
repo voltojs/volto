@@ -1,7 +1,7 @@
 // apps/web/components/chat/FileMentionPanel.tsx
 'use client';
 
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle, useEffect, useRef } from 'react';
 import { Folder, File as FileIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -41,6 +41,16 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
         if (entry && drillPath(entry) !== undefined) onDrill(entry);
       },
     });
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    // 键盘导航越过可视窗口时把 active 行滚进视野（面板 max-h-64，搜索可返回
+    // 200 行；block:'nearest' 不打扰已在视野内的高亮）。查询此刻的 DOM 而非
+    // 缓存行引用——行列表随 entries 整体重渲染，索引会过期。
+    useEffect(() => {
+      panelRef.current
+        ?.querySelector('[data-path][aria-selected="true"]')
+        ?.scrollIntoView({ block: 'nearest' });
+    }, [nav.activeIndex]);
 
     useImperativeHandle(
       ref,
@@ -64,6 +74,7 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
 
     return (
       <div
+        ref={panelRef}
         data-testid="file-mention-panel"
         className="bg-popover z-50 max-h-64 w-80 overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
       >
