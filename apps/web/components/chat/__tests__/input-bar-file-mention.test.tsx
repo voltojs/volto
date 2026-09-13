@@ -5,6 +5,20 @@ import { InputBar, type InputBarProps } from '../InputBar';
 import { clearFileMentionCache } from '@/hooks/use-file-mention-items';
 import { clearSlashCommandCache } from '@/hooks/use-slash-command-items';
 
+// jsdom 未实现 Range.getClientRects / Range.getBoundingClientRect（真实浏览器
+// 都有）。tiptap 的 focus() 命令在 requestAnimationFrame 里才执行
+// scrollIntoView（@tiptap/core focus.ts），该 rAF 回调经常晚于测试结束才触发，
+// 此时 prosemirror coordsAtPos 的文本路径对 Range 调用上述 API → TypeError →
+// vitest 记为 unhandled error（测试本身全绿，但进程退出码 1），全量跑偶发
+// 击穿门禁。补齐空实现：singleRect 拿到空 rects 后走 getBoundingClientRect
+// 兜底返回零矩形（jsdom 无布局，滚动为无害 no-op）。每个测试文件持有独立
+// jsdom 环境，顶层补丁不跨文件泄漏（与文件级 ResizeObserver stub 同一模式）。
+if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
+  const emptyRectList: DOMRectList = Object.assign([] as DOMRect[], { item: () => null });
+  Range.prototype.getClientRects = () => emptyRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+}
+
 function stubFetch(routes: Record<string, unknown>) {
   return vi.fn(async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.href;
@@ -154,5 +168,13 @@ describe('InputBar @ 文件面板', () => {
     act(() => void editor.commands.insertContent('@'));
     await new Promise((r) => setTimeout(r, 50));
     expect(document.body.querySelector('[data-testid="file-mention-panel"]')).toBeNull();
+  });
+
+  it('词中 @（x@）也触发（spec §4：@ 可在消息任意位置）', async () => {
+    vi.stubGlobal('fetch', stubFetch({ '/fs/tree': TREE }));
+    const { editor } = setup();
+    act(() => void editor.commands.insertContent('x@'));
+    await waitFor(() => expect(document.body.querySelector('[data-testid="file-mention-panel"]')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('a.ts')).toBeTruthy());
   });
 });

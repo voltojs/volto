@@ -167,6 +167,9 @@ export function InputBar({
         renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
         suggestion: {
           char: '@',
+          // spec §4「@ 可在消息任意位置」：默认 allowedPrefixes [' '] 要求触发
+          // 字符前是空白，词中的 x@ 因此不触发；null 关闭前缀检查。
+          allowedPrefixes: null,
           pluginKey: new PluginKey('file-mention'),
           placement: 'top-start',
           // 未绑定项目不触发（spec §6 verbatim）；经 ref 读取最新 projectId

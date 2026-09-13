@@ -3,6 +3,21 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
 import { InputBar, type InputBarProps } from '../InputBar';
 
+// jsdom 未实现 Range.getClientRects / Range.getBoundingClientRect（真实浏览器
+// 都有）。tiptap 的 focus() 命令在 requestAnimationFrame 里才执行
+// scrollIntoView（@tiptap/core focus.ts），该 rAF 回调经常晚于测试结束才触发，
+// 此时 prosemirror coordsAtPos 的文本路径对 Range 调用上述 API → TypeError →
+// vitest 记为 unhandled error（测试本身全绿，但进程退出码 1），全量跑偶发
+// 击穿门禁（本文件的 Shift+Enter 用例同样走 focus 路径）。补齐空实现：
+// singleRect 拿到空 rects 后走 getBoundingClientRect 兜底返回零矩形（jsdom
+// 无布局，滚动为无害 no-op）。每个测试文件持有独立 jsdom 环境，顶层补丁不跨
+// 文件泄漏（与文件级 ResizeObserver stub 同一模式）。
+if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
+  const emptyRectList: DOMRectList = Object.assign([] as DOMRect[], { item: () => null });
+  Range.prototype.getClientRects = () => emptyRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+}
+
 function setup(props: Partial<InputBarProps> = {}) {
   const onSubmit = vi.fn();
   const onInputAction = vi.fn();

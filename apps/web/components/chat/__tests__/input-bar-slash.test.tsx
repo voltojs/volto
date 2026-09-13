@@ -2,7 +2,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
 import { InputBar, type InputBarProps } from '../InputBar';
+import { applyTopStartAnchor } from '../suggestion-popup';
 import { clearSlashCommandCache } from '@/hooks/use-slash-command-items';
+
+// jsdom 未实现 Range.getClientRects / Range.getBoundingClientRect（真实浏览器
+// 都有）。tiptap 的 focus() 命令在 requestAnimationFrame 里才执行
+// scrollIntoView（@tiptap/core focus.ts），该 rAF 回调经常晚于测试结束才触发，
+// 此时 prosemirror coordsAtPos 的文本路径对 Range 调用上述 API → TypeError →
+// vitest 记为 unhandled error（测试本身全绿，但进程退出码 1），全量跑偶发
+// 击穿门禁。补齐空实现：singleRect 拿到空 rects 后走 getBoundingClientRect
+// 兜底返回零矩形（jsdom 无布局，滚动为无害 no-op）。每个测试文件持有独立
+// jsdom 环境，顶层补丁不跨文件泄漏（与文件级 ResizeObserver stub 同一模式）。
+if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
+  const emptyRectList: DOMRectList = Object.assign([] as DOMRect[], { item: () => null });
+  Range.prototype.getClientRects = () => emptyRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+}
 
 function stubFetch(routes: Record<string, unknown>) {
   return vi.fn(async (input: string | URL | Request) => {
@@ -41,6 +56,36 @@ function setup(props: Partial<InputBarProps> = {}) {
   return { onSubmit, get editor() { return editor!; }, ...utils };
 }
 
+describe('applyTopStartAnchor（top-start 应用时锚定）', () => {
+  function el(height: number) {
+    const element = document.createElement('div');
+    Object.defineProperty(element, 'offsetHeight', { value: height, configurable: true });
+    return element;
+  }
+
+  it('按 caret rect 与实时元素高度写 position/left/top', () => {
+    const element = el(40);
+    applyTopStartAnchor(element, new DOMRect(50, 100, 0, 0));
+    expect(element.style.position).toBe('fixed'); // caretRect 是视口坐标
+    expect(element.style.left).toBe('50px');
+    expect(element.style.top).toBe('56px'); // 100 − 40 − 4
+  });
+
+  it('上方空间不足时钳制在 8px（不做翻转逻辑）', () => {
+    const element = el(40);
+    applyTopStartAnchor(element, new DOMRect(0, 20, 0, 0));
+    expect(element.style.top).toBe('8px'); // max(8, 20 − 40 − 4)
+  });
+
+  it('caretRect 为 null 时不写任何样式', () => {
+    const element = el(40);
+    applyTopStartAnchor(element, null);
+    expect(element.style.position).toBe('');
+    expect(element.style.left).toBe('');
+    expect(element.style.top).toBe('');
+  });
+});
+
 describe('InputBar / 斜杠命令面板', () => {
   beforeEach(() => {
     clearSlashCommandCache();
@@ -69,6 +114,18 @@ describe('InputBar / 斜杠命令面板', () => {
     act(() => void editor.commands.insertContent('/pl'));
     await waitFor(() => expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('/plan')).toBeTruthy());
+  });
+
+  it('面板以 onPosition 应用时锚定：挂载元素 inline position=fixed（非插件默认 style 写入路径）', async () => {
+    vi.stubGlobal('fetch', stubFetch(ROUTES));
+    const { editor } = setup();
+    act(() => void editor.commands.insertContent('/pl'));
+    await waitFor(() => expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeTruthy());
+    // 锚定样式写在 mount 挂载的包装元素（ReactRenderer.element，面板的父节点）上，
+    // 不在面板组件根上——position=fixed 证明 onPosition 路径生效，插件默认
+    // style 写入路径（absolute + 空 panel 高度测量）已被接管。
+    const mounted = document.body.querySelector('[data-testid="slash-panel"]')!.parentElement as HTMLElement;
+    await waitFor(() => expect(mounted.style.position).toBe('fixed'));
   });
 
   it('选中命令：编辑器文本替换为 /plan （纯文本），面板关闭', async () => {
