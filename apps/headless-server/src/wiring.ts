@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createAgent } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { BUILT_IN_COMMANDS } from "./commands.js";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -352,6 +353,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     enableTaskTool: true,
     resolveContextLayers,
     skillRegistry,
+    commands: BUILT_IN_COMMANDS,
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
     ...(opts.approvalGate ? { approvalGate: opts.approvalGate } : {}),

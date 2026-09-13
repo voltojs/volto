@@ -26,6 +26,7 @@ import {
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
+import { BUILT_IN_COMMANDS } from "./commands.js";
 import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
@@ -820,6 +821,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       } catch (err: unknown) {
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
       }
+      return;
+    }
+
+    // GET /commands — the web command menu's "系统内置" data source. Reads the
+    // same array wiring.ts hands to createAgent({ commands }), so the menu can
+    // never drift from what resolveInput actually expands.
+    if (req.method === "GET" && url.pathname === "/commands") {
+      jsonResponse(res, 200, {
+        commands: BUILT_IN_COMMANDS.map((c) => ({
+          name: c.name,
+          description: c.description ?? "",
+          args: c.args,
+        })),
+      });
       return;
     }
 
