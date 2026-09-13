@@ -40,4 +40,27 @@ describe('TrajectoryDrawer', () => {
       .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
     expect(usePaneStore.getState().activeTabId).toBe('subagent:child-9');
   });
+
+  // Base UI 契约：Popup 必须渲染在 Viewport 内（滑动关闭 + 触摸滚动锁定的
+  // 宿主）。缺 Viewport 时 Drawer.Popup 会在运行时告警——本断言把结构钉死。
+  it('renders the popup inside a drawer viewport', () => {
+    render(<TrajectoryDrawer row={row()} open onOpenChange={() => {}} />);
+    expect(document.querySelector('[data-slot="drawer-viewport"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="drawer-viewport"] [data-slot="drawer-content"]')).not.toBeNull();
+  });
+
+  // 抽屉开着时换行（store.open 另一行）→ 内部 Tabs 随 row.id 重挂，
+  // 不能残留上一行的激活 tab。
+  it('resets the inner tabs when the row changes while open', () => {
+    const toolRow = row({ id: 't1', kind: 'tool', summary: '读取文件', outputDetail: 'file contents' });
+    const userRow = row({ id: 'u1', kind: 'user', summary: '用户提问', outputDetail: undefined });
+    const { rerender } = render(<TrajectoryDrawer row={toolRow} open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByText('结果'));
+    expect(screen.getByText('file contents')).toBeInTheDocument();
+
+    rerender(<TrajectoryDrawer row={userRow} open onOpenChange={() => {}} />);
+    expect(screen.getByText('用户提问')).toBeInTheDocument();
+    expect(screen.queryByText('file contents')).toBeNull();
+    expect(screen.queryByText('结果')).toBeNull();
+  });
 });

@@ -7,6 +7,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SubagentTab } from '@/components/pane/SubagentTab';
 import { useChatStore } from '@/stores/chat-store';
 import { usePaneStore } from '@/stores/pane-store';
+import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { clearSubagentCache } from '@/lib/subagent-cache';
 import { clearTrajectoryCache } from '@/lib/trajectory-cache';
 import { fetchSessionEvents, fetchServerTrajectory } from '@/lib/sessions-api';
@@ -43,6 +44,7 @@ beforeEach(() => {
   clearTrajectoryCache();
   useChatStore.setState({ events: [], deltas: [], subagents: {} });
   usePaneStore.setState({ tabs: [], activeTabId: null });
+  useTrajectoryDrawerStore.setState({ row: null });
   fetchSessionEventsMock.mockReset();
   fetchServerTrajectoryMock.mockReset();
 });
@@ -130,5 +132,24 @@ describe('SubagentTab', () => {
       <SubagentTab tab={usePaneStore.getState().tabs.find((t) => t.id === 'subagent:s-sub-0')!} />,
     );
     expect(await screen.findByText('go', { selector: 'p, span, div' })).toBeDefined();
+  });
+
+  // 轨迹子视图的行点击经全局抽屉 store 打开行详情（抽屉由主轨迹面板渲染，
+  // 这里只断言 store 收到行快照——渲染方的行为由 trajectory-drawer.test 覆盖）。
+  it('opens the row-detail drawer from a trajectory row click', async () => {
+    useChatStore.setState({
+      subagents: { 's-sub-0': { events: [], deltas: [], status: 'done' } },
+    });
+    fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-0', events: [] });
+    fetchServerTrajectoryMock.mockResolvedValue({
+      rows: [{ index: 1, id: 'a1', kind: 'user', turn: 1, summary: 'go', startedAt: 1 }],
+    });
+    render(
+      <SubagentTab
+        tab={{ kind: 'subagent', id: 'subagent:s-sub-0', childSessionId: 's-sub-0', view: 'trajectory' }}
+      />,
+    );
+    fireEvent.click(await screen.findByText('go', { selector: 'span' }));
+    expect(useTrajectoryDrawerStore.getState().row).toMatchObject({ id: 'a1', summary: 'go' });
   });
 });

@@ -158,7 +158,9 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
         title={`${KIND_LABELS[row.kind]} · ${locationLabel(row)}`}
         description={row.summary}
       >
-        <Tabs defaultValue={tabs[0]} className="min-h-0 flex-1">
+        {/* key 随行重挂：抽屉开着换行（store.open 另一行）时，内部受控
+            Tabs 的激活值不能跨行残留。 */}
+        <Tabs key={row.id} defaultValue={tabs[0]} className="min-h-0 flex-1">
           <TabsList className="mx-4 mt-3">
             {tabs.map((key) => (
               <TabsTrigger key={key} value={key}>

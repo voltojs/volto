@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TrajectoryList } from './TrajectoryList';
 import { TrajectoryDrawer } from './TrajectoryDrawer';
 import { useTrajectory } from '@/hooks/use-trajectory';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 
 interface TrajectoryPanelProps {
   /** 当前会话 id（根层级）。 */
@@ -15,16 +14,11 @@ interface TrajectoryPanelProps {
 
 export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
   const feed = useTrajectory();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const selectedRow = feed.rows.find((r) => r.id === selectedId) ?? null;
-
-  // 行详情回归抽屉：选中行快照存本地 state，抽屉自包含渲染。
-  const onSelect = (row: TrajectoryRow) => {
-    setSelectedId(row.id);
-    setDrawerOpen(true);
-  };
+  // 行详情抽屉为全局状态：主轨迹面板与子代理详情的轨迹子视图打开同一
+  // 个抽屉；本列表的行高亮跟随抽屉当前行。
+  const drawerRow = useTrajectoryDrawerStore((s) => s.row);
+  const openDrawer = useTrajectoryDrawerStore((s) => s.open);
+  const closeDrawer = useTrajectoryDrawerStore((s) => s.close);
 
   if (sessionId === null) {
     return (
@@ -62,16 +56,18 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
           <TrajectoryList
             rows={feed.rows}
             streamingRowId={feed.streamingRowId}
-            selectedId={selectedId}
-            onSelect={onSelect}
+            selectedId={drawerRow?.id ?? null}
+            onSelect={openDrawer}
           />
         </div>
       )}
 
       <TrajectoryDrawer
-        row={selectedRow}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
+        row={drawerRow}
+        open={drawerRow !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDrawer();
+        }}
       />
     </div>
   );

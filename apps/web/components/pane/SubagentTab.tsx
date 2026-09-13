@@ -2,6 +2,7 @@
 
 import { useChatStore } from '@/stores/chat-store';
 import { usePaneStore } from '@/stores/pane-store';
+import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { useSubagentConversation } from '@/hooks/use-subagent-conversation';
 import { useStoredRows } from '@/hooks/use-trajectory';
 import { formatDuration } from '@/lib/trajectory-view-model';
@@ -94,8 +95,8 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
 
 /**
  * 轨迹子视图：盘上快照（useStoredRows 缓存）+ 重试；错误 / legacy / 加载
- * 骨架分支逐行平移自已下线的独立轨迹标签。行点击下钻（行详情
- * 抽屉）由后续任务接线，此处先不传 onSelect。
+ * 骨架分支逐行平移自已下线的独立轨迹标签。行点击经全局抽屉 store 打开
+ * 行详情——抽屉由主轨迹面板渲染，这里只负责写入行快照。
  */
 function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
   const stored = useStoredRows(sessionId);
@@ -130,7 +131,11 @@ function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
   }
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <TrajectoryList rows={stored.rows ?? []} streamingRowId={null} />
+      <TrajectoryList
+        rows={stored.rows ?? []}
+        streamingRowId={null}
+        onSelect={(row) => useTrajectoryDrawerStore.getState().open(row)}
+      />
     </div>
   );
 }
