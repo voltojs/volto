@@ -161,3 +161,45 @@ export async function postApproval(
     detail?.error ?? `Request failed with HTTP ${response.status}`,
   );
 }
+
+// ── Command / skill catalog (slash menu data sources) ──────────────────────
+
+export interface CommandDescriptor {
+  name: string;
+  description: string;
+  args?: unknown;
+}
+export interface SkillDescriptor {
+  name: string;
+  description: string;
+  modelInvocable: boolean;
+  userInvocable: boolean;
+}
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === 'string' && body.error.length > 0 ? body.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function getJson<T>(requestPath: string): Promise<T> {
+  const response = await fetch(`${SERVER_URL}${requestPath}`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `Request failed: HTTP ${response.status}`));
+  }
+  return (await response.json()) as T;
+}
+
+export async function fetchCommands(): Promise<CommandDescriptor[]> {
+  const data = await getJson<{ commands: CommandDescriptor[] }>('/commands');
+  return data.commands;
+}
+
+export async function fetchSkills(projectId?: string | null): Promise<SkillDescriptor[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  const data = await getJson<{ skills: SkillDescriptor[] }>(`/skills${query}`);
+  return data.skills;
+}
