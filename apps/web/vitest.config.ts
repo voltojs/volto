@@ -17,9 +17,12 @@ export default defineProject({
   test: {
     // `.tsx` specs render components with @testing-library/react and need a
     // DOM, so only that subset gets the jsdom environment; plain `.ts` specs
-    // stay on the faster default (node) environment.
-    include: ['__tests__/**/*.test.ts', '__tests__/**/*.test.tsx'],
-    environmentMatchGlobs: [['__tests__/**/*.test.tsx', 'jsdom']],
+    // stay on the faster default (node) environment. `**/` lets both the flat
+    // legacy `__tests__/` dir and per-dir `lib/hooks/components/**/__tests__/`
+    // subdirectories be discovered; without the leading `**/` the pattern is
+    // root-anchored and nested specs are silently skipped.
+    include: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.test.tsx'],
+    environmentMatchGlobs: [['**/__tests__/**/*.test.tsx', 'jsdom']],
     setupFiles: ['./vitest.setup.ts'],
   },
 });
