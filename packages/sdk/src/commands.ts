@@ -22,6 +22,9 @@ export interface SlashCommand {
   template: string;
   /** Optional argument schema (JSON Schema, informational) */
   args?: JSONSchema;
+  /** Human-readable summary shown in command menus. Purely informational —
+   *  matchCommand/renderCommand never read it. */
+  description?: string;
 }
 
 // ──────────────────────────────────────────────

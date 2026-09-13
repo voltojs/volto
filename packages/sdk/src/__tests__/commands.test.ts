@@ -3,6 +3,7 @@ import {
   renderCommand,
   parseArgs,
   findCommand,
+  matchCommand,
   type SlashCommand,
 } from "../commands.js";
 import { createAgent } from "../create-agent.js";
@@ -317,5 +318,17 @@ describe("createAgent — /name resolution order (commands vs. skills)", () => {
 
     expect(userMessageContent(state)).toBe("/flaky please do X");
     expect(JSON.stringify(state.messages)).not.toContain("Unknown command");
+  });
+});
+
+describe("SlashCommand.description", () => {
+  it("matchCommand / renderCommand 不受 description 影响（additive 字段）", () => {
+    const commands: SlashCommand[] = [
+      { name: "greet", description: "打个招呼", template: "你好，{{0}}" },
+      { name: "bare", template: "无描述" },
+    ];
+    expect(matchCommand(commands, "/greet x")?.description).toBe("打个招呼");
+    expect(matchCommand(commands, "/bare")?.description).toBeUndefined();
+    expect(renderCommand(commands, "/greet 世界")).toBe("你好，世界");
   });
 });
