@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -10,14 +11,19 @@ import {
 } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
 import { Document } from '@tiptap/extension-document';
 import { Paragraph } from '@tiptap/extension-paragraph';
 import { Text } from '@tiptap/extension-text';
 import { HardBreak } from '@tiptap/extension-hard-break';
 import { Mention } from '@tiptap/extension-mention';
 import { Placeholder, UndoRedo } from '@tiptap/extensions';
+import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
+import { PluginKey } from '@tiptap/pm/state';
 import { Button } from '@/components/ui/button';
-import { matchActionCommand, type InputAction } from '@/lib/input-commands';
+import { matchActionCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
+import { SlashPanel } from './SlashPanel';
+import { createSuggestionPopup } from './suggestion-popup';
 
 /** 单段落文档：Enter 永远是"发送"，换行走 Shift+Enter（HardBreak）。 */
 const SingleParagraphDocument = Document.extend({ content: 'paragraph' });
@@ -88,6 +94,71 @@ export function InputBar({
   // 收不到按键。Task 10/11 的 suggestion onStart/onExit 负责翻转它。
   const panelOpenRef = useRef(false);
   const editorRef = useRef<Editor | null>(null);
+  // 当前活跃 suggestion 的状态（query/command 等），由 render 生命周期写入、
+  // 面板 props 经 getProps 惰性读取——保证面板永远拿到最新值。
+  const slashPropsRef = useRef<SuggestionProps | null>(null);
+
+  // ref 读取/写入都发生在 tiptap 插件的惰性回调里（事务/按键时才调用），并非
+  // render 期执行；react-hooks v7 编译器规则无法识别该时序：react-hooks/refs
+  // 误报后整个组件跳过编译，连带 preserve-manual-memoization 报 memo 丢失。
+  // 两条均为 scoped 豁免，与下方 Placeholder 的豁免同型（Task 9 先例）。
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const slashExtension = useMemo(
+    () =>
+      // eslint-disable-next-line react-hooks/refs
+      Extension.create({
+        name: 'slashCommandSuggestion',
+        addProseMirrorPlugins() {
+          const popup = createSuggestionPopup({
+            Panel: SlashPanel,
+            getProps: () => ({
+              query: slashPropsRef.current?.query ?? '',
+              projectId: projectIdRef.current ?? null,
+              onSelect: (item: CommandItem) => {
+                slashPropsRef.current?.command({ replacement: `/${item.name} ` });
+              },
+            }),
+            onOpenChange: (open) => {
+              panelOpenRef.current = open;
+            },
+          });
+          return [
+            Suggestion({
+              editor: this.editor,
+              pluginKey: new PluginKey('slash-command-suggestion'),
+              char: '/',
+              // 仅文档第一个字符触发（spec §4 verbatim）
+              allow: ({ range }) => range.from === 1,
+              placement: 'top-start',
+              items: () => [], // 数据由 SlashPanel 自取（模块缓存秒开），这里保持同步空数组避免双取
+              command: ({ editor: instance, range, props }) => {
+                instance.chain().focus().insertContentAt(range, props.replacement).run();
+              },
+              render: () => {
+                // 让 popup 生命周期与 SuggestionProps 状态对齐：onStart/onUpdate
+                // 时把 props 记进 ref（面板读最新 query；onSelect 需要 command）。
+                return {
+                  onStart: (props) => {
+                    slashPropsRef.current = props;
+                    popup.onStart(props);
+                  },
+                  onUpdate: (props) => {
+                    slashPropsRef.current = props;
+                    popup.onUpdate();
+                  },
+                  onKeyDown: popup.onKeyDown,
+                  onExit: () => {
+                    slashPropsRef.current = null;
+                    popup.onExit();
+                  },
+                };
+              },
+            }),
+          ];
+        },
+      }),
+    [],
+  );
 
   const submit = useCallback(() => {
     const editor = editorRef.current;
@@ -117,6 +188,7 @@ export function InputBar({
   const editor = useEditor({
     extensions: [
       SingleParagraphDocument,
+      slashExtension,
       Paragraph,
       Text,
       HardBreak,
