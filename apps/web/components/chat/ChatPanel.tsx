@@ -20,6 +20,7 @@ import { useConversation } from '@/hooks/use-conversation';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
+import type { InputAction } from '@/lib/input-commands';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
@@ -159,6 +160,13 @@ export function ChatPanel() {
         childSessionId: childId,
         view: 'chat',
       });
+  }, []);
+
+  // /clear 动作命令：与侧栏「新会话」完全同一行为（回欢迎屏 + 清聊天缓冲）。
+  const handleInputAction = useCallback((action: InputAction) => {
+    if (action !== 'clear-session') return;
+    useSessionStore.getState().setCurrentSession(null);
+    useChatStore.getState().clear();
   }, []);
 
   // Header 标题与右侧面板切换：依赖 currentSession/currentProject（下方
@@ -379,6 +387,8 @@ export function ChatPanel() {
                 </div>
                 <InputBar
                   onSubmit={startSession}
+                  projectId={pendingProjectId}
+                  onInputAction={handleInputAction}
                   disabled={
                     isGenerating ||
                     !pendingProjectId ||
@@ -489,6 +499,8 @@ export function ChatPanel() {
       </div>
       <InputBar
         onSubmit={handleSubmit}
+        projectId={currentProject?.id ?? null}
+        onInputAction={handleInputAction}
         disabled={isGenerating || missingBinding || pendingApprovals.length > 0}
         isGenerating={isGenerating}
         onStop={() => void stopGeneration()}
