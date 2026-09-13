@@ -1,21 +1,38 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatHeader } from '@/components/chat/ChatHeader';
-import { usePaneStore, PANE_WIDTH_DEFAULT } from '@/stores/pane-store';
 
-beforeEach(() => {
-  usePaneStore.setState({ tabs: [], activeTabId: null, width: PANE_WIDTH_DEFAULT });
-});
-
-describe('ChatHeader 文件按钮', () => {
-  it('opens a files pane tab for the project when enabled', () => {
-    render(<ChatHeader projectName="proj" onOpenFiles={() => usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' })} filesEnabled />);
-    fireEvent.click(screen.getByRole('button', { name: '文件' }));
-    expect(usePaneStore.getState().activeTabId).toBe('files:p1');
+describe('ChatHeader 面板切换按钮', () => {
+  it('renders the collapse affordance and calls onToggle when visible', () => {
+    const onToggle = vi.fn();
+    render(
+      <ChatHeader title="会话标题" paneToggle={{ visible: true, disabled: false, onToggle }} />,
+    );
+    expect(screen.getByText('会话标题')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '收起面板' }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('is disabled without a bound project', () => {
-    render(<ChatHeader filesEnabled={false} />);
-    expect((screen.getByRole('button', { name: '文件' }) as HTMLButtonElement).disabled).toBe(true);
+  it('renders the open affordance when the pane is hidden', () => {
+    const onToggle = vi.fn();
+    render(
+      <ChatHeader title="会话标题" paneToggle={{ visible: false, disabled: false, onToggle }} />,
+    );
+    expect(screen.getByRole('button', { name: '展开面板' })).toBeDefined();
+  });
+
+  it('is disabled when there is nothing to show or reopen', () => {
+    render(
+      <ChatHeader title="探索未至之境" paneToggle={{ visible: false, disabled: true, onToggle: () => {} }} />,
+    );
+    expect((screen.getByRole('button', { name: '展开面板' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('renders no toggle button without paneToggle props', () => {
+    render(<ChatHeader title="欢迎" />);
+    expect(screen.queryByRole('button', { name: '展开面板' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '收起面板' })).toBeNull();
   });
 });

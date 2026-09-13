@@ -78,6 +78,7 @@ function ActiveTabBody({ tab }: { tab: PaneTab }) {
 export function RightPane() {
   const tabs = usePaneStore((s) => s.tabs);
   const activeTabId = usePaneStore((s) => s.activeTabId);
+  const hidden = usePaneStore((s) => s.hidden);
   const width = usePaneStore((s) => s.width);
   const setActive = usePaneStore((s) => s.setActive);
   const closeTab = usePaneStore((s) => s.closeTab);
@@ -102,7 +103,8 @@ export function RightPane() {
     drag.current = null;
   }, []);
 
-  if (tabs.length === 0) return null;
+  // 无标签或被 Header 切换按钮折叠时都不渲染；折叠保留标签，展开即恢复。
+  if (tabs.length === 0 || hidden) return null;
   const activeTab =
     tabs.find((t) => t.id === activeTabId) ?? tabs[tabs.length - 1]!;
 

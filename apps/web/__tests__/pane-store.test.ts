@@ -13,7 +13,7 @@ const subagentTab = (childId: string): PaneTab => ({
 });
 
 beforeEach(() => {
-  usePaneStore.setState({ tabs: [], activeTabId: null, width: PANE_WIDTH_DEFAULT });
+  usePaneStore.setState({ tabs: [], activeTabId: null, width: PANE_WIDTH_DEFAULT, hidden: false });
   window.localStorage.clear();
 });
 
@@ -67,6 +67,24 @@ describe('closeTab', () => {
   it('ignores an unknown id', () => {
     usePaneStore.getState().closeTab('nope');
     expect(usePaneStore.getState().tabs).toHaveLength(0);
+  });
+});
+
+describe('hidden', () => {
+  it('hides the pane without dropping tabs; setHidden(false) restores', () => {
+    usePaneStore.getState().openTab(subagentTab('a'));
+    usePaneStore.getState().setHidden(true);
+    expect(usePaneStore.getState().hidden).toBe(true);
+    expect(usePaneStore.getState().tabs).toHaveLength(1);
+    usePaneStore.getState().setHidden(false);
+    expect(usePaneStore.getState().hidden).toBe(false);
+  });
+
+  it('openTab unhides a hidden pane', () => {
+    usePaneStore.getState().openTab(subagentTab('a'));
+    usePaneStore.getState().setHidden(true);
+    usePaneStore.getState().openTab(subagentTab('a'));
+    expect(usePaneStore.getState().hidden).toBe(false);
   });
 });
 

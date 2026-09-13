@@ -73,6 +73,16 @@ describe('RightPane', () => {
     expect(usePaneStore.getState().width).toBe(450);
   });
 
+  it('renders nothing while hidden and returns after setHidden(false)', () => {
+    usePaneStore.setState({ tabs: [subagentTab('a')], activeTabId: 'subagent:a', hidden: true });
+    const view = render(<RightPane />);
+    expect(view.container.querySelector('[data-testid="right-pane"]')).toBeNull();
+    usePaneStore.getState().setHidden(false);
+    // 外部 store 更新不经过 act；rerender 强制一次读取最新 store 的渲染。
+    view.rerender(<RightPane />);
+    expect(view.container.querySelector('[data-testid="right-pane"]')).not.toBeNull();
+  });
+
   it('exposes a resize handle that persists a new width', () => {
     // 开一个标签让 shell 真正渲染（空 tabs 时 RightPane 返回 null，见上例）；
     // 先给非默认宽度，双击复位才有「复位」可言。

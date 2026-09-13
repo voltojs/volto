@@ -34,10 +34,13 @@ interface PaneState {
   tabs: PaneTab[];
   activeTabId: string | null;
   width: number;
+  /** 面板折叠：标签保留，仅隐藏渲染——Header 的切换按钮负责翻转。 */
+  hidden: boolean;
   openTab: (tab: PaneTab) => void;
   closeTab: (id: string) => void;
   setActive: (id: string) => void;
   setWidth: (n: number) => void;
+  setHidden: (hidden: boolean) => void;
 }
 
 export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState>(
@@ -45,11 +48,12 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     tabs: [],
     activeTabId: null,
     width: loadWidth(),
+    hidden: false,
     openTab: (tab) =>
       set((state) => {
         const existing = state.tabs.find((t) => t.id === tab.id);
         if (existing === undefined) {
-          return { tabs: [...state.tabs, tab], activeTabId: tab.id };
+          return { tabs: [...state.tabs, tab], activeTabId: tab.id, hidden: false };
         }
         // 子代理标签的 view 随载荷覆盖：卡片点击开 chat，「查看执行过程」
         // 开 trajectory——同一标签只换视图不新建。
@@ -61,9 +65,10 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
           return {
             tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
             activeTabId: tab.id,
+            hidden: false,
           };
         }
-        return { activeTabId: tab.id };
+        return { activeTabId: tab.id, hidden: false };
       }),
     closeTab: (id) =>
       set((state) => {
@@ -82,5 +87,6 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
       }
       set({ width });
     },
+    setHidden: (hidden) => set({ hidden }),
   }),
 );

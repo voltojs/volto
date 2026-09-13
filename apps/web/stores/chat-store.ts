@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  ConnectionState,
   TaggedTranscriptDelta,
   TranscriptDelta,
   TranscriptEventInput,
@@ -74,6 +75,8 @@ interface ChatState {
   currentSessionId: string | null;
   /** Sub-agent transcripts, keyed by opaque childSessionId. */
   subagents: Record<string, SubagentBucket>;
+  /** SSE 通道连接状态（Sidebar 状态指示与 ChatPanel 共读）。 */
+  connectionState: ConnectionState;
 
   /** Appends an authoritative event and clears the streaming tail it supersedes. */
   pushEvent: (event: TranscriptEventInput) => void;
@@ -93,6 +96,7 @@ interface ChatState {
     isError: boolean,
     durationMs?: number,
   ) => void;
+  setConnectionState: (state: ConnectionState) => void;
   /** Drops every bucket — used on session switch. */
   resetSubagents: () => void;
   /** Replaces the whole log — used when loading a session from the server. */
@@ -114,6 +118,7 @@ export const useChatStore = create<ChatState>((set) => ({
   isGenerating: false,
   currentSessionId: null,
   subagents: {},
+  connectionState: 'disconnected',
 
   pushEvent: (event) =>
     set((state) => ({
@@ -167,6 +172,8 @@ export const useChatStore = create<ChatState>((set) => ({
           { events: [], deltas: [], status: isError ? 'error' : 'done', durationMs };
       return { subagents: { ...state.subagents, [childId]: bucket } };
     }),
+
+  setConnectionState: (connectionState) => set({ connectionState }),
 
   resetSubagents: () => set({ subagents: {} }),
 

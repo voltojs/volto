@@ -14,9 +14,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 import { ProjectList } from './ProjectList';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
+
+/** SSE 连接状态指示（原 ChatHeader 顶栏的状态点，随状态/主题移入侧栏底部行）。 */
+const CONNECTION_LABEL: Record<string, string> = {
+  connected: '已连接 agent 服务',
+  connecting: '正在连接 agent 服务…',
+  disconnected: '未连接 agent 服务',
+};
+
+const CONNECTION_DOT: Record<string, string> = {
+  connected: 'bg-success',
+  connecting: 'bg-primary animate-pulse',
+  disconnected: 'bg-destructive',
+};
 
 /**
  * Whether a config-load failure is the gateway refusing our credentials.
@@ -38,6 +52,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function Sidebar() {
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
+  const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  const connectionState = useChatStore((s) => s.connectionState);
   const load = useConfigStore((s) => s.load);
   const error = useConfigStore((s) => s.error);
 
@@ -163,10 +179,33 @@ export function Sidebar() {
 
         <Separator />
 
+        {/* 底部一行：连接状态（仅会话激活时有意义）+ 主题切换 + 设置 */}
         <div className="flex items-center gap-1 p-2">
+          {currentSessionId !== null && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="text-muted-foreground flex h-8 min-w-0 flex-1 items-center gap-2 px-1 text-xs">
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 shrink-0 rounded-full',
+                        CONNECTION_DOT[connectionState],
+                      )}
+                    />
+                    <span className="truncate">
+                      {CONNECTION_LABEL[connectionState]}
+                    </span>
+                  </span>
+                }
+              />
+              <TooltipContent>{CONNECTION_LABEL[connectionState]}</TooltipContent>
+            </Tooltip>
+          )}
+          {currentSessionId === null && <span className="flex-1" />}
+          <ThemeToggle />
           <Button
             variant="ghost"
-            className="text-muted-foreground flex-1 justify-start gap-2"
+            className="text-muted-foreground shrink-0 gap-2"
             onClick={() => setShowSettings(true)}
           >
             <Settings className="h-4 w-4" />

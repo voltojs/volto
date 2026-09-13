@@ -148,8 +148,8 @@ export function ChatPanel() {
   );
 
   // 子代理卡片点击后经 pane-store 开 RightPane 标签；走
-  // usePaneStore.getState() 的命令式入口并保持回调引用稳定——Task 11 的
-  // memo 比较器依赖回调身份，内联箭头函数每帧新建会让 memo 失效。
+  // usePaneStore.getState() 的命令式入口并保持回调引用稳定——memo 比较器
+  // 依赖回调身份，内联箭头函数每帧新建会让 memo 失效。
   const openSubagent = useCallback((childId: string) => {
     usePaneStore
       .getState()
@@ -160,6 +160,9 @@ export function ChatPanel() {
         view: 'chat',
       });
   }, []);
+
+  // Header 标题与右侧面板切换：依赖 currentSession/currentProject（下方
+  // 声明），只在会话/项目解析后计算。
 
   const handleDecide = useCallback(
     async (callId: string, decision: 'allow' | 'deny'): Promise<void> => {
@@ -187,6 +190,37 @@ export function ChatPanel() {
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentProject = projects.find(
     (p) => p.id === currentSession?.projectId,
+  );
+
+  // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
+  const headerTitle =
+    currentSession?.title || currentProject?.name || '探索未至之境';
+
+  // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；既无标签
+  // 又无项目（开不了文件树）时禁用。
+  const paneTabs = usePaneStore((s) => s.tabs);
+  const paneHidden = usePaneStore((s) => s.hidden);
+  const paneVisible = paneTabs.length > 0 && !paneHidden;
+  const paneToggle = useMemo(
+    () => ({
+      visible: paneVisible,
+      disabled:
+        !paneVisible && paneTabs.length === 0 && currentProject === undefined,
+      onToggle: () => {
+        if (paneVisible) {
+          usePaneStore.getState().setHidden(true);
+        } else if (paneTabs.length > 0) {
+          usePaneStore.getState().setHidden(false);
+        } else if (currentProject) {
+          usePaneStore.getState().openTab({
+            kind: 'files',
+            id: `files:${currentProject.id}`,
+            projectId: currentProject.id,
+          });
+        }
+      },
+    }),
+    [paneVisible, paneTabs.length, currentProject],
   );
 
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
@@ -239,7 +273,7 @@ export function ChatPanel() {
   if (currentSessionId && currentSession && !currentSession.detailLoaded) {
     return (
       <div className="flex h-full flex-col">
-        <ChatHeader />
+        <ChatHeader title={headerTitle} paneToggle={paneToggle} />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           {currentSession.detailError ? (
             <>
@@ -280,20 +314,11 @@ export function ChatPanel() {
   if (entries.length === 0) {
     return (
       <div className="flex h-full flex-col">
+        {/* 欢迎分支不渲染 RightPane，开着的标签无处展示——切换按钮一律
+            禁用，避免可点但无效果的死按钮。 */}
         <ChatHeader
-          onOpenFiles={
-            currentProject
-              ? () =>
-                  usePaneStore.getState().openTab({
-                    kind: 'files',
-                    id: `files:${currentProject.id}`,
-                    projectId: currentProject.id,
-                  })
-              : undefined
-          }
-          // 欢迎分支不渲染 RightPane，files 标签无处展示——按钮一律禁用
-          // （「当前会话未绑定项目」tooltip），避免可点但无效果的死按钮。
-          filesEnabled={false}
+          title={headerTitle}
+          paneToggle={{ ...paneToggle, disabled: true }}
         />
         <div className="bg-grain flex flex-1 flex-col items-center justify-center px-4">
           <div className="mb-8 max-w-2xl text-center">
@@ -404,21 +429,7 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader
-        projectName={currentProject?.name}
-        connectionState={connectionState}
-        onOpenFiles={
-          currentProject
-            ? () =>
-                usePaneStore.getState().openTab({
-                  kind: 'files',
-                  id: `files:${currentProject.id}`,
-                  projectId: currentProject.id,
-                })
-            : undefined
-        }
-        filesEnabled={currentProject !== undefined}
-      />
+      <ChatHeader title={headerTitle} paneToggle={paneToggle} />
       {showOffline && (
         <div
           className={cn(

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import {
   createGatewaySSEClient,
   createSSEClient,
@@ -56,8 +56,8 @@ const CONNECT_TIMEOUT_MS = 10_000;
  */
 export function useChatAgent(): UseChatAgentReturn {
   const connectionRef = useRef<Connection | null>(null);
-  const [connectionState, setConnectionState] =
-    useState<ConnectionState>('disconnected');
+  // 连接状态入全局 store：Sidebar 底部的状态指示与 ChatPanel 共读一份。
+  const connectionState = useChatStore((s) => s.connectionState);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
 
   /**
@@ -74,7 +74,7 @@ export function useChatAgent(): UseChatAgentReturn {
       // Cookie auth: the EventSource must carry credentials, same as fetch.
       const client = createGatewaySSEClient(eventsUrl(sessionId));
 
-      client.onStateChange(setConnectionState);
+      client.onStateChange((state) => useChatStore.getState().setConnectionState(state));
 
       // Sub-agent frames (agentDepth > 0) are routed into their per-child
       // buckets and never touch the main buffers — a tagged flood therefore
@@ -167,7 +167,7 @@ export function useChatAgent(): UseChatAgentReturn {
     return () => {
       connectionRef.current?.client.destroy();
       connectionRef.current = null;
-      setConnectionState('disconnected');
+      useChatStore.getState().setConnectionState('disconnected');
       // Tearing down the channel (session switch or unmount) can happen
       // mid-turn. `client.destroy()` above only disconnects — it never emits
       // a terminal frame — so without this, `isGenerating` would stay true
