@@ -22,19 +22,13 @@ import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { PluginKey } from '@tiptap/pm/state';
 import { Button } from '@/components/ui/button';
 import { matchActionCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
+import { drillPath, type MentionEntry } from '@/lib/mention-data';
 import { SlashPanel } from './SlashPanel';
+import { FileMentionPanel } from './FileMentionPanel';
 import { createSuggestionPopup } from './suggestion-popup';
 
 /** 单段落文档：Enter 永远是"发送"，换行走 Shift+Enter（HardBreak）。 */
 const SingleParagraphDocument = Document.extend({ content: 'paragraph' });
-
-/** @文件 mention 节点。Task 11 会把 suggestion 配置换成面板接线；
- *  这里先给最小占位配置，避免默认 suggestion 的意外行为。 */
-const FileMention = Mention.configure({
-  HTMLAttributes: { class: 'file-mention-chip' },
-  renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
-  suggestion: { char: '@', items: () => [] },
-});
 
 export interface InputBarProps {
   onSubmit?: (message: string) => void;
@@ -160,6 +154,87 @@ export function InputBar({
     [],
   );
 
+  // 当前活跃的 @ 文件 suggestion 状态，生命周期同 slashPropsRef（render 回调写入、
+  // getProps 惰性读取）。
+  const filePropsRef = useRef<SuggestionProps | null>(null);
+
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const fileMentionExtension = useMemo(
+    () =>
+      // eslint-disable-next-line react-hooks/refs
+      Mention.configure({
+        HTMLAttributes: { class: 'file-mention-chip' },
+        renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
+        suggestion: {
+          char: '@',
+          pluginKey: new PluginKey('file-mention'),
+          placement: 'top-start',
+          // 未绑定项目不触发（spec §6 verbatim）；经 ref 读取最新 projectId
+          allow: () => projectIdRef.current != null,
+          items: () => [], // 数据由 FileMentionPanel 自取（目录缓存 + 搜索防抖）
+          // command 的 props 泛型 = MentionNodeAttrs（tiptap 原生设计：command
+          // 收到的就是 mention 节点 attrs，见扩展默认 command 的 attrs: {...props}）。
+          // onSelect 因此传 { id, label } 而非 brief 草稿的 { path }——运行时行为
+          // 一致（chip attrs id=label=entry.path），仅消类型不匹配。
+          command: ({ editor: instance, range, props }) => {
+            instance
+              .chain()
+              .focus()
+              .insertContentAt(range, [
+                { type: 'mention', attrs: { id: props.id, label: props.label } },
+                { type: 'text', text: ' ' },
+              ])
+              .run();
+          },
+          render: () => {
+            // 与 slashExtension 同型：render() 在插件创建时调用一次，生命周期回调
+            // 里把最新 SuggestionProps 记进 ref——面板经 getProps 惰性读取，onSelect
+            // 需要 command、onDrill 需要 editor/range，缺记录则选中是静默空操作。
+            const popup = createSuggestionPopup({
+              Panel: FileMentionPanel,
+              getProps: () => ({
+                query: filePropsRef.current?.query ?? '',
+                projectId: projectIdRef.current ?? null,
+                onSelect: (entry: MentionEntry) => {
+                  filePropsRef.current?.command({ id: entry.path, label: entry.path });
+                },
+                onDrill: (entry: MentionEntry) => {
+                  const current = filePropsRef.current;
+                  const next = drillPath(entry);
+                  if (!current || next === undefined) return;
+                  // 在触发字符之后插入（range.to），保留 '@'：suggestion 的 range
+                  // 覆盖含 '@' 的整段匹配文本，若整体替换，'@' 随之消失、匹配无法
+                  // 重挂（实测 getText 变 'src/' 而非 '@src/'，面板直接关闭）。
+                  // 从 range.to 插入 → '@src/'，caret 落在 '/' 后，query 改写为
+                  // 'src/'，onUpdate 以新查询重灌面板。
+                  current.editor.chain().focus().insertContentAt(current.range.to, next).run();
+                },
+              }),
+              onOpenChange: (open) => {
+                panelOpenRef.current = open;
+              },
+            });
+            return {
+              onStart: (props) => {
+                filePropsRef.current = props;
+                popup.onStart(props);
+              },
+              onUpdate: (props) => {
+                filePropsRef.current = props;
+                popup.onUpdate();
+              },
+              onKeyDown: popup.onKeyDown,
+              onExit: () => {
+                filePropsRef.current = null;
+                popup.onExit();
+              },
+            };
+          },
+        },
+      }),
+    [],
+  );
+
   const submit = useCallback(() => {
     const editor = editorRef.current;
     if (!editor || disabledRef.current) return;
@@ -192,7 +267,7 @@ export function InputBar({
       Paragraph,
       Text,
       HardBreak,
-      FileMention,
+      fileMentionExtension,
       UndoRedo,
       // ref 读取发生在 tiptap 装饰阶段的惰性回调里，并非 render 期执行；
       // react-hooks/refs 无法识别该时序，此处 scoped 豁免。
