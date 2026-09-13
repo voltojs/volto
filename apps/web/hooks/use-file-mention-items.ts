@@ -65,7 +65,14 @@ export function useFileMentionItems(projectId: string | null, query: string) {
       try {
         setStatus('loading');
         if (mentionQuery.mode === 'search') {
-          timer = setTimeout(() => void load(), SEARCH_DEBOUNCE_MS);
+          // 防抖回调在下方 try/catch 之外执行：错误必须挂在调用上，否则
+          // searchFsFiles 的 reject 既不送达 status（永久卡 loading），
+          // 也是一次 unhandled rejection。
+          timer = setTimeout(() => {
+            load().catch(() => {
+              if (!cancelled) setStatus('error');
+            });
+          }, SEARCH_DEBOUNCE_MS);
         } else {
           await load();
         }

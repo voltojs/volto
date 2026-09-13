@@ -30,7 +30,11 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
       enabled: true,
       onSelect: (i) => {
         const entry = entries[i];
-        if (entry) onSelect(entry);
+        if (!entry) return;
+        // Enter 语义（spec §4）：目录条目 = 进目录（与 Tab、点击目录行一致），
+        // 文件条目才选中插入。
+        if (drillPath(entry) !== undefined) onDrill(entry);
+        else onSelect(entry);
       },
       onTab: (i) => {
         const entry = entries[i];

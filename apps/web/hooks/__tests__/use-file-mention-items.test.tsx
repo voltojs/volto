@@ -64,6 +64,20 @@ describe('useFileMentionItems', () => {
     }
   });
 
+  it('search 模式请求失败 → 防抖触发后进入 error（不卡 loading）', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"boom"}', { status: 500 })));
+      const { result } = renderHook(() => useFileMentionItems('p1', 'store'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(299); });
+      expect(result.current.status).toBe('loading'); // 防抖未触发，错误尚未发生
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(result.current.status).toBe('error'); // 修复点：debounced reject 必须送达 status
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('projectId 为 null → ready 空列表不发请求', () => {
     const fetchMock = stubFetch({});
     vi.stubGlobal('fetch', fetchMock);
