@@ -53,8 +53,6 @@ import {
   filterByScope,
   extractTouchedToolPaths,
   parseSkillInvocation,
-  renderSkillInjection,
-  capSkillInjection,
   ReasoningEffortId,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
@@ -1272,12 +1270,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    *      (async) skill registry.
    *   2. Otherwise, `expandSkillInvocation` checks whether the name matches
    *      a real skill at all (`recognized`). If it does — whether or not it
-   *      is user-invocable, loads successfully, or the registry throws —
-   *      its result (the user's own text, optionally with the skill's
-   *      instructions appended after it) is used as-is. A recognized-but-
-   *      unavailable skill must NOT fall through to step 3 (Finding I-2):
-   *      that would silently replace the user's whole message with
-   *      "Unknown command: ...", discarding whatever they asked for.
+   *      is user-invocable — the user's own text (`/name args`) is kept
+   *      verbatim. A recognized-but-unavailable skill must NOT fall through
+   *      to step 3 (Finding I-2): that would silently replace the user's
+   *      whole message with "Unknown command: ...", discarding whatever they
+   *      asked for. The skill body is NOT injected into the message; the
+   *      catalog layer instructs the model to load `/name` skills via the
+   *      skill tool.
    *   3. Only when the name matches no skill at all (`recognized: false`)
    *      does today's unchanged `renderCommand` fallback — the
    *      "Unknown command: ..." prompt — apply verbatim.
@@ -1569,7 +1568,11 @@ export function renderSkillCatalog(
     const description = truncateDescription(collapsed, limit);
     return `- ${s.name}: ${description}`;
   });
-  return ["Available skills (load full instructions with the skill tool):", ...lines].join("\n");
+  return [
+    "Available skills (load full instructions with the skill tool):",
+    'When the user message starts with "/<skill-name>" matching a skill below, load that skill with the skill tool first, then follow it.',
+    ...lines,
+  ].join("\n");
 }
 
 /**
@@ -1602,15 +1605,14 @@ function normalizeInput(input: string | AgentInput): AgentInput {
 
 /**
  * Result of {@link expandSkillInvocation}: whether the first line named an
- * actual entry in the skill registry (`recognized`), and the (possibly
- * rewritten) input.
+ * actual entry in the skill registry (`recognized`), and the (unmodified)
+ * input.
  *
  * `recognized` is the signal `resolveInput` needs to fix Finding I-2: a name
  * that matches the `/name` grammar but corresponds to no skill at all is
  * genuinely unknown and must still fall through to the existing
  * "Unknown command: ..." prompt. But a name that DOES match a real skill —
- * whether it turns out not to be user-invocable, fails to load (including the
- * known disable-model-invocation limitation below), or the registry throws —
+ * whether it turns out not to be user-invocable or the registry throws —
  * is not "unknown"; the user's original text must survive unchanged instead
  * of being replaced by that prompt. Distinguishing the two only from the
  * final `input` value is impossible: both cases leave `input` untouched.
@@ -1621,21 +1623,18 @@ export interface SkillGestureResult {
 }
 
 /**
- * Expands a `/name` gesture on a user message into the skill's instructions.
+ * Recognizes a `/name` gesture that names a real skill.
  *
- * The user's own text is kept verbatim and the instructions are appended
- * after it: background context first, the material the model must act on
- * last and closest to its answer. The injected text is capped the same way
- * the `skill` tool caps its own modelContent (see capSkillInjection) — an
- * unbounded SKILL.md body must not reach the provider uncapped, and unlike a
- * tool result this block lives in `messages`, so an uncapped body would be
- * resent on every subsequent turn.
+ * Does NOT inject the skill body into the user message. The user's text
+ * (`/name args`) is delivered verbatim; the model loads the body on demand
+ * via the `skill` tool (progressive disclosure — bodies never sit in
+ * `messages` and are not resent every subsequent turn).
  *
  * `recognized` is false only when the gesture grammar didn't match at all, or
  * matched a name with no corresponding registry entry — see
  * {@link SkillGestureResult}. In every `recognized: false` case `input` is
  * returned by identity (not a structural copy), same as every
- * `recognized: true` non-injecting case; `resolveInput` does not currently
+ * `recognized: true` case; `resolveInput` does not currently
  * depend on that identity (it branches on `recognized`), but tests pin it as
  * a cheap invariant.
  *
@@ -1663,31 +1662,11 @@ export async function expandSkillInvocation(
     // as today: let resolveInput fall through to "Unknown command: ...".
     if (summary === undefined) return { recognized: false, input };
     // From here the name IS a real skill. Whatever happens next — not
-    // user-invocable, load() returns undefined, or a throw below — must
-    // preserve the user's text and must NOT fall through to the
-    // unknown-command prompt (Finding I-2).
-    if (!summary.invocation.userInvocable) return { recognized: true, input };
-    const loaded = await registry.load(name);
-    // Known limitation (deliberate, not fixed here): SkillRegistry.load()
-    // only returns model-invocable skills, so a skill marked
-    // disable-model-invocation: true but still user-invocable gets
-    // undefined here and is not injected. Fixing that needs a second
-    // registry entry point that bypasses the modelInvocable filter —
-    // scoped to a later plan. The user's text still survives verbatim.
-    if (loaded === undefined) return { recognized: true, input };
-    return {
-      recognized: true,
-      input: {
-        type: "user_message",
-        content: [
-          { type: "text", text },
-          {
-            type: "text",
-            text: capSkillInjection(renderSkillInjection(name, loaded.baseDir, loaded.body)),
-          },
-        ],
-      },
-    };
+    // user-invocable, or a throw below — must preserve the user's text and
+    // must NOT fall through to the unknown-command prompt (Finding I-2).
+    // The body itself is never injected: the catalog layer tells the model
+    // to load `/name` skills via the skill tool.
+    return { recognized: true, input };
   } catch {
     // A registry failure must not turn a normal message into an error, and
     // (Finding I-2) the name already matched a skill gesture, so it must not

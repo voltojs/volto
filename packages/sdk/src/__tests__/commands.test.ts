@@ -219,13 +219,11 @@ describe("createAgent — /name resolution order (commands vs. skills)", () => {
 
     const state = await agent.run("/y do the thing");
 
-    const content = userMessageContent(state) as Array<{ type: string; text: string }>;
-    expect(Array.isArray(content)).toBe(true);
-    // The user's own text stays verbatim as the FIRST block.
-    expect(content[0]).toEqual({ type: "text", text: "/y do the thing" });
-    // The skill's instructions are appended AFTER it.
-    expect(content[1]?.text).toContain("Y SKILL BODY");
-    expect(content[1]?.text).toContain('The user invoked the skill "y"');
+    // User message is the raw `/name args` — no body injection. The model
+    // loads the skill via the skill tool when it needs the instructions.
+    expect(userMessageContent(state)).toBe("/y do the thing");
+    expect(JSON.stringify(state.messages)).not.toContain("Y SKILL BODY");
+    expect(JSON.stringify(state.messages)).not.toContain("The user invoked the skill");
   });
 
   it("neither a command nor a skill matches — unchanged unknown-command text", async () => {

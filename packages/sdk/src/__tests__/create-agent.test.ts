@@ -6,7 +6,6 @@ import {
   toolCallScript,
   textDelta,
   modelDone,
-  renderSkillInjection,
 } from "@volto/core";
 import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput, SkillRegistry } from "@volto/core";
 import { createMemoryStore } from "@volto/store-memory";
@@ -1092,7 +1091,9 @@ describe("createAgent — SDK facade", () => {
         { name: "a", description: "A  with   spaces\nand newline", invocation: { modelInvocable: true, userInvocable: true } },
       ];
       expect(renderSkillCatalog(summaries)).toBe(
-        "Available skills (load full instructions with the skill tool):\n- a: A with spaces and newline\n- b: B",
+        "Available skills (load full instructions with the skill tool):\n" +
+          'When the user message starts with "/<skill-name>" matching a skill below, load that skill with the skill tool first, then follow it.\n' +
+          "- a: A with spaces and newline\n- b: B",
       );
     });
 
@@ -1105,7 +1106,9 @@ describe("createAgent — SDK facade", () => {
         { name: "B", description: "upper", invocation: { modelInvocable: true, userInvocable: true } },
       ];
       expect(renderSkillCatalog(summaries)).toBe(
-        "Available skills (load full instructions with the skill tool):\n- B: upper\n- a: lower",
+        "Available skills (load full instructions with the skill tool):\n" +
+          'When the user message starts with "/<skill-name>" matching a skill below, load that skill with the skill tool first, then follow it.\n' +
+          "- B: upper\n- a: lower",
       );
     });
 
@@ -1115,7 +1118,8 @@ describe("createAgent — SDK facade", () => {
         [{ name: "a", description: long, invocation: { modelInvocable: true, userInvocable: true } }],
         200,
       );
-      const line = text.split("\n")[1]!;
+      // [0]=header, [1]=slash-invocation hint, [2]=first skill line
+      const line = text.split("\n")[2]!;
       expect(line).toBe(`- a: ${"d".repeat(200)}…`);
     });
 
@@ -1125,7 +1129,7 @@ describe("createAgent — SDK facade", () => {
         [{ name: "a", description: exact, invocation: { modelInvocable: true, userInvocable: true } }],
         200,
       );
-      expect(text.split("\n")[1]!).toBe(`- a: ${exact}`);
+      expect(text.split("\n")[2]!).toBe(`- a: ${exact}`);
     });
 
     it("collapses whitespace before measuring the limit", () => {
@@ -1139,7 +1143,7 @@ describe("createAgent — SDK facade", () => {
         [{ name: "a", description: raw, invocation: { modelInvocable: true, userInvocable: true } }],
         10,
       );
-      expect(text.split("\n")[1]!).toBe("- a: a b");
+      expect(text.split("\n")[2]!).toBe("- a: a b");
     });
 
     it("does not split a surrogate pair when truncating (Finding 1)", () => {
@@ -1153,7 +1157,7 @@ describe("createAgent — SDK facade", () => {
         [{ name: "a", description, invocation: { modelInvocable: true, userInvocable: true } }],
         101, // odd code-unit offset relative to 2-unit pairs: lands mid-pair under slice()
       );
-      const line = text.split("\n")[1]!;
+      const line = text.split("\n")[2]!;
       const hasLoneSurrogate =
         /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(line);
       expect(hasLoneSurrogate).toBe(false);
@@ -1171,7 +1175,7 @@ describe("createAgent — SDK facade", () => {
         [{ name: "a", description: long, invocation: { modelInvocable: true, userInvocable: true } }],
         NaN,
       );
-      const line = text.split("\n")[1]!;
+      const line = text.split("\n")[2]!;
       expect(line).toBe(`- a: ${"d".repeat(200)}…`);
     });
 
@@ -1275,33 +1279,19 @@ describe("expandSkillInvocation", () => {
     list: async () => [
       { name: "commit", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
       { name: "internal", description: "d", invocation: { modelInvocable: true, userInvocable: false } },
-      // Present in the catalog but load() (see below) always misses it —
-      // stands in for a real disable-model-invocation + user-invocable skill,
-      // whose host-side load() filters on modelInvocable (Finding I-2 / §12).
       { name: "user-only", description: "d", invocation: { modelInvocable: false, userInvocable: true } },
     ],
     load: async (name: string) =>
       name === "commit" ? { body: "Commit steps.", baseDir: "/skills/commit" } : undefined,
   };
 
-  it("appends the skill body after the user's own text, recognized true", async () => {
-    const out = await expandSkillInvocation(
-      { type: "user_message", content: "/commit ship it" },
-      registry,
-    );
-    expect(out).toEqual({
-      recognized: true,
-      input: {
-        type: "user_message",
-        content: [
-          { type: "text", text: "/commit ship it" },
-          {
-            type: "text",
-            text: renderSkillInjection("commit", "/skills/commit", "Commit steps."),
-          },
-        ],
-      },
-    });
+  it("keeps /name args verbatim (no body injection), recognized true", async () => {
+    const input = { type: "user_message" as const, content: "/commit ship it" };
+    const out = await expandSkillInvocation(input, registry);
+    // The skill body is loaded on demand by the model via the skill tool —
+    // never appended into the user message.
+    expect(out).toEqual({ recognized: true, input });
+    expect(out.input).toBe(input);
   });
 
   it("leaves a genuinely unknown name unrecognized (Unknown-command fallback applies)", async () => {
@@ -1309,12 +1299,12 @@ describe("expandSkillInvocation", () => {
     expect(await expandSkillInvocation(input, registry)).toEqual({ recognized: false, input });
   });
 
-  it("does not inject a non-user-invocable skill, but still recognizes it", async () => {
+  it("does not rewrite a non-user-invocable skill, but still recognizes it", async () => {
     const input = { type: "user_message" as const, content: "/internal" };
     expect(await expandSkillInvocation(input, registry)).toEqual({ recognized: true, input });
   });
 
-  it("Finding I-2: a user-invocable skill whose load() misses (disable-model-invocation) survives as the user's own text, recognized true", async () => {
+  it("Finding I-2: a user-only skill survives as the user's own text, recognized true", async () => {
     const input = { type: "user_message" as const, content: "/user-only please do X" };
     const out = await expandSkillInvocation(input, registry);
     // The old bug: this case fell through to resolveInput's renderCommand,
@@ -1335,14 +1325,12 @@ describe("expandSkillInvocation", () => {
     });
   });
 
-  it("Finding I-2: registry.load() throwing still recognizes the gesture and preserves the user's text", async () => {
+  it("Finding I-2: registry.list() throwing still recognizes the gesture and preserves the user's text", async () => {
     const throwingRegistry: SkillRegistry = {
-      list: async () => [
-        { name: "commit", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
-      ],
-      load: async () => {
+      list: async () => {
         throw new Error("disk exploded");
       },
+      load: async () => undefined,
     };
     const input = { type: "user_message" as const, content: "/commit ship it" };
     expect(await expandSkillInvocation(input, throwingRegistry)).toEqual({
@@ -1351,10 +1339,10 @@ describe("expandSkillInvocation", () => {
     });
   });
 
-  it("returns the identical input reference on every non-injecting path", async () => {
+  it("returns the identical input reference on every path", async () => {
     // resolveInput in create-agent.ts branches on `recognized`, but the
-    // `.input` field is still pinned to identity — every early-return path
-    // returns the same object, not merely a structurally-equal copy.
+    // `.input` field is still pinned to identity — every path returns the
+    // same object, not merely a structurally-equal copy.
     const noRegistryInput = { type: "user_message" as const, content: "/commit" };
     expect((await expandSkillInvocation(noRegistryInput, undefined)).input).toBe(noRegistryInput);
 
@@ -1363,61 +1351,8 @@ describe("expandSkillInvocation", () => {
 
     const nonInvocableInput = { type: "user_message" as const, content: "/internal" };
     expect((await expandSkillInvocation(nonInvocableInput, registry)).input).toBe(nonInvocableInput);
-  });
 
-  it("Finding I-1: caps an oversized skill body at the tool's own limit with a visible truncation notice", async () => {
-    const hugeBody = "x".repeat(3_000_000);
-    const hugeRegistry: SkillRegistry = {
-      list: async () => [
-        { name: "huge", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
-      ],
-      load: async () => ({ body: hugeBody, baseDir: "/skills/huge" }),
-    };
-    const out = await expandSkillInvocation(
-      { type: "user_message", content: "/huge do X" },
-      hugeRegistry,
-    );
-    expect(out.recognized).toBe(true);
-    const content = (out.input as { type: "user_message"; content: unknown }).content as Array<{
-      type: string;
-      text: string;
-    }>;
-    const injected = content[1]!.text;
-    const bytes = new TextEncoder().encode(injected).length;
-    // Bounded by the same 64 KiB limit as the `skill` tool's capSkillResult —
-    // not "smaller than the huge input", which a much larger cap would also
-    // satisfy.
-    expect(bytes).toBeLessThanOrEqual(64 * 1024);
-    expect(injected).toContain("[skill body truncated from");
-    // The user's own sentence must still be untouched and first.
-    expect(content[0]).toEqual({ type: "text", text: "/huge do X" });
-  });
-
-  it("Finding I-1: caps a multi-byte (CJK) body without splitting a character", async () => {
-    // Each "中" is 3 UTF-8 bytes; repeating well past 64 KiB and near a
-    // boundary exercises the byte-safe cut this repo has been bitten by
-    // before (naive slicing can split a multi-byte code point).
-    const hugeBody = "中".repeat(30_000);
-    const cjkRegistry: SkillRegistry = {
-      list: async () => [
-        { name: "cjk", description: "d", invocation: { modelInvocable: true, userInvocable: true } },
-      ],
-      load: async () => ({ body: hugeBody, baseDir: "/skills/cjk" }),
-    };
-    const out = await expandSkillInvocation(
-      { type: "user_message", content: "/cjk go" },
-      cjkRegistry,
-    );
-    const content = (out.input as { type: "user_message"; content: unknown }).content as Array<{
-      type: string;
-      text: string;
-    }>;
-    const injected = content[1]!.text;
-    const bytes = new TextEncoder().encode(injected).length;
-    expect(bytes).toBeLessThanOrEqual(64 * 1024);
-    // A split code point would decode to U+FFFD (the replacement character),
-    // which does not round-trip losslessly through UTF-8 re-encoding.
-    expect(Buffer.from(injected, "utf8").toString("utf8")).toBe(injected);
-    expect(injected).not.toContain("�");
+    const invocableInput = { type: "user_message" as const, content: "/commit go" };
+    expect((await expandSkillInvocation(invocableInput, registry)).input).toBe(invocableInput);
   });
 });
