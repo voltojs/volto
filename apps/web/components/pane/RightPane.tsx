@@ -7,7 +7,7 @@ import {
   FileImage,
   FileText,
   FolderTree,
-  GitBranch,
+  GitGraph,
   Plus,
   X,
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/popover';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
+import { GitGraphTab } from './GitGraphTab';
 import { SubagentTab } from './SubagentTab';
 import { PaneCategoryItems, PaneOverview } from './PaneOverview';
 
@@ -30,7 +31,6 @@ import { PaneCategoryItems, PaneOverview } from './PaneOverview';
  * RightPane shell：顶部标签栏 + 内容区分发。shell 对标签类型零感知——
  * 新增类型只需（1）PaneTab 加成员（2）下面注册表加一条（3）标签体组件自窄化。
  * 注册表值类型带 undefined（Partial），未注册的 kind 渲染空白而不是崩溃。
- * git-graph 的标签体由后续任务提供，此处先占位。
  */
 const PANE_TAB_RENDERERS: {
   readonly [K in PaneTab['kind']]: ComponentType<{ tab: PaneTab }> | undefined;
@@ -38,7 +38,7 @@ const PANE_TAB_RENDERERS: {
   subagent: SubagentTab,
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
-  'git-graph': undefined,
+  'git-graph': GitGraphTab,
 };
 
 const IMAGE_EXTS = new Set([
@@ -60,7 +60,7 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
     case 'files':
       return FolderTree;
     case 'git-graph':
-      return GitBranch;
+      return GitGraph;
     case 'file-preview':
       return IMAGE_EXTS.has(
         tab.path.slice(tab.path.lastIndexOf('.')).toLowerCase(),
