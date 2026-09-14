@@ -245,10 +245,51 @@ export async function listBranches(
 }
 
 /**
+ * Validate a local branch name with Git itself before it reaches `switch`.
+ * `check-ref-format --branch` rejects option-like names (e.g. `-b`, `--help`)
+ * and any other illegal ref, so argv consumers never see a crafted flag.
+ */
+async function assertValidBranchName(
+  cwd: string,
+  name: string,
+  runner: GitRunner,
+): Promise<void> {
+  await runner("git", ["check-ref-format", "--branch", name], cwd, GIT_TIMEOUT_MS);
+}
+
+/**
+ * Exact existence probe for a local branch via `show-ref --verify --quiet`.
+ * A missing ref is a quiet non-zero exit — not a fatal error — and unlike
+ * `listBranches` this is not subject to BRANCH_DEFAULT_LIMIT truncation.
+ */
+async function localBranchExists(
+  cwd: string,
+  name: string,
+  runner: GitRunner,
+): Promise<boolean> {
+  try {
+    await runner(
+      "git",
+      ["show-ref", "--verify", "--quiet", `refs/heads/${name}`],
+      cwd,
+      GIT_TIMEOUT_MS,
+    );
+    return true;
+  } catch {
+    // Quiet non-zero exit means the ref does not exist; also swallow probe
+    // failures so a flaky show-ref cannot abort the checkout path.
+    return false;
+  }
+}
+
+/**
  * Checkout `branch` as returned by `listBranches`.
- * Local → `switch <name>`. Remote → prefer an existing same-named local
- * branch (`switch <localName>`); otherwise create a tracking branch
- * (`switch --track -c <localName> <remote/name>`). Never detached HEAD.
+ * Local names (and remote-derived localName) are validated with
+ * `check-ref-format --branch` before any switch; `--` separates the
+ * branch operand from options.
+ * Local → `switch -- <name>`. Remote → prefer an existing same-named local
+ * branch (`switch -- <localName>`); otherwise create a tracking branch
+ * (`switch --track -c <localName> -- <remote/name>`). Never detached HEAD.
  */
 export async function checkoutBranch(
   cwd: string,
@@ -256,7 +297,8 @@ export async function checkoutBranch(
   runner: GitRunner = execFileGitRunner,
 ): Promise<GitRepository> {
   if (branch.kind === "local") {
-    await runner("git", ["switch", branch.name], cwd, GIT_TIMEOUT_MS);
+    await assertValidBranchName(cwd, branch.name, runner);
+    await runner("git", ["switch", "--", branch.name], cwd, GIT_TIMEOUT_MS);
     return getRepository(cwd, runner);
   }
 
@@ -268,16 +310,16 @@ export async function checkoutBranch(
     );
   }
   const localName = branch.name.slice(slash + 1);
+  await assertValidBranchName(cwd, localName, runner);
 
-  const { branches } = await listBranches(cwd, { q: localName }, runner);
-  const localExists = branches.some((b) => b.kind === "local" && b.name === localName);
+  const localExists = await localBranchExists(cwd, localName, runner);
 
   if (localExists) {
-    await runner("git", ["switch", localName], cwd, GIT_TIMEOUT_MS);
+    await runner("git", ["switch", "--", localName], cwd, GIT_TIMEOUT_MS);
   } else {
     await runner(
       "git",
-      ["switch", "--track", "-c", localName, branch.name],
+      ["switch", "--track", "-c", localName, "--", branch.name],
       cwd,
       GIT_TIMEOUT_MS,
     );
@@ -410,7 +452,13 @@ export function gitErrorStatus(err: unknown): { status: number; message: string 
     return { status: 500, message: "Git command timed out" };
   }
   if (err instanceof GitCommandFailedError) {
-    if (err.stderr.includes("unknown subcommand") && err.stderr.includes("switch")) {
+    // Pre-2.23 git prints: `git: 'switch' is not a git command. ...`
+    // Some builds may use `unknown subcommand`; match either form.
+    if (
+      err.stderr.includes("switch") &&
+      (err.stderr.includes("is not a git command") ||
+        err.stderr.includes("unknown subcommand"))
+    ) {
       return { status: 500, message: "Git version too old (requires git >= 2.23)" };
     }
     const text = err.stderr.trim() || err.message;

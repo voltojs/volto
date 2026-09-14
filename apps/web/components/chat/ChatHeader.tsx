@@ -13,8 +13,9 @@ interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
   title: string;
   /**
-   * 右侧面板切换按钮。visible = 面板当前展示（点击收起）；否则点击展开
-   * （无标签时按当前会话项目开文件树）。缺省则不渲染按钮。
+   * Right-pane toggle button. visible = pane is shown (click collapses);
+   * otherwise click expands (with no tabs it opens the project overview).
+   * Omitted → button not rendered.
    */
   paneToggle?: {
     visible: boolean;

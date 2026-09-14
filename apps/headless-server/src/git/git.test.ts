@@ -1,6 +1,7 @@
 // apps/headless-server/src/git/git.test.ts
 import { describe, it, expect } from "vitest";
 import {
+  BRANCH_DEFAULT_LIMIT,
   GitCommandFailedError,
   GitNotFoundError,
   GitTimeoutError,
@@ -176,20 +177,7 @@ describe("createAndCheckoutBranch", () => {
 });
 
 describe("checkoutBranch", () => {
-  const remoteAndLocalOutput = [
-    "refs/heads/main\x00main\x00",
-    "refs/heads/feature/x\x00feature/x\x00",
-    "refs/remotes/origin/feature/x\x00origin/feature/x\x00",
-    "",
-  ].join("\n");
-
-  const remoteOnlyOutput = [
-    "refs/heads/main\x00main\x00",
-    "refs/remotes/origin/feature/x\x00origin/feature/x\x00",
-    "",
-  ].join("\n");
-
-  it("switches a local branch with switch <name>", async () => {
+  it("validates the local branch name and switches with switch -- <name>", async () => {
     const { calls, runner } = repoUpRunner();
     await expect(
       checkoutBranch(
@@ -198,15 +186,40 @@ describe("checkoutBranch", () => {
         runner,
       ),
     ).resolves.toEqual({ isGit: true, branch: "main", head: "abc123" });
-    expect(calls).toContainEqual({ args: ["switch", "main"], cwd: "/repo" });
+    expect(calls).toContainEqual({
+      args: ["check-ref-format", "--branch", "main"],
+      cwd: "/repo",
+    });
+    expect(calls).toContainEqual({ args: ["switch", "--", "main"], cwd: "/repo" });
     expect(calls.some((c) => c.args.includes("-c"))).toBe(false);
   });
 
-  it("creates a tracking branch when the remote ref has no same-named local branch", async () => {
+  it("rejects option-like local branch names before any switch", async () => {
+    for (const name of ["-b", "--track", "-c"]) {
+      const { calls, runner } = recorder((args) => {
+        if (args.join(" ") === `check-ref-format --branch ${name}`) {
+          throw new GitCommandFailedError(
+            "git exited with 128",
+            `fatal: '${name}' is not a valid branch name`,
+          );
+        }
+        return "";
+      });
+      await expect(
+        checkoutBranch("/repo", { name, kind: "local" }, runner),
+      ).rejects.toBeInstanceOf(GitCommandFailedError);
+      expect(calls.some((c) => c.args[0] === "switch")).toBe(false);
+    }
+  });
+
+  it("creates a tracking branch when show-ref reports the local ref missing", async () => {
     const { calls, runner } = recorder((args) => {
       const key = args.join(" ");
-      if (args[0] === "for-each-ref") return remoteOnlyOutput;
-      if (key === "switch --track -c feature/x origin/feature/x") return "";
+      if (key === "check-ref-format --branch feature/x") return "feature/x\n";
+      if (key === "show-ref --verify --quiet refs/heads/feature/x") {
+        throw new GitCommandFailedError("git exited with 1", "");
+      }
+      if (key === "switch --track -c feature/x -- origin/feature/x") return "";
       if (key === "rev-parse --is-inside-work-tree") return "true\n";
       if (key === "branch --show-current") return "feature/x\n";
       if (key === "rev-parse HEAD") return "abc123\n";
@@ -218,16 +231,25 @@ describe("checkoutBranch", () => {
       runner,
     );
     expect(calls).toContainEqual({
-      args: ["switch", "--track", "-c", "feature/x", "origin/feature/x"],
+      args: ["check-ref-format", "--branch", "feature/x"],
+      cwd: "/repo",
+    });
+    expect(calls).toContainEqual({
+      args: ["show-ref", "--verify", "--quiet", "refs/heads/feature/x"],
+      cwd: "/repo",
+    });
+    expect(calls).toContainEqual({
+      args: ["switch", "--track", "-c", "feature/x", "--", "origin/feature/x"],
       cwd: "/repo",
     });
   });
 
-  it("switches to the existing local branch when one already has the same name", async () => {
+  it("switches to the existing local branch when show-ref finds it", async () => {
     const { calls, runner } = recorder((args) => {
       const key = args.join(" ");
-      if (args[0] === "for-each-ref") return remoteAndLocalOutput;
-      if (key === "switch feature/x") return "";
+      if (key === "check-ref-format --branch feature/x") return "feature/x\n";
+      if (key === "show-ref --verify --quiet refs/heads/feature/x") return "";
+      if (key === "switch -- feature/x") return "";
       if (key === "rev-parse --is-inside-work-tree") return "true\n";
       if (key === "branch --show-current") return "feature/x\n";
       if (key === "rev-parse HEAD") return "abc123\n";
@@ -238,8 +260,52 @@ describe("checkoutBranch", () => {
       { name: "origin/feature/x", kind: "remote", remote: "origin" },
       runner,
     );
-    expect(calls).toContainEqual({ args: ["switch", "feature/x"], cwd: "/repo" });
+    expect(calls).toContainEqual({ args: ["switch", "--", "feature/x"], cwd: "/repo" });
     expect(calls.some((c) => c.args.includes("-c"))).toBe(false);
+  });
+
+  it("uses show-ref rather than the truncated branch list to detect a local ref", async () => {
+    // for-each-ref returns 200+ branches and the exact localName is NOT among
+    // the first 200 after a substring filter would still miss it; show-ref
+    // must be the source of truth so checkout does not try --track -c.
+    const localName = "zebra-target";
+    const manyOtherLocals = Array.from(
+      { length: BRANCH_DEFAULT_LIMIT + 50 },
+      (_, i) =>
+        `refs/heads/other-${String(i).padStart(3, "0")}\x00other-${String(i).padStart(3, "0")}\x00`,
+    );
+    const forEachRefWithoutTarget = [...manyOtherLocals, ""].join("\n");
+    const { calls, runner } = recorder((args) => {
+      const key = args.join(" ");
+      if (args[0] === "for-each-ref") return forEachRefWithoutTarget;
+      if (key === `check-ref-format --branch ${localName}`) return `${localName}\n`;
+      if (key === `show-ref --verify --quiet refs/heads/${localName}`) return "";
+      if (key === `switch -- ${localName}`) return "";
+      if (key === "rev-parse --is-inside-work-tree") return "true\n";
+      if (key === "branch --show-current") return `${localName}\n`;
+      if (key === "rev-parse HEAD") return "abc123\n";
+      return "";
+    });
+    await checkoutBranch(
+      "/repo",
+      { name: `origin/${localName}`, kind: "remote", remote: "origin" },
+      runner,
+    );
+    // Exact local exists per show-ref → plain switch, never --track -c.
+    expect(calls).toContainEqual({ args: ["switch", "--", localName], cwd: "/repo" });
+    expect(calls.some((c) => c.args.includes("--track"))).toBe(false);
+    // for-each-ref must not be consulted for this existence check.
+    expect(calls.some((c) => c.args[0] === "for-each-ref")).toBe(false);
+  });
+
+  it("rejects a remote name with no slash or a trailing slash", async () => {
+    const { runner } = repoUpRunner();
+    await expect(
+      checkoutBranch("/repo", { name: "origin/", kind: "remote" }, runner),
+    ).rejects.toBeInstanceOf(GitCommandFailedError);
+    await expect(
+      checkoutBranch("/repo", { name: "noslash", kind: "remote" }, runner),
+    ).rejects.toBeInstanceOf(GitCommandFailedError);
   });
 });
 
@@ -357,6 +423,17 @@ describe("gitErrorStatus", () => {
     });
   });
 
+  it("maps pre-2.23 'is not a git command' for switch to 500 version-too-old", () => {
+    // Real git < 2.23 stderr, verbatim shape.
+    const err = new GitCommandFailedError(
+      "git exited with 1",
+      "git: 'switch' is not a git command. See 'git --help'.",
+    );
+    const mapped = gitErrorStatus(err)!;
+    expect(mapped.status).toBe(500);
+    expect(mapped.message).toMatch(/version too old/i);
+  });
+
   it("maps unknown switch subcommand to 500 with a version hint", () => {
     const err = new GitCommandFailedError(
       "git exited with 1",
@@ -364,7 +441,7 @@ describe("gitErrorStatus", () => {
     );
     const mapped = gitErrorStatus(err)!;
     expect(mapped.status).toBe(500);
-    expect(mapped.message).toMatch(/git/i);
+    expect(mapped.message).toMatch(/version too old/i);
   });
 
   it("maps missing git and timeouts to 500", () => {
