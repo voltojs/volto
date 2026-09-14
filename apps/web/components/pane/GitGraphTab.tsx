@@ -93,6 +93,10 @@ function GitGraphView({ projectId }: { projectId: string }) {
   };
 
   const selectNode = (hash: string) => {
+    // Re-clicking the already-selected node must not clear detail: the effect
+    // depends on selectedHash, so a no-op state change would leave loading=true
+    // forever with nobody to write the payload back.
+    if (hash === selectedHash) return;
     setSelectedHash(hash);
     setDetail({ payload: null, error: null, loading: true });
   };
@@ -156,8 +160,8 @@ function GitGraphView({ projectId }: { projectId: string }) {
 }
 
 /**
- * Read-only topological row. A leading parent-edge glyph plus indent conveys
- * ancestry (◆ merge / ● linear / ○ root) without pulling in a graph library.
+ * Read-only topological row. A leading parent-edge glyph conveys ancestry
+ * (◆ merge / ● linear / ○ root) without pulling in a graph library.
  */
 function GraphNodeRow({
   node,

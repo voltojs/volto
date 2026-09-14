@@ -112,6 +112,21 @@ describe('GitGraphTab', () => {
     expect(await screen.findByText('second commit')).toBeDefined();
   });
 
+  it('keeps the loaded detail when the same node is clicked again', async () => {
+    render(<GitGraphTab tab={tab} />);
+    const nodeButton = await screen.findByRole('button', {
+      name: /second commit/,
+    });
+    fireEvent.click(nodeButton);
+    expect(await screen.findByText('full commit body')).toBeDefined();
+    // Second click on the same node must not clear detail into a stuck
+    // loading state (selectedHash is unchanged, so the effect will not re-run).
+    fireEvent.click(nodeButton);
+    expect(screen.getByText('full commit body')).toBeDefined();
+    expect(screen.queryByText('加载详情…')).toBeNull();
+    expect(commitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps loaded nodes when the detail fetch fails', async () => {
     commitMock.mockRejectedValue(new Error('detail down'));
     render(<GitGraphTab tab={tab} />);
