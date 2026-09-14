@@ -10,6 +10,8 @@
  *   GET  /commands            — slash command templates for the `/` panel
  *   GET  /skills?projectId=   — user-invocable skills for the `/` panel
  *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
+ *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
+ *   GET  /git/commits/:hash   — workspace git pane data
  *   GET  /sessions            — list sessions; /sessions/:id (+ /trajectory,
  *                               /events) read, PATCH rename, DELETE remove
  *   GET|POST /projects, DELETE /projects/:id — project registry
@@ -68,6 +70,15 @@ import {
   readFilePayload,
   fsErrorStatus,
 } from "./fs/files.js";
+import {
+  getRepository,
+  listBranches,
+  checkoutBranch,
+  createAndCheckoutBranch,
+  getGraph,
+  getCommitDetail,
+  gitErrorStatus,
+} from "./git/git.js";
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 
@@ -1165,6 +1176,158 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
       }
       return;
+    }
+
+    // GET /git/summary — repository probe for the workspace git pane
+    if (req.method === "GET" && url.pathname === "/git/summary") {
+      const projectId = url.searchParams.get("projectId");
+      if (projectId === null || projectId === "") {
+        jsonResponse(res, 400, { error: "projectId is required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        jsonResponse(res, 200, await getRepository(projectRoot));
+      } catch (err: unknown) {
+        const mapped = gitErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /git/branches — local + remote-tracking branches, truncated
+    if (req.method === "GET" && url.pathname === "/git/branches") {
+      const projectId = url.searchParams.get("projectId");
+      if (projectId === null || projectId === "") {
+        jsonResponse(res, 400, { error: "projectId is required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        const q = url.searchParams.get("q") ?? undefined;
+        jsonResponse(res, 200, await listBranches(projectRoot, { q }));
+      } catch (err: unknown) {
+        const mapped = gitErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // POST /git/checkout — switch to a local or remote branch
+    if (req.method === "POST" && url.pathname === "/git/checkout") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          projectId?: unknown;
+          name?: unknown;
+          kind?: unknown;
+        };
+        if (
+          typeof body.projectId !== "string" ||
+          body.projectId === "" ||
+          typeof body.name !== "string" ||
+          body.name === "" ||
+          (body.kind !== "local" && body.kind !== "remote")
+        ) {
+          jsonResponse(res, 400, { error: "projectId, name, and kind (local|remote) are required" });
+          return;
+        }
+        const projectRoot = await resolveProjectPath(projectStore, body.projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(body.projectId) });
+          return;
+        }
+        const result = await checkoutBranch(projectRoot, { name: body.name, kind: body.kind });
+        jsonResponse(res, 200, result);
+      } catch (err: unknown) {
+        if (respondBodyError(err)) return;
+        const mapped = gitErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // POST /git/branches — create a new branch from HEAD and check it out
+    if (req.method === "POST" && url.pathname === "/git/branches") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { projectId?: unknown; name?: unknown };
+        if (
+          typeof body.projectId !== "string" ||
+          body.projectId === "" ||
+          typeof body.name !== "string" ||
+          body.name === ""
+        ) {
+          jsonResponse(res, 400, { error: "projectId and name are required" });
+          return;
+        }
+        const projectRoot = await resolveProjectPath(projectStore, body.projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(body.projectId) });
+          return;
+        }
+        const result = await createAndCheckoutBranch(projectRoot, body.name);
+        jsonResponse(res, 200, result);
+      } catch (err: unknown) {
+        if (respondBodyError(err)) return;
+        const mapped = gitErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /git/graph — limited topological commit list
+    if (req.method === "GET" && url.pathname === "/git/graph") {
+      const projectId = url.searchParams.get("projectId");
+      if (projectId === null || projectId === "") {
+        jsonResponse(res, 400, { error: "projectId is required" });
+        return;
+      }
+      try {
+        const projectRoot = await resolveProjectPath(projectStore, projectId);
+        if (projectRoot === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        const limitRaw = url.searchParams.get("limit");
+        const limit = limitRaw !== null && limitRaw !== "" ? Number(limitRaw) : undefined;
+        jsonResponse(res, 200, await getGraph(projectRoot, { limit }));
+      } catch (err: unknown) {
+        const mapped = gitErrorStatus(err);
+        jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /git/commits/:hash — full detail for one commit
+    if (req.method === "GET") {
+      const commitMatch = url.pathname.match(/^\/git\/commits\/([^/]+)$/);
+      if (commitMatch) {
+        const hash = decodeURIComponent(commitMatch[1]!);
+        const projectId = url.searchParams.get("projectId");
+        if (projectId === null || projectId === "") {
+          jsonResponse(res, 400, { error: "projectId is required" });
+          return;
+        }
+        try {
+          const projectRoot = await resolveProjectPath(projectStore, projectId);
+          if (projectRoot === undefined) {
+            jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+            return;
+          }
+          jsonResponse(res, 200, await getCommitDetail(projectRoot, hash));
+        } catch (err: unknown) {
+          const mapped = gitErrorStatus(err);
+          jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+        }
+        return;
+      }
     }
 
     // GET /health
