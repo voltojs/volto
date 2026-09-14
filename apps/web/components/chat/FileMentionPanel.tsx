@@ -4,6 +4,7 @@
 import { forwardRef, useImperativeHandle, useEffect, useRef } from 'react';
 import { Folder, File as FileIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Kbd } from '@/components/ui/kbd';
 import { cn } from '@/lib/utils';
 import { useFileMentionItems } from '@/hooks/use-file-mention-items';
 import { useMenuNavigation } from '@/hooks/use-menu-navigation';
@@ -20,8 +21,9 @@ export interface FileMentionPanelHandle {
   onKeyDown: (event: KeyboardEvent) => boolean;
 }
 
-/** @文件面板：查询驱动（见 lib/mention-data.ts）。目录点击 = 进目录，
- *  文件点击 = 选中插入。键盘 Tab 在目录上进目录、在文件上吞咽防焦点逃逸。 */
+/** @文件面板：查询驱动（见 lib/mention-data.ts）。
+ *  点击目录 = 进目录（浏览）；Tab 在目录上 = 进目录；
+ *  Enter 在目录/文件上 = 选中插入 mention（目录也可直接被引用）。 */
 export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPanelProps>(
   function FileMentionPanel({ query, projectId, onSelect, onDrill }, ref) {
     const { entries, status, retry } = useFileMentionItems(projectId, query);
@@ -29,12 +31,9 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
       itemCount: entries.length,
       enabled: true,
       onSelect: (i) => {
+        // Enter 语义：目录与文件一律选中插入。进目录用 Tab 或点击。
         const entry = entries[i];
-        if (!entry) return;
-        // Enter 语义（spec §4）：目录条目 = 进目录（与 Tab、点击目录行一致），
-        // 文件条目才选中插入。
-        if (drillPath(entry) !== undefined) onDrill(entry);
-        else onSelect(entry);
+        if (entry) onSelect(entry);
       },
       onTab: (i) => {
         const entry = entries[i];
@@ -57,7 +56,7 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
       () => ({
         onKeyDown: (event: KeyboardEvent) => {
           if (event.key === 'Enter') {
-            nav.handleKeyDown(event);
+            nav.handleKeyDown(event); // 目录/文件 → onSelect（选中插入）
             return true; // 恒吞咽
           }
           if (event.key === 'Tab') {
@@ -93,6 +92,7 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
           <div role="listbox" aria-label="项目文件">
             {entries.map((entry, i) => {
               const active = i === nav.activeIndex;
+              const isDir = entry.type === 'dir';
               return (
                 <button
                   key={entry.path}
@@ -104,15 +104,23 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
                     'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left',
                     active && 'bg-accent',
                   )}
-                  onClick={() => (entry.type === 'dir' ? onDrill(entry) : onSelect(entry))}
+                  onClick={() => (isDir ? onDrill(entry) : onSelect(entry))}
                   onMouseEnter={() => nav.setActiveIndex(i)}
                 >
-                  {entry.type === 'dir' ? (
+                  {isDir ? (
                     <Folder className="text-muted-foreground h-4 w-4 shrink-0" />
                   ) : (
                     <FileIcon className="text-muted-foreground h-4 w-4 shrink-0" />
                   )}
-                  <span className="truncate">{entry.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  {/* Hint: dir → Tab (drill); both dir/file → Enter (select) is
+                      the universal insert key, so only Tab is called out on dirs. */}
+                  <Kbd
+                    className={cn('shrink-0', active ? 'opacity-100' : 'opacity-45')}
+                    aria-hidden
+                  >
+                    {isDir ? 'Tab' : '⏎'}
+                  </Kbd>
                 </button>
               );
             })}

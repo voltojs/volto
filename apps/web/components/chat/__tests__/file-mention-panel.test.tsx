@@ -49,7 +49,7 @@ describe('FileMentionPanel', () => {
     expect(onDrill).toHaveBeenCalledWith({ name: 'src', path: 'src', type: 'dir' });
   });
 
-  it('键盘：Tab/Enter 在目录上进目录（消费）、Tab 在文件上仅吞咽；Enter 恒消费', async () => {
+  it('键盘：Tab 在目录上进目录；Enter 在目录/文件上一律选中插入', async () => {
     vi.stubGlobal('fetch', stubFetch({ '/fs/tree': TREE }));
     const onSelect = vi.fn();
     const onDrill = vi.fn();
@@ -59,15 +59,26 @@ describe('FileMentionPanel', () => {
     // activeIndex 初始 0 = src（目录）
     expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Tab' }))).toBe(true);
     expect(onDrill).toHaveBeenCalledWith({ name: 'src', path: 'src', type: 'dir' });
-    // Enter 在目录条目上同样进目录（spec §4），不得触发 onSelect
-    expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
-    expect(onDrill).toHaveBeenCalledWith({ name: 'src', path: 'src', type: 'dir' });
     expect(onSelect).not.toHaveBeenCalled();
-    // ArrowDown 移到文件行（a.ts）：Enter 选中文件，不再触发 onDrill
+    // Enter 在目录上 = 选中插入（目录可直接被引用），不进目录
+    expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
+    expect(onSelect).toHaveBeenCalledWith({ name: 'src', path: 'src', type: 'dir' });
+    expect(onDrill).toHaveBeenCalledTimes(1); // 仅 Tab 一次
+    // ArrowDown 移到文件行（a.ts）：Enter 选中文件
     expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }))).toBe(true);
     expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
     expect(onSelect).toHaveBeenCalledWith({ name: 'a.ts', path: 'a.ts', type: 'file' });
-    expect(onDrill).toHaveBeenCalledTimes(2); // 仅 Tab 与目录上的 Enter 两次
+    expect(onDrill).toHaveBeenCalledTimes(1);
+  });
+
+  it('行内提示：目录显示 Tab，文件显示 ⏎', async () => {
+    vi.stubGlobal('fetch', stubFetch({ '/fs/tree': TREE }));
+    render(<FileMentionPanel query="" projectId="p1" onSelect={vi.fn()} onDrill={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('src')).toBeTruthy());
+    const dirRow = screen.getByText('src').closest('button')!;
+    const fileRow = screen.getByText('a.ts').closest('button')!;
+    expect(dirRow.querySelector('kbd[data-slot="kbd"]')?.textContent).toBe('Tab');
+    expect(fileRow.querySelector('kbd[data-slot="kbd"]')?.textContent).toBe('⏎');
   });
 
   it('search 请求失败显示重试（错误不再卡 loading）', async () => {
