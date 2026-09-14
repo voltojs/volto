@@ -35,8 +35,24 @@ function toMessage(error: unknown): string {
  * Workspace branch switcher for the welcome page. Reads the real repository
  * HEAD via the gateway — never session metadata — and lets the user search,
  * check out, or create branches before starting a conversation.
+ *
+ * Remounts on projectId change (key) so all project-scoped state resets
+ * without effect-body setState — same pattern as FilePreviewTab / GitGraphTab.
  */
 export function GitBranchPicker({
+  projectId,
+  onGitAvailabilityChange,
+}: GitBranchPickerProps) {
+  return (
+    <GitBranchPickerView
+      key={projectId}
+      projectId={projectId}
+      onGitAvailabilityChange={onGitAvailabilityChange}
+    />
+  );
+}
+
+function GitBranchPickerView({
   projectId,
   onGitAvailabilityChange,
 }: GitBranchPickerProps) {
@@ -50,31 +66,26 @@ export function GitBranchPicker({
 
   // Keep the latest callback without putting it in the effect deps — a
   // parent re-render with a new function identity must not re-fetch.
+  // Mirrored in an effect (react-hooks/refs forbids render-phase writes).
   const availabilityRef = useRef(onGitAvailabilityChange);
-  availabilityRef.current = onGitAvailabilityChange;
+  useEffect(() => {
+    availabilityRef.current = onGitAvailabilityChange;
+  });
 
-  // Always-current projectId. Mutations capture the projectId they started
-  // with and compare against this ref after every await, so a slow response
-  // for a previous workspace can never overwrite the current one's state.
-  // Updated during render (same latest-value pattern as availabilityRef),
-  // which is earlier than any useEffect and therefore closes the window
-  // where a microtask could land between commit and effect.
-  const projectIdRef = useRef(projectId);
-  projectIdRef.current = projectId;
+  // Flipped on unmount so in-flight mutations from this instance can never
+  // land setState after the key remounted us away.
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
-  // Probe summary on mount and whenever the selected workspace changes.
-  // The cancelled flag ignores stale responses so a slow previous project
-  // can never overwrite the current one's branch label.
+  // Probe summary on mount. projectId is stable for this instance's lifetime
+  // (the key remounts us on change), so no project-switch reset is needed.
+  // setState only lands in the promise callbacks — never in the effect body.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setSummary(null);
-    setQuery('');
-    setList(null);
-    setError(null);
-    setMutating(false);
-    setOpen(false);
-
     fetchGitSummary(projectId)
       .then((next) => {
         if (cancelled) return;
@@ -94,7 +105,7 @@ export function GitBranchPicker({
   }, [projectId]);
 
   // Search branches while the popover is open; empty query lists everything
-  // (server-side truncated). Cancelled on close / query / project change.
+  // (server-side truncated). Cancelled on close / query / unmount.
   useEffect(() => {
     if (!open || !summary?.isGit) return;
     let cancelled = false;
@@ -114,10 +125,9 @@ export function GitBranchPicker({
 
   const refreshList = useCallback(
     async (q: string) => {
-      const startedFor = projectId;
-      const next = await searchGitBranches(startedFor, q);
-      // Drop the response if the workspace changed while searching.
-      if (projectIdRef.current !== startedFor) return;
+      const next = await searchGitBranches(projectId, q);
+      // Drop the response if this instance was unmounted (workspace switch).
+      if (cancelledRef.current) return;
       setList(next);
     },
     [projectId],
@@ -126,31 +136,29 @@ export function GitBranchPicker({
   const runCheckout = useCallback(
     async (branch: GitBranch) => {
       if (mutating) return;
-      const startedFor = projectId;
       setMutating(true);
       setError(null);
       try {
         const next = await checkoutGitBranch({
-          projectId: startedFor,
+          projectId,
           name: branch.name,
           kind: branch.kind,
         });
-        // Ignore a checkout that outlived its workspace: applying it would
+        // Ignore a checkout that outlived this instance: applying it would
         // replace the new project's summary/list with the old project's.
-        if (projectIdRef.current !== startedFor) return;
+        if (cancelledRef.current) return;
         // Only a successful mutation moves the label; a failure keeps the
         // previous summary untouched and just surfaces the error.
         setSummary(next);
         await refreshList(query);
-        if (projectIdRef.current !== startedFor) return;
+        if (cancelledRef.current) return;
         setOpen(false);
       } catch (err: unknown) {
-        if (projectIdRef.current !== startedFor) return;
+        if (cancelledRef.current) return;
         setError(toMessage(err));
       } finally {
-        // The projectId-change effect already cleared mutating; only this
-        // workspace's in-flight mutation may flip it back off.
-        if (projectIdRef.current === startedFor) setMutating(false);
+        // Only a still-mounted instance may clear the mutating flag.
+        if (!cancelledRef.current) setMutating(false);
       }
     },
     [mutating, projectId, query, refreshList],
@@ -159,22 +167,21 @@ export function GitBranchPicker({
   const runCreate = useCallback(async () => {
     const name = query.trim();
     if (!name || mutating) return;
-    const startedFor = projectId;
     setMutating(true);
     setError(null);
     try {
-      const next = await createGitBranch({ projectId: startedFor, name });
-      if (projectIdRef.current !== startedFor) return;
+      const next = await createGitBranch({ projectId, name });
+      if (cancelledRef.current) return;
       setSummary(next);
       setQuery('');
       await refreshList('');
-      if (projectIdRef.current !== startedFor) return;
+      if (cancelledRef.current) return;
       setOpen(false);
     } catch (err: unknown) {
-      if (projectIdRef.current !== startedFor) return;
+      if (cancelledRef.current) return;
       setError(toMessage(err));
     } finally {
-      if (projectIdRef.current === startedFor) setMutating(false);
+      if (!cancelledRef.current) setMutating(false);
     }
   }, [mutating, projectId, query, refreshList]);
 
