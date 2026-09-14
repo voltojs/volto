@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GitBranchPicker } from '@/components/chat/GitBranchPicker';
 import {
@@ -13,6 +13,7 @@ import {
   searchGitBranches,
   checkoutGitBranch,
   createGitBranch,
+  type GitSummary,
 } from '@/lib/git-api';
 
 vi.mock('@/lib/git-api', () => ({
@@ -202,6 +203,112 @@ describe('GitBranchPicker', () => {
         'develop',
       ),
     );
+  });
+
+  it('ignores a slow checkout response that resolves after projectId changes', async () => {
+    summary.mockImplementation(async (projectId: string) =>
+      projectId === 'p1'
+        ? { isGit: true, branch: 'main', head: 'abc' }
+        : { isGit: true, branch: 'develop', head: 'def' },
+    );
+    search.mockResolvedValue({
+      branches: [
+        { name: 'main', kind: 'local' },
+        { name: 'origin/feature/x', kind: 'remote', remote: 'origin' },
+      ],
+      truncated: false,
+    });
+    // Controllable checkout: stays pending until the test resolves it, so
+    // the workspace can switch while the mutation is still in flight.
+    let resolveOldCheckout!: (value: GitSummary) => void;
+    checkout.mockReturnValueOnce(
+      new Promise<GitSummary>((resolve) => {
+        resolveOldCheckout = resolve;
+      }),
+    );
+
+    const u = user();
+    const { rerender } = render(<GitBranchPicker projectId="p1" />);
+    await screen.findByTestId('git-branch-picker');
+    expect(screen.getByTestId('git-branch-picker')).toHaveTextContent('main');
+
+    await u.click(screen.getByRole('button', { name: /当前分支/ }));
+    await u.click(await screen.findByText('origin/feature/x'));
+    await waitFor(() =>
+      expect(checkout).toHaveBeenCalledWith({
+        projectId: 'p1',
+        name: 'origin/feature/x',
+        kind: 'remote',
+      }),
+    );
+
+    // Switch workspaces before the p1 checkout HTTP returns.
+    rerender(<GitBranchPicker projectId="p2" />);
+    await waitFor(() => expect(summary).toHaveBeenCalledWith('p2'));
+    await waitFor(() =>
+      expect(screen.getByTestId('git-branch-picker')).toHaveTextContent(
+        'develop',
+      ),
+    );
+
+    const searchesBeforeStaleResolve = search.mock.calls.length;
+
+    // Stale p1 mutation now resolves with p1's post-checkout HEAD. It must
+    // not overwrite p2's summary label or refresh p1's branch list.
+    await act(async () => {
+      resolveOldCheckout({ isGit: true, branch: 'feature/x', head: 'stale' });
+    });
+
+    expect(screen.getByTestId('git-branch-picker')).toHaveTextContent('develop');
+    expect(screen.getByTestId('git-branch-picker')).not.toHaveTextContent(
+      'feature/x',
+    );
+    expect(search.mock.calls.length).toBe(searchesBeforeStaleResolve);
+  });
+
+  it('ignores a slow create response that resolves after projectId changes', async () => {
+    summary.mockImplementation(async (projectId: string) =>
+      projectId === 'p1'
+        ? { isGit: true, branch: 'main', head: 'abc' }
+        : { isGit: true, branch: 'develop', head: 'def' },
+    );
+    let resolveOldCreate!: (value: GitSummary) => void;
+    create.mockReturnValueOnce(
+      new Promise<GitSummary>((resolve) => {
+        resolveOldCreate = resolve;
+      }),
+    );
+
+    const u = user();
+    const { rerender } = render(<GitBranchPicker projectId="p1" />);
+    await screen.findByTestId('git-branch-picker');
+
+    await u.click(screen.getByRole('button', { name: /当前分支/ }));
+    await u.type(await screen.findByPlaceholderText('搜索分支'), 'new-ui');
+    await u.click(await screen.findByRole('button', { name: /创建/ }));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({ projectId: 'p1', name: 'new-ui' }),
+    );
+
+    rerender(<GitBranchPicker projectId="p2" />);
+    await waitFor(() => expect(summary).toHaveBeenCalledWith('p2'));
+    await waitFor(() =>
+      expect(screen.getByTestId('git-branch-picker')).toHaveTextContent(
+        'develop',
+      ),
+    );
+
+    const searchesBeforeStaleResolve = search.mock.calls.length;
+
+    await act(async () => {
+      resolveOldCreate({ isGit: true, branch: 'new-ui', head: 'stale' });
+    });
+
+    expect(screen.getByTestId('git-branch-picker')).toHaveTextContent('develop');
+    expect(screen.getByTestId('git-branch-picker')).not.toHaveTextContent(
+      'new-ui',
+    );
+    expect(search.mock.calls.length).toBe(searchesBeforeStaleResolve);
   });
 
   it('reports git availability through onGitAvailabilityChange', async () => {

@@ -53,6 +53,15 @@ export function GitBranchPicker({
   const availabilityRef = useRef(onGitAvailabilityChange);
   availabilityRef.current = onGitAvailabilityChange;
 
+  // Always-current projectId. Mutations capture the projectId they started
+  // with and compare against this ref after every await, so a slow response
+  // for a previous workspace can never overwrite the current one's state.
+  // Updated during render (same latest-value pattern as availabilityRef),
+  // which is earlier than any useEffect and therefore closes the window
+  // where a microtask could land between commit and effect.
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+
   // Probe summary on mount and whenever the selected workspace changes.
   // The cancelled flag ignores stale responses so a slow previous project
   // can never overwrite the current one's branch label.
@@ -105,7 +114,10 @@ export function GitBranchPicker({
 
   const refreshList = useCallback(
     async (q: string) => {
-      const next = await searchGitBranches(projectId, q);
+      const startedFor = projectId;
+      const next = await searchGitBranches(startedFor, q);
+      // Drop the response if the workspace changed while searching.
+      if (projectIdRef.current !== startedFor) return;
       setList(next);
     },
     [projectId],
@@ -114,23 +126,31 @@ export function GitBranchPicker({
   const runCheckout = useCallback(
     async (branch: GitBranch) => {
       if (mutating) return;
+      const startedFor = projectId;
       setMutating(true);
       setError(null);
       try {
         const next = await checkoutGitBranch({
-          projectId,
+          projectId: startedFor,
           name: branch.name,
           kind: branch.kind,
         });
+        // Ignore a checkout that outlived its workspace: applying it would
+        // replace the new project's summary/list with the old project's.
+        if (projectIdRef.current !== startedFor) return;
         // Only a successful mutation moves the label; a failure keeps the
         // previous summary untouched and just surfaces the error.
         setSummary(next);
         await refreshList(query);
+        if (projectIdRef.current !== startedFor) return;
         setOpen(false);
       } catch (err: unknown) {
+        if (projectIdRef.current !== startedFor) return;
         setError(toMessage(err));
       } finally {
-        setMutating(false);
+        // The projectId-change effect already cleared mutating; only this
+        // workspace's in-flight mutation may flip it back off.
+        if (projectIdRef.current === startedFor) setMutating(false);
       }
     },
     [mutating, projectId, query, refreshList],
@@ -139,18 +159,22 @@ export function GitBranchPicker({
   const runCreate = useCallback(async () => {
     const name = query.trim();
     if (!name || mutating) return;
+    const startedFor = projectId;
     setMutating(true);
     setError(null);
     try {
-      const next = await createGitBranch({ projectId, name });
+      const next = await createGitBranch({ projectId: startedFor, name });
+      if (projectIdRef.current !== startedFor) return;
       setSummary(next);
       setQuery('');
       await refreshList('');
+      if (projectIdRef.current !== startedFor) return;
       setOpen(false);
     } catch (err: unknown) {
+      if (projectIdRef.current !== startedFor) return;
       setError(toMessage(err));
     } finally {
-      setMutating(false);
+      if (projectIdRef.current === startedFor) setMutating(false);
     }
   }, [mutating, projectId, query, refreshList]);
 
