@@ -39,6 +39,10 @@ describe('SlashPanel', () => {
     expect(screen.getByText('系统内置')).toBeTruthy();
     expect(screen.getByText('/plan')).toBeTruthy();
     expect(screen.getByText('/pdf')).toBeTruthy();
+    // 命令名强制单行：whitespace-nowrap + truncate，description 走 flex truncate
+    const name = screen.getByText('/plan');
+    expect(name.className).toContain('whitespace-nowrap');
+    expect(name.className).toContain('truncate');
   });
 
   it('query 过滤 + 空态 + error 重试', async () => {

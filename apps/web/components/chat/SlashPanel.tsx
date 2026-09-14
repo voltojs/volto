@@ -68,7 +68,7 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
       <div
         ref={panelRef}
         data-testid="slash-panel"
-        className="bg-popover z-50 max-h-64 w-80 overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
+        className="bg-popover z-50 max-h-64 w-96 max-w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
       >
         {isLoading ? (
           <div className="text-muted-foreground px-2 py-1.5">加载命令…</div>
@@ -103,14 +103,17 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
                         aria-selected={active}
                         data-item-name={item.name}
                         className={cn(
-                          'flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left',
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left',
                           active && 'bg-accent',
                         )}
                         onClick={() => onSelect(item)}
                         onMouseEnter={() => nav.setActiveIndex(index)}
                       >
-                        <span className="font-medium">/{item.name}</span>
-                        <span className="text-muted-foreground truncate text-xs">
+                        {/* Single-line row: name never wraps; description yields via truncate */}
+                        <span className="max-w-[70%] shrink-0 truncate whitespace-nowrap font-medium">
+                          /{item.name}
+                        </span>
+                        <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
                           {item.description}
                         </span>
                       </button>

@@ -26,6 +26,7 @@ import { drillPath, type MentionEntry } from '@/lib/mention-data';
 import { SlashPanel } from './SlashPanel';
 import { FileMentionPanel } from './FileMentionPanel';
 import { createSuggestionPopup } from './suggestion-popup';
+import { SlashCommandNode } from './slash-command-node';
 
 /** 单段落文档：Enter 永远是"发送"，换行走 Shift+Enter（HardBreak）。 */
 const SingleParagraphDocument = Document.extend({ content: 'paragraph' });
@@ -109,7 +110,8 @@ export function InputBar({
               query: slashPropsRef.current?.query ?? '',
               projectId: projectIdRef.current ?? null,
               onSelect: (item: CommandItem) => {
-                slashPropsRef.current?.command({ replacement: `/${item.name} ` });
+                // Insert a styled atom chip + trailing space (mirrors file mentions).
+                slashPropsRef.current?.command({ item });
               },
             }),
             onOpenChange: (open) => {
@@ -126,7 +128,22 @@ export function InputBar({
               placement: 'top-start',
               items: () => [], // 数据由 SlashPanel 自取（模块缓存秒开），这里保持同步空数组避免双取
               command: ({ editor: instance, range, props }) => {
-                instance.chain().focus().insertContentAt(range, props.replacement).run();
+                const item = props.item as CommandItem;
+                instance
+                  .chain()
+                  .focus()
+                  .insertContentAt(range, [
+                    {
+                      type: SlashCommandNode.name,
+                      attrs: {
+                        name: item.name,
+                        description: item.description,
+                        kind: item.kind,
+                      },
+                    },
+                    { type: 'text', text: ' ' },
+                  ])
+                  .run();
               },
               render: () => {
                 // 让 popup 生命周期与 SuggestionProps 状态对齐：onStart/onUpdate
@@ -274,6 +291,7 @@ export function InputBar({
     extensions: [
       SingleParagraphDocument,
       slashExtension,
+      SlashCommandNode,
       Paragraph,
       Text,
       HardBreak,

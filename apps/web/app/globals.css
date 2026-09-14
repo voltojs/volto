@@ -199,3 +199,33 @@
   padding-inline: 0.25rem;
   font-weight: 500;
 }
+
+/* Selected slash command chip (inline atom in the input editor). */
+.slash-command-chip {
+  background: color-mix(in oklch, var(--primary), transparent 86%);
+  color: var(--primary);
+  border-radius: 0.25rem;
+  padding-inline: 0.3rem;
+  font-weight: 500;
+  cursor: default;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Hover detail card — portal'd to body by the node plugin (editor overflow
+   would clip an in-flow tooltip). */
+.slash-command-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(16rem, calc(100vw - 1rem));
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px oklch(0 0 0 / 12%);
+  pointer-events: none;
+  white-space: normal;
+}

@@ -142,14 +142,37 @@ describe('InputBar / 斜杠命令面板', () => {
     await waitFor(() => expect(mounted.style.position).toBe('fixed'));
   });
 
-  it('选中命令：编辑器文本替换为 /plan （纯文本），面板关闭', async () => {
+  it('选中命令：插入 slash-command chip，序列化仍为 /plan 纯文本，面板关闭', async () => {
     vi.stubGlobal('fetch', stubFetch(ROUTES));
     const { editor } = setup();
     act(() => void editor.commands.insertContent('/pl'));
     await waitFor(() => expect(screen.getByText('/plan')).toBeTruthy());
     fireEvent.click(screen.getByText('/plan').closest('button')!);
     expect(editor.getText()).toBe('/plan ');
+    const chip = document.querySelector('.slash-command-chip') as HTMLElement | null;
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toBe('/plan');
+    expect(chip?.getAttribute('data-name')).toBe('plan');
+    expect(chip?.getAttribute('data-description')).toBe('制定计划');
     await waitFor(() => expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeNull());
+  });
+
+  it('hover chip 浮出详情卡片，移出后消失', async () => {
+    vi.stubGlobal('fetch', stubFetch(ROUTES));
+    const { editor } = setup();
+    act(() => void editor.commands.insertContent('/pl'));
+    await waitFor(() => expect(screen.getByText('/plan')).toBeTruthy());
+    fireEvent.click(screen.getByText('/plan').closest('button')!);
+    const chip = document.querySelector('.slash-command-chip') as HTMLElement;
+    expect(chip).toBeTruthy();
+
+    fireEvent.mouseOver(chip);
+    const tip = document.querySelector('.slash-command-tooltip') as HTMLElement | null;
+    expect(tip).toBeTruthy();
+    expect(tip?.textContent).toBe('制定计划');
+
+    fireEvent.mouseOut(chip);
+    expect(document.querySelector('.slash-command-tooltip')).toBeNull();
   });
 
   it('面板打开时 Enter 被面板消费：不发送、不插段落（用无匹配 query 排除选中竞态）', async () => {
