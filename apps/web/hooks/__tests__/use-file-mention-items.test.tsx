@@ -44,10 +44,17 @@ describe('useFileMentionItems', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
-  it('不含 / → /fs/search，300ms 防抖', async () => {
+  it('不含 / → /fs/search，300ms 防抖；目录命中保留 type=dir', async () => {
     vi.useFakeTimers();
     try {
-      const fetchMock = stubFetch({ '/fs/search': { matches: ['src/store.ts'] } });
+      const fetchMock = stubFetch({
+        '/fs/search': {
+          matches: [
+            { path: 'src/store', type: 'dir' },
+            { path: 'src/store.ts', type: 'file' },
+          ],
+        },
+      });
       vi.stubGlobal('fetch', fetchMock);
       const { result } = renderHook(() => useFileMentionItems('p1', 'store'));
       await act(async () => { await vi.advanceTimersByTimeAsync(299); });
@@ -58,7 +65,10 @@ describe('useFileMentionItems', () => {
       // useRealTimers，泄漏到后续测试）。act 内 advanceTimersByTimeAsync 已冲刷
       // 微任务链、状态已提交，故直接断言（已裁决，三条断言语义不变）。
       expect(result.current.status).toBe('ready');
-      expect(result.current.entries).toEqual([{ name: 'src/store.ts', path: 'src/store.ts', type: 'file' }]);
+      expect(result.current.entries).toEqual([
+        { name: 'src/store', path: 'src/store', type: 'dir' },
+        { name: 'src/store.ts', path: 'src/store.ts', type: 'file' },
+      ]);
     } finally {
       vi.useRealTimers();
     }

@@ -34,8 +34,15 @@ describe('entries 映射', () => {
       { name: 'a.ts', path: 'lib/a.ts', type: 'file' },
     ]);
   });
-  it('searchMatchesToEntries 用完整路径当 name', () => {
-    expect(searchMatchesToEntries(['src/a.ts', 'b.md'])).toEqual([
+  it('searchMatchesToEntries 用完整路径当 name，并保留 dir/file 类型', () => {
+    expect(
+      searchMatchesToEntries([
+        { path: 'src/components', type: 'dir' },
+        { path: 'src/a.ts', type: 'file' },
+        { path: 'b.md', type: 'file' },
+      ]),
+    ).toEqual([
+      { name: 'src/components', path: 'src/components', type: 'dir' },
       { name: 'src/a.ts', path: 'src/a.ts', type: 'file' },
       { name: 'b.md', path: 'b.md', type: 'file' },
     ]);

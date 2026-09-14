@@ -17,8 +17,12 @@ export interface FsTreeResult {
   path: string;
   entries: FsEntry[];
 }
+export interface FsSearchMatch {
+  path: string;
+  type: 'dir' | 'file';
+}
 export interface FsSearchResult {
-  matches: string[];
+  matches: FsSearchMatch[];
 }
 export type FsFilePayload =
   | { kind: 'text'; content: string; truncated: boolean; size: number }

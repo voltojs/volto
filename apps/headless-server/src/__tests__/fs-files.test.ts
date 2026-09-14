@@ -84,10 +84,23 @@ describe("listDirectory", () => {
 });
 
 describe("searchFiles", () => {
-  it("matches filenames case-insensitively and returns relative paths", async () => {
+  it("matches filenames case-insensitively and returns typed relative paths", async () => {
     await fs.writeFile(path.join(root, "src", "Router.TS"), "export {};");
     const { searchFiles } = await import("../fs/files.js");
-    expect(await searchFiles(root, "rout")).toEqual(["src/Router.TS"]);
+    expect(await searchFiles(root, "rout")).toEqual([{ path: "src/Router.TS", type: "file" }]);
+  });
+
+  it("matches directory names as first-class hits", async () => {
+    await fs.mkdir(path.join(root, "src", "components"), { recursive: true });
+    // Child name also contains "comp" so descent is observable in the same query.
+    await fs.writeFile(path.join(root, "src", "components", "compare.ts"), "export {};");
+    await fs.writeFile(path.join(root, "src", "components", "other.ts"), "export {};");
+    const { searchFiles } = await import("../fs/files.js");
+    const matches = await searchFiles(root, "comp");
+    expect(matches).toContainEqual({ path: "src/components", type: "dir" });
+    // Still descends into a matching dir so matching children also hit.
+    expect(matches).toContainEqual({ path: "src/components/compare.ts", type: "file" });
+    expect(matches).not.toContainEqual({ path: "src/components/other.ts", type: "file" });
   });
 
   it("never descends into ignored or hidden directories", async () => {

@@ -78,12 +78,18 @@ describe("GET /fs/* endpoints", () => {
     expect(JSON.parse(res.body).error).toContain("escapes the project root");
   });
 
-  it("GET /fs/search returns relative matches and 400 on empty q", async () => {
+  it("GET /fs/search returns typed relative matches and 400 on empty q", async () => {
     const hit = await get(`/fs/search?projectId=${projectId}&q=readme`);
     expect(hit.status).toBe(200);
-    expect(JSON.parse(hit.body).matches).toEqual(["README.md"]);
+    expect(JSON.parse(hit.body).matches).toEqual([{ path: "README.md", type: "file" }]);
     const empty = await get(`/fs/search?projectId=${projectId}&q=`);
     expect(empty.status).toBe(400);
+  });
+
+  it("GET /fs/search matches directory names too", async () => {
+    const hit = await get(`/fs/search?projectId=${projectId}&q=src`);
+    expect(hit.status).toBe(200);
+    expect(JSON.parse(hit.body).matches).toContainEqual({ path: "src", type: "dir" });
   });
 
   it("GET /fs/file returns a text payload, 404 for a missing file, 400 for a directory", async () => {

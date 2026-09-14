@@ -1123,7 +1123,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       return;
     }
 
-    // GET /fs/search — filename search confined to the project root
+    // GET /fs/search — filename/dirname search confined to the project root
     if (req.method === "GET" && url.pathname === "/fs/search") {
       const projectId = url.searchParams.get("projectId");
       const q = url.searchParams.get("q");

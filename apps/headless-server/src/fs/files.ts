@@ -97,15 +97,23 @@ export type FsFileData =
   | { kind: "image"; base64: string; mediaType: string; size: number }
   | { kind: "binary"; size: number };
 
-/** BFS the project (ignored/hidden dirs pruned), capped on hits and visits. */
+/** One fuzzy-search hit. Dirs are first-class matches so @-mention and the
+ *  file tree can both find folders by name, not just files. */
+export interface SearchMatch {
+  path: string;
+  type: "dir" | "file";
+}
+
+/** BFS the project (ignored/hidden dirs pruned), capped on hits and visits.
+ *  Matches both directory and file names (case-insensitive substring). */
 export async function searchFiles(
   projectRoot: string,
   query: string,
   cap = 200,
-): Promise<string[]> {
+): Promise<SearchMatch[]> {
   const needle = query.toLowerCase();
   const root = await fs.realpath(projectRoot);
-  const matches: string[] = [];
+  const matches: SearchMatch[] = [];
   let visited = 0;
   const queue: Array<{ abs: string; rel: string; depth: number }> = [
     { abs: root, rel: "", depth: 0 },
@@ -129,10 +137,13 @@ export async function searchFiles(
       } catch {
         continue;
       }
+      const hit = name.toLowerCase().includes(needle);
       if (st.isDirectory()) {
+        // Match the directory itself, then still descend so its children can hit.
+        if (hit) matches.push({ path: childRel, type: "dir" });
         if (depth < 16) queue.push({ abs: path.join(abs, name), rel: childRel, depth: depth + 1 });
-      } else if (name.toLowerCase().includes(needle)) {
-        matches.push(childRel);
+      } else if (hit) {
+        matches.push({ path: childRel, type: "file" });
       }
     }
   }

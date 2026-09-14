@@ -28,8 +28,10 @@ export function toMentionEntries(dir: string, entries: FsEntry[]): MentionEntry[
   return entries.map((e) => ({ name: e.name, path: `${dir}${e.name}`, type: e.type }));
 }
 
-export function searchMatchesToEntries(matches: string[]): MentionEntry[] {
-  return matches.map((p) => ({ name: p, path: p, type: 'file' as const }));
+export function searchMatchesToEntries(
+  matches: Array<{ path: string; type: 'dir' | 'file' }>,
+): MentionEntry[] {
+  return matches.map((m) => ({ name: m.path, path: m.path, type: m.type }));
 }
 
 export function filterEntries(entries: MentionEntry[], basename: string): MentionEntry[] {

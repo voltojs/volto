@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
-import { fetchFsTree, searchFsFiles, type FsEntry } from '@/lib/fs-api';
+import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
 import { usePaneStore } from '@/stores/pane-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ function FileTree({ projectId }: { projectId: string }) {
   const [tree, setTree] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
-  const [matches, setMatches] = useState<string[] | null>(null);
+  const [matches, setMatches] = useState<FsSearchMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
 
@@ -111,6 +111,31 @@ function FileTree({ projectId }: { projectId: string }) {
     });
   }, [projectId]);
 
+  /** Exit search mode and reveal `dir` in the tree (expand every ancestor). */
+  const revealDir = useCallback(
+    (dir: string) => {
+      setFilter('');
+      setMatches(null);
+      setSearching(false);
+      const ancestors: string[] = [];
+      let acc = '';
+      for (const part of dir.split('/').filter(Boolean)) {
+        acc = acc === '' ? part : `${acc}/${part}`;
+        ancestors.push(acc);
+      }
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const a of ancestors) next.add(a);
+        return next;
+      });
+      // Side effects stay out of the state updater (StrictMode double-invoke).
+      for (const a of ancestors) {
+        if (tree[a] === undefined) void loadDir(a);
+      }
+    },
+    [loadDir, tree],
+  );
+
   if (error !== null) {
     return (
       <div className="flex flex-col items-start gap-3 p-4">
@@ -138,7 +163,7 @@ function FileTree({ projectId }: { projectId: string }) {
               setSearching(true);
             }
           }}
-          placeholder="搜索文件名"
+          placeholder="搜索文件或目录"
           className="h-7 text-xs"
         />
         <Button variant="ghost" size="icon" aria-label="刷新" className="h-7 w-7 shrink-0"
@@ -151,12 +176,21 @@ function FileTree({ projectId }: { projectId: string }) {
           searching ? (
             <p className="text-muted-foreground p-2 text-xs">搜索中…</p>
           ) : matches.length === 0 ? (
-            <p className="text-muted-foreground p-2 text-xs">无匹配文件</p>
+            <p className="text-muted-foreground p-2 text-xs">无匹配文件或目录</p>
           ) : (
-            matches.map((rel) => (
-              <button key={rel} type="button" onClick={() => openPreview(rel)}
-                className="hover:bg-muted block w-full truncate rounded px-2 py-1 text-left font-mono text-xs">
-                {rel}
+            matches.map((m) => (
+              <button
+                key={m.path}
+                type="button"
+                onClick={() => (m.type === 'dir' ? revealDir(m.path) : openPreview(m.path))}
+                className="hover:bg-muted flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left font-mono text-xs"
+              >
+                {m.type === 'dir' ? (
+                  <Folder className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <FileIcon className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{m.path}</span>
               </button>
             ))
           )

@@ -28,9 +28,11 @@ describe('fs-api', () => {
     await expect(fetchFsTree('p1')).rejects.toThrow('Unknown project: p1');
   });
 
-  it('searchFsFiles returns matches; fetchFsFile returns the payload', async () => {
-    stubOnce(200, { matches: ['README.md'] });
-    expect(await searchFsFiles('p1', 'read')).toEqual({ matches: ['README.md'] });
+  it('searchFsFiles returns typed matches; fetchFsFile returns the payload', async () => {
+    stubOnce(200, { matches: [{ path: 'README.md', type: 'file' }, { path: 'src', type: 'dir' }] });
+    expect(await searchFsFiles('p1', 'read')).toEqual({
+      matches: [{ path: 'README.md', type: 'file' }, { path: 'src', type: 'dir' }],
+    });
 
     stubOnce(200, { kind: 'text', content: 'hi', truncated: false, size: 2 });
     expect(await fetchFsFile('p1', 'README.md')).toMatchObject({ kind: 'text' });

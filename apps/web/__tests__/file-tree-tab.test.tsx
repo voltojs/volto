@@ -21,7 +21,7 @@ beforeEach(() => {
       { name: 'README.md', type: 'file', size: 5 },
     ],
   });
-  searchMock.mockResolvedValue({ matches: ['src/a.ts'] });
+  searchMock.mockResolvedValue({ matches: [{ path: 'src/a.ts', type: 'file' }] });
 });
 
 describe('FileTreeTab', () => {
@@ -66,10 +66,45 @@ describe('FileTreeTab', () => {
     try {
       render(<FileTreeTab tab={tab} />);
       await screen.findByText('README.md');
-      fireEvent.change(screen.getByPlaceholderText('搜索文件名'), { target: { value: 'a.ts' } });
+      fireEvent.change(screen.getByPlaceholderText('搜索文件或目录'), { target: { value: 'a.ts' } });
       await vi.advanceTimersByTimeAsync(300);
       expect(await screen.findByText('src/a.ts')).toBeDefined();
       expect(searchMock).toHaveBeenCalledWith('p1', 'a.ts');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('directory search hits exit search mode and expand the tree to that folder', async () => {
+    searchMock.mockResolvedValue({ matches: [{ path: 'src/components', type: 'dir' }] });
+    treeMock.mockImplementation((pid: string, rel = '') =>
+      Promise.resolve({
+        path: rel,
+        entries:
+          rel === ''
+            ? [
+                { name: 'src', type: 'dir', size: 0 },
+                { name: 'README.md', type: 'file', size: 5 },
+              ]
+            : rel === 'src'
+              ? [
+                  { name: 'components', type: 'dir', size: 0 },
+                  { name: 'a.ts', type: 'file', size: 1 },
+                ]
+              : [{ name: 'Button.tsx', type: 'file', size: 2 }],
+      }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<FileTreeTab tab={tab} />);
+      await screen.findByText('README.md');
+      fireEvent.change(screen.getByPlaceholderText('搜索文件或目录'), { target: { value: 'comp' } });
+      await vi.advanceTimersByTimeAsync(300);
+      fireEvent.click(await screen.findByText('src/components'));
+      // Back in tree mode with the target directory expanded.
+      expect(await screen.findByText('Button.tsx')).toBeDefined();
+      const filter = screen.getByPlaceholderText('搜索文件或目录') as HTMLInputElement;
+      expect(filter.value).toBe('');
     } finally {
       vi.useRealTimers();
     }
