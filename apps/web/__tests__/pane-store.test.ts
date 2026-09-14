@@ -13,7 +13,13 @@ const subagentTab = (childId: string): PaneTab => ({
 });
 
 beforeEach(() => {
-  usePaneStore.setState({ tabs: [], activeTabId: null, width: PANE_WIDTH_DEFAULT, hidden: false });
+  usePaneStore.setState({
+    tabs: [],
+    activeTabId: null,
+    width: PANE_WIDTH_DEFAULT,
+    open: false,
+    hidden: false,
+  });
   window.localStorage.clear();
 });
 
@@ -42,6 +48,44 @@ describe('openTab', () => {
     expect(usePaneStore.getState().tabs).toHaveLength(2);
     expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:a')).toMatchObject({ view: 'trajectory' });
     expect(usePaneStore.getState().activeTabId).toBe('subagent:a');
+  });
+});
+
+describe('git-graph tabs', () => {
+  it('dedupes by id and activates on re-open', () => {
+    usePaneStore.getState().openTab({ kind: 'git-graph', id: 'git-graph:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab({ kind: 'git-graph', id: 'git-graph:p1', projectId: 'p1' });
+    expect(usePaneStore.getState().tabs).toHaveLength(1);
+    expect(usePaneStore.getState().activeTabId).toBe('git-graph:p1');
+  });
+
+  it('closing the last tab clears tabs but keeps the pane unhidden', () => {
+    usePaneStore.getState().openTab({ kind: 'git-graph', id: 'git-graph:p1', projectId: 'p1' });
+    usePaneStore.getState().closeTab('git-graph:p1');
+    expect(usePaneStore.getState().tabs).toHaveLength(0);
+    expect(usePaneStore.getState().activeTabId).toBeNull();
+    expect(usePaneStore.getState().hidden).toBe(false);
+  });
+});
+
+describe('open', () => {
+  it('openTab marks the pane open', () => {
+    usePaneStore.getState().openTab(subagentTab('a'));
+    expect(usePaneStore.getState().open).toBe(true);
+  });
+
+  it('openPane opens with zero tabs and keeps the pane unhidden', () => {
+    usePaneStore.getState().openPane();
+    expect(usePaneStore.getState().open).toBe(true);
+    expect(usePaneStore.getState().hidden).toBe(false);
+    expect(usePaneStore.getState().tabs).toHaveLength(0);
+  });
+
+  it('closing the last tab keeps the pane open', () => {
+    usePaneStore.getState().openTab(subagentTab('a'));
+    usePaneStore.getState().closeTab('subagent:a');
+    expect(usePaneStore.getState().open).toBe(true);
+    expect(usePaneStore.getState().hidden).toBe(false);
   });
 });
 

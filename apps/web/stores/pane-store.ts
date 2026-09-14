@@ -11,7 +11,8 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 export type PaneTab =
   | { kind: 'subagent'; id: string; childSessionId: string; view: 'chat' | 'trajectory' }
   | { kind: 'files'; id: string; projectId: string }
-  | { kind: 'file-preview'; id: string; projectId: string; path: string };
+  | { kind: 'file-preview'; id: string; projectId: string; path: string }
+  | { kind: 'git-graph'; id: string; projectId: string };
 
 export const PANE_WIDTH_MIN = 320;
 export const PANE_WIDTH_MAX = 720;
@@ -34,9 +35,17 @@ interface PaneState {
   tabs: PaneTab[];
   activeTabId: string | null;
   width: number;
+  /**
+   * Whether the pane shell has been opened. Distinct from `hidden`: collapse
+   * flips `hidden` and keeps tabs; closing every last tab leaves `open` true
+   * so the empty overview stays mounted instead of unmounting the pane.
+   */
+  open: boolean;
   /** 面板折叠：标签保留，仅隐藏渲染——Header 的切换按钮负责翻转。 */
   hidden: boolean;
   openTab: (tab: PaneTab) => void;
+  /** Open the pane shell with zero tabs (empty-state overview). */
+  openPane: () => void;
   closeTab: (id: string) => void;
   setActive: (id: string) => void;
   setWidth: (n: number) => void;
@@ -48,12 +57,18 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     tabs: [],
     activeTabId: null,
     width: loadWidth(),
+    open: false,
     hidden: false,
     openTab: (tab) =>
       set((state) => {
         const existing = state.tabs.find((t) => t.id === tab.id);
         if (existing === undefined) {
-          return { tabs: [...state.tabs, tab], activeTabId: tab.id, hidden: false };
+          return {
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            hidden: false,
+            open: true,
+          };
         }
         // 子代理标签的 view 随载荷覆盖：卡片点击开 chat，「查看执行过程」
         // 开 trajectory——同一标签只换视图不新建。
@@ -66,10 +81,12 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
             tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
             activeTabId: tab.id,
             hidden: false,
+            open: true,
           };
         }
-        return { activeTabId: tab.id, hidden: false };
+        return { activeTabId: tab.id, hidden: false, open: true };
       }),
+    openPane: () => set({ open: true, hidden: false }),
     closeTab: (id) =>
       set((state) => {
         const idx = state.tabs.findIndex((t) => t.id === id);

@@ -205,31 +205,30 @@ export function ChatPanel() {
   const headerTitle =
     currentSession?.title || currentProject?.name || '探索未至之境';
 
-  // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；既无标签
-  // 又无项目（开不了文件树）时禁用。
+  // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
+  // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
+  // 开文件树。
   const paneTabs = usePaneStore((s) => s.tabs);
+  const paneOpen = usePaneStore((s) => s.open);
   const paneHidden = usePaneStore((s) => s.hidden);
-  const paneVisible = paneTabs.length > 0 && !paneHidden;
+  const hasCurrentProject = currentProject !== undefined;
+  const paneVisible =
+    paneOpen && !paneHidden && (paneTabs.length > 0 || hasCurrentProject);
   const paneToggle = useMemo(
     () => ({
       visible: paneVisible,
-      disabled:
-        !paneVisible && paneTabs.length === 0 && currentProject === undefined,
+      disabled: !paneVisible && !paneOpen && !hasCurrentProject,
       onToggle: () => {
         if (paneVisible) {
           usePaneStore.getState().setHidden(true);
-        } else if (paneTabs.length > 0) {
+        } else if (paneOpen) {
           usePaneStore.getState().setHidden(false);
         } else if (currentProject) {
-          usePaneStore.getState().openTab({
-            kind: 'files',
-            id: `files:${currentProject.id}`,
-            projectId: currentProject.id,
-          });
+          usePaneStore.getState().openPane();
         }
       },
     }),
-    [paneVisible, paneTabs.length, currentProject],
+    [paneVisible, paneOpen, hasCurrentProject, currentProject],
   );
 
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
@@ -501,7 +500,7 @@ export function ChatPanel() {
             <TrajectoryPanel sessionId={currentSessionId} />
           </TabsContent>
         </Tabs>
-        <RightPane />
+        <RightPane projectId={currentProject?.id ?? null} />
       </div>
       <InputBar
         onSubmit={handleSubmit}
