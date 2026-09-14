@@ -76,6 +76,9 @@ function GitBranchPickerView({
   // land setState after the key remounted us away.
   const cancelledRef = useRef(false);
   useEffect(() => {
+    // Strict Mode double-invokes effects (setup → cleanup → setup). Reset on
+    // setup so the cleanup flip does not permanently disable mutations.
+    cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
     };

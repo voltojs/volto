@@ -4,6 +4,7 @@
  * mutation must keep the previous branch label and surface the API error.
  */
 
+import { StrictMode } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -153,6 +154,49 @@ describe('GitBranchPicker', () => {
         'new-ui',
       ),
     );
+  });
+
+  it('applies a checkout under StrictMode and does not stick mutating', async () => {
+    // Strict Mode double-invokes effects (mount → cleanup → remount). The
+    // cancel guard must reset on setup; otherwise mutations bail after
+    // await while the HTTP still fires, and `mutating` sticks true forever.
+    search.mockResolvedValue({
+      branches: [
+        { name: 'main', kind: 'local' },
+        { name: 'origin/feature/x', kind: 'remote', remote: 'origin' },
+      ],
+      truncated: false,
+    });
+    checkout.mockResolvedValue({
+      isGit: true,
+      branch: 'feature/x',
+      head: 'def456',
+    });
+    const u = user();
+    render(
+      <StrictMode>
+        <GitBranchPicker projectId="p1" />
+      </StrictMode>,
+    );
+    await screen.findByTestId('git-branch-picker');
+
+    await u.click(screen.getByRole('button', { name: /当前分支/ }));
+    await u.click(await screen.findByText('origin/feature/x'));
+
+    await waitFor(() =>
+      expect(checkout).toHaveBeenCalledWith({
+        projectId: 'p1',
+        name: 'origin/feature/x',
+        kind: 'remote',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('git-branch-picker')).toHaveTextContent(
+        'feature/x',
+      ),
+    );
+    // mutating must clear: the trigger re-enables after the mutation settles.
+    expect(screen.getByRole('button', { name: /当前分支/ })).not.toBeDisabled();
   });
 
   it('keeps the previous branch and shows the API error when checkout fails', async () => {
