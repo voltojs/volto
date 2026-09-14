@@ -7,6 +7,7 @@ import { InputBar } from './InputBar';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
+import { GitBranchPicker } from './GitBranchPicker';
 import { ModelSettingsPicker } from './ModelSettingsPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextMeter } from './ContextMeter';
@@ -379,11 +380,16 @@ export function ChatPanel() {
               </p>
             ) : (
               <>
-                <div className="mb-2 px-6">
+                <div className="mb-2 flex items-center gap-2 px-6">
                   <ProjectPicker
                     value={pendingProjectId}
                     onChange={setPendingProjectId}
                   />
+                  {/* Workspace real HEAD, not session metadata — only shown
+                      once a project is actually selected. */}
+                  {pendingProjectId !== null && (
+                    <GitBranchPicker projectId={pendingProjectId} />
+                  )}
                 </div>
                 <InputBar
                   onSubmit={startSession}
