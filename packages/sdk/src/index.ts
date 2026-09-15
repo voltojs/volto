@@ -28,7 +28,8 @@ export type {
 } from "@volto/core";
 
 // Re-export runner types for advanced usage
-export type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
+export type { Runner, RunnerOptions, ToolExecutor, CompactNowResult } from "@volto/runtime-node";
+export { CompactionBusyError } from "@volto/runtime-node";
 
 // Re-export default ports for customization
 export {

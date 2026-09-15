@@ -57,7 +57,7 @@ import {
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
-import type { RunnerOptions } from "@volto/runtime-node";
+import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
@@ -614,6 +614,20 @@ export interface AgentInstance {
    * Tries the in-memory runner first; falls back to loading from the session store.
    */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
+
+  /**
+   * On-demand context compaction while the agent is idle.
+   *
+   * Delegates to the last Runner's `compactNow()`, which runs the same
+   * prune + summarize + write-back path the automatic pre-request
+   * compaction uses. Only valid when no turn is in flight
+   * (status `idle` / `done`); a mid-turn call throws
+   * `CompactionBusyError` (code `"busy"`). Returns `null` when there is
+   * nothing useful to compact (no config, under threshold, or no
+   * compressible messages). On success, `getState()` reflects the
+   * compacted message list.
+   */
+  compactNow(): Promise<CompactNowResult | null>;
 
   /** Read the latest runner state */
   getState(): ReducerState;
@@ -1492,6 +1506,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       const finalState = await resumeRunner.resume(sessionId, decision);
       lastFinalState = finalState;
       return finalState;
+    },
+
+    async compactNow(): Promise<CompactNowResult | null> {
+      // No runner yet — nothing to compact.
+      if (!lastRunner) return null;
+      // Delegates to the Runner so the write-back path is shared with the
+      // automatic pre-request compaction. Throws CompactionBusyError when
+      // a turn is in flight.
+      const result = await lastRunner.compactNow();
+      // The write-back feed replaces the runner's state object; re-sync
+      // lastFinalState so getState() and the next turn's carry-forward
+      // see the compacted messages.
+      lastFinalState = lastRunner.getState();
+      return result;
     },
 
     getState(): ReducerState {
