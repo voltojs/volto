@@ -4,19 +4,12 @@ import { memo, useEffect, useState } from 'react';
 import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
+import { subagentTaskTitle } from '@/lib/background-tasks';
 import { cn } from '@/lib/utils';
 
 interface SubagentCardProps {
   call: ConversationToolCall;
   onOpenSubagent?: (childSessionId: string) => void;
-}
-
-/** Title = first line of `args.message`, truncated; empty when not a string. */
-function titleFor(call: ConversationToolCall): string {
-  const message = call.args.message;
-  if (typeof message !== 'string') return '';
-  const firstLine = message.split('\n', 1)[0] ?? '';
-  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
 }
 
 /**
@@ -74,7 +67,7 @@ export const SubagentCard = memo(function SubagentCard({
     typeof call.durationMs === 'number'
       ? formatDuration(call.durationMs)
       : null;
-  const title = titleFor(call);
+  const title = subagentTaskTitle(call.args);
 
   return (
     <button
