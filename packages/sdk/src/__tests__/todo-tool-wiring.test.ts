@@ -47,16 +47,15 @@ describe("createAgent todo_write wiring", () => {
   });
 
   it("routes a model todo_write call through the executor and returns a statePatch result", async () => {
+    const expectedTodos = [
+      { content: "write the brief", status: "completed" as const },
+      { content: "register the tool", status: "in_progress" as const },
+    ];
     const mockModel = createMockModelPort([
       toolCallScript(
         "c1",
         "todo_write",
-        JSON.stringify({
-          todos: [
-            { content: "write the brief", status: "completed" },
-            { content: "register the tool", status: "in_progress" },
-          ],
-        }),
+        JSON.stringify({ todos: expectedTodos }),
       ),
       textScript("todos recorded"),
     ]);
@@ -74,5 +73,9 @@ describe("createAgent todo_write wiring", () => {
     const text = JSON.stringify(toolResult);
     expect(text).toContain("Updated todo list");
     expect(text).toContain("0 pending, 1 in progress, 1 completed");
+
+    // The tool's statePatch must land in the agent's resulting state —
+    // asserting only the tool_result text would miss a reducer/runner drop.
+    expect(state.todos).toEqual(expectedTodos);
   });
 });
