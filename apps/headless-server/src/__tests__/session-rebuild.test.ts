@@ -154,9 +154,27 @@ describe("session agent lifecycle", () => {
     expect(builds[0]!["cwd"]).toBe("/tmp");
   });
 
-  it("compaction is absent when the host does not configure it (Plan 1 opt-in)", async () => {
+  it("compaction defaults to the Plan 2 built-in when the host does not configure it", async () => {
     const { builds, factory } = makeFactory();
     const { registry } = makeRegistry(factory);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
+    });
+
+    // Plan 2 flips the default: absent config means ON with host-chosen
+    // defaults, not "never compact".
+    expect(builds[0]!["compaction"]).toEqual({
+      maxTokens: 60_000,
+      recentKeepCount: 4,
+      toolResultMaxChars: 8000,
+      summaryMaxTokens: 4096,
+    });
+  });
+
+  it("explicit false disables compaction", async () => {
+    const { builds, factory } = makeFactory();
+    const { registry } = makeRegistry(factory, { extraWiring: { compaction: false } });
 
     await registry.runTurn("s1", "one", {
       projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",

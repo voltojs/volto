@@ -147,11 +147,11 @@ export interface WiringOptions {
    */
   configDirRealPath?: string;
   /**
-   * Compaction config — Plan 1 opt-in. Absent means no compaction; the host
-   * never invents a default `maxTokens` for unconfigured sessions. Tokenizer
-   * is injected by createAgent (character-count default).
+   * Compaction config. Plan 2: absent means the session registry applies
+   * its built-in defaults (compaction ON); pass `false` to opt out entirely.
+   * Tokenizer is injected by createAgent (character-count default).
    */
-  compaction?: Omit<CompactionConfig, "tokenizer">;
+  compaction?: Omit<CompactionConfig, "tokenizer"> | false;
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -370,7 +370,11 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
-    // Plan 1: opt-in. Absent means no compaction — never invent a default.
-    ...(opts.compaction !== undefined ? { compaction: opts.compaction } : {}),
+    // Pass through only a real config object. `false` (explicit disable)
+    // and the session registry's default-on resolution never reach here as
+    // a raw flag — see sessions.ts's resolveHostCompaction.
+    ...(opts.compaction !== undefined && opts.compaction !== false
+      ? { compaction: opts.compaction }
+      : {}),
   });
 }
