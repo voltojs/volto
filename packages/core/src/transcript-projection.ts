@@ -26,6 +26,14 @@
  * assistant message accounted for) is discarded whole, matching the buffer
  * clear on cancel (reducer.ts:610-615) — a partial flush never happens in the
  * reducer, so the projection must never invent one either.
+ *
+ * Compaction write-back (Task 2): a `compaction` event carrying
+ * `replacedIds`/`summaryId` rewrites the projected list the same way the
+ * reducer's `compaction_applied` handler rewrites `state.messages` — remove
+ * the named messages, insert one system-role summary at the earliest
+ * replaced position. Legacy compaction events without ids are skipped.
+ * `tool_results_pruned` stays log-only: the event omits pruned content by
+ * design, so the projection has nothing to rewrite with.
  */
 
 import type { Message, ToolResultContent, ToolUseContent } from "./state.js";
@@ -256,11 +264,47 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         break;
       }
 
+      case "compaction": {
+        const data = event.data as TranscriptEventMap["compaction"];
+        // Legacy events (pre-write-back) carry no replacedIds/summaryId —
+        // they record that compaction happened on the request surface only.
+        // Without ids there is nothing to replay; skip, matching old behavior.
+        if (data.replacedIds === undefined || data.summaryId === undefined) break;
+
+        // Same position rule as the reducer's compaction_applied handler
+        // (reducer.ts:254-269): remove the named messages, insert one
+        // system-role summary at the earliest replaced position among the
+        // kept order (or index 0 when nothing matched).
+        const replaced = new Set(data.replacedIds);
+        const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
+        const kept = messages.filter((e) => !replaced.has(e.message.id));
+        const insertAt =
+          firstIdx === -1
+            ? 0
+            : messages.slice(0, firstIdx).filter((e) => !replaced.has(e.message.id)).length;
+        const summaryEntry: ProjectedMessage = {
+          message: {
+            id: data.summaryId,
+            role: "system",
+            content: `[Earlier conversation summary]\n${data.summaryText}`,
+          },
+          time: event.time,
+        };
+        messages.length = 0;
+        messages.push(...kept.slice(0, insertAt), summaryEntry, ...kept.slice(insertAt));
+        break;
+      }
+
       default:
         // Every other event type is log-only: it records what happened but
-        // does not itself become a message the model sees. `compaction` in
-        // particular is NOT a surface replace — the Runner's applyCompaction()
-        // only rewrites the outgoing ModelRequest, never `state.messages`.
+        // does not itself become a message the model sees. In particular
+        // `tool_results_pruned` stays log-only here — the event deliberately
+        // omits pruned content (reducer.ts:236-237), so the projection has
+        // nothing to rewrite with. On cold-start resume tool results keep
+        // their original content; the Runner re-prunes on the request
+        // surface before each model call, so the MODEL still sees pruned
+        // text. Only state.messages (post write-back) diverges from the
+        // projection until the next prune.
         break;
     }
   }
