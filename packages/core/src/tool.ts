@@ -3,6 +3,8 @@
  * Core only uses abstract JSONSchema (no zod dependency here).
  */
 
+import type { TodoItem } from "./state.js";
+
 // ──────────────────────────────────────────────
 // JSON Schema (abstract, minimal subset)
 // ──────────────────────────────────────────────
@@ -66,4 +68,12 @@ export interface ToolResult {
   isError?: boolean;
   /** Metadata for UI/logging (diff, line count, latency, etc.) */
   displayMetadata?: Record<string, unknown>;
+  /**
+   * Optional structured patch the reducer applies to AgentState.
+   * v1: only `todos`. Unknown keys are ignored by the reducer.
+   * Hosts/Runners must pass this through unchanged.
+   */
+  statePatch?: {
+    todos?: TodoItem[];
+  };
 }
