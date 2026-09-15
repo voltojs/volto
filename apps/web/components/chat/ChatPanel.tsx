@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
 import { ApprovalCard } from './ApprovalCard';
@@ -25,6 +26,7 @@ import type { InputAction } from '@/lib/input-commands';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
@@ -241,6 +243,30 @@ export function ChatPanel() {
     [paneVisible, paneOpen, hasPaneProject, paneProjectId],
   );
 
+  // Manual compact entry for the open session only. Idle-only enablement:
+  // while a turn is generating the button is disabled (server would answer
+  // 409 anyway); the toast path still covers a race where the turn starts
+  // between click and response. Compaction never mutates the conversation
+  // feed — see `runSessionCompact`.
+  const compactAction = useMemo(
+    () =>
+      currentSessionId === null
+        ? undefined
+        : {
+            disabled: isGenerating,
+            onCompact: () => {
+              void runSessionCompact({
+                sessionId: currentSessionId,
+                notify: {
+                  success: (message) => toast.success(message),
+                  error: (message) => toast.error(message),
+                },
+              });
+            },
+          },
+    [currentSessionId, isGenerating],
+  );
+
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
   // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
   const currentModel = useConfigStore((s) =>
@@ -291,7 +317,11 @@ export function ChatPanel() {
   if (currentSessionId && currentSession && !currentSession.detailLoaded) {
     return (
       <div className="flex h-full flex-col">
-        <ChatHeader title={headerTitle} paneToggle={paneToggle} />
+        <ChatHeader
+          title={headerTitle}
+          paneToggle={paneToggle}
+          compactAction={compactAction}
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           {currentSession.detailError ? (
             <>
@@ -334,7 +364,11 @@ export function ChatPanel() {
       <div className="flex h-full flex-col">
         {/* 欢迎页：选中工作区后 Header 面板按钮可用，右侧展示文件 / Git
             图谱总览；未选项目时禁用。 */}
-        <ChatHeader title={headerTitle} paneToggle={paneToggle} />
+        <ChatHeader
+          title={headerTitle}
+          paneToggle={paneToggle}
+          compactAction={compactAction}
+        />
         <div className="flex min-h-0 flex-1 flex-row">
           <div className="bg-grain flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-4">
             <div className="mb-8 max-w-2xl text-center">

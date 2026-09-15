@@ -203,3 +203,87 @@ export async function deleteServerSession(id: string): Promise<void> {
     throw new Error(`Failed to delete session ${id}: HTTP ${response.status}`);
   }
 }
+
+/**
+ * `POST /sessions/:id/compact` failure. 409 = a turn is mid-flight (retry
+ * later); 404 = the gateway does not know this session; everything else is
+ * a network/server fault.
+ */
+export class CompactSessionError extends Error {
+  readonly status: number;
+  readonly kind: 'busy' | 'notFound' | 'network';
+
+  constructor(status: number, kind: CompactSessionError['kind'], message: string) {
+    super(message);
+    this.name = 'CompactSessionError';
+    this.status = status;
+    this.kind = kind;
+  }
+}
+
+/**
+ * Result of an on-demand compaction. Branches on the server's two 200
+ * shapes (Task 5 contract): `{ ok: true, compacted: false }` when there was
+ * nothing to do, vs `{ replacedCount, tokensFreedEstimate }` when state
+ * shrank. Compaction never rewrites the visible transcript — the UI keeps
+ * showing the full history either way.
+ */
+export type CompactSessionResult =
+  | { compacted: true; replacedCount: number; tokensFreedEstimate: number }
+  | { compacted: false };
+
+/**
+ * Requests on-demand compaction of an idle session. Empty POST body — the
+ * session id is the path param. Callers must not treat a successful
+ * compact as a reason to reload conversation content: the feed is the
+ * durable transcript and is unchanged by compaction itself.
+ */
+export async function compactSession(id: string): Promise<CompactSessionResult> {
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/compact`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    },
+  );
+  if (response.status === 409) {
+    const message = await readErrorMessage(
+      response,
+      `Session ${id} is busy; try again later`,
+    );
+    throw new CompactSessionError(409, 'busy', message);
+  }
+  if (response.status === 404) {
+    const message = await readErrorMessage(
+      response,
+      `Unknown session: ${id}`,
+    );
+    throw new CompactSessionError(404, 'notFound', message);
+  }
+  if (!response.ok) {
+    const message = await readErrorMessage(
+      response,
+      `Failed to compact session ${id}: HTTP ${response.status}`,
+    );
+    throw new CompactSessionError(response.status, 'network', message);
+  }
+  const body = (await response.json()) as {
+    ok?: boolean;
+    compacted?: boolean;
+    replacedCount?: number;
+    tokensFreedEstimate?: number;
+  };
+  // Prefer the explicit `compacted === false` marker; fall back to the
+  // presence of `replacedCount` so a future server that drops `ok` still
+  // classifies correctly.
+  if (body.compacted === false || typeof body.replacedCount !== 'number') {
+    return { compacted: false };
+  }
+  return {
+    compacted: true,
+    replacedCount: body.replacedCount,
+    tokensFreedEstimate: body.tokensFreedEstimate ?? 0,
+  };
+}
