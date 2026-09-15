@@ -1,8 +1,9 @@
 /**
  * RightPane 的标签状态：tabs（有序）+ activeTabId + width。
  * PaneTab 是判别联合——每个标签自带数据引用（childSessionId / projectId /
- * projectId+path），因此切会话不清空标签，跨会话内容各自成立。
- * tabs 纯内存（刷新即空，重新点开即可）；只有 width 持久化。
+ * projectId+path）。子代理标签跨会话保留；files / git-graph 在工作区切换时
+ * 经 retargetProjectTabs 指向新项目。tabs 纯内存（刷新即空，重新点开即可）；
+ * 只有 width 持久化。
  */
 
 import { create } from 'zustand';
@@ -47,6 +48,13 @@ interface PaneState {
   /** Open the pane shell with zero tabs (empty-state overview). */
   openPane: () => void;
   closeTab: (id: string) => void;
+  /**
+   * Point project-scoped tabs at a new workspace. `files` / `git-graph` keep
+   * their kind and become `${kind}:${projectId}`; `file-preview` paths are
+   * project-relative so those tabs close. Subagent tabs are session-scoped
+   * and stay. Idempotent when the project is unchanged.
+   */
+  retargetProjectTabs: (projectId: string) => void;
   setActive: (id: string) => void;
   setWidth: (n: number) => void;
   setHidden: (hidden: boolean) => void;
@@ -95,6 +103,45 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
         if (state.activeTabId !== id) return { tabs };
         const next = tabs[Math.min(idx, tabs.length - 1)];
         return { tabs, activeTabId: next?.id ?? null };
+      }),
+    retargetProjectTabs: (projectId) =>
+      set((state) => {
+        let changed = false;
+        const seen = new Set<string>();
+        const tabs: PaneTab[] = [];
+        for (const tab of state.tabs) {
+          if (tab.kind === 'subagent') {
+            if (!seen.has(tab.id)) {
+              seen.add(tab.id);
+              tabs.push(tab);
+            }
+            continue;
+          }
+          if (tab.kind === 'file-preview') {
+            // Path is relative to the old workspace — drop rather than guess.
+            changed = true;
+            continue;
+          }
+          if (tab.projectId === projectId) {
+            if (!seen.has(tab.id)) {
+              seen.add(tab.id);
+              tabs.push(tab);
+            }
+            continue;
+          }
+          changed = true;
+          const next: PaneTab = { ...tab, id: `${tab.kind}:${projectId}`, projectId };
+          if (!seen.has(next.id)) {
+            seen.add(next.id);
+            tabs.push(next);
+          }
+        }
+        if (!changed) return state;
+        const activeTabId =
+          state.activeTabId !== null && seen.has(state.activeTabId)
+            ? state.activeTabId
+            : (tabs[tabs.length - 1]?.id ?? null);
+        return { tabs, activeTabId };
       }),
     setActive: (id) => set({ activeTabId: id }),
     setWidth: (n) => {

@@ -68,6 +68,54 @@ describe('git-graph tabs', () => {
   });
 });
 
+describe('retargetProjectTabs', () => {
+  it('points files and git-graph at the new workspace and keeps subagent tabs', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab({ kind: 'git-graph', id: 'git-graph:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab(subagentTab('child-1'));
+    usePaneStore.getState().retargetProjectTabs('p2');
+    expect(usePaneStore.getState().tabs).toEqual([
+      { kind: 'files', id: 'files:p2', projectId: 'p2' },
+      { kind: 'git-graph', id: 'git-graph:p2', projectId: 'p2' },
+      subagentTab('child-1'),
+    ]);
+    expect(usePaneStore.getState().activeTabId).toBe('subagent:child-1');
+  });
+
+  it('closes file-preview tabs because their path belongs to the old workspace', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab({
+      kind: 'file-preview',
+      id: 'preview:p1:src/a.ts',
+      projectId: 'p1',
+      path: 'src/a.ts',
+    });
+    usePaneStore.getState().setActive('preview:p1:src/a.ts');
+    usePaneStore.getState().retargetProjectTabs('p2');
+    expect(usePaneStore.getState().tabs).toEqual([
+      { kind: 'files', id: 'files:p2', projectId: 'p2' },
+    ]);
+    // Active preview was dropped — fall back to the remaining tab.
+    expect(usePaneStore.getState().activeTabId).toBe('files:p2');
+  });
+
+  it('is a no-op when the project is unchanged', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    const before = usePaneStore.getState().tabs;
+    usePaneStore.getState().retargetProjectTabs('p1');
+    expect(usePaneStore.getState().tabs).toBe(before);
+  });
+
+  it('dedupes when a tab for the target project already exists', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p2', projectId: 'p2' });
+    usePaneStore.getState().retargetProjectTabs('p2');
+    expect(usePaneStore.getState().tabs).toEqual([
+      { kind: 'files', id: 'files:p2', projectId: 'p2' },
+    ]);
+  });
+});
+
 describe('open', () => {
   it('openTab marks the pane open', () => {
     usePaneStore.getState().openTab(subagentTab('a'));

@@ -214,6 +214,13 @@ export function ChatPanel() {
   const paneHidden = usePaneStore((s) => s.hidden);
   const paneProjectId =
     currentProject?.id ?? (currentSessionId === null ? pendingProjectId : null);
+  // Workspace switch: keep pane tab kinds (files / git-graph) but retarget
+  // them at the new project so the right pane never shows a stale workspace.
+  const retargetProjectTabs = usePaneStore((s) => s.retargetProjectTabs);
+  useEffect(() => {
+    if (paneProjectId === null) return;
+    retargetProjectTabs(paneProjectId);
+  }, [paneProjectId, retargetProjectTabs]);
   const hasPaneProject = paneProjectId !== null;
   const paneVisible =
     paneOpen && !paneHidden && (paneTabs.length > 0 || hasPaneProject);
