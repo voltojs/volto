@@ -97,7 +97,7 @@ import {
   createBuildTool,
 } from "@volto/tools-vcs";
 import { createAskUserTool } from "@volto/tools-ask";
-import { createTodoWriteTool } from "@volto/tools-plan";
+import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
 import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@volto/tools-data";
 import type { DatabaseAdapter } from "@volto/tools-data";
 import { createReadDocumentTool } from "@volto/tools-document";
@@ -812,7 +812,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   );
 
   // Standing todos: pure state tool (no ports). Capability-gated by plan:write.
-  capabilities.add("plan:write");
+  capabilities.add(CAP_PLAN_WRITE);
   allCustomTools.push(createTodoWriteTool());
 
   if (opts.enableTaskTool) {
