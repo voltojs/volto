@@ -40,7 +40,7 @@ const REASONING_MODEL: Model<"openai-completions"> = {
 function baseRequest(model: string): ModelRequest {
   return {
     model,
-    messages: [{ role: "user", content: "hello" }],
+    messages: [{ id: "m1", role: "user", content: "hello" }],
     tools: [],
   };
 }

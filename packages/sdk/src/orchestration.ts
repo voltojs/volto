@@ -113,7 +113,7 @@ export function createOrchestrator(opts: OrchestratorOptions): {
       eventSink,
       sessionId: `topo-${topology.name}-${node.name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       initialState: createInitialState({
-        messages: [{ role: "system", content: node.systemPrompt }] as Message[],
+        messages: [{ id: `topo-${topology.name}-${node.name}`, role: "system", content: node.systemPrompt }] as Message[],
       }),
     };
 

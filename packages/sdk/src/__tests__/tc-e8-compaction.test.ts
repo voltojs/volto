@@ -38,12 +38,14 @@ describe("TC-E8: SDK + Runner Compaction 端到端", () => {
     for (let i = 0; i < 30; i++) {
       if (i % 2 === 0) {
         const msg: UserMessage = {
+          id: "m1",
           role: "user",
           content: `old-user-${i}-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,
         };
         oldMessages.push(msg);
       } else {
         const msg: AssistantMessage = {
+          id: "m2",
           role: "assistant",
           content: [{ type: "text", text: `old-asst-${i}-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy` }],
         };

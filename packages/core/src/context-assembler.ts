@@ -102,7 +102,11 @@ export function assembleContext(opts: AssembleContextOptions): AssembledContext 
   }
 
   const layers = opts.contextLayers ?? [];
-  const layerMessages: Message[] = layers.map((layer) => ({ role: "system", content: layer.text }));
+  const layerMessages: Message[] = layers.map((layer) => ({
+    id: `layer-${layer.id}`,
+    role: "system",
+    content: layer.text,
+  }));
 
   // System messages → layer messages → pinned messages → everything else (stable prefix includes all three)
   const assembled = [...systemMessages, ...layerMessages, ...pinnedMessages, ...otherMessages];

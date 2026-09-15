@@ -83,6 +83,7 @@ describe("reasoning effort contract", () => {
 describe("reasoning content block", () => {
   it("is part of an assistant message and extracts to no user-visible text", () => {
     const msg: AssistantMessage = {
+      id: "m1",
       role: "assistant",
       content: [
         { type: "reasoning", text: "let me think" },

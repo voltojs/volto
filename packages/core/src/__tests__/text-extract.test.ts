@@ -4,12 +4,13 @@ import type { Message } from "../state.js";
 
 describe("extractMessageText", () => {
   it("extracts string content", () => {
-    const msg: Message = { role: "user", content: "Hello world" };
+    const msg: Message = { id: "m1", role: "user", content: "Hello world" };
     expect(extractMessageText(msg)).toBe("Hello world");
   });
 
   it("extracts text blocks", () => {
     const msg: Message = {
+      id: "m2",
       role: "assistant",
       content: [{ type: "text", text: "Response" }],
     };
@@ -18,6 +19,7 @@ describe("extractMessageText", () => {
 
   it("extracts tool_use blocks as placeholder", () => {
     const msg: Message = {
+      id: "m3",
       role: "assistant",
       content: [{ type: "tool_use", id: "t1", name: "read_file", input: {} }],
     };
@@ -26,6 +28,7 @@ describe("extractMessageText", () => {
 
   it("extracts tool_result blocks", () => {
     const msg: Message = {
+      id: "m4",
       role: "tool",
       content: [{ type: "tool_result", toolUseId: "t1", content: "file data" }],
     };
@@ -34,6 +37,7 @@ describe("extractMessageText", () => {
 
   it("handles mixed content blocks", () => {
     const msg: Message = {
+      id: "m5",
       role: "assistant",
       content: [
         { type: "text", text: "Let me read the file:" },
@@ -44,12 +48,13 @@ describe("extractMessageText", () => {
   });
 
   it("handles empty content array", () => {
-    const msg: Message = { role: "assistant", content: [] };
+    const msg: Message = { id: "m6", role: "assistant", content: [] };
     expect(extractMessageText(msg)).toBe("");
   });
 
   it("handles image content as empty string", () => {
     const msg: Message = {
+      id: "m7",
       role: "user",
       content: [{ type: "image", source: { type: "base64", mediaType: "image/png", data: "abc" } }],
     };
@@ -78,6 +83,7 @@ describe("extractBlockText", () => {
 describe("extractPlainText", () => {
   it("extracts only text blocks from mixed content", () => {
     const msg: Message = {
+      id: "m8",
       role: "assistant",
       content: [
         { type: "text", text: "Here:" },
@@ -89,12 +95,13 @@ describe("extractPlainText", () => {
   });
 
   it("extracts string content", () => {
-    const msg: Message = { role: "user", content: "Hello" };
+    const msg: Message = { id: "m9", role: "user", content: "Hello" };
     expect(extractPlainText(msg)).toBe("Hello");
   });
 
   it("returns empty for tool-only content", () => {
     const msg: Message = {
+      id: "m10",
       role: "assistant",
       content: [{ type: "tool_use", id: "t1", name: "bash", input: {} }],
     };
@@ -109,6 +116,7 @@ describe("reasoning content block extraction", () => {
 
   it("is dropped cleanly when joined in multi-block messages", () => {
     const msg: Message = {
+      id: "m11",
       role: "assistant",
       content: [
         { type: "reasoning", text: "let me think" },

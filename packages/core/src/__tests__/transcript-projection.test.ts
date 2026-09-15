@@ -168,13 +168,29 @@ function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; fina
  * `state.messages` carries `input.result.isError` verbatim — `undefined` when
  * a tool didn't set it. The two are semantically equivalent; normalize
  * instead of weakening the assertion.
+ *
+ * Also blanks message ids: transcript events do not yet carry the reducer's
+ * stable message ids (write-back is a later task), so the projection
+ * synthesizes `proj-N` while the reducer's ids come from StepContext.id.
+ * Comparing them would pin this suite to two independent counters instead
+ * of the ordering contract under test.
  */
 function normalizeIsError(messages: Message[]): Message[] {
   return messages.map((m) =>
     m.role === "tool"
-      ? { ...m, content: m.content.map((c: ToolResultContent) => ({ ...c, isError: c.isError ?? false })) }
-      : m,
+      ? { ...m, id: "", content: m.content.map((c: ToolResultContent) => ({ ...c, isError: c.isError ?? false })) }
+      : { ...m, id: "" },
   );
+}
+
+/**
+ * Drop message ids before deep-equality. Unit tests below assert ordering
+ * and content, not identity — projection synthesizes `proj-N` deterministically
+ * but those numbers are not the contract (stable reducer ids are a later
+ * write-back task).
+ */
+function stripIds(messages: Message[]): Array<Omit<Message, "id">> {
+  return messages.map(({ id: _ignored, ...rest }) => rest) as Array<Omit<Message, "id">>;
 }
 
 describe("projectMessages ~ reducer equivalence (differential)", () => {
@@ -348,10 +364,10 @@ describe("projectMessages", () => {
     ]);
 
     const expected: Message[] = [
-      { role: "user", content: "hi" },
-      { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
+      { id: "", role: "user", content: "hi" },
+      { id: "", role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
     ];
-    expect(projectMessages(events)).toEqual(expected);
+    expect(stripIds(projectMessages(events))).toEqual(stripIds(expected));
   });
 
   it("orders parallel tool results by orderInBatch, not by arrival", () => {
@@ -390,7 +406,7 @@ describe("projectMessages", () => {
     ]);
 
     const messages = projectMessages(events);
-    expect(messages.slice(2)).toEqual([
+    expect(stripIds(messages.slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
     ]);
@@ -425,7 +441,7 @@ describe("projectMessages", () => {
     const messages = projectMessages(events);
     // The reducer flushes [...tool results, ...queuedUserInputs] — the steering
     // message lands AFTER the tool result despite having the smaller seq.
-    expect(messages.slice(2)).toEqual([
+    expect(stripIds(messages.slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
       { role: "user", content: "actually wait" },
     ]);
@@ -453,7 +469,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events)).toEqual([
+    expect(stripIds(projectMessages(events))).toEqual([
       { role: "user", content: "hi" },
       { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
     ]);
@@ -482,7 +498,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events).at(-1)).toEqual({
+    expect(stripIds([projectMessages(events).at(-1)!])[0]).toEqual({
       role: "tool",
       content: [{ type: "tool_result", toolUseId: "c1", content: "boom", isError: true }],
     });
@@ -518,7 +534,7 @@ describe("projectMessages", () => {
 
     // The batch never completes (its one entry was dropped, not resolved),
     // so nothing after the assistant message is emitted.
-    expect(projectMessages(events)).toEqual([
+    expect(stripIds(projectMessages(events))).toEqual([
       { role: "user", content: "go" },
       {
         role: "assistant",
@@ -574,7 +590,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events).slice(2)).toEqual([
+    expect(stripIds(projectMessages(events).slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "second", isError: false }] },
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
     ]);
@@ -609,7 +625,7 @@ describe("projectMessages", () => {
   });
 
   it("returns an empty array for an empty log", () => {
-    expect(projectMessages([])).toEqual([]);
+    expect(stripIds(projectMessages([]))).toEqual([]);
   });
 });
 
@@ -626,7 +642,7 @@ describe("projectMessageEntries", () => {
       },
     ]);
 
-    expect(projectMessageEntries(events)).toEqual([
+    expect(projectMessageEntries(events).map((e) => ({ ...e, message: stripIds([e.message])[0]! }))).toEqual([
       { message: { role: "user", content: "hi" }, time: 10 },
       {
         message: { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
@@ -660,7 +676,7 @@ describe("projectMessageEntries", () => {
     ]);
 
     const entries = projectMessageEntries(events);
-    expect(entries.map((e) => e.message)).toEqual(projectMessages(events));
+    expect(stripIds(entries.map((e) => e.message))).toEqual(stripIds(projectMessages(events)));
     // Steering sits after the tool result, so its time runs backwards here —
     // that is correct: position follows the reducer, not the clock.
     expect(entries.map((e) => e.time)).toEqual([10, 20, 40, 30]);

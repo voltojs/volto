@@ -31,7 +31,7 @@ function makeFactory() {
     builds.push(opts);
     return {
       async *stream() {
-        cumulative.push({ role: "assistant", content: [{ type: "text", text: `m${cumulative.length + 1}` }] });
+        cumulative.push({ id: "m1", role: "assistant", content: [{ type: "text", text: `m${cumulative.length + 1}` }] });
         yield { type: "text_delta", data: { text: "hi" } };
       },
       getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,

@@ -531,7 +531,7 @@ export function createRunner(opts: RunnerOptions): Runner {
     try {
       const summaryEvents = opts.modelPort.stream({
         messages: [
-          { role: "user", content: decision.summaryPrompt },
+          { id: "compaction-summary-prompt", role: "user", content: decision.summaryPrompt },
         ],
         tools: [],
         model: stepContext.model,
@@ -570,6 +570,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         (m) => m.role !== "system",
       );
       const summaryMsg: Message = {
+        id: "compaction-summary",
         role: "system",
         content: `[Earlier conversation summary]\n${summaryText}`,
       };
@@ -719,7 +720,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             // reading it here avoids narrowing Message['content'] (string |
             // ContentBlock[]) at the recorder call.
             const ragText = buildRAGMessage(fragments.map((f) => f.text));
-            const ragMessage: Message = { role: "user", content: ragText };
+            const ragMessage: Message = { id: "rag-injection", role: "user", content: ragText };
             finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
             recorder.record("context_reminder", {
               kind: "retrieval",

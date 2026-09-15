@@ -63,7 +63,7 @@ describe("normalizeStream", () => {
       ),
     ]);
 
-    const context = { messages: [{ role: "user" as const, content: "hi", timestamp: Date.now() }] };
+    const context = { messages: [{ id: "m2", role: "user" as const, content: "hi", timestamp: Date.now() }] };
     const stream = faux.provider.streamSimple(fauxModel, context);
 
     const events = await collect(normalizeStream(stream, model));
@@ -119,7 +119,7 @@ describe("normalizeStream", () => {
       }),
     ]);
 
-    const context = { messages: [{ role: "user" as const, content: "hi", timestamp: Date.now() }] };
+    const context = { messages: [{ id: "m3", role: "user" as const, content: "hi", timestamp: Date.now() }] };
     const stream = faux.provider.streamSimple(fauxModel, context);
 
     const events = await collect(normalizeStream(stream, model));
@@ -145,7 +145,7 @@ describe("normalizeStream", () => {
       fauxAssistantMessage("won't finish", { stopReason: "aborted" }),
     ]);
 
-    const context = { messages: [{ role: "user" as const, content: "hi", timestamp: Date.now() }] };
+    const context = { messages: [{ id: "m4", role: "user" as const, content: "hi", timestamp: Date.now() }] };
     controller.abort();
     const stream = faux.provider.streamSimple(fauxModel, context, { signal: controller.signal });
 

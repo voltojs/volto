@@ -148,6 +148,13 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
   let steering: ProjectedMessage[] = [];
   /** callId -> tool name, from `assistant_message` tool_use blocks and `approval_asked`. */
   const toolNamesById = new Map<string, string>();
+  /**
+   * Synthetic ids for reconstructed messages. Transcript events do not yet
+   * carry the reducer's stable message ids; a local counter keeps projection
+   * deterministic (same events in, same ids out) without inventing I/O.
+   */
+  let projSeq = 0;
+  const nextProjId = (): string => `proj-${++projSeq}`;
 
   for (const event of events) {
     switch (event.type) {
@@ -161,7 +168,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         steering = [];
 
         const data = event.data as TranscriptEventMap["user_message"];
-        messages.push({ message: { role: "user", content: data.content }, time: event.time });
+        messages.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
         break;
       }
 
@@ -169,6 +176,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const data = event.data as TranscriptEventMap["assistant_message"];
         messages.push({
           message: {
+            id: nextProjId(),
             role: "assistant",
             content: data.content,
             ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
@@ -196,7 +204,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           content: data.content,
           isError: data.isError,
         };
-        const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
+        const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
 
         if (batch && resolveInBatch(batch, data.callId, entry, data.orderInBatch)) {
           flushBatch(batch, steering, messages);
@@ -230,7 +238,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           content: userDenialMessage(name),
           isError: true,
         };
-        const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
+        const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
 
         // No orderInBatch: a denial has no tool_result event to carry one.
         // Its position comes from the roster, restored above.
@@ -244,7 +252,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
-        steering.push({ message: { role: "user", content: data.content }, time: event.time });
+        steering.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
         break;
       }
 

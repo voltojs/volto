@@ -16,13 +16,13 @@ describe("TrajectoryRecorder", () => {
 
     recorder.capture(
       { type: "user_message", content: "hello" },
-      { status: "calling_model", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
       ["call_model", "emit"],
     );
 
     recorder.capture(
       { type: "model_done", stopReason: "end_turn" },
-      { status: "done", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      { status: "done", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
       ["emit", "done"],
     );
 
@@ -42,7 +42,7 @@ describe("TrajectoryRecorder", () => {
 
     recorder.capture(
       { type: "user_message", content: "test" },
-      { status: "calling_model", messages: [{ role: "user", content: "test" }], pendingTools: [] },
+      { status: "calling_model", messages: [{ id: "", role: "user", content: "test" }], pendingTools: [] },
       ["call_model", "emit"],
     );
 
@@ -65,13 +65,13 @@ describe("TrajectoryRecorder", () => {
 
     recorder.capture(
       { type: "user_message", content: "hello" },
-      { status: "calling_model", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
       ["call_model", "emit"],
     );
 
     recorder.capture(
       { type: "model_done", stopReason: "end_turn" },
-      { status: "done", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      { status: "done", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
       ["emit", "done"],
     );
 
@@ -89,17 +89,17 @@ describe("TrajectoryRecorder", () => {
 
     recorder.capture(
       { type: "user_message", content: "hello" },
-      { status: "calling_model", messages: [{ role: "user", content: "hello" }], pendingTools: [] },
+      { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
       ["call_model", "emit"],
       {
         fullState: {
           status: "calling_model",
-          messages: [{ role: "user", content: "hello" }],
+          messages: [{ id: "", role: "user", content: "hello" }],
           pendingTools: [],
           tokensUsed: 0,
         },
         fullEffects: [
-          { type: "call_model", request: { messages: [{ role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0], layerOrigins: [] } },
+          { type: "call_model", request: { messages: [{ id: "", role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0], layerOrigins: [] } },
           { type: "emit", event: { type: "user_message", data: { content: "hello" } } },
         ],
       },

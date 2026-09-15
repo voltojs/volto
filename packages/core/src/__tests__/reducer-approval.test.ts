@@ -214,7 +214,7 @@ const mixedCtx: StepContext = { tools: [writeTool, readTool], model: "test-model
 function mixedBatchState(): ReducerState {
   return createInitialState({
     status: "executing_tools",
-    messages: [{ role: "user", content: "go" }],
+    messages: [{ id: "m1", role: "user", content: "go" }],
     pendingTools: [
       { id: "c1", name: "edit_file", input: { path: "/a.ts" } },
       { id: "c2", name: "read_file", input: { path: "/b.ts" } },
@@ -253,7 +253,7 @@ describe("reducer: denial inside a mixed batch", () => {
   it("still flushes immediately when the denied tool is the only one", () => {
     let state = createInitialState({
       status: "executing_tools",
-      messages: [{ role: "user", content: "go" }],
+      messages: [{ id: "m3", role: "user", content: "go" }],
       pendingTools: [{ id: "c1", name: "edit_file", input: { path: "/a.ts" } }],
     });
 

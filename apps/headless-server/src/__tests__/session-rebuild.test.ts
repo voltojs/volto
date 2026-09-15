@@ -19,12 +19,12 @@ afterEach(() => {
  */
 function makeFactory() {
   const builds: Array<Record<string, unknown>> = [];
-  const cumulative: Array<{ role: string; content: string }> = [];
+  const cumulative: Array<{ id: string; role: string; content: string }> = [];
   const factory = (opts: Record<string, unknown>) => {
     builds.push(opts);
     return {
       async *stream() {
-        cumulative.push({ role: "assistant", content: `m${cumulative.length + 1}` });
+        cumulative.push({ id: "m1", role: "assistant", content: `m${cumulative.length + 1}` });
         yield { type: "text_delta", data: { text: "hi" } };
       },
       getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,
@@ -56,19 +56,19 @@ function makeFlakyFactory() {
       },
       getState: (): ReducerState => {
         if (call === 1) {
-          return { messages: [{ role: "assistant", content: "m1" }] } as unknown as ReducerState;
+          return { messages: [{ id: "m2", role: "assistant", content: "m1" }] } as unknown as ReducerState;
         }
         if (call === 2) {
           // Partial progress from the failed turn — not shorter than before.
           return {
             messages: [
-              { role: "assistant", content: "m1" },
-              { role: "user", content: "m1b" },
+              { id: "m3", role: "assistant", content: "m1" },
+              { id: "m4", role: "user", content: "m1b" },
             ],
           } as unknown as ReducerState;
         }
         // call === 3: the flaky reset to a smaller build-time seed.
-        return { messages: [{ role: "assistant", content: "m3" }] } as unknown as ReducerState;
+        return { messages: [{ id: "m5", role: "assistant", content: "m3" }] } as unknown as ReducerState;
       },
     };
   };
@@ -125,7 +125,7 @@ describe("session agent lifecycle", () => {
 
     expect(builds).toHaveLength(2);
     expect(builds[1]!["initialMessages"]).toHaveLength(1);
-    expect(builds[1]!["initialMessages"]).toEqual([{ role: "assistant", content: "m1" }]);
+    expect(builds[1]!["initialMessages"]).toEqual([{ id: "m1", role: "assistant", content: "m1" }]);
   });
 
   it("rebuilds when the permission mode changes", async () => {
@@ -196,10 +196,10 @@ describe("session agent lifecycle", () => {
     // by "writes are confined to the workspace", with nothing saying which
     // one is in force -- one more contradiction per switch.
     const builds: Array<Record<string, unknown>> = [];
-    const messages: Array<{ role: string; content: string }> = [
-      { role: "user", content: buildPermissionReminder({ sandbox: "read-only", approval: "never" }) },
-      { role: "user", content: "one" },
-      { role: "assistant", content: "m1" },
+    const messages: Array<{ id: string; role: string; content: string }> = [
+      { id: "m7", role: "user", content: buildPermissionReminder({ sandbox: "read-only", approval: "never" }) },
+      { id: "m8", role: "user", content: "one" },
+      { id: "m9", role: "assistant", content: "m1" },
     ];
     const factory = (opts: Record<string, unknown>) => {
       builds.push(opts);
@@ -224,8 +224,8 @@ describe("session agent lifecycle", () => {
     expect(seeded.some((m) => isPermissionReminder(m as never))).toBe(false);
     // Everything that is not a reminder survives untouched.
     expect(seeded).toEqual([
-      { role: "user", content: "one" },
-      { role: "assistant", content: "m1" },
+      { id: "m8", role: "user", content: "one" },
+      { id: "m9", role: "assistant", content: "m1" },
     ]);
   });
 

@@ -126,6 +126,7 @@ async function collect(events: AsyncIterable<ModelEvent>): Promise<ModelEvent[]>
  */
 function buildSecondTurnMessages(modelMeta: unknown, sourceModelId: string): ModelRequest["messages"] {
   const assistantMessage: AssistantMessage = {
+    id: "m2",
     role: "assistant",
     content: [
       { type: "reasoning", text: THINKING_TEXT },
@@ -136,9 +137,10 @@ function buildSecondTurnMessages(modelMeta: unknown, sourceModelId: string): Mod
     modelMeta,
   };
   return [
-    { role: "user", content: "what's the weather in NYC?" },
+    { id: "m3", role: "user", content: "what's the weather in NYC?" },
     assistantMessage,
     {
+      id: "m4",
       role: "tool",
       content: [{ toolUseId: TOOL_CALL_ID, type: "tool_result", content: "sunny, 72F" }],
     },
@@ -157,7 +159,7 @@ describe("tool loop: thinking signature round-trip", () => {
     const turn1Events = await collect(
       port.stream({
         model: "reasoner-1",
-        messages: [{ role: "user", content: "what's the weather in NYC?" }],
+        messages: [{ id: "m5", role: "user", content: "what's the weather in NYC?" }],
         tools: [],
       }),
     );
@@ -195,7 +197,7 @@ describe("tool loop: thinking signature round-trip", () => {
     const turn1Events = await collect(
       port.stream({
         model: "reasoner-1",
-        messages: [{ role: "user", content: "what's the weather in NYC?" }],
+        messages: [{ id: "m6", role: "user", content: "what's the weather in NYC?" }],
         tools: [],
       }),
     );

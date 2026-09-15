@@ -22,6 +22,7 @@ describe("model_done emit", () => {
 
     expect(data).toBeDefined();
     expect(data!["message"]).toEqual({
+      id: "",
       role: "assistant",
       content: [{ type: "text", text: "hello" }],
       stopReason: "end_turn",

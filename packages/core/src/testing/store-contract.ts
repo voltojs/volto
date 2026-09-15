@@ -11,7 +11,7 @@ function makeSnapshot(id: string, overrides?: Partial<AgentState>): SessionSnaps
   return {
     id,
     state: {
-      messages: [{ role: "user", content: "Hello" }],
+      messages: [{ id: "m1", role: "user", content: "Hello" }],
       pendingTools: [],
       status: "idle",
       tokenBudget: undefined,
@@ -82,9 +82,9 @@ export function runStoreContractTests(createStore: () => SessionStore): void {
     it("preserves AgentState structure through serialization", async () => {
       const snapshot = makeSnapshot("s1", {
         messages: [
-          { role: "system", content: "You are helpful" },
-          { role: "user", content: "Hi" },
-          { role: "assistant", content: [{ type: "text", text: "Hello!" }] },
+          { id: "m2", role: "system", content: "You are helpful" },
+          { id: "m3", role: "user", content: "Hi" },
+          { id: "m4", role: "assistant", content: [{ type: "text", text: "Hello!" }] },
         ],
         pendingTools: [{ id: "t1", name: "read_file", input: { path: "/a.ts" } }],
         pendingApprovalTool: { id: "t2", name: "edit_file", input: { path: "/b.ts" } },

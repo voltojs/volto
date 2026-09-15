@@ -14,19 +14,20 @@ import { createCharTokenizer, createFixedTokenizer } from "../testing/char-token
 import type { Message } from "../state.js";
 
 function sysMsg(content: string): Message {
-  return { role: "system", content };
+  return { id: "m1", role: "system", content };
 }
 
 function userMsg(content: string): Message {
-  return { role: "user", content };
+  return { id: "m2", role: "user", content };
 }
 
 function assistantMsg(text: string): Message {
-  return { role: "assistant", content: [{ type: "text", text }] };
+  return { id: "m3", role: "assistant", content: [{ type: "text", text }] };
 }
 
 function toolUseMsg(name: string, id: string): Message {
   return {
+    id: "m4",
     role: "assistant",
     content: [{ type: "tool_use", id, name, input: {} }],
   };
@@ -34,6 +35,7 @@ function toolUseMsg(name: string, id: string): Message {
 
 function toolResultMsg(id: string, content: string): Message {
   return {
+    id: "m5",
     role: "tool",
     content: [{ type: "tool_result", toolUseId: id, content }],
   };
@@ -83,6 +85,7 @@ describe("isKeyMessage", () => {
 describe("isKeyMessage — permission reminders", () => {
   it("treats a permission reminder as key", () => {
     const msg = {
+      id: "m6",
       role: "user" as const,
       content:
         "<system-reminder>\nPermission boundary for this session:\n\n- Filesystem writes are confined to the workspace.\n</system-reminder>",
@@ -91,11 +94,12 @@ describe("isKeyMessage — permission reminders", () => {
   });
 
   it("does not treat ordinary user text as key", () => {
-    expect(isKeyMessage({ role: "user", content: "please refactor this" })).toBe(false);
+    expect(isKeyMessage({ id: "m7", role: "user", content: "please refactor this" })).toBe(false);
   });
 
   it("also treats a change announcement as key", () => {
     const msg = {
+      id: "m8",
       role: "user" as const,
       content:
         "<system-reminder>\nThe permission boundary for this session has changed. It is now:\n\n- You cannot write to the filesystem at all.\n</system-reminder>",
@@ -109,8 +113,8 @@ describe("isKeyMessage — permission reminders", () => {
 
     // First announcement and mid-session change take different opening lines;
     // both must survive compaction, so both must be recognised here.
-    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config) })).toBe(true);
-    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
+    expect(isKeyMessage({ id: "m9", role: "user", content: buildPermissionReminder(config) })).toBe(true);
+    expect(isKeyMessage({ id: "m10", role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
   });
 });
 
@@ -223,8 +227,9 @@ describe("estimateTokens", () => {
 
   it("prices a reasoning block materially higher than the same message without it", () => {
     const tokenizer = createCharTokenizer(4);
-    const withoutReasoning: Message = { role: "assistant", content: [{ type: "text", text: "Hi" }] };
+    const withoutReasoning: Message = { id: "m11", role: "assistant", content: [{ type: "text", text: "Hi" }] };
     const withReasoning: Message = {
+      id: "m12",
       role: "assistant",
       content: [
         { type: "reasoning", text: "a".repeat(400) },
@@ -438,6 +443,7 @@ describe("decideCompaction", () => {
   it("handles empty content array in message", () => {
     const tokenizer = createFixedTokenizer(100);
     const emptyContentMsg: Message = {
+      id: "m13",
       role: "assistant",
       content: [],
     };
@@ -465,7 +471,7 @@ describe("extractFilePaths edge cases", () => {
 
 describe("hasIncompleteTodos edge cases", () => {
   it("returns false for empty content", () => {
-    const msg: Message = { role: "assistant", content: [] };
+    const msg: Message = { id: "m14", role: "assistant", content: [] };
     expect(hasIncompleteTodos(msg)).toBe(false);
   });
 });

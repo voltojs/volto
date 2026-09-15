@@ -940,6 +940,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
+    id: idPort,
     ...(resolvedReasoningEffort !== undefined
       ? { reasoningEffort: ReasoningEffortId(resolvedReasoningEffort) }
       : {}),
@@ -1000,7 +1001,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const resolvedSystemPrompt = resolve(opts.systemPrompt, "systemPrompt");
   const seedMessages: Message[] = [];
   if (resolvedSystemPrompt) {
-    seedMessages.push({ role: "system", content: resolvedSystemPrompt });
+    seedMessages.push({ id: idPort.next(), role: "system", content: resolvedSystemPrompt });
   }
   if (opts.initialMessages && opts.initialMessages.length > 0) {
     seedMessages.push(...opts.initialMessages);
@@ -1876,6 +1877,7 @@ function createSubAgentExecutor(
       model: resolveConfigValue(opts.model, opts.config?.config, "model"),
       maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
+      id: idPort,
       ...(resolvedSubReasoningEffort !== undefined
         ? { reasoningEffort: ReasoningEffortId(resolvedSubReasoningEffort) }
         : {}),

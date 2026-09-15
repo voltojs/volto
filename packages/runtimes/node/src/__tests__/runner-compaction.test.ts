@@ -57,7 +57,7 @@ describe("Runner — compaction wiring", () => {
     // Build a long history that will exceed the 200-token threshold once a
     // system message and a long user turn are added.
     const history = makeMessages(20, "old"); // 20 alternating messages
-    const systemMsg: Message = { role: "system", content: "you are helpful" };
+    const systemMsg: Message = { id: "m1", role: "system", content: "you are helpful" };
     const initial: ReducerState = {
       messages: [systemMsg, ...history],
       pendingTools: [],
@@ -155,7 +155,7 @@ describe("Runner — compaction wiring", () => {
 
   it("records a compaction transcript event with the replaced count and summary", async () => {
     const history = makeMessages(20, "old");
-    const systemMsg: Message = { role: "system", content: "you are helpful" };
+    const systemMsg: Message = { id: "m2", role: "system", content: "you are helpful" };
     const initial: ReducerState = {
       messages: [systemMsg, ...history],
       pendingTools: [],
