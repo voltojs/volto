@@ -27,7 +27,7 @@ describe('useSlashCommandItems', () => {
     }));
     const { result } = renderHook(() => useSlashCommandItems('p1'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.items.map((i) => i.name)).toEqual(['clear', 'plan', 'pdf']);
+    expect(result.current.items.map((i) => i.name)).toEqual(['clear', 'compact', 'plan', 'pdf']);
   });
 
   it('缓存命中：第二个 hook 实例不再发请求', async () => {
@@ -63,6 +63,6 @@ describe('useSlashCommandItems', () => {
     vi.stubGlobal('fetch', stubFetch({ '/commands': { commands: [] }, '/skills': { skills: [] } }));
     act(() => result.current.retry());
     await waitFor(() => expect(result.current.error).toBeNull());
-    await waitFor(() => expect(result.current.items.map((i) => i.name)).toEqual(['clear']));
+    await waitFor(() => expect(result.current.items.map((i) => i.name)).toEqual(['clear', 'compact']));
   });
 });
