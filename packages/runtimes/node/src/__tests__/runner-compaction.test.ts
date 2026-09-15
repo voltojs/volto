@@ -13,6 +13,7 @@ import type {
   ReducerState,
   CompactionConfig,
   TranscriptEventInput,
+  Id,
 } from "@volto/core";
 
 /**
@@ -437,5 +438,95 @@ describe("Runner — compaction wiring", () => {
     const main = spy.calls[1]!.messages;
     expect(flattenText(main)).toContain("omitted");
     expect(flattenText(main)).not.toContain("[Earlier conversation summary]");
+  });
+
+  it("feeds compaction_applied so state.messages shrinks after the turn step", async () => {
+    const history = makeMessages(20, "old");
+    const systemMsg: Message = { id: "m1", role: "system", content: "you are helpful" };
+    const initial = makeInitial([systemMsg, ...history]);
+    const initialCount = initial.messages.length;
+
+    // Deterministic Id port so we can assert the summary id is not hardcoded.
+    let idN = 0;
+    const idPort: Id = { next: () => `id-${++idN}` };
+    const ctxWithId: StepContext = { ...ctx, id: idPort };
+
+    const spy = createSpyModelPort([
+      textScript("SUMMARY-OF-OLD-MESSAGES"),
+      textScript("ack"),
+    ]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctxWithId,
+      initialState: initial,
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 50,
+        recentKeepCount: 2,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    const finalState = runner.getState();
+    // State must have shrunk relative to initial + user + assistant.
+    expect(finalState.messages.length).toBeLessThan(initialCount + 2);
+
+    // State must contain a summary message whose id came from the Id port.
+    const summary = finalState.messages.find(
+      (m) => typeof m.content === "string" && m.content.includes("[Earlier conversation summary]"),
+    );
+    expect(summary).toBeDefined();
+    expect(summary!.id).not.toBe("compaction-summary");
+    expect(summary!.id).toMatch(/^id-/);
+
+    // The main request and state must agree on the summary identity.
+    const main = spy.calls[1]!.messages;
+    const mainSummary = main.find(
+      (m) => typeof m.content === "string" && m.content.includes("[Earlier conversation summary]"),
+    );
+    expect(mainSummary).toBeDefined();
+    expect(mainSummary!.id).toBe(summary!.id);
+  });
+
+  it("keeps pruned tool results in state even when summarization fails", async () => {
+    const huge = "Z".repeat(2000);
+    const old = makeMessages(15, "old");
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      ...old,
+      makeToolResult("tr1", "call-1", huge),
+      { id: "u-recent", role: "user", content: "recent-user" } as Message,
+    ];
+
+    // Summarization script yields an error; main call still runs.
+    const spy = createSpyModelPort([
+      [{ type: "error", error: "summarizer down", retriable: false } as ModelEvent],
+      textScript("ack"),
+    ]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 300,
+        recentKeepCount: 2,
+        toolResultMaxChars: 100,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    const finalState = runner.getState();
+    // The prune write-back must survive the failed summarization: state's
+    // tool_result content is the pruned text, not the original huge dump.
+    const flatState = flattenText(finalState.messages);
+    expect(flatState).toContain("omitted");
+    expect(flatState).not.toContain(huge);
+    // No summary was written back.
+    expect(flatState).not.toContain("[Earlier conversation summary]");
   });
 });

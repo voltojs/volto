@@ -484,6 +484,18 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record("context_reminder", event.data as TranscriptEventMap["context_reminder"]);
           continue;
 
+        case "compaction":
+          // Emitted by the reducer's compaction_applied handler (write-back).
+          // The recorder's emit hook streams the same stamped event (task-r6
+          // double write), so no separate raw emit here.
+          recorder.record("compaction", event.data as TranscriptEventMap["compaction"]);
+          continue;
+
+        case "tool_results_pruned":
+          // Emitted by the reducer's tool_results_pruned handler (write-back).
+          recorder.record("tool_results_pruned", event.data as TranscriptEventMap["tool_results_pruned"]);
+          continue;
+
         default:
           // Raw events with no transcript counterpart (error / cancelled,
           // and any future reducer event) keep flowing for observability —
@@ -515,14 +527,16 @@ export function createRunner(opts: RunnerOptions): Runner {
    * Apply context compaction before a model call.
    * If the message history exceeds the token threshold, issues a summarization
    * call to the model and replaces compressible messages with the summary.
-   * Returns the messages to use for the main request.
+   * Returns the messages to use for the main request — always `state.messages`
+   * after any write-back, so the request surface and canonical state agree.
    *
-   * Sequence: decide → prune oversized tool results → re-decide → summarize
-   * only if still over budget. A single huge tool dump often accounts for
-   * most of the pressure; pruning alone may be enough, and the pruned
-   * surface is preferred over a lossy summary. On any summarization failure
-   * the pruned (or original) surface is returned — never a partial rewrite.
-   * No write-back into state.messages (Plan 2).
+   * Sequence: decide → prune oversized tool results → write-back prune →
+   * re-decide → summarize only if still over budget → write-back summary.
+   * A single huge tool dump often accounts for most of the pressure; pruning
+   * alone may be enough, and the pruned surface is preferred over a lossy
+   * summary. On any summarization failure the pruned (or original) surface
+   * is returned — the prune write-back already happened, so its progress is
+   * kept even when summarization fails.
    */
   async function applyCompaction(messages: Message[]): Promise<Message[]> {
     if (!opts.compaction) return messages;
@@ -538,11 +552,23 @@ export function createRunner(opts: RunnerOptions): Runner {
     if (!decision.shouldCompact || !decision.summaryPrompt) return messages;
 
     // Prune oversized tool results. `pruned.length > 0` means at least one
-    // block was rewritten; otherwise keep the original array reference.
-    const { messages: prunedMessages, pruned } = pruneOversizedToolResults(messages, {
+    // block was rewritten. The pruned message array itself is not used
+    // directly — the write-back feed below rewrites state.messages, and
+    // that post-feed state is the canonical surface.
+    const { pruned } = pruneOversizedToolResults(messages, {
       maxChars: opts.compaction.toolResultMaxChars ?? 8000,
     });
-    const surface = pruned.length > 0 ? prunedMessages : messages;
+
+    // Write-back: feed tool_results_pruned so state.messages carries the
+    // pruned content. Status-independent reducer handler — safe while
+    // calling_model. After this feed, state.messages is the canonical
+    // pruned surface.
+    if (pruned.length > 0) {
+      forwardEmit(feed({ type: "tool_results_pruned", entries: pruned }));
+    }
+    // Post-feed surface: state.messages (pruned if a write-back happened,
+    // otherwise the original reference).
+    const surface = pruned.length > 0 ? state.messages : messages;
 
     // Re-decide on the pruned surface: if the pressure is gone, return it
     // without paying for a summarization call.
@@ -565,7 +591,8 @@ export function createRunner(opts: RunnerOptions): Runner {
       for await (const event of summaryEvents) {
         if (event.type === "text_delta") summaryText += event.text;
         if (event.type === "error") {
-          // Compaction failed — proceed with the pruned surface
+          // Compaction failed — proceed with the pruned surface (prune
+          // write-back already happened above, so its progress is kept).
           return surface;
         }
         if (event.type === "done") break;
@@ -573,31 +600,31 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       if (!summaryText) return surface;
 
-      recorder.record("compaction", {
-        replacedCount: redecision.compressibleMessages.length,
-        summaryText,
-      });
+      // Write-back: feed compaction_applied. The reducer replaces the span
+      // named by replacedIds with a summary message and emits the
+      // `compaction` transcript event (recorded via forwardEmit).
+      //
+      // replacedIds comes from the redecision (Plan 1 Task 2). An empty
+      // list must NOT be fed — the reducer would prepend a summary at
+      // index 0 with nothing replaced. That edge case (everything pinned
+      // or recent-kept) falls through to the pruned surface below.
+      const replacedIds = redecision.replacedIds ?? redecision.compressibleMessages.map((m) => m.id);
+      if (replacedIds.length > 0) {
+        // summaryId from the Id port (StepContext.id). The hardcoded
+        // "compaction-summary" constant is gone — I2 requires the Id port
+        // so replayed sessions get deterministic, unique summary ids.
+        const summaryId = stepContext.id?.next() ?? `summary-${stepCounter}`;
+        forwardEmit(feed({
+          type: "compaction_applied",
+          summaryId,
+          summaryText,
+          replacedIds,
+        }));
+        // Assemble from post-feed state so the request and state agree.
+        return state.messages;
+      }
 
-      // Re-order: [...system, summary, ...non-system preserved (recent)].
-      // The summary represents *earlier* dropped messages, so it must sit
-      // before the recent kept messages — appending it would make the model
-      // read it as the newest user input. Role is `system` so it does not
-      // masquerade as a fresh user turn (providers tolerant of mid-history
-      // system messages handle this cleanly; the prefix keeps it self-
-      // labelling even when downgraded).
-      const systemMessages = redecision.preservedMessages.filter(
-        (m) => m.role === "system",
-      );
-      const nonSystemPreserved = redecision.preservedMessages.filter(
-        (m) => m.role !== "system",
-      );
-      const summaryMsg: Message = {
-        id: "compaction-summary",
-        role: "system",
-        content: `[Earlier conversation summary]\n${summaryText}`,
-      };
-
-      return [...systemMessages, summaryMsg, ...nonSystemPreserved];
+      return surface;
     } catch {
       // Compaction failed — proceed with the pruned surface
       return surface;
