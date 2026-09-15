@@ -207,28 +207,31 @@ export function ChatPanel() {
 
   // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
   // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
-  // 开文件树。
+  // 开文件树。会话界面用会话绑定项目；欢迎界面用已选的 pending 项目，选
+  // 中后即可查看文件 / Git 图谱。
   const paneTabs = usePaneStore((s) => s.tabs);
   const paneOpen = usePaneStore((s) => s.open);
   const paneHidden = usePaneStore((s) => s.hidden);
-  const hasCurrentProject = currentProject !== undefined;
+  const paneProjectId =
+    currentProject?.id ?? (currentSessionId === null ? pendingProjectId : null);
+  const hasPaneProject = paneProjectId !== null;
   const paneVisible =
-    paneOpen && !paneHidden && (paneTabs.length > 0 || hasCurrentProject);
+    paneOpen && !paneHidden && (paneTabs.length > 0 || hasPaneProject);
   const paneToggle = useMemo(
     () => ({
       visible: paneVisible,
-      disabled: !paneVisible && !paneOpen && !hasCurrentProject,
+      disabled: !paneVisible && !paneOpen && !hasPaneProject,
       onToggle: () => {
         if (paneVisible) {
           usePaneStore.getState().setHidden(true);
         } else if (paneOpen) {
           usePaneStore.getState().setHidden(false);
-        } else if (currentProject) {
+        } else if (paneProjectId !== null) {
           usePaneStore.getState().openPane();
         }
       },
     }),
-    [paneVisible, paneOpen, hasCurrentProject, currentProject],
+    [paneVisible, paneOpen, hasPaneProject, paneProjectId],
   );
 
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
@@ -322,121 +325,121 @@ export function ChatPanel() {
   if (entries.length === 0) {
     return (
       <div className="flex h-full flex-col">
-        {/* 欢迎分支不渲染 RightPane，开着的标签无处展示——切换按钮一律
-            禁用，避免可点但无效果的死按钮。 */}
-        <ChatHeader
-          title={headerTitle}
-          paneToggle={{ ...paneToggle, disabled: true }}
-        />
-        <div className="bg-grain flex flex-1 flex-col items-center justify-center px-4">
-          <div className="mb-8 max-w-2xl text-center">
-            <div className="mb-5 flex items-center justify-center gap-3">
-              <svg
-                viewBox="0 0 24 24"
-                className="text-primary h-9 w-9"
-                aria-hidden="true"
-              >
-                <path
-                  d="M4 5 L11 19 L13 19 L20 5 L17.2 5 L12 15.5 L6.8 5 Z"
-                  fill="currentColor"
-                />
-              </svg>
-              <h2 className="font-display text-4xl font-semibold tracking-tight">
-                探索未至之境
-              </h2>
-            </div>
-            <p className="text-muted-foreground">
-              我是 Volto，你的 AI 助手。有什么我可以帮助你的吗？
-            </p>
-          </div>
-
-          <div className="w-full max-w-2xl">
-            {projects.length === 0 ? (
-              <div className="flex flex-col items-center gap-3">
-                <p className="text-muted-foreground text-sm">
-                  还没有工作区，添加一个开始吧
-                </p>
-                <Button
-                  onClick={() =>
-                    void addProjectViaPicker().then(
-                      (p) => p && setPendingProjectId(p.id),
-                    )
-                  }
-                  disabled={addingProject}
-                  className="gap-2"
+        {/* 欢迎页：选中工作区后 Header 面板按钮可用，右侧展示文件 / Git
+            图谱总览；未选项目时禁用。 */}
+        <ChatHeader title={headerTitle} paneToggle={paneToggle} />
+        <div className="flex min-h-0 flex-1 flex-row">
+          <div className="bg-grain flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-4">
+            <div className="mb-8 max-w-2xl text-center">
+              <div className="mb-5 flex items-center justify-center gap-3">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="text-primary h-9 w-9"
+                  aria-hidden="true"
                 >
-                  {addingProject ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <FolderPlus className="h-4 w-4" />
-                  )}
-                  {addingProject ? '正在等待系统对话框…' : '添加工作区'}
-                </Button>
-              </div>
-            ) : !hasModel ? (
-              <p className="text-muted-foreground text-center text-sm">
-                请先在「设置」中添加供应商与模型
-              </p>
-            ) : (
-              <>
-                <div className="mb-2 flex items-center gap-2 px-6">
-                  <ProjectPicker
-                    value={pendingProjectId}
-                    onChange={setPendingProjectId}
+                  <path
+                    d="M4 5 L11 19 L13 19 L20 5 L17.2 5 L12 15.5 L6.8 5 Z"
+                    fill="currentColor"
                   />
-                  {/* Workspace real HEAD, not session metadata — only shown
-                      once a project is actually selected. */}
-                  {pendingProjectId !== null && (
-                    <GitBranchPicker projectId={pendingProjectId} />
-                  )}
+                </svg>
+                <h2 className="font-display text-4xl font-semibold tracking-tight">
+                  探索未至之境
+                </h2>
+              </div>
+              <p className="text-muted-foreground">
+                我是 Volto，你的 AI 助手。有什么我可以帮助你的吗？
+              </p>
+            </div>
+
+            <div className="w-full max-w-2xl">
+              {projects.length === 0 ? (
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-muted-foreground text-sm">
+                    还没有工作区，添加一个开始吧
+                  </p>
+                  <Button
+                    onClick={() =>
+                      void addProjectViaPicker().then(
+                        (p) => p && setPendingProjectId(p.id),
+                      )
+                    }
+                    disabled={addingProject}
+                    className="gap-2"
+                  >
+                    {addingProject ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-4 w-4" />
+                    )}
+                    {addingProject ? '正在等待系统对话框…' : '添加工作区'}
+                  </Button>
                 </div>
-                <InputBar
-                  onSubmit={startSession}
-                  projectId={pendingProjectId}
-                  onInputAction={handleInputAction}
-                  disabled={
-                    isGenerating ||
-                    !pendingProjectId ||
-                    pendingApprovals.length > 0
-                  }
-                  placeholder={
-                    pendingApprovals.length > 0
-                      ? '等待你的审批'
-                      : pendingProjectId
-                        ? '描述你想要构建的内容…'
-                        : '请先选择工作区'
-                  }
-                  toolbar={
-                    <PermissionPicker
-                      value={pendingPermissionMode}
-                      onChange={setPendingPermissionMode}
+              ) : !hasModel ? (
+                <p className="text-muted-foreground text-center text-sm">
+                  请先在「设置」中添加供应商与模型
+                </p>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center gap-2 px-6">
+                    <ProjectPicker
+                      value={pendingProjectId}
+                      onChange={setPendingProjectId}
                     />
-                  }
-                  trailing={
-                    <ModelSettingsPicker
-                      providerId={effectiveProviderId}
-                      modelId={effectiveModelId}
-                      onModelChange={(providerId, modelId) => {
-                        setPendingProviderId(providerId);
-                        setPendingModelId(modelId);
-                        setPendingReasoningEffort(undefined);
-                      }}
-                      efforts={pendingReasoning?.efforts ?? []}
-                      effort={effectiveReasoningEffort}
-                      onEffortChange={(effort) => {
-                        rememberEffort(
-                          effectiveProviderId,
-                          effectiveModelId,
-                          effort,
-                        );
-                        setPendingReasoningEffort(effort);
-                      }}
-                    />
-                  }
-                />
-              </>
-            )}
+                    {/* Workspace real HEAD, not session metadata — only shown
+                        once a project is actually selected. */}
+                    {pendingProjectId !== null && (
+                      <GitBranchPicker projectId={pendingProjectId} />
+                    )}
+                  </div>
+                  <InputBar
+                    onSubmit={startSession}
+                    projectId={pendingProjectId}
+                    onInputAction={handleInputAction}
+                    disabled={
+                      isGenerating ||
+                      !pendingProjectId ||
+                      pendingApprovals.length > 0
+                    }
+                    placeholder={
+                      pendingApprovals.length > 0
+                        ? '等待你的审批'
+                        : pendingProjectId
+                          ? '描述你想要构建的内容…'
+                          : '请先选择工作区'
+                    }
+                    toolbar={
+                      <PermissionPicker
+                        value={pendingPermissionMode}
+                        onChange={setPendingPermissionMode}
+                      />
+                    }
+                    trailing={
+                      <ModelSettingsPicker
+                        providerId={effectiveProviderId}
+                        modelId={effectiveModelId}
+                        onModelChange={(providerId, modelId) => {
+                          setPendingProviderId(providerId);
+                          setPendingModelId(modelId);
+                          setPendingReasoningEffort(undefined);
+                        }}
+                        efforts={pendingReasoning?.efforts ?? []}
+                        effort={effectiveReasoningEffort}
+                        onEffortChange={(effort) => {
+                          rememberEffort(
+                            effectiveProviderId,
+                            effectiveModelId,
+                            effort,
+                          );
+                          setPendingReasoningEffort(effort);
+                        }}
+                      />
+                    }
+                  />
+                </>
+              )}
+            </div>
           </div>
+          <RightPane projectId={pendingProjectId} />
         </div>
       </div>
     );

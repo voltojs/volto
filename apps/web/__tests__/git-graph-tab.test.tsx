@@ -127,6 +127,30 @@ describe('GitGraphTab', () => {
     expect(commitMock).toHaveBeenCalledTimes(1);
   });
 
+  it('clips horizontal overflow so long refs do not open a hollow scrollbar', async () => {
+    graphMock.mockResolvedValue({
+      nodes: [
+        {
+          hash: 'c',
+          parents: [],
+          subject: 'feat: a very long subject that should ellipsize in a narrow pane',
+          author: 'Ada',
+          authoredAt: '2026-01-03T00:00:00Z',
+          refs: ['origin/feat/very-long-remote-branch-name', 'origin/HEAD', 'dev'],
+        },
+      ],
+      truncated: false,
+    });
+    const { container } = render(<GitGraphTab tab={tab} />);
+    expect(
+      await screen.findByRole('button', { name: /a very long subject/ }),
+    ).toBeDefined();
+    // Refs stay visible on the wrapping metadata line.
+    expect(screen.getByText('origin/feat/very-long-remote-branch-name')).toBeDefined();
+    const list = container.querySelector('ul');
+    expect(list?.className).toContain('overflow-x-hidden');
+  });
+
   it('keeps loaded nodes when the detail fetch fails', async () => {
     commitMock.mockRejectedValue(new Error('detail down'));
     render(<GitGraphTab tab={tab} />);

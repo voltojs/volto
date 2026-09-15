@@ -138,7 +138,9 @@ function GitGraphView({ projectId }: { projectId: string }) {
         <p className="text-muted-foreground p-4 text-sm">无提交</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <ul className="min-h-0 flex-1 overflow-y-auto p-1 md:w-1/2">
+          {/* overflow-x-hidden: long ref badges must not create a horizontal
+              scrollbar that scrolls into empty space beside the list. */}
+          <ul className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-1 md:w-1/2">
             {payload.nodes.map((node) => (
               <GraphNodeRow
                 key={node.hash}
@@ -179,30 +181,37 @@ function GraphNodeRow({
         type="button"
         onClick={() => onSelect(node.hash)}
         aria-pressed={selected}
-        className={`hover:bg-muted flex w-full items-start gap-1.5 rounded px-2 py-1 text-left ${
+        className={`hover:bg-muted flex w-full min-w-0 items-start gap-1.5 overflow-hidden rounded px-2 py-1 text-left ${
           selected ? 'bg-muted' : ''
         }`}
       >
         <span aria-hidden className="mt-0.5 shrink-0 font-mono text-xs">
           {marker}
         </span>
-        <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
               {node.hash.slice(0, 7)}
             </span>
-            <span className="truncate text-sm">{node.subject}</span>
+            {/* min-w-0 so truncate can shrink against long subjects/refs. */}
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {node.subject}
+            </span>
+          </span>
+          {/* Refs wrap onto their own line: a long origin/* badge must not
+              widen the row past the pane (that produced a hollow h-scrollbar). */}
+          <span className="flex min-w-0 flex-wrap items-center gap-1">
             {node.refs.map((ref) => (
               <span
                 key={ref}
-                className="bg-muted text-muted-foreground shrink-0 rounded px-1 py-0.5 text-[10px]"
+                className="bg-muted text-muted-foreground max-w-full shrink-0 truncate rounded px-1 py-0.5 text-[10px]"
               >
                 {ref}
               </span>
             ))}
-          </span>
-          <span className="text-muted-foreground truncate text-[11px]">
-            {node.author} · {node.authoredAt}
+            <span className="text-muted-foreground min-w-0 truncate text-[11px]">
+              {node.author} · {node.authoredAt}
+            </span>
           </span>
         </span>
       </button>
