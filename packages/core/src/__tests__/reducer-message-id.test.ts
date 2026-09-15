@@ -155,7 +155,7 @@ describe("message ids", () => {
     const idsBefore = state1.messages.map((m) => m.id);
     // Feed another turn against a fresh id port — prior messages keep their ids.
     const nextCtx: StepContext = { tools: [], model: "m", id: seqId() };
-    let state2 = step(
+    const state2 = step(
       { ...state1, status: "idle" },
       { type: "user_message", content: "again" },
       nextCtx,
