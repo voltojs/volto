@@ -24,7 +24,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate } from "@volto/core";
+import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
@@ -146,6 +146,12 @@ export interface WiringOptions {
    * themselves at construction.
    */
   configDirRealPath?: string;
+  /**
+   * Compaction config — Plan 1 opt-in. Absent means no compaction; the host
+   * never invents a default `maxTokens` for unconfigured sessions. Tokenizer
+   * is injected by createAgent (character-count default).
+   */
+  compaction?: Omit<CompactionConfig, "tokenizer">;
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -364,5 +370,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
+    // Plan 1: opt-in. Absent means no compaction — never invent a default.
+    ...(opts.compaction !== undefined ? { compaction: opts.compaction } : {}),
   });
 }

@@ -78,7 +78,7 @@ function makeFlakyFactory() {
 /** A registry with a stub connection attached so runTurn is allowed to run. */
 function makeRegistry(
   factory: ReturnType<typeof makeFactory>["factory"],
-  overrides: { projectStore?: unknown } = {},
+  overrides: { projectStore?: unknown; extraWiring?: Record<string, unknown> } = {},
 ) {
   const written: string[] = [];
   const registry = createSessionRegistry({
@@ -90,7 +90,8 @@ function makeRegistry(
       // no risk of a false-negative substring match.
       resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-super-secret-token", code: "m" }),
     } as never,
-  });
+    ...(overrides.extraWiring ?? {}),
+  } as never);
   registry.attach("s1", {
     write: (chunk: string) => written.push(chunk),
     on: () => {},
@@ -151,6 +152,29 @@ describe("session agent lifecycle", () => {
     });
 
     expect(builds[0]!["cwd"]).toBe("/tmp");
+  });
+
+  it("compaction is absent when the host does not configure it (Plan 1 opt-in)", async () => {
+    const { builds, factory } = makeFactory();
+    const { registry } = makeRegistry(factory);
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
+    });
+
+    expect(builds[0]!["compaction"]).toBeUndefined();
+  });
+
+  it("compaction passes through when explicitly configured", async () => {
+    const { builds, factory } = makeFactory();
+    const compaction = { maxTokens: 4000, toolResultMaxChars: 6000, summaryMaxTokens: 2048 };
+    const { registry } = makeRegistry(factory, { extraWiring: { compaction } });
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
+    });
+
+    expect(builds[0]!["compaction"]).toEqual(compaction);
   });
 
   it("rebuilds when the project path changes", async () => {

@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig } from "@volto/core";
 import { projectMessages, isPermissionReminder } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -221,6 +221,18 @@ function tokensMatch(a: string, b: string): boolean {
     return false;
   }
   return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Plan 1 opt-in: compaction is off unless the host explicitly configures it.
+ * Returns the configured value unchanged; `undefined` when absent.
+ * Never invents a default `maxTokens` — an unconfigured session must not
+ * silently start compacting.
+ */
+function resolveHostCompaction(
+  configured: Omit<CompactionConfig, "tokenizer"> | undefined,
+): Omit<CompactionConfig, "tokenizer"> | undefined {
+  return configured;
 }
 
 /** Outcome of `decideApproval` — see its doc comment for the full contract. */
@@ -682,8 +694,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // buildSandboxConfigs, which stays synchronous.
     const configDirRealPath = await getConfigDirRealPath();
     const seeded = seedHistory(session.history);
+    // Plan 1: opt-in. Absent config means no compaction.
+    const compaction = resolveHostCompaction(wiring.compaction);
     session.agent = buildAgent({
       ...wiring,
+      // Explicit override of the spread so the opt-in decision is visible here.
+      ...(compaction !== undefined ? { compaction } : {}),
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
       configDirRealPath,
       ...(credentials
