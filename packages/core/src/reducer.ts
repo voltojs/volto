@@ -4,7 +4,7 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem } from "./state.js";
 import type { ApprovalDenialReason, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
@@ -353,7 +353,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       _announcedPermissionConfig: announcedConfig,
     };
     const effects: Effect[] = [
-      buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
+      buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ...emittedReminders,
       {
         type: "emit",
@@ -565,7 +565,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: { ...baseState, status: "calling_model" },
         effects: [
           emitEffect,
-          buildCallModelEffect(baseState.messages, baseState.pinnedMessageIds, ctx),
+          buildCallModelEffect(baseState.messages, baseState.pinnedMessageIds, ctx, baseState.todos),
         ],
       };
     }
@@ -604,7 +604,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: retryState,
         effects: [
           { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
-          buildCallModelEffect(retryState.messages, retryState.pinnedMessageIds, ctx),
+          buildCallModelEffect(retryState.messages, retryState.pinnedMessageIds, ctx, retryState.todos),
         ],
       };
     }
@@ -766,7 +766,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       effects: [
         resultEmit,
         ...todoEmit,
-        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
+        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ],
     };
   }
@@ -941,7 +941,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         status: "calling_model",
       },
       effects: [
-        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx),
+        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx, state.todos),
       ],
     };
   }
@@ -1069,18 +1069,21 @@ function extractToolCalls(msg: AssistantMessage): PendingToolCall[] {
  *
  * Centralized so every site that issues a model call gets identical
  * static-prefix treatment (system / pinned messages first, breakpoints at
- * boundaries). Pure — no I/O, no random.
+ * boundaries) and re-injects the standing todo list from AgentState.
+ * Pure — no I/O, no random.
  */
 function buildCallModelEffect(
   messages: Message[],
   pinnedMessageIds: string[] | undefined,
   ctx: StepContext,
+  todos?: readonly TodoItem[],
 ): Effect {
   const assembled = assembleContext({
     messages,
     tools: ctx.tools,
     pinnedMessageIds,
     contextLayers: ctx.contextLayers,
+    todos,
   });
   return {
     type: "call_model",

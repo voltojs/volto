@@ -7,10 +7,14 @@
  * Pure function — zero I/O, zero side effects.
  */
 
-import type { Message } from "./state.js";
+import type { Message, TodoItem } from "./state.js";
 import type { ToolDefinition } from "./tool.js";
 import type { Tokenizer } from "./ports.js";
 import { extractMessageText } from "./text-extract.js";
+import { formatTodoListForModel } from "./todo-format.js";
+
+/** Synthetic layer id for the standing-todo injection layer. */
+export const TODO_LIST_LAYER_ID = "todo-list";
 
 // ──────────────────────────────────────────────
 // Types
@@ -39,6 +43,12 @@ export interface AssembleContextOptions {
   pinnedMessageIds?: string[];
   /** Optional context layers to inject as system messages after existing system messages */
   contextLayers?: ContextLayer[];
+  /**
+   * Standing todos from AgentState. When non-empty, a synthetic system layer
+   * `todo-list` is appended after contextLayers (before pinned). Not durable
+   * in state.messages — rebuilt every assemble so compaction cannot drop it.
+   */
+  todos?: readonly TodoItem[];
 }
 
 export interface AssembledContext {
@@ -101,10 +111,13 @@ export function assembleContext(opts: AssembleContextOptions): AssembledContext 
     }
   }
 
-  const layers = opts.contextLayers ?? [];
+  const layers: ContextLayer[] = [...(opts.contextLayers ?? [])];
+  if (opts.todos && opts.todos.length > 0) {
+    layers.push({ id: TODO_LIST_LAYER_ID, text: formatTodoListForModel(opts.todos) });
+  }
   const layerMessages: Message[] = layers.map((layer) => ({
     id: `layer-${layer.id}`,
-    role: "system",
+    role: "system" as const,
     content: layer.text,
   }));
 
