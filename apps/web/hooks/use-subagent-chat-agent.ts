@@ -41,8 +41,9 @@ const CONNECT_TIMEOUT_MS = 10_000;
  * Generating state is per-child (`subagents[id].isGenerating`) and never
  * touches the global `isGenerating`, which only tracks the main chat turn.
  * It is set on send and released on the child's `turn_end`, on a pre-stream
- * `error` frame, and on a failed `postMessage` — `markSubagentFinished` does
- * not clear it.
+ * `error` frame, on a failed `postMessage`, and on teardown of this hook's
+ * connection while a turn was still generating — `markSubagentFinished`
+ * does not clear it.
  */
 export function useSubagentChatAgent(options: {
   childSessionId: string | null;
@@ -69,11 +70,22 @@ export function useSubagentChatAgent(options: {
 
   // Tear down the channel when the tracked child changes (or on unmount) —
   // one hook instance follows one child, and a stale channel would keep
-  // routing frames for the previous one.
+  // routing frames for the previous one. `client.destroy()` only disconnects
+  // and never emits a terminal frame, so without an explicit release the
+  // child's `isGenerating` would stay true forever (server turn_end is never
+  // received on a dead channel) and remount would refuse every send. Same
+  // tradeoff as useChatAgent's cancelStreaming: accept the brief window where
+  // the server turn is still finishing after the flag is cleared.
   useEffect(() => {
     return () => {
-      connectionRef.current?.client.destroy();
+      const connection = connectionRef.current;
       connectionRef.current = null;
+      connection?.client.destroy();
+      if (connection === null) return;
+      const chat = useChatStore.getState();
+      if (chat.subagents[connection.sessionId]?.isGenerating === true) {
+        chat.setSubagentGenerating(connection.sessionId, false);
+      }
     };
   }, [childSessionId]);
 

@@ -322,6 +322,47 @@ describe('useSubagentChatAgent', () => {
     expect(firstClient?.destroy).toHaveBeenCalled();
   });
 
+  it('releases generating on unmount — destroy() never emits turn_end', async () => {
+    const { result, unmount } = renderHook(() =>
+      useSubagentChatAgent({ childSessionId: 'c1', config }),
+    );
+    await act(async () => {
+      await result.current.sendMessage('hi');
+    });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(true);
+
+    unmount();
+    expect(agentConfig.state.lastClient?.destroy).toHaveBeenCalled();
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(false);
+    // Global generating tracks only the main chat turn.
+    expect(useChatStore.getState().isGenerating).toBe(false);
+  });
+
+  it('releases the previous child on childSessionId change mid-turn', async () => {
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) =>
+        useSubagentChatAgent({ childSessionId: id, config }),
+      { initialProps: { id: 'c1' } },
+    );
+    await act(async () => {
+      await result.current.sendMessage('hi');
+    });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(true);
+
+    rerender({ id: 'c2' });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(false);
+  });
+
+  it('is a no-op on unmount when nothing was generating', async () => {
+    const { unmount } = renderHook(() =>
+      useSubagentChatAgent({ childSessionId: 'c1', config }),
+    );
+    unmount();
+    // No connection was ever opened, and no bucket is invented for c1.
+    expect(agentConfig.state.lastClient).toBeNull();
+    expect(useChatStore.getState().subagents.c1).toBeUndefined();
+  });
+
   it('falls back to a generic message when the error frame has none', async () => {
     const { result } = renderHook(() =>
       useSubagentChatAgent({ childSessionId: 'c1', config }),
