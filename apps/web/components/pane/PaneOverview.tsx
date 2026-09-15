@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
-import { FolderTree, GitBranch } from 'lucide-react';
+import { FolderTree, GitBranch, ListTodo } from 'lucide-react';
 import { fetchGitSummary, type GitSummary } from '@/lib/git-api';
-import { usePaneStore } from '@/stores/pane-store';
+import { openTasksTab, usePaneStore } from '@/stores/pane-store';
 
 /**
  * Open a project-scoped category tab. Ids follow `kind:projectId` so re-open
@@ -79,6 +79,14 @@ function PaneCategoryItemsInner({
         label="文件"
         onClick={() => {
           openPaneCategory(projectId, 'files');
+          onSelected?.();
+        }}
+      />
+      <CategoryButton
+        icon={ListTodo}
+        label="任务"
+        onClick={() => {
+          openTasksTab();
           onSelected?.();
         }}
       />

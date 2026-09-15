@@ -180,6 +180,25 @@ describe('hidden', () => {
   });
 });
 
+describe('tasks tab', () => {
+  it('dedupes by id tasks and activates on re-open', () => {
+    usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+    usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+    expect(usePaneStore.getState().tabs).toHaveLength(1);
+    expect(usePaneStore.getState().activeTabId).toBe('tasks');
+  });
+
+  it('is kept by retargetProjectTabs', () => {
+    usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().retargetProjectTabs('p2');
+    expect(usePaneStore.getState().tabs).toEqual([
+      { kind: 'tasks', id: 'tasks' },
+      { kind: 'files', id: 'files:p2', projectId: 'p2' },
+    ]);
+  });
+});
+
 describe('width', () => {
   it('clamps setWidth into [320, 720] and persists', () => {
     usePaneStore.getState().setWidth(50);

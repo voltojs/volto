@@ -8,6 +8,7 @@ import {
   FileText,
   FolderTree,
   GitGraph,
+  ListTodo,
   Plus,
   X,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { BackgroundTasksTab } from './BackgroundTasksTab';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
 import { GitGraphTab } from './GitGraphTab';
@@ -39,6 +41,7 @@ const PANE_TAB_RENDERERS: {
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
   'git-graph': GitGraphTab,
+  tasks: BackgroundTasksTab,
 };
 
 const IMAGE_EXTS = new Set([
@@ -61,6 +64,8 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
       return FolderTree;
     case 'git-graph':
       return GitGraph;
+    case 'tasks':
+      return ListTodo;
     case 'file-preview':
       return IMAGE_EXTS.has(
         tab.path.slice(tab.path.lastIndexOf('.')).toLowerCase(),
@@ -78,6 +83,8 @@ function tabTitle(tab: PaneTab): string {
       return '文件';
     case 'git-graph':
       return 'Git 图谱';
+    case 'tasks':
+      return '任务';
     case 'file-preview':
       return tab.path.split('/').at(-1) ?? tab.path;
   }

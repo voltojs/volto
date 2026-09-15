@@ -13,7 +13,8 @@ export type PaneTab =
   | { kind: 'subagent'; id: string; childSessionId: string; view: 'chat' | 'trajectory' }
   | { kind: 'files'; id: string; projectId: string }
   | { kind: 'file-preview'; id: string; projectId: string; path: string }
-  | { kind: 'git-graph'; id: string; projectId: string };
+  | { kind: 'git-graph'; id: string; projectId: string }
+  | { kind: 'tasks'; id: string };
 
 export const PANE_WIDTH_MIN = 320;
 export const PANE_WIDTH_MAX = 720;
@@ -51,8 +52,8 @@ interface PaneState {
   /**
    * Point project-scoped tabs at a new workspace. `files` / `git-graph` keep
    * their kind and become `${kind}:${projectId}`; `file-preview` paths are
-   * project-relative so those tabs close. Subagent tabs are session-scoped
-   * and stay. Idempotent when the project is unchanged.
+   * project-relative so those tabs close. Subagent and tasks tabs are
+   * session-scoped and stay. Idempotent when the project is unchanged.
    */
   retargetProjectTabs: (projectId: string) => void;
   setActive: (id: string) => void;
@@ -110,7 +111,7 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
         const seen = new Set<string>();
         const tabs: PaneTab[] = [];
         for (const tab of state.tabs) {
-          if (tab.kind === 'subagent') {
+          if (tab.kind === 'subagent' || tab.kind === 'tasks') {
             if (!seen.has(tab.id)) {
               seen.add(tab.id);
               tabs.push(tab);
@@ -154,3 +155,11 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     setHidden: (hidden) => set({ hidden }),
   }),
 );
+
+/**
+ * Open the singleton background-tasks tab. Session-scoped (not project-scoped):
+ * the id is always `tasks`, so re-open dedupes and activates the same tab.
+ */
+export function openTasksTab(): void {
+  usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+}
