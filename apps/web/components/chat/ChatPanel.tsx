@@ -19,6 +19,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { RightPane } from '@/components/pane/RightPane';
 import { useConversation } from '@/hooks/use-conversation';
+import { useAutoOpenTasksTab } from '@/hooks/use-auto-open-tasks-tab';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
@@ -38,6 +39,8 @@ export function ChatPanel() {
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
     useChatAgent();
   const { entries, usage, messages } = useConversation();
+  // Rules of Hooks: must run before any early return below.
+  useAutoOpenTasksTab();
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
