@@ -166,10 +166,24 @@ export function ChatPanel() {
   }, []);
 
   // /clear 动作命令：与侧栏「新会话」完全同一行为（回欢迎屏 + 清聊天缓冲）。
+  // /compact：与 Header「压缩上下文」按钮同一路径（toast 反馈，不改对话流）。
   const handleInputAction = useCallback((action: InputAction) => {
-    if (action !== 'clear-session') return;
-    useSessionStore.getState().setCurrentSession(null);
-    useChatStore.getState().clear();
+    if (action === 'clear-session') {
+      useSessionStore.getState().setCurrentSession(null);
+      useChatStore.getState().clear();
+      return;
+    }
+    if (action === 'compact-session') {
+      const sessionId = useSessionStore.getState().currentSessionId;
+      if (!sessionId) return;
+      void runSessionCompact({
+        sessionId,
+        notify: {
+          success: (message) => toast.success(message),
+          error: (message) => toast.error(message),
+        },
+      });
+    }
   }, []);
 
   // Header 标题与右侧面板切换：依赖 currentSession/currentProject（下方

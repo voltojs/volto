@@ -81,6 +81,15 @@ describe('InputBar（tiptap 底座）', () => {
     expect(editor.isEmpty).toBe(true);
   });
 
+  it('/compact 拦截：onInputAction 被调、onSubmit 不被调、编辑器清空', () => {
+    const { editor, onSubmit, onInputAction, sendButton } = setup();
+    act(() => void editor.commands.insertContent('/compact'));
+    fireEvent.click(sendButton());
+    expect(onInputAction).toHaveBeenCalledWith('compact-session');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(editor.isEmpty).toBe(true);
+  });
+
   it('/clear now 不拦截（交服务端 Unknown command 兜底）', () => {
     const { editor, onSubmit, onInputAction, sendButton } = setup();
     act(() => void editor.commands.insertContent('/clear now'));
