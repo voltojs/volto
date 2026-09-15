@@ -137,6 +137,15 @@ const chatTab = {
   id: 'subagent:c1',
   childSessionId: 'c1',
   view: 'chat',
+  parentSessionId: 's1',
+} as const;
+
+/** Legacy tab shape opened before parentSessionId existed. */
+const legacyChatTab = {
+  kind: 'subagent',
+  id: 'subagent:c1',
+  childSessionId: 'c1',
+  view: 'chat',
 } as const;
 
 function seedParent(overrides: Partial<Session> = {}) {
@@ -192,7 +201,76 @@ describe('SubagentTab input', () => {
     render(<SubagentTab tab={chatTab} />);
     const editor = screen.getByTestId('subagent-input-editor') as HTMLTextAreaElement;
     expect(editor.disabled).toBe(true);
-    expect(editor.placeholder).toMatch(/父会话缺少项目或模型绑定/);
+    expect(editor.placeholder).toMatch(/父会话.*缺少项目或模型绑定/);
+  });
+
+  it('binds config to tab.parentSessionId, not the current session', () => {
+    // Current session is a different workspace; the tab must keep using the
+    // parent that opened it.
+    seedParent();
+    useSessionStore.setState({
+      currentSessionId: 's2',
+      sessions: [
+        { ...PARENT_SESSION },
+        {
+          ...PARENT_SESSION,
+          id: 's2',
+          projectId: 'p2',
+          providerId: 'v2',
+          modelId: 'm9',
+          permissionMode: 'auto',
+          reasoningEffort: 'low',
+        },
+      ],
+    });
+    render(<SubagentTab tab={chatTab} />);
+    expect(useSubagentChatAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          projectId: 'p1',
+          providerId: 'v1',
+          modelId: 'm1',
+          permissionMode: 'ask',
+          reasoningEffort: 'high',
+        }),
+      }),
+    );
+    const editor = screen.getByTestId('subagent-input-editor') as HTMLTextAreaElement;
+    expect(editor.disabled).toBe(false);
+  });
+
+  it('disables input when the bound parent session is gone from the store', () => {
+    seedParent();
+    useSessionStore.setState({ currentSessionId: 's2', sessions: [] });
+    render(<SubagentTab tab={chatTab} />);
+    const editor = screen.getByTestId('subagent-input-editor') as HTMLTextAreaElement;
+    expect(editor.disabled).toBe(true);
+    expect(editor.placeholder).toMatch(/父会话不可用/);
+    expect(useSubagentChatAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          projectId: null,
+          providerId: null,
+          modelId: null,
+        }),
+      }),
+    );
+  });
+
+  it('falls back to the current session for legacy tabs without parentSessionId', () => {
+    seedParent();
+    render(<SubagentTab tab={legacyChatTab} />);
+    expect(useSubagentChatAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          projectId: 'p1',
+          providerId: 'v1',
+          modelId: 'm1',
+        }),
+      }),
+    );
+    const editor = screen.getByTestId('subagent-input-editor') as HTMLTextAreaElement;
+    expect(editor.disabled).toBe(false);
   });
 
   it('passes the parent session binding into the subagent agent config', () => {

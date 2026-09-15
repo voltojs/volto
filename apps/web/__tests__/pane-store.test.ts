@@ -8,8 +8,9 @@ import {
   type PaneTab,
 } from '@/stores/pane-store';
 
-const subagentTab = (childId: string): PaneTab => ({
+const subagentTab = (childId: string, parentSessionId?: string): PaneTab => ({
   kind: 'subagent', id: `subagent:${childId}`, childSessionId: childId, view: 'chat' as const,
+  ...(parentSessionId !== undefined ? { parentSessionId } : {}),
 });
 
 beforeEach(() => {
@@ -48,6 +49,25 @@ describe('openTab', () => {
     expect(usePaneStore.getState().tabs).toHaveLength(2);
     expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:a')).toMatchObject({ view: 'trajectory' });
     expect(usePaneStore.getState().activeTabId).toBe('subagent:a');
+  });
+
+  it('keeps parentSessionId when a view-flip payload omits it', () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    // TrajectoryDrawer opens with view only — it must not drop the binding.
+    usePaneStore.getState().openTab({
+      kind: 'subagent', id: 'subagent:a', childSessionId: 'a', view: 'trajectory',
+    });
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:a'))
+      .toMatchObject({ view: 'trajectory', parentSessionId: 's1' });
+  });
+
+  it('lets a view-flip payload replace parentSessionId when it carries one', () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().openTab({
+      kind: 'subagent', id: 'subagent:a', childSessionId: 'a', view: 'trajectory', parentSessionId: 's2',
+    });
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:a'))
+      .toMatchObject({ parentSessionId: 's2' });
   });
 });
 

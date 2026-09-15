@@ -29,8 +29,9 @@ import type { PaneTab } from '@/stores/pane-store';
  * 覆盖载荷，本组件不持视图状态）。对话视图原样平移旧版独立执行分栏的
  * 行为矩阵（加载 → 错误+重试 → 运行中桶 → entries 空判无记录 → 列表）
  * 并 keepMounted 保滚动；轨迹视图是盘上快照（useStoredRows 缓存）。
- * 对话视图底部是继续对话输入框：配置默认继承父会话，模型 / 推理等级 /
- * 权限覆盖只活在本组件 state（标签 remount 即重置）。
+ * 对话视图底部是继续对话输入框：配置继承标签载入时的父会话
+ * （`parentSessionId`），模型 / 推理等级 / 权限覆盖只活在本组件 state
+ * （标签 remount 即重置）。
  * 关闭职责归 RightPane 标签栏，本组件不渲染关闭按钮。
  */
 export function SubagentTab({ tab }: { tab: PaneTab }) {
@@ -38,12 +39,18 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
   // 在渲染处返回 null。tab.kind 对同一挂载实例恒定（换 kind 即换组件类型
   // → remount），钩子顺序稳定。
   const childId = tab.kind === 'subagent' ? tab.childSessionId : undefined;
+  const parentSessionId =
+    tab.kind === 'subagent' ? tab.parentSessionId : undefined;
   const bucket = useChatStore((s) =>
     childId !== undefined ? s.subagents[childId] : undefined,
   );
   const feed = useSubagentConversation(childId ?? null);
+  // Parent config is bound to the session that spawned this tab, not the
+  // session that happens to be current. Legacy tabs without parentSessionId
+  // fall back to currentSessionId; a parent that has left the store yields
+  // undefined and disables the input (see `missing` below).
   const parent = useSessionStore((s) =>
-    s.sessions.find((x) => x.id === s.currentSessionId),
+    s.sessions.find((x) => x.id === (parentSessionId ?? s.currentSessionId)),
   );
 
   // Local-only config overrides for continued turns. Reset when the tab
@@ -139,7 +146,8 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
             )}
           </div>
           {/* Continued-chat input: disabled while the original turn runs, while
-              a continued turn streams, or when the parent binding is missing. */}
+              a continued turn streams, or when the bound parent session is
+              missing from the store / lacks a project-model binding. */}
           <InputBar
             onSubmit={(text) =>
               void agent.sendMessage(text, {
@@ -158,7 +166,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               running
                 ? '子代理执行中，结束后可继续对话'
                 : missing
-                  ? '父会话缺少项目或模型绑定'
+                  ? '父会话不可用或缺少项目或模型绑定'
                   : undefined
             }
             toolbar={

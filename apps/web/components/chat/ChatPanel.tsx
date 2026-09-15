@@ -154,10 +154,14 @@ export function ChatPanel() {
     [events],
   );
 
-  // 子代理卡片点击后经 pane-store 开 RightPane 标签；走
-  // usePaneStore.getState() 的命令式入口并保持回调引用稳定——memo 比较器
-  // 依赖回调身份，内联箭头函数每帧新建会让 memo 失效。
+  // Subagent card click opens a RightPane tab via the pane-store command
+  // entry. The callback identity stays stable — memo comparators depend on
+  // it, and an inline arrow would rebuild every frame. parentSessionId is
+  // stamped from the session that is current *now*, so a later session
+  // switch cannot rebind this tab's continued-chat input to the wrong
+  // workspace.
   const openSubagent = useCallback((childId: string) => {
+    const parentSessionId = useSessionStore.getState().currentSessionId;
     usePaneStore
       .getState()
       .openTab({
@@ -165,6 +169,7 @@ export function ChatPanel() {
         id: `subagent:${childId}`,
         childSessionId: childId,
         view: 'chat',
+        ...(parentSessionId !== null ? { parentSessionId } : {}),
       });
   }, []);
 

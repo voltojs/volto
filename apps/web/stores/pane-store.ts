@@ -10,7 +10,19 @@ import { create } from 'zustand';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
 export type PaneTab =
-  | { kind: 'subagent'; id: string; childSessionId: string; view: 'chat' | 'trajectory' }
+  | {
+      kind: 'subagent';
+      id: string;
+      childSessionId: string;
+      view: 'chat' | 'trajectory';
+      /**
+       * Session that spawned this sub-agent. Continued-chat input binds its
+       * project/model/permission config to this session, not whichever
+       * session is current when the tab is used. Optional for legacy tabs
+       * opened before the field existed — those fall back to currentSessionId.
+       */
+      parentSessionId?: string;
+    }
   | { kind: 'files'; id: string; projectId: string }
   | { kind: 'file-preview'; id: string; projectId: string; path: string }
   | { kind: 'git-graph'; id: string; projectId: string }
@@ -79,15 +91,21 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
             open: true,
           };
         }
-        // 子代理标签的 view 随载荷覆盖：卡片点击开 chat，「查看执行过程」
-        // 开 trajectory——同一标签只换视图不新建。
+        // Subagent tabs overwrite the payload on view flip (card click opens
+        // chat, "view trajectory" opens trajectory) — same tab, new view.
+        // Callers that only carry a view (TrajectoryDrawer) must not wipe the
+        // parent binding stamped when the tab was first opened.
         if (
           existing.kind === 'subagent' &&
           tab.kind === 'subagent' &&
           existing.view !== tab.view
         ) {
+          const merged: PaneTab = {
+            ...tab,
+            parentSessionId: tab.parentSessionId ?? existing.parentSessionId,
+          };
           return {
-            tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
+            tabs: state.tabs.map((t) => (t.id === tab.id ? merged : t)),
             activeTabId: tab.id,
             hidden: false,
             open: true,
