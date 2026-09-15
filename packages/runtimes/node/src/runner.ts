@@ -40,6 +40,7 @@ import {
   evaluatePermission,
   policyDenialMessage,
   decideCompaction,
+  pruneOversizedToolResults,
   classifyError,
   annotateUntrusted,
   decideSelfCorrect,
@@ -515,27 +516,48 @@ export function createRunner(opts: RunnerOptions): Runner {
    * If the message history exceeds the token threshold, issues a summarization
    * call to the model and replaces compressible messages with the summary.
    * Returns the messages to use for the main request.
+   *
+   * Sequence: decide → prune oversized tool results → re-decide → summarize
+   * only if still over budget. A single huge tool dump often accounts for
+   * most of the pressure; pruning alone may be enough, and the pruned
+   * surface is preferred over a lossy summary. On any summarization failure
+   * the pruned (or original) surface is returned — never a partial rewrite.
+   * No write-back into state.messages (Plan 2).
    */
   async function applyCompaction(messages: Message[]): Promise<Message[]> {
     if (!opts.compaction) return messages;
 
-    const decision = decideCompaction(messages, {
+    const decideOpts = {
       tokenizer: opts.compaction.tokenizer,
       maxTokens: opts.compaction.maxTokens,
       recentKeepCount: opts.compaction.recentKeepCount ?? 4,
-    });
+      pinnedMessageIds: state.pinnedMessageIds,
+    };
 
+    const decision = decideCompaction(messages, decideOpts);
     if (!decision.shouldCompact || !decision.summaryPrompt) return messages;
+
+    // Prune oversized tool results. `pruned.length > 0` means at least one
+    // block was rewritten; otherwise keep the original array reference.
+    const { messages: prunedMessages, pruned } = pruneOversizedToolResults(messages, {
+      maxChars: opts.compaction.toolResultMaxChars ?? 8000,
+    });
+    const surface = pruned.length > 0 ? prunedMessages : messages;
+
+    // Re-decide on the pruned surface: if the pressure is gone, return it
+    // without paying for a summarization call.
+    const redecision = decideCompaction(surface, decideOpts);
+    if (!redecision.shouldCompact || !redecision.summaryPrompt) return surface;
 
     // Issue a summarization model call
     try {
       const summaryEvents = opts.modelPort.stream({
         messages: [
-          { id: "compaction-summary-prompt", role: "user", content: decision.summaryPrompt },
+          { id: "compaction-summary-prompt", role: "user", content: redecision.summaryPrompt },
         ],
         tools: [],
         model: stepContext.model,
-        maxTokens: 1024,
+        maxTokens: opts.compaction.summaryMaxTokens ?? 4096,
         abortSignal: opts.abortSignal,
       });
 
@@ -543,16 +565,16 @@ export function createRunner(opts: RunnerOptions): Runner {
       for await (const event of summaryEvents) {
         if (event.type === "text_delta") summaryText += event.text;
         if (event.type === "error") {
-          // Compaction failed — proceed with uncompressed messages
-          return messages;
+          // Compaction failed — proceed with the pruned surface
+          return surface;
         }
         if (event.type === "done") break;
       }
 
-      if (!summaryText) return messages;
+      if (!summaryText) return surface;
 
       recorder.record("compaction", {
-        replacedCount: decision.compressibleMessages.length,
+        replacedCount: redecision.compressibleMessages.length,
         summaryText,
       });
 
@@ -563,10 +585,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       // masquerade as a fresh user turn (providers tolerant of mid-history
       // system messages handle this cleanly; the prefix keeps it self-
       // labelling even when downgraded).
-      const systemMessages = decision.preservedMessages.filter(
+      const systemMessages = redecision.preservedMessages.filter(
         (m) => m.role === "system",
       );
-      const nonSystemPreserved = decision.preservedMessages.filter(
+      const nonSystemPreserved = redecision.preservedMessages.filter(
         (m) => m.role !== "system",
       );
       const summaryMsg: Message = {
@@ -577,8 +599,8 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       return [...systemMessages, summaryMsg, ...nonSystemPreserved];
     } catch {
-      // Compaction failed — proceed with uncompressed messages
-      return messages;
+      // Compaction failed — proceed with the pruned surface
+      return surface;
     }
   }
 

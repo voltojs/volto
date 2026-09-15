@@ -67,6 +67,14 @@ export interface CompactionConfig {
   maxTokens: number;
   /** Number of recent messages to always preserve (default: 4) */
   recentKeepCount?: number;
+  /**
+   * Soft character budget for a single tool_result text block. Oversized
+   * blocks are head/tail pruned before summarization; default 8000 at the
+   * Runner call site.
+   */
+  toolResultMaxChars?: number;
+  /** maxTokens cap for the summarization model call (default: 4096) */
+  summaryMaxTokens?: number;
 }
 
 // ──────────────────────────────────────────────

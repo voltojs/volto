@@ -43,6 +43,7 @@ function makeMessages(n: number, prefix: string): Message[] {
   const out: Message[] = [];
   for (let i = 0; i < n; i++) {
     out.push({
+      id: `${prefix}-${i}`,
       role: i % 2 === 0 ? "user" : "assistant",
       content: i % 2 === 0
         ? `${prefix}-user-${i}`
@@ -50,6 +51,56 @@ function makeMessages(n: number, prefix: string): Message[] {
     } as Message);
   }
   return out;
+}
+
+/** Build a `role: "tool"` message carrying one oversized tool_result block. */
+function makeToolResult(id: string, toolUseId: string, content: string): Message {
+  return {
+    id,
+    role: "tool",
+    content: [{ type: "tool_result", toolUseId, content }],
+  } as Message;
+}
+
+function makeInitial(messages: Message[], overrides: Partial<ReducerState> = {}): ReducerState {
+  return {
+    messages,
+    pendingTools: [],
+    status: "idle",
+    tokenBudget: undefined,
+    tokensUsed: 0,
+    maxIterations: 20,
+    iterationCount: 0,
+    readFiles: [],
+    _accumulatedText: "",
+    _accumulatedReasoning: "",
+    _accumulatedToolCalls: [],
+    _toolResultBuffer: {},
+    queuedUserInputs: [],
+    toolCallCount: 0,
+    maxToolCalls: undefined,
+    maxCostDollars: undefined,
+    maxTokensPerTurn: undefined,
+    maxWallclockMs: undefined,
+    maxLoopCount: undefined,
+    selfCorrectionCount: 0,
+    maxSelfCorrections: undefined,
+    ...overrides,
+  };
+}
+
+function flattenText(messages: Message[]): string {
+  return messages
+    .map((m) =>
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
+              .map((c) => (c.type === "text" ? c.text : c.type === "tool_result" ? c.content : ""))
+              .join("")
+          : "",
+    )
+    .join("|");
 }
 
 describe("Runner — compaction wiring", () => {
@@ -238,5 +289,153 @@ describe("Runner — compaction wiring", () => {
     expect(spy.calls).toHaveLength(1);
     expect(spy.calls[0]!.messages).toHaveLength(1);
     expect(spy.calls[0]!.messages[0]!.role).toBe("user");
+  });
+
+  it("passes pinnedMessageIds into decideCompaction and keeps pinned messages in the main request", async () => {
+    const history = makeMessages(20, "old");
+    const pinnedMsg: Message = { id: "pin-me", role: "user", content: "CRITICAL PINNED" };
+    const systemMsg: Message = { id: "sys", role: "system", content: "sys" };
+    const messages = [systemMsg, pinnedMsg, ...history];
+
+    const spy = createSpyModelPort([
+      textScript("SUM"),
+      textScript("ok"),
+    ]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages, { pinnedMessageIds: ["pin-me"] }),
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 40,
+        recentKeepCount: 2,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    // Summarization call + main call
+    expect(spy.calls).toHaveLength(2);
+    const main = spy.calls[1]!.messages;
+    // The pinned message must survive compaction into the main request.
+    expect(flattenText(main)).toContain("CRITICAL PINNED");
+  });
+
+  it("prunes oversized tool results and skips summarization when pressure is gone", async () => {
+    // A single huge tool_result blows the budget; after head/tail pruning the
+    // history fits, so no summarization call should be issued.
+    const huge = "X".repeat(2000);
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      { id: "u1", role: "user", content: "q" } as Message,
+      makeToolResult("tr1", "call-1", huge),
+    ];
+
+    const spy = createSpyModelPort([textScript("ack")]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 500,
+        recentKeepCount: 4,
+        toolResultMaxChars: 100,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    // Prune alone brought the surface under budget — no summarization call.
+    expect(spy.calls).toHaveLength(1);
+    const main = spy.calls[0]!.messages;
+    expect(flattenText(main)).toContain("omitted");
+    // The original huge run must not ride along verbatim.
+    expect(flattenText(main)).not.toContain(huge);
+  });
+
+  it("prunes oversized tool results, then still summarizes when over threshold", async () => {
+    // Many medium messages + one huge tool_result: pruning shrinks the tool
+    // dump but the remaining history still exceeds the threshold, so a
+    // summarization call must follow. recentKeepCount=3 keeps the tool_result
+    // (plus the two trailing user turns) out of the compressible set, so its
+    // pruned content is visible in the main request.
+    const huge = "Y".repeat(2000);
+    const old = makeMessages(15, "old");
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      ...old,
+      makeToolResult("tr1", "call-1", huge),
+      { id: "u-recent", role: "user", content: "recent-user" } as Message,
+    ];
+
+    const spy = createSpyModelPort([
+      textScript("SUMMARY"),
+      textScript("ack"),
+    ]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 300,
+        recentKeepCount: 3,
+        toolResultMaxChars: 100,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    // Still over threshold after prune → summarization + main.
+    expect(spy.calls).toHaveLength(2);
+    // Summarization call is first, no tools.
+    expect(spy.calls[0]!.tools).toBe(0);
+    const main = spy.calls[1]!.messages;
+    // Pruned tool content (recent-kept) rides in the main request.
+    expect(flattenText(main)).toContain("omitted");
+    expect(flattenText(main)).not.toContain(huge);
+    // Summary is present.
+    expect(flattenText(main)).toContain("[Earlier conversation summary]");
+  });
+
+  it("returns the pruned surface when summarization fails after a prune", async () => {
+    const huge = "Z".repeat(2000);
+    const old = makeMessages(15, "old");
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      ...old,
+      makeToolResult("tr1", "call-1", huge),
+      { id: "u-recent", role: "user", content: "recent-user" } as Message,
+    ];
+
+    // Summarization script yields an error event; main call still runs.
+    const spy = createSpyModelPort([
+      [ { type: "error", error: "summarizer down", retriable: false } as ModelEvent ],
+      textScript("ack"),
+    ]);
+
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 300,
+        recentKeepCount: 2,
+        toolResultMaxChars: 100,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    // Error path → pruned-but-unsummarized surface on the main call.
+    expect(spy.calls).toHaveLength(2);
+    const main = spy.calls[1]!.messages;
+    expect(flattenText(main)).toContain("omitted");
+    expect(flattenText(main)).not.toContain("[Earlier conversation summary]");
   });
 });
