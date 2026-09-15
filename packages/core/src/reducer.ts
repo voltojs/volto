@@ -13,6 +13,7 @@ import type { ContextLayer } from "./context-assembler.js";
 import type { PermissionConfig } from "./permission-policy.js";
 import { userDenialMessage } from "./permission-policy.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
+import { formatTodoListForModel } from "./todo-format.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
 import { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
@@ -661,6 +662,37 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       ? recordFileAccess(state.readFiles, fileAccess)
       : state.readFiles;
 
+    // Apply ToolResult.statePatch (v1: todos only). Pure; replay-safe.
+    // isError results must not mutate standing state. Parallel patches in
+    // one batch resolve last-write-wins (whole-list replace semantics).
+    let todos = state.todos;
+    const todoEmit: Effect[] = [];
+    if (!input.result.isError && input.result.statePatch?.todos !== undefined) {
+      todos = input.result.statePatch.todos;
+      const counts = {
+        pending: todos.filter((t) => t.status === "pending").length,
+        inProgress: todos.filter((t) => t.status === "in_progress").length,
+        completed: todos.filter((t) => t.status === "completed").length,
+      };
+      todoEmit.push(
+        {
+          type: "emit",
+          event: { type: "todoListUpdated", data: { todos, counts } },
+        },
+        {
+          type: "emit",
+          event: {
+            type: "context_reminder",
+            data: {
+              kind: "todo_list",
+              text: formatTodoListForModel(todos),
+              displayMetadata: { counts },
+            },
+          },
+        },
+      );
+    }
+
     // Buffer the result by tool-call id
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: toolResultMsg };
 
@@ -700,8 +732,9 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           ...state,
           _toolResultBuffer: newBuffer,
           readFiles,
+          todos,
         },
-        effects: [resultEmit],
+        effects: [resultEmit, ...todoEmit],
       };
     }
 
@@ -724,6 +757,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       _toolResultBuffer: {},
       queuedUserInputs: [],
       readFiles,
+      todos,
       status: "calling_model",
     };
 
@@ -731,6 +765,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       state: newState,
       effects: [
         resultEmit,
+        ...todoEmit,
         buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
       ],
     };
