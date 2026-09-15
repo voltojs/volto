@@ -140,9 +140,15 @@ describe("reducer todos statePatch", () => {
       ctx,
     );
     expect(r.state.todos).toEqual([]);
-    // Clear is still a successful patch: the reminder must fire so UIs/
-    // assemblers observe the wipe. formatTodoListForModel([]) is "".
+    // Clear is still a successful patch: UI event + reminder must fire so
+    // UIs/assemblers observe the wipe. formatTodoListForModel([]) is "".
     const emits = r.effects.filter((e): e is Extract<Effect, { type: "emit" }> => e.type === "emit");
+    const todoUpdated = emits.filter((e) => e.event.type === "todoListUpdated");
+    expect(todoUpdated).toHaveLength(1);
+    expect(todoUpdated[0]!.event.data).toEqual({
+      todos: [],
+      counts: { pending: 0, inProgress: 0, completed: 0 },
+    });
     const reminders = emits.filter(
       (e) => e.event.type === "context_reminder" && e.event.data["kind"] === "todo_list",
     );
