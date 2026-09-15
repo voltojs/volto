@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig } from "@volto/core";
 import { projectMessages, isPermissionReminder } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -223,6 +223,30 @@ function tokensMatch(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * Plan 2 default-on: when the host does not configure compaction at all,
+ * sessions get these host-chosen defaults rather than "never compact".
+ * Explicit `compaction: false` still disables (see resolveHostCompaction).
+ */
+const DEFAULT_COMPACTION: Omit<CompactionConfig, "tokenizer"> = {
+  maxTokens: 60_000,
+  recentKeepCount: 4,
+  toolResultMaxChars: 8000,
+  summaryMaxTokens: 4096,
+};
+
+/**
+ * Plan 2: absent config → DEFAULT_COMPACTION (compaction ON by default);
+ * explicit `false` disables; an object is used as-is. Never silently
+ * invents values beyond the documented defaults above.
+ */
+function resolveHostCompaction(
+  configured: Omit<CompactionConfig, "tokenizer"> | false | undefined,
+): Omit<CompactionConfig, "tokenizer"> | undefined {
+  if (configured === false) return undefined;
+  return configured ?? DEFAULT_COMPACTION;
+}
+
 /** Outcome of `decideApproval` — see its doc comment for the full contract. */
 export type ApprovalDecisionResult = "ok" | "forbidden" | "unknown";
 
@@ -353,6 +377,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     providerStore,
     agentFactory,
     chatStore,
+    // Destructured out so `wiring` never carries a raw `false` that the
+    // spread below would leak into createAgent.
+    compaction: configuredCompaction,
     ...wiring
   } = opts;
 
@@ -509,6 +536,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
   function hasConnection(sessionId: string): boolean {
     return sessions.get(sessionId)?.connection != null;
+  }
+
+  /**
+   * Whether a session is "known" for lookup-style routes (compact, etc.):
+   * either live in this process's map, or persisted in the chat store from
+   * a prior turn. Distinct from `hasConnection` — a known session need not
+   * have an open SSE channel.
+   */
+  async function hasSession(sessionId: string): Promise<boolean> {
+    if (sessions.has(sessionId)) return true;
+    if (!chatStore) return false;
+    const record = await chatStore.readSession(sessionId).catch(() => undefined);
+    return record != null;
   }
 
   /**
@@ -682,8 +722,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // buildSandboxConfigs, which stays synchronous.
     const configDirRealPath = await getConfigDirRealPath();
     const seeded = seedHistory(session.history);
+    // Plan 2: default-on. Absent config uses DEFAULT_COMPACTION; false disables.
+    const compaction = resolveHostCompaction(configuredCompaction);
     session.agent = buildAgent({
       ...wiring,
+      // Explicit override of the spread so the default-on decision is visible here.
+      ...(compaction !== undefined ? { compaction } : {}),
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
       configDirRealPath,
       ...(credentials
@@ -930,6 +974,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     attach,
     detachById,
     hasConnection,
+    hasSession,
     runTurn,
     interrupt,
     decideApproval,

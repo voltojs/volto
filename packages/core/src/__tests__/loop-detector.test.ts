@@ -46,11 +46,13 @@ function buildLoopMessages(k: number, toolName: string, input: Record<string, un
   for (let i = 0; i < k - 1; i++) {
     // assistant message with tool_use
     messages.push({
+      id: "m1",
       role: "assistant",
       content: [{ type: "tool_use", id: `loop-${i}`, name: toolName, input }],
     });
     // tool_result with error
     messages.push({
+      id: "m2",
       role: "tool",
       content: [{ type: "tool_result", toolUseId: `loop-${i}`, content: "error", isError: true }],
     });
@@ -65,6 +67,7 @@ function buildLoopMessages(k: number, toolName: string, input: Record<string, un
 /** Helper: create a minimal AssistantMessage with given tool calls */
 function makeAssistantMsg(toolCalls: PendingToolCall[]): AssistantMessage {
   return {
+    id: "m3",
     role: "assistant",
     content: toolCalls.map((tc) => ({
       type: "tool_use" as const,
@@ -113,10 +116,12 @@ describe("detectLoop — pure function", () => {
   it("does NOT detect when prior results are not errors", () => {
     const messages: Message[] = [
       {
+        id: "m4",
         role: "assistant",
         content: [{ type: "tool_use", id: "ok-1", name: "bash", input: { command: "echo hi" } }],
       },
       {
+        id: "m5",
         role: "tool",
         content: [{ type: "tool_result", toolUseId: "ok-1", content: "success" }], // NOT error
       },
@@ -137,18 +142,22 @@ describe("detectLoop — pure function", () => {
   it("stops counting when non-matching entry appears in trace", () => {
     const messages: Message[] = [
       {
+        id: "m6",
         role: "assistant",
         content: [{ type: "tool_use", id: "c0", name: "bash", input: { command: "echo hi" } }],
       },
       {
+        id: "m7",
         role: "tool",
         content: [{ type: "tool_result", toolUseId: "c0", content: "err", isError: true }],
       },
       {
+        id: "m8",
         role: "assistant",
         content: [{ type: "tool_use", id: "c1", name: "bash", input: { command: "echo bye" } }],
       },
       {
+        id: "m9",
         role: "tool",
         content: [{ type: "tool_result", toolUseId: "c1", content: "err", isError: true }],
       },

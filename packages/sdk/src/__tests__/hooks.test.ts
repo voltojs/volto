@@ -310,22 +310,28 @@ describe("Runner hooks integration (M13)", () => {
 
     // Run 1
     callLog.length = 0;
+    const seqId = (): { next: () => string } => {
+      let n = 0;
+      return { next: () => `id-${++n}` };
+    };
     const agent1 = createAgent({
       modelPort: createMockModelPort([...mockScript]),
       tools: [createEchoTool()],
       capabilities: new Set(["test:echo"]),
       hooks,
+      id: seqId(),
     });
     const state1 = await agent1.run("echo test");
     const log1 = [...callLog];
 
-    // Run 2 — same deterministic hooks, same mock model
+    // Run 2 — same deterministic hooks, same mock model, same id sequence
     callLog.length = 0;
     const agent2 = createAgent({
       modelPort: createMockModelPort([...mockScript]),
       tools: [createEchoTool()],
       capabilities: new Set(["test:echo"]),
       hooks,
+      id: seqId(),
     });
     const state2 = await agent2.run("echo test");
     const log2 = [...callLog];

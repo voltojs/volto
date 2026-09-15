@@ -296,6 +296,7 @@ import {
 
 function assistantToolUse(name: string, input: Record<string, unknown>): Message {
   return {
+    id: "m1",
     role: "assistant",
     content: [{ type: "tool_use", id: `${name}-${JSON.stringify(input)}`, name, input }],
   };
@@ -304,7 +305,7 @@ function assistantToolUse(name: string, input: Record<string, unknown>): Message
 describe("extractTouchedToolPaths", () => {
   it("collects path inputs of the structured fs tools in order", () => {
     const messages: Message[] = [
-      { role: "user", content: "go" },
+      { id: "m2", role: "user", content: "go" },
       assistantToolUse("read_file", { path: "src/a.ts" }),
       assistantToolUse("write_file", { path: "src/b.ts" }),
       assistantToolUse("edit_file", { path: "src/a.ts" }),

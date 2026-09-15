@@ -33,6 +33,8 @@ export type {
   CancelInput,
   BudgetExceededInput,
   SelfCorrectInput,
+  ToolResultsPrunedInput,
+  CompactionAppliedInput,
   AgentInput,
 } from "./input.js";
 
@@ -201,8 +203,13 @@ export {
   isToolInteraction,
   isKeyMessage,
   isPermissionReminder,
+  buildSummaryPrompt,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
+
+// Tool-result pruning — deterministic head/tail cut under a char budget
+export { pruneOversizedToolResults } from "./tool-result-prune.js";
+export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-prune.js";
 
 // PermissionPolicy — pure permission decision logic
 export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage, userDenialMessage } from "./permission-policy.js";

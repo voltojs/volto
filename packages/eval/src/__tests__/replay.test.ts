@@ -135,7 +135,7 @@ describe("replayTrajectory (strict mode)", () => {
   const callModelEffect = {
     type: "call_model",
     request: {
-      messages: [{ role: "user", content: "hello" }],
+      messages: [{ id: "", role: "user", content: "hello" }],
       tools: [],
       model: "test",
       maxTokens: 100,
@@ -156,7 +156,7 @@ describe("replayTrajectory (strict mode)", () => {
           effects: ["call_model", "emit"],
           fullState: {
             status: "calling_model",
-            messages: [{ role: "user", content: "hello" }],
+            messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
             tokensUsed: 0,
           },
@@ -181,7 +181,7 @@ describe("replayTrajectory (strict mode)", () => {
           effects: ["call_model", "emit"],
           fullState: {
             status: "calling_model",
-            messages: [{ role: "user", content: "hello" }],
+            messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
           },
           fullEffects: [
@@ -210,7 +210,7 @@ describe("replayTrajectory (strict mode)", () => {
           effects: ["call_model", "emit"],
           fullState: {
             status: "calling_model",
-            messages: [{ role: "user", content: "hello" }],
+            messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
             tokensUsed: 42, // wrong — actual is 0
           },

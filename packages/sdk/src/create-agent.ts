@@ -57,7 +57,7 @@ import {
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
-import type { RunnerOptions } from "@volto/runtime-node";
+import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
@@ -615,6 +615,20 @@ export interface AgentInstance {
    */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
 
+  /**
+   * On-demand context compaction while the agent is idle.
+   *
+   * Delegates to the last Runner's `compactNow()`, which runs the same
+   * prune + summarize + write-back path the automatic pre-request
+   * compaction uses. Only valid when no turn is in flight
+   * (status `idle` / `done`); a mid-turn call throws
+   * `CompactionBusyError` (code `"busy"`). Returns `null` when there is
+   * nothing useful to compact (no config, under threshold, or no
+   * compressible messages). On success, `getState()` reflects the
+   * compacted message list.
+   */
+  compactNow(): Promise<CompactNowResult | null>;
+
   /** Read the latest runner state */
   getState(): ReducerState;
 
@@ -940,6 +954,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
+    id: idPort,
     ...(resolvedReasoningEffort !== undefined
       ? { reasoningEffort: ReasoningEffortId(resolvedReasoningEffort) }
       : {}),
@@ -1000,7 +1015,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const resolvedSystemPrompt = resolve(opts.systemPrompt, "systemPrompt");
   const seedMessages: Message[] = [];
   if (resolvedSystemPrompt) {
-    seedMessages.push({ role: "system", content: resolvedSystemPrompt });
+    seedMessages.push({ id: idPort.next(), role: "system", content: resolvedSystemPrompt });
   }
   if (opts.initialMessages && opts.initialMessages.length > 0) {
     seedMessages.push(...opts.initialMessages);
@@ -1493,6 +1508,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       return finalState;
     },
 
+    async compactNow(): Promise<CompactNowResult | null> {
+      // No runner yet — nothing to compact.
+      if (!lastRunner) return null;
+      // Delegates to the Runner so the write-back path is shared with the
+      // automatic pre-request compaction. Throws CompactionBusyError when
+      // a turn is in flight.
+      const result = await lastRunner.compactNow();
+      // The write-back feed replaces the runner's state object; re-sync
+      // lastFinalState so getState() and the next turn's carry-forward
+      // see the compacted messages.
+      lastFinalState = lastRunner.getState();
+      return result;
+    },
+
     getState(): ReducerState {
       if (lastFinalState) return lastFinalState;
       if (lastRunner) return lastRunner.getState();
@@ -1876,6 +1905,7 @@ function createSubAgentExecutor(
       model: resolveConfigValue(opts.model, opts.config?.config, "model"),
       maxTokens: resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature: resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
+      id: idPort,
       ...(resolvedSubReasoningEffort !== undefined
         ? { reasoningEffort: ReasoningEffortId(resolvedSubReasoningEffort) }
         : {}),

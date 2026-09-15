@@ -26,7 +26,7 @@ describe.skipIf(!apiKey)("OpenAI ModelPort integration (live)", () => {
     });
 
     const req: ModelRequest = {
-      messages: [{ role: "user", content: "Reply with exactly the word: pong" }],
+      messages: [{ id: "m1", role: "user", content: "Reply with exactly the word: pong" }],
       tools: [],
       // Generous budget: reasoning models spend tokens on reasoning_content
       // before emitting the final answer; too small a budget truncates the text.

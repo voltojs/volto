@@ -170,7 +170,7 @@ describe("McpConnection", () => {
       if (method === "tools/list") return { tools: [] };
       if (method === "resources/list") return { resources: [] };
       if (method === "prompts/list") return { prompts: [] };
-      if (method === "prompts/get") return { messages: [{ role: "user", content: { type: "text", text: "Hello!" } }] };
+      if (method === "prompts/get") return { messages: [{ id: "m1", role: "user", content: { type: "text", text: "Hello!" } }] };
       return {};
     });
 
@@ -228,7 +228,7 @@ describe("McpConnection", () => {
       if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
       if (method === "prompts/list") return { prompts: [{ name: "greet" }] };
       if (method === "resources/read") return { contents: [{ text: "resource body" }] };
-      if (method === "prompts/get") return { messages: [{ role: "user", content: { type: "text", text: "prompt body" } }] };
+      if (method === "prompts/get") return { messages: [{ id: "m2", role: "user", content: { type: "text", text: "prompt body" } }] };
       return {};
     });
 

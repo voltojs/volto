@@ -38,12 +38,14 @@ describe("TC-E8: SDK + Runner Compaction 端到端", () => {
     for (let i = 0; i < 30; i++) {
       if (i % 2 === 0) {
         const msg: UserMessage = {
+          id: "m1",
           role: "user",
           content: `old-user-${i}-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,
         };
         oldMessages.push(msg);
       } else {
         const msg: AssistantMessage = {
+          id: "m2",
           role: "assistant",
           content: [{ type: "text", text: `old-asst-${i}-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy` }],
         };
@@ -119,5 +121,31 @@ describe("TC-E8: SDK + Runner Compaction 端到端", () => {
     // when not given), so the reducer injects a permission-boundary
     // reminder message ahead of the real user turn on the first call.
     expect(spy.calls[0]!.messages).toHaveLength(2);
+  });
+
+  it("no compaction configured → no summarization even with long history", async () => {
+    // Seed a long history that would trivially exceed any reasonable threshold.
+    const oldMessages: Message[] = [];
+    for (let i = 0; i < 30; i++) {
+      oldMessages.push({
+        id: `seed-${i}`,
+        role: "user",
+        content: `old-msg-${i}-${"x".repeat(200)}`,
+      });
+    }
+
+    const spy = createSpyModelPort([textScript("ack")]);
+
+    const agent = createAgent({
+      modelPort: spy,
+      initialMessages: oldMessages,
+      // Deliberately NO compaction config — Plan 1 opt-in.
+    });
+
+    await agent.run("hello");
+
+    // Exactly 1 model call: no summarization was triggered because
+    // compaction is off by default when not configured.
+    expect(spy.calls).toHaveLength(1);
   });
 });

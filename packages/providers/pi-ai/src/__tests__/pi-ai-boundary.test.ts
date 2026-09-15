@@ -39,6 +39,7 @@ describe("pi-ai boundary: real transformMessages over toPiContext output", () =>
     const req: ModelRequest = {
       messages: [
         {
+          id: "m1",
           role: "assistant",
           content: [{ type: "reasoning", text: "let me think about this..." }],
           // Real replay envelope shape, as core would carry it across turns.

@@ -26,6 +26,15 @@
  * assistant message accounted for) is discarded whole, matching the buffer
  * clear on cancel (reducer.ts:610-615) — a partial flush never happens in the
  * reducer, so the projection must never invent one either.
+ *
+ * Compaction write-back (Task 2): a `compaction` event carrying
+ * `replacedIds`/`summaryId` rewrites the projected list the same way the
+ * reducer's `compaction_applied` handler rewrites `state.messages` — remove
+ * the named messages, insert one system-role summary at the earliest
+ * replaced position. Legacy compaction events without ids are skipped, and
+ * so is a write-back whose replacedIds match nothing in the projection.
+ * `tool_results_pruned` stays log-only: the event omits pruned content by
+ * design, so the projection has nothing to rewrite with.
  */
 
 import type { Message, ToolResultContent, ToolUseContent } from "./state.js";
@@ -148,6 +157,13 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
   let steering: ProjectedMessage[] = [];
   /** callId -> tool name, from `assistant_message` tool_use blocks and `approval_asked`. */
   const toolNamesById = new Map<string, string>();
+  /**
+   * Synthetic ids for reconstructed messages. Transcript events do not yet
+   * carry the reducer's stable message ids; a local counter keeps projection
+   * deterministic (same events in, same ids out) without inventing I/O.
+   */
+  let projSeq = 0;
+  const nextProjId = (): string => `proj-${++projSeq}`;
 
   for (const event of events) {
     switch (event.type) {
@@ -161,7 +177,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         steering = [];
 
         const data = event.data as TranscriptEventMap["user_message"];
-        messages.push({ message: { role: "user", content: data.content }, time: event.time });
+        messages.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
         break;
       }
 
@@ -169,6 +185,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const data = event.data as TranscriptEventMap["assistant_message"];
         messages.push({
           message: {
+            id: nextProjId(),
             role: "assistant",
             content: data.content,
             ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
@@ -196,7 +213,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           content: data.content,
           isError: data.isError,
         };
-        const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
+        const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
 
         if (batch && resolveInBatch(batch, data.callId, entry, data.orderInBatch)) {
           flushBatch(batch, steering, messages);
@@ -230,7 +247,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           content: userDenialMessage(name),
           isError: true,
         };
-        const entry: ProjectedMessage = { message: { role: "tool", content: [block] }, time: event.time };
+        const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
 
         // No orderInBatch: a denial has no tool_result event to carry one.
         // Its position comes from the roster, restored above.
@@ -244,15 +261,52 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
-        steering.push({ message: { role: "user", content: data.content }, time: event.time });
+        steering.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
+        break;
+      }
+
+      case "compaction": {
+        const data = event.data as TranscriptEventMap["compaction"];
+        // Legacy events (pre-write-back) carry no replacedIds/summaryId —
+        // they record that compaction happened on the request surface only.
+        // Without ids there is nothing to replay; skip, matching old behavior.
+        if (data.replacedIds === undefined || data.summaryId === undefined) break;
+
+        // Same position rule as the reducer's compaction_applied handler
+        // (reducer.ts:254-269): remove the named messages, insert one
+        // system-role summary at the earliest replaced position among the
+        // kept order.
+        const replaced = new Set(data.replacedIds);
+        const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
+        // No projected id matched replacedIds. Production logs always hit
+        // this (events lack message ids), so treat it like a legacy event:
+        // skip entirely rather than inventing a summary at index 0.
+        if (firstIdx === -1) break;
+        const kept = messages.filter((e) => !replaced.has(e.message.id));
+        const insertAt = messages.slice(0, firstIdx).filter((e) => !replaced.has(e.message.id)).length;
+        const summaryEntry: ProjectedMessage = {
+          message: {
+            id: data.summaryId,
+            role: "system",
+            content: `[Earlier conversation summary]\n${data.summaryText}`,
+          },
+          time: event.time,
+        };
+        messages.length = 0;
+        messages.push(...kept.slice(0, insertAt), summaryEntry, ...kept.slice(insertAt));
         break;
       }
 
       default:
         // Every other event type is log-only: it records what happened but
-        // does not itself become a message the model sees. `compaction` in
-        // particular is NOT a surface replace — the Runner's applyCompaction()
-        // only rewrites the outgoing ModelRequest, never `state.messages`.
+        // does not itself become a message the model sees. In particular
+        // `tool_results_pruned` stays log-only here — the event deliberately
+        // omits pruned content (reducer.ts:236-237), so the projection has
+        // nothing to rewrite with. On cold-start resume tool results keep
+        // their original content; the Runner re-prunes on the request
+        // surface before each model call, so the MODEL still sees pruned
+        // text. Only state.messages (post write-back) diverges from the
+        // projection until the next prune.
         break;
     }
   }

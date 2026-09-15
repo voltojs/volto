@@ -5,7 +5,7 @@
  * GET /commands); "SKILLS" comes from GET /skills, filtered to userInvocable.
  */
 
-export type InputAction = 'clear-session';
+export type InputAction = 'clear-session' | 'compact-session';
 
 export interface ActionCommandItem {
   kind: 'action';
@@ -29,6 +29,7 @@ export type CommandItem = ActionCommandItem | TemplateCommandItem | SkillCommand
 /** Executed locally by InputBar on submit; never reaches the server. */
 export const ACTION_COMMANDS: readonly ActionCommandItem[] = [
   { kind: 'action', name: 'clear', description: '新建会话', action: 'clear-session' },
+  { kind: 'action', name: 'compact', description: '压缩当前会话上下文', action: 'compact-session' },
 ];
 
 /**

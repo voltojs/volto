@@ -5,7 +5,7 @@ import type { ReducerState, StepContext } from "../reducer.js";
 import type { AgentInput } from "../input.js";
 import type { AssistantMessage, Message, ToolResultContent } from "../state.js";
 import type { ToolDefinition } from "../tool.js";
-import type { TranscriptEvent, TranscriptEventMap, TranscriptEventType, TokenUsage } from "../index.js";
+import type { TranscriptEvent, TranscriptEventMap, TranscriptEventType, TokenUsage, Id } from "../index.js";
 
 /** Builds a stored event; seq is assigned in array order by the helper below. */
 function log(
@@ -77,7 +77,10 @@ function toolUseDelta(toolCallId: string, toolCallName: string, args: string): A
  * Streaming-only signals (text_delta, tool_use_delta, tool_use_complete,
  * reasoning_delta) are not persisted, matching real transcript granularity.
  */
-function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; finalState: ReducerState } {
+function driveAndRecord(
+  inputs: AgentInput[],
+  stepCtx: StepContext = ctx,
+): { events: TranscriptEvent[]; finalState: ReducerState } {
   let state: ReducerState = createInitialState();
   const events: TranscriptEvent[] = [];
   let seq = 0;
@@ -92,7 +95,7 @@ function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; fina
       push("approval_decision", { callId: input.toolCallId, decision: input.decision });
     }
 
-    const result = step(state, input, ctx);
+    const result = step(state, input, stepCtx);
     state = result.state;
 
     for (const effect of result.effects) {
@@ -152,6 +155,12 @@ function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; fina
         case "cancelled":
           push("turn_end", { turn: 1, reason: "cancelled" });
           break;
+        case "compaction":
+          push("compaction", event.data as TranscriptEventMap["compaction"]);
+          break;
+        case "tool_results_pruned":
+          push("tool_results_pruned", event.data as TranscriptEventMap["tool_results_pruned"]);
+          break;
         default:
           break; // streaming-only signal — not persisted
       }
@@ -168,13 +177,29 @@ function driveAndRecord(inputs: AgentInput[]): { events: TranscriptEvent[]; fina
  * `state.messages` carries `input.result.isError` verbatim — `undefined` when
  * a tool didn't set it. The two are semantically equivalent; normalize
  * instead of weakening the assertion.
+ *
+ * Also blanks message ids: transcript events do not yet carry the reducer's
+ * stable message ids (write-back is a later task), so the projection
+ * synthesizes `proj-N` while the reducer's ids come from StepContext.id.
+ * Comparing them would pin this suite to two independent counters instead
+ * of the ordering contract under test.
  */
 function normalizeIsError(messages: Message[]): Message[] {
   return messages.map((m) =>
     m.role === "tool"
-      ? { ...m, content: m.content.map((c: ToolResultContent) => ({ ...c, isError: c.isError ?? false })) }
-      : m,
+      ? { ...m, id: "", content: m.content.map((c: ToolResultContent) => ({ ...c, isError: c.isError ?? false })) }
+      : { ...m, id: "" },
   );
+}
+
+/**
+ * Drop message ids before deep-equality. Unit tests below assert ordering
+ * and content, not identity — projection synthesizes `proj-N` deterministically
+ * but those numbers are not the contract (stable reducer ids are a later
+ * write-back task).
+ */
+function stripIds(messages: Message[]): Array<Omit<Message, "id">> {
+  return messages.map(({ id: _ignored, ...rest }) => rest) as Array<Omit<Message, "id">>;
 }
 
 describe("projectMessages ~ reducer equivalence (differential)", () => {
@@ -330,6 +355,44 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
 
     expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
   });
+
+  it("11. compaction_applied replacing a mid-history tool batch", () => {
+    // Align the reducer's Id port with the projection's proj-N counter so
+    // replacedIds match on both sides. Exact id equality between the two
+    // independent counters is still deferred for production logs (transcript
+    // events do not yet carry reducer message ids); this test pins the
+    // ordering contract under aligned ids.
+    let n = 0;
+    const idPort: Id = { next: () => `proj-${++n}` };
+    const ctxWithId: StepContext = { tools, model: "test-model", id: idPort };
+
+    const { events, finalState } = driveAndRecord(
+      [
+        { type: "user_message", content: "go" },
+        toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+        { type: "model_done", stopReason: "tool_use" },
+        { type: "tool_result", toolCallId: "c1", toolName: "read_file", result: { modelContent: "file contents" } },
+        { type: "model_chunk", chunk: { type: "text_delta", text: "done" } },
+        { type: "model_done", stopReason: "end_turn" },
+        {
+          type: "compaction_applied",
+          summaryId: "sum-1",
+          summaryText: "checkpoint",
+          // user=proj-1, assistant(tool_use)=proj-2, tool=proj-3, assistant=proj-4.
+          // Replace the tool batch (assistant + tool result), keep user + final reply.
+          replacedIds: ["proj-2", "proj-3"],
+        },
+      ],
+      ctxWithId,
+    );
+
+    expect(finalState.messages.map((m) => m.id)).toEqual(["proj-1", "sum-1", "proj-4"]);
+    expect(projectMessages(events).map((m) => m.id)).toEqual(["proj-1", "sum-1", "proj-4"]);
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+    const sum = finalState.messages.find((m) => m.id === "sum-1")!;
+    expect(String(sum.content)).toContain("[Earlier conversation summary]");
+    expect(String(sum.content)).toContain("checkpoint");
+  });
 });
 
 describe("projectMessages", () => {
@@ -348,10 +411,10 @@ describe("projectMessages", () => {
     ]);
 
     const expected: Message[] = [
-      { role: "user", content: "hi" },
-      { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
+      { id: "", role: "user", content: "hi" },
+      { id: "", role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
     ];
-    expect(projectMessages(events)).toEqual(expected);
+    expect(stripIds(projectMessages(events))).toEqual(stripIds(expected));
   });
 
   it("orders parallel tool results by orderInBatch, not by arrival", () => {
@@ -390,7 +453,7 @@ describe("projectMessages", () => {
     ]);
 
     const messages = projectMessages(events);
-    expect(messages.slice(2)).toEqual([
+    expect(stripIds(messages.slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
     ]);
@@ -425,7 +488,7 @@ describe("projectMessages", () => {
     const messages = projectMessages(events);
     // The reducer flushes [...tool results, ...queuedUserInputs] — the steering
     // message lands AFTER the tool result despite having the smaller seq.
-    expect(messages.slice(2)).toEqual([
+    expect(stripIds(messages.slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
       { role: "user", content: "actually wait" },
     ]);
@@ -453,7 +516,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events)).toEqual([
+    expect(stripIds(projectMessages(events))).toEqual([
       { role: "user", content: "hi" },
       { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
     ]);
@@ -482,7 +545,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events).at(-1)).toEqual({
+    expect(stripIds([projectMessages(events).at(-1)!])[0]).toEqual({
       role: "tool",
       content: [{ type: "tool_result", toolUseId: "c1", content: "boom", isError: true }],
     });
@@ -518,7 +581,7 @@ describe("projectMessages", () => {
 
     // The batch never completes (its one entry was dropped, not resolved),
     // so nothing after the assistant message is emitted.
-    expect(projectMessages(events)).toEqual([
+    expect(stripIds(projectMessages(events))).toEqual([
       { role: "user", content: "go" },
       {
         role: "assistant",
@@ -574,7 +637,7 @@ describe("projectMessages", () => {
       },
     ]);
 
-    expect(projectMessages(events).slice(2)).toEqual([
+    expect(stripIds(projectMessages(events).slice(2))).toEqual([
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "second", isError: false }] },
       { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
     ]);
@@ -609,7 +672,143 @@ describe("projectMessages", () => {
   });
 
   it("returns an empty array for an empty log", () => {
-    expect(projectMessages([])).toEqual([]);
+    expect(stripIds(projectMessages([]))).toEqual([]);
+  });
+});
+
+describe("projectMessages — compaction write-back", () => {
+  it("replaces the named span with a summary at the earliest replaced position", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "old1" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "reply1" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 3, type: "user_message", data: { content: "old2" }, turn: 2 },
+      {
+        time: 4,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "reply2" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 5, type: "user_message", data: { content: "recent" }, turn: 3 },
+      {
+        time: 6,
+        type: "compaction",
+        data: {
+          replacedCount: 2,
+          summaryText: "checkpoint",
+          replacedIds: ["proj-1", "proj-2"],
+          summaryId: "sum-1",
+        },
+        turn: 3,
+      },
+    ]);
+
+    // proj-1..proj-4 are the four messages; compaction removes proj-1 and
+    // proj-2, inserting sum-1 at their earliest position (index 0 of kept).
+    const result = projectMessages(events);
+    expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
+      { id: "sum-1", role: "system" },
+      { id: "proj-3", role: "user" },
+      { id: "proj-4", role: "assistant" },
+      { id: "proj-5", role: "user" },
+    ]);
+    const sum = result.find((m) => m.id === "sum-1")!;
+    expect(String(sum.content)).toBe("[Earlier conversation summary]\ncheckpoint");
+  });
+
+  it("leaves the projection unchanged when no replaced id matches", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "hi" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 3,
+        type: "compaction",
+        data: {
+          replacedCount: 1,
+          summaryText: "s",
+          // None of these ids appear in the projected list — production logs
+          // always hit this, since transcript events lack message ids.
+          replacedIds: ["ghost", "also-missing"],
+          summaryId: "sum-1",
+        },
+        turn: 1,
+      },
+    ]);
+
+    // Unmatched replacedIds must SKIP like a legacy event: no insert, no remove.
+    expect(stripIds(projectMessages(events))).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
+    ]);
+  });
+
+  it("replaces a non-contiguous span keeping the interleaved message", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "a" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "b" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 3, type: "user_message", data: { content: "c" }, turn: 2 },
+      {
+        time: 4,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "d" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 2,
+        step: 1,
+      },
+      {
+        time: 5,
+        type: "compaction",
+        data: {
+          replacedCount: 2,
+          summaryText: "s",
+          // Replace proj-1 and proj-3, keep the interleaved proj-2.
+          replacedIds: ["proj-1", "proj-3"],
+          summaryId: "sum-1",
+        },
+        turn: 2,
+      },
+    ]);
+
+    // kept = [proj-2, proj-4]; firstIdx = 0 → insertAt = 0.
+    expect(projectMessages(events).map((m) => m.id)).toEqual(["sum-1", "proj-2", "proj-4"]);
+  });
+
+  it("still ignores legacy compaction events without replacedIds/summaryId", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "hi" }, turn: 1 },
+      // Pre-write-back compaction: records that compaction happened on the
+      // request surface, but carries no ids to replay a state rewrite.
+      { time: 2, type: "compaction", data: { replacedCount: 3, summaryText: "..." }, turn: 1 },
+      {
+        time: 3,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    expect(stripIds(projectMessages(events))).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
+    ]);
   });
 });
 
@@ -626,7 +825,7 @@ describe("projectMessageEntries", () => {
       },
     ]);
 
-    expect(projectMessageEntries(events)).toEqual([
+    expect(projectMessageEntries(events).map((e) => ({ ...e, message: stripIds([e.message])[0]! }))).toEqual([
       { message: { role: "user", content: "hi" }, time: 10 },
       {
         message: { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
@@ -660,7 +859,7 @@ describe("projectMessageEntries", () => {
     ]);
 
     const entries = projectMessageEntries(events);
-    expect(entries.map((e) => e.message)).toEqual(projectMessages(events));
+    expect(stripIds(entries.map((e) => e.message))).toEqual(stripIds(projectMessages(events)));
     // Steering sits after the tool result, so its time runs backwards here —
     // that is correct: position follows the reducer, not the clock.
     expect(entries.map((e) => e.time)).toEqual([10, 20, 40, 30]);

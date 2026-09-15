@@ -28,7 +28,7 @@ describe("pi-ai surface pinning", () => {
     ]);
 
     const context = {
-      messages: [{ role: "user" as const, content: "hello", timestamp: Date.now() }],
+      messages: [{ id: "m1", role: "user" as const, content: "hello", timestamp: Date.now() }],
     };
 
     // Drive the faux provider directly (no `createModels()`/`setProvider` needed)

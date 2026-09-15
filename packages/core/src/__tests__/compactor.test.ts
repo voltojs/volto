@@ -7,33 +7,36 @@ import {
   isToolInteraction,
   isKeyMessage,
   isPermissionReminder,
+  buildSummaryPrompt,
 } from "../compactor.js";
 import { buildPermissionReminder } from "../permission-prompt.js";
 import type { PermissionConfig } from "../permission-policy.js";
 import { createCharTokenizer, createFixedTokenizer } from "../testing/char-tokenizer.js";
 import type { Message } from "../state.js";
 
-function sysMsg(content: string): Message {
-  return { role: "system", content };
+function sysMsg(content: string, id = "m1"): Message {
+  return { id, role: "system", content };
 }
 
-function userMsg(content: string): Message {
-  return { role: "user", content };
+function userMsg(content: string, id = "m2"): Message {
+  return { id, role: "user", content };
 }
 
-function assistantMsg(text: string): Message {
-  return { role: "assistant", content: [{ type: "text", text }] };
+function assistantMsg(text: string, id = "m3"): Message {
+  return { id, role: "assistant", content: [{ type: "text", text }] };
 }
 
-function toolUseMsg(name: string, id: string): Message {
+function toolUseMsg(name: string, id: string, msgId = "m4"): Message {
   return {
+    id: msgId,
     role: "assistant",
     content: [{ type: "tool_use", id, name, input: {} }],
   };
 }
 
-function toolResultMsg(id: string, content: string): Message {
+function toolResultMsg(id: string, content: string, msgId = "m5"): Message {
   return {
+    id: msgId,
     role: "tool",
     content: [{ type: "tool_result", toolUseId: id, content }],
   };
@@ -83,6 +86,7 @@ describe("isKeyMessage", () => {
 describe("isKeyMessage — permission reminders", () => {
   it("treats a permission reminder as key", () => {
     const msg = {
+      id: "m6",
       role: "user" as const,
       content:
         "<system-reminder>\nPermission boundary for this session:\n\n- Filesystem writes are confined to the workspace.\n</system-reminder>",
@@ -91,11 +95,12 @@ describe("isKeyMessage — permission reminders", () => {
   });
 
   it("does not treat ordinary user text as key", () => {
-    expect(isKeyMessage({ role: "user", content: "please refactor this" })).toBe(false);
+    expect(isKeyMessage({ id: "m7", role: "user", content: "please refactor this" })).toBe(false);
   });
 
   it("also treats a change announcement as key", () => {
     const msg = {
+      id: "m8",
       role: "user" as const,
       content:
         "<system-reminder>\nThe permission boundary for this session has changed. It is now:\n\n- You cannot write to the filesystem at all.\n</system-reminder>",
@@ -109,8 +114,8 @@ describe("isKeyMessage — permission reminders", () => {
 
     // First announcement and mid-session change take different opening lines;
     // both must survive compaction, so both must be recognised here.
-    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config) })).toBe(true);
-    expect(isKeyMessage({ role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
+    expect(isKeyMessage({ id: "m9", role: "user", content: buildPermissionReminder(config) })).toBe(true);
+    expect(isKeyMessage({ id: "m10", role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
   });
 });
 
@@ -223,8 +228,9 @@ describe("estimateTokens", () => {
 
   it("prices a reasoning block materially higher than the same message without it", () => {
     const tokenizer = createCharTokenizer(4);
-    const withoutReasoning: Message = { role: "assistant", content: [{ type: "text", text: "Hi" }] };
+    const withoutReasoning: Message = { id: "m11", role: "assistant", content: [{ type: "text", text: "Hi" }] };
     const withReasoning: Message = {
+      id: "m12",
       role: "assistant",
       content: [
         { type: "reasoning", text: "a".repeat(400) },
@@ -438,6 +444,7 @@ describe("decideCompaction", () => {
   it("handles empty content array in message", () => {
     const tokenizer = createFixedTokenizer(100);
     const emptyContentMsg: Message = {
+      id: "m13",
       role: "assistant",
       content: [],
     };
@@ -465,7 +472,7 @@ describe("extractFilePaths edge cases", () => {
 
 describe("hasIncompleteTodos edge cases", () => {
   it("returns false for empty content", () => {
-    const msg: Message = { role: "assistant", content: [] };
+    const msg: Message = { id: "m14", role: "assistant", content: [] };
     expect(hasIncompleteTodos(msg)).toBe(false);
   });
 });
@@ -498,7 +505,7 @@ describe("decideCompaction — empty compressible boundary (T-10)", () => {
     // Key messages may be included in compressibleMessages (deprioritized, not exempt)
     // but the summary prompt should preserve their content.
     expect(typeof decision.summaryPrompt).toBe("string");
-    expect(decision.summaryPrompt).toContain("Summarize");
+    expect(decision.summaryPrompt).toContain("## Files and Code");
     expect(decision.summaryPrompt).toContain("file paths");
   });
 
@@ -506,29 +513,188 @@ describe("decideCompaction — empty compressible boundary (T-10)", () => {
     it("should not compress pinned messages even when over budget", () => {
       const tokenizer = createFixedTokenizer(10);
       // 6 non-system messages × 10 tokens = 60, budget = 30 → over budget
-      // Keep last 2, so indices 0-3 are eligible. Pin index 1.
+      // Keep last 2, so the first three user messages are eligible. Pin u1.
       const messages: Message[] = [
-        sysMsg("system"),
-        userMsg("msg-0"),  // index 1 — eligible, NOT pinned
-        userMsg("msg-1"),  // index 2 — eligible, PINNED
-        userMsg("msg-2"),  // index 3 — eligible, NOT pinned
-        userMsg("msg-3"),  // index 4 — recent keep
-        userMsg("msg-4"),  // index 5 — recent keep
+        sysMsg("system", "s0"),
+        userMsg("msg-0", "u0"), // eligible, NOT pinned
+        userMsg("msg-1", "u1"), // eligible, PINNED
+        userMsg("msg-2", "u2"), // eligible, NOT pinned
+        userMsg("msg-3", "u3"), // recent keep
+        userMsg("msg-4", "u4"), // recent keep
       ];
 
       const decision = decideCompaction(messages, {
         maxTokens: 30,
         recentKeepCount: 2,
         tokenizer,
-        pinnedMessageIds: ["2"],
+        pinnedMessageIds: ["u1"],
       });
 
       expect(decision.shouldCompact).toBe(true);
-      // msg-1 (index 2) is pinned → not in compressible
+      // u1 is pinned → not in compressible
       const compressibleTexts = decision.compressibleMessages.map((m) =>
         (m as Message & { content: string }).content,
       );
       expect(compressibleTexts).not.toContain("msg-1");
     });
+  });
+});
+
+describe("pinnedMessageIds as stable ids", () => {
+  it("never selects a pinned message id even when over budget", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "S" },
+      { id: "p1", role: "user", content: "keep me" },
+      { id: "u1", role: "user", content: "a" },
+      { id: "u2", role: "assistant", content: [{ type: "text", text: "b" }] },
+      { id: "u3", role: "user", content: "c" },
+      { id: "u4", role: "assistant", content: [{ type: "text", text: "d" }] },
+    ];
+    const decision = decideCompaction(messages, {
+      maxTokens: 200,
+      recentKeepCount: 1,
+      tokenizer,
+      pinnedMessageIds: ["p1"],
+    });
+    expect(decision.shouldCompact).toBe(true);
+    const pinnedIndex = messages.findIndex((m) => m.id === "p1");
+    expect(decision.compressedIndices ?? []).not.toContain(pinnedIndex);
+    expect(decision.replacedIds ?? []).not.toContain("p1");
+  });
+});
+
+describe("soft tool pairing", () => {
+  it("includes tool_use and its tool_result together", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "S" },
+      { id: "a1", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: {} }] },
+      { id: "r1", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: "out" }] },
+      { id: "a2", role: "assistant", content: [{ type: "tool_use", id: "t2", name: "y", input: {} }] },
+      { id: "r2", role: "tool", content: [{ type: "tool_result", toolUseId: "t2", content: "out2" }] },
+      { id: "u9", role: "user", content: "latest" },
+      { id: "a9", role: "assistant", content: [{ type: "text", text: "ok" }] },
+    ];
+    const decision = decideCompaction(messages, {
+      maxTokens: 300,
+      recentKeepCount: 2,
+      tokenizer,
+    });
+    const ids = new Set(
+      (decision.compressedIndices ?? []).map((i) => messages[i]!.id),
+    );
+    // If one side of a pair is selected, the other must be too (when both exist).
+    if (ids.has("a1")) expect(ids.has("r1")).toBe(true);
+    if (ids.has("r1")) expect(ids.has("a1")).toBe(true);
+    if (ids.has("a2")) expect(ids.has("r2")).toBe(true);
+    if (ids.has("r2")) expect(ids.has("a2")).toBe(true);
+  });
+
+  it("pulls in the matching tool_result when only the tool_use was selected", () => {
+    const tokenizer = createFixedTokenizer(100);
+    // Budget sized so the greedy loop takes a1 (tool_use, ~208 tokens) and
+    // stops before r1 (tool_result, ~108 tokens). Soft pairing must then
+    // pull r1 in — otherwise the request would carry an orphaned tool_use.
+    const messages: Message[] = [
+      sysMsg("S", "sys"),
+      toolUseMsg("read_file", "t1", "a1"),
+      toolResultMsg("t1", "contents", "r1"),
+      userMsg("recent user", "u9"),
+      assistantMsg("ok", "a9"),
+    ];
+    // total ≈ 108+208+108+108+108 = 640; tokensToRemove = 640-432 = 208 → takes a1 only
+    const decision = decideCompaction(messages, {
+      maxTokens: 432,
+      recentKeepCount: 2,
+      tokenizer,
+    });
+
+    const ids = new Set(
+      (decision.compressedIndices ?? []).map((i) => messages[i]!.id),
+    );
+    expect(ids.has("a1")).toBe(true);
+    expect(ids.has("r1")).toBe(true);
+  });
+});
+
+describe("structured summary prompt", () => {
+  it("requires the checkpoint sections and merge rule", () => {
+    const tokenizer = createFixedTokenizer(50);
+    const messages: Message[] = [
+      { id: "s", role: "system", content: "S" },
+      { id: "u1", role: "user", content: "old work" },
+      { id: "a1", role: "assistant", content: [{ type: "text", text: "did things" }] },
+      { id: "u2", role: "user", content: "more" },
+      { id: "a2", role: "assistant", content: [{ type: "text", text: "more done" }] },
+      { id: "u3", role: "user", content: "now" },
+      { id: "a3", role: "assistant", content: [{ type: "text", text: "now" }] },
+    ];
+    const decision = decideCompaction(messages, {
+      maxTokens: 100,
+      recentKeepCount: 1,
+      tokenizer,
+    });
+    const prompt = decision.summaryPrompt!;
+    for (const section of [
+      "## Primary Request and Intent",
+      "## Key Technical Concepts",
+      "## Files and Code",
+      "## Errors and Fixes",
+      "## Pending Jobs",
+      "## Current Work",
+      "## Next Step",
+      "## Critical Context",
+    ]) {
+      expect(prompt).toContain(section);
+    }
+    expect(prompt).toContain("(none)");
+    expect(prompt.toLowerCase()).toContain("merge");
+  });
+
+  it("is exported and embeds the conversation segment", () => {
+    const messages: Message[] = [
+      userMsg("edit /src/app.ts", "u1"),
+      assistantMsg("done", "a1"),
+    ];
+    const prompt = buildSummaryPrompt(messages);
+    expect(prompt).toContain("## Primary Request and Intent");
+    expect(prompt).toContain("/src/app.ts");
+    expect(prompt).toContain("[user]:");
+  });
+});
+
+describe("CompactionDecision.replacedIds", () => {
+  it("maps compressedIndices to the corresponding message ids", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const messages: Message[] = [
+      sysMsg("S", "sys"),
+      userMsg("old 1", "u1"),
+      userMsg("old 2", "u2"),
+      userMsg("old 3", "u3"),
+      userMsg("recent", "u9"),
+    ];
+    const decision = decideCompaction(messages, {
+      maxTokens: 200,
+      recentKeepCount: 1,
+      tokenizer,
+    });
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.replacedIds).toBeDefined();
+    expect(decision.replacedIds).toEqual(
+      decision.compressedIndices!.map((i) => messages[i]!.id),
+    );
+  });
+
+  it("is undefined when no compaction is needed", () => {
+    const tokenizer = createFixedTokenizer(10);
+    const messages: Message[] = [sysMsg("S", "sys"), userMsg("hi", "u1")];
+    const decision = decideCompaction(messages, {
+      maxTokens: 1000,
+      recentKeepCount: 1,
+      tokenizer,
+    });
+    expect(decision.shouldCompact).toBe(false);
+    expect(decision.replacedIds).toBeUndefined();
   });
 });

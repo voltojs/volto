@@ -62,20 +62,28 @@ export type ContentBlock =
   | ToolResultContent
   | ReasoningContent;
 
-/** System message — instructions injected by the host */
+/**
+ * Stable identifier for a message. Stamped by the reducer from the optional
+ * `Id` port on StepContext; hosts that construct messages themselves must
+ * supply one. Used by pinning (`pinnedMessageIds`) and compaction to address
+ * messages by id instead of by index.
+ */
 export interface SystemMessage {
+  id: string;
   role: "system";
   content: string;
 }
 
 /** User message — from the human */
 export interface UserMessage {
+  id: string;
   role: "user";
   content: string | ContentBlock[];
 }
 
 /** Assistant message — from the model */
 export interface AssistantMessage {
+  id: string;
   role: "assistant";
   content: ContentBlock[];
   stopReason?: "end_turn" | "tool_use" | "max_tokens";
@@ -95,6 +103,7 @@ export interface AssistantMessage {
 
 /** Tool result message — output from tool execution */
 export interface ToolResultMessage {
+  id: string;
   role: "tool";
   content: ToolResultContent[];
 }
@@ -104,15 +113,6 @@ export type Message =
   | UserMessage
   | AssistantMessage
   | ToolResultMessage;
-
-/**
- * Optional stable identifier for a message.
- * Used by pinning to track which messages must never be compressed.
- * Set by the host when adding messages to state; absent messages are not pinnable.
- */
-export interface WithId {
-  id?: string;
-}
 
 /** A tool call extracted from a model response, pending execution */
 export interface PendingToolCall {
@@ -180,8 +180,9 @@ export interface AgentState {
    */
   maxLoopCount: number | undefined;
   /**
-   * IDs of messages that are "pinned" — never compressed by Compactor,
+   * Message ids that are "pinned" — never compressed by Compactor,
    * and stably positioned in ContextAssembler prefix slots.
+   * Entries address `Message.id` (stable identity), not array indices.
    * Serializable for checkpoint/resume.
    */
   pinnedMessageIds?: string[];

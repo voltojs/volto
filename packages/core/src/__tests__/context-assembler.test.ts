@@ -26,12 +26,12 @@ const sampleTools: ToolDefinition[] = [
 ];
 
 const sampleMessages: Message[] = [
-  { role: "system", content: "You are a helpful assistant." },
-  { role: "user", content: "Read the file" },
-  { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "read_file", input: { path: "/a.ts" } }] },
-  { role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: "file contents" }] },
-  { role: "assistant", content: [{ type: "text", text: "Here is the file." }] },
-  { role: "user", content: "Now edit it" },
+  { id: "m1", role: "system", content: "You are a helpful assistant." },
+  { id: "m2", role: "user", content: "Read the file" },
+  { id: "m3", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "read_file", input: { path: "/a.ts" } }] },
+  { id: "m4", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: "file contents" }] },
+  { id: "m5", role: "assistant", content: [{ type: "text", text: "Here is the file." }] },
+  { id: "m6", role: "user", content: "Now edit it" },
 ];
 
 describe("assembleContext", () => {
@@ -48,8 +48,8 @@ describe("assembleContext", () => {
 
   it("handles messages with no system message", () => {
     const messages: Message[] = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: [{ type: "text", text: "Hi!" }] },
+      { id: "m7", role: "user", content: "Hello" },
+      { id: "m8", role: "assistant", content: [{ type: "text", text: "Hi!" }] },
     ];
     const result = assembleContext({ messages, tools: [] });
 
@@ -59,9 +59,9 @@ describe("assembleContext", () => {
 
   it("handles multiple system messages", () => {
     const messages: Message[] = [
-      { role: "system", content: "Base instructions" },
-      { role: "system", content: "Additional instructions" },
-      { role: "user", content: "Hello" },
+      { id: "m9", role: "system", content: "Base instructions" },
+      { id: "m10", role: "system", content: "Additional instructions" },
+      { id: "m11", role: "user", content: "Hello" },
     ];
     const result = assembleContext({ messages, tools: [] });
 
@@ -73,9 +73,9 @@ describe("assembleContext", () => {
 
   it("moves system messages after non-system to the front", () => {
     const messages: Message[] = [
-      { role: "user", content: "Hello" },
-      { role: "system", content: "Late system" },
-      { role: "assistant", content: [{ type: "text", text: "Hi!" }] },
+      { id: "m12", role: "user", content: "Hello" },
+      { id: "m13", role: "system", content: "Late system" },
+      { id: "m14", role: "assistant", content: [{ type: "text", text: "Hi!" }] },
     ];
     const result = assembleContext({ messages, tools: [] });
 
@@ -158,8 +158,8 @@ describe("computeStaticPrefixTokens", () => {
   it("returns 0 when no system messages", () => {
     const tokenizer = createCharTokenizer(4);
     const messages: Message[] = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: [{ type: "text", text: "Hi!" }] },
+      { id: "m15", role: "user", content: "Hello" },
+      { id: "m16", role: "assistant", content: [{ type: "text", text: "Hi!" }] },
     ];
     expect(computeStaticPrefixTokens(messages, tokenizer)).toBe(0);
   });
@@ -168,16 +168,16 @@ describe("computeStaticPrefixTokens", () => {
 describe("pinned messages in assembleContext", () => {
   it("should place pinned messages in the prefix slot after system messages", () => {
     const messages: Message[] = [
-      { role: "system", content: "System prompt" },
-      { role: "user", content: "msg-0" },      // index 1 — not pinned
-      { role: "user", content: "pinned-msg" },  // index 2 — pinned
-      { role: "user", content: "msg-3" },       // index 3 — not pinned
+      { id: "m17", role: "system", content: "System prompt" },
+      { id: "m18", role: "user", content: "msg-0" },      // index 1 — not pinned
+      { id: "m19", role: "user", content: "pinned-msg" },  // index 2 — pinned
+      { id: "m20", role: "user", content: "msg-3" },       // index 3 — not pinned
     ];
 
     const result = assembleContext({
       messages,
       tools: [],
-      pinnedMessageIds: ["2"],
+      pinnedMessageIds: ["m19"],
     });
 
     // Order: system, pinned, then remaining non-system in original order
@@ -194,8 +194,8 @@ describe("pinned messages in assembleContext", () => {
 
   it("should not affect prefix when no pinned messages", () => {
     const messages: Message[] = [
-      { role: "system", content: "System" },
-      { role: "user", content: "Hello" },
+      { id: "m21", role: "system", content: "System" },
+      { id: "m22", role: "user", content: "Hello" },
     ];
 
     const result = assembleContext({ messages, tools: [] });
@@ -206,8 +206,8 @@ describe("pinned messages in assembleContext", () => {
 describe("contextLayers in assembleContext", () => {
   it("places each layer as its own system message after existing system messages", () => {
     const messages: Message[] = [
-      { role: "system", content: "Base prompt" },
-      { role: "user", content: "Hello" },
+      { id: "m23", role: "system", content: "Base prompt" },
+      { id: "m24", role: "user", content: "Hello" },
     ];
     const result = assembleContext({
       messages,
@@ -219,13 +219,13 @@ describe("contextLayers in assembleContext", () => {
     });
 
     expect(result.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
-    expect(result.messages[1]).toEqual({ role: "system", content: "User instructions" });
-    expect(result.messages[2]).toEqual({ role: "system", content: "Project instructions" });
+    expect(result.messages[1]).toEqual({ id: "layer-user-memory", role: "system", content: "User instructions" });
+    expect(result.messages[2]).toEqual({ id: "layer-project-memory", role: "system", content: "Project instructions" });
     expect(result.staticPrefixLength).toBe(3);
   });
 
   it("does not merge two layers into one message", () => {
-    const messages: Message[] = [{ role: "user", content: "Hi" }];
+    const messages: Message[] = [{ id: "m27", role: "user", content: "Hi" }];
     const result = assembleContext({
       messages,
       tools: [],
@@ -242,8 +242,8 @@ describe("contextLayers in assembleContext", () => {
 
   it("reports layerOrigins mapping each layer id to its message index", () => {
     const messages: Message[] = [
-      { role: "system", content: "Base" },
-      { role: "user", content: "Hi" },
+      { id: "m28", role: "system", content: "Base" },
+      { id: "m29", role: "user", content: "Hi" },
     ];
     const result = assembleContext({
       messages,
@@ -262,14 +262,14 @@ describe("contextLayers in assembleContext", () => {
 
   it("places contextLayers before pinned messages", () => {
     const messages: Message[] = [
-      { role: "system", content: "Base" },
-      { role: "user", content: "msg-0" },
-      { role: "user", content: "pinned-msg" },
+      { id: "m30", role: "system", content: "Base" },
+      { id: "m31", role: "user", content: "msg-0" },
+      { id: "m32", role: "user", content: "pinned-msg" },
     ];
     const result = assembleContext({
       messages,
       tools: [],
-      pinnedMessageIds: ["2"],
+      pinnedMessageIds: ["m32"],
       contextLayers: [{ id: "user-memory", text: "A" }],
     });
 
@@ -279,7 +279,7 @@ describe("contextLayers in assembleContext", () => {
   });
 
   it("defaults to an empty layerOrigins array and unchanged output when contextLayers is omitted", () => {
-    const messages: Message[] = [{ role: "user", content: "Hi" }];
+    const messages: Message[] = [{ id: "m33", role: "user", content: "Hi" }];
     const result = assembleContext({ messages, tools: [] });
 
     expect(result.layerOrigins).toEqual([]);

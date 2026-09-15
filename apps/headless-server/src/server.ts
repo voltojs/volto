@@ -13,7 +13,8 @@
  *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
  *   GET  /git/commits/:hash   — workspace git pane data
  *   GET  /sessions            — list sessions; /sessions/:id (+ /trajectory,
- *                               /events) read, PATCH rename, DELETE remove
+ *                               /events) read, PATCH rename, DELETE remove,
+ *                               POST /sessions/:id/compact on-demand compaction
  *   GET|POST /projects, DELETE /projects/:id — project registry
  *   GET|POST /providers, PUT|DELETE /providers/:id — model provider config
  *   GET  /catalog/providers   — provider catalog for the add-provider flow
@@ -29,7 +30,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries } from "@volto/core";
-import { readConversation, readTrajectory } from "@volto/sdk";
+import { readConversation, readTrajectory, CompactionBusyError } from "@volto/sdk";
 import {
   createStore as createJsonlStore,
   TranscriptFormatError,
@@ -1062,6 +1063,42 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
+    }
+
+    // POST /sessions/:id/compact — on-demand idle-session compaction.
+    // Delegates to agent.compactNow() so the write-back path is shared with
+    // automatic pre-request compaction. Answers:
+    //   200 { replacedCount, tokensFreedEstimate } when state shrank
+    //   200 { ok: true, compacted: false } when there was nothing to do
+    //   409 when a turn is mid-flight (CompactionBusyError)
+    //   404 when the session is unknown (neither live nor persisted)
+    if (req.method === "POST") {
+      const compactMatch = url.pathname.match(/^\/sessions\/([^/]+)\/compact$/);
+      if (compactMatch) {
+        const id = decodeURIComponent(compactMatch[1]!);
+        try {
+          if (!(await registry.hasSession(id))) {
+            jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+            return;
+          }
+          // ensureAgent builds a session-scoped instance on a cold start so
+          // compact never falls back to the process-wide shared agent.
+          const target = await registry.ensureAgent(id);
+          const result = await target.compactNow();
+          if (result === null) {
+            jsonResponse(res, 200, { ok: true, compacted: false });
+            return;
+          }
+          jsonResponse(res, 200, result);
+        } catch (err: unknown) {
+          if (err instanceof CompactionBusyError) {
+            jsonResponse(res, 409, { error: err.message });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
     }
 
     // POST /fs/pick-directory — open the OS directory dialog on this machine

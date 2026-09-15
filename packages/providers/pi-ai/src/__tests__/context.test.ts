@@ -26,9 +26,9 @@ describe("toPiContext", () => {
   it("merges system messages into systemPrompt, in order, joined by blank lines", () => {
     const req = baseRequest({
       messages: [
-        { role: "system", content: "Be concise." },
-        { role: "system", content: "Never lie." },
-        { role: "user", content: "hi" },
+        { id: "m1", role: "system", content: "Be concise." },
+        { id: "m2", role: "system", content: "Never lie." },
+        { id: "m3", role: "user", content: "hi" },
       ],
     });
 
@@ -40,7 +40,7 @@ describe("toPiContext", () => {
 
   it("translates a plain string user message", () => {
     const req = baseRequest({
-      messages: [{ role: "user", content: "hello there" }],
+      messages: [{ id: "m4", role: "user", content: "hello there" }],
     });
 
     const ctx = toPiContext(req, model);
@@ -55,6 +55,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m5",
           role: "user",
           content: [
             { type: "text", text: "look at this" },
@@ -93,6 +94,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m6",
           role: "assistant",
           content: [
             { type: "reasoning", text: "reasoning..." },
@@ -116,6 +118,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m7",
           role: "assistant",
           content: [{ type: "reasoning", text: "reasoning from another model" }],
           modelMeta: { version: 1, model: "some-other-model", blocks: [] },
@@ -139,6 +142,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m8",
           role: "assistant",
           content: [{ type: "reasoning", text: "reasoning..." }],
           modelMeta,
@@ -163,6 +167,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m9",
           role: "assistant",
           content: [{ type: "text", text: "answer" }],
           modelMeta,
@@ -180,6 +185,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m10",
           role: "assistant",
           content: [{ type: "tool_use", id: "call_1", name: "echo", input: { text: "hi" } }],
         },
@@ -198,10 +204,12 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m11",
           role: "assistant",
           content: [{ type: "tool_use", id: "call_1", name: "echo", input: { text: "hi" } }],
         },
         {
+          id: "m12",
           role: "tool",
           content: [
             { type: "tool_result", toolUseId: "call_1", content: "hi", isError: false },
@@ -224,6 +232,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m13",
           role: "tool",
           content: [
             { type: "tool_result", toolUseId: "call_missing", content: "oops", isError: false },
@@ -271,8 +280,9 @@ describe("toPiContext", () => {
   it("drops a tool result whose originating assistant tool_use message is absent (e.g. compacted away), without throwing", () => {
     const req = baseRequest({
       messages: [
-        { role: "user", content: "run it" },
+        { id: "m14", role: "user", content: "run it" },
         {
+          id: "m15",
           role: "tool",
           content: [{ type: "tool_result", toolUseId: "missing-call", content: "result text" }],
         },
@@ -289,11 +299,13 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m16",
           role: "assistant",
           content: [{ type: "tool_use", id: "call-1", name: "echo", input: { text: "hi" } }],
           stopReason: "tool_use",
         },
         {
+          id: "m17",
           role: "tool",
           content: [{ type: "tool_result", toolUseId: "call-1", content: "result text" }],
         },
@@ -312,6 +324,7 @@ describe("toPiContext", () => {
     const req = baseRequest({
       messages: [
         {
+          id: "m18",
           role: "user",
           content: [
             { type: "text", text: "look at this" },

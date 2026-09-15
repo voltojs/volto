@@ -370,7 +370,18 @@ export interface TranscriptEventMap {
     params: { model?: string; temperature?: number; maxTokens?: number };
   };
   context_assembled: { layerOrigins: Array<{ id: string; messageIndex: number }> };
-  compaction: { replacedCount: number; summaryText: string };
+  compaction: {
+    replacedCount: number;
+    summaryText: string;
+    /** Ids of the messages the summary replaced. Optional so existing replays stay valid. */
+    replacedIds?: string[];
+    /** Message id of the written-back summary. Optional so existing replays stay valid. */
+    summaryId?: string;
+  };
+  /** Durable write-back of oversized tool_result pruning into state.messages. */
+  tool_results_pruned: {
+    entries: Array<{ toolCallId: string; charsBefore: number; charsAfter: number }>;
+  };
   /** A dynamic mid-conversation injection: a message appended or spliced in
    * at runtime, distinct from the static system-prompt layers audited via
    * request_header. `text` must be the exact string the model saw — never a

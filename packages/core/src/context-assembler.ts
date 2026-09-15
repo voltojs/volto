@@ -31,9 +31,10 @@ export interface AssembleContextOptions {
   /** Optional system prompt override (default: extract from messages) */
   systemPrompt?: string;
   /**
-   * IDs (indices as strings) of pinned messages.
+   * Message ids of pinned messages.
    * Pinned messages are stably placed in the prefix slot (after system messages)
    * so they are never displaced by compaction or rearrangement.
+   * Entries address `Message.id` (stable identity), not array indices.
    */
   pinnedMessageIds?: string[];
   /** Optional context layers to inject as system messages after existing system messages */
@@ -84,17 +85,16 @@ export interface AssembledContext {
  */
 export function assembleContext(opts: AssembleContextOptions): AssembledContext {
   const { messages } = opts;
-  const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
+  const pinned = new Set(opts.pinnedMessageIds ?? []);
 
   const systemMessages: Message[] = [];
   const pinnedMessages: Message[] = [];
   const otherMessages: Message[] = [];
 
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i]!;
+  for (const msg of messages) {
     if (msg.role === "system") {
       systemMessages.push(msg);
-    } else if (pinnedIndices.has(i)) {
+    } else if (pinned.has(msg.id)) {
       pinnedMessages.push(msg);
     } else {
       otherMessages.push(msg);
@@ -102,7 +102,11 @@ export function assembleContext(opts: AssembleContextOptions): AssembledContext 
   }
 
   const layers = opts.contextLayers ?? [];
-  const layerMessages: Message[] = layers.map((layer) => ({ role: "system", content: layer.text }));
+  const layerMessages: Message[] = layers.map((layer) => ({
+    id: `layer-${layer.id}`,
+    role: "system",
+    content: layer.text,
+  }));
 
   // System messages → layer messages → pinned messages → everything else (stable prefix includes all three)
   const assembled = [...systemMessages, ...layerMessages, ...pinnedMessages, ...otherMessages];

@@ -53,7 +53,7 @@ function makeFactory() {
     builds.push(opts);
     return {
       async *stream() {
-        cumulative.push({ role: "assistant", content: [{ type: "text", text: `m${cumulative.length + 1}` }] });
+        cumulative.push({ id: "m1", role: "assistant", content: [{ type: "text", text: `m${cumulative.length + 1}` }] });
         yield { type: "text_delta", data: { text: "hi" } };
       },
       getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,
@@ -160,7 +160,7 @@ function makeTurnRecordingFactory() {
             { time: 0, type: "turn_start", data: { turn }, turn },
           ]);
         }
-        cumulative.push({ role: "assistant", content: [{ type: "text", text: `m${turn}` }] });
+        cumulative.push({ id: "m2", role: "assistant", content: [{ type: "text", text: `m${turn}` }] });
         yield { type: "text_delta", data: { text: "hi" } };
       },
       getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,
@@ -250,7 +250,7 @@ describe("chat transcript wiring (jsonl)", () => {
 
     await registry.runTurn("s1", "continue", config);
 
-    expect(builds[0]!["initialMessages"]).toEqual([{ role: "user", content: "earlier turn" }]);
+    expect(builds[0]!["initialMessages"]).toEqual([{ id: "proj-1", role: "user", content: "earlier turn" }]);
   });
 
   it("seeds initialTurn from the highest turn_start in the persisted transcript on a cold start", async () => {

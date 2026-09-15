@@ -74,7 +74,7 @@ describe("permission reminder injection", () => {
 });
 
 describe("prompt cache prefix stability", () => {
-  const systemMsg = { role: "system" as const, content: "You are a helpful agent." };
+  const systemMsg = { id: "m1", role: "system" as const, content: "You are a helpful agent." };
 
   it("keeps the static prefix byte-identical across an unchanged turn", () => {
     const base = { ...createInitialState(), messages: [systemMsg] };

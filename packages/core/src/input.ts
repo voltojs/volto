@@ -127,6 +127,48 @@ export interface RequestApprovalInput {
   toolCallId: string;
 }
 
+/**
+ * Durable write-back of deterministic tool-result pruning.
+ *
+ * The Runner prunes oversized `tool_result` text on the *request surface*
+ * (see `pruneOversizedToolResults`) before calling the model. This input
+ * rewrites the already-stored `state.messages` so the history the model
+ * sees next turn matches what it saw last turn — keeping request surface
+ * and canonical state in lockstep without the Runner mutating state.
+ *
+ * The reducer matches entries by `toolCallId` against `tool_result` blocks
+ * and replaces their `content`. `charsBefore`/`charsAfter` ride along for
+ * the transcript event only.
+ */
+export interface ToolResultsPrunedInput {
+  type: "tool_results_pruned";
+  entries: Array<{
+    toolCallId: string;
+    charsBefore: number;
+    charsAfter: number;
+    content: string;
+  }>;
+}
+
+/**
+ * Durable write-back of a compaction decision.
+ *
+ * Replaces the span of messages named by `replacedIds` with a single
+ * system-role summary message carrying `summaryId` / `summaryText`, at the
+ * earliest position among the replaced span. Pins that pointed at replaced
+ * messages are dropped; unknown ids are ignored.
+ *
+ * `summaryId` is supplied by the caller — the Runner stamps it via the `Id`
+ * port on `StepContext` before feeding this input. The reducer never
+ * invents or hardcodes the summary id.
+ */
+export interface CompactionAppliedInput {
+  type: "compaction_applied";
+  summaryId: string;
+  summaryText: string;
+  replacedIds: string[];
+}
+
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
@@ -138,4 +180,6 @@ export type AgentInput =
   | RequestApprovalInput
   | CancelInput
   | BudgetExceededInput
-  | SelfCorrectInput;
+  | SelfCorrectInput
+  | ToolResultsPrunedInput
+  | CompactionAppliedInput;

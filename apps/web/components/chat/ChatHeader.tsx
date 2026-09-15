@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
@@ -22,9 +22,19 @@ interface ChatHeaderProps {
     disabled: boolean;
     onToggle: () => void;
   };
+  /**
+   * Manual context-compaction entry for the open session. Omitted (no
+   * session selected) → button not rendered. `disabled` is driven by the
+   * session's generating/idle status; a busy 409 from the server is still
+   * possible after the click and is surfaced as a toast by the caller.
+   */
+  compactAction?: {
+    disabled: boolean;
+    onCompact: () => void;
+  };
 }
 
-export function ChatHeader({ title, paneToggle }: ChatHeaderProps) {
+export function ChatHeader({ title, paneToggle, compactAction }: ChatHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
       <SidebarToggle />
@@ -37,6 +47,28 @@ export function ChatHeader({ title, paneToggle }: ChatHeaderProps) {
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {compactAction && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="压缩上下文"
+                  onClick={compactAction.onCompact}
+                  disabled={compactAction.disabled}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
+                />
+              }
+            >
+              <Minimize2 className="h-4 w-4" />
+            </TooltipTrigger>
+            <TooltipContent>
+              {compactAction.disabled
+                ? '会话生成中，暂不可压缩'
+                : '压缩上下文（摘要旧消息，释放 token）'}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {paneToggle && (
           <Tooltip>
             <TooltipTrigger

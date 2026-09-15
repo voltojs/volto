@@ -134,7 +134,7 @@ describe("readSession", () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, "old.jsonl"),
-      JSON.stringify({ uuid: "u1", parentUuid: null, sessionId: "old", timestamp: 1, version: 1, type: "message", message: { role: "user", content: "hi" } }) + "\n",
+      JSON.stringify({ uuid: "u1", parentUuid: null, sessionId: "old", timestamp: 1, version: 1, type: "message", message: { id: "m1", role: "user", content: "hi" } }) + "\n",
       "utf-8",
     );
 

@@ -24,7 +24,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate } from "@volto/core";
+import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
@@ -146,6 +146,12 @@ export interface WiringOptions {
    * themselves at construction.
    */
   configDirRealPath?: string;
+  /**
+   * Compaction config. Plan 2: absent means the session registry applies
+   * its built-in defaults (compaction ON); pass `false` to opt out entirely.
+   * Tokenizer is injected by createAgent (character-count default).
+   */
+  compaction?: Omit<CompactionConfig, "tokenizer"> | false;
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -364,5 +370,11 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
+    // Pass through only a real config object. `false` (explicit disable)
+    // and the session registry's default-on resolution never reach here as
+    // a raw flag — see sessions.ts's resolveHostCompaction.
+    ...(opts.compaction !== undefined && opts.compaction !== false
+      ? { compaction: opts.compaction }
+      : {}),
   });
 }

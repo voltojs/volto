@@ -105,6 +105,28 @@ describe("mergeConfig", () => {
     expect(r1).toEqual(r2);
   });
 
+  it("compaction deep-merges toolResultMaxChars and summaryMaxTokens across layers", () => {
+    const global: ConfigLayer = {
+      compaction: { maxTokens: 4000, toolResultMaxChars: 8000 },
+    };
+    const runtime: ConfigLayer = {
+      compaction: { maxTokens: 4000, summaryMaxTokens: 2048 },
+    };
+    const result = mergeConfig(global, undefined, runtime);
+    expect(result.config.compaction).toEqual({
+      maxTokens: 4000,
+      toolResultMaxChars: 8000,
+      summaryMaxTokens: 2048,
+    });
+    expect(result.resolvedFrom.compaction).toBe("runtime");
+  });
+
+  it("compaction is undefined when no layer configures it", () => {
+    const result = mergeConfig({ model: "gpt-4" }, { maxTokens: 1024 });
+    expect(result.config.compaction).toBeUndefined();
+    expect(result.resolvedFrom.compaction).toBeUndefined();
+  });
+
   it("snapshot test — merged config matches snapshot", () => {
     const global: ConfigLayer = {
       model: "gpt-4",

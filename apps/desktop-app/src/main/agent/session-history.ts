@@ -50,16 +50,17 @@ export function persistedMessagesToInitialMessages(persisted: PersistedMessage[]
   const messages: Message[] = [];
   for (const msg of persisted) {
     if (msg.role === "user") {
-      messages.push({ role: "user", content: msg.content });
+      messages.push({ id: msg.id, role: "user", content: msg.content });
     } else if (msg.role === "assistant") {
       if (!msg.content) continue;
       messages.push({
+        id: msg.id,
         role: "assistant",
         content: [{ type: "text", text: msg.content }],
         stopReason: "end_turn",
       });
     } else if (msg.role === "system") {
-      messages.push({ role: "system", content: msg.content });
+      messages.push({ id: msg.id, role: "system", content: msg.content });
     }
   }
   return messages;

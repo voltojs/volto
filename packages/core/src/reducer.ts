@@ -4,8 +4,8 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message } from "./state.js";
-import type { ApprovalDenialReason, ReasoningEffortId } from "./ports.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage } from "./state.js";
+import type { ApprovalDenialReason, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
@@ -46,6 +46,11 @@ export interface StepContext {
    * hitting it. Pure data; the reducer never enforces with it.
    */
   permissionConfig?: PermissionConfig;
+  /**
+   * Optional id source; when set, messages appended to state.messages get
+   * id: ctx.id.next(). Absent → messages keep their construction-time id.
+   */
+  id?: Id;
 }
 
 // ──────────────────────────────────────────────
@@ -179,7 +184,7 @@ export function step(
   // mutation in the reducer (vs. Runner mutating state directly) preserves
   // the determinism / replay contract.
   if (input.type === "self_correct" && state.status !== "done") {
-    const repairMsg = { role: "user" as const, content: input.repairPrompt };
+    const repairMsg = stamp({ id: "", role: "user" as const, content: input.repairPrompt }, ctx);
     const correctionCount = input.consumesBudget
       ? state.selfCorrectionCount + 1
       : state.selfCorrectionCount;
@@ -198,6 +203,83 @@ export function step(
               kind: "self_correction",
               text: input.repairPrompt,
               displayMetadata: { consumesBudget: input.consumesBudget, correctionCount },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  // Unified tool_results_pruned handler — durable write-back of the Runner's
+  // request-surface pruning into state.messages. Status-independent: it is a
+  // pure message rewrite that never changes the turn's control flow.
+  if (input.type === "tool_results_pruned") {
+    const byId = new Map(input.entries.map((e) => [e.toolCallId, e]));
+    const messages = state.messages.map((m) => {
+      if (m.role !== "tool") return m;
+      const nextContent = m.content.map((b) => {
+        if (b.type !== "tool_result") return b;
+        const hit = byId.get(b.toolUseId);
+        if (!hit) return b;
+        return { ...b, content: hit.content };
+      });
+      return { ...m, content: nextContent };
+    });
+    return {
+      state: { ...state, messages },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "tool_results_pruned",
+            data: {
+              // content is intentionally omitted from the event: the event
+              // records that pruning happened, not the pruned text itself.
+              entries: input.entries.map(({ toolCallId, charsBefore, charsAfter }) => ({
+                toolCallId,
+                charsBefore,
+                charsAfter,
+              })),
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  // Unified compaction_applied handler — durable write-back of a compaction
+  // decision. Status-independent: a pure messages/pins rewrite. The summary
+  // id comes from the caller (Runner stamps it via StepContext.id / Id port);
+  // the reducer never invents one.
+  if (input.type === "compaction_applied") {
+    const replaced = new Set(input.replacedIds);
+    const kept = state.messages.filter((m) => !replaced.has(m.id));
+    const firstIdx = state.messages.findIndex((m) => replaced.has(m.id));
+    const summaryMsg: Message = {
+      id: input.summaryId,
+      role: "system",
+      content: `[Earlier conversation summary]\n${input.summaryText}`,
+    };
+    // Insert at the earliest replaced position among the KEPT order: count
+    // non-replaced messages before the first replaced index.
+    const insertAt =
+      firstIdx === -1
+        ? 0
+        : state.messages.slice(0, firstIdx).filter((m) => !replaced.has(m.id)).length;
+    const messages = [...kept.slice(0, insertAt), summaryMsg, ...kept.slice(insertAt)];
+    const pinnedMessageIds = (state.pinnedMessageIds ?? []).filter((id) => !replaced.has(id));
+    return {
+      state: { ...state, messages, pinnedMessageIds },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "compaction",
+            data: {
+              replacedCount: input.replacedIds.length,
+              summaryText: input.summaryText,
+              replacedIds: input.replacedIds,
+              summaryId: input.summaryId,
             },
           },
         },
@@ -231,8 +313,9 @@ export function step(
 
 function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "user_message") {
-    const userMsg = {
-      role: "user" as const,
+    const userMsg: UserMessage = {
+      id: "",
+      role: "user",
       content: input.content,
     };
 
@@ -250,7 +333,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       const fingerprint = permissionFingerprint(ctx.permissionConfig);
       if (fingerprint !== announced) {
         const reminderText = buildPermissionReminder(ctx.permissionConfig, announcedConfig);
-        announcements.push({ role: "user", content: reminderText });
+        announcements.push(stamp({ id: "", role: "user" as const, content: reminderText }, ctx));
         emittedReminders.push({
           type: "emit",
           event: { type: "context_reminder", data: { kind: "permission_boundary", text: reminderText } },
@@ -262,7 +345,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
 
     const newState: ReducerState = {
       ...state,
-      messages: [...state.messages, ...announcements, userMsg],
+      messages: [...state.messages, ...announcements, stamp(userMsg, ctx)],
       status: "calling_model",
       iterationCount: 0,
       _announcedPermission: announced,
@@ -370,13 +453,17 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
     // Finalize the assistant message
     const assistantContent = buildAssistantContent(state);
-    const assistantMsg: AssistantMessage = {
-      role: "assistant",
-      content: assistantContent,
-      stopReason: input.stopReason,
-      ...(ctx.model !== undefined ? { source: { modelId: ctx.model } } : {}),
-      ...(input.meta !== undefined ? { modelMeta: input.meta } : {}),
-    };
+    const assistantMsg: AssistantMessage = stamp(
+      {
+        id: "",
+        role: "assistant",
+        content: assistantContent,
+        stopReason: input.stopReason,
+        ...(ctx.model !== undefined ? { source: { modelId: ctx.model } } : {}),
+        ...(input.meta !== undefined ? { modelMeta: input.meta } : {}),
+      },
+      ctx,
+    );
 
     const baseState: ReducerState = {
       ...state,
@@ -540,7 +627,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
   if (input.type === "user_message") {
     // Steering: queue for injection at next turn boundary
-    const userMsg = { role: "user" as const, content: input.content };
+    const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
       effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
@@ -552,17 +639,21 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
 function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "tool_result") {
-    const toolResultMsg: ToolResultMessage = {
-      role: "tool",
-      content: [
-        {
-          type: "tool_result",
-          toolUseId: input.toolCallId,
-          content: input.result.modelContent,
-          isError: input.result.isError,
-        },
-      ],
-    };
+    const toolResultMsg: ToolResultMessage = stamp(
+      {
+        id: "",
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: input.toolCallId,
+            content: input.result.modelContent,
+            isError: input.result.isError,
+          },
+        ],
+      },
+      ctx,
+    );
 
     // Record file access from this result (pure, deterministic)
     const fileAccess = input.result.isError ? null : extractFileAccess(input.result.displayMetadata);
@@ -677,7 +768,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
   if (input.type === "user_message") {
     // Steering: queue for injection at next turn boundary
-    const userMsg = { role: "user" as const, content: input.content };
+    const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
       effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
@@ -740,17 +831,21 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
 
     // Denied — buffer the error result; it will be flushed in pendingTools
     // order alongside parallel tool results for deterministic replay.
-    const denyResultMsg: ToolResultMessage = {
-      role: "tool",
-      content: [
-        {
-          type: "tool_result",
-          toolUseId: input.toolCallId,
-          content: denialMessageFor(approvedTool.name, input.reason),
-          isError: true,
-        },
-      ],
-    };
+    const denyResultMsg: ToolResultMessage = stamp(
+      {
+        id: "",
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: input.toolCallId,
+            content: denialMessageFor(approvedTool.name, input.reason),
+            isError: true,
+          },
+        ],
+      },
+      ctx,
+    );
 
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: denyResultMsg };
 
@@ -849,6 +944,17 @@ function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/**
+ * Stamp a newly-appended message with a stable id from the optional Id port.
+ * Existing messages are never re-stamped. When no port is supplied the
+ * construction-time id is left untouched (hosts that skip the port must
+ * supply ids themselves, or accept empty placeholders).
+ */
+function stamp<T extends Message>(msg: T, ctx: StepContext): T {
+  if (!ctx.id) return msg;
+  return { ...msg, id: ctx.id.next() };
+}
 
 /**
  * Return a StepResult that emits an error event and leaves state unchanged.

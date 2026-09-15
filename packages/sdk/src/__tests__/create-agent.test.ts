@@ -307,8 +307,8 @@ describe("createAgent — SDK facade", () => {
       // (e.g. model/permission switch) and re-seeding the messages that were already
       // durably persisted to chatStore before the rebuild.
       const seededHistory: Message[] = [
-        { role: "user", content: "earlier turn" },
-        { role: "assistant", content: [{ type: "text", text: "earlier reply" }] },
+        { id: "seed-1", role: "user", content: "earlier turn" },
+        { id: "seed-2", role: "assistant", content: [{ type: "text", text: "earlier reply" }] },
       ];
 
       const agent = createAgent({
@@ -337,8 +337,8 @@ describe("createAgent — SDK facade", () => {
         },
       };
 
-      const msgA: Message = { role: "user", content: "earlier turn" };
-      const msgB: Message = { role: "assistant", content: [{ type: "text", text: "earlier reply" }] };
+      const msgA: Message = { id: "seed-a", role: "user", content: "earlier turn" };
+      const msgB: Message = { id: "seed-b", role: "assistant", content: [{ type: "text", text: "earlier reply" }] };
 
       const agent = createAgent({
         modelPort: createMockModelPort([textScript("new reply")]),
