@@ -294,4 +294,21 @@ describe('useChatStore', () => {
       expect(bucket.deltas).toEqual([]);
     });
   });
+
+  // -----------------------------------------------------------------------
+  // setSubagentGenerating — per-child streaming flag, independent of the
+  // global isGenerating (main-chat turn) flag.
+  // -----------------------------------------------------------------------
+
+  describe('setSubagentGenerating', () => {
+    it('tracks child generating independently of global isGenerating', () => {
+      const store = useChatStore.getState();
+      store.pushSubagentEvent('c1', { time: 1, type: 'user_message', data: { content: 'hi' } } as never);
+      store.setSubagentGenerating('c1', true);
+      expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(true);
+      expect(useChatStore.getState().isGenerating).toBe(false);
+      store.setSubagentGenerating('c1', false);
+      expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(false);
+    });
+  });
 });

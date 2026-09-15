@@ -21,6 +21,9 @@ export interface SubagentBucket {
   deltas: TranscriptDelta[];
   status: 'running' | 'done' | 'error';
   durationMs?: number;
+  /** Whether this child is currently streaming. Independent of the global
+   * `isGenerating` flag, which only tracks the main-chat turn. */
+  isGenerating?: boolean;
 }
 
 /** The `subagent_finished` bracket data the store needs to close a bucket. */
@@ -96,6 +99,11 @@ interface ChatState {
     isError: boolean,
     durationMs?: number,
   ) => void;
+  /**
+   * Sets the child's streaming flag. Independent of the global
+   * `isGenerating` — a sub-agent can stream while the main chat is idle.
+   */
+  setSubagentGenerating: (childId: string, isGenerating: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
   /** Drops every bucket — used on session switch. */
   resetSubagents: () => void;
@@ -171,6 +179,15 @@ export const useChatStore = create<ChatState>((set) => ({
           // keeps the card visible with its "no execution record" empty state.
           { events: [], deltas: [], status: isError ? 'error' : 'done', durationMs };
       return { subagents: { ...state.subagents, [childId]: bucket } };
+    }),
+
+  setSubagentGenerating: (childId, isGenerating) =>
+    set((state) => {
+      const subagents = ensureBucket(state.subagents, childId, state.events);
+      const bucket = subagents[childId]!;
+      return {
+        subagents: { ...subagents, [childId]: { ...bucket, isGenerating } },
+      };
     }),
 
   setConnectionState: (connectionState) => set({ connectionState }),
