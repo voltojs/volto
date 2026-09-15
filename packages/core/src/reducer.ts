@@ -210,6 +210,83 @@ export function step(
     };
   }
 
+  // Unified tool_results_pruned handler — durable write-back of the Runner's
+  // request-surface pruning into state.messages. Status-independent: it is a
+  // pure message rewrite that never changes the turn's control flow.
+  if (input.type === "tool_results_pruned") {
+    const byId = new Map(input.entries.map((e) => [e.toolCallId, e]));
+    const messages = state.messages.map((m) => {
+      if (m.role !== "tool") return m;
+      const nextContent = m.content.map((b) => {
+        if (b.type !== "tool_result") return b;
+        const hit = byId.get(b.toolUseId);
+        if (!hit) return b;
+        return { ...b, content: hit.content };
+      });
+      return { ...m, content: nextContent };
+    });
+    return {
+      state: { ...state, messages },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "tool_results_pruned",
+            data: {
+              // content is intentionally omitted from the event: the event
+              // records that pruning happened, not the pruned text itself.
+              entries: input.entries.map(({ toolCallId, charsBefore, charsAfter }) => ({
+                toolCallId,
+                charsBefore,
+                charsAfter,
+              })),
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  // Unified compaction_applied handler — durable write-back of a compaction
+  // decision. Status-independent: a pure messages/pins rewrite. The summary
+  // id comes from the caller (Runner stamps it via StepContext.id / Id port);
+  // the reducer never invents one.
+  if (input.type === "compaction_applied") {
+    const replaced = new Set(input.replacedIds);
+    const kept = state.messages.filter((m) => !replaced.has(m.id));
+    const firstIdx = state.messages.findIndex((m) => replaced.has(m.id));
+    const summaryMsg: Message = {
+      id: input.summaryId,
+      role: "system",
+      content: `[Earlier conversation summary]\n${input.summaryText}`,
+    };
+    // Insert at the earliest replaced position among the KEPT order: count
+    // non-replaced messages before the first replaced index.
+    const insertAt =
+      firstIdx === -1
+        ? 0
+        : state.messages.slice(0, firstIdx).filter((m) => !replaced.has(m.id)).length;
+    const messages = [...kept.slice(0, insertAt), summaryMsg, ...kept.slice(insertAt)];
+    const pinnedMessageIds = (state.pinnedMessageIds ?? []).filter((id) => !replaced.has(id));
+    return {
+      state: { ...state, messages, pinnedMessageIds },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "compaction",
+            data: {
+              replacedCount: input.replacedIds.length,
+              summaryText: input.summaryText,
+              replacedIds: input.replacedIds,
+              summaryId: input.summaryId,
+            },
+          },
+        },
+      ],
+    };
+  }
+
   switch (state.status) {
     case "idle":
       return handleIdle(state, input, ctx);

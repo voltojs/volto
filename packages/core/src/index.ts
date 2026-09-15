@@ -33,6 +33,8 @@ export type {
   CancelInput,
   BudgetExceededInput,
   SelfCorrectInput,
+  ToolResultsPrunedInput,
+  CompactionAppliedInput,
   AgentInput,
 } from "./input.js";
 
