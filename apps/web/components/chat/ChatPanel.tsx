@@ -551,6 +551,73 @@ export function ChatPanel() {
                   ))}
                 </div>
               )}
+              {/* Main input stays inside the chat column so trajectory never
+                  hosts it and RightPane remains a sibling of the whole Tabs. */}
+              <InputBar
+                onSubmit={handleSubmit}
+                projectId={currentProject?.id ?? null}
+                onInputAction={handleInputAction}
+                disabled={
+                  isGenerating || missingBinding || pendingApprovals.length > 0
+                }
+                isGenerating={isGenerating}
+                onStop={() => void stopGeneration()}
+                placeholder={
+                  pendingApprovals.length > 0
+                    ? '等待你的审批'
+                    : missingBinding
+                      ? '此会话缺少绑定的项目或模型，无法发送消息'
+                      : undefined
+                }
+                toolbar={
+                  currentSessionId && currentSession ? (
+                    <PermissionPicker
+                      value={currentSession.permissionMode}
+                      onChange={(mode) =>
+                        useSessionStore
+                          .getState()
+                          .setSessionPermissionMode(currentSessionId, mode)
+                      }
+                    />
+                  ) : null
+                }
+                trailing={
+                  currentSessionId && currentSession ? (
+                    <>
+                      <ContextMeter
+                        usage={usage}
+                        contextWindow={currentModel?.contextWindow}
+                        hasCompletedAssistantMessage={
+                          hasCompletedAssistantMessage
+                        }
+                      />
+                      <ModelSettingsPicker
+                        providerId={currentSession.providerId}
+                        modelId={currentSession.modelId}
+                        onModelChange={(providerId, modelId) =>
+                          useSessionStore
+                            .getState()
+                            .setSessionModel(
+                              currentSessionId,
+                              providerId,
+                              modelId,
+                            )
+                        }
+                        efforts={currentReasoning?.efforts ?? []}
+                        effort={currentSession.reasoningEffort}
+                        onEffortChange={(effort) =>
+                          useSessionStore
+                            .getState()
+                            .setSessionReasoningEffort(
+                              currentSessionId,
+                              effort,
+                            )
+                        }
+                      />
+                    </>
+                  ) : null
+                }
+              />
             </div>
           </TabsContent>
           <TabsContent
@@ -563,60 +630,6 @@ export function ChatPanel() {
         </Tabs>
         <RightPane projectId={currentProject?.id ?? null} />
       </div>
-      <InputBar
-        onSubmit={handleSubmit}
-        projectId={currentProject?.id ?? null}
-        onInputAction={handleInputAction}
-        disabled={isGenerating || missingBinding || pendingApprovals.length > 0}
-        isGenerating={isGenerating}
-        onStop={() => void stopGeneration()}
-        placeholder={
-          pendingApprovals.length > 0
-            ? '等待你的审批'
-            : missingBinding
-              ? '此会话缺少绑定的项目或模型，无法发送消息'
-              : undefined
-        }
-        toolbar={
-          currentSessionId && currentSession ? (
-            <PermissionPicker
-              value={currentSession.permissionMode}
-              onChange={(mode) =>
-                useSessionStore
-                  .getState()
-                  .setSessionPermissionMode(currentSessionId, mode)
-              }
-            />
-          ) : null
-        }
-        trailing={
-          currentSessionId && currentSession ? (
-            <>
-              <ContextMeter
-                usage={usage}
-                contextWindow={currentModel?.contextWindow}
-                hasCompletedAssistantMessage={hasCompletedAssistantMessage}
-              />
-              <ModelSettingsPicker
-                providerId={currentSession.providerId}
-                modelId={currentSession.modelId}
-                onModelChange={(providerId, modelId) =>
-                  useSessionStore
-                    .getState()
-                    .setSessionModel(currentSessionId, providerId, modelId)
-                }
-                efforts={currentReasoning?.efforts ?? []}
-                effort={currentSession.reasoningEffort}
-                onEffortChange={(effort) =>
-                  useSessionStore
-                    .getState()
-                    .setSessionReasoningEffort(currentSessionId, effort)
-                }
-              />
-            </>
-          ) : null
-        }
-      />
     </div>
   );
 }
