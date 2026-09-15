@@ -145,6 +145,32 @@
     background: color-mix(in oklch, var(--primary), transparent 70%);
     color: var(--foreground);
     }
+
+  /* Match the trajectory ScrollArea: thin rounded thumb on a transparent
+     track, using the same border token as scroll-area.tsx. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+    }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--border), var(--foreground) 18%);
+    }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+    }
 }
 
 @layer utilities {
