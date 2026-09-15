@@ -32,6 +32,7 @@
     "@volto/tools-data": "workspace:*",
     "@volto/tools-document": "workspace:*",
     "@volto/tools-fs": "workspace:*",
+    "@volto/tools-plan": "workspace:*",
     "@volto/tools-schedule": "workspace:*",
     "@volto/tools-shell": "workspace:*",
     "@volto/tools-vcs": "workspace:*",

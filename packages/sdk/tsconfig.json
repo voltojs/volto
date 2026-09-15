@@ -15,6 +15,7 @@
     { "path": "../tools/code" },
     { "path": "../tools/data" },
     { "path": "../tools/fs" },
+    { "path": "../tools/plan" },
     { "path": "../tools/shell" },
     { "path": "../tools/vcs" },
     { "path": "../tools/web" },
