@@ -26,7 +26,10 @@ export interface CompactionOptions {
   recentKeepCount: number;
   /** Tokenizer for estimating message sizes */
   tokenizer: Tokenizer;
-  /** IDs of messages that must never be compressed (pinned) */
+  /**
+   * Message ids that must never be compressed.
+   * Entries address `Message.id` (stable identity), not array indices.
+   */
   pinnedMessageIds?: string[];
 }
 
@@ -35,6 +38,12 @@ export interface CompactionDecision {
   shouldCompact: boolean;
   /** Exact indices of messages selected for compression (may be non-contiguous) */
   compressedIndices?: number[];
+  /**
+   * Ids of the messages selected for compression, derived from
+   * `compressedIndices` (`messages[i].id`). Write-back (Plan 2) uses this
+   * to replace the compressed span with a summary message.
+   */
+  replacedIds?: string[];
   /** Messages that will be kept as-is (not compressed) */
   preservedMessages: Message[];
   /** Messages eligible for compression */
@@ -196,9 +205,9 @@ export function decideCompaction(
   // exceeded, "compress last" still means compressed, and a summarised
   // boundary is a lost boundary: the fingerprint has not changed, so it is
   // never re-announced and the model silently stops knowing what it may do.
-  const pinnedIndices = new Set((opts.pinnedMessageIds ?? []).map(Number));
+  const pinned = new Set(opts.pinnedMessageIds ?? []);
   const compressible = recencyEligible.filter(
-    (item) => !pinnedIndices.has(item.index) && !isPermissionReminder(item.msg),
+    (item) => !pinned.has(item.msg.id) && !isPermissionReminder(item.msg),
   );
 
   // Among compressible, prefer compressing old tool interactions,
@@ -237,6 +246,13 @@ export function decideCompaction(
     }
   }
 
+  // Soft tool pairing: if either side of a tool_use / tool_result pair is
+  // selected, pull in the other side when it is still compressible. Leaving
+  // one side behind produces a request the provider rejects (orphaned
+  // tool_use or orphaned tool_result). "Soft" because a partner that is
+  // pinned, recent-kept, or a permission reminder is left alone.
+  pairToolInteractions(compressedIndices, toCompress, otherMessages, compressible);
+
   // Sort compressible by original index for the summary prompt
   toCompress.sort((a, b) => a.index - b.index);
 
@@ -257,15 +273,73 @@ export function decideCompaction(
   // Build summary prompt
   const summaryPrompt = buildSummaryPrompt(compressibleMessages);
 
+  const sortedIndices = Array.from(compressedIndices).sort((a, b) => a - b);
+
   return {
     shouldCompact: true,
-    compressedIndices: Array.from(compressedIndices).sort((a, b) => a - b),
+    compressedIndices: sortedIndices,
+    replacedIds: sortedIndices.map((i) => messages[i]!.id),
     preservedMessages,
     compressibleMessages,
     summaryPrompt,
     currentTokens,
     estimatedTokensAfter,
   };
+}
+
+type CompressibleItem = { msg: Message; index: number; tokens: number };
+
+/**
+ * Soft tool pairing. Mutates `compressedIndices` / `toCompress` in place so
+ * every selected tool_use has its matching tool_result selected too, and
+ * vice versa — but only when the partner is itself compressible. Pure.
+ */
+function pairToolInteractions(
+  compressedIndices: Set<number>,
+  toCompress: CompressibleItem[],
+  otherMessages: CompressibleItem[],
+  compressible: CompressibleItem[],
+): void {
+  const byIndex = new Map(otherMessages.map((o) => [o.index, o]));
+  const compressibleByIndex = new Map(compressible.map((c) => [c.index, c]));
+  const useIndexByToolId = new Map<string, number>();
+  const resultIndexByToolId = new Map<string, number>();
+
+  for (const item of otherMessages) {
+    if (!Array.isArray(item.msg.content)) continue;
+    for (const block of item.msg.content) {
+      if (block.type === "tool_use") {
+        useIndexByToolId.set(block.id, item.index);
+      } else if (block.type === "tool_result") {
+        resultIndexByToolId.set(block.toolUseId, item.index);
+      }
+    }
+  }
+
+  // Fixpoint: an assistant message can carry several tool_use blocks, so
+  // pulling in one partner may expose another unpaired partner.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const index of Array.from(compressedIndices)) {
+      const item = byIndex.get(index);
+      if (!item || !Array.isArray(item.msg.content)) continue;
+      for (const block of item.msg.content) {
+        const partnerIndex =
+          block.type === "tool_use"
+            ? resultIndexByToolId.get(block.id)
+            : block.type === "tool_result"
+              ? useIndexByToolId.get(block.toolUseId)
+              : undefined;
+        if (partnerIndex === undefined || compressedIndices.has(partnerIndex)) continue;
+        const partner = compressibleByIndex.get(partnerIndex);
+        if (!partner) continue; // pinned / recent / permission reminder — soft skip
+        compressedIndices.add(partnerIndex);
+        toCompress.push(partner);
+        changed = true;
+      }
+    }
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -298,12 +372,12 @@ export function estimateMessageTokens(msg: Message, tokenizer: Tokenizer): numbe
 // ──────────────────────────────────────────────
 
 /**
- * Build a prompt for the model to summarize compressible messages.
- * The summary should preserve: file paths, key decisions, incomplete tasks.
- * Key messages (with file paths/incomplete todos) are included in compression
- * as a last resort — the summary prompt ensures their content is retained.
+ * Build the structured checkpoint prompt the model uses to summarize a
+ * compressed span. dsh-style condensed checkpoint: fixed section headings,
+ * empty sections write `(none)`, prior summaries are merged not copied.
+ * Exported so tests can assert on the template directly.
  */
-function buildSummaryPrompt(messages: Message[]): string {
+export function buildSummaryPrompt(messages: Message[]): string {
   const conversationText = messages
     .map((msg) => {
       const role = msg.role;
@@ -312,14 +386,22 @@ function buildSummaryPrompt(messages: Message[]): string {
     })
     .join("\n\n");
 
-  return `Summarize the following conversation segment concisely. Preserve:
-- All file paths mentioned (critical — model needs these for file operations)
-- Key decisions and their reasoning
-- Incomplete tasks or TODOs
-- Important factual statements
+  return `Summarize the conversation segment below into a durable checkpoint. Write concise English engineering prose.
+
+Rules:
+- Keep every section heading exactly as given. If a section has nothing to record, write (none) — never drop a section.
+- Preserve file paths, commands, identifiers, and numeric values verbatim.
+- If the segment already contains a prior summary, merge it into these sections; do not copy it verbatim.
+
+## Primary Request and Intent
+## Key Technical Concepts
+## Files and Code
+## Errors and Fixes
+## Pending Jobs
+## Current Work
+## Next Step
+## Critical Context
 
 Conversation segment:
-${conversationText}
-
-Provide a structured summary in under 200 words.`;
+${conversationText}`;
 }

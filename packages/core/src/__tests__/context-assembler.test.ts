@@ -177,7 +177,7 @@ describe("pinned messages in assembleContext", () => {
     const result = assembleContext({
       messages,
       tools: [],
-      pinnedMessageIds: ["2"],
+      pinnedMessageIds: ["m19"],
     });
 
     // Order: system, pinned, then remaining non-system in original order
@@ -269,7 +269,7 @@ describe("contextLayers in assembleContext", () => {
     const result = assembleContext({
       messages,
       tools: [],
-      pinnedMessageIds: ["2"],
+      pinnedMessageIds: ["m32"],
       contextLayers: [{ id: "user-memory", text: "A" }],
     });
 

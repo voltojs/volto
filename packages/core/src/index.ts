@@ -201,6 +201,7 @@ export {
   isToolInteraction,
   isKeyMessage,
   isPermissionReminder,
+  buildSummaryPrompt,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
