@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useAutoOpenTasksTab } from '@/hooks/use-auto-open-tasks-tab';
 import { usePaneStore, PANE_WIDTH_DEFAULT } from '@/stores/pane-store';
+import { useSessionStore } from '@/stores/session-store';
 import type { BackgroundTaskItem } from '@/lib/background-tasks';
 
 const mockTasks = vi.hoisted(() => ({ current: [] as BackgroundTaskItem[] }));
@@ -18,6 +19,9 @@ const item = (id: string): BackgroundTaskItem => ({
   status: 'running',
 });
 
+const hasTasksTab = () =>
+  usePaneStore.getState().tabs.some((t) => t.kind === 'tasks');
+
 describe('useAutoOpenTasksTab', () => {
   beforeEach(() => {
     mockTasks.current = [];
@@ -28,15 +32,14 @@ describe('useAutoOpenTasksTab', () => {
       open: false,
       hidden: false,
     });
+    useSessionStore.setState({ currentSessionId: 's1' });
   });
 
   it('opens the tasks tab on 0 → 1 transition when not already open', () => {
     const { rerender } = renderHook(() => useAutoOpenTasksTab());
     mockTasks.current = [item('a')];
     rerender();
-    expect(
-      usePaneStore.getState().tabs.some((t) => t.kind === 'tasks'),
-    ).toBe(true);
+    expect(hasTasksTab()).toBe(true);
   });
 
   it('does not re-open after the user closed the tab', () => {
@@ -46,9 +49,38 @@ describe('useAutoOpenTasksTab', () => {
     usePaneStore.getState().closeTab('tasks');
     mockTasks.current = [item('a'), item('b')];
     rerender();
-    expect(
-      usePaneStore.getState().tabs.some((t) => t.kind === 'tasks'),
-    ).toBe(false);
+    expect(hasTasksTab()).toBe(false);
+  });
+
+  it('keeps the tab closed after user close even when count dips 1 → 0 → 1', () => {
+    const { rerender } = renderHook(() => useAutoOpenTasksTab());
+    mockTasks.current = [item('a')];
+    rerender();
+    expect(hasTasksTab()).toBe(true);
+
+    usePaneStore.getState().closeTab('tasks');
+    mockTasks.current = [];
+    rerender();
+    mockTasks.current = [item('b')];
+    rerender();
+    expect(hasTasksTab()).toBe(false);
+  });
+
+  it('resets the 0 → 1 baseline on session switch so restored tasks auto-open', () => {
+    const { rerender } = renderHook(() => useAutoOpenTasksTab());
+    // Session A accumulates two tasks (prevCount lands on 2).
+    mockTasks.current = [item('a1'), item('a2')];
+    rerender();
+    expect(hasTasksTab()).toBe(true);
+
+    // User closes, then switches to session C whose restored feed already
+    // has one task. Without a session-scoped reset this looks like 2 → 1
+    // and auto-open never fires.
+    usePaneStore.getState().closeTab('tasks');
+    mockTasks.current = [item('c1')];
+    useSessionStore.setState({ currentSessionId: 's2' });
+    rerender();
+    expect(hasTasksTab()).toBe(true);
   });
 
   it('does not force-activate when the tab is already open', () => {
