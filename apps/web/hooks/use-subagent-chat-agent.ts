@@ -67,12 +67,15 @@ export function useSubagentChatAgent(options: {
       : false,
   );
 
+  // Tear down the channel when the tracked child changes (or on unmount) —
+  // one hook instance follows one child, and a stale channel would keep
+  // routing frames for the previous one.
   useEffect(() => {
     return () => {
       connectionRef.current?.client.destroy();
       connectionRef.current = null;
     };
-  }, []);
+  }, [childSessionId]);
 
   /**
    * Open (or reuse) the child's SSE channel. A different childSessionId
@@ -92,9 +95,10 @@ export function useSubagentChatAgent(options: {
       const chat = useChatStore.getState();
       const childId = eventChildId(event) ?? sessionId;
       chat.pushSubagentEvent(childId, event);
-      if (event.type === 'turn_end') {
-        // Continued turns never emit a depth-0 subagent_finished bracket, so
-        // turn_end is the only release for the per-child generating flag.
+      // Only this channel's own turn_end releases its generating flag — a
+      // nested sub-agent's turn_end on the same stream must not unstick the
+      // parent while the parent turn is still running.
+      if (event.type === 'turn_end' && childId === sessionId) {
         chat.setSubagentGenerating(sessionId, false);
       }
     });
@@ -110,10 +114,14 @@ export function useSubagentChatAgent(options: {
     // the child's generating flag.
     client.onError((data) => {
       const chat = useChatStore.getState();
+      const message =
+        typeof data.message === 'string' && data.message.length > 0
+          ? data.message
+          : '子会话流发生未知错误';
       chat.pushSubagentEvent(sessionId, {
         time: Date.now(),
         type: 'error',
-        data: { message: data.message },
+        data: { message },
       });
       chat.setSubagentGenerating(sessionId, false);
     });

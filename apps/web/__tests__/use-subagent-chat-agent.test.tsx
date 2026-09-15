@@ -168,6 +168,36 @@ describe('useSubagentChatAgent', () => {
     expect(result.current.isGenerating).toBe(false);
   });
 
+  it('does not clear this channel\'s generating on a nested sub-agent turn_end', async () => {
+    const { result } = renderHook(() =>
+      useSubagentChatAgent({ childSessionId: 'c1', config }),
+    );
+    await act(async () => {
+      await result.current.sendMessage('hi');
+    });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(true);
+
+    // turn_end tagged for a grandchild must land in that child's bucket and
+    // leave c1's continued-turn flag alone. Routing tags live in `data`
+    // (see lib/subagent-routing.ts).
+    await act(async () => {
+      for (const handler of agentConfig.state.eventHandlers) {
+        handler({
+          ...TURN_END,
+          data: { ...TURN_END.data, agentDepth: 2, childSessionId: 'c1-nested' },
+        });
+      }
+    });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(true);
+    expect(useChatStore.getState().subagents['c1-nested']).toBeDefined();
+
+    // c1's own untagged turn_end still releases it.
+    await act(async () => {
+      for (const handler of agentConfig.state.eventHandlers) handler(TURN_END);
+    });
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(false);
+  });
+
   it('clears subagent generating and surfaces an error when postMessage fails', async () => {
     agentConfig.postMessage.mockRejectedValueOnce(new Error('boom'));
     const { result } = renderHook(() =>
@@ -259,14 +289,14 @@ describe('useSubagentChatAgent', () => {
           type: 'assistant_message',
           turn: 1,
           step: 1,
+          // Routing tags live in `data` (see lib/subagent-routing.ts).
           data: {
             content: [{ type: 'text', text: 'hello' }],
             stopReason: 'end_turn',
             durationMs: 5,
-            // Tagged as this child's traffic.
+            agentDepth: 1,
+            childSessionId: 'c1',
           },
-          agentDepth: 1,
-          childSessionId: 'c1',
         });
       }
     });
@@ -274,6 +304,43 @@ describe('useSubagentChatAgent', () => {
     expect(bucket?.events.some((e) => e.type === 'assistant_message')).toBe(
       true,
     );
+  });
+
+  it('destroys the SSE channel when childSessionId changes', async () => {
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) =>
+        useSubagentChatAgent({ childSessionId: id, config }),
+      { initialProps: { id: 'c1' } },
+    );
+    await act(async () => {
+      await result.current.sendMessage('hi');
+    });
+    const firstClient = agentConfig.state.lastClient;
+    expect(firstClient?.connect).toHaveBeenCalled();
+
+    rerender({ id: 'c2' });
+    expect(firstClient?.destroy).toHaveBeenCalled();
+  });
+
+  it('falls back to a generic message when the error frame has none', async () => {
+    const { result } = renderHook(() =>
+      useSubagentChatAgent({ childSessionId: 'c1', config }),
+    );
+    await act(async () => {
+      await result.current.sendMessage('hi');
+    });
+
+    await act(async () => {
+      for (const handler of agentConfig.state.errorHandlers) {
+        handler({ code: 'STREAM_ERROR', message: '' });
+      }
+    });
+    const events = useChatStore.getState().subagents.c1?.events ?? [];
+    const last = events.find((e) => e.type === 'error');
+    expect((last?.data as { message?: string }).message).toBe(
+      '子会话流发生未知错误',
+    );
+    expect(useChatStore.getState().subagents.c1?.isGenerating).toBe(false);
   });
 
   it('does nothing without a childSessionId or with an incomplete config', async () => {
