@@ -31,7 +31,8 @@
  * `replacedIds`/`summaryId` rewrites the projected list the same way the
  * reducer's `compaction_applied` handler rewrites `state.messages` — remove
  * the named messages, insert one system-role summary at the earliest
- * replaced position. Legacy compaction events without ids are skipped.
+ * replaced position. Legacy compaction events without ids are skipped, and
+ * so is a write-back whose replacedIds match nothing in the projection.
  * `tool_results_pruned` stays log-only: the event omits pruned content by
  * design, so the projection has nothing to rewrite with.
  */
@@ -274,14 +275,15 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         // Same position rule as the reducer's compaction_applied handler
         // (reducer.ts:254-269): remove the named messages, insert one
         // system-role summary at the earliest replaced position among the
-        // kept order (or index 0 when nothing matched).
+        // kept order.
         const replaced = new Set(data.replacedIds);
         const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
+        // No projected id matched replacedIds. Production logs always hit
+        // this (events lack message ids), so treat it like a legacy event:
+        // skip entirely rather than inventing a summary at index 0.
+        if (firstIdx === -1) break;
         const kept = messages.filter((e) => !replaced.has(e.message.id));
-        const insertAt =
-          firstIdx === -1
-            ? 0
-            : messages.slice(0, firstIdx).filter((e) => !replaced.has(e.message.id)).length;
+        const insertAt = messages.slice(0, firstIdx).filter((e) => !replaced.has(e.message.id)).length;
         const summaryEntry: ProjectedMessage = {
           message: {
             id: data.summaryId,

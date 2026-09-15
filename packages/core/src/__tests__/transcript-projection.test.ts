@@ -722,23 +722,36 @@ describe("projectMessages — compaction write-back", () => {
     expect(String(sum.content)).toBe("[Earlier conversation summary]\ncheckpoint");
   });
 
-  it("inserts the summary at position 0 when no replaced id matches", () => {
+  it("leaves the projection unchanged when no replaced id matches", () => {
     const events = log([
       { time: 1, type: "user_message", data: { content: "hi" }, turn: 1 },
       {
         time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "hello" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 3,
         type: "compaction",
         data: {
           replacedCount: 1,
           summaryText: "s",
-          replacedIds: ["ghost"],
+          // None of these ids appear in the projected list — production logs
+          // always hit this, since transcript events lack message ids.
+          replacedIds: ["ghost", "also-missing"],
           summaryId: "sum-1",
         },
         turn: 1,
       },
     ]);
 
-    expect(projectMessages(events).map((m) => m.id)).toEqual(["sum-1", "proj-1"]);
+    // Unmatched replacedIds must SKIP like a legacy event: no insert, no remove.
+    expect(stripIds(projectMessages(events))).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
+    ]);
   });
 
   it("replaces a non-contiguous span keeping the interleaved message", () => {
