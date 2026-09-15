@@ -200,7 +200,8 @@ export interface RunnerOptions {
 
 /**
  * Result of a successful {@link Runner.compactNow} call.
- * `replacedCount` is the number of messages replaced by the summary;
+ * `replacedCount` is the number of messages replaced by the summary
+ * (0 when only oversized tool results were pruned);
  * `tokensFreedEstimate` is the tokenizer-based before/after delta.
  */
 export interface CompactNowResult {
@@ -243,8 +244,10 @@ export interface Runner {
    *
    * - Status must be `idle` or `done`; anything else throws
    *   {@link CompactionBusyError}.
-   * - Returns `null` when there is no compaction config, or when the
-   *   history is under threshold / nothing useful can be compressed.
+   * - Returns `null` when there is no compaction config, or when no
+   *   write-back landed (under threshold / nothing useful can be
+   *   compressed). A prune-only pass is a write-back: it returns
+   *   `replacedCount: 0` with a positive `tokensFreedEstimate`.
    * - On success, `state.messages` is rewritten in place (via the same
    *   `feed()` path) and the result reports how many messages were
    *   replaced and the estimated token savings.
@@ -1663,9 +1666,11 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       const outcome = await runCompactionWriteBack(state.messages);
 
-      // No write-back landed — under threshold, nothing compressible, or
-      // summarization failed without a prune. Nothing to report.
-      if (!outcome.didWriteBack || outcome.replacedCount === 0) return null;
+      // No write-back landed at all — under threshold, nothing compressible,
+      // or summarization failed without a prune. Nothing to report.
+      // A prune-only pass (didWriteBack=true, replacedCount=0) DID change
+      // state.messages and must return a result, not null.
+      if (!outcome.didWriteBack) return null;
 
       const afterTokens = estimateTokens(state.messages, tokenizer);
       return {
