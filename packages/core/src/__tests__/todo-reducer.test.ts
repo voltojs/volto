@@ -92,6 +92,11 @@ describe("reducer todos statePatch", () => {
     expect(r.state.todos).toBeUndefined();
     const emits = r.effects.filter((e): e is Extract<Effect, { type: "emit" }> => e.type === "emit");
     expect(emits.some((e) => e.event.type === "todoListUpdated")).toBe(false);
+    expect(
+      emits.some(
+        (e) => e.event.type === "context_reminder" && e.event.data["kind"] === "todo_list",
+      ),
+    ).toBe(false);
   });
 
   it("clears to [] on empty list patch", () => {
@@ -135,6 +140,15 @@ describe("reducer todos statePatch", () => {
       ctx,
     );
     expect(r.state.todos).toEqual([]);
+    // Clear is still a successful patch: the reminder must fire so UIs/
+    // assemblers observe the wipe. formatTodoListForModel([]) is "".
+    const emits = r.effects.filter((e): e is Extract<Effect, { type: "emit" }> => e.type === "emit");
+    const reminders = emits.filter(
+      (e) => e.event.type === "context_reminder" && e.event.data["kind"] === "todo_list",
+    );
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]!.event.data["text"]).toBe(formatTodoListForModel([]));
+    expect(formatTodoListForModel([])).toBe("");
   });
 
   it("ignores unknown statePatch keys", () => {
