@@ -67,8 +67,10 @@ describe("Runner ToolResult.statePatch", () => {
       { content: "land regression test", status: "pending" },
     ];
 
+    // tool_use args mirror the executor fixture list (the mock ignores
+    // args, but a mismatch would hide a broken call-payload path).
     const mockModel = createMockModelPort([
-      toolCallScript("call_1", "todo_write", '{"todos":[]}'),
+      toolCallScript("call_1", "todo_write", JSON.stringify({ todos })),
       textScript("List recorded."),
     ]);
 
@@ -132,7 +134,15 @@ describe("Runner ToolResult.statePatch", () => {
 
     const finalState = await runner.run({ type: "user_message", content: "Track this work" });
 
+    // Guard the harness: the error tool_result must actually have been
+    // fed back — a skipped tool loop would also leave todos undefined.
     expect(finalState.status).toBe("done");
+    expect(finalState.messages).toHaveLength(4); // user, assistant(tool_use), tool_result, assistant(text)
+    const toolMsg = finalState.messages.find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.content[0]).toMatchObject({ type: "tool_result" });
+    expect(toolMsg!.content[0]?.isError).toBeTruthy();
+
     expect(finalState.todos).toBeUndefined();
   });
 });
