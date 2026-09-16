@@ -122,25 +122,36 @@ export interface WireImageContent {
  * Swap AttachmentStore references for the base64 bytes providers expect.
  *
  * Runs on the request surface only: AgentState keeps refs, so a snapshot
- * never carries image bytes. A missing attachment degrades to placeholder
- * text and emits a warning — replaying an old session whose files were
- * cleaned up must not break the loop.
+ * never carries image bytes. A missing attachment — or a lookup that
+ * rejects on I/O failure — degrades to placeholder text and emits a
+ * warning: replaying an old session whose files were cleaned up (or a
+ * store having a bad day) must not break the loop.
  */
 export async function resolveImageRefs(
   messages: Message[],
   store: AttachmentStore,
   eventSink: EventSink,
 ): Promise<Message[]> {
+  const unavailable = (id: string): ContentBlock => {
+    eventSink.emit({
+      type: "attachment_unavailable",
+      data: { id },
+    });
+    return { type: "text", text: `[image unavailable: ${id}]` };
+  };
+
   const resolveBlock = async (block: ContentBlock): Promise<ContentBlock> => {
     if (block.type !== "image" || block.source.type !== "ref") return block;
-    const found = await store.get(block.source.id);
-    if (!found) {
-      eventSink.emit({
-        type: "attachment_unavailable",
-        data: { id: block.source.id },
-      });
-      return { type: "text", text: `[image unavailable: ${block.source.id}]` };
+    // The port contract allows get() to reject on I/O failure. A rejecting
+    // store must degrade exactly like a missing id — same placeholder, same
+    // warning — never an unhandled rejection that kills the turn.
+    let found: { data: string; mimeType: string } | undefined;
+    try {
+      found = await store.get(block.source.id);
+    } catch {
+      return unavailable(block.source.id);
     }
+    if (!found) return unavailable(block.source.id);
     // The wire shape is not part of core's ContentBlock union — state stays
     // ref-only. Cast at this boundary; providers narrow on source.type.
     return {

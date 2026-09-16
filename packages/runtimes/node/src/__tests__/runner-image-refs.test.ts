@@ -65,6 +65,25 @@ describe("resolveImageRefs", () => {
     expect(events.some((e) => e.type === "attachment_unavailable")).toBe(true);
   });
 
+  it("degrades the same way when store.get rejects, without throwing", async () => {
+    // The port contract allows get() to reject on I/O failure — the shipped
+    // node store catches internally, but a rejecting implementation must not
+    // become an unhandled rejection that kills the turn.
+    const events: Array<{ type: string }> = [];
+    const sink: EventSink = { emit: (e) => void events.push(e as { type: string }) } as EventSink;
+    const rejecting: AttachmentStore = {
+      put: vi.fn(),
+      get: vi.fn().mockRejectedValue(new Error("disk I/O error")),
+      deleteBySession: vi.fn(),
+    } as unknown as AttachmentStore;
+
+    const out = await resolveImageRefs(messages, rejecting, sink);
+
+    const block = toolResultBlocks(out[0])[1]!;
+    expect(block).toEqual({ type: "text", text: "[image unavailable: att-1]" });
+    expect(events.some((e) => e.type === "attachment_unavailable")).toBe(true);
+  });
+
   it("leaves non-image blocks and string content untouched", async () => {
     const plain: Message[] = [
       { id: "u1", role: "user", content: "hello" },
