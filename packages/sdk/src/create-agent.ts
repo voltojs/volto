@@ -54,6 +54,7 @@ import {
   extractTouchedToolPaths,
   parseSkillInvocation,
   ReasoningEffortId,
+  narrowPermission,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -68,12 +69,15 @@ import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentDispatch } from "@volto/tools-agent";
 import { createTaskTool } from "@volto/tools-agent";
+import type { AgentEntry } from "./agent-registry/index.js";
+import type { AgentSpec } from "./agent-spec.js";
 
 /**
- * Legacy string-in/string-out executor shape used by createSubAgentExecutor.
- * Task 5 replaces this with a real SubAgentDispatch (typed + background).
+ * Sync sub-agent request. Background dispatch (and task_output collection)
+ * is a later task — this shape is what the task tool's sync path needs.
  */
-type StringSubAgentExecutor = (message: string) => Promise<string>;
+type SyncSubAgentRequest = { message: string; subagentType?: string };
+type SyncSubAgentExecutor = (req: SyncSubAgentRequest) => Promise<string>;
 import {
   createReadFileTool,
   createEditFileTool,
@@ -451,6 +455,18 @@ export interface CreateAgentOptions {
   enableTaskTool?: boolean;
 
   /**
+   * Agent definitions available as `subagent_type` values on the task tool.
+   * Typically produced by `scanAgentSources()`; shadowed entries are ignored
+   * for lookup (a later same-name definition wins).
+   *
+   * A typed dispatch intersects the definition's tools/capabilities with the
+   * parent's and narrows (never widens) its policy — see `assembleSubAgent`.
+   * Omitting this option keeps the general-purpose sub-agent: every parent
+   * tool minus `task`, parent capabilities minus `agent:task`.
+   */
+  agentSpecs?: AgentEntry[];
+
+  /**
    * Host-owned skill registry — enables progressive skill disclosure:
    * registers the model-facing `skill` loader tool (capability `skill:load`)
    * and appends a `skill-catalog` context layer (names + descriptions only)
@@ -822,6 +838,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   allCustomTools.push(createTodoWriteTool());
 
   if (opts.enableTaskTool) {
+    const agentSpecs = opts.agentSpecs ?? [];
     const executor = createSubAgentExecutor(
       opts,
       allCustomTools,
@@ -835,19 +852,31 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       opts.chatStore,
       opts.chatSessionId,
       () => turnCounter,
+      agentSpecs,
     );
-    // Thin adapter onto the new dispatch contract: sync-only, fixed task id.
-    // Task 5 wires real typed/background dispatch and task_output. Until then
-    // a background request must fail loudly — faking a task id would tell the
-    // model a detached task is running while discarding the result text and
-    // with no task_output collector registered to retrieve it.
-    const dispatch: SubAgentDispatch = async ({ message, background }) => {
+    // Sync-only for now: a background request must fail loudly — faking a
+    // task id would tell the model a detached task is running while
+    // discarding the result text and with no task_output collector
+    // registered to retrieve it. Background dispatch + task_output land in
+    // a later task.
+    const dispatch: SubAgentDispatch = async ({ message, subagentType, background }) => {
       if (background) {
         throw new Error("background dispatch is not wired yet");
       }
-      return { taskId: "sync", text: await executor(message) };
+      return { taskId: "sync", text: await executor({ message, subagentType }) };
     };
-    allCustomTools.push(createTaskTool(dispatch));
+    // Non-shadowed definitions become the visible subagent_type values; the
+    // tool rejects an unknown name before dispatching so the model can
+    // self-correct from the listed set.
+    const agentTypes = agentSpecs
+      .filter((entry) => !entry.shadowed)
+      .map((entry) => ({
+        name: entry.spec.name,
+        ...(entry.spec.description !== undefined
+          ? { description: entry.spec.description }
+          : {}),
+      }));
+    allCustomTools.push(createTaskTool(dispatch, { types: agentTypes }));
   }
   if (opts.skillRegistry) {
     // Local const so the narrowing survives inside the loader callback.
@@ -1771,12 +1800,104 @@ function tagEventSink(
 }
 
 /**
- * Create a string executor that spins up a fresh Runner with isolated state,
- * shared ModelPort and tools (without task tools to prevent recursion).
- * Sub-agent events are forwarded to the parent's event sink with an
- * `agentDepth` tag so the host can render them separately from the main
- * agent's output.
- * Task 5 replaces this with a real SubAgentDispatch.
+ * Result of intersecting an AgentSpec with the parent agent's resources.
+ *
+ * Tools and capabilities are intersections, never substitutions: a definition
+ * naming a tool or capability the parent does not have cannot conjure it into
+ * existence. Permissions are narrowed via core `narrowPermission` — the
+ * definition may tighten, never widen.
+ */
+export interface AssembledSubAgent {
+  tools: Tool[];
+  capabilities: Set<string>;
+  permissionConfig: PermissionConfig;
+  /** Axes where the definition asked for more than the parent allows. */
+  downgrades: Array<{ field: string; requested: string; effective: string }>;
+}
+
+/**
+ * Resolve a definition into assembly parameters, intersected with the parent.
+ *
+ * Tools and capabilities are intersections, not substitutions: a definition
+ * naming a tool the parent does not have must not conjure it into existence.
+ * An omitted `tools`/`capabilities` field means "no extra restriction" (the
+ * full parent set); an empty list means "none".
+ *
+ * A partial `spec.policy` is completed from the parent on missing axes
+ * (missing = inherit, never widen), then the completed pair is run through
+ * core `narrowPermission` so every axis is at most as permissive as the
+ * parent. Axes the definition asked to widen are reported in `downgrades` so
+ * the host can surface why the child did not get what its definition asked
+ * for (F-023).
+ */
+export function assembleSubAgent(opts: {
+  spec: AgentSpec;
+  parentTools: Tool[];
+  parentPolicy: PermissionConfig;
+  parentCapabilities: Set<string>;
+}): AssembledSubAgent {
+  const { spec, parentTools, parentPolicy, parentCapabilities } = opts;
+
+  // Tools: keep parent order; drop declared names the parent does not own.
+  const parentToolsByName = new Map(
+    parentTools.map((t) => [t.definition.name, t] as const),
+  );
+  const tools: Tool[] =
+    spec.tools === undefined
+      ? [...parentTools]
+      : spec.tools.flatMap((name) => {
+          const t = parentToolsByName.get(name);
+          return t ? [t] : [];
+        });
+
+  // Capabilities: same intersection rule as tools.
+  const capabilities =
+    spec.capabilities === undefined
+      ? new Set(parentCapabilities)
+      : new Set(spec.capabilities.filter((c) => parentCapabilities.has(c)));
+
+  // Complete a partial policy from the parent (missing axis = inherit, not
+  // widen), then let core narrowPermission take the stricter option on every
+  // axis. Never reimplement that math here.
+  const requestedPolicy: PermissionConfig = {
+    sandbox: spec.policy?.sandbox ?? parentPolicy.sandbox,
+    approval: spec.policy?.approval ?? parentPolicy.approval,
+    ...(spec.policy?.rules !== undefined ? { rules: spec.policy.rules } : {}),
+  };
+  const permissionConfig = narrowPermission(parentPolicy, requestedPolicy);
+
+  const downgrades: AssembledSubAgent["downgrades"] = [];
+  if (requestedPolicy.sandbox !== permissionConfig.sandbox) {
+    downgrades.push({
+      field: "sandbox",
+      requested: requestedPolicy.sandbox,
+      effective: permissionConfig.sandbox,
+    });
+  }
+  if (requestedPolicy.approval !== permissionConfig.approval) {
+    downgrades.push({
+      field: "approval",
+      requested: requestedPolicy.approval,
+      effective: permissionConfig.approval,
+    });
+  }
+
+  return { tools, capabilities, permissionConfig, downgrades };
+}
+
+/**
+ * Create a sync sub-agent executor that spins up a fresh Runner with
+ * isolated state per dispatch.
+ *
+ * Without a `subagentType` the child inherits the parent's tools (minus
+ * `task`, to prevent recursion) and capabilities (minus `agent:task`). With
+ * one, the matching AgentEntry is assembled via `assembleSubAgent` so the
+ * child gets only what the definition declares AND the parent owns, and a
+ * policy at most as permissive as the parent's. Sub-agent events are
+ * forwarded to the parent's event sink with an `agentDepth` tag so the host
+ * can render them separately from the main agent's output.
+ *
+ * Background dispatch and task_output collection are not wired here yet.
  */
 function createSubAgentExecutor(
   opts: CreateAgentOptions,
@@ -1791,8 +1912,9 @@ function createSubAgentExecutor(
   chatStore?: TranscriptStore,
   parentChatSessionId?: string,
   getCurrentTurn: () => number = () => 0,
-): StringSubAgentExecutor {
-  return async (message: string): Promise<string> => {
+  agentSpecs: AgentEntry[] = [],
+): SyncSubAgentExecutor {
+  return async ({ message, subagentType }: SyncSubAgentRequest): Promise<string> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
     const turn = getCurrentTurn();
 
@@ -1810,13 +1932,66 @@ function createSubAgentExecutor(
     // construction below: the brackets must reach it first, and nothing
     // reassigns the turn sink between here and there).
     const currentSink = getCurrentEventSink();
+    const agentLabel = subagentType ?? "task";
+
+    // ── Assemble the child's tools / capabilities / policy ──
+    // Done before any bracket so the label and the downgrade event describe
+    // the same dispatch. Baseline strips `task` (no recursion) and
+    // `agent:task` (the child cannot delegate until depth limits land).
+    const parentPolicyResolved = resolveConfigValue(
+      opts.permissionConfig,
+      opts.config?.config,
+      "permissionConfig",
+    );
+    const parentToolsForChild = [
+      ...parentCustomTools.filter((t) => t.definition.name !== "task"),
+      ...parentAdapterTools,
+    ];
+    const parentCapabilitiesForChild = new Set(capabilities);
+    parentCapabilitiesForChild.delete("agent:task");
+
+    let childTools: Tool[] = parentToolsForChild;
+    let childCapabilities: Set<string> = parentCapabilitiesForChild;
+    // General-purpose path keeps the parent's resolved value as-is (possibly
+    // undefined → the Runner applies no permission layer, matching prior
+    // behavior). A typed path always gets a concrete narrowed policy.
+    let childPermissionConfig: PermissionConfig | undefined = parentPolicyResolved;
+    let downgrades: AssembledSubAgent["downgrades"] = [];
+
+    if (subagentType !== undefined) {
+      const entry = agentSpecs.find(
+        (e) => !e.shadowed && e.spec.name === subagentType,
+      );
+      if (!entry) {
+        // The task tool pre-checks known types when a registry is present;
+        // this is the executor-side backstop for a subagent_type that reached
+        // dispatch with no matching non-shadowed definition. Fail loudly
+        // rather than silently falling back to general-purpose — the model
+        // asked for a specific definition and must not get a different one.
+        throw new Error(`Unknown subagent_type "${subagentType}"`);
+      }
+      const assembled = assembleSubAgent({
+        spec: entry.spec,
+        parentTools: parentToolsForChild,
+        // Completing from the default here (rather than passing undefined)
+        // keeps narrowPermission total: a parent that never configured a
+        // policy still cannot be widened past workspace-write + ask by a
+        // definition file the agent itself can write.
+        parentPolicy: parentPolicyResolved ?? createDefaultPermissionConfig(),
+        parentCapabilities: parentCapabilitiesForChild,
+      });
+      childTools = assembled.tools;
+      childCapabilities = assembled.capabilities;
+      childPermissionConfig = assembled.permissionConfig;
+      downgrades = assembled.downgrades;
+    }
 
     if (chatStore && parentChatSessionId && childSessionId) {
       bestEffortAppend(chatStore, parentChatSessionId, [
         {
           time: startedAt,
           type: "subagent_started",
-          data: { childSessionId, label: "task", depth },
+          data: { childSessionId, label: agentLabel, depth },
           turn,
         },
       ]);
@@ -1853,10 +2028,25 @@ function createSubAgentExecutor(
       const startedBracket: TranscriptEventInput<"subagent_started"> = {
         time: startedAt,
         type: "subagent_started",
-        data: { childSessionId, label: "task", depth },
+        data: { childSessionId, label: agentLabel, depth },
         turn,
       };
       currentSink?.emit(startedBracket);
+    }
+
+    // F-023: a definition that asked for more than the parent allows must say
+    // so on the main feed — otherwise the user sees a silent, inexplicable
+    // restriction. Parent-level (un-tagged), like the brackets above.
+    if (downgrades.length > 0 && subagentType !== undefined) {
+      currentSink?.emit({
+        type: "subagent_permission_downgraded",
+        data: {
+          ...(childSessionId !== undefined ? { childSessionId } : {}),
+          subagentType,
+          downgrades,
+          turn,
+        },
+      });
     }
 
     const finishSubAgent = (isError: boolean): void => {
@@ -1881,14 +2071,10 @@ function createSubAgentExecutor(
       }
     };
 
-    const subCustomTools = parentCustomTools.filter(
-      (t) => t.definition.name !== "task",
-    );
-    const subAllTools = [...subCustomTools, ...parentAdapterTools];
-    const subToolDefs: ToolDefinition[] = subAllTools.map((t) => t.definition);
+    const subToolDefs: ToolDefinition[] = childTools.map((t) => t.definition);
 
     const subCustomToolMap = new Map<string, Tool>();
-    for (const t of subCustomTools) {
+    for (const t of childTools) {
       subCustomToolMap.set(t.definition.name, t);
     }
 
@@ -1904,9 +2090,6 @@ function createSubAgentExecutor(
       if (!tool) return { modelContent: `Unknown tool: ${call.name}`, isError: true };
       return tool.handler(call.input);
     };
-
-    const subCapabilities = new Set(capabilities);
-    subCapabilities.delete("agent:task");
 
     // A subagent that keeps skill:load (and the `skill` tool) can only guess
     // skill names without this. Rebuilt per dispatch rather than reusing the
@@ -1937,15 +2120,15 @@ function createSubAgentExecutor(
     // currentSink was read at the top of this dispatch (the brackets emitted
     // there need it before the runner exists); reuse the same snapshot here.
     const taggedSink = currentSink
-      ? tagEventSink(currentSink, depth, "task", childSessionId)
+      ? tagEventSink(currentSink, depth, agentLabel, childSessionId)
       : undefined;
 
     const subRunner = createRunner({
       modelPort: opts.modelPort,
       stepContext: subStepContext,
       toolExecutor: subExecutor,
-      availableCapabilities: subCapabilities,
-      permissionConfig: resolveConfigValue(opts.permissionConfig, opts.config?.config, "permissionConfig"),
+      availableCapabilities: childCapabilities,
+      permissionConfig: childPermissionConfig,
       approvalGate: createAutoAllowGate(),
       eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),

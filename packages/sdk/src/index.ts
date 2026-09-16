@@ -1,7 +1,7 @@
 // @volto/sdk — facade: createAgent, run / stream / resume
 
-export { createAgent } from "./create-agent.js";
-export type { CreateAgentOptions, AgentInstance, ResolvedPorts } from "./create-agent.js";
+export { createAgent, assembleSubAgent } from "./create-agent.js";
+export type { CreateAgentOptions, AgentInstance, ResolvedPorts, AssembledSubAgent } from "./create-agent.js";
 
 // M9: Model layer
 export { createModelRouter } from "./model-router.js";
