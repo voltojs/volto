@@ -167,22 +167,19 @@ function convertMessage(msg: Message): Record<string, unknown> {
             return { type: "text", text: block.text };
           }
           if (block.type === "image") {
-            return {
-              type: "image",
-              source: {
-                type: block.source.type === "base64" ? "base64" : "url",
-                media_type: block.source.mediaType,
-                ...(block.source.type === "base64"
-                  ? { data: block.source.data }
-                  : { url: block.source.data }),
-              },
-            };
+            // Image forwarding lands in Task 6/7. Core state now carries
+            // AttachmentStore refs, not bytes; skip until the Runner resolves them.
+            return { type: "text", text: "[image omitted]" };
           }
           if (block.type === "tool_result") {
             return {
               type: "tool_result",
               tool_use_id: block.toolUseId,
-              content: block.content,
+              // Join text blocks; image blocks are skipped until Task 6/7.
+              content: block.content
+                .filter((b): b is { type: "text"; text: string } => b.type === "text")
+                .map((b) => b.text)
+                .join("\n"),
               ...(block.isError ? { is_error: true } : {}),
             };
           }
@@ -219,7 +216,11 @@ function convertMessage(msg: Message): Record<string, unknown> {
         content: msg.content.map((tc) => ({
           type: "tool_result",
           tool_use_id: tc.toolUseId,
-          content: tc.content,
+          // Join text blocks; image blocks are skipped until Task 6/7.
+          content: tc.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n"),
           ...(tc.isError ? { is_error: true } : {}),
         })),
       };

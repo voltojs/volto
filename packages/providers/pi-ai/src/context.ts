@@ -84,16 +84,10 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
     if (block.type === "text") {
       content.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
-      // pi-ai's ImageContent.data is unconditionally treated as base64 —
-      // there is no separate URL variant, and no way to say "fetch this
-      // URL" instead. Passing a URL through as `data` would produce a
-      // malformed (not merely degraded) request, so skip URL-sourced image
-      // blocks defensively, consistent with this file's other defensive
-      // skips.
-      if (block.source.type === "url") {
-        continue;
-      }
-      content.push({ type: "image", data: block.source.data, mimeType: block.source.mediaType });
+      // Image forwarding lands in Task 6/7. Core state now carries
+      // AttachmentStore refs, not bytes; the Runner does not resolve them
+      // yet, so there is nothing to send. Skip defensively.
+      continue;
     }
     // Other ContentBlock variants (tool_use / tool_result / reasoning) are not
     // part of core's user-message contract; skip defensively rather than
@@ -272,7 +266,16 @@ function mapToolResultMessage(
       role: "toolResult",
       toolCallId: block.toolUseId,
       toolName,
-      content: [{ type: "text", text: block.content }],
+      // Join text blocks; image blocks are skipped until Task 6/7.
+      content: [
+        {
+          type: "text",
+          text: block.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n"),
+        },
+      ],
       isError: block.isError ?? false,
       timestamp: 0,
     });

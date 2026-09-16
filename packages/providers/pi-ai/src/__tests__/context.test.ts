@@ -61,7 +61,7 @@ describe("toPiContext", () => {
             { type: "text", text: "look at this" },
             {
               type: "image",
-              source: { type: "base64", mediaType: "image/png", data: "AAAA" },
+              source: { type: "ref", id: "att-1", mediaType: "image/png" },
             },
           ],
         },
@@ -70,10 +70,8 @@ describe("toPiContext", () => {
 
     const ctx = toPiContext(req, model);
     const msg = ctx.messages[0] as UserMessage;
-    expect(msg.content).toEqual([
-      { type: "text", text: "look at this" },
-      { type: "image", data: "AAAA", mimeType: "image/png" },
-    ]);
+    // Image forwarding lands in Task 6/7; ref images are skipped for now.
+    expect(msg.content).toEqual([{ type: "text", text: "look at this" }]);
   });
 
   it("round-trips a signed assistant message: signatures reattach to the matching blocks", () => {
@@ -212,7 +210,7 @@ describe("toPiContext", () => {
           id: "m12",
           role: "tool",
           content: [
-            { type: "tool_result", toolUseId: "call_1", content: "hi", isError: false },
+            { type: "tool_result", toolUseId: "call_1", content: [{ type: "text", text: "hi" }], isError: false },
           ],
         },
       ],
@@ -235,7 +233,7 @@ describe("toPiContext", () => {
           id: "m13",
           role: "tool",
           content: [
-            { type: "tool_result", toolUseId: "call_missing", content: "oops", isError: false },
+            { type: "tool_result", toolUseId: "call_missing", content: [{ type: "text", text: "oops" }], isError: false },
           ],
         },
       ],
@@ -284,7 +282,7 @@ describe("toPiContext", () => {
         {
           id: "m15",
           role: "tool",
-          content: [{ type: "tool_result", toolUseId: "missing-call", content: "result text" }],
+          content: [{ type: "tool_result", toolUseId: "missing-call", content: [{ type: "text", text: "result text" }] }],
         },
       ],
     });
@@ -307,7 +305,7 @@ describe("toPiContext", () => {
         {
           id: "m17",
           role: "tool",
-          content: [{ type: "tool_result", toolUseId: "call-1", content: "result text" }],
+          content: [{ type: "tool_result", toolUseId: "call-1", content: [{ type: "text", text: "result text" }] }],
         },
       ],
     });
@@ -320,7 +318,7 @@ describe("toPiContext", () => {
     expect(toolResultMessages[0]?.toolName).toBe("echo");
   });
 
-  it("skips a URL-sourced image block instead of sending it as malformed base64 data", () => {
+  it("skips a ref-sourced image block instead of sending it as malformed base64 data", () => {
     const req = baseRequest({
       messages: [
         {
@@ -331,9 +329,9 @@ describe("toPiContext", () => {
             {
               type: "image",
               source: {
-                type: "url",
+                type: "ref",
+                id: "att-9",
                 mediaType: "image/png",
-                data: "https://example.com/pic.png",
               },
             },
           ],

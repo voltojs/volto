@@ -142,7 +142,7 @@ function buildSecondTurnMessages(modelMeta: unknown, sourceModelId: string): Mod
     {
       id: "m4",
       role: "tool",
-      content: [{ toolUseId: TOOL_CALL_ID, type: "tool_result", content: "sunny, 72F" }],
+      content: [{ toolUseId: TOOL_CALL_ID, type: "tool_result", content: [{ type: "text", text: "sunny, 72F" }] }],
     },
   ];
 }
