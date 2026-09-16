@@ -669,3 +669,29 @@ export interface PolicyRequest {
 export interface PolicyEngine {
   evaluate(request: PolicyRequest): Promise<"allow" | "deny" | "ask">;
 }
+
+// ──────────────────────────────────────────────
+// AttachmentStore — durable binary payload storage
+// ──────────────────────────────────────────────
+
+export interface StoredAttachment {
+  id: string;
+  mimeType: string;
+  size: number;
+  /** Present when the bytes were recognized as an image. */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Durable storage for binary payloads referenced from conversation state.
+ * Keeps AgentState small: snapshots carry ids, never bytes.
+ */
+export interface AttachmentStore {
+  /** Store bytes and return the reference. `data` is base64. */
+  put(data: string, mimeType: string): Promise<StoredAttachment>;
+  /** Fetch bytes as base64. Returns undefined when the id is unknown. */
+  get(id: string): Promise<{ data: string; mimeType: string } | undefined>;
+  /** Drop every attachment belonging to a session. */
+  deleteBySession(sessionId: string): Promise<void>;
+}

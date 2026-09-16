@@ -127,6 +127,8 @@ export type {
   Scheduler,
   PolicyRequest,
   PolicyEngine,
+  StoredAttachment,
+  AttachmentStore,
 } from "./ports.js";
 
 // Types — Tool
