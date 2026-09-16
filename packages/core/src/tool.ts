@@ -34,6 +34,13 @@ export interface JSONSchema {
  */
 export type Capability = string;
 
+/**
+ * Capability granted when the resolved model accepts image input.
+ * Pure image producers list this in `requires`; mixed tools (read_file,
+ * read_document) stay visible and degrade at call time instead.
+ */
+export const CAP_MODEL_VISION = "model:vision";
+
 /** Risk tier for permission policy decisions */
 export type RiskTier = "READ_ONLY" | "WRITE_LOW" | "WRITE_HIGH" | "IRREVERSIBLE";
 

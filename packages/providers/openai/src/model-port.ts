@@ -13,6 +13,7 @@ import type {
   Message,
   ToolResultMessage,
   ToolResultBlock,
+  ResolvedModelInfo,
 } from "@volto/core";
 import { normalizeStream, type RawStreamChunk } from "./stream-normalize.js";
 
@@ -23,6 +24,25 @@ export interface OpenAIModelPortOptions {
   apiKey: string;
   /** Default model if not specified in request */
   defaultModel?: string;
+  /**
+   * Image-input override for every model this port serves. Absent lets
+   * {@link openaiFamilyVision} decide from well-known OpenAI model ids;
+   * unrecognized gateway ids stay UNKNOWN rather than guessing false.
+   */
+  vision?: boolean;
+}
+
+/**
+ * Image-input support for well-known OpenAI model-id families.
+ * gpt-4o / gpt-4-turbo / gpt-4.1 / o-series accept images; gpt-3.5 does
+ * not. Everything else — bare gpt-4, custom gateway names, future ids —
+ * returns undefined = UNKNOWN so an OpenAI-compatible proxy is never
+ * silently stripped of image support.
+ */
+export function openaiFamilyVision(model: string): boolean | undefined {
+  if (/^gpt-4o|^gpt-4-turbo|^gpt-4\.1|^gpt-4-vision|^o[134](?:-|$)/.test(model)) return true;
+  if (/^gpt-3\.5/.test(model)) return false;
+  return undefined;
 }
 
 export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
@@ -86,6 +106,14 @@ export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
       // buildRequestBody below), so normalizeStream can watch for a provider
       // that silently never honors it.
       yield* normalizeStream(rawChunks, { includeUsageRequested: true });
+    },
+    describeModel: async (model: string): Promise<ResolvedModelInfo> => {
+      const info: ResolvedModelInfo = { model };
+      const vision = opts.vision ?? openaiFamilyVision(model);
+      if (vision !== undefined) {
+        info.vision = vision;
+      }
+      return info;
     },
   };
 }

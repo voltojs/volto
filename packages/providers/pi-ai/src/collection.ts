@@ -58,6 +58,13 @@ export type PiAiProviderConfig =
         contextWindow?: number;
         maxOutputTokens?: number;
         reasoning?: boolean;
+        /**
+         * Image-input support for a hand-declared gateway model. Absent
+         * means UNKNOWN — do not infer `false` from the structural
+         * text-only default below; a vanished image path is harder to
+         * diagnose than a provider 400.
+         */
+        vision?: boolean;
       }>;
     };
 
@@ -95,6 +102,20 @@ type CustomModelEntry = Extract<PiAiProviderConfig, { kind: "custom" }>["models"
 type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
 
 /**
+ * Vision knowledge that `Model.input` alone cannot express.
+ *
+ * pi-ai reads `model.input` on the wire path to decide whether to actually
+ * attach images, so a hand-declared custom model without a `vision` flag
+ * must keep the structural `input: ["text"]` default (safe: images are not
+ * sent to an unknown gateway). But that same default is indistinguishable
+ * from a catalog model the provider itself declared text-only. Catalog
+ * models are therefore authoritative from `input`; custom and synthesized
+ * models are registered here so `describeModelInfo` can leave `vision`
+ * absent when the config never said.
+ */
+const visionDeclarations = new WeakMap<object, boolean | undefined>();
+
+/**
  * Build the pi-ai `Model` for one hand-declared config entry. `reasoning`
  * comes straight from the config flag (default `false`, unchanged from phase
  * two); `thinkingLevelMap` is deliberately left unset even when
@@ -112,18 +133,23 @@ type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
  * `baseUrl` on the model, not just the provider).
  */
 function buildModel(providerId: string, providerBaseUrl: string, entry: CustomModelEntry): Model<"openai-completions"> {
-  return {
+  const model: Model<"openai-completions"> = {
     id: entry.code,
     name: entry.name ?? entry.code,
     api: "openai-completions",
     provider: providerId,
     baseUrl: normalizeBaseUrl(providerBaseUrl),
     reasoning: entry.reasoning ?? false,
-    input: ["text"],
+    // Only an explicit `vision: true` lets pi-ai put images on the wire.
+    // `false` and absent share the text-only request shape; the WeakMap
+    // entry below is what keeps them apart for describeModelInfo.
+    input: entry.vision === true ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: entry.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
   };
+  visionDeclarations.set(model, entry.vision);
+  return model;
 }
 
 /**
@@ -225,7 +251,7 @@ function synthesizeUnknownCatalogModel(
   const structural = reasoningTemplate ?? catalogModels[0];
 
   if (structural) {
-    return {
+    const synthesized = {
       ...structural,
       id: code,
       name: code,
@@ -236,10 +262,14 @@ function synthesizeUnknownCatalogModel(
       ...(reasoningTemplate ? {} : { thinkingLevelMap: undefined }),
       ...(baseURL ? { baseUrl: baseURL } : {}),
     } as Model<Api>;
+    // Inherited `input` is structural, not a statement about this unknown
+    // code — leave vision UNKNOWN rather than trusting the template.
+    visionDeclarations.set(synthesized, undefined);
+    return synthesized;
   }
 
   // Empty catalog — degrade to a custom-like OpenAI-completions stub.
-  return {
+  const stub = {
     id: code,
     name: code,
     api: "openai-completions",
@@ -251,6 +281,8 @@ function synthesizeUnknownCatalogModel(
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MAX_TOKENS,
   } satisfies Model<"openai-completions"> as Model<Api>;
+  visionDeclarations.set(stub, undefined);
+  return stub;
 }
 
 function buildCatalogProvider(config: CatalogProviderConfig): Provider {
@@ -393,6 +425,10 @@ function displayName(level: string): string {
  * `getSupportedThinkingLevels()` yields at least one non-"off" level; never a
  * synthesized off-only list (an off-only control would be byte-identical to
  * omitting the option entirely).
+ *
+ * `vision` is a tri-state: catalog models publish the catalog's own
+ * `input` modalities (true or false are both known); custom and synthesized
+ * models publish only an explicit config declaration — absence stays UNKNOWN.
  */
 export function describeModelInfo(models: Models, providerId: string, code: string): ResolvedModelInfo {
   const model = models.getModel(providerId, code);
@@ -416,6 +452,18 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
       };
       info.reasoning = reasoning;
     }
+  }
+
+  if (visionDeclarations.has(model)) {
+    const declared = visionDeclarations.get(model);
+    if (declared !== undefined) {
+      info.vision = declared;
+    }
+    // declared === undefined → UNKNOWN: leave the field absent.
+  } else {
+    // Catalog (or test-injected) model: `input` is the provider's own
+    // modality list, so both true and false are facts rather than guesses.
+    info.vision = model.input.includes("image");
   }
 
   return info;

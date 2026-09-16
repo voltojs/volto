@@ -88,6 +88,13 @@ export interface ResolvedModelInfo {
   model: string;
   contextWindow?: number;
   reasoning?: ModelReasoningInfo;
+  /**
+   * Image input support. Unlike `reasoning`, absence here means UNKNOWN,
+   * not unavailable: gateways that cannot describe their models must not
+   * silently lose the capability, because a vanished tool is harder to
+   * diagnose than a 400. Only an explicit `false` gates tools out.
+   */
+  vision?: boolean;
 }
 
 export interface ModelEventDone {

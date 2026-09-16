@@ -5,7 +5,7 @@
  * normalizes the SSE response into core ModelEvents.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ToolResultBlock } from "@volto/core";
+import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ToolResultBlock, ResolvedModelInfo } from "@volto/core";
 import { normalizeStream, type RawAnthropicEvent } from "./stream-normalize.js";
 
 export interface AnthropicModelPortOptions {
@@ -15,6 +15,23 @@ export interface AnthropicModelPortOptions {
   apiKey: string;
   /** Default model if not specified in request */
   defaultModel?: string;
+  /**
+   * Image-input override for every model this port serves. Absent lets
+   * {@link anthropicFamilyVision} decide from the model id; that helper
+   * itself returns undefined for unrecognized ids rather than guessing.
+   */
+  vision?: boolean;
+}
+
+/**
+ * Image-input support for known Anthropic model-id families.
+ * Claude 3 and later accept images; Claude 2 / Instant do not. Unrecognized
+ * ids (proxied, renamed, or future models) return undefined = UNKNOWN.
+ */
+export function anthropicFamilyVision(model: string): boolean | undefined {
+  if (/^claude-instant|^claude-2/.test(model)) return false;
+  if (/^claude-3|^claude-(?:sonnet|opus|haiku|fable)-\d/.test(model)) return true;
+  return undefined;
 }
 
 export function createAnthropicModelPort(opts: AnthropicModelPortOptions): ModelPort {
@@ -68,6 +85,14 @@ export function createAnthropicModelPort(opts: AnthropicModelPortOptions): Model
 
       const rawEvents = parseSSEStream(response.body);
       yield* normalizeStream(rawEvents);
+    },
+    describeModel: async (model: string): Promise<ResolvedModelInfo> => {
+      const info: ResolvedModelInfo = { model };
+      const vision = opts.vision ?? anthropicFamilyVision(model);
+      if (vision !== undefined) {
+        info.vision = vision;
+      }
+      return info;
     },
   };
 }

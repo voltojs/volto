@@ -424,6 +424,82 @@ describe("custom provider: reasoning config flag", () => {
   });
 });
 
+describe("describeModelInfo.vision", () => {
+  it("publishes catalog input modalities as vision true/false", () => {
+    // gpt-4o is ["text","image"] and deepseek-v4-flash is ["text"] in
+    // pi-ai's catalog — both are known facts, not guesses.
+    const models = buildModels([
+      { kind: "catalog", id: "v", piProvider: "openai", modelCodes: ["gpt-4o"] },
+      { kind: "catalog", id: "d", piProvider: "deepseek", modelCodes: ["deepseek-v4-flash"] },
+    ]);
+
+    expect(describeModelInfo(models, "openai", "gpt-4o").vision).toBe(true);
+    expect(describeModelInfo(models, "deepseek", "deepseek-v4-flash").vision).toBe(false);
+  });
+
+  it("publishes an explicit custom vision: true and lets pi-ai send images", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "gw",
+        baseURL: "https://gateway.example/v1",
+        apiKey: "k",
+        models: [{ code: "vlm", vision: true }],
+      },
+    ]);
+
+    expect(describeModelInfo(models, "gw", "vlm").vision).toBe(true);
+    // Wire path: pi-ai only attaches images when input lists "image".
+    expect(models.getModel("gw", "vlm")?.input).toEqual(["text", "image"]);
+  });
+
+  it("publishes an explicit custom vision: false", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "gw",
+        baseURL: "https://gateway.example/v1",
+        apiKey: "k",
+        models: [{ code: "text-only", vision: false }],
+      },
+    ]);
+
+    expect(describeModelInfo(models, "gw", "text-only").vision).toBe(false);
+    expect(models.getModel("gw", "text-only")?.input).toEqual(["text"]);
+  });
+
+  it("leaves vision absent for a custom model with no declaration (UNKNOWN, not false)", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "gw",
+        baseURL: "https://gateway.example/v1",
+        apiKey: "k",
+        models: [{ code: "mystery" }],
+      },
+    ]);
+
+    const info = describeModelInfo(models, "gw", "mystery");
+    expect(info.vision).toBeUndefined();
+    // Wire safety still holds: unknown stays text-only on the request path.
+    expect(models.getModel("gw", "mystery")?.input).toEqual(["text"]);
+  });
+
+  it("leaves vision absent for a synthesized unknown catalog code", () => {
+    const models = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-flash", "deepseek-v4-flash"],
+        reasoningOverrides: { "deepseek-flash": true },
+      },
+    ]);
+
+    expect(describeModelInfo(models, "deepseek", "deepseek-flash").vision).toBeUndefined();
+  });
+});
+
 describe("resolveConfiguredApiKey", () => {
   it("returns the configured key for a catalog provider", () => {
     const providers: PiAiProviderConfig[] = [

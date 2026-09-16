@@ -140,6 +140,7 @@ export type {
   ToolDefinition,
   ToolResult,
 } from "./tool.js";
+export { CAP_MODEL_VISION } from "./tool.js";
 
 // Transcript projection — event log → Message[] for session resume
 export { projectMessages, projectMessageEntries } from "./transcript-projection.js";
