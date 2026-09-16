@@ -5,7 +5,7 @@
  * normalizes the SSE response into core ModelEvents.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest, Message } from "@volto/core";
+import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ToolResultBlock } from "@volto/core";
 import { normalizeStream, type RawAnthropicEvent } from "./stream-normalize.js";
 
 export interface AnthropicModelPortOptions {
@@ -153,6 +153,46 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
   return body;
 }
 
+/**
+ * Map a request-surface image block (base64 wire shape produced by the
+ * Runner's resolveImageRefs) to Anthropic's image block. Returns null when
+ * the block is not a resolvable base64 image so callers can degrade.
+ */
+function toAnthropicImageBlock(block: ContentBlock): Record<string, unknown> | null {
+  if (block.type !== "image") return null;
+  // Core's ImageContent is ref-only; the wire shape arrives as an untyped
+  // cast at the request boundary. Narrow at runtime rather than widening core.
+  const src = block.source as { type?: string; mediaType?: string; data?: string };
+  if (src.type === "base64" && typeof src.mediaType === "string" && typeof src.data === "string") {
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: src.mediaType,
+        data: src.data,
+      },
+    };
+  }
+  return null;
+}
+
+/** Map a tool-result content block (text | image) to Anthropic's shape. */
+function toAnthropicToolResultBlock(block: ToolResultBlock): Record<string, unknown> {
+  if (block.type === "text") {
+    return { type: "text", text: block.text };
+  }
+  const image = toAnthropicImageBlock(block);
+  return image ?? { type: "text", text: "[image omitted]" };
+}
+
+/**
+ * Map core messages to Anthropic's message array. Exported for tests;
+ * buildRequestBody applies cache breakpoints on top of this.
+ */
+export function toAnthropicMessages(messages: Message[]): Array<Record<string, unknown>> {
+  return messages.map(convertMessage);
+}
+
 function convertMessage(msg: Message): Record<string, unknown> {
   switch (msg.role) {
     case "user": {
@@ -167,19 +207,14 @@ function convertMessage(msg: Message): Record<string, unknown> {
             return { type: "text", text: block.text };
           }
           if (block.type === "image") {
-            // Image forwarding lands in Task 6/7. Core state now carries
-            // AttachmentStore refs, not bytes; skip until the Runner resolves them.
-            return { type: "text", text: "[image omitted]" };
+            const image = toAnthropicImageBlock(block);
+            return image ?? { type: "text", text: "[image omitted]" };
           }
           if (block.type === "tool_result") {
             return {
               type: "tool_result",
               tool_use_id: block.toolUseId,
-              // Join text blocks; image blocks are skipped until Task 6/7.
-              content: block.content
-                .filter((b): b is { type: "text"; text: string } => b.type === "text")
-                .map((b) => b.text)
-                .join("\n"),
+              content: block.content.map(toAnthropicToolResultBlock),
               ...(block.isError ? { is_error: true } : {}),
             };
           }
@@ -216,11 +251,7 @@ function convertMessage(msg: Message): Record<string, unknown> {
         content: msg.content.map((tc) => ({
           type: "tool_result",
           tool_use_id: tc.toolUseId,
-          // Join text blocks; image blocks are skipped until Task 6/7.
-          content: tc.content
-            .filter((b): b is { type: "text"; text: string } => b.type === "text")
-            .map((b) => b.text)
-            .join("\n"),
+          content: tc.content.map(toAnthropicToolResultBlock),
           ...(tc.isError ? { is_error: true } : {}),
         })),
       };
