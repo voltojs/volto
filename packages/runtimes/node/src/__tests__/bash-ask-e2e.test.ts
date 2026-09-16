@@ -45,7 +45,7 @@ describe("bash ask e2e via Runner (WRITE_HIGH → permission ask → allow)", ()
     expect(toolMsg).toBeDefined();
     expect(toolMsg!.content[0]).toMatchObject({
       type: "tool_result",
-      content: expect.stringContaining("ok"),
+      content: [{ type: "text", text: expect.stringContaining("ok") }],
     });
   });
 });

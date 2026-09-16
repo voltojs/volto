@@ -69,7 +69,7 @@ describe("TC-E10: Shell 高风险命令触发 ask + 输出截断", () => {
     expect(toolMsg).toBeDefined();
     expect(toolMsg!.content[0]).toMatchObject({
       type: "tool_result",
-      content: expect.stringContaining("removed"),
+      content: [{ type: "text", text: expect.stringContaining("removed") }],
     });
   });
 
@@ -109,9 +109,10 @@ describe("TC-E10: Shell 高风险命令触发 ask + 输出截断", () => {
 
     const toolMsg = final.messages.find((m) => m.role === "tool");
     expect(toolMsg).toBeDefined();
-    const content = toolMsg!.content[0]!.content;
+    const blocks = toolMsg!.content[0]!.content;
+    const text = blocks.map((b) => (b.type === "text" ? b.text : "")).join("");
     // The bash tool truncates at OUTPUT_LIMIT (100_000) and adds a note.
-    expect(content).toContain("truncated");
-    expect(content.length).toBeLessThan(120_000);
+    expect(text).toContain("truncated");
+    expect(text.length).toBeLessThan(120_000);
   });
 });

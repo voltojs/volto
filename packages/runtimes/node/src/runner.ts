@@ -15,6 +15,7 @@ import type {
   PendingToolCall,
   ModelEvent,
   ToolResult,
+  ToolResultBlock,
   ReadFileRecord,
   PermissionConfig,
   SessionStore,
@@ -72,6 +73,29 @@ export interface ToolExecutorContext {
   abortSignal?: AbortSignal;
 }
 export type ToolExecutor = (call: PendingToolCall, ctx: ToolExecutorContext) => Promise<ToolResult>;
+
+/**
+ * Flatten tool-result content to the plain text that string-only consumers
+ * (validators) still expect. Only text blocks are joined — validators
+ * inspect textual output, not image refs.
+ */
+function toolResultText(content: string | ToolResultBlock[]): string {
+  if (typeof content === "string") return content;
+  return content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+}
+
+/**
+ * Annotate untrusted tool output. Block arrays keep their shape so image
+ * refs survive; only text blocks carry the isolation banner.
+ */
+function annotateUntrustedContent(
+  content: string | ToolResultBlock[],
+): string | ToolResultBlock[] {
+  if (typeof content === "string") return annotateUntrusted(content);
+  return content.map((b) =>
+    b.type === "text" ? { ...b, text: annotateUntrusted(b.text) } : b,
+  );
+}
 
 export interface RunnerOptions {
   modelPort: ModelPort;
@@ -1396,7 +1420,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             const isUntrusted = toolDef?.trust === "untrusted";
             const annotatedResult = isUntrusted && !result.isError
-              ? { ...result, modelContent: annotateUntrusted(result.modelContent) }
+              ? { ...result, modelContent: annotateUntrustedContent(result.modelContent) }
               : result;
 
             forwardEmit(feed({
@@ -1430,7 +1454,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             // accounting BEFORE any input is fed.
             if (opts.validators && opts.validators.length > 0 && !result.isError) {
               for (const validator of opts.validators) {
-                const vr = validator.validate(toolCall.name, result.modelContent);
+                const vr = validator.validate(toolCall.name, toolResultText(result.modelContent));
                 if (!vr.passed) {
                   const projectedCount =
                     state.selfCorrectionCount +

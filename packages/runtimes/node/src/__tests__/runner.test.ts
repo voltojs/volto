@@ -218,7 +218,7 @@ describe("Runner", () => {
       const rejected = toolMessages.find((m) => m.content[0]?.isError);
       expect(rejected).toBeDefined();
       expect(rejected!.content[0]).toMatchObject({
-        content: expect.stringContaining("Hook crash"),
+        content: [{ type: "text", text: expect.stringContaining("Hook crash") }],
         isError: true,
       });
     });
@@ -271,7 +271,7 @@ describe("Runner", () => {
       const toolMsg = finalState.messages.find((m) => m.role === "tool");
       expect(toolMsg).toBeDefined();
       expect(toolMsg!.content[0]).toMatchObject({
-        content: expect.stringContaining("Disk failure"),
+        content: [{ type: "text", text: expect.stringContaining("Disk failure") }],
         isError: true,
       });
     });

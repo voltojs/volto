@@ -59,7 +59,7 @@ function makeToolResult(id: string, toolUseId: string, content: string): Message
   return {
     id,
     role: "tool",
-    content: [{ type: "tool_result", toolUseId, content }],
+    content: [{ type: "tool_result", toolUseId, content: [{ type: "text", text: content }] }],
   } as Message;
 }
 
@@ -97,7 +97,15 @@ function flattenText(messages: Message[]): string {
         ? m.content
         : Array.isArray(m.content)
           ? m.content
-              .map((c) => (c.type === "text" ? c.text : c.type === "tool_result" ? c.content : ""))
+              .map((c) =>
+                c.type === "text"
+                  ? c.text
+                  : c.type === "tool_result"
+                    ? c.content
+                        .map((b) => (b.type === "text" ? b.text : ""))
+                        .join("")
+                    : "",
+              )
               .join("")
           : "",
     )

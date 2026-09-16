@@ -40,7 +40,7 @@ describe("network end-to-end via Runner (executor + reducer loop)", () => {
     expect(toolMsg!.content[0]).toMatchObject({
       type: "tool_result",
       toolUseId: "c1",
-      content: `${UNTRUSTED_PREFIX}page content`,
+      content: [{ type: "text", text: `${UNTRUSTED_PREFIX}page content` }],
     });
   });
 

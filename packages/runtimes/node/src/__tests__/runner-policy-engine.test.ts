@@ -9,6 +9,7 @@ import {
   usage,
   modelDone,
   createDefaultPermissionConfig,
+  extractBlockText,
 } from "@volto/core";
 import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, PolicyEngine, ToolResultMessage } from "@volto/core";
 
@@ -83,7 +84,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("refused");
+        expect(extractBlockText(block!)).toContain("refused");
       }
     });
   });
@@ -154,7 +155,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("refused");
+        expect(extractBlockText(block!)).toContain("refused");
       }
     });
   });
@@ -191,7 +192,7 @@ describe("Runner + PolicyEngine integration", () => {
         const block = toolResultMsg.content.find((c) => c.type === "tool_result");
         expect(block).toBeDefined();
         expect(block!.isError).toBe(true);
-        expect(block!.content).toContain("refused");
+        expect(extractBlockText(block!)).toContain("refused");
       }
     });
   });

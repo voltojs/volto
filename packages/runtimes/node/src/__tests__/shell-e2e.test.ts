@@ -33,7 +33,7 @@ describe("shell end-to-end via Runner (executor + reducer loop)", () => {
     expect(toolMsg!.content[0]).toMatchObject({
       type: "tool_result",
       toolUseId: "c1",
-      content: expect.stringContaining("hello from bash"),
+      content: [{ type: "text", text: expect.stringContaining("hello from bash") }],
     });
   });
 
