@@ -54,7 +54,7 @@ function buildLoopMessages(k: number, toolName: string, input: Record<string, un
     messages.push({
       id: "m2",
       role: "tool",
-      content: [{ type: "tool_result", toolUseId: `loop-${i}`, content: "error", isError: true }],
+      content: [{ type: "tool_result", toolUseId: `loop-${i}`, content: [{ type: "text", text: "error" }], isError: true }],
     });
   }
   return messages;
@@ -123,7 +123,7 @@ describe("detectLoop — pure function", () => {
       {
         id: "m5",
         role: "tool",
-        content: [{ type: "tool_result", toolUseId: "ok-1", content: "success" }], // NOT error
+        content: [{ type: "tool_result", toolUseId: "ok-1", content: [{ type: "text", text: "success" }] }], // NOT error
       },
     ];
     const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
@@ -149,7 +149,7 @@ describe("detectLoop — pure function", () => {
       {
         id: "m7",
         role: "tool",
-        content: [{ type: "tool_result", toolUseId: "c0", content: "err", isError: true }],
+        content: [{ type: "tool_result", toolUseId: "c0", content: [{ type: "text", text: "err" }], isError: true }],
       },
       {
         id: "m8",
@@ -159,7 +159,7 @@ describe("detectLoop — pure function", () => {
       {
         id: "m9",
         role: "tool",
-        content: [{ type: "tool_result", toolUseId: "c1", content: "err", isError: true }],
+        content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "err" }], isError: true }],
       },
     ];
     const newCall = { id: "new", name: "bash", input: { command: "echo bye" } };

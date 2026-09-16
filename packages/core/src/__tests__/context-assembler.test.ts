@@ -29,7 +29,7 @@ const sampleMessages: Message[] = [
   { id: "m1", role: "system", content: "You are a helpful assistant." },
   { id: "m2", role: "user", content: "Read the file" },
   { id: "m3", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "read_file", input: { path: "/a.ts" } }] },
-  { id: "m4", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: "file contents" }] },
+  { id: "m4", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "file contents" }] }] },
   { id: "m5", role: "assistant", content: [{ type: "text", text: "Here is the file." }] },
   { id: "m6", role: "user", content: "Now edit it" },
 ];

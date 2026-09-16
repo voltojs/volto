@@ -38,7 +38,10 @@ export function extractBlockText(block: ContentBlock): string {
     case "tool_use":
       return `[tool: ${block.name}]`;
     case "tool_result":
-      return block.content;
+      return block.content
+        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
     case "reasoning":
       // Not user-facing text: it rides in the message so the provider gets it
       // back, but it must not leak into summaries, titles or token previews.

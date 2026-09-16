@@ -8,6 +8,7 @@ export type {
   TextContent,
   ImageContent,
   ToolUseContent,
+  ToolResultBlock,
   ToolResultContent,
   ReasoningContent,
   ContentBlock,
@@ -22,6 +23,7 @@ export type {
   TodoStatus,
   AgentState,
 } from "./state.js";
+export { normalizeToolResultContent } from "./state.js";
 
 // Types — Input
 export type {

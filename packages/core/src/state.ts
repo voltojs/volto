@@ -19,14 +19,23 @@ export interface TextContent {
   text: string;
 }
 
-/** An image content block (base64 or URL) */
+/**
+ * An image in the conversation. The bytes live in an AttachmentStore; state
+ * carries only the reference, so a snapshot stays small enough to rewrite on
+ * every checkpoint. The Runner resolves `id` to bytes when it assembles a
+ * ModelRequest — the core never touches the image itself.
+ */
 export interface ImageContent {
   type: "image";
   source: {
-    type: "base64" | "url";
+    type: "ref";
+    /** AttachmentStore key. */
+    id: string;
     mediaType: string;
-    data: string;
   };
+  /** Pixel dimensions, recorded at ingest. Used for token estimation. */
+  width?: number;
+  height?: number;
 }
 
 /** A tool use block in an assistant message */
@@ -37,12 +46,30 @@ export interface ToolUseContent {
   input: Record<string, unknown>;
 }
 
-/** A tool result block in a tool result message */
+/**
+ * Blocks a tool may return to the model. Deliberately narrower than
+ * ContentBlock: a tool result carries text and images, never nested
+ * tool_use / tool_result / reasoning blocks.
+ */
+export type ToolResultBlock = TextContent | ImageContent;
+
 export interface ToolResultContent {
   type: "tool_result";
   toolUseId: string;
-  content: string;
+  /**
+   * Always a block array in state. The reducer normalizes a tool's
+   * plain-string result on the way in, so every consumer downstream
+   * handles exactly one shape.
+   */
+  content: ToolResultBlock[];
   isError?: boolean;
+}
+
+/** Normalize a tool's author-facing result content into the state shape. */
+export function normalizeToolResultContent(
+  content: string | ToolResultBlock[],
+): ToolResultBlock[] {
+  return typeof content === "string" ? [{ type: "text", text: content }] : content;
 }
 
 /**

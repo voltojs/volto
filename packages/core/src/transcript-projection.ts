@@ -38,6 +38,7 @@
  */
 
 import type { Message, ToolResultContent, ToolUseContent } from "./state.js";
+import { normalizeToolResultContent } from "./state.js";
 import type { TranscriptEvent, TranscriptEventMap } from "./ports.js";
 import { userDenialMessage } from "./permission-policy.js";
 
@@ -210,7 +211,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const block: ToolResultContent = {
           type: "tool_result",
           toolUseId: data.callId,
-          content: data.content,
+          content: normalizeToolResultContent(data.content),
           isError: data.isError,
         };
         const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
@@ -244,7 +245,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const block: ToolResultContent = {
           type: "tool_result",
           toolUseId: data.callId,
-          content: userDenialMessage(name),
+          content: normalizeToolResultContent(userDenialMessage(name)),
           isError: true,
         };
         const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };

@@ -106,8 +106,8 @@ describe("reducer: request_approval flow", () => {
         ctx,
       );
       const lastMsg = result.state.messages[result.state.messages.length - 1]!;
-      const block = (lastMsg as { content: Array<{ content: string }> }).content[0]!;
-      return block.content;
+      const block = (lastMsg as { content: Array<{ content: Array<{ type: string; text: string }> }> }).content[0]!;
+      return block.content.map((b) => b.text).join("\n");
     }
 
     // A dropped connection must not be attributed to the user, and must tell

@@ -5,6 +5,7 @@
  */
 
 import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem } from "./state.js";
+import { normalizeToolResultContent } from "./state.js";
 import type { ApprovalDenialReason, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
@@ -222,7 +223,7 @@ export function step(
         if (b.type !== "tool_result") return b;
         const hit = byId.get(b.toolUseId);
         if (!hit) return b;
-        return { ...b, content: hit.content };
+        return { ...b, content: normalizeToolResultContent(hit.content) };
       });
       return { ...m, content: nextContent };
     });
@@ -648,8 +649,8 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           {
             type: "tool_result",
             toolUseId: input.toolCallId,
-            content: input.result.modelContent,
-            isError: input.result.isError,
+            content: normalizeToolResultContent(input.result.modelContent),
+            ...(input.result.isError ? { isError: true } : {}),
           },
         ],
       },
@@ -712,7 +713,15 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           durationMs: input.result.displayMetadata?.["durationMs"],
           // The result's own text and host annotations, so the transcript can
           // record what the tool actually produced rather than just that it ran.
-          content: input.result.modelContent,
+          // The event log's `content` stays a string; block arrays are joined
+          // here so the transcript surface is unchanged.
+          content:
+            typeof input.result.modelContent === "string"
+              ? input.result.modelContent
+              : input.result.modelContent
+                  .filter((b): b is { type: "text"; text: string } => b.type === "text")
+                  .map((b) => b.text)
+                  .join("\n"),
           displayMetadata: input.result.displayMetadata,
           // Results arrive in completion order but flush in pendingTools order
           // (see the allDone branch below). Carrying the index lets a reader
@@ -874,7 +883,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
           {
             type: "tool_result",
             toolUseId: input.toolCallId,
-            content: denialMessageFor(approvedTool.name, input.reason),
+            content: normalizeToolResultContent(denialMessageFor(approvedTool.name, input.reason)),
             isError: true,
           },
         ],

@@ -30,7 +30,7 @@ describe("extractMessageText", () => {
     const msg: Message = {
       id: "m4",
       role: "tool",
-      content: [{ type: "tool_result", toolUseId: "t1", content: "file data" }],
+      content: [{ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "file data" }] }],
     };
     expect(extractMessageText(msg)).toBe("file data");
   });
@@ -56,7 +56,7 @@ describe("extractMessageText", () => {
     const msg: Message = {
       id: "m7",
       role: "user",
-      content: [{ type: "image", source: { type: "base64", mediaType: "image/png", data: "abc" } }],
+      content: [{ type: "image", source: { type: "ref", id: "att-1", mediaType: "image/png" } }],
     };
     expect(extractMessageText(msg)).toBe("");
   });
@@ -72,11 +72,11 @@ describe("extractBlockText", () => {
   });
 
   it("extracts tool_result block", () => {
-    expect(extractBlockText({ type: "tool_result", toolUseId: "t1", content: "output" })).toBe("output");
+    expect(extractBlockText({ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "output" }] })).toBe("output");
   });
 
   it("handles image block as empty", () => {
-    expect(extractBlockText({ type: "image", source: { type: "url", mediaType: "image/png", data: "" } })).toBe("");
+    expect(extractBlockText({ type: "image", source: { type: "ref", id: "att-2", mediaType: "image/png" } })).toBe("");
   });
 });
 

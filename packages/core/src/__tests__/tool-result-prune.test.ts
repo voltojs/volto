@@ -6,7 +6,7 @@ function toolResult(id: string, text: string): Message {
   return {
     id,
     role: "tool",
-    content: [{ type: "tool_result", toolUseId: "t1", content: text }],
+    content: [{ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text }] }],
   };
 }
 
@@ -41,16 +41,17 @@ describe("pruneOversizedToolResults", () => {
       id: "a",
       role: "tool",
       content: [
-        { type: "tool_result", toolUseId: "t1", content: "short" },
-        { type: "tool_result", toolUseId: "t2", content: "L".repeat(200) },
+        { type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "short" }] },
+        { type: "tool_result", toolUseId: "t2", content: [{ type: "text", text: "L".repeat(200) }] },
       ],
     };
     const r = pruneOversizedToolResults([msg], { maxChars: 80 });
     const tool = r.messages[0]!;
     if (tool.role !== "tool") throw new Error("expected tool message");
     expect(tool.content[0]).toBe(msg.content[0]);
-    expect(tool.content[1]!.content).not.toBe("L".repeat(200));
-    expect(tool.content[1]!.content).toContain("omitted");
+    const prunedText = JSON.stringify(tool.content[1]!.content);
+    expect(prunedText).not.toContain("L".repeat(200));
+    expect(prunedText).toContain("omitted");
     expect(r.pruned).toHaveLength(1);
     expect(r.pruned[0]!.toolCallId).toBe("t2");
   });
@@ -64,7 +65,7 @@ describe("pruneOversizedToolResults", () => {
     // The pruned head/tail must not split a surrogate pair.
     const tool = r.messages[0]!;
     if (tool.role !== "tool") throw new Error("expected tool message");
-    expect(tool.content[0]!.content).not.toContain("\uFFFD");
+    expect(JSON.stringify(tool.content[0]!.content)).not.toContain("\uFFFD");
   });
 
   it("is deterministic and immutable", () => {
@@ -77,7 +78,7 @@ describe("pruneOversizedToolResults", () => {
     // Original message objects are not mutated.
     const original = msgs[0]!;
     if (original.role !== "tool") throw new Error("expected tool message");
-    expect(original.content[0]!.content).toBe(long);
+    expect(original.content[0]!.content).toEqual([{ type: "text", text: long }]);
     // Untouched message keeps its reference.
     expect(first.messages[1]).toBe(msgs[1]);
   });

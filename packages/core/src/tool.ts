@@ -3,7 +3,7 @@
  * Core only uses abstract JSONSchema (no zod dependency here).
  */
 
-import type { TodoItem } from "./state.js";
+import type { ToolResultBlock, TodoItem } from "./state.js";
 
 // ──────────────────────────────────────────────
 // JSON Schema (abstract, minimal subset)
@@ -62,8 +62,8 @@ export interface ToolDefinition {
 
 /** Result returned by a tool execution */
 export interface ToolResult {
-  /** Content for the model (concise, truncated if oversized) */
-  modelContent: string;
+  /** Content for the model. A plain string is shorthand for one text block. */
+  modelContent: string | ToolResultBlock[];
   /** Whether this is an error result (model should self-correct) */
   isError?: boolean;
   /** Metadata for UI/logging (diff, line count, latency, etc.) */

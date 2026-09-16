@@ -6,6 +6,14 @@
 
 import type { Message } from "./state.js";
 
+/** Join text blocks from a tool_result content array into a single string. */
+function joinText(content: Array<{ type: string; text?: string }>): string {
+  return content
+    .filter((b): b is { type: "text"; text: string } => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n");
+}
+
 export interface PruneToolResultOptions {
   /** Maximum code points allowed in a single tool_result text block. */
   maxChars: number;
@@ -59,9 +67,10 @@ export function pruneOversizedToolResults(
     let changed = false;
     const content = msg.content.map((block) => {
       if (block.type !== "tool_result") return block;
-      const charsBefore = codePointLength(block.content);
+      const text = joinText(block.content);
+      const charsBefore = codePointLength(text);
       if (charsBefore <= opts.maxChars) return block;
-      const prunedContent = pruneText(block.content, opts.maxChars);
+      const prunedContent = pruneText(text, opts.maxChars);
       const charsAfter = codePointLength(prunedContent);
       pruned.push({
         toolCallId: block.toolUseId,
@@ -70,7 +79,7 @@ export function pruneOversizedToolResults(
         content: prunedContent,
       });
       changed = true;
-      return { ...block, content: prunedContent };
+      return { ...block, content: [{ type: "text" as const, text: prunedContent }] };
     });
     if (!changed) return msg;
     return { ...msg, content };

@@ -38,7 +38,7 @@ function toolResultMsg(id: string, content: string, msgId = "m5"): Message {
   return {
     id: msgId,
     role: "tool",
-    content: [{ type: "tool_result", toolUseId: id, content }],
+    content: [{ type: "tool_result", toolUseId: id, content: [{ type: "text", text: content }] }],
   };
 }
 
@@ -570,9 +570,9 @@ describe("soft tool pairing", () => {
     const messages: Message[] = [
       { id: "sys", role: "system", content: "S" },
       { id: "a1", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: {} }] },
-      { id: "r1", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: "out" }] },
+      { id: "r1", role: "tool", content: [{ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "out" }] }] },
       { id: "a2", role: "assistant", content: [{ type: "tool_use", id: "t2", name: "y", input: {} }] },
-      { id: "r2", role: "tool", content: [{ type: "tool_result", toolUseId: "t2", content: "out2" }] },
+      { id: "r2", role: "tool", content: [{ type: "tool_result", toolUseId: "t2", content: [{ type: "text", text: "out2" }] }] },
       { id: "u9", role: "user", content: "latest" },
       { id: "a9", role: "assistant", content: [{ type: "text", text: "ok" }] },
     ];

@@ -3,7 +3,7 @@
  * Every input is a plain, serializable data object.
  */
 
-import type { ContentBlock, TodoItem } from "./state.js";
+import type { ContentBlock, TodoItem, ToolResultBlock } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
 import type { ApprovalDenialReason } from "./ports.js";
 
@@ -56,7 +56,7 @@ export interface ToolResultInput {
   toolCallId: string;
   toolName: string;
   result: {
-    modelContent: string;
+    modelContent: string | ToolResultBlock[];
     isError?: boolean;
     displayMetadata?: Record<string, unknown>;
     /** Classified error kind — set by the Runner when tool fails */
@@ -150,7 +150,7 @@ export interface ToolResultsPrunedInput {
     toolCallId: string;
     charsBefore: number;
     charsAfter: number;
-    content: string;
+    content: string | ToolResultBlock[];
   }>;
 }
 

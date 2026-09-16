@@ -284,7 +284,9 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
     expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
     const lastMsg = finalState.messages.at(-1)!;
     expect(lastMsg.role).toBe("tool");
-    expect((lastMsg.content as ToolResultContent[])[0]!.content).toContain("denied by the user");
+    expect((lastMsg.content as ToolResultContent[])[0]!.content).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining("denied by the user") })]),
+    );
   });
 
   it("7. a cancel with a partially-reported batch", () => {
@@ -454,8 +456,8 @@ describe("projectMessages", () => {
 
     const messages = projectMessages(events);
     expect(stripIds(messages.slice(2))).toEqual([
-      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
-      { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
+      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "text" }], isError: false }] },
+      { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: [{ type: "text", text: "a,b" }], isError: false }] },
     ]);
   });
 
@@ -489,7 +491,7 @@ describe("projectMessages", () => {
     // The reducer flushes [...tool results, ...queuedUserInputs] — the steering
     // message lands AFTER the tool result despite having the smaller seq.
     expect(stripIds(messages.slice(2))).toEqual([
-      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "text", isError: false }] },
+      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "text" }], isError: false }] },
       { role: "user", content: "actually wait" },
     ]);
   });
@@ -547,7 +549,7 @@ describe("projectMessages", () => {
 
     expect(stripIds([projectMessages(events).at(-1)!])[0]).toEqual({
       role: "tool",
-      content: [{ type: "tool_result", toolUseId: "c1", content: "boom", isError: true }],
+      content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "boom" }], isError: true }],
     });
   });
 
@@ -638,8 +640,8 @@ describe("projectMessages", () => {
     ]);
 
     expect(stripIds(projectMessages(events).slice(2))).toEqual([
-      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: "second", isError: false }] },
-      { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: "a,b", isError: false }] },
+      { role: "tool", content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "second" }], isError: false }] },
+      { role: "tool", content: [{ type: "tool_result", toolUseId: "c2", content: [{ type: "text", text: "a,b" }], isError: false }] },
     ]);
   });
 

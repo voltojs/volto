@@ -66,7 +66,7 @@ describe("tool_results_pruned", () => {
   it("rewrites tool_result content by toolCallId", () => {
     const messages: Message[] = [
       { id: "sys", role: "system", content: "S" },
-      { id: "t", role: "tool", content: [{ type: "tool_result", toolUseId: "call-1", content: "LONG" }] },
+      { id: "t", role: "tool", content: [{ type: "tool_result", toolUseId: "call-1", content: [{ type: "text", text: "LONG" }] }] },
     ];
     const { state } = step(
       base(messages),
@@ -77,7 +77,7 @@ describe("tool_results_pruned", () => {
       ctx,
     );
     const tool = state.messages.find((m) => m.role === "tool")!;
-    const block = (tool.content as Array<{ type: string; content?: string }>)[0]!;
-    expect(block.content).toBe("PR");
+    const block = (tool.content as Array<{ type: string; content: Array<{ type: string; text: string }> }>)[0]!;
+    expect(block.content).toEqual([{ type: "text", text: "PR" }]);
   });
 });
