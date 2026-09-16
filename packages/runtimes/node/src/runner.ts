@@ -725,6 +725,9 @@ export function createRunner(opts: RunnerOptions): Runner {
       tools: stepContext.tools,
       pinnedMessageIds: state.pinnedMessageIds,
       contextLayers: stepContext.contextLayers,
+      // Standing todos are re-injected every request so compaction of
+      // historical tool results cannot drop the model's plan.
+      todos: state.todos,
     });
     let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;
