@@ -1766,11 +1766,12 @@ function tagEventSink(
 }
 
 /**
- * Create a SubAgentExecutor that spins up a fresh Runner with isolated state,
+ * Create a string executor that spins up a fresh Runner with isolated state,
  * shared ModelPort and tools (without task tools to prevent recursion).
  * Sub-agent events are forwarded to the parent's event sink with an
  * `agentDepth` tag so the host can render them separately from the main
  * agent's output.
+ * Task 5 replaces this with a real SubAgentDispatch.
  */
 function createSubAgentExecutor(
   opts: CreateAgentOptions,
