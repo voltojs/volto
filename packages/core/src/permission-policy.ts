@@ -190,7 +190,10 @@ export function narrowPermission(
   parent: PermissionConfig,
   child?: PermissionConfig,
 ): PermissionConfig {
-  if (!child) return parent;
+  if (!child) {
+    // Shallow copy: never hand out a live alias of the parent config.
+    return { ...parent };
+  }
 
   const sandbox =
     TIER_RANK[ceilingOf(child.sandbox)] < TIER_RANK[ceilingOf(parent.sandbox)]
@@ -200,14 +203,18 @@ export function narrowPermission(
   const approval = parent.approval === "ask" || child.approval === "ask" ? "ask" : "never";
 
   // Parent denies come first, so no child rule can override them: rules are
-  // first-match-wins.
+  // first-match-wins and outrank the sandbox×approval matrix. A child `allow`
+  // would therefore bypass the narrowed ceiling — drop it. Child `deny`/`ask`
+  // only tighten; keep those.
   const parentDenies = (parent.rules ?? []).filter((r) => r.decision === "deny");
-  const rest = [...(child.rules ?? []), ...(parent.rules ?? []).filter((r) => r.decision !== "deny")];
+  const childNarrowing = (child.rules ?? []).filter((r) => r.decision !== "allow");
+  const parentRest = (parent.rules ?? []).filter((r) => r.decision !== "deny");
 
+  const rules = [...parentDenies, ...childNarrowing, ...parentRest];
   return {
     sandbox,
     approval,
-    ...(parentDenies.length > 0 || rest.length > 0 ? { rules: [...parentDenies, ...rest] } : {}),
+    ...(rules.length > 0 ? { rules } : {}),
   };
 }
 
