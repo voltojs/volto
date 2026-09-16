@@ -52,13 +52,11 @@ describe("createReadDocumentTool", () => {
     expect(result.displayMetadata?.textLength).toBe(14);
   });
 
-  it("parses image document", async () => {
+  it("rejects an image when no attachment store is configured", async () => {
     const tool = createReadDocumentTool(createMockParser()); // no text → image
     const result = await tool.handler({ path: "/photo.png" });
-    expect(result.isError).toBeFalsy();
-    expect(result.modelContent).toContain("Image");
-    expect(result.displayMetadata?.contentType).toBe("image");
-    expect(result.displayMetadata?.mimeType).toBe("image/png");
+    expect(result.isError).toBe(true);
+    expect(result.modelContent as string).toMatch(/no attachment store/i);
   });
 
   it("returns isError for parser failure", async () => {

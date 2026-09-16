@@ -12,6 +12,7 @@ import type {
   DocumentParserAdapter,
   DocumentParseResult,
 } from "@volto/tools-document";
+import { readImageDimensions } from "./image-dimensions.js";
 
 export interface NodeDocumentParserOptions {
   /** Maximum text length to return before truncation (default: 500000) */
@@ -157,11 +158,14 @@ export async function createNodeDocumentParser(
 
       // Image files
       if (IMAGE_EXTENSIONS.has(ext)) {
-        const stat = await fs.stat(filePath);
+        const bytes = await fs.readFile(filePath);
+        const dims = readImageDimensions(bytes);
         return {
           contentType: "image",
           mimeType: mime ?? `image/${ext.slice(1)}`,
-          metadata: { size: stat.size },
+          data: bytes.toString("base64"),
+          ...(dims ?? {}),
+          metadata: { size: bytes.byteLength },
         };
       }
 

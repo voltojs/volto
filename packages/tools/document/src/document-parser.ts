@@ -8,9 +8,15 @@ export interface DocumentParseResult {
   contentType: "text" | "image";
   /** Parsed text content (for text-type documents) */
   text?: string;
+  /** Base64-encoded image bytes. Required when contentType is "image". */
+  data?: string;
   /** MIME type of the original document */
   mimeType: string;
-  /** Structured metadata (page count, dimensions, etc.) */
+  /** Pixel width read from the image header, when recognized */
+  width?: number;
+  /** Pixel height read from the image header, when recognized */
+  height?: number;
+  /** Structured metadata (page count, file size, etc.) */
   metadata?: Record<string, unknown>;
 }
 
