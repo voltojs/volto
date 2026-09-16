@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import { createNodeShell } from "../shell.js";
@@ -392,13 +392,16 @@ describe("createSandboxedShell — launch availability by backend", () => {
     };
   }
 
-  it("read-only mode (backend none) does not expose a launch passthrough", () => {
+  it("read-only mode (backend none) now exposes a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "none", failIfUnavailable: false });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 7: the none backend's opt-out path is already unconfined, so a
+    // launch passthrough no longer "bypasses" anything — it is the same
+    // unconfined process exec would have started, with the same one-time warn.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("workspace-write mode (backend none) does not expose a launch passthrough", () => {
+  it("workspace-write mode (backend none) now exposes a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
@@ -406,7 +409,7 @@ describe("createSandboxedShell — launch availability by backend", () => {
       writableRoots: ["/tmp"],
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    expect(typeof wrapped.launch).toBe("function");
   });
 
   it("workspace-write mode (seatbelt backend) now exposes a sandboxed launch", () => {
@@ -456,6 +459,82 @@ describe("createSandboxedShell — launch availability by backend", () => {
     // method must survive the copy.
     expect(wrapped.sandboxEnforcement).toBe("none");
     expect(wrapped.launch).toBe(mock.launch);
+  });
+});
+
+describe("createSandboxedShell — launch on non-confining backends", () => {
+  it("danger-full-access exposes launch and reports enforcement none", async () => {
+    const mock = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+      async launch() { return "bg-1"; },
+      async readProcessOutput() { return { text: "ok", cursor: "1", overflowed: false, droppedBytes: 0 }; },
+      async killProcess() {},
+      listProcesses() { return []; },
+      async disposeProcesses() {},
+    };
+    const wrapped = createSandboxedShell(mock as never, {
+      mode: "danger-full-access",
+      backend: "none",
+    });
+    expect(wrapped.sandboxEnforcement).toBe("none");
+    await expect(wrapped.launch!("echo")).resolves.toBe("bg-1");
+    // The other process methods survive the passthrough copy too.
+    expect(typeof wrapped.readProcessOutput).toBe("function");
+    expect(typeof wrapped.killProcess).toBe("function");
+    expect(typeof wrapped.listProcesses).toBe("function");
+    expect(typeof wrapped.disposeProcesses).toBe("function");
+  });
+
+  it("none backend with failIfUnavailable:false still launches (warned once, unconfined)", async () => {
+    const launched: string[] = [];
+    const mock = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+      async launch(cmd: string) { launched.push(cmd); return "bg-2"; },
+      async readProcessOutput() { return { text: "", cursor: "0", overflowed: false, droppedBytes: 0 }; },
+      async killProcess() {},
+      listProcesses() { return []; },
+      async disposeProcesses() {},
+    };
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const wrapped = createSandboxedShell(mock as never, {
+        mode: "workspace-write",
+        backend: "none",
+        failIfUnavailable: false,
+      });
+      expect(wrapped.sandboxEnforcement).toBe("none");
+      await wrapped.launch!("echo x");
+      expect(launched).toEqual(["echo x"]);
+      // The unconfined-launch warning fires once, shared with the exec path.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]![0]).toContain("No sandbox backend");
+      // A second launch must not warn again.
+      await wrapped.launch!("echo y");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      // Process methods delegate when the real shell has them.
+      expect(typeof wrapped.readProcessOutput).toBe("function");
+      expect(typeof wrapped.killProcess).toBe("function");
+      expect(typeof wrapped.listProcesses).toBe("function");
+      expect(typeof wrapped.disposeProcesses).toBe("function");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("none backend omits process methods the real shell does not provide", () => {
+    const bare = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+    };
+    const wrapped = createSandboxedShell(bare as never, {
+      mode: "workspace-write",
+      backend: "none",
+      failIfUnavailable: false,
+    });
+    expect(wrapped.launch).toBeUndefined();
+    expect(wrapped.readProcessOutput).toBeUndefined();
+    expect(wrapped.killProcess).toBeUndefined();
+    expect(wrapped.listProcesses).toBeUndefined();
+    expect(wrapped.disposeProcesses).toBeUndefined();
   });
 });
 

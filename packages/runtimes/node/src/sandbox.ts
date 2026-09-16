@@ -327,26 +327,56 @@ export function createSandboxedShell(
     // that happens to lack seatbelt/bwrap.
     const stripped = config.strippedEnvVars ?? [];
     const strippedPatterns = config.strippedEnvPatterns ?? [];
-    return {
+
+    const warnOnce = (): void => {
+      if (!warned) {
+        warned = true;
+        console.warn(
+          "[sandbox] WARNING: No sandbox backend available on this platform. " +
+          "Commands will run without isolation. This is a security risk.",
+        );
+      }
+    };
+
+    const shell: SandboxedShell = {
       sandboxEnforcement: "none",
       exec(cmd: string, opts?: ShellExecOptions) {
-        if (!warned) {
-          warned = true;
-          console.warn(
-            "[sandbox] WARNING: No sandbox backend available on this platform. " +
-            "Commands will run without isolation. This is a security risk.",
-          );
-        }
+        warnOnce();
         return realShell.exec(cmd, stripEnvFrom(opts, stripped, strippedPatterns));
       },
-      // No `launch`: only danger-full-access exposes the real shell's
-      // background-launch path (see C4 — a passthrough here would let
-      // `bash({ runInBackground: true })` bypass isolation entirely, and
-      // there is nothing sandboxed on this backend for it to bypass into
-      // safely). The bash tool's `if (runInBackground && shell.launch)`
-      // guard falls back to the (still unsandboxed-with-warning) `exec`
-      // path on its own when `launch` is absent.
     };
+
+    // Background launch on the opt-out path. This backend confines nothing —
+    // exec is already unconfined — so a launch passthrough does not "bypass"
+    // any boundary that exists; it is the same unconfined process, with the
+    // same one-time warning and the same env stripping. The previous refusal
+    // to expose launch here (C4) only pushed the caller onto the equally
+    // unconfined exec path via the bash tool's fallback.
+    //
+    // Process methods are attached only when the underlying shell provides
+    // them: absent means unsupported, same contract as the confining branches.
+    if (realShell.launch) {
+      shell.launch = async (cmd: string, opts?: ShellLaunchOptions) => {
+        warnOnce();
+        return realShell.launch!(
+          cmd,
+          stripEnvFrom(opts, stripped, strippedPatterns) as ShellLaunchOptions | undefined,
+        );
+      };
+    }
+    if (realShell.readProcessOutput) {
+      shell.readProcessOutput = (id, cursor) => realShell.readProcessOutput!(id, cursor);
+    }
+    if (realShell.killProcess) {
+      shell.killProcess = (id) => realShell.killProcess!(id);
+    }
+    if (realShell.listProcesses) {
+      shell.listProcesses = () => realShell.listProcesses!();
+    }
+    if (realShell.disposeProcesses) {
+      shell.disposeProcesses = () => realShell.disposeProcesses!();
+    }
+    return shell;
   }
 
   // ── Resolve config defaults (Phase 2) ──
