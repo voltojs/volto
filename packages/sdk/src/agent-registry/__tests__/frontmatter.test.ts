@@ -71,4 +71,31 @@ describe("parseAgentFile", () => {
     );
     expect(result).toHaveProperty("error");
   });
+
+  it("rejects a wrong-typed tools value that is not an array", () => {
+    const result = parseAgentFile(
+      "---\nname: x\ntools: read_file\n---\nbody",
+      "/p/g.md",
+    );
+    expect(result).toHaveProperty("error");
+    expect((result as { error: string }).error).toMatch(/tools/i);
+  });
+
+  it("rejects a string maxIterations instead of a number", () => {
+    const result = parseAgentFile(
+      '---\nname: x\nmaxIterations: "20"\n---\nbody',
+      "/p/h.md",
+    );
+    expect(result).toHaveProperty("error");
+    expect((result as { error: string }).error).toMatch(/maxIterations/i);
+  });
+
+  it("rejects tools array elements that are not strings", () => {
+    const result = parseAgentFile(
+      "---\nname: x\ntools: [1, true]\n---\nbody",
+      "/p/i.md",
+    );
+    expect(result).toHaveProperty("error");
+    expect((result as { error: string }).error).toMatch(/tools/i);
+  });
 });

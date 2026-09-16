@@ -254,6 +254,43 @@ function isPolicy(value: unknown): value is PermissionConfig {
 }
 
 // ──────────────────────────────────────────────
+// Owned-field type validation
+// ──────────────────────────────────────────────
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+/**
+ * Expected type for each owned key other than `name` / `policy` (those have
+ * dedicated checks with clearer messages). Present-but-wrong-typed values
+ * fail the whole file — same policy as invalid `policy` — so a typo'd
+ * `tools: read_file` (bare string) never silently drops the tool list and
+ * falls through to assembly defaults.
+ */
+const OWNED_FIELD_TYPES: Record<string, (v: unknown) => boolean> = {
+  description: (v) => typeof v === "string",
+  tools: isStringArray,
+  model: (v) => typeof v === "string",
+  maxTokens: (v) => typeof v === "number",
+  temperature: (v) => typeof v === "number",
+  reasoningEffort: (v) => typeof v === "string",
+  capabilities: isStringArray,
+  maxIterations: (v) => typeof v === "number",
+  maxToolCalls: (v) => typeof v === "number",
+  enableTaskTool: (v) => typeof v === "boolean",
+};
+
+/** Returns the offending key when a present owned field has the wrong type. */
+function wrongTypedOwnedKey(front: Record<string, unknown>): string | undefined {
+  for (const [key, ok] of Object.entries(OWNED_FIELD_TYPES)) {
+    if (front[key] === undefined) continue;
+    if (!ok(front[key])) return key;
+  }
+  return undefined;
+}
+
+// ──────────────────────────────────────────────
 // Public API
 // ──────────────────────────────────────────────
 
@@ -298,6 +335,16 @@ export function parseAgentFile(
     }
   }
 
+  // Present-but-wrong-typed owned fields fail the file (never silently
+  // dropped): a wrong-typed `tools` would otherwise hand the agent the
+  // assembly default tool set instead of the author's intended list.
+  const badKey = wrongTypedOwnedKey(front);
+  if (badKey !== undefined) {
+    return {
+      error: `${filePath}: invalid "${badKey}" — wrong type for an owned frontmatter field`,
+    };
+  }
+
   const unknownKeys: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(front)) {
     if (!OWNED_KEYS.has(k)) unknownKeys[k] = v;
@@ -310,9 +357,7 @@ export function parseAgentFile(
       ? { description: front["description"] }
       : {}),
     ...(body ? { systemPrompt: body } : {}),
-    ...(Array.isArray(front["tools"])
-      ? { tools: front["tools"] as string[] }
-      : {}),
+    ...(isStringArray(front["tools"]) ? { tools: front["tools"] } : {}),
     ...(typeof front["model"] === "string" ? { model: front["model"] } : {}),
     ...(typeof front["maxTokens"] === "number"
       ? { maxTokens: front["maxTokens"] }
@@ -323,8 +368,8 @@ export function parseAgentFile(
     ...(typeof front["reasoningEffort"] === "string"
       ? { reasoningEffort: front["reasoningEffort"] }
       : {}),
-    ...(Array.isArray(front["capabilities"])
-      ? { capabilities: front["capabilities"] as string[] }
+    ...(isStringArray(front["capabilities"])
+      ? { capabilities: front["capabilities"] }
       : {}),
     ...(typeof front["maxIterations"] === "number"
       ? { maxIterations: front["maxIterations"] }
