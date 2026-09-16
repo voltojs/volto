@@ -1,0 +1,113 @@
+import { Buffer } from "node:buffer";
+
+export const DEFAULT_PROCESS_BUFFER_BYTES = 256 * 1024;
+
+const OVERFLOW_NOTE_PREFIX = "更早的输出已丢弃（共 ";
+
+export interface ProcessBufferRead {
+  text: string;
+  cursor: string;
+  overflowed: boolean;
+  droppedBytes: number;
+}
+
+export interface ProcessOutputBuffer {
+  append(chunk: string): void;
+  read(cursor?: string): ProcessBufferRead;
+  readonly totalWritten: number;
+}
+
+/**
+ * Byte-accurate ring buffer. Cursors are decimal totals of bytes ever
+ * written; a cursor older than the retained window yields the whole
+ * window rather than a silent gap.
+ *
+ * The discard note is part of `text` only when the retained window
+ * starts mid-chunk (an append was partially trimmed). Whole-chunk
+ * eviction is reported solely via `overflowed` / `droppedBytes`.
+ */
+export function createProcessOutputBuffer(
+  capacityBytes: number = DEFAULT_PROCESS_BUFFER_BYTES,
+): ProcessOutputBuffer {
+  const capacity = Math.max(1, capacityBytes);
+  /** Chunks still retained, in write order. */
+  const retained: Buffer[] = [];
+  let retainedBytes = 0;
+  let droppedBytes = 0;
+  /** Total bytes ever appended — also the high-water cursor. */
+  let totalWritten = 0;
+  /** Absolute byte offset of retained[0] within the full history. */
+  let retainedStart = 0;
+  /** True when retained[0] is a partial fragment of its original append. */
+  let headTrimmed = false;
+
+  function evict(): void {
+    while (retainedBytes > capacity && retained.length > 0) {
+      const head = retained[0]!;
+      if (retained.length === 1) {
+        // Single chunk still over capacity: keep only its tail.
+        const excess = retainedBytes - capacity;
+        retained[0] = head.subarray(excess);
+        retainedBytes -= excess;
+        retainedStart += excess;
+        droppedBytes += excess;
+        headTrimmed = true;
+        break;
+      }
+      retained.shift();
+      retainedBytes -= head.length;
+      retainedStart += head.length;
+      droppedBytes += head.length;
+      headTrimmed = false;
+    }
+  }
+
+  function append(chunk: string): void {
+    const buf = Buffer.from(chunk, "utf8");
+    if (buf.length === 0) return;
+    retained.push(buf);
+    retainedBytes += buf.length;
+    totalWritten += buf.length;
+    evict();
+  }
+
+  function read(fromCursor?: string): ProcessBufferRead {
+    const all = Buffer.concat(retained);
+    let text: string;
+    let missedWindow = false;
+    if (fromCursor === undefined) {
+      text = all.toString("utf8");
+    } else {
+      const parsed = Number.parseInt(fromCursor, 10);
+      const cursorBytes = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+      // Client already consumed [0, cursorBytes). Anything before
+      // retainedStart is gone from the ring.
+      missedWindow = cursorBytes < retainedStart;
+      const sliceFrom = Math.max(0, cursorBytes - retainedStart);
+      // Slice on the byte buffer before decoding so a multi-byte
+      // character is never split by a character-index approximation.
+      text = all.subarray(sliceFrom).toString("utf8");
+    }
+    const overflowed = missedWindow || droppedBytes > 0;
+    // A full-window (or stale-cursor) read of a fragment head needs the
+    // note in-band; whole-chunk eviction is already covered by the fields.
+    const note =
+      overflowed && headTrimmed && (fromCursor === undefined || missedWindow)
+        ? `${OVERFLOW_NOTE_PREFIX}${droppedBytes} 字节）\n`
+        : "";
+    return {
+      text: note + text,
+      cursor: String(totalWritten),
+      overflowed,
+      droppedBytes,
+    };
+  }
+
+  return {
+    append,
+    read,
+    get totalWritten() {
+      return totalWritten;
+    },
+  };
+}
