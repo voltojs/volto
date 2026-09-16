@@ -6,7 +6,14 @@
  * Supports any OpenAI-compatible gateway via configurable baseURL.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest } from "@volto/core";
+import type {
+  ModelPort,
+  ModelEvent,
+  ModelRequest,
+  Message,
+  ToolResultMessage,
+  ToolResultBlock,
+} from "@volto/core";
 import { normalizeStream, type RawStreamChunk } from "./stream-normalize.js";
 
 export interface OpenAIModelPortOptions {
@@ -87,13 +94,84 @@ export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
 // Request body builder
 // ──────────────────────────────────────────────
 
-function buildRequestBody(req: ModelRequest, model: string): Record<string, unknown> {
-  const messages = req.messages.map((msg) => {
+/**
+ * Request-surface image block: the base64 bytes a provider needs.
+ * Mirrors the Runner's WireImageContent; core's ImageContent stays ref-only,
+ * so the wire shape arrives as an untyped cast at the request boundary.
+ */
+interface WireImageContent {
+  type: "image";
+  source: { type: "base64"; mediaType: string; data: string };
+}
+
+function asWireImage(block: ToolResultBlock): WireImageContent | null {
+  if (block.type !== "image") return null;
+  // Narrow at runtime rather than widening core's ImageContent.
+  const src = block.source as { type?: string; mediaType?: string; data?: string };
+  if (src.type === "base64" && typeof src.mediaType === "string" && typeof src.data === "string") {
+    return {
+      type: "image",
+      source: { type: "base64", mediaType: src.mediaType, data: src.data },
+    };
+  }
+  return null;
+}
+
+/**
+ * Chat Completions accepts text only in a tool message, so images ride in a
+ * user message inserted right after the tool batch they came from. One
+ * carrier per batch, not per result: separate carriers cost extra role
+ * overhead and blur which call produced which image, so each image is
+ * labelled with its tool_call_id instead.
+ *
+ * Responses API would take images directly, but OpenAI-compatible gateways
+ * (vLLM, local models) generally implement only this endpoint.
+ */
+function splitToolBatch(msg: ToolResultMessage): { toolMessages: unknown[]; carrier?: unknown } {
+  const toolMessages: unknown[] = [];
+  const parts: Array<Record<string, unknown>> = [];
+
+  for (const tr of msg.content) {
+    const texts = tr.content.filter((b) => b.type === "text").map((b) => b.text);
+    const images = tr.content
+      .map(asWireImage)
+      .filter((img): img is WireImageContent => img !== null);
+    const note = images.length > 0
+      ? `\n[${images.length} image${images.length > 1 ? "s" : ""} returned — see next message]`
+      : "";
+    toolMessages.push({
+      role: "tool",
+      tool_call_id: tr.toolUseId,
+      content: texts.join("\n") + note,
+    });
+    for (const image of images) {
+      parts.push({ type: "text", text: `Image from tool_call_id ${tr.toolUseId}:` });
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:${image.source.mediaType};base64,${image.source.data}` },
+      });
+    }
+  }
+
+  return parts.length > 0
+    ? { toolMessages, carrier: { role: "user", content: parts } }
+    : { toolMessages };
+}
+
+/**
+ * Map core messages to the OpenAI Chat Completions message array.
+ * Exported for tests; buildRequestBody wraps it with model/stream options.
+ */
+export function toOpenAiMessages(messages: Message[]): unknown[] {
+  const out: unknown[] = [];
+  for (const msg of messages) {
     if (msg.role === "system") {
-      return { role: "system", content: msg.content };
+      out.push({ role: "system", content: msg.content });
+      continue;
     }
     if (msg.role === "user") {
-      return { role: "user", content: msg.content };
+      out.push({ role: "user", content: msg.content });
+      continue;
     }
     if (msg.role === "assistant") {
       // OpenAI expects tool_calls at the message level (not inside content).
@@ -113,24 +191,28 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
         }));
 
       if (toolCalls.length > 0) {
-        return {
+        out.push({
           role: "assistant",
           content: text.length > 0 ? text : null,
           tool_calls: toolCalls,
-        };
+        });
+        continue;
       }
 
-      return { role: "assistant", content: text };
+      out.push({ role: "assistant", content: text });
+      continue;
     }
     if (msg.role === "tool") {
-      return msg.content.map((tc) => ({
-        role: "tool",
-        tool_call_id: tc.toolUseId,
-        content: tc.content,
-      }));
+      const { toolMessages, carrier } = splitToolBatch(msg);
+      out.push(...toolMessages);
+      if (carrier !== undefined) out.push(carrier);
     }
-    return msg;
-  }).flat();
+  }
+  return out;
+}
+
+function buildRequestBody(req: ModelRequest, model: string): Record<string, unknown> {
+  const messages = toOpenAiMessages(req.messages);
 
   const body: Record<string, unknown> = {
     model,
