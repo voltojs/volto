@@ -16,6 +16,8 @@ import type {
   ModelEvent,
   ToolResult,
   ToolResultBlock,
+  ContentBlock,
+  AttachmentStore,
   ReadFileRecord,
   PermissionConfig,
   SessionStore,
@@ -94,6 +96,78 @@ function annotateUntrustedContent(
   if (typeof content === "string") return annotateUntrusted(content);
   return content.map((b) =>
     b.type === "text" ? { ...b, text: annotateUntrusted(b.text) } : b,
+  );
+}
+
+/**
+ * Request-surface image block: the base64 bytes a provider needs.
+ *
+ * Deliberately a Runner-local type, not core's `ImageContent`. Core state
+ * only ever holds `{ type: "ref" }` so a snapshot stays small; this wire
+ * shape exists only between resolveImageRefs and modelPort.stream(). Adding
+ * `"base64"` back into core's ImageContent would give state two shapes again.
+ */
+export interface WireImageContent {
+  type: "image";
+  source: {
+    type: "base64";
+    mediaType: string;
+    data: string;
+  };
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Swap AttachmentStore references for the base64 bytes providers expect.
+ *
+ * Runs on the request surface only: AgentState keeps refs, so a snapshot
+ * never carries image bytes. A missing attachment degrades to placeholder
+ * text and emits a warning — replaying an old session whose files were
+ * cleaned up must not break the loop.
+ */
+export async function resolveImageRefs(
+  messages: Message[],
+  store: AttachmentStore,
+  eventSink: EventSink,
+): Promise<Message[]> {
+  const resolveBlock = async (block: ContentBlock): Promise<ContentBlock> => {
+    if (block.type !== "image" || block.source.type !== "ref") return block;
+    const found = await store.get(block.source.id);
+    if (!found) {
+      eventSink.emit({
+        type: "attachment_unavailable",
+        data: { id: block.source.id },
+      });
+      return { type: "text", text: `[image unavailable: ${block.source.id}]` };
+    }
+    // The wire shape is not part of core's ContentBlock union — state stays
+    // ref-only. Cast at this boundary; providers narrow on source.type.
+    return {
+      type: "image",
+      source: { type: "base64", mediaType: found.mimeType, data: found.data },
+      ...(block.width !== undefined ? { width: block.width } : {}),
+      ...(block.height !== undefined ? { height: block.height } : {}),
+    } as unknown as ContentBlock;
+  };
+
+  return Promise.all(
+    messages.map(async (msg) => {
+      if (typeof msg.content === "string" || !Array.isArray(msg.content)) return msg;
+      const content = await Promise.all(
+        msg.content.map(async (block) => {
+          if (block.type === "tool_result") {
+            // tool_result content is text | image only; resolveBlock on those
+            // yields text | wire-image. The wire-image cast is the same
+            // request-surface boundary as above.
+            const resolved = await Promise.all(block.content.map(resolveBlock));
+            return { ...block, content: resolved as ToolResultBlock[] };
+          }
+          return resolveBlock(block);
+        }),
+      );
+      return { ...msg, content } as Message;
+    }),
   );
 }
 
@@ -220,6 +294,12 @@ export interface RunnerOptions {
     topK?: number;
     queryBuilder?: (messages: Message[]) => string;
   };
+  /**
+   * Attachment store for image bytes. When set, the Runner resolves
+   * AttachmentStore refs into base64 on the request surface just before
+   * calling the model — state keeps the refs, providers get the bytes.
+   */
+  attachmentStore?: AttachmentStore;
 }
 
 /**
@@ -886,6 +966,19 @@ export function createRunner(opts: RunnerOptions): Runner {
           /* Memory query and the best-effort audit write are both non-fatal */
         }
       }
+    }
+
+    // Resolve AttachmentStore refs → base64 for the request surface only.
+    // State keeps the refs, so a snapshot never carries image bytes. A
+    // missing attachment degrades to placeholder text with a warning —
+    // replaying a session whose files were cleaned up must not break the
+    // loop. Skipped when no store is configured (text-only hosts).
+    if (opts.attachmentStore) {
+      finalMessages = await resolveImageRefs(
+        finalMessages,
+        opts.attachmentStore,
+        opts.eventSink ?? { emit: () => {} },
+      );
     }
 
     const req = {
