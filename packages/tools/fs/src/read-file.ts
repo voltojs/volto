@@ -1,10 +1,13 @@
-import type { FileReadResult, FileSystem } from "@volto/core";
+import type { AttachmentStore, FileReadResult, FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
 import { defineTool as defineFileTool } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
+import { formatNotebook } from "./notebook.js";
 
 const MAX_LINES = 2000;
+const MAX_IMAGE_BASE64 = 5 * 1024 * 1024;
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 
 const schema = z.object({
   path: z.string().describe("Absolute or workspace-relative path."),
@@ -12,7 +15,17 @@ const schema = z.object({
   limit: z.number().int().positive().optional().describe("Maximum lines to return."),
 });
 
-export function createReadFileTool(fs: FileSystem): FileTool {
+export interface ReadFileToolOptions {
+  /** Required for the image path: images leave as AttachmentStore references. */
+  attachments?: AttachmentStore;
+  /**
+   * Tri-state vision gate. `false` rejects image reads; absent/undefined
+   * does not gate (hosts that have not wired capability yet keep working).
+   */
+  visionSupported?: boolean;
+}
+
+export function createReadFileTool(fs: FileSystem, opts?: ReadFileToolOptions): FileTool {
   return defineFileTool({
     name: "read_file",
     description: "Read a file with line numbers (cat -n style). Supports offset and limit for pagination.",
@@ -20,6 +33,57 @@ export function createReadFileTool(fs: FileSystem): FileTool {
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
     run: async ({ path, offset, limit }) => {
+      const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+
+      if (IMAGE_EXTS.has(ext)) {
+        if (!opts?.attachments) {
+          return {
+            modelContent: "read_file cannot return images: no attachment store is configured.",
+            isError: true,
+          };
+        }
+        // Deliberately no "use tool X instead": with no vision support there is
+        // no other path that works either.
+        if (opts.visionSupported === false) {
+          return { modelContent: "The current model does not support image input.", isError: true };
+        }
+        try {
+          const bytes = await fs.readBytes(path);
+          if (bytes.data.length > MAX_IMAGE_BASE64) {
+            return { modelContent: `Image is too large to send (${bytes.size} bytes).`, isError: true };
+          }
+          const stored = await opts.attachments.put(bytes.data, bytes.mimeType ?? "image/png");
+          return {
+            modelContent: [
+              { type: "text", text: `Image ${path}` },
+              {
+                type: "image",
+                source: { type: "ref", id: stored.id, mediaType: stored.mimeType },
+                ...(stored.width !== undefined ? { width: stored.width } : {}),
+                ...(stored.height !== undefined ? { height: stored.height } : {}),
+              },
+            ],
+            displayMetadata: { filePath: path, mimeType: stored.mimeType },
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { modelContent: `read_file failed: ${message}`, isError: true };
+        }
+      }
+
+      if (ext === ".ipynb") {
+        try {
+          const file = await fs.read(path);
+          return {
+            modelContent: formatNotebook(file.content),
+            displayMetadata: { filePath: path, notebook: true },
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { modelContent: `read_file failed: ${message}`, isError: true };
+        }
+      }
+
       const startLine = offset ?? 1;
       const lineLimit = Math.min(limit ?? MAX_LINES, MAX_LINES);
 
