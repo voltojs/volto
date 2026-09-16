@@ -379,7 +379,7 @@ describe("createSandboxedShell", () => {
   });
 });
 
-describe("createSandboxedShell — launch passthrough (C4)", () => {
+describe("createSandboxedShell — launch availability by backend", () => {
   /** A mock Shell whose `launch` is a real, unsandboxed passthrough — the
    * shape `createSandboxedShell` receives from a real Node shell adapter. */
   function createMockShellWithLaunch(): Shell {
@@ -409,27 +409,29 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
     expect(wrapped.launch).toBeUndefined();
   });
 
-  it("workspace-write mode (seatbelt backend) does not expose a launch passthrough", () => {
+  it("workspace-write mode (seatbelt backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "seatbelt",
       writableRoots: ["/tmp"],
-      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      // Shape test — does not require sandbox-exec to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 5: seatbelt launch writes a per-process profile and wraps the
+    // command, so it is no longer omitted.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("read-only mode (seatbelt backend) does not expose a launch passthrough", () => {
+  it("read-only mode (seatbelt backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "read-only",
       backend: "seatbelt",
-      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      // Shape test — does not require sandbox-exec to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    expect(typeof wrapped.launch).toBe("function");
   });
 
   it("workspace-write mode (bubblewrap backend) does not expose a launch passthrough", () => {
@@ -938,6 +940,71 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
       expect(code).toBe(0);
       expect(out).not.toContain("confstr");
     });
+  });
+
+  // ──────────────────────────────────────────────
+  // Task 5 — background launch under a per-process seatbelt profile.
+  //
+  // The seatbelt branch used to omit `launch` entirely (C4): the profile
+  // was tied to exec's temp-file lifecycle, so a passthrough launch would
+  // have run fully unisolated. Now each launch writes its own profile and
+  // drops it when the child dies, so runInBackground is confined.
+  // ──────────────────────────────────────────────
+
+  it("launch() runs under a per-process seatbelt profile and denies writes outside roots", async () => {
+    const scratch = makeScratch();
+    const outsideDir = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    const id = await shell.launch!(`touch "${path.join(outsideDir, "denied.txt")}"`);
+    // Wait for exit.
+    await new Promise((r) => setTimeout(r, 800));
+    const out = await shell.readProcessOutput!(id);
+    // Backend-specific denial dialect — do NOT union with bwrap's.
+    expect(out.text.toLowerCase()).toContain("operation not permitted");
+    expect(fs.existsSync(path.join(outsideDir, "denied.txt"))).toBe(false);
+  });
+
+  it("launch() enforces sandboxEnforcement as a runtime fact", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+    });
+    expect(shell.sandboxEnforcement).toBe("full");
+    const id = await shell.launch!("echo seatbelt-bg-ok");
+    await new Promise((r) => setTimeout(r, 500));
+    const out = await shell.readProcessOutput!(id);
+    expect(out.text).toContain("seatbelt-bg-ok");
+  });
+
+  it("launch() cleans up its per-process seatbelt profile after the process exits", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    /** List seatbelt profile files belonging to this Node process. */
+    const profiles = (): string[] =>
+      fs.readdirSync(os.tmpdir()).filter(
+        (f) => f.startsWith(`volto-sandbox-${process.pid}-`) && f.endsWith(".sb"),
+      );
+
+    const before = profiles().length;
+    await shell.launch!("echo profile-cleanup-probe");
+    // Wait for the quick command to exit plus the 1s cleanup interval.
+    await new Promise((r) => setTimeout(r, 2500));
+    const after = profiles().length;
+    expect(after).toBeLessThanOrEqual(before);
   });
 });
 

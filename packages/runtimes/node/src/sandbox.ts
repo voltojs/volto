@@ -16,7 +16,7 @@
  * All rejections are expressed as ShellEvents (stdout/stderr/exit), never thrown.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
+import type { Shell, ShellExecOptions, ShellEvent, ShellLaunchOptions } from "@volto/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
 import type { SandboxMode } from "@volto/core";
 import { spawn, execFileSync } from "node:child_process";
@@ -513,12 +513,68 @@ export function createSandboxedShell(
           }
         })();
       },
-      // No `launch` (see C4): the seatbelt profile only wraps `exec`'s
-      // per-call temp-file lifecycle, so a passthrough `launch` here would
-      // run the command with zero isolation — silently, since the only
-      // signal was a `console.warn` nobody sees. Omitting it makes the bash
-      // tool's `runInBackground` path fall back to the sandboxed `exec`
-      // above instead.
+      // Background launch under a per-process seatbelt profile. Each launch
+      // writes its own profile file and registers a cleanup that drops it
+      // when the child dies — the same -f discipline as exec() above.
+      async launch(
+        cmd: string,
+        opts?: ShellLaunchOptions,
+      ): Promise<string> {
+        // Re-probe at launch time: the binary could have been removed since
+        // construction. A missing runner is infrastructure failure, not a
+        // command failure — refuse rather than run unconfined.
+        if (!runnerBinaryAvailable(seatbeltBinary)) {
+          throw new Error(
+            `${INFRA_FAILURE_PREFIX} the sandbox runner "${seatbeltBinary}" is not available; ` +
+            `refusing to background-launch without isolation.`,
+          );
+        }
+
+        const profileId = `${process.pid}-${++profileCounter}`;
+        const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
+        writeFileSync(profilePath, profileContent, "utf-8");
+
+        const escapedCmd = cmd.replace(/'/g, "'\\''");
+        // `-f` takes a profile FILE path; `-p` takes an inline profile
+        // string. Passing the path to `-p` makes sandbox-exec try to parse
+        // the path itself as a profile, which fails with "unbound variable"
+        // — same defect documented on the exec() path above.
+        const wrapped = `${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+
+        let id: string;
+        try {
+          id = await realShell.launch!(wrapped, withStrippedEnv(opts));
+        } catch (err) {
+          // Launch failed — don't leak the profile file.
+          try { unlinkSync(profilePath); } catch { /* best-effort */ }
+          throw err;
+        }
+
+        // Drop the profile when the process dies. A 1s poll is enough: the
+        // file is small, and the same interval covers kill/dispose paths.
+        const timer = setInterval(() => {
+          const info = realShell.listProcesses?.().find((p) => p.id === id);
+          if (!info || !info.running) {
+            clearInterval(timer);
+            try { unlinkSync(profilePath); } catch { /* best-effort */ }
+          }
+        }, 1000);
+        // Don't let the cleanup timer keep the host event loop alive.
+        timer.unref();
+        return id;
+      },
+      readProcessOutput(id: string, cursor?: string) {
+        return realShell.readProcessOutput!(id, cursor);
+      },
+      killProcess(id: string) {
+        return realShell.killProcess!(id);
+      },
+      listProcesses() {
+        return realShell.listProcesses!();
+      },
+      async disposeProcesses() {
+        await realShell.disposeProcesses!();
+      },
     };
   }
 
