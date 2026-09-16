@@ -66,8 +66,14 @@ import {
 import { createAutoAllowGate } from "@volto/runtime-node";
 import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
-import type { SubAgentExecutor } from "@volto/tools-agent";
+import type { SubAgentDispatch } from "@volto/tools-agent";
 import { createTaskTool } from "@volto/tools-agent";
+
+/**
+ * Legacy string-in/string-out executor shape used by createSubAgentExecutor.
+ * Task 5 replaces this with a real SubAgentDispatch (typed + background).
+ */
+type StringSubAgentExecutor = (message: string) => Promise<string>;
 import {
   createReadFileTool,
   createEditFileTool,
@@ -816,23 +822,27 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   allCustomTools.push(createTodoWriteTool());
 
   if (opts.enableTaskTool) {
-    const taskTool = createTaskTool(
-      createSubAgentExecutor(
-        opts,
-        allCustomTools,
-        adapterTools,
-        capabilities,
-        compactionConfig,
-        1,
-        effectiveShell,
-        idPort,
-        () => currentTurnEventSink,
-        opts.chatStore,
-        opts.chatSessionId,
-        () => turnCounter,
-      ),
+    const executor = createSubAgentExecutor(
+      opts,
+      allCustomTools,
+      adapterTools,
+      capabilities,
+      compactionConfig,
+      1,
+      effectiveShell,
+      idPort,
+      () => currentTurnEventSink,
+      opts.chatStore,
+      opts.chatSessionId,
+      () => turnCounter,
     );
-    allCustomTools.push(taskTool);
+    // Thin adapter onto the new dispatch contract: always synchronous, fixed
+    // task id. Task 5 wires real typed/background dispatch and task_output.
+    const dispatch: SubAgentDispatch = async ({ message }) => ({
+      taskId: "sync",
+      text: await executor(message),
+    });
+    allCustomTools.push(createTaskTool(dispatch));
   }
   if (opts.skillRegistry) {
     // Local const so the narrowing survives inside the loader callback.
@@ -1775,7 +1785,7 @@ function createSubAgentExecutor(
   chatStore?: TranscriptStore,
   parentChatSessionId?: string,
   getCurrentTurn: () => number = () => 0,
-): SubAgentExecutor {
+): StringSubAgentExecutor {
   return async (message: string): Promise<string> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
     const turn = getCurrentTurn();
