@@ -11,6 +11,7 @@ import { usePaneStore } from '@/stores/pane-store';
 import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { useSubagentConversation } from '@/hooks/use-subagent-conversation';
 import { useSubagentChatAgent } from '@/hooks/use-subagent-chat-agent';
+import { useSubagentContextUsage } from '@/hooks/use-subagent-context-usage';
 import { useStoredRows } from '@/hooks/use-trajectory';
 import { formatDuration } from '@/lib/trajectory-view-model';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MessageList } from '@/components/chat/MessageList';
 import { InputBar } from '@/components/chat/InputBar';
+import { ContextMeter } from '@/components/chat/ContextMeter';
 import { ModelSettingsPicker } from '@/components/chat/ModelSettingsPicker';
 import { PermissionPicker } from '@/components/chat/PermissionPicker';
 import { TrajectoryList } from '@/components/trajectory/TrajectoryList';
@@ -75,6 +77,13 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
   const reasoning = useConfigStore((s) =>
     s.getModelReasoning(effectiveProviderId, effectiveModelId),
   );
+  // ContextMeter denominator: the effective model's window (override wins).
+  // findModel is already used elsewhere for this; null model → meter gray.
+  const effectiveModel = useConfigStore((s) =>
+    s.findModel(effectiveProviderId, effectiveModelId),
+  );
+
+  const usage = useSubagentContextUsage(childId ?? null);
 
   const agent = useSubagentChatAgent({
     childSessionId: childId ?? null,
@@ -95,6 +104,12 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
 
   const running = bucket?.status === 'running' || agent.isGenerating;
   const missing = !parent?.projectId || !parent?.providerId || !parent?.modelId;
+  const hasCompletedAssistantMessage = feed.entries.some(
+    (e) =>
+      e.kind === 'message' &&
+      e.message.role === 'assistant' &&
+      e.message.isStreaming !== true,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -176,19 +191,26 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               />
             }
             trailing={
-              <ModelSettingsPicker
-                providerId={effectiveProviderId}
-                modelId={effectiveModelId}
-                onModelChange={(providerId, modelId) => {
-                  setOverrideModel({ providerId, modelId });
-                  // Effort ids are model-scoped; a previous override may not
-                  // apply to the newly selected model.
-                  setOverrideEffort(undefined);
-                }}
-                efforts={reasoning?.efforts ?? []}
-                effort={overrideEffort ?? parent?.reasoningEffort}
-                onEffortChange={setOverrideEffort}
-              />
+              <>
+                <ContextMeter
+                  usage={usage}
+                  contextWindow={effectiveModel?.contextWindow}
+                  hasCompletedAssistantMessage={hasCompletedAssistantMessage}
+                />
+                <ModelSettingsPicker
+                  providerId={effectiveProviderId}
+                  modelId={effectiveModelId}
+                  onModelChange={(providerId, modelId) => {
+                    setOverrideModel({ providerId, modelId });
+                    // Effort ids are model-scoped; a previous override may not
+                    // apply to the newly selected model.
+                    setOverrideEffort(undefined);
+                  }}
+                  efforts={reasoning?.efforts ?? []}
+                  effort={overrideEffort ?? parent?.reasoningEffort}
+                  onEffortChange={setOverrideEffort}
+                />
+              </>
             }
           />
         </TabsContent>

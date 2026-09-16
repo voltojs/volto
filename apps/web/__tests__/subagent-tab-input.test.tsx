@@ -47,6 +47,15 @@ vi.mock('@/hooks/use-subagent-conversation', () => ({
   }),
 }));
 
+vi.mock('@/hooks/use-subagent-context-usage', () => ({
+  useSubagentContextUsage: () => ({
+    projectedTokens: 1500,
+    breakdown: { system: 100, tools: 0, messages: 1400 },
+    layers: [],
+    anchored: true,
+  }),
+}));
+
 interface MockInputBarProps {
   onSubmit?: (text: string) => void;
   disabled?: boolean;
@@ -328,5 +337,10 @@ describe('SubagentTab input', () => {
       reasoningEffort: 'high',
       permissionMode: 'auto',
     });
+  });
+
+  it('renders the context meter beside the model picker', () => {
+    render(<SubagentTab tab={chatTab} />);
+    expect(screen.getByLabelText('上下文用量')).toBeDefined();
   });
 });
