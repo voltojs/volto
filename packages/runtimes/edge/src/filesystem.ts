@@ -7,6 +7,7 @@
 import type {
   FileSystem,
   FileReadResult,
+  FileReadBytesResult,
   FileStat,
   FileListResult,
   FileGlobResult,
@@ -62,6 +63,15 @@ export function createEdgeFileSystem(opts: EdgeFileSystemOptions = {}): FileSyst
         totalLines,
         truncated: end < totalLines,
       };
+    },
+
+    // ObjectStorageBackend carries text values only — no binary byte channel —
+    // so raw-byte reads are unsupported rather than silently reinterpreting
+    // UTF-8 as image bytes.
+    async readBytes(path: string): Promise<FileReadBytesResult> {
+      throw new Error(
+        `readBytes is not supported by the edge object-storage filesystem (text-only backend): ${path}`,
+      );
     },
 
     async write(path: string, data: string): Promise<void> {

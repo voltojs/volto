@@ -13,6 +13,9 @@ function createInMemoryFs(seed: Record<string, string>): FileSystem {
       const sliced = lines.slice(offset - 1, limit ? offset - 1 + limit : undefined);
       return { content: sliced.join("\n"), totalLines: lines.length, truncated: false };
     },
+    async readBytes() {
+      return Promise.reject(new Error("readBytes is not implemented in this test double"));
+    },
     async write(path, data) { store.set(path, data); },
     async stat(path) {
       if (!store.has(path)) throw new Error(`ENOENT: ${path}`);

@@ -21,6 +21,9 @@ function createInMemoryFs(seed: Record<string, string>): { fs: FileSystem; get: 
       const sliced = limit ? lines.slice(clamped - 1, clamped - 1 + limit) : lines.slice(clamped - 1);
       return { content: sliced.join("\n"), totalLines: lines.length, truncated: false };
     },
+    async readBytes(): Promise<never> {
+      throw new Error("readBytes is not implemented in this test double");
+    },
     async write(target, data): Promise<void> {
       store.set(target, data);
       mtimes.set(target, ++clock);

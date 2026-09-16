@@ -10,6 +10,7 @@ function fakeFs(overrides: Partial<FileSystem>): FileSystem {
   const reject = () => Promise.reject(new Error("not implemented"));
   return {
     read: reject as FileSystem["read"],
+    readBytes: reject as FileSystem["readBytes"],
     write: reject as FileSystem["write"],
     stat: reject as FileSystem["stat"],
     list: reject as FileSystem["list"],

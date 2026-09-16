@@ -4,13 +4,23 @@ import { spawn } from "node:child_process";
 import type {
   FileSystem,
   FileReadResult,
+  FileReadBytesResult,
   FileStat,
   FileListResult,
   FileGlobResult,
   FileGrepResult,
 } from "@volto/core";
+import { readImageDimensions } from "./image-dimensions.js";
 
 const MAX_GREP_LIMIT = 500;
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
 
 function normalizeSeparators(value: string): string {
   return value.replace(/\\/g, "/");
@@ -28,7 +38,12 @@ export function createNodeFileSystem(options: NodeFileSystemOptions): FileSystem
     const rel = path.relative(root, resolved);
     // Escapes the workspace if the relative path climbs out (..) or is absolute.
     if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
-      throw new Error(`Path "${target}" escapes the workspace boundary.`);
+      // Keep "escapes the workspace boundary" as a stable substring (tests
+      // and tool-layer messages match on it) while also stating the
+      // outside-the-root fact the denial dialect checks for.
+      throw new Error(
+        `Path "${target}" escapes the workspace boundary (outside the workspace root).`,
+      );
     }
     return resolved;
   }
@@ -66,6 +81,21 @@ export function createNodeFileSystem(options: NodeFileSystemOptions): FileSystem
         content: sliced.join("\n"),
         totalLines: lines.length,
         truncated: typeof limit === "number" ? clampedOffset - 1 + sliced.length < lines.length : false,
+      };
+    },
+
+    async readBytes(target): Promise<FileReadBytesResult> {
+      // Same path policy as read(): resolveWithinRoot is the single
+      // workspace-boundary check this adapter owns.
+      const resolved = resolveWithinRoot(target);
+      const bytes = await fs.readFile(resolved);
+      const dims = readImageDimensions(bytes);
+      const mimeType = MIME_BY_EXT[path.extname(resolved).toLowerCase()];
+      return {
+        data: bytes.toString("base64"),
+        size: bytes.byteLength,
+        ...(mimeType !== undefined ? { mimeType } : {}),
+        ...(dims ?? {}),
       };
     },
 

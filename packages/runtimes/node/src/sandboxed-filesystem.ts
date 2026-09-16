@@ -314,6 +314,13 @@ export function createSandboxedFileSystem(
       await assertReadable(target);
       return fs.read(target, offset, limit);
     },
+    // readBytes answers to exactly the same path policy as read(): a separate
+    // check here would drift, and a missing one would open a read-anything
+    // bypass around the sandbox.
+    async readBytes(target: string) {
+      await assertReadable(target);
+      return fs.readBytes(target);
+    },
     async stat(target: string) {
       await assertReadable(target);
       return fs.stat(target);

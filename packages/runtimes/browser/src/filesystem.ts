@@ -7,6 +7,7 @@
 import type {
   FileSystem,
   FileReadResult,
+  FileReadBytesResult,
   FileStat,
   FileListResult,
   FileGlobResult,
@@ -88,6 +89,15 @@ export function createBrowserFileSystem(_opts: BrowserFileSystemOptions = {}): F
         totalLines,
         truncated: end < totalLines,
       };
+    },
+
+    // The in-memory virtual filesystem stores text content only — it has no
+    // binary byte channel — so raw-byte reads are unsupported rather than
+    // silently reinterpreting UTF-8 as image bytes.
+    async readBytes(path: string): Promise<FileReadBytesResult> {
+      throw new Error(
+        `readBytes is not supported by the browser virtual filesystem (text-only store): ${path}`,
+      );
     },
 
     async write(path: string, data: string): Promise<void> {

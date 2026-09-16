@@ -75,6 +75,7 @@ export type {
   ModelPort,
   FileStat,
   FileReadResult,
+  FileReadBytesResult,
   FileListResult,
   FileGlobResult,
   FileGrepResult,

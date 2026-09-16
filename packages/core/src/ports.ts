@@ -176,6 +176,20 @@ export interface FileReadResult {
   truncated: boolean;
 }
 
+/** Raw bytes read from a file, for binary formats such as images. */
+export interface FileReadBytesResult {
+  /** Base64-encoded file bytes. */
+  data: string;
+  mimeType?: string;
+  size: number;
+  /**
+   * Pixel dimensions when the adapter recognizes the bytes as an image.
+   * Parsed from the format header — no decoding library required.
+   */
+  width?: number;
+  height?: number;
+}
+
 export interface FileListResult {
   entries: Array<{ name: string; path: string; isDirectory: boolean }>;
 }
@@ -191,6 +205,8 @@ export interface FileGrepResult {
 
 export interface FileSystem {
   read(path: string, offset?: number, limit?: number): Promise<FileReadResult>;
+  /** Read a file as raw bytes. Used for images and other binary formats. */
+  readBytes(path: string): Promise<FileReadBytesResult>;
   write(path: string, data: string): Promise<void>;
   stat(path: string): Promise<FileStat>;
   list(dir: string): Promise<FileListResult>;

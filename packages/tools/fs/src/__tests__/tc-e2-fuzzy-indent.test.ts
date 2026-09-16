@@ -21,6 +21,9 @@ function createInMemoryFs(seed: Record<string, string>): {
         truncated: false,
       };
     },
+    async readBytes(): Promise<never> {
+      throw new Error("readBytes is not implemented in this test double");
+    },
     async write(path, data) {
       store.set(path, data);
     },
