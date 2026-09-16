@@ -434,16 +434,18 @@ describe("createSandboxedShell — launch availability by backend", () => {
     expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("workspace-write mode (bubblewrap backend) does not expose a launch passthrough", () => {
+  it("workspace-write mode (bubblewrap backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "bubblewrap",
       writableRoots: ["/tmp"],
-      // Launch-passthrough shape test — does not require bwrap to be installed.
+      // Shape test — does not require bwrap to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 6: bwrap launch wraps the command with the same bwrap args as
+    // exec(), so it is no longer omitted.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
   it("danger-full-access still exposes the real shell's launch (raw passthrough by design)", () => {
@@ -597,14 +599,144 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
       failIfUnavailable: false,
     });
     for await (const _event of wrapped.exec("ls -la")) { /* drain */ }
-    expect(capturedCmd).toContain("bwrap");
-    expect(capturedCmd).toContain("--ro-bind / /");
-    expect(capturedCmd).toContain("--bind /workspace /workspace");
-    expect(capturedCmd).toContain("--ro-bind /workspace/.git /workspace/.git");
-    expect(capturedCmd).toContain("--unshare-net");
-    expect(capturedCmd).toContain("--die-with-parent");
-    expect(capturedCmd).toContain("/bin/bash -c");
+    // Each bwrap arg is single-quote escaped in the wrap string, so the
+    // assertions must use the quoted form — otherwise this test fails on
+    // the very platform (Linux) it is the gate for.
+    expect(capturedCmd.startsWith("bwrap ")).toBe(true);
+    expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
+    expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
+    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).toContain("'--unshare-net'");
+    expect(capturedCmd).toContain("'--die-with-parent'");
+    expect(capturedCmd).toContain("-- /bin/bash -c '");
     expect(capturedCmd).toContain("ls -la");
+  });
+
+  it("bubblewrap launch wraps the command with the same bwrap args as exec", async () => {
+    // Cross-platform shape test: captures the command string passed to
+    // realShell.launch. Uses an injected runner name that exists on PATH
+    // (`true`) so the launch-time presence re-probe passes — the capturing
+    // shell records the string and never actually executes it. This runs
+    // (and gates) on this darwin host; the real Linux denial tests below
+    // skip here.
+    let capturedCmd = "";
+    const capturingShell: Shell = {
+      async *exec(cmd: string): AsyncIterable<{ type: "stdout"; data: string } | { type: "exit"; code: number }> {
+        yield { type: "stdout", data: `executed: ${cmd}` };
+        yield { type: "exit", code: 0 };
+      },
+      launch: async (cmd: string) => {
+        capturedCmd = cmd;
+        return "mock-bwrap-pid";
+      },
+    };
+    const wrapped = createSandboxedShell(capturingShell, {
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: ["/workspace/.git"],
+      network: { enabled: false },
+      backend: "bubblewrap",
+      // `true` is present on PATH, so the launch-time re-probe succeeds and
+      // we can observe the wrap format without a real bwrap install.
+      bwrapBinary: "true",
+      failIfUnavailable: false,
+    });
+    const id = await wrapped.launch!("echo launch-shape");
+    expect(id).toBe("mock-bwrap-pid");
+    // Each bwrap arg is single-quote escaped in the wrap string, so the
+    // assertions use the quoted form: `true '--ro-bind' '/' '/' ...`
+    expect(capturedCmd.startsWith("true ")).toBe(true);
+    expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
+    expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
+    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).toContain("'--unshare-net'");
+    expect(capturedCmd).toContain("'--die-with-parent'");
+    // Wrap format: `bwrap <escapedArgs> -- /bin/bash -c '<escapedCmd>'`
+    expect(capturedCmd).toContain("-- /bin/bash -c '");
+    expect(capturedCmd).toContain("echo launch-shape");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Task 6 — background launch under bwrap (Linux only).
+//
+// The bubblewrap branch used to omit `launch` entirely (C4): a passthrough
+// would have run fully unisolated. Now launch wraps the command with the
+// same bwrap args as exec(), so runInBackground is confined. bwrap has no
+// per-process profile file (unlike seatbelt) — every argument is on the
+// command line, so there is nothing to clean up.
+// ──────────────────────────────────────────────
+
+describe("createSandboxedShell — bubblewrap launch (linux only)", () => {
+  if (process.platform !== "linux") {
+    it.skip("skipped: bwrap is a Linux-only backend", () => {});
+    return;
+  }
+  // If `which bwrap` fails, skip the whole block with a reason — a launch
+  // without a runner is an infrastructure failure, not a denial to assert.
+  const hasBwrap = (() => {
+    try {
+      execFileSync("which", ["bwrap"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const itBwrap = it.skipIf(!hasBwrap);
+  if (!hasBwrap) {
+    it.skip("skipped: bwrap binary not installed on this host", () => {});
+  }
+
+  itBwrap("launch denies writes outside roots with the bwrap dialect", async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-out-"));
+    try {
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "bubblewrap",
+        writableRoots: [scratch],
+        network: { enabled: false },
+      });
+      const id = await shell.launch!(`touch "${path.join(outside, "denied.txt")}"`);
+      // Poll until the process exits (bwrap denial is near-instant).
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const info = shell.listProcesses!().find((p) => p.id === id);
+        if (!info?.running) break;
+        if (Date.now() > deadline) throw new Error("process did not exit in time");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // §2.1: non-zero exit code PLUS the backend's denial dialect — never
+      // dialect alone, and never a cross-backend union (seatbelt says
+      // "Operation not permitted"; bwrap says "Read-only file system").
+      const info = shell.listProcesses!().find((p) => p.id === id);
+      expect(info?.running).toBe(false);
+      expect(info?.exitCode).not.toBe(0);
+      const out = await shell.readProcessOutput!(id);
+      expect(out.text.toLowerCase()).toContain("read-only file system");
+      expect(fs.existsSync(path.join(outside, "denied.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  itBwrap("launch enforces sandboxEnforcement as a runtime fact", async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-"));
+    try {
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "bubblewrap",
+        writableRoots: [scratch],
+      });
+      expect(shell.sandboxEnforcement).toBe("full");
+      const id = await shell.launch!("echo bwrap-bg-ok");
+      await new Promise((r) => setTimeout(r, 500));
+      const out = await shell.readProcessOutput!(id);
+      expect(out.text).toContain("bwrap-bg-ok");
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });
 

@@ -665,9 +665,43 @@ export function createSandboxedShell(
           }
         })();
       },
-      // No `launch` (see C4): same reasoning as the seatbelt branch above —
-      // bwrap wraps `exec`'s command string, a passthrough `launch` would
-      // run fully unisolated.
+      // Background launch under bwrap. Unlike seatbelt there is no profile
+      // file to write or clean up — every isolation argument is on the
+      // command line, so the wrap is pure string construction and the
+      // process methods all delegate straight to realShell.
+      async launch(
+        cmd: string,
+        opts?: ShellLaunchOptions,
+      ): Promise<string> {
+        // Re-probe at launch time: the binary could have been removed since
+        // construction. A missing runner is infrastructure failure, not a
+        // command failure — refuse rather than run unconfined.
+        if (!runnerBinaryAvailable(bwrapBinary)) {
+          throw new Error(
+            `${INFRA_FAILURE_PREFIX} the sandbox runner "${bwrapBinary}" is not available; ` +
+            `refusing to background-launch without isolation.`,
+          );
+        }
+
+        // Escape cmd for safe embedding in bash -c single-quoted string
+        const escapedCmd = cmd.replace(/'/g, "'\\''");
+        // Shell-escape each bwrap arg to handle paths with spaces
+        const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+        const wrapped = `${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${escapedCmd}'`;
+        return realShell.launch!(wrapped, withStrippedEnv(opts));
+      },
+      readProcessOutput(id: string, cursor?: string) {
+        return realShell.readProcessOutput!(id, cursor);
+      },
+      killProcess(id: string) {
+        return realShell.killProcess!(id);
+      },
+      listProcesses() {
+        return realShell.listProcesses!();
+      },
+      async disposeProcesses() {
+        await realShell.disposeProcesses!();
+      },
     };
   }
 
