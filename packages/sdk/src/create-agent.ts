@@ -836,12 +836,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       opts.chatSessionId,
       () => turnCounter,
     );
-    // Thin adapter onto the new dispatch contract: always synchronous, fixed
-    // task id. Task 5 wires real typed/background dispatch and task_output.
-    const dispatch: SubAgentDispatch = async ({ message }) => ({
-      taskId: "sync",
-      text: await executor(message),
-    });
+    // Thin adapter onto the new dispatch contract: sync-only, fixed task id.
+    // Task 5 wires real typed/background dispatch and task_output. Until then
+    // a background request must fail loudly — faking a task id would tell the
+    // model a detached task is running while discarding the result text and
+    // with no task_output collector registered to retrieve it.
+    const dispatch: SubAgentDispatch = async ({ message, background }) => {
+      if (background) {
+        throw new Error("background dispatch is not wired yet");
+      }
+      return { taskId: "sync", text: await executor(message) };
+    };
     allCustomTools.push(createTaskTool(dispatch));
   }
   if (opts.skillRegistry) {

@@ -98,6 +98,38 @@ describe("task sub-agent — context isolation", () => {
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("should surface an isError when the model asks for background dispatch (not wired yet)", async () => {
+    // The temporary SDK adapter is sync-only. A run_in_background request must
+    // fail with a real isError ToolResult rather than fabricate a task id.
+    const mockModel = createMockModelPort([
+      toolCallScript(
+        "main-call-1",
+        "task",
+        JSON.stringify({ message: "Go", run_in_background: true }),
+      ),
+      textScript("Understood, I will run it inline instead."),
+    ]);
+
+    const agent = createAgent({
+      modelPort: mockModel,
+      enableTaskTool: true,
+    });
+
+    const state = await agent.run("Background task");
+
+    expect(state.status).toBe("done");
+
+    const toolResultMsg = state.messages.find((m) => m.role === "tool") as
+      | { content: Array<{ content: string; isError?: boolean }> }
+      | undefined;
+    expect(toolResultMsg).toBeDefined();
+    const first = toolResultMsg!.content[0]!;
+    expect(first.isError).toBe(true);
+    expect(first.content).toContain("background dispatch is not wired yet");
+    // No fake "started in background" success, and no discarded result text.
+    expect(first.content).not.toContain("started in background");
+  });
+
   it("should not have task tool in sub-agent's tool set (no recursion)", async () => {
     // If the sub-agent tries to call "task", it should get an error
     // because the task tool is filtered out of the sub-agent's tool set.
