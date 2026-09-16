@@ -47,7 +47,7 @@ export const TodoDock = memo(function TodoDock({ todos }: TodoDockProps) {
   return (
     <div
       data-testid="todo-dock"
-      className="bg-card/80 mx-auto mb-2 w-full max-w-3xl overflow-hidden rounded-lg border shadow-sm"
+      className="bg-card/80 mb-2 w-full overflow-hidden rounded-xl border shadow-sm"
     >
       <button
         type="button"

@@ -521,108 +521,111 @@ export function ChatPanel() {
             : '未连接 agent 服务，请确认 headless-server 已在 http://localhost:3100 启动'}
         </div>
       )}
-      {/* 对话/轨迹主区 + RightPane 同排：pane 挂在 Tabs 外层，跨主 tab 切换常驻。 */}
+      {/* 对话列（消息 + todos + 输入框）与 RightPane 同排；三者共用
+          max-w-3xl px-6 轨道，保证左右边缘对齐。 */}
       <div className="flex min-h-0 flex-1 flex-row">
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) =>
-            setActiveTab(value as 'chat' | 'trajectory')
-          }
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <TabsList className="mx-4 mt-2">
-            <TabsTrigger value="chat">对话</TabsTrigger>
-            <TabsTrigger value="trajectory">轨迹</TabsTrigger>
-          </TabsList>
-          <TabsContent
-            value="chat"
-            keepMounted
-            className="flex min-h-0 flex-1 flex-row"
-          >
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <MessageList entries={entries} onOpenSubagent={openSubagent} />
-              {pendingApprovals.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
-                  {pendingApprovals.map((approval) => (
-                    <ApprovalCard
-                      key={approval.callId}
-                      approval={approval}
-                      onDecide={handleDecide}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent
-            value="trajectory"
-            keepMounted
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) =>
+              setActiveTab(value as 'chat' | 'trajectory')
+            }
             className="flex min-h-0 flex-1 flex-col"
           >
-            <TrajectoryPanel sessionId={currentSessionId} />
-          </TabsContent>
-        </Tabs>
+            <TabsList className="mx-4 mt-2">
+              <TabsTrigger value="chat">对话</TabsTrigger>
+              <TabsTrigger value="trajectory">轨迹</TabsTrigger>
+            </TabsList>
+            <TabsContent
+              value="chat"
+              keepMounted
+              className="flex min-h-0 flex-1 flex-row"
+            >
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <MessageList entries={entries} onOpenSubagent={openSubagent} />
+                {pendingApprovals.length > 0 && (
+                  <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+                    {pendingApprovals.map((approval) => (
+                      <ApprovalCard
+                        key={approval.callId}
+                        approval={approval}
+                        onDecide={handleDecide}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent
+              value="trajectory"
+              keepMounted
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <TrajectoryPanel sessionId={currentSessionId} />
+            </TabsContent>
+          </Tabs>
+          {todos && todos.length > 0 && (
+            <div className="mx-auto w-full max-w-3xl px-6">
+              <TodoDock todos={todos} />
+            </div>
+          )}
+          <InputBar
+            onSubmit={handleSubmit}
+            projectId={currentProject?.id ?? null}
+            onInputAction={handleInputAction}
+            disabled={isGenerating || missingBinding || pendingApprovals.length > 0}
+            isGenerating={isGenerating}
+            onStop={() => void stopGeneration()}
+            placeholder={
+              pendingApprovals.length > 0
+                ? '等待你的审批'
+                : missingBinding
+                  ? '此会话缺少绑定的项目或模型，无法发送消息'
+                  : undefined
+            }
+            toolbar={
+              currentSessionId && currentSession ? (
+                <PermissionPicker
+                  value={currentSession.permissionMode}
+                  onChange={(mode) =>
+                    useSessionStore
+                      .getState()
+                      .setSessionPermissionMode(currentSessionId, mode)
+                  }
+                />
+              ) : null
+            }
+            trailing={
+              currentSessionId && currentSession ? (
+                <>
+                  <ContextMeter
+                    usage={usage}
+                    contextWindow={currentModel?.contextWindow}
+                    hasCompletedAssistantMessage={hasCompletedAssistantMessage}
+                  />
+                  <ModelSettingsPicker
+                    providerId={currentSession.providerId}
+                    modelId={currentSession.modelId}
+                    onModelChange={(providerId, modelId) =>
+                      useSessionStore
+                        .getState()
+                        .setSessionModel(currentSessionId, providerId, modelId)
+                    }
+                    efforts={currentReasoning?.efforts ?? []}
+                    effort={currentSession.reasoningEffort}
+                    onEffortChange={(effort) =>
+                      useSessionStore
+                        .getState()
+                        .setSessionReasoningEffort(currentSessionId, effort)
+                    }
+                  />
+                </>
+              ) : null
+            }
+          />
+        </div>
         <RightPane projectId={currentProject?.id ?? null} />
       </div>
-      {todos && todos.length > 0 && (
-        <div className="px-4">
-          <TodoDock todos={todos} />
-        </div>
-      )}
-      <InputBar
-        onSubmit={handleSubmit}
-        projectId={currentProject?.id ?? null}
-        onInputAction={handleInputAction}
-        disabled={isGenerating || missingBinding || pendingApprovals.length > 0}
-        isGenerating={isGenerating}
-        onStop={() => void stopGeneration()}
-        placeholder={
-          pendingApprovals.length > 0
-            ? '等待你的审批'
-            : missingBinding
-              ? '此会话缺少绑定的项目或模型，无法发送消息'
-              : undefined
-        }
-        toolbar={
-          currentSessionId && currentSession ? (
-            <PermissionPicker
-              value={currentSession.permissionMode}
-              onChange={(mode) =>
-                useSessionStore
-                  .getState()
-                  .setSessionPermissionMode(currentSessionId, mode)
-              }
-            />
-          ) : null
-        }
-        trailing={
-          currentSessionId && currentSession ? (
-            <>
-              <ContextMeter
-                usage={usage}
-                contextWindow={currentModel?.contextWindow}
-                hasCompletedAssistantMessage={hasCompletedAssistantMessage}
-              />
-              <ModelSettingsPicker
-                providerId={currentSession.providerId}
-                modelId={currentSession.modelId}
-                onModelChange={(providerId, modelId) =>
-                  useSessionStore
-                    .getState()
-                    .setSessionModel(currentSessionId, providerId, modelId)
-                }
-                efforts={currentReasoning?.efforts ?? []}
-                effort={currentSession.reasoningEffort}
-                onEffortChange={(effort) =>
-                  useSessionStore
-                    .getState()
-                    .setSessionReasoningEffort(currentSessionId, effort)
-                }
-              />
-            </>
-          ) : null
-        }
-      />
     </div>
   );
 }
