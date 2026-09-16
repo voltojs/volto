@@ -4,15 +4,7 @@
  * the same output, so pruned request surfaces are replayable.
  */
 
-import type { Message } from "./state.js";
-
-/** Join text blocks from a tool_result content array into a single string. */
-function joinText(content: Array<{ type: string; text?: string }>): string {
-  return content
-    .filter((b): b is { type: "text"; text: string } => b.type === "text" && typeof b.text === "string")
-    .map((b) => b.text)
-    .join("\n");
-}
+import type { Message, ToolResultBlock } from "./state.js";
 
 export interface PruneToolResultOptions {
   /** Maximum code points allowed in a single tool_result text block. */
@@ -24,7 +16,11 @@ export interface PrunedToolResult {
   toolCallId: string;
   charsBefore: number;
   charsAfter: number;
-  content: string;
+  /**
+   * The full post-prune block array — images ride through untouched, so
+   * this cannot be a plain string. The reducer normalizes it on write-back.
+   */
+  content: ToolResultBlock[];
 }
 
 /** Share of the budget kept from the start of the text. */
@@ -52,10 +48,23 @@ function pruneText(text: string, maxChars: number): string {
   return `${head}… [omitted ${omitted} chars] …${tail}`;
 }
 
+/** Total code points across the text blocks of a tool_result content array. */
+function textChars(content: readonly ToolResultBlock[]): number {
+  let n = 0;
+  for (const b of content) {
+    if (b.type === "text") n += codePointLength(b.text);
+  }
+  return n;
+}
+
 /**
- * Prune every oversized text `tool_result` block on `role === "tool"`
- * messages. Non-tool messages and in-budget blocks keep their original
- * object references; the returned array is always a new array.
+ * Prune every oversized text block inside `tool_result` content on
+ * `role === "tool"` messages. Non-tool messages and in-budget blocks keep
+ * their original object references; the returned array is always a new array.
+ *
+ * Only text blocks answer to the character budget: an image's cost is fixed
+ * by its pixel area, so truncating it saves nothing and dropping it would
+ * waste the tool call that produced it. Image blocks are preserved as-is.
  */
 export function pruneOversizedToolResults(
   messages: Message[],
@@ -67,19 +76,22 @@ export function pruneOversizedToolResults(
     let changed = false;
     const content = msg.content.map((block) => {
       if (block.type !== "tool_result") return block;
-      const text = joinText(block.content);
-      const charsBefore = codePointLength(text);
-      if (charsBefore <= opts.maxChars) return block;
-      const prunedContent = pruneText(text, opts.maxChars);
-      const charsAfter = codePointLength(prunedContent);
+      let blockChanged = false;
+      const budgeted = block.content.map((b) => {
+        if (b.type !== "text") return b;
+        if (codePointLength(b.text) <= opts.maxChars) return b;
+        blockChanged = true;
+        return { ...b, text: pruneText(b.text, opts.maxChars) };
+      });
+      if (!blockChanged) return block;
       pruned.push({
         toolCallId: block.toolUseId,
-        charsBefore,
-        charsAfter,
-        content: prunedContent,
+        charsBefore: textChars(block.content),
+        charsAfter: textChars(budgeted),
+        content: budgeted,
       });
       changed = true;
-      return { ...block, content: [{ type: "text" as const, text: prunedContent }] };
+      return { ...block, content: budgeted };
     });
     if (!changed) return msg;
     return { ...msg, content };

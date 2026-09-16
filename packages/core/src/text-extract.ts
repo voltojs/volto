@@ -10,8 +10,8 @@ import type { Tokenizer } from "./ports.js";
 
 /**
  * Extract all textual content from a message.
- * Handles string content, text blocks, tool_use (as placeholder), and tool_result.
- * ImageContent blocks are counted as empty (no text representation).
+ * Handles string content, text blocks, tool_use (as placeholder), tool_result,
+ * and image (as a dimension/mediaType placeholder).
  */
 export function extractMessageText(msg: Message): string {
   if (typeof msg.content === "string") {
@@ -27,9 +27,9 @@ export function extractMessageText(msg: Message): string {
  * Extract text from a single content block.
  * - text → the text itself
  * - tool_use → placeholder "[tool: name]"
- * - tool_result → the result content
+ * - tool_result → the result content, recursed block by block
  * - reasoning → empty string (not user-facing text)
- * - image → empty string (no text representation)
+ * - image → placeholder "[image: WxH mediaType]"
  */
 export function extractBlockText(block: ContentBlock): string {
   switch (block.type) {
@@ -38,17 +38,18 @@ export function extractBlockText(block: ContentBlock): string {
     case "tool_use":
       return `[tool: ${block.name}]`;
     case "tool_result":
-      return block.content
-        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
+      return block.content.map(extractBlockText).join("\n");
     case "reasoning":
       // Not user-facing text: it rides in the message so the provider gets it
       // back, but it must not leak into summaries, titles or token previews.
       return "";
-    case "image":
-      // TODO: images have no text representation; future: describe via alt text or placeholder
-      return "";
+    case "image": {
+      const dims =
+        block.width !== undefined && block.height !== undefined
+          ? `${block.width}x${block.height} `
+          : "";
+      return `[image: ${dims}${block.source.mediaType}]`;
+    }
   }
 }
 
@@ -59,11 +60,32 @@ export function extractBlockText(block: ContentBlock): string {
 const BLOCK_OVERHEAD = 4;
 
 /**
+ * Token cost of an image whose dimensions are unknown. Deliberately high:
+ * under-counting silently overflows the context window, over-counting only
+ * compacts a little early.
+ */
+export const IMAGE_TOKEN_FALLBACK = 1600;
+
+/**
+ * Estimate an image's token cost from its pixel area.
+ *
+ * ESTIMATE ONLY — providers do not agree on image pricing (Anthropic bills
+ * by area, OpenAI by tiles), and the core must not encode provider
+ * differences. The authoritative number is whatever ModelEventUsage reports
+ * after the call; this figure exists so the assembler and compactor can
+ * budget before it. Do not "correct" it against one provider's table.
+ */
+export function estimateImageTokens(width?: number, height?: number): number {
+  if (width === undefined || height === undefined) return IMAGE_TOKEN_FALLBACK;
+  return Math.ceil((width * height) / 750);
+}
+
+/**
  * Price a single content block for token estimation. Unlike extractBlockText,
  * a reasoning block is priced the same as text: it rides in the request sent
  * to the provider, so pricing it at zero would under-estimate the prompt.
  */
-function estimateBlockTokens(block: ContentBlock, tokenizer: Tokenizer): number {
+export function estimateBlockTokens(block: ContentBlock, tokenizer: Tokenizer): number {
   switch (block.type) {
     case "text":
     case "reasoning":
@@ -72,10 +94,15 @@ function estimateBlockTokens(block: ContentBlock, tokenizer: Tokenizer): number 
       return (
         tokenizer.count(block.name) + tokenizer.count(JSON.stringify(block.input)) + BLOCK_OVERHEAD
       );
-    default:
-      // tool_result, image, and any future block type: conservative
-      // structural price via JSON.stringify.
-      return tokenizer.count(JSON.stringify(block)) + BLOCK_OVERHEAD;
+    case "image":
+      return estimateImageTokens(block.width, block.height) + BLOCK_OVERHEAD;
+    case "tool_result": {
+      let total = 0;
+      for (const b of block.content) {
+        total += estimateBlockTokens(b, tokenizer);
+      }
+      return total + BLOCK_OVERHEAD;
+    }
   }
 }
 

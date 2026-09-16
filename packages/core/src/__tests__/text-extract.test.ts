@@ -52,13 +52,13 @@ describe("extractMessageText", () => {
     expect(extractMessageText(msg)).toBe("");
   });
 
-  it("handles image content as empty string", () => {
+  it("renders image content as a placeholder", () => {
     const msg: Message = {
       id: "m7",
       role: "user",
       content: [{ type: "image", source: { type: "ref", id: "att-1", mediaType: "image/png" } }],
     };
-    expect(extractMessageText(msg)).toBe("");
+    expect(extractMessageText(msg)).toBe("[image: image/png]");
   });
 });
 
@@ -75,8 +75,8 @@ describe("extractBlockText", () => {
     expect(extractBlockText({ type: "tool_result", toolUseId: "t1", content: [{ type: "text", text: "output" }] })).toBe("output");
   });
 
-  it("handles image block as empty", () => {
-    expect(extractBlockText({ type: "image", source: { type: "ref", id: "att-2", mediaType: "image/png" } })).toBe("");
+  it("renders an image block as a placeholder", () => {
+    expect(extractBlockText({ type: "image", source: { type: "ref", id: "att-2", mediaType: "image/png" } })).toBe("[image: image/png]");
   });
 });
 

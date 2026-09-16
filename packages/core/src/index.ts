@@ -227,7 +227,14 @@ export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, Permissio
 export { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
 
 // Text extraction — shared helpers for Message → string
-export { extractMessageText, extractBlockText, extractPlainText } from "./text-extract.js";
+export {
+  extractMessageText,
+  extractBlockText,
+  extractPlainText,
+  estimateBlockTokens,
+  estimateImageTokens,
+  IMAGE_TOKEN_FALLBACK,
+} from "./text-extract.js";
 
 // Pricing — shared cost arithmetic (core ← runtimes-* and core ← sdk)
 export { computeUsageCost, totalUsageTokens } from "./pricing.js";
