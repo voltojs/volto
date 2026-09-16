@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createNodeFileSystem, createSandboxedFileSystem } from "../index.js";
+import { createNodeFileSystem, createSandboxedFileSystem, SandboxBoundaryError } from "../index.js";
 
 const PNG_1X1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -44,5 +44,38 @@ describe("FileSystem.readBytes", () => {
       fs.rm(workspace, { recursive: true, force: true }),
       fs.rm(outside, { recursive: true, force: true }),
     ]);
+  });
+
+  // Pins the sandbox wrapper's own path policy: workspace-escape alone is
+  // covered by the inner resolveWithinRoot and would stay green if the
+  // assertReadable call were dropped from the readBytes override.
+  it("applies the same deniedReadPaths check as read()", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "volto-ws-"));
+    const creds = path.join(workspace, "creds");
+    await fs.mkdir(creds, { recursive: true });
+    const secret = path.join(creds, "secret.png");
+    await fs.writeFile(secret, Buffer.from(PNG_1X1, "base64"));
+
+    const sandboxed = createSandboxedFileSystem(
+      createNodeFileSystem({ root: workspace }),
+      {
+        mode: "workspace-write",
+        writableRoots: [workspace],
+        deniedReadPaths: [creds],
+      },
+      { root: workspace },
+    );
+
+    // Real assertReadable dialect: denied credential directory.
+    const bytesError = await sandboxed.readBytes("creds/secret.png").catch((e: unknown) => e);
+    expect(bytesError).toBeInstanceOf(SandboxBoundaryError);
+    expect((bytesError as Error).message).toContain("denied credential directory");
+
+    // Coupled to read(): both must refuse the same path with the same policy.
+    const readError = await sandboxed.read("creds/secret.png").catch((e: unknown) => e);
+    expect(readError).toBeInstanceOf(SandboxBoundaryError);
+    expect((readError as Error).message).toContain("denied credential directory");
+
+    await fs.rm(workspace, { recursive: true, force: true });
   });
 });
