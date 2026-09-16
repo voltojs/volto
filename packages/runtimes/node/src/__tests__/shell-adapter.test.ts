@@ -43,10 +43,28 @@ describe("Node Shell adapter", () => {
     expect(events.some((e) => e.type === "exit")).toBe(true);
   });
 
-  it("launch() returns a PID and starts the process in background", async () => {
+  it("launch() returns a registry id and starts the process in background", async () => {
     const shell = createNodeShell();
-    const pid = await shell.launch!("echo bg-ok", { cwd: "/tmp" });
-    expect(typeof pid).toBe("string");
-    expect(Number(pid)).toBeGreaterThan(0);
+    const id = await shell.launch!("echo bg-ok", { cwd: "/tmp" });
+    expect(typeof id).toBe("string");
+    expect(id).toMatch(/^bg-/);
+  });
+
+  it("launch() consumes stdout and exposes it via readProcessOutput", async () => {
+    const shell = createNodeShell();
+    const id = await shell.launch!("echo bg-readable");
+    // Wait for the child to finish so the buffer is complete.
+    await new Promise((r) => setTimeout(r, 300));
+    const out = await shell.readProcessOutput!(id);
+    expect(out.text).toContain("bg-readable");
+  });
+
+  it("exposes listProcesses / killProcess / disposeProcesses", async () => {
+    const shell = createNodeShell();
+    const id = await shell.launch!("sleep 20");
+    expect(shell.listProcesses!().some((p) => p.id === id && p.running)).toBe(true);
+    await shell.killProcess!(id);
+    expect(shell.listProcesses!().find((p) => p.id === id)!.running).toBe(false);
+    await shell.disposeProcesses!();
   });
 });
