@@ -101,6 +101,7 @@ export async function ensureSessionDetail(id: string): Promise<void> {
     useSessionStore.getState().applySessionDetail(id, {
       messages: detail.messages,
       contextUsage: detail.contextUsage,
+      todos: detail.todos ?? null,
       projectId: detail.projectId,
       providerId: detail.providerId,
       modelId: detail.modelId,

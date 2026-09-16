@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ConversationMessage, ContextUsageSnapshot } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageSnapshot, TodoItem } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import { useConfigStore } from './config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
@@ -65,12 +65,18 @@ export interface Session {
    * the durable transcript on every load.
    */
   contextUsage?: ContextUsageSnapshot | null;
+  /**
+   * Standing todos seeded from `GET /sessions/:id`. Live SSE `todoListUpdated`
+   * frames override this when the chat event buffer has any.
+   */
+  todos?: TodoItem[] | null;
 }
 
 /** Detail payload used to fill in a session fetched via `GET /sessions/:id`. */
 export interface SessionDetail {
   messages: ConversationMessage[];
   contextUsage: ContextUsageSnapshot | null;
+  todos?: TodoItem[] | null;
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;

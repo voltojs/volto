@@ -41,7 +41,6 @@ export function ChatPanel() {
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
     useChatAgent();
   const { entries, usage, messages } = useConversation();
-  const todos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
@@ -220,6 +219,11 @@ export function ChatPanel() {
   const currentProject = projects.find(
     (p) => p.id === currentSession?.projectId,
   );
+  // Live SSE fold wins when the buffer has any todoListUpdated; otherwise
+  // fall back to the seed from GET /sessions/:id so a cold reload restores
+  // the dock without waiting for the next write.
+  const liveTodos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
+  const todos = liveTodos ?? currentSession?.todos ?? null;
 
   // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
   const headerTitle =

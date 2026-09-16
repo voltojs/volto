@@ -211,7 +211,7 @@ export {
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
 // Todo standing-list formatter — model-facing injection text (pure)
-export { formatTodoListForModel, formatTodoCounts, todoStatusIcon } from "./todo-format.js";
+export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingTodos } from "./todo-format.js";
 
 // Tool-result pruning — deterministic head/tail cut under a char budget
 export { pruneOversizedToolResults } from "./tool-result-prune.js";

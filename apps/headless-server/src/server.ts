@@ -29,7 +29,7 @@
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { projectMessageEntries } from "@volto/core";
+import { projectMessageEntries, foldStandingTodos } from "@volto/core";
 import { readConversation, readTrajectory, CompactionBusyError } from "@volto/sdk";
 import {
   createStore as createJsonlStore,
@@ -1045,11 +1045,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // The usage meter is best-effort: a snapshot-read failure hides the ring
         // client-side rather than failing the whole session fetch.
         const contextUsage = await readContextUsageSnapshot(chatStore, id).catch(() => null);
+        // Standing todo list for the web TodoDock. Folded from the durable
+        // event log so a cold page load restores the plan without replaying
+        // tool args. Live SSE `todoListUpdated` frames still override this.
+        const todos = foldStandingTodos(record.events);
         jsonResponse(res, 200, {
           id,
           ...bindingsOf(record.meta),
           messages: view.messages,
           contextUsage,
+          todos,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         });

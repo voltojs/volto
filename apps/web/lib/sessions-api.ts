@@ -13,6 +13,7 @@ import type {
   ContextUsageSnapshot,
   TranscriptEventInput,
   TrajectoryView,
+  TodoItem,
 } from '@volto/sdk/sse';
 
 /** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */
@@ -81,6 +82,8 @@ export interface ServerSessionDetail {
   permissionMode: string | null;
   messages: ConversationMessage[];
   contextUsage: ContextUsageSnapshot | null;
+  /** Standing todos folded from the durable event log; null when never written. */
+  todos?: TodoItem[] | null;
   createdAt: number;
   updatedAt: number;
 }
