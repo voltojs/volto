@@ -177,6 +177,41 @@ export function createDefaultPermissionConfig(): PermissionConfig {
 }
 
 /**
+ * Combine a parent policy with a sub-agent's declared policy, taking the
+ * stricter option on every axis.
+ *
+ * Narrowing only, never widening: the agent can write files inside the
+ * workspace, so it can write an agent definition too. If a definition could
+ * widen permissions, writing one that declares danger-full-access and then
+ * invoking it would be a complete privilege-escalation path around the
+ * parent session's limits.
+ */
+export function narrowPermission(
+  parent: PermissionConfig,
+  child?: PermissionConfig,
+): PermissionConfig {
+  if (!child) return parent;
+
+  const sandbox =
+    TIER_RANK[ceilingOf(child.sandbox)] < TIER_RANK[ceilingOf(parent.sandbox)]
+      ? child.sandbox
+      : parent.sandbox;
+
+  const approval = parent.approval === "ask" || child.approval === "ask" ? "ask" : "never";
+
+  // Parent denies come first, so no child rule can override them: rules are
+  // first-match-wins.
+  const parentDenies = (parent.rules ?? []).filter((r) => r.decision === "deny");
+  const rest = [...(child.rules ?? []), ...(parent.rules ?? []).filter((r) => r.decision !== "deny")];
+
+  return {
+    sandbox,
+    approval,
+    ...(parentDenies.length > 0 || rest.length > 0 ? { rules: [...parentDenies, ...rest] } : {}),
+  };
+}
+
+/**
  * The model-facing wording for a tool refused by the permission matrix.
  *
  * Replaces a bare "denied by permission policy", which reads like a
