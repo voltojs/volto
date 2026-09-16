@@ -20,11 +20,12 @@ export interface ProcessOutputBuffer {
 /**
  * Byte-accurate ring buffer. Cursors are decimal totals of bytes ever
  * written; a cursor older than the retained window yields the whole
- * window rather than a silent gap.
+ * window plus a discard note rather than a silent gap.
  *
- * The discard note is part of `text` only when the retained window
- * starts mid-chunk (an append was partially trimmed). Whole-chunk
- * eviction is reported solely via `overflowed` / `droppedBytes`.
+ * `overflowed` is per-read: a full-window snapshot after any eviction,
+ * or a cursor read that fell out of the retained window. A clean
+ * incremental delta still inside the window reports overflowed=false
+ * even when history was dropped earlier.
  */
 export function createProcessOutputBuffer(
   capacityBytes: number = DEFAULT_PROCESS_BUFFER_BYTES,
@@ -38,8 +39,6 @@ export function createProcessOutputBuffer(
   let totalWritten = 0;
   /** Absolute byte offset of retained[0] within the full history. */
   let retainedStart = 0;
-  /** True when retained[0] is a partial fragment of its original append. */
-  let headTrimmed = false;
 
   function evict(): void {
     while (retainedBytes > capacity && retained.length > 0) {
@@ -51,14 +50,12 @@ export function createProcessOutputBuffer(
         retainedBytes -= excess;
         retainedStart += excess;
         droppedBytes += excess;
-        headTrimmed = true;
         break;
       }
       retained.shift();
       retainedBytes -= head.length;
       retainedStart += head.length;
       droppedBytes += head.length;
-      headTrimmed = false;
     }
   }
 
@@ -88,13 +85,13 @@ export function createProcessOutputBuffer(
       // character is never split by a character-index approximation.
       text = all.subarray(sliceFrom).toString("utf8");
     }
-    const overflowed = missedWindow || droppedBytes > 0;
-    // A full-window (or stale-cursor) read of a fragment head needs the
-    // note in-band; whole-chunk eviction is already covered by the fields.
-    const note =
-      overflowed && headTrimmed && (fromCursor === undefined || missedWindow)
-        ? `${OVERFLOW_NOTE_PREFIX}${droppedBytes} 字节）\n`
-        : "";
+    // Per-read overflow: full snapshots disclose any eviction; cursor
+    // reads only overflow when the cursor fell out of the window.
+    const overflowed =
+      missedWindow || (fromCursor === undefined && droppedBytes > 0);
+    const note = overflowed
+      ? `${OVERFLOW_NOTE_PREFIX}${droppedBytes} 字节）\n`
+      : "";
     return {
       text: note + text,
       cursor: String(totalWritten),
