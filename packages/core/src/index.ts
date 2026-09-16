@@ -170,7 +170,7 @@ export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 
 // ToolRouter
-export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall } from "./tool-router.js";
+export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall, CAP_AGENT_DEPTH_AVAILABLE } from "./tool-router.js";
 export type { ToolScopeConfig, ScopeGroupConfig } from "./tool-router.js";
 
 // Hooks — M13

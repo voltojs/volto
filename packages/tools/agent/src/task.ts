@@ -1,7 +1,7 @@
 import type { ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
-import { CAP_AGENT_TASK } from "./capabilities.js";
+import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 
 /** Structured result returned by a sub-agent dispatch. */
 export interface SubAgentResult {
@@ -63,7 +63,7 @@ export function createTaskTool(
     name: "task",
     description: renderDescription(types),
     schema: taskSchema,
-    requires: [CAP_AGENT_TASK],
+    requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
     riskTier: "WRITE_LOW",
     run: async (input): Promise<ToolResult> => {
       // Reject an unknown subagent_type BEFORE dispatching, and list the valid

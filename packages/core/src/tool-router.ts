@@ -1,6 +1,14 @@
 import type { PendingToolCall } from "./state.js";
 import type { ToolDefinition, ToolResult, JSONSchema } from "./tool.js";
 
+/**
+ * Granted while the agent is still below maxAgentDepth. Delegation tools
+ * declare it, so the depth limit reuses capability gating instead of adding
+ * a second mechanism — and an agent at the limit never sees a tool it would
+ * only be refused for using.
+ */
+export const CAP_AGENT_DEPTH_AVAILABLE = "agent:can-delegate";
+
 function missing(value: unknown): boolean {
   return value === undefined || value === null;
 }

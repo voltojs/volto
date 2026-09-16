@@ -1,7 +1,7 @@
 import type { ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
-import { CAP_AGENT_TASK } from "./capabilities.js";
+import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 
 /**
  * Collect the result of a previously dispatched background sub-agent task.
@@ -25,7 +25,7 @@ export function createTaskOutputTool(collect: SubAgentOutputCollector) {
       "Collect the result of a background sub-agent task previously started " +
       "with task(run_in_background=true).",
     schema: taskOutputSchema,
-    requires: [CAP_AGENT_TASK],
+    requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
     riskTier: "WRITE_LOW",
     run: async (input): Promise<ToolResult> => {
       try {

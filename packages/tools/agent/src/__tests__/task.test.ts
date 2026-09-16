@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createTaskTool, CAP_AGENT_TASK } from "../index.js";
+import {
+  createTaskTool,
+  createTaskOutputTool,
+  CAP_AGENT_TASK,
+  CAP_AGENT_DEPTH_AVAILABLE,
+} from "../index.js";
 
 describe("createTaskTool", () => {
   it("should create a tool with the correct definition", () => {
@@ -7,6 +12,7 @@ describe("createTaskTool", () => {
 
     expect(tool.definition.name).toBe("task");
     expect(tool.definition.requires).toContain(CAP_AGENT_TASK);
+    expect(tool.definition.requires).toContain(CAP_AGENT_DEPTH_AVAILABLE);
     expect(tool.definition.riskTier).toBe("WRITE_LOW");
     expect(tool.definition.inputSchema).toBeDefined();
   });
@@ -52,5 +58,15 @@ describe("createTaskTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.modelContent).toContain("Invalid input");
+  });
+});
+
+describe("createTaskOutputTool", () => {
+  it("requires both the task capability and the depth budget", () => {
+    const tool = createTaskOutputTool(async () => ({ text: "done" }));
+
+    expect(tool.definition.name).toBe("task_output");
+    expect(tool.definition.requires).toContain(CAP_AGENT_TASK);
+    expect(tool.definition.requires).toContain(CAP_AGENT_DEPTH_AVAILABLE);
   });
 });

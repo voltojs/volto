@@ -55,6 +55,7 @@ import {
   parseSkillInvocation,
   ReasoningEffortId,
   narrowPermission,
+  CAP_AGENT_DEPTH_AVAILABLE,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -152,6 +153,9 @@ import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
 // ──────────────────────────────────────────────
 // Config resolution helper
 // ──────────────────────────────────────────────
+
+/** Default delegation depth budget: main agent (0), one level of sub-agents (1). */
+const DEFAULT_MAX_AGENT_DEPTH = 2;
 
 /**
  * Resolve a value: explicit opts wins, then config layer, then undefined.
@@ -467,6 +471,17 @@ export interface CreateAgentOptions {
   agentSpecs?: AgentEntry[];
 
   /**
+   * Maximum delegation depth (default: 2). The main agent is depth 0, the
+   * sub-agents it dispatches are depth 1, and so on. At
+   * `depth >= maxAgentDepth` the delegation budget capability
+   * (`agent:can-delegate`) is withheld, so `task` / `task_output` fall out
+   * of that layer's visible tool set through the normal capability gate —
+   * an agent at the limit never sees a tool it would only be refused for
+   * using.
+   */
+  maxAgentDepth?: number;
+
+  /**
    * Host-owned skill registry — enables progressive skill disclosure:
    * registers the model-facing `skill` loader tool (capability `skill:load`)
    * and appends a `skill-catalog` context layer (names + descriptions only)
@@ -736,6 +751,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (resolve(opts.enableTaskTool, "enableTaskTool")) {
     capabilities.add("agent:task");
+  }
+  // Delegation budget: the main agent is depth 0, so it holds the budget
+  // while the configured cap is above zero (default 2). Without it the
+  // task tools' requires gate hides them from the visible set.
+  if (0 < (opts.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH)) {
+    capabilities.add(CAP_AGENT_DEPTH_AVAILABLE);
   }
   if (opts.skillRegistry) {
     capabilities.add("skill:load");
@@ -1937,7 +1958,11 @@ function createSubAgentExecutor(
     // ── Assemble the child's tools / capabilities / policy ──
     // Done before any bracket so the label and the downgrade event describe
     // the same dispatch. Baseline strips `task` (no recursion) and
-    // `agent:task` (the child cannot delegate until depth limits land).
+    // `agent:task`: the task tool instance the child would inherit is bound
+    // to this parent's executor at a fixed depth, so letting the child call
+    // it would re-spawn siblings at the same depth instead of a deeper level.
+    // Depth-true nesting needs a per-child nested executor — until then the
+    // strip stays and the depth budget below only tracks the capability.
     const parentPolicyResolved = resolveConfigValue(
       opts.permissionConfig,
       opts.config?.config,
@@ -1949,6 +1974,15 @@ function createSubAgentExecutor(
     ];
     const parentCapabilitiesForChild = new Set(capabilities);
     parentCapabilitiesForChild.delete("agent:task");
+    // The delegation budget follows the child's own depth: below the cap it
+    // is granted, at or past it the parent's grant is withdrawn so the
+    // delegation tools leave the child's visible set through capability
+    // gating rather than a post-call refusal.
+    if (depth < (opts.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH)) {
+      parentCapabilitiesForChild.add(CAP_AGENT_DEPTH_AVAILABLE);
+    } else {
+      parentCapabilitiesForChild.delete(CAP_AGENT_DEPTH_AVAILABLE);
+    }
 
     let childTools: Tool[] = parentToolsForChild;
     let childCapabilities: Set<string> = parentCapabilitiesForChild;
