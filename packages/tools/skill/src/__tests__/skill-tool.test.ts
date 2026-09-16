@@ -80,7 +80,9 @@ describe("createSkillTool", () => {
       baseDir: "/skills/big",
     }));
     const result = await tool.handler({ name: "big" });
-    expect(new TextEncoder().encode(result.modelContent).length).toBeLessThanOrEqual(64 * 1024);
+    // Skill results are always textual; cast past the widened string | blocks union.
+    const content = (result as { modelContent: string }).modelContent;
+    expect(new TextEncoder().encode(content).length).toBeLessThanOrEqual(64 * 1024);
   });
 
   it("caps multi-byte bodies at the byte limit even when the cut lands mid-character", async () => {
