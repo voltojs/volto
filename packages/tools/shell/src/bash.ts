@@ -33,7 +33,10 @@ export function createBashTool(shell: Shell) {
   return defineTool({
     name: "bash",
     description:
-      "Execute a shell command via child process. Supports timeout and working directory. Output may be truncated when large.",
+      "Execute a shell command. By default runs in the foreground and returns output. " +
+      "Pass runInBackground=true to start a long-lived process and get a process_id; " +
+      "read it later with bash_output and stop it with kill_shell. " +
+      "Output may be truncated when large.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
@@ -46,8 +49,15 @@ export function createBashTool(shell: Shell) {
         try {
           const pid = await shell.launch(command, { cwd });
           return {
-            modelContent: `Command launched in background (PID: ${pid}). Output will stream as it becomes available.`,
-            displayMetadata: { backgroundPid: pid, runInBackground: true },
+            modelContent:
+              `Command launched in background (process_id: ${pid}). ` +
+              `It is NOT streaming back automatically — use bash_output(process_id) to read ` +
+              `output and kill_shell(process_id) when done.`,
+            displayMetadata: {
+              processId: pid,
+              backgroundPid: pid,
+              runInBackground: true,
+            },
           };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

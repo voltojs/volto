@@ -87,7 +87,8 @@ describe("bash tool", () => {
   it("launches in background when runInBackground is true", async () => {
     const tool = createBashTool(mockShellWithLaunch(""));
     const result = await tool.handler({ command: "long-task", runInBackground: true });
-    expect(result.modelContent).toContain("PID: 12345");
+    expect(result.modelContent).toContain("process_id: 12345");
+    expect(result.displayMetadata?.processId).toBe("12345");
     expect(result.displayMetadata?.backgroundPid).toBe("12345");
     expect(result.displayMetadata?.runInBackground).toBe(true);
   });
@@ -132,5 +133,23 @@ describe("bash tool", () => {
   it("definition has valid input schema requiring command", () => {
     const tool = createBashTool(mockShell(""));
     expect(tool.definition.inputSchema.required).toContain("command");
+  });
+
+  it("definition description does not promise streaming output (spec §2.4)", () => {
+    const tool = createBashTool(mockShell(""));
+    expect(tool.definition.description).not.toMatch(
+      /output will stream as it becomes available/i,
+    );
+    expect(tool.definition.description).toMatch(/bash_output/i);
+  });
+
+  it("background launch result explains how to read output", async () => {
+    const tool = createBashTool(mockShellWithLaunch(""));
+    const result = await tool.handler({ command: "long-task", runInBackground: true });
+    expect(result.modelContent).toContain("process_id");
+    expect(result.modelContent).toContain("bash_output");
+    expect(result.modelContent).not.toMatch(
+      /output will stream as it becomes available/i,
+    );
   });
 });
