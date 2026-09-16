@@ -33,6 +33,7 @@ export const REMINDER_KIND_LABELS: Record<ContextReminderKind, string> = {
   permission_boundary: '权限边界',
   self_correction: '自我纠正',
   retrieval: '检索片段',
+  todo_list: '任务清单',
 };
 
 /** 无耗时返回 null（调用方渲染 EMPTY_CELL）；<1s 用 ms，其余一位小数秒。 */

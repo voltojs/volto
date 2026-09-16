@@ -5,6 +5,7 @@ import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
+import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
@@ -29,15 +30,18 @@ import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals } from '@/lib/approvals';
+import { foldTodosFromEvents } from '@/lib/todos-model';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
+  const chatEvents = useChatStore((s) => s.events);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
     useChatAgent();
   const { entries, usage, messages } = useConversation();
+  const todos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
@@ -560,6 +564,11 @@ export function ChatPanel() {
         </Tabs>
         <RightPane projectId={currentProject?.id ?? null} />
       </div>
+      {todos && todos.length > 0 && (
+        <div className="px-4">
+          <TodoDock todos={todos} />
+        </div>
+      )}
       <InputBar
         onSubmit={handleSubmit}
         projectId={currentProject?.id ?? null}
