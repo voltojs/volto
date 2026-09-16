@@ -5,6 +5,7 @@ import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
 import { InputBar } from './InputBar';
+import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
@@ -30,10 +31,12 @@ import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals } from '@/lib/approvals';
+import { foldTodosFromEvents } from '@/lib/todos-model';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
+  const chatEvents = useChatStore((s) => s.events);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
@@ -224,6 +227,11 @@ export function ChatPanel() {
   const currentProject = projects.find(
     (p) => p.id === currentSession?.projectId,
   );
+  // Live SSE fold wins when the buffer has any todoListUpdated; otherwise
+  // fall back to the seed from GET /sessions/:id so a cold reload restores
+  // the dock without waiting for the next write.
+  const liveTodos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
+  const todos = liveTodos ?? currentSession?.todos ?? null;
 
   // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
   const headerTitle =
@@ -525,7 +533,8 @@ export function ChatPanel() {
             : '未连接 agent 服务，请确认 headless-server 已在 http://localhost:3100 启动'}
         </div>
       )}
-      {/* 对话/轨迹主区 + RightPane 同排：pane 挂在 Tabs 外层，跨主 tab 切换常驻。 */}
+      {/* Tabs (chat column: messages + TodoDock + input) + RightPane 同排。
+          InputBar 仅住在 chat TabsContent，轨迹页不承载主输入框。 */}
       <div className="flex min-h-0 flex-1 flex-row">
         <Tabs
           value={activeTab}
@@ -556,8 +565,11 @@ export function ChatPanel() {
                   ))}
                 </div>
               )}
-              {/* Main input stays inside the chat column so trajectory never
-                  hosts it and RightPane remains a sibling of the whole Tabs. */}
+              {todos && todos.length > 0 && (
+                <div className="mx-auto w-full max-w-3xl px-6">
+                  <TodoDock todos={todos} />
+                </div>
+              )}
               <InputBar
                 onSubmit={handleSubmit}
                 projectId={currentProject?.id ?? null}

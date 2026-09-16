@@ -9,6 +9,10 @@
  * - Preserves: system message, recent N messages, file paths, incomplete todos
  * - Compresses: older tool call/result pairs that are no longer immediately relevant
  * - Returns a CompactionDecision for the Runner to interpret
+ *
+ * Incomplete-todo detection is a best-effort sort key for informal markdown
+ * checklists. Standing `todo_write` state is re-injected every assemble from
+ * `AgentState.todos` and does NOT rely on this heuristic.
  */
 
 import type { Message } from "./state.js";
@@ -102,7 +106,13 @@ export function extractFilePaths(msg: Message): string[] {
   return paths;
 }
 
-/** Check if a message contains incomplete todo items */
+/**
+ * Check if a message contains incomplete todo items.
+ *
+ * Incomplete-todo detection is a best-effort sort key for informal markdown
+ * checklists. Standing `todo_write` state is re-injected every assemble from
+ * `AgentState.todos` and does NOT rely on this heuristic.
+ */
 export function hasIncompleteTodos(msg: Message): boolean {
   const text = extractMessageText(msg);
   // Match patterns like "- [ ]", "TODO:", "FIXME:", "HACK:"

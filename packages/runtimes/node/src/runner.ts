@@ -525,6 +525,15 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record("context_reminder", event.data as TranscriptEventMap["context_reminder"]);
           continue;
 
+        case "todoListUpdated":
+          // Standing-plan change for UI docks / SSE clients. Transcript twin
+          // so resume can fold the latest list without replaying tool args.
+          recorder.record(
+            "todoListUpdated",
+            event.data as TranscriptEventMap["todoListUpdated"],
+          );
+          continue;
+
         case "compaction":
           // Emitted by the reducer's compaction_applied handler (write-back).
           // The recorder's emit hook streams the same stamped event (task-r6
@@ -725,6 +734,9 @@ export function createRunner(opts: RunnerOptions): Runner {
       tools: stepContext.tools,
       pinnedMessageIds: state.pinnedMessageIds,
       contextLayers: stepContext.contextLayers,
+      // Standing todos are re-injected every request so compaction of
+      // historical tool results cannot drop the model's plan.
+      todos: state.todos,
     });
     let finalMessages = assembled.messages;
     const finalCacheBreakpoints = opts.cacheBreakpoints ?? assembled.cacheBreakpoints;

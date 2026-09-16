@@ -3,7 +3,7 @@
  * Every input is a plain, serializable data object.
  */
 
-import type { ContentBlock } from "./state.js";
+import type { ContentBlock, TodoItem } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
 import type { ApprovalDenialReason } from "./ports.js";
 
@@ -61,6 +61,10 @@ export interface ToolResultInput {
     displayMetadata?: Record<string, unknown>;
     /** Classified error kind — set by the Runner when tool fails */
     errorKind?: ErrorKind;
+    /** Mirrors ToolResult.statePatch; Runner passes tool output through verbatim. */
+    statePatch?: {
+      todos?: TodoItem[];
+    };
   };
 }
 

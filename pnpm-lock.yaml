@@ -413,6 +413,9 @@ importers:
       '@volto/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
+      '@volto/tools-plan':
+        specifier: workspace:*
+        version: link:../tools/plan
       '@volto/tools-schedule':
         specifier: workspace:*
         version: link:../tools/schedule

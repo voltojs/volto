@@ -130,6 +130,18 @@ export interface ReadFileRecord {
   mtime: number;
 }
 
+/** Lifecycle state of one todo entry. */
+export type TodoStatus = "pending" | "in_progress" | "completed";
+
+/**
+ * One standing-plan entry. Deliberately minimal: no id (whole-list replace),
+ * no priority, no activeForm.
+ */
+export interface TodoItem {
+  content: string;
+  status: TodoStatus;
+}
+
 /** The complete agent state */
 export interface AgentState {
   messages: Message[];
@@ -194,4 +206,12 @@ export interface AgentState {
   selfCorrectionCount: number;
   /** Max self-corrections per turn. Undefined = no limit (0 effectively disables self-correction). */
   maxSelfCorrections: number | undefined;
+  /**
+   * Standing todo list for this agent session.
+   * - `undefined`: never written
+   * - `[]`: explicitly cleared
+   * - non-empty: current plan
+   * Survives turns and checkpoint/resume. Never written by Compactor.
+   */
+  todos?: TodoItem[];
 }

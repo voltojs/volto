@@ -4,7 +4,7 @@
  * The core imports these interfaces, never their implementations.
  */
 
-import type { AgentState, ContentBlock, Message, PendingToolCall } from "./state.js";
+import type { AgentState, ContentBlock, Message, PendingToolCall, TodoItem } from "./state.js";
 import type { RiskTier, ToolDefinition, JSONSchema } from "./tool.js";
 
 // ──────────────────────────────────────────────
@@ -295,7 +295,11 @@ export interface ChatSessionMeta {
 export type TurnEndReason = "done" | "error" | "cancelled" | "budget_exceeded";
 
 /** The closed set of dynamic mid-conversation injections this session can audit. */
-export type ContextReminderKind = "permission_boundary" | "self_correction" | "retrieval";
+export type ContextReminderKind =
+  | "permission_boundary"
+  | "self_correction"
+  | "retrieval"
+  | "todo_list";
 
 /**
  * The vocabulary of the durable session log. One entry per significant
@@ -391,6 +395,11 @@ export interface TranscriptEventMap {
     text: string;
     /** UI-only structured detail (e.g. retrieval fragment count); never sent to the model. */
     displayMetadata?: Record<string, unknown>;
+  };
+  /** Standing todo list changed (UI dock source). Not a model message. */
+  todoListUpdated: {
+    todos: TodoItem[];
+    counts: { pending: number; inProgress: number; completed: number };
   };
 
   // ── Input ──

@@ -18,6 +18,8 @@ export type {
   Message,
   PendingToolCall,
   ReadFileRecord,
+  TodoItem,
+  TodoStatus,
   AgentState,
 } from "./state.js";
 
@@ -190,6 +192,7 @@ export {
   assembleContext,
   buildToolPrompt,
   computeStaticPrefixTokens,
+  TODO_LIST_LAYER_ID,
 } from "./context-assembler.js";
 export type { ContextLayer, AssembleContextOptions, AssembledContext } from "./context-assembler.js";
 
@@ -206,6 +209,9 @@ export {
   buildSummaryPrompt,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
+
+// Todo standing-list formatter — model-facing injection text (pure)
+export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingTodos } from "./todo-format.js";
 
 // Tool-result pruning — deterministic head/tail cut under a char budget
 export { pruneOversizedToolResults } from "./tool-result-prune.js";

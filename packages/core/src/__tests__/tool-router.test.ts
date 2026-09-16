@@ -74,17 +74,17 @@ describe("filterVisibleTools", () => {
   const tools = [
     tool("read_file", ["filesystem:read"]),
     tool("bash", ["shell:exec"]),
-    tool("write_todos", []),
+    tool("todo_write", []),
   ];
 
   it("keeps tools whose capabilities are all satisfied", () => {
     const visible = filterVisibleTools(tools, new Set(["filesystem:read"]));
-    expect(visible.map((t) => t.name).sort()).toEqual(["read_file", "write_todos"]);
+    expect(visible.map((t) => t.name).sort()).toEqual(["read_file", "todo_write"]);
   });
 
   it("always keeps tools requiring no capabilities", () => {
     const visible = filterVisibleTools(tools, new Set());
-    expect(visible.map((t) => t.name)).toEqual(["write_todos"]);
+    expect(visible.map((t) => t.name)).toEqual(["todo_write"]);
   });
 
   it("keeps all tools when every capability is present", () => {

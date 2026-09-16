@@ -4,7 +4,7 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem } from "./state.js";
 import type { ApprovalDenialReason, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
@@ -13,6 +13,7 @@ import type { ContextLayer } from "./context-assembler.js";
 import type { PermissionConfig } from "./permission-policy.js";
 import { userDenialMessage } from "./permission-policy.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
+import { formatTodoListForModel } from "./todo-format.js";
 import { detectLoop } from "./loop-detector.js";
 import { assembleContext } from "./context-assembler.js";
 import { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
@@ -352,7 +353,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       _announcedPermissionConfig: announcedConfig,
     };
     const effects: Effect[] = [
-      buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
+      buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ...emittedReminders,
       {
         type: "emit",
@@ -564,7 +565,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: { ...baseState, status: "calling_model" },
         effects: [
           emitEffect,
-          buildCallModelEffect(baseState.messages, baseState.pinnedMessageIds, ctx),
+          buildCallModelEffect(baseState.messages, baseState.pinnedMessageIds, ctx, baseState.todos),
         ],
       };
     }
@@ -603,7 +604,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         state: retryState,
         effects: [
           { type: "emit", event: { type: "error", data: { error: input.error, retriable: true } } },
-          buildCallModelEffect(retryState.messages, retryState.pinnedMessageIds, ctx),
+          buildCallModelEffect(retryState.messages, retryState.pinnedMessageIds, ctx, retryState.todos),
         ],
       };
     }
@@ -661,6 +662,37 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       ? recordFileAccess(state.readFiles, fileAccess)
       : state.readFiles;
 
+    // Apply ToolResult.statePatch (v1: todos only). Pure; replay-safe.
+    // isError results must not mutate standing state. Parallel patches in
+    // one batch resolve last-write-wins (whole-list replace semantics).
+    let todos = state.todos;
+    const todoEmit: Effect[] = [];
+    if (!input.result.isError && input.result.statePatch?.todos !== undefined) {
+      todos = input.result.statePatch.todos;
+      const counts = {
+        pending: todos.filter((t) => t.status === "pending").length,
+        inProgress: todos.filter((t) => t.status === "in_progress").length,
+        completed: todos.filter((t) => t.status === "completed").length,
+      };
+      todoEmit.push(
+        {
+          type: "emit",
+          event: { type: "todoListUpdated", data: { todos, counts } },
+        },
+        {
+          type: "emit",
+          event: {
+            type: "context_reminder",
+            data: {
+              kind: "todo_list",
+              text: formatTodoListForModel(todos),
+              displayMetadata: { counts },
+            },
+          },
+        },
+      );
+    }
+
     // Buffer the result by tool-call id
     const newBuffer = { ...state._toolResultBuffer, [input.toolCallId]: toolResultMsg };
 
@@ -700,8 +732,9 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           ...state,
           _toolResultBuffer: newBuffer,
           readFiles,
+          todos,
         },
-        effects: [resultEmit],
+        effects: [resultEmit, ...todoEmit],
       };
     }
 
@@ -724,6 +757,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       _toolResultBuffer: {},
       queuedUserInputs: [],
       readFiles,
+      todos,
       status: "calling_model",
     };
 
@@ -731,7 +765,8 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       state: newState,
       effects: [
         resultEmit,
-        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx),
+        ...todoEmit,
+        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ],
     };
   }
@@ -906,7 +941,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         status: "calling_model",
       },
       effects: [
-        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx),
+        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx, state.todos),
       ],
     };
   }
@@ -1034,18 +1069,21 @@ function extractToolCalls(msg: AssistantMessage): PendingToolCall[] {
  *
  * Centralized so every site that issues a model call gets identical
  * static-prefix treatment (system / pinned messages first, breakpoints at
- * boundaries). Pure — no I/O, no random.
+ * boundaries) and re-injects the standing todo list from AgentState.
+ * Pure — no I/O, no random.
  */
 function buildCallModelEffect(
   messages: Message[],
   pinnedMessageIds: string[] | undefined,
   ctx: StepContext,
+  todos?: readonly TodoItem[],
 ): Effect {
   const assembled = assembleContext({
     messages,
     tools: ctx.tools,
     pinnedMessageIds,
     contextLayers: ctx.contextLayers,
+    todos,
   });
   return {
     type: "call_model",
