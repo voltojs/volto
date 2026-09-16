@@ -379,8 +379,10 @@ export function createSandboxedShell(
   const strippedEnvVars = resolvedConfig.strippedEnvVars ?? [];
   const strippedEnvPatterns = resolvedConfig.strippedEnvPatterns ?? [];
 
-  function withStrippedEnv(opts: ShellExecOptions | undefined): ShellExecOptions | undefined {
-    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns);
+  function withStrippedEnv(
+    opts: ShellExecOptions | ShellLaunchOptions | undefined,
+  ): typeof opts {
+    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns) as typeof opts;
   }
 
   // ── Egress proxy setup (Phase 4: lazy start on first exec) ──

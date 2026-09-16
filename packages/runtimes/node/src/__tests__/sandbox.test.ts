@@ -962,10 +962,20 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
     });
 
     const id = await shell.launch!(`touch "${path.join(outsideDir, "denied.txt")}"`);
-    // Wait for exit.
-    await new Promise((r) => setTimeout(r, 800));
+    // Poll until the process exits (seatbelt denial is near-instant).
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const info = shell.listProcesses!().find((p) => p.id === id);
+      if (!info?.running) break;
+      if (Date.now() > deadline) throw new Error("process did not exit in time");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // §2.1: non-zero exit code PLUS the backend's denial dialect — never
+    // dialect alone, and never a cross-backend union.
+    const info = shell.listProcesses!().find((p) => p.id === id);
+    expect(info?.running).toBe(false);
+    expect(info?.exitCode).not.toBe(0);
     const out = await shell.readProcessOutput!(id);
-    // Backend-specific denial dialect — do NOT union with bwrap's.
     expect(out.text.toLowerCase()).toContain("operation not permitted");
     expect(fs.existsSync(path.join(outsideDir, "denied.txt"))).toBe(false);
   });
@@ -993,18 +1003,38 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
       network: { enabled: false },
     });
 
-    /** List seatbelt profile files belonging to this Node process. */
-    const profiles = (): string[] =>
+    /** Count seatbelt profile files belonging to this Node process. */
+    const profileCount = (): number =>
       fs.readdirSync(os.tmpdir()).filter(
         (f) => f.startsWith(`volto-sandbox-${process.pid}-`) && f.endsWith(".sb"),
-      );
+      ).length;
 
-    const before = profiles().length;
-    await shell.launch!("echo profile-cleanup-probe");
-    // Wait for the quick command to exit plus the 1s cleanup interval.
+    const before = profileCount();
+
+    // Earlier tests in this file may have left profiles whose 1s cleanup
+    // interval hasn't fired yet. Drain them so `before` is a clean baseline.
+    if (before > 0) {
+      const drainDeadline = Date.now() + 5000;
+      while (profileCount() > 0 && Date.now() < drainDeadline) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    const baseline = profileCount();
+
+    // Use a command that lives long enough for us to observe the profile
+    // mid-flight — `sleep 0.4` gives a ~400ms window.
+    await shell.launch!("sleep 0.4");
+
+    // Mid-flight: the profile MUST exist while the process is running.
+    // Without this, the test passes vacuously if launch never wrote one.
+    await new Promise((r) => setTimeout(r, 150));
+    const during = profileCount();
+    expect(during).toBeGreaterThan(baseline);
+
+    // Wait for exit + the 1s cleanup interval + margin.
     await new Promise((r) => setTimeout(r, 2500));
-    const after = profiles().length;
-    expect(after).toBeLessThanOrEqual(before);
+    const after = profileCount();
+    expect(after).toBe(baseline);
   });
 });
 
