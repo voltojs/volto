@@ -26,6 +26,8 @@ import { createAgent, type AgentInstance, type CreateAgentOptions } from "./crea
 export interface AgentSpec {
   /** Unique agent name (used for registry lookup) */
   name: string;
+  /** Human-readable one-line purpose (rendered into the task tool description) */
+  description?: string;
   /** System prompt prepended as first message */
   systemPrompt?: string;
   /** Model name override (sent to provider) */
