@@ -177,6 +177,55 @@ export function createDefaultPermissionConfig(): PermissionConfig {
 }
 
 /**
+ * Combine a parent policy with a sub-agent's declared policy, taking the
+ * stricter option on every axis.
+ *
+ * Narrowing only, never widening: the agent can write files inside the
+ * workspace, so it can write an agent definition too. If a definition could
+ * widen permissions, writing one that declares danger-full-access and then
+ * invoking it would be a complete privilege-escalation path around the
+ * parent session's limits.
+ */
+export function narrowPermission(
+  parent: PermissionConfig,
+  child?: PermissionConfig,
+): PermissionConfig {
+  if (!child) {
+    // Shallow copy: never hand out a live alias of the parent config.
+    return { ...parent };
+  }
+
+  const sandbox =
+    TIER_RANK[ceilingOf(child.sandbox)] < TIER_RANK[ceilingOf(parent.sandbox)]
+      ? child.sandbox
+      : parent.sandbox;
+
+  const approval = parent.approval === "ask" || child.approval === "ask" ? "ask" : "never";
+
+  // Parent denies come first, so no child rule can override them: rules are
+  // first-match-wins and outrank the sandbox×approval matrix. A child `allow`
+  // would therefore bypass the narrowed ceiling — drop it. Child `deny`/`ask`
+  // only tighten; keep those.
+  //
+  // The parent's own `allow` rules are dropped too, and for the same reason
+  // read the other way: an exemption granted to the parent session (a user's
+  // "always allow this tool", a deployment rule) outranks the matrix, so
+  // carrying it into a child narrowed to read-only would let the child write
+  // anyway and make the definition's sandbox decoration. Everything that only
+  // tightens — the parent's `ask` rules — is kept.
+  const parentDenies = (parent.rules ?? []).filter((r) => r.decision === "deny");
+  const childNarrowing = (child.rules ?? []).filter((r) => r.decision !== "allow");
+  const parentAsks = (parent.rules ?? []).filter((r) => r.decision === "ask");
+
+  const rules = [...parentDenies, ...childNarrowing, ...parentAsks];
+  return {
+    sandbox,
+    approval,
+    ...(rules.length > 0 ? { rules } : {}),
+  };
+}
+
+/**
  * The model-facing wording for a tool refused by the permission matrix.
  *
  * Replaces a bare "denied by permission policy", which reads like a

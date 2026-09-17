@@ -329,7 +329,8 @@ export type ContextReminderKind =
   | "permission_boundary"
   | "self_correction"
   | "retrieval"
-  | "todo_list";
+  | "todo_list"
+  | "background_task";
 
 /**
  * The vocabulary of the durable session log. One entry per significant

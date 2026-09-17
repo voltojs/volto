@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { KeyRound, SlidersHorizontal } from 'lucide-react';
+import { Bot, KeyRound, SlidersHorizontal } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProvidersPanel } from './ProvidersPanel';
 import { GeneralPanel } from './GeneralPanel';
+import { SubagentsPanel } from './SubagentsPanel';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -19,6 +20,7 @@ interface SettingsDialogProps {
 
 const TABS = [
   { value: 'models', label: '模型配置', icon: KeyRound },
+  { value: 'subagents', label: '子代理', icon: Bot },
   { value: 'general', label: '通用设置', icon: SlidersHorizontal },
 ] as const;
 
@@ -57,6 +59,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <div className="max-h-[60vh] min-w-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="models">
               <ProvidersPanel />
+            </TabsContent>
+            {/* Global settings dialog: null scopes the gateway to its default
+                cwd, matching how other panels resolve project-relative paths. */}
+            <TabsContent value="subagents">
+              <SubagentsPanel projectId={null} />
             </TabsContent>
             <TabsContent value="general">
               <GeneralPanel />

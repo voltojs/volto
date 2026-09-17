@@ -333,7 +333,7 @@ interface Connection {
 
 interface Session {
   id: string;
-  agent: ReturnType<typeof createWiredAgent> | null;
+  agent: Awaited<ReturnType<typeof createWiredAgent>> | null;
   config: ResolvedConfig | null;
   history: Message[];
   mapper: ReturnType<typeof sse.createEventMapper>;
@@ -756,7 +756,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     const seeded = seedHistory(session.history);
     // Plan 2: default-on. Absent config uses DEFAULT_COMPACTION; false disables.
     const compaction = resolveHostCompaction(configuredCompaction);
-    session.agent = buildAgent({
+    session.agent = await buildAgent({
       ...wiring,
       // Explicit override of the spread so the default-on decision is visible here.
       ...(compaction !== undefined ? { compaction } : {}),

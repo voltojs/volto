@@ -1,7 +1,11 @@
 // @volto/sdk — facade: createAgent, run / stream / resume
 
-export { createAgent } from "./create-agent.js";
-export type { CreateAgentOptions, AgentInstance, ResolvedPorts } from "./create-agent.js";
+export { createAgent, assembleSubAgent } from "./create-agent.js";
+export type { CreateAgentOptions, AgentInstance, ResolvedPorts, AssembledSubAgent } from "./create-agent.js";
+// Background sub-agent registry: holds detached task promises outside
+// AgentState; hosts and the Runner-side drain consume it via collect/pending.
+export { createBackgroundRegistry } from "./create-agent.js";
+export type { BackgroundRegistry, BackgroundCollectResult } from "./create-agent.js";
 
 // M9: Model layer
 export { createModelRouter } from "./model-router.js";
@@ -82,6 +86,12 @@ export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHand
 // M13: Declarative agent spec
 export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";
 export type { AgentSpec, ResolvedAgentSpec, ToolRegistry, LoadAgentSpecOptions } from "./agent-spec.js";
+
+// Agent definition registry: multi-level scan + create/update/delete write layer
+export { scanAgentSources } from "./agent-registry/scan.js";
+export type { AgentEntry, AgentScanResult, ScanAgentSourcesOptions } from "./agent-registry/scan.js";
+export { createAgentStore } from "./agent-registry/store.js";
+export type { AgentStore, CreateAgentStoreOptions } from "./agent-registry/store.js";
 
 // M13: Slash commands
 export { renderCommand, parseArgs, findCommand } from "./commands.js";

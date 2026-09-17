@@ -9,6 +9,8 @@
  * Input-command & workspace routes (consumed by apps/web input bar / panes):
  *   GET  /commands            — slash command templates for the `/` panel
  *   GET  /skills?projectId=   — user-invocable skills for the `/` panel
+ *   GET  /tools?projectId=    — tool catalogue for the sub-agent form
+ *   GET|POST /agents, PUT|DELETE /agents/:id — sub-agent definition CRUD
  *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
  *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
  *   GET  /git/commits/:hash   — workspace git pane data
@@ -27,10 +29,15 @@
  */
 
 import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos } from "@volto/core";
-import { readConversation, readTrajectory, CompactionBusyError } from "@volto/sdk";
+import {
+  readConversation,
+  readTrajectory,
+  CompactionBusyError,
+} from "@volto/sdk";
 import {
   createStore as createJsonlStore,
   TranscriptFormatError,
@@ -85,6 +92,14 @@ import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
 import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
+import {
+  AgentsHttpError,
+  createAgentDefinition,
+  deleteAgentDefinition,
+  listAgents,
+  updateAgentDefinition,
+  type AgentsContext,
+} from "./agents/routes.js";
 
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
@@ -364,7 +379,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // (JsonlSessionStore), not the already-scoped TranscriptStore createWiredAgent
   // expects. Only `registry` (below) wires chatStore in, per-session, via
   // scopeToWorkspace() inside sessions.ts's rebuild().
-  const { chatStore: _rawChatStore, agentFactory, ...agentOpts } = opts;
+  const { chatStore: _rawChatStore, agentFactory, pluginAgents = [], ...agentOpts } = opts;
   const buildAgent = agentFactory ?? createWiredAgent;
   // This construction site has no sessionId, so it can never reach a
   // permissionMode default resolved per-session (sessions.ts's EMPTY_CONFIG)
@@ -375,8 +390,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // Default to the "read-only" preset instead: same reasoning as
   // EMPTY_CONFIG in sessions.ts. Its approval policy is "never", so the
   // approval gate is never consulted and can safely stay absent.
-  const agent = buildAgent({
+  const agent = await buildAgent({
     ...agentOpts,
+    // Destructured out of agentOpts above (the /agents routes read it from
+    // the same binding); pass it back so this agent's scan lists the same
+    // plugin entries the UI shows.
+    pluginAgents,
     permissionConfig: agentOpts.permissionConfig ?? buildPermissionConfig("read-only"),
     sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),
   });
@@ -999,6 +1018,131 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
+    }
+
+    // GET /tools — the catalogue the sub-agent form offers as checkboxes.
+    // Lists `agent.tools`: the same assembled list createAgent hands session
+    // assembly (and therefore every turn), so what the form offers cannot
+    // drift from what a sub-agent actually receives. Optional ?projectId=
+    // validates the project exists (resolved like /skills); tool names and
+    // descriptions themselves do not vary by cwd — adapters and static
+    // definitions are identical across projects.
+    if (req.method === "GET" && url.pathname === "/tools") {
+      try {
+        const projectId = url.searchParams.get("projectId");
+        if (projectId !== null) {
+          const projectPath = await resolveProjectPath(projectStore, projectId);
+          if (projectPath === undefined) {
+            jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+            return;
+          }
+        }
+        jsonResponse(res, 200, {
+          tools: agent.tools.map((t) => ({
+            name: t.definition.name,
+            description: t.definition.description,
+          })),
+        });
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET|POST /agents, PUT|DELETE /agents/:id — sub-agent definition CRUD.
+    // Like /skills, an optional ?projectId= scopes the project-level source
+    // (and the project-scope write target) to that project's directory,
+    // resolved through projectStore the same way sessions resolve a turn's
+    // cwd. Every verb rescans/re-reads disk: definitions are files a user may
+    // edit between calls, so nothing here is cached across requests.
+    if (url.pathname === "/agents" || url.pathname.startsWith("/agents/")) {
+      const projectId = url.searchParams.get("projectId");
+      let agentsCwd = cwd;
+      if (projectId !== null) {
+        const projectPath = await resolveProjectPath(projectStore, projectId);
+        if (projectPath === undefined) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        agentsCwd = projectPath;
+      }
+      const agentsCtx: AgentsContext = {
+        cwd: agentsCwd,
+        configDir: getConfigDir(),
+        homeDir: os.homedir(),
+        pluginSpecs: pluginAgents,
+      };
+
+      // GET /agents — merged list across project / user / plugin sources.
+      if (req.method === "GET" && url.pathname === "/agents") {
+        try {
+          jsonResponse(res, 200, await listAgents(agentsCtx));
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      // POST /agents — create at the requested scope; 201 carries the entry.
+      if (req.method === "POST" && url.pathname === "/agents") {
+        try {
+          const body = JSON.parse(await readBody(req)) as {
+            scope?: unknown;
+            spec?: unknown;
+          };
+          jsonResponse(res, 201, await createAgentDefinition(agentsCtx, body));
+        } catch (err: unknown) {
+          if (respondBodyError(err)) return;
+          if (err instanceof AgentsHttpError) {
+            jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          if (err instanceof SyntaxError) {
+            jsonResponse(res, 400, { error: "Invalid JSON body" });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      // PUT /agents/:id — replace the spec. Plugin-sourced ids answer 409.
+      if (req.method === "PUT" && url.pathname.startsWith("/agents/")) {
+        try {
+          const id = decodeURIComponent(url.pathname.slice("/agents/".length));
+          const body = JSON.parse(await readBody(req)) as { spec?: unknown };
+          jsonResponse(res, 200, await updateAgentDefinition(agentsCtx, id, body));
+        } catch (err: unknown) {
+          if (respondBodyError(err)) return;
+          if (err instanceof AgentsHttpError) {
+            jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          if (err instanceof SyntaxError) {
+            jsonResponse(res, 400, { error: "Invalid JSON body" });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      // DELETE /agents/:id — 204 on success, 404 unknown, 409 plugin-sourced.
+      if (req.method === "DELETE" && url.pathname.startsWith("/agents/")) {
+        try {
+          const id = decodeURIComponent(url.pathname.slice("/agents/".length));
+          await deleteAgentDefinition(agentsCtx, id);
+          res.writeHead(204, corsHeaders);
+          res.end();
+        } catch (err: unknown) {
+          if (err instanceof AgentsHttpError) {
+            jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
     }
 
     // GET /sessions — lightweight list for the web app's session recovery

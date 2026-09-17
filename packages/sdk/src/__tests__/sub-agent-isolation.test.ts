@@ -102,6 +102,59 @@ describe("task sub-agent — context isolation", () => {
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("returns a task id without the result text when dispatched in background", async () => {
+    // Background dispatch is wired: the tool_result carries the task id and
+    // collection instructions, never the (still running) result text.
+    const mockModel = createMockModelPort([
+      toolCallScript(
+        "main-call-1",
+        "task",
+        JSON.stringify({ message: "Go", run_in_background: true }),
+      ),
+      // Detached sub-agent's own model call (races the parent's next call;
+      // both scripts are plain text so either assignment completes).
+      textScript("Sub-agent result text"),
+      textScript("Understood, I will collect it later."),
+      // Task 9: the turn-end drain feeds the uncollected completion, which
+      // reopens the turn — the model gets one more call to fold it in.
+      textScript("Folded the background result in."),
+    ]);
+
+    const agent = createAgent({
+      modelPort: mockModel,
+      enableTaskTool: true,
+    });
+
+    const state = await agent.run("Background task");
+
+    expect(state.status).toBe("done");
+
+    const toolResultMsg = state.messages.find((m) => m.role === "tool") as
+      | { content: Array<{ content: string | Array<{ type: string; text?: string }>; isError?: boolean }> }
+      | undefined;
+    expect(toolResultMsg).toBeDefined();
+    const first = toolResultMsg!.content[0]!;
+    const firstText =
+      typeof first.content === "string"
+        ? first.content
+        : first.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+    expect(first.isError).toBeFalsy();
+    expect(firstText).toContain("started in background");
+    // No discarded result text leaked into the dispatch tool_result.
+    expect(firstText).not.toContain("Sub-agent result text");
+    // Task 9: the model never called task_output, so the turn-boundary
+    // drain collected the task at end of turn — the record ends
+    // "collected" and the result reached the model as a drain notice.
+    expect(state.backgroundTasks?.[0]).toMatchObject({ status: "collected" });
+    const drainNotice = state.messages.find(
+      (m) =>
+        typeof m.content === "string" &&
+        m.content.includes("[background task") &&
+        m.content.includes("Sub-agent result text"),
+    );
+    expect(drainNotice).toBeDefined();
+  });
+
   it("should not have task tool in sub-agent's tool set (no recursion)", async () => {
     // If the sub-agent tries to call "task", it should get an error
     // because the task tool is filtered out of the sub-agent's tool set.

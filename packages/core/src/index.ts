@@ -21,6 +21,7 @@ export type {
   ReadFileRecord,
   TodoItem,
   TodoStatus,
+  BackgroundTask,
   AgentState,
 } from "./state.js";
 export { normalizeToolResultContent } from "./state.js";
@@ -39,6 +40,8 @@ export type {
   SelfCorrectInput,
   ToolResultsPrunedInput,
   CompactionAppliedInput,
+  BackgroundTaskStartedInput,
+  BackgroundTaskCompletedInput,
   AgentInput,
 } from "./input.js";
 
@@ -176,7 +179,7 @@ export { step, createInitialState, resetTurnForNextInput } from "./reducer.js";
 export type { StepResult, StepContext, ReducerState } from "./reducer.js";
 
 // ToolRouter
-export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall } from "./tool-router.js";
+export { validateToolInput, filterVisibleTools, filterByScope, routeToolCall, CAP_AGENT_DEPTH_AVAILABLE } from "./tool-router.js";
 export type { ToolScopeConfig, ScopeGroupConfig } from "./tool-router.js";
 
 // Hooks — M13
@@ -224,7 +227,7 @@ export { pruneOversizedToolResults } from "./tool-result-prune.js";
 export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-prune.js";
 
 // PermissionPolicy — pure permission decision logic
-export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage, userDenialMessage } from "./permission-policy.js";
+export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, decide, policyDenialMessage, userDenialMessage, narrowPermission } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule } from "./permission-policy.js";
 
 // PermissionPrompt — model-facing description of the permission boundary

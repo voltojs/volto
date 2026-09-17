@@ -1,6 +1,7 @@
 export { createRunner, CompactionBusyError, resolveImageRefs } from "./runner.js";
 export { defaultAuditSink } from "./runner.js";
-export type { Runner, RunnerOptions, ToolExecutor, AuditEntry, AuditSink, CompactNowResult, WireImageContent } from "./runner.js";
+export { drainBackgroundTasks } from "./runner.js";
+export type { Runner, RunnerOptions, ToolExecutor, AuditEntry, AuditSink, CompactNowResult, WireImageContent, BackgroundTaskCollector } from "./runner.js";
 export { createFileAuditSink } from "./file-audit-sink.js";
 export { createNodeFileSystem } from "./filesystem.js";
 export type { NodeFileSystemOptions } from "./filesystem.js";
@@ -14,7 +15,7 @@ export { createShellToolExecutor } from "./shell-tool-executor.js";
 export type { CreateShellToolExecutorOptions } from "./shell-tool-executor.js";
 export { createNetworkToolExecutor } from "./network-tool-executor.js";
 export type { CreateNetworkToolExecutorOptions } from "./network-tool-executor.js";
-export { createAutoAllowGate, createInteractiveGate } from "./approval-gate.js";
+export { createAutoAllowGate, createSubAgentApprovalGate, createInteractiveGate } from "./approval-gate.js";
 export { createAllowAllPolicyEngine, createRuleBasedPolicyEngine } from "./policy-engine.js";
 export type { PolicyRule } from "./policy-engine.js";
 export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, buildSeatbeltProfile, buildBwrapArgs, expandOverlays } from "./sandbox.js";

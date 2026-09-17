@@ -26,6 +26,8 @@ import { createAgent, type AgentInstance, type CreateAgentOptions } from "./crea
 export interface AgentSpec {
   /** Unique agent name (used for registry lookup) */
   name: string;
+  /** Human-readable one-line purpose (rendered into the task tool description) */
+  description?: string;
   /** System prompt prepended as first message */
   systemPrompt?: string;
   /** Model name override (sent to provider) */
@@ -42,7 +44,11 @@ export interface AgentSpec {
   capabilities?: string[];
   /** Permission policy override */
   policy?: PermissionConfig;
-  /** Enable the task sub-agent tool */
+  /**
+   * Legacy switch, no longer read for sub-agent dispatch. Whether a child may
+   * delegate is decided by `maxAgentDepth` plus the intersection rule: a
+   * definition that lists `tools` must name `task` to get one.
+   */
   enableTaskTool?: boolean;
   /** Max inner-loop iterations */
   maxIterations?: number;
