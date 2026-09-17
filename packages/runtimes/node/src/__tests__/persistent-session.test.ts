@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { createPersistentSession, type PersistentSession } from "../persistent-session.js";
 
 const sessions: PersistentSession[] = [];
@@ -122,5 +125,38 @@ describe("marker protocol", () => {
     const r = await s.run("read -r");
     expect(r.exitCode).toBe(124);
     expect(r.stateResetReason).toBe("timeout");
+  });
+});
+
+describe("session state retention", () => {
+  it("cd persists across commands", async () => {
+    const s = makeSession({ cwd: process.cwd() });
+    const pid = lastChild?.pid;
+    expect(pid).toBeGreaterThan(0);
+    await s.run("cd /tmp");
+    const r = await s.run("pwd");
+    expect(r.stdout.trim()).toMatch(/\/tmp$/);
+    // The answer must come from the same long-lived child, not a respawn.
+    expect(lastChild?.pid).toBe(pid);
+  });
+
+  it("export persists across commands", async () => {
+    const s = makeSession();
+    await s.run("export VOLTO_B2_TEST=hello-b2");
+    const r = await s.run("echo $VOLTO_B2_TEST");
+    expect(r.stdout).toContain("hello-b2");
+  });
+
+  it("sourcing a file persists its exports", async () => {
+    const s = makeSession();
+    const file = path.join(os.tmpdir(), `volto-src-${Date.now()}.sh`);
+    fs.writeFileSync(file, "export VOLTO_SOURCED=yes\n");
+    try {
+      await s.run(`source ${file}`);
+      const r = await s.run("echo $VOLTO_SOURCED");
+      expect(r.stdout).toContain("yes");
+    } finally {
+      fs.unlinkSync(file);
+    }
   });
 });
