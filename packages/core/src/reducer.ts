@@ -1046,9 +1046,15 @@ function handleFileChanged(
     state.status === "waiting_for_approval" ||
     state.status === "waiting_for_input"
   ) {
+    // Same steering-queue pattern as user_message: a turn may have an
+    // assistant tool_use awaiting its tool_result, and providers like
+    // Anthropic reject a request where a user message splits that pair.
+    // Queuing defers the notice to the turn boundary (drained alongside
+    // queuedUserInputs once every pending tool result has flushed) instead
+    // of appending it into messages mid-turn.
     const noticeMsg = stamp({ id: "", role: "user" as const, content: notice }, ctx);
     return {
-      state: { ...state, messages: [...state.messages, noticeMsg] },
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, noticeMsg] },
       effects: [fileChangedEmit],
     };
   }

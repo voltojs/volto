@@ -133,7 +133,7 @@ describe("file_changed — idle (F-004..F-007)", () => {
 });
 
 describe("file_changed — busy states (F-008..F-009)", () => {
-  it("calling_model: appends message, keeps status, does not emit call_model", () => {
+  it("calling_model: queues the notice for the turn boundary, keeps status, does not emit call_model", () => {
     const busy = reachCallingModel();
     expect(busy.status).toBe("calling_model");
     const messagesBefore = busy.messages.length;
@@ -141,17 +141,21 @@ describe("file_changed — busy states (F-008..F-009)", () => {
     const result = step(busy, fileChanged, ctx);
 
     expect(result.state.status).toBe("calling_model");
-    expect(result.state.messages).toHaveLength(messagesBefore + 1);
-    const appended = result.state.messages[result.state.messages.length - 1]!;
-    expect(appended.role).toBe("user");
-    if (typeof appended.content !== "string") throw new Error("expected string user content");
-    expect(appended.content).toContain('File watch "watch-0"');
+    // Not appended to messages mid-turn: an assistant tool_use may still be
+    // awaiting its tool_result, and providers like Anthropic reject a
+    // request that splits that pair with an interleaved user message.
+    expect(result.state.messages).toHaveLength(messagesBefore);
+    expect(result.state.queuedUserInputs).toHaveLength(1);
+    const queued = result.state.queuedUserInputs[0]!;
+    expect(queued.role).toBe("user");
+    if (typeof queued.content !== "string") throw new Error("expected string user content");
+    expect(queued.content).toContain('File watch "watch-0"');
 
     expect(result.effects.filter((e) => e.type === "call_model")).toHaveLength(0);
     expect(emitEvents(result.effects, "file_changed")).toHaveLength(1);
   });
 
-  it("executing_tools: appends message, keeps pending tools, no call_model", () => {
+  it("executing_tools: queues the notice, keeps pending tools, no call_model", () => {
     let state = createInitialState();
     state = step(state, { type: "user_message", content: "Read the file" }, ctx).state;
     state = step(
@@ -175,28 +179,31 @@ describe("file_changed — busy states (F-008..F-009)", () => {
     const result = step(state, fileChanged, ctx);
 
     expect(result.state.status).toBe("executing_tools");
-    expect(result.state.messages).toHaveLength(messagesBefore + 1);
+    expect(result.state.messages).toHaveLength(messagesBefore);
+    expect(result.state.queuedUserInputs).toHaveLength(1);
     expect(result.state.pendingTools).toHaveLength(pendingBefore);
     expect(result.effects.filter((e) => e.type === "call_model")).toHaveLength(0);
     expect(emitEvents(result.effects, "file_changed")).toHaveLength(1);
   });
 
-  it("waiting_for_input: appends message without changing status", () => {
+  it("waiting_for_input: queues the notice without changing status", () => {
     const waiting = createInitialState({ status: "waiting_for_input" });
     const result = step(waiting, fileChanged, ctx);
 
     expect(result.state.status).toBe("waiting_for_input");
-    expect(result.state.messages).toHaveLength(1);
+    expect(result.state.messages).toHaveLength(0);
+    expect(result.state.queuedUserInputs).toHaveLength(1);
     expect(result.effects.filter((e) => e.type === "call_model")).toHaveLength(0);
     expect(emitEvents(result.effects, "file_changed")).toHaveLength(1);
   });
 
-  it("waiting_for_approval: appends message without changing status", () => {
+  it("waiting_for_approval: queues the notice without changing status", () => {
     const waiting = createInitialState({ status: "waiting_for_approval" });
     const result = step(waiting, fileChanged, ctx);
 
     expect(result.state.status).toBe("waiting_for_approval");
-    expect(result.state.messages).toHaveLength(1);
+    expect(result.state.messages).toHaveLength(0);
+    expect(result.state.queuedUserInputs).toHaveLength(1);
     expect(result.effects.filter((e) => e.type === "call_model")).toHaveLength(0);
     expect(emitEvents(result.effects, "file_changed")).toHaveLength(1);
   });
