@@ -2,6 +2,10 @@
 
 export { createAgent, assembleSubAgent } from "./create-agent.js";
 export type { CreateAgentOptions, AgentInstance, ResolvedPorts, AssembledSubAgent } from "./create-agent.js";
+// Background sub-agent registry: holds detached task promises outside
+// AgentState; hosts and the Runner-side drain consume it via collect/pending.
+export { createBackgroundRegistry } from "./create-agent.js";
+export type { BackgroundRegistry, BackgroundCollectResult } from "./create-agent.js";
 
 // M9: Model layer
 export { createModelRouter } from "./model-router.js";
