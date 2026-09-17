@@ -5,7 +5,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { createAgent } from "@volto/sdk";
+import { createAgent, scanAgentSources } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import {
@@ -277,7 +277,7 @@ export function buildSandboxConfigs(
   };
 }
 
-export function createWiredAgent(opts: WiringOptions = {}) {
+export async function createWiredAgent(opts: WiringOptions = {}) {
   const cwd = opts.cwd ?? process.cwd();
   // User-level, not workspace-relative: the default used to land a
   // `headless-sessions.db` beside whatever directory the server happened to be
@@ -345,6 +345,18 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
   }
 
+  // Rescan on every construction — i.e. on every rebuild, which is what lets a
+  // definition created mid-session reach the next turn without a restart
+  // (F-020). Mirrors the /agents routes: definitions are files a user may
+  // create or edit between calls, so a cached list would serve stale agents.
+  // Shadowed entries stay in the list; createAgent filters them out of the
+  // model-facing task-tool types itself.
+  const { entries: agentSpecs } = await scanAgentSources({
+    cwd,
+    configDir: getConfigDir(),
+    homeDir: os.homedir(),
+  });
+
   return createAgent({
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
@@ -357,6 +369,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     network,
     sessionStore,
     enableTaskTool: true,
+    agentSpecs,
     resolveContextLayers,
     skillRegistry,
     commands: BUILT_IN_COMMANDS,

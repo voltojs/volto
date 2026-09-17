@@ -376,7 +376,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // Default to the "read-only" preset instead: same reasoning as
   // EMPTY_CONFIG in sessions.ts. Its approval policy is "never", so the
   // approval gate is never consulted and can safely stay absent.
-  const agent = buildAgent({
+  const agent = await buildAgent({
     ...agentOpts,
     permissionConfig: agentOpts.permissionConfig ?? buildPermissionConfig("read-only"),
     sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),

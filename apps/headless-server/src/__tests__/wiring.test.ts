@@ -74,7 +74,7 @@ describe("createWiredAgent memory file layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Project rule", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -93,7 +93,7 @@ describe("createWiredAgent memory file layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "shared-rules.md"), "Shared team rule", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -107,7 +107,7 @@ describe("createWiredAgent memory file layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "@does-not-exist.md", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -120,7 +120,7 @@ describe("createWiredAgent memory file layers", () => {
     // Neither AGENTS.md file is created in this test.
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -138,7 +138,7 @@ describe("createWiredAgent project-chain instruction layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "src", "lib", "AGENTS.md"), "Deep rule", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src", "lib") });
+    const agent = await createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src", "lib") });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -154,7 +154,7 @@ describe("createWiredAgent project-chain instruction layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "src", "CLAUDE.md"), "same rule\n", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
+    const agent = await createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -168,7 +168,7 @@ describe("createWiredAgent project-chain instruction layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.local.md"), "Local", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -182,7 +182,7 @@ describe("createWiredAgent project-chain instruction layers", () => {
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Lone rule", "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -197,7 +197,7 @@ describe("createWiredAgent instruction budget override and prompt policy", () =>
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "z".repeat(5000), "utf-8");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir, maxInstructionBytes: 600 });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir, maxInstructionBytes: 600 });
     await agent.run("hi");
 
     const systemContents = requests[0]!.messages
@@ -238,7 +238,7 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
       },
     };
 
-    const agent = createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
+    const agent = await createWiredAgent({ modelPort, cwd: path.join(tempProjectDir, "src") });
     await agent.run("look around");
     await agent.run("and now?");
 
@@ -268,7 +268,7 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
       },
     };
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("go");
 
     const systems = requests[1]!.messages.filter((m) => m.role === "system");
@@ -307,7 +307,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     await writeSkill(tempConfigDir, "skills", "alpha", "ALPHA-BODY-SHOULD-NOT-APPEAR");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = systemContentsOf(requests);
@@ -337,7 +337,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
       },
     };
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("load it");
     await write("ALPHA-BODY-V2");
     await agent.run("load it again");
@@ -372,7 +372,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
       },
     };
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("go");
 
     const systemContents = systemContentsOf(requests);
@@ -392,7 +392,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     );
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     const systemContents = systemContentsOf(requests);
@@ -410,7 +410,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     await writeSkill(tempProjectDir, path.join(".volto", "skills"), "dup", "DUP-BODY", "PROJECT-WINS");
     const { modelPort, requests } = captureModelPort();
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("hi");
 
     // Assertions go through the catalog layer text — bodies never reach context.
@@ -444,7 +444,7 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
       },
     };
 
-    const agent = createWiredAgent({ modelPort, cwd: tempProjectDir });
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
     await agent.run("go");
 
     const toolResult = requests[1]!.messages.find((m) => m.role === "tool");
