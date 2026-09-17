@@ -8,6 +8,7 @@
 
 import type {
   AgentInput,
+  AgentState,
   AgentStatus,
   Effect,
   ModelPort,
@@ -196,6 +197,13 @@ export interface RunnerOptions {
     topK?: number;
     queryBuilder?: (messages: Message[]) => string;
   };
+  /**
+   * Registry of detached background sub-agent tasks. When present, a turn
+   * that would end (model stopReason "end_turn") with tasks still `running`
+   * in state drains them first — see drainBackgroundTasks. The SDK's
+   * BackgroundRegistry satisfies this shape structurally.
+   */
+  backgroundRegistry?: BackgroundTaskCollector;
 }
 
 /**
@@ -275,6 +283,75 @@ export interface AuditSink {
 export const defaultAuditSink: AuditSink = {
   record(): void {},
 };
+
+/**
+ * Structural view of the SDK's BackgroundRegistry that the turn-boundary
+ * drain needs. runtime-node must not depend on @volto/sdk (dependency
+ * direction: core ← runtimes ← sdk), so the shape is restated here; the
+ * SDK registry satisfies it structurally.
+ */
+export interface BackgroundTaskCollector {
+  collect(taskId: string): Promise<{ text: string } | { error: string }>;
+  /**
+   * True when this id's result was already collected — e.g. the model
+   * picked it up mid-turn via the task_output tool. The drain skips those
+   * ids: their result already reached the model as a tool_result, and
+   * feeding a completion here would deliver it a second time. Optional so
+   * a minimal registry (or test double) without the flag still drains.
+   */
+  isCollected?(taskId: string): boolean;
+}
+
+/**
+ * Collect every background task the model has not picked up before the turn
+ * is allowed to end.
+ *
+ * A resumed Runner holds no handles, so an uncollectable task is failed with
+ * an explanation instead of awaited: leaving it pending would deadlock the
+ * turn, and dropping it silently would let the model believe it is still
+ * running.
+ */
+export async function drainBackgroundTasks(opts: {
+  state: AgentState;
+  registry: BackgroundTaskCollector;
+  feed: (input: AgentInput) => void;
+}): Promise<void> {
+  const running = (opts.state.backgroundTasks ?? []).filter((t) => t.status === "running");
+  if (running.length === 0) return;
+
+  for (const task of running) {
+    // Double-feed guard (Task 8 concern): task_output collection updates
+    // only the registry cache, never state.backgroundTasks.status — state
+    // still says "running" after the model holds the result. An id the
+    // registry has already collected is skipped here. An id the registry
+    // never knew (a resumed Runner's ghost) is NOT "collected": collect()
+    // fails it with an explanation, which is exactly what F-036 wants.
+    if (opts.registry.isCollected?.(task.id) === true) continue;
+
+    let result: { text: string } | { error: string };
+    try {
+      result = await opts.registry.collect(task.id);
+    } catch (err) {
+      // Error isolation: a collector that throws anyway fails the task
+      // with an explanation rather than taking the turn down.
+      result = { error: err instanceof Error ? err.message : String(err) };
+    }
+    if ("error" in result) {
+      opts.feed({
+        type: "background_task_completed",
+        taskId: task.id,
+        text: result.error,
+        isError: true,
+      });
+    } else {
+      opts.feed({
+        type: "background_task_completed",
+        taskId: task.id,
+        text: result.text,
+      });
+    }
+  }
+}
 
 // ──────────────────────────────────────────────
 // Implementation
@@ -1477,6 +1554,30 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
 
         continue;
+      }
+
+      // Turn-boundary drain: a model end_turn with uncollected background
+      // tasks must not close the turn yet. Feeding completions at status
+      // "done" pushes state back to calling_model (Task 7 handler), so the
+      // loop continues naturally; if nothing was fed (every running task
+      // was already collected via task_output — registry cache only, state
+      // still says "running"), the status stays "done" and the turn ends.
+      // A cancelled turn skips the drain: reopening it would fight the
+      // user's abort.
+      if (
+        status === "done" &&
+        !cancelled &&
+        opts.backgroundRegistry !== undefined &&
+        (state.backgroundTasks ?? []).some((t) => t.status === "running")
+      ) {
+        await drainBackgroundTasks({
+          state,
+          registry: opts.backgroundRegistry,
+          feed: (input) => {
+            forwardEmit(feed(input));
+          },
+        });
+        if (getStatus() !== "done") continue;
       }
 
       // Terminal states: done, cancelling, waiting_for_*
