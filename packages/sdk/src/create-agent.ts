@@ -64,7 +64,14 @@ import {
   createNetworkToolExecutor,
 } from "@volto/runtime-node";
 import { createAutoAllowGate } from "@volto/runtime-node";
-import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
+import {
+  createSandboxedShell,
+  createSandboxSessionSpawner,
+  createPersistentSession,
+  type SandboxConfig,
+  type PersistentSession,
+  type SessionSpawnHandle,
+} from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentExecutor } from "@volto/tools-agent";
 import { createTaskTool } from "@volto/tools-agent";
@@ -84,6 +91,7 @@ import {
   createBashOutputTool,
   createKillShellTool,
   SHELL_TOOL_NAMES,
+  type BashSessionLike,
 } from "@volto/tools-shell";
 import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@volto/tools-web";
 import {
@@ -195,6 +203,24 @@ function bestEffortAppend(
 // ──────────────────────────────────────────────
 // Public types
 // ──────────────────────────────────────────────
+
+/** Default timeout for a single command inside the persistent bash session. */
+const SHELL_SESSION_DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Env-var name patterns stripped from the bare (no sandboxConfig) persistent
+ * session's environment. Conservative defaults — a host that needs finer
+ * control should pass `sandboxConfig.strippedEnvPatterns` or a custom
+ * `sessionSpawner`.
+ */
+const DEFAULT_SESSION_SECRET_ENV_PATTERNS: readonly RegExp[] = [
+  /SECRET/i,
+  /TOKEN/i,
+  /API_?KEY/i,
+  /PASSWORD/i,
+  /CREDENTIAL/i,
+  /PRIVATE_?KEY/i,
+];
 
 export interface CreateAgentOptions {
   /** Model port — required, the LLM provider */
@@ -425,8 +451,30 @@ export interface CreateAgentOptions {
    * When provided, the shell is wrapped in a platform-specific sandbox
    * (macOS seatbelt / Linux bubblewrap) before being used by bash tools.
    * When absent, the shell is used as-is (backward-compatible).
+   *
+   * Also selects the persistent-session spawner: with sandboxConfig the
+   * long-lived `bash -s` is confined by the same backend; without it the
+   * session is a bare `bash -s` with default secret-env stripping.
    */
   sandboxConfig?: SandboxConfig;
+
+  /**
+   * Default working directory for the persistent bash session.
+   * Defaults to `process.cwd()`. One-shot `shell.exec` (isolated bash,
+   * background launch) is unaffected — each call carries its own cwd.
+   */
+  cwd?: string;
+
+  /**
+   * Override for the persistent-session spawn factory. Hosts rarely need
+   * this; it exists so tests can observe session lifecycle (spawn count,
+   * child kill) and so a host can supply a custom spawner (e.g. its own
+   * env stripping or a pre-wrapped sandbox binary).
+   *
+   * Takes precedence over both sandboxConfig and the bare default.
+   * `createAgent` still owns the session (lazy singleton, killed on dispose).
+   */
+  sessionSpawner?: (opts: { cwd: string }) => SessionSpawnHandle;
 
   /** Network adapter */
   network?: Network;
@@ -648,9 +696,10 @@ export interface AgentInstance {
 
   /**
    * Tear down agent-owned resources when the host ends the session.
-   * Currently kills every managed background shell process via
-   * `Shell.disposeProcesses` (when the shell implements it). Safe to call
-   * when no shell was configured — it resolves as a no-op.
+   * Kills the agent-owned persistent bash session (when one was created),
+   * then every managed background shell process via `Shell.disposeProcesses`
+   * (when the shell implements it). Idempotent — a second call is a no-op.
+   * Safe to call when no shell was configured — it resolves as a no-op.
    */
   dispose(): Promise<void>;
 
@@ -689,6 +738,44 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const effectiveShell: Shell | undefined = opts.shell
     ? (opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)
     : undefined;
+
+  // ── Persistent bash session (B-2) ─────────
+  // At most ONE long-lived session per createAgent instance. Lazily created
+  // on the first non-isolated bash call; dispose() kills it before tearing
+  // down background processes. The singleton IS the concurrency limit —
+  // getSession never builds a second session, so there is no runtime
+  // "limit exceeded" path to surface as isError.
+  const sessionSpawner: ((opts: { cwd: string }) => SessionSpawnHandle) | undefined = (() => {
+    if (!opts.shell) return undefined;
+    if (opts.sessionSpawner) return opts.sessionSpawner;
+    if (opts.sandboxConfig) {
+      // May return undefined when a confining backend was selected but its
+      // runner is missing under failIfUnavailable:false — never fall back
+      // to a bare session that would silently run unconfined.
+      return createSandboxSessionSpawner(opts.sandboxConfig);
+    }
+    return createSandboxSessionSpawner({
+      mode: "danger-full-access",
+      strippedEnvPatterns: [...DEFAULT_SESSION_SECRET_ENV_PATTERNS],
+    });
+  })();
+
+  let shellSession: PersistentSession | undefined;
+  let shellAgentDisposed = false;
+
+  function getSession(): BashSessionLike | undefined {
+    // After dispose the agent is torn down — never resurrect a session.
+    if (shellAgentDisposed) return undefined;
+    if (!sessionSpawner) return undefined;
+    if (!shellSession) {
+      shellSession = createPersistentSession({
+        spawn: sessionSpawner,
+        cwd: opts.cwd ?? process.cwd(),
+        defaultTimeoutMs: SHELL_SESSION_DEFAULT_TIMEOUT_MS,
+      });
+    }
+    return shellSession;
+  }
 
   // ── Identifier port ───────────────────────
   // Use injected Id port for sessionId generation; deterministic replays
@@ -753,7 +840,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (opts.shell) {
     adapterTools.push(
-      createBashTool(effectiveShell!),
+      createBashTool(effectiveShell!, { getSession }),
       createBashOutputTool(effectiveShell!),
       createKillShellTool(effectiveShell!),
     );
@@ -852,6 +939,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         opts.chatStore,
         opts.chatSessionId,
         () => turnCounter,
+        getSession,
       ),
     );
     allCustomTools.push(taskTool);
@@ -995,7 +1083,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   const fsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
-  const shellExecutor = effectiveShell ? createShellToolExecutor({ shell: effectiveShell }) : undefined;
+  const shellExecutor = effectiveShell
+    ? createShellToolExecutor({ shell: effectiveShell, getSession })
+    : undefined;
   const networkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
   const toolExecutor: ToolExecutor = async (
@@ -1562,6 +1652,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     sessionStore,
 
     async dispose(): Promise<void> {
+      if (shellAgentDisposed) return;
+      shellAgentDisposed = true;
+      // Kill the session before background processes so a stuck session
+      // command cannot keep the agent's stdio pipes alive past teardown.
+      const session = shellSession;
+      shellSession = undefined;
+      await session?.kill();
       await effectiveShell?.disposeProcesses?.();
     },
   };
@@ -1802,6 +1899,10 @@ function createSubAgentExecutor(
   chatStore?: TranscriptStore,
   parentChatSessionId?: string,
   getCurrentTurn: () => number = () => 0,
+  // Sub-agents share the parent agent's single persistent session: from the
+  // user's point of view there is one workspace, and a task tool dispatch
+  // must see the same cd/export state the parent built up.
+  getSession?: () => BashSessionLike | undefined,
 ): SubAgentExecutor {
   return async (message: string): Promise<string> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
@@ -1904,7 +2005,9 @@ function createSubAgentExecutor(
     }
 
     const subFsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
-    const subShellExecutor = shellOverride ? createShellToolExecutor({ shell: shellOverride }) : undefined;
+    const subShellExecutor = shellOverride
+      ? createShellToolExecutor({ shell: shellOverride, getSession })
+      : undefined;
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
     const subExecutor: ToolExecutor = async (call, ctx) => {
