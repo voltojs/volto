@@ -74,6 +74,41 @@ export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext
 // user
 // ──────────────────────────────────────────────
 
+/**
+ * Map a request-surface image block to pi-ai's `ImageContent`.
+ *
+ * The Runner's `resolveImageRefs` replaces AttachmentStore refs with base64
+ * before the provider sees the request. A ref that still reaches here means
+ * that resolve step was skipped — throw rather than silently shipping a
+ * payload the model cannot use, so the failure surfaces as a broken pipeline
+ * instead of "the model cannot see the image".
+ *
+ * Vision gating is deliberately NOT done here: pi-ai's own transformMessages
+ * strips images when `model.input` lacks "image" (collection.ts only puts it
+ * there when the model is known-vision). This mapper is a pure wire-shape
+ * translation.
+ */
+function toPiImageContent(block: { source: unknown }): PiImageContent {
+  // Core's ImageContent is ref-only; the wire shape arrives as an untyped
+  // cast at the request boundary. Narrow at runtime rather than widening core.
+  const src = block.source as {
+    type?: string;
+    id?: string;
+    mediaType?: string;
+    data?: string;
+  };
+  if (src.type === "base64" && typeof src.mediaType === "string" && typeof src.data === "string") {
+    return { type: "image", data: src.data, mimeType: src.mediaType };
+  }
+  if (src.type === "ref") {
+    throw new Error(
+      `pi-ai: unresolved image ref "${src.id ?? "<unknown>"}" reached the provider; ` +
+        `the Runner must resolve AttachmentStore refs to base64 before modelPort.stream()`,
+    );
+  }
+  throw new Error(`pi-ai: unsupported image source type "${src.type ?? "<missing>"}"`);
+}
+
 function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMessage {
   const timestamp = 0; // see note in mapAssistantMessage about historical timestamps
   if (typeof message.content === "string") {
@@ -84,10 +119,7 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
     if (block.type === "text") {
       content.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
-      // The Runner resolves AttachmentStore refs to base64 on the request
-      // surface; pi-ai image forwarding itself is still unimplemented, so
-      // skip image blocks rather than send a payload this adapter drops.
-      continue;
+      content.push(toPiImageContent(block));
     }
     // Other ContentBlock variants (tool_use / tool_result / reasoning) are not
     // part of core's user-message contract; skip defensively rather than
@@ -262,20 +294,27 @@ function mapToolResultMessage(
     if (toolName === undefined) {
       continue;
     }
+    // Map text and image blocks 1:1, preserving order so interleaved
+    // text/image content stays meaningful to the model. An empty content
+    // array degrades to a single empty text block (same as before image
+    // passthrough), because a toolResult with no content at all is not a
+    // shape any provider path expects.
+    const content: (PiTextContent | PiImageContent)[] = [];
+    for (const b of block.content) {
+      if (b.type === "text") {
+        content.push({ type: "text", text: b.text });
+      } else {
+        content.push(toPiImageContent(b));
+      }
+    }
+    if (content.length === 0) {
+      content.push({ type: "text", text: "" });
+    }
     messages.push({
       role: "toolResult",
       toolCallId: block.toolUseId,
       toolName,
-      // Join text blocks; image blocks are skipped until Task 6/7.
-      content: [
-        {
-          type: "text",
-          text: block.content
-            .filter((b): b is { type: "text"; text: string } => b.type === "text")
-            .map((b) => b.text)
-            .join("\n"),
-        },
-      ],
+      content,
       isError: block.isError ?? false,
       timestamp: 0,
     });

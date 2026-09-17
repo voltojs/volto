@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Model as PiModel, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 
-import type { ModelRequest } from "@volto/core";
+import type { Message, ModelRequest } from "@volto/core";
 import { toReplayEnvelope } from "../replay.js";
 import { toPiContext } from "../context.js";
 
@@ -61,17 +61,22 @@ describe("toPiContext", () => {
             { type: "text", text: "look at this" },
             {
               type: "image",
-              source: { type: "ref", id: "att-1", mediaType: "image/png" },
+              // Wire shape from the Runner's resolveImageRefs; core state
+              // stays ref-only, so the request surface carries this as an
+              // untyped cast (same boundary as production).
+              source: { type: "base64", mediaType: "image/png", data: "iVBORw0KGgo=" },
             },
           ],
-        },
+        } as unknown as Message,
       ],
     });
 
     const ctx = toPiContext(req, model);
     const msg = ctx.messages[0] as UserMessage;
-    // Image forwarding lands in Task 6/7; ref images are skipped for now.
-    expect(msg.content).toEqual([{ type: "text", text: "look at this" }]);
+    expect(msg.content).toEqual([
+      { type: "text", text: "look at this" },
+      { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+    ]);
   });
 
   it("round-trips a signed assistant message: signatures reattach to the matching blocks", () => {
@@ -318,7 +323,7 @@ describe("toPiContext", () => {
     expect(toolResultMessages[0]?.toolName).toBe("echo");
   });
 
-  it("skips a ref-sourced image block instead of sending it as malformed base64 data", () => {
+  it("throws on a ref-sourced image block instead of sending it as malformed base64 data", () => {
     const req = baseRequest({
       messages: [
         {
@@ -339,8 +344,9 @@ describe("toPiContext", () => {
       ],
     });
 
-    const ctx = toPiContext(req, model);
-    const msg = ctx.messages[0] as UserMessage;
-    expect(msg.content).toEqual([{ type: "text", text: "look at this" }]);
+    // A ref reaching the provider means the Runner's resolveImageRefs step
+    // was skipped. Throwing surfaces a broken pipeline; silently dropping
+    // the block would look like a model that cannot read images.
+    expect(() => toPiContext(req, model)).toThrow(/ref|unresolved/i);
   });
 });
