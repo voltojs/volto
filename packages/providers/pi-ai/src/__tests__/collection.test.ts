@@ -481,8 +481,11 @@ describe("describeModelInfo.vision", () => {
 
     const info = describeModelInfo(models, "gw", "mystery");
     expect(info.vision).toBeUndefined();
-    // Wire safety still holds: unknown stays text-only on the request path.
-    expect(models.getModel("gw", "mystery")?.input).toEqual(["text"]);
+    // UNKNOWN must not gate the wire path (spec §7): a gateway that cannot
+    // describe its models would otherwise lose image input silently, which
+    // is far harder to diagnose than the provider 400 we accept instead.
+    // Only an explicit `false` keeps a model text-only.
+    expect(models.getModel("gw", "mystery")?.input).toEqual(["text", "image"]);
   });
 
   it("leaves vision absent for a synthesized unknown catalog code", () => {

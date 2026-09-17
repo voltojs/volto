@@ -60,9 +60,9 @@ export type PiAiProviderConfig =
         reasoning?: boolean;
         /**
          * Image-input support for a hand-declared gateway model. Absent
-         * means UNKNOWN — do not infer `false` from the structural
-         * text-only default below; a vanished image path is harder to
-         * diagnose than a provider 400.
+         * means UNKNOWN, and UNKNOWN still sends images: a vanished image
+         * path is harder to diagnose than a provider 400. Only an explicit
+         * `false` gates them off.
          */
         vision?: boolean;
       }>;
@@ -105,13 +105,13 @@ type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
  * Vision knowledge that `Model.input` alone cannot express.
  *
  * pi-ai reads `model.input` on the wire path to decide whether to actually
- * attach images, so a hand-declared custom model without a `vision` flag
- * must keep the structural `input: ["text"]` default (safe: images are not
- * sent to an unknown gateway). But that same default is indistinguishable
- * from a catalog model the provider itself declared text-only. Catalog
- * models are therefore authoritative from `input`; custom and synthesized
- * models are registered here so `describeModelInfo` can leave `vision`
- * absent when the config never said.
+ * attach images, and that flag is binary — it cannot express "the config
+ * never said". A hand-declared model with no `vision` flag therefore ships
+ * image-capable (spec §7: UNKNOWN is not `false`), which makes its `input`
+ * indistinguishable from a catalog model the provider itself declared
+ * vision-capable. Catalog models are authoritative from `input`; custom and
+ * synthesized models are registered here so `describeModelInfo` can leave
+ * `vision` absent when the config never said.
  */
 const visionDeclarations = new WeakMap<object, boolean | undefined>();
 
@@ -140,10 +140,12 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
     provider: providerId,
     baseUrl: normalizeBaseUrl(providerBaseUrl),
     reasoning: entry.reasoning ?? false,
-    // Only an explicit `vision: true` lets pi-ai put images on the wire.
-    // `false` and absent share the text-only request shape; the WeakMap
-    // entry below is what keeps them apart for describeModelInfo.
-    input: entry.vision === true ? ["text", "image"] : ["text"],
+    // Three-state, per spec §7: only an explicit `false` keeps a model
+    // text-only. An undeclared model stays image-capable on the wire —
+    // treating UNKNOWN as unsupported would silently disable images for
+    // every gateway that cannot describe its own models, and a vanished
+    // image path is harder to diagnose than the 400 we accept instead.
+    input: entry.vision === false ? ["text"] : ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: entry.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
