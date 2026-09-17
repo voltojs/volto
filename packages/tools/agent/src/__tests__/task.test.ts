@@ -30,6 +30,33 @@ describe("createTaskTool", () => {
     expect(result.isError).toBeUndefined();
   });
 
+  it("passes the child session id through to displayMetadata", async () => {
+    const tool = createTaskTool(async () => ({
+      taskId: "t1",
+      text: "done",
+      sessionId: "sess-1-sub-9",
+    }));
+
+    const result = await tool.handler({ message: "go" });
+
+    // The UI drills into the child transcript with this; the model never
+    // sees it (display layer only).
+    expect(result.displayMetadata).toEqual({
+      taskId: "t1",
+      background: false,
+      sessionId: "sess-1-sub-9",
+    });
+    expect(result.modelContent).not.toContain("sess-1-sub-9");
+  });
+
+  it("omits sessionId when the dispatch reports none", async () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "done" }));
+
+    const result = await tool.handler({ message: "go" });
+
+    expect(result.displayMetadata).toEqual({ taskId: "t1", background: false });
+  });
+
   it("should return error result when dispatch throws", async () => {
     const dispatch = async () => {
       throw new Error("sub-agent crashed");

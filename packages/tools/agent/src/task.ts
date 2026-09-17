@@ -3,11 +3,18 @@ import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 
-/** Structured result returned by a sub-agent dispatch. */
+/**
+ * Structured result returned by a sub-agent dispatch.
+ *
+ * Token usage is deliberately absent: the child's usage already reaches the
+ * host on the event stream tagged with its `agentDepth` and session id, and a
+ * second copy here would be one more place to drift out of sync.
+ */
 export interface SubAgentResult {
   taskId: string;
   /** Present when dispatched synchronously. */
   text?: string;
+  /** Child transcript session id, so the UI can drill into it. */
   sessionId?: string;
 }
 
@@ -100,7 +107,14 @@ export function createTaskTool(
 
         return {
           modelContent: result.text || "(Sub-agent completed with no output)",
-          displayMetadata: { taskId: result.taskId, background: false },
+          // sessionId rides the display layer only: it is the child's
+          // transcript id for the UI to drill into, and means nothing to
+          // the model.
+          displayMetadata: {
+            taskId: result.taskId,
+            background: false,
+            ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+          },
         };
       } catch (err: unknown) {
         const error = err instanceof Error ? err.message : String(err);
