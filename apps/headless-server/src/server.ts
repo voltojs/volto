@@ -9,6 +9,7 @@
  * Input-command & workspace routes (consumed by apps/web input bar / panes):
  *   GET  /commands            — slash command templates for the `/` panel
  *   GET  /skills?projectId=   — user-invocable skills for the `/` panel
+ *   GET  /tools?projectId=    — tool catalogue for the sub-agent form
  *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
  *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
  *   GET  /git/commits/:hash   — workspace git pane data
@@ -890,6 +891,35 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             description: s.description,
             modelInvocable: s.invocation.modelInvocable,
             userInvocable: s.invocation.userInvocable,
+          })),
+        });
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /tools — the catalogue the sub-agent form offers as checkboxes.
+    // Lists `agent.tools`: the same assembled list createAgent hands session
+    // assembly (and therefore every turn), so what the form offers cannot
+    // drift from what a sub-agent actually receives. Optional ?projectId=
+    // validates the project exists (resolved like /skills); tool names and
+    // descriptions themselves do not vary by cwd — adapters and static
+    // definitions are identical across projects.
+    if (req.method === "GET" && url.pathname === "/tools") {
+      try {
+        const projectId = url.searchParams.get("projectId");
+        if (projectId !== null) {
+          const projectPath = await resolveProjectPath(projectStore, projectId);
+          if (projectPath === undefined) {
+            jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+            return;
+          }
+        }
+        jsonResponse(res, 200, {
+          tools: agent.tools.map((t) => ({
+            name: t.definition.name,
+            description: t.definition.description,
           })),
         });
       } catch (err: unknown) {
