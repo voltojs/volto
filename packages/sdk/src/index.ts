@@ -87,6 +87,12 @@ export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHand
 export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";
 export type { AgentSpec, ResolvedAgentSpec, ToolRegistry, LoadAgentSpecOptions } from "./agent-spec.js";
 
+// Agent definition registry: multi-level scan + create/update/delete write layer
+export { scanAgentSources } from "./agent-registry/scan.js";
+export type { AgentEntry, AgentScanResult, ScanAgentSourcesOptions } from "./agent-registry/scan.js";
+export { createAgentStore } from "./agent-registry/store.js";
+export type { AgentStore, CreateAgentStoreOptions } from "./agent-registry/store.js";
+
 // M13: Slash commands
 export { renderCommand, parseArgs, findCommand } from "./commands.js";
 export type { SlashCommand } from "./commands.js";
