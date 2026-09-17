@@ -76,17 +76,17 @@ describe("bash tool", () => {
     expect(result.displayMetadata?.totalLength).toBe(longOutput.length);
   });
 
-  it("returns full output when showFullOutput is true", async () => {
+  it("returns full output when show_full_output is true", async () => {
     const longOutput = "y".repeat(150_000);
     const tool = createBashTool(mockShell(longOutput));
-    const result = await tool.handler({ command: "generate-output", showFullOutput: true });
+    const result = await tool.handler({ command: "generate-output", show_full_output: true });
     expect(result.modelContent).toBe(longOutput);
     expect(result.displayMetadata?.truncated).toBe(false);
   });
 
-  it("launches in background when runInBackground is true", async () => {
+  it("launches in background when run_in_background is true", async () => {
     const tool = createBashTool(mockShellWithLaunch(""));
-    const result = await tool.handler({ command: "long-task", runInBackground: true });
+    const result = await tool.handler({ command: "long-task", run_in_background: true });
     expect(result.modelContent).toContain("process_id: 12345");
     expect(result.displayMetadata?.processId).toBe("12345");
     expect(result.displayMetadata?.backgroundPid).toBe("12345");
@@ -104,12 +104,12 @@ describe("bash tool", () => {
       },
     };
     const tool = createBashTool(shell);
-    const result = await tool.handler({ command: "test", runInBackground: true });
+    const result = await tool.handler({ command: "test", run_in_background: true });
     // No launch() defined, falls back to foreground exec
     expect(result.modelContent).toContain("fg-ok");
   });
 
-  it("reports the foreground fallback in modelContent and displayMetadata when runInBackground is requested but launch() is unavailable", async () => {
+  it("reports the foreground fallback in modelContent and displayMetadata when run_in_background is requested but launch() is unavailable", async () => {
     const shell: Shell = {
       async *exec() {
         yield { type: "stdout", data: "fg-ok" };
@@ -117,7 +117,7 @@ describe("bash tool", () => {
       },
     };
     const tool = createBashTool(shell);
-    const result = await tool.handler({ command: "test", runInBackground: true });
+    const result = await tool.handler({ command: "test", run_in_background: true });
     expect(result.isError).toBeFalsy();
     expect(result.modelContent).toContain("fg-ok");
     // The model needs to be told background execution didn't happen, or it
@@ -151,14 +151,14 @@ describe("bash tool", () => {
     expect(tool.definition.description).toMatch(/persistent|持久/i);
     expect(tool.definition.description).toMatch(/isolated/i);
     // The description must use the real Zod field name, or a model that
-    // follows it sends snake_case and Zod silently drops the flag.
-    expect(tool.definition.description).toMatch(/runInBackground/i);
-    expect(tool.definition.description).not.toMatch(/run_in_background/i);
+    // follows it sends the wrong case and Zod silently drops the flag.
+    expect(tool.definition.description).toMatch(/run_in_background/);
+    expect(tool.definition.description).not.toMatch(/runInBackground/);
   });
 
   it("background launch result explains how to read output", async () => {
     const tool = createBashTool(mockShellWithLaunch(""));
-    const result = await tool.handler({ command: "long-task", runInBackground: true });
+    const result = await tool.handler({ command: "long-task", run_in_background: true });
     expect(result.modelContent).toContain("process_id");
     expect(result.modelContent).toContain("bash_output");
     expect(result.modelContent).not.toMatch(
@@ -274,10 +274,10 @@ describe("bash isolated escape hatch", () => {
     expect(seen).toEqual([{ cmd: "echo x", cwd: "/tmp", timeout: 5000 }]);
   });
 
-  // Residual fix from Task 6 review: runInBackground requested, no launch(),
+  // Residual fix from Task 6 review: run_in_background requested, no launch(),
   // session present → must still say background was unavailable, or the model
   // keeps expecting a PID from a call that actually blocked.
-  it("session path notes when runInBackground was requested but launch is unavailable", async () => {
+  it("session path notes when run_in_background was requested but launch is unavailable", async () => {
     const tool = createBashTool(mockShell(""), {
       getSession: () => ({
         async run() {
@@ -285,7 +285,7 @@ describe("bash isolated escape hatch", () => {
         },
       }),
     });
-    const r = await tool.handler({ command: "echo x", runInBackground: true });
+    const r = await tool.handler({ command: "echo x", run_in_background: true });
     expect(r.isError).toBeFalsy();
     expect(r.modelContent).toContain("session-ran");
     expect(r.modelContent).toMatch(/background/i);
@@ -294,7 +294,7 @@ describe("bash isolated escape hatch", () => {
   });
 
   // Residual fix from Task 6 review: session output must go through the same
-  // OUTPUT_LIMIT / showFullOutput policy as the exec path.
+  // OUTPUT_LIMIT / show_full_output policy as the exec path.
   it("session path applies OUTPUT_LIMIT truncation", async () => {
     const longOutput = "z".repeat(150_000);
     const tool = createBashTool(mockShell(""), {
@@ -311,7 +311,7 @@ describe("bash isolated escape hatch", () => {
     expect(r.displayMetadata?.fromSession).toBe(true);
   });
 
-  it("session path returns full output when showFullOutput is true", async () => {
+  it("session path returns full output when show_full_output is true", async () => {
     const longOutput = "w".repeat(150_000);
     const tool = createBashTool(mockShell(""), {
       getSession: () => ({
@@ -322,7 +322,7 @@ describe("bash isolated escape hatch", () => {
     });
     const r = await tool.handler({
       command: "generate-output",
-      showFullOutput: true,
+      show_full_output: true,
     });
     expect(r.modelContent).toBe(longOutput);
     expect(r.displayMetadata?.truncated).toBe(false);

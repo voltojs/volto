@@ -4,7 +4,7 @@ import { defineTool } from "@volto/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const bashOutputSchema = z.object({
-  process_id: z.string().describe("Process id returned by bash runInBackground"),
+  process_id: z.string().describe("Process id returned by bash run_in_background"),
   cursor: z.string().optional().describe("Opaque cursor from a previous bash_output call"),
 });
 
@@ -12,7 +12,7 @@ export function createBashOutputTool(shell: Shell) {
   return defineTool({
     name: "bash_output",
     description:
-      "Read incremental output from a background process started with bash(runInBackground=true). " +
+      "Read incremental output from a background process started with bash(run_in_background=true). " +
       "Pass the cursor from a previous call to avoid re-reading the same bytes.",
     schema: bashOutputSchema,
     requires: [CAP_SHELL_EXEC],

@@ -16,11 +16,11 @@ const bashSchema = z.object({
     .positive()
     .optional()
     .describe(`Timeout in milliseconds (default: ${DEFAULT_TIMEOUT_MS})`),
-  showFullOutput: z
+  show_full_output: z
     .boolean()
     .optional()
     .describe("If true, return full output without truncation"),
-  runInBackground: z
+  run_in_background: z
     .boolean()
     .optional()
     .describe(
@@ -40,7 +40,7 @@ const bashSchema = z.object({
 export interface BashToolOptions {
   /**
    * Lazy persistent session. When provided and the call is not
-   * isolated / runInBackground, bash routes through session.run.
+   * isolated / run_in_background, bash routes through session.run.
    */
   getSession?: () => BashSessionLike | undefined;
 }
@@ -52,14 +52,20 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       "Execute a shell command. By default this uses a persistent session so " +
       "cd, export, and source effects carry across calls. Pass isolated=true " +
       "for a one-shot process that neither sees nor changes session state. " +
-      "Pass runInBackground=true for a long-lived process (use bash_output / " +
+      "Pass run_in_background=true for a long-lived process (use bash_output / " +
       "kill_shell). Output may be truncated when large.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
     run: async (input): Promise<ToolResult> => {
-      const { command, cwd, timeout, showFullOutput, runInBackground, isolated } =
-        input;
+      const {
+        command,
+        cwd,
+        timeout,
+        show_full_output: showFullOutput,
+        run_in_background: runInBackground,
+        isolated,
+      } = input;
       const effectiveTimeout = timeout ?? DEFAULT_TIMEOUT_MS;
 
       // Background mode: launch via Shell.launch() and return PID immediately
@@ -104,7 +110,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
             : "";
           const combined =
             r.stdout + (r.stderr ? `\n[stderr]\n${r.stderr}` : "");
-          // Same OUTPUT_LIMIT / showFullOutput policy as the exec path, so a
+          // Same OUTPUT_LIMIT / show_full_output policy as the exec path, so a
           // chatty session cannot flood modelContext.
           const truncated = combined.length > OUTPUT_LIMIT && !showFullOutput;
           const content = truncated
@@ -115,7 +121,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
             : "";
           const exitNote =
             r.exitCode !== 0 ? `\n(exit code: ${r.exitCode})` : "";
-          // runInBackground was requested but shell.launch is absent — say so
+          // run_in_background was requested but shell.launch is absent — say so
           // on the session path too, or the model keeps expecting a PID.
           const backgroundNote = backgroundUnavailable
             ? "\n\n(background execution is not available under the active sandbox; ran in the persistent session instead)"

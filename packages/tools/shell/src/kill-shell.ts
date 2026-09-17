@@ -4,14 +4,14 @@ import { defineTool } from "@volto/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const killShellSchema = z.object({
-  process_id: z.string().describe("Process id returned by bash runInBackground"),
+  process_id: z.string().describe("Process id returned by bash run_in_background"),
 });
 
 export function createKillShellTool(shell: Shell) {
   return defineTool({
     name: "kill_shell",
     description:
-      "Terminate a background process previously started with bash(runInBackground=true). " +
+      "Terminate a background process previously started with bash(run_in_background=true). " +
       "Use this when a process is no longer needed or the background limit is reached.",
     schema: killShellSchema,
     requires: [CAP_SHELL_EXEC],
