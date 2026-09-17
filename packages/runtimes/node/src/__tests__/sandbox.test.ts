@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs, probeBinary } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
@@ -379,7 +379,19 @@ describe("createSandboxedShell", () => {
   });
 });
 
-describe("createSandboxedShell — launch passthrough (C4)", () => {
+// Task 11 — the post-B-1 launch contract (replaces the old C4 "sandbox has
+// no launch" contract):
+//
+// 1. Confining backends (seatbelt / bubblewrap) expose launch AND isolate it.
+//    Real denial is asserted in the platform-specific describes below
+//    (seatbelt dialect: "Operation not permitted"; bwrap: "Read-only file
+//    system") — never a cross-backend union.
+// 2. Non-confining backends (danger-full-access / none) expose launch as an
+//    unconfined passthrough; enforcement is reported as "none".
+// 3. Absence of process methods means the *real shell* does not provide them
+//    — the wrapper never invents launch. The bash tool's foreground fallback
+//    covers that case.
+describe("createSandboxedShell — launch availability by backend", () => {
   /** A mock Shell whose `launch` is a real, unsandboxed passthrough — the
    * shape `createSandboxedShell` receives from a real Node shell adapter. */
   function createMockShellWithLaunch(): Shell {
@@ -392,13 +404,16 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
     };
   }
 
-  it("read-only mode (backend none) does not expose a launch passthrough", () => {
+  it("read-only mode (backend none) now exposes a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, { mode: "read-only", backend: "none", failIfUnavailable: false });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 7: the none backend's opt-out path is already unconfined, so a
+    // launch passthrough no longer "bypasses" anything — it is the same
+    // unconfined process exec would have started, with the same one-time warn.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("workspace-write mode (backend none) does not expose a launch passthrough", () => {
+  it("workspace-write mode (backend none) now exposes a launch passthrough", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
@@ -406,42 +421,46 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
       writableRoots: ["/tmp"],
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("workspace-write mode (seatbelt backend) does not expose a launch passthrough", () => {
+  it("workspace-write mode (seatbelt backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "seatbelt",
       writableRoots: ["/tmp"],
-      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      // Shape test — does not require sandbox-exec to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 5: seatbelt launch writes a per-process profile and wraps the
+    // command, so it is no longer omitted.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("read-only mode (seatbelt backend) does not expose a launch passthrough", () => {
+  it("read-only mode (seatbelt backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "read-only",
       backend: "seatbelt",
-      // Launch-passthrough shape test — does not require sandbox-exec to be installed.
+      // Shape test — does not require sandbox-exec to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    expect(typeof wrapped.launch).toBe("function");
   });
 
-  it("workspace-write mode (bubblewrap backend) does not expose a launch passthrough", () => {
+  it("workspace-write mode (bubblewrap backend) now exposes a sandboxed launch", () => {
     const mock = createMockShellWithLaunch();
     const wrapped = createSandboxedShell(mock, {
       mode: "workspace-write",
       backend: "bubblewrap",
       writableRoots: ["/tmp"],
-      // Launch-passthrough shape test — does not require bwrap to be installed.
+      // Shape test — does not require bwrap to be installed.
       failIfUnavailable: false,
     });
-    expect(wrapped.launch).toBeUndefined();
+    // Task 6: bwrap launch wraps the command with the same bwrap args as
+    // exec(), so it is no longer omitted.
+    expect(typeof wrapped.launch).toBe("function");
   });
 
   it("danger-full-access still exposes the real shell's launch (raw passthrough by design)", () => {
@@ -452,6 +471,84 @@ describe("createSandboxedShell — launch passthrough (C4)", () => {
     // method must survive the copy.
     expect(wrapped.sandboxEnforcement).toBe("none");
     expect(wrapped.launch).toBe(mock.launch);
+  });
+});
+
+describe("createSandboxedShell — launch on non-confining backends", () => {
+  it("danger-full-access exposes launch and reports enforcement none", async () => {
+    const mock = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+      async launch() { return "bg-1"; },
+      async readProcessOutput() { return { text: "ok", cursor: "1", overflowed: false, droppedBytes: 0 }; },
+      async killProcess() {},
+      listProcesses() { return []; },
+      async disposeProcesses() {},
+    };
+    const wrapped = createSandboxedShell(mock as never, {
+      mode: "danger-full-access",
+      backend: "none",
+    });
+    expect(wrapped.sandboxEnforcement).toBe("none");
+    await expect(wrapped.launch!("echo")).resolves.toBe("bg-1");
+    // The other process methods survive the passthrough copy too.
+    expect(typeof wrapped.readProcessOutput).toBe("function");
+    expect(typeof wrapped.killProcess).toBe("function");
+    expect(typeof wrapped.listProcesses).toBe("function");
+    expect(typeof wrapped.disposeProcesses).toBe("function");
+  });
+
+  it("none backend with failIfUnavailable:false still launches (warned once, unconfined)", async () => {
+    const launched: string[] = [];
+    const mock = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+      async launch(cmd: string) { launched.push(cmd); return "bg-2"; },
+      async readProcessOutput() { return { text: "", cursor: "0", overflowed: false, droppedBytes: 0 }; },
+      async killProcess() {},
+      listProcesses() { return []; },
+      async disposeProcesses() {},
+    };
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const wrapped = createSandboxedShell(mock as never, {
+        mode: "workspace-write",
+        backend: "none",
+        failIfUnavailable: false,
+      });
+      expect(wrapped.sandboxEnforcement).toBe("none");
+      await wrapped.launch!("echo x");
+      expect(launched).toEqual(["echo x"]);
+      // The unconfined-launch warning fires once, shared with the exec path.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]![0]).toContain("No sandbox backend");
+      // A second launch must not warn again.
+      await wrapped.launch!("echo y");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      // Process methods delegate when the real shell has them.
+      expect(typeof wrapped.readProcessOutput).toBe("function");
+      expect(typeof wrapped.killProcess).toBe("function");
+      expect(typeof wrapped.listProcesses).toBe("function");
+      expect(typeof wrapped.disposeProcesses).toBe("function");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  // Not the obsolete C4 contract: this asserts "absent means unsupported"
+  // for a bare realShell, not "the sandbox strips launch".
+  it("none backend omits process methods the real shell does not provide", () => {
+    const bare = {
+      async *exec() { yield { type: "exit" as const, code: 0 }; },
+    };
+    const wrapped = createSandboxedShell(bare as never, {
+      mode: "workspace-write",
+      backend: "none",
+      failIfUnavailable: false,
+    });
+    expect(wrapped.launch).toBeUndefined();
+    expect(wrapped.readProcessOutput).toBeUndefined();
+    expect(wrapped.killProcess).toBeUndefined();
+    expect(wrapped.listProcesses).toBeUndefined();
+    expect(wrapped.disposeProcesses).toBeUndefined();
   });
 });
 
@@ -595,14 +692,144 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
       failIfUnavailable: false,
     });
     for await (const _event of wrapped.exec("ls -la")) { /* drain */ }
-    expect(capturedCmd).toContain("bwrap");
-    expect(capturedCmd).toContain("--ro-bind / /");
-    expect(capturedCmd).toContain("--bind /workspace /workspace");
-    expect(capturedCmd).toContain("--ro-bind /workspace/.git /workspace/.git");
-    expect(capturedCmd).toContain("--unshare-net");
-    expect(capturedCmd).toContain("--die-with-parent");
-    expect(capturedCmd).toContain("/bin/bash -c");
+    // Each bwrap arg is single-quote escaped in the wrap string, so the
+    // assertions must use the quoted form — otherwise this test fails on
+    // the very platform (Linux) it is the gate for.
+    expect(capturedCmd.startsWith("bwrap ")).toBe(true);
+    expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
+    expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
+    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).toContain("'--unshare-net'");
+    expect(capturedCmd).toContain("'--die-with-parent'");
+    expect(capturedCmd).toContain("-- /bin/bash -c '");
     expect(capturedCmd).toContain("ls -la");
+  });
+
+  it("bubblewrap launch wraps the command with the same bwrap args as exec", async () => {
+    // Cross-platform shape test: captures the command string passed to
+    // realShell.launch. Uses an injected runner name that exists on PATH
+    // (`true`) so the launch-time presence re-probe passes — the capturing
+    // shell records the string and never actually executes it. This runs
+    // (and gates) on this darwin host; the real Linux denial tests below
+    // skip here.
+    let capturedCmd = "";
+    const capturingShell: Shell = {
+      async *exec(cmd: string): AsyncIterable<{ type: "stdout"; data: string } | { type: "exit"; code: number }> {
+        yield { type: "stdout", data: `executed: ${cmd}` };
+        yield { type: "exit", code: 0 };
+      },
+      launch: async (cmd: string) => {
+        capturedCmd = cmd;
+        return "mock-bwrap-pid";
+      },
+    };
+    const wrapped = createSandboxedShell(capturingShell, {
+      mode: "workspace-write",
+      writableRoots: ["/workspace"],
+      readOnlyOverlays: ["/workspace/.git"],
+      network: { enabled: false },
+      backend: "bubblewrap",
+      // `true` is present on PATH, so the launch-time re-probe succeeds and
+      // we can observe the wrap format without a real bwrap install.
+      bwrapBinary: "true",
+      failIfUnavailable: false,
+    });
+    const id = await wrapped.launch!("echo launch-shape");
+    expect(id).toBe("mock-bwrap-pid");
+    // Each bwrap arg is single-quote escaped in the wrap string, so the
+    // assertions use the quoted form: `true '--ro-bind' '/' '/' ...`
+    expect(capturedCmd.startsWith("true ")).toBe(true);
+    expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
+    expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
+    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).toContain("'--unshare-net'");
+    expect(capturedCmd).toContain("'--die-with-parent'");
+    // Wrap format: `bwrap <escapedArgs> -- /bin/bash -c '<escapedCmd>'`
+    expect(capturedCmd).toContain("-- /bin/bash -c '");
+    expect(capturedCmd).toContain("echo launch-shape");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Task 6 — background launch under bwrap (Linux only).
+//
+// The bubblewrap branch used to omit `launch` entirely (C4): a passthrough
+// would have run fully unisolated. Now launch wraps the command with the
+// same bwrap args as exec(), so runInBackground is confined. bwrap has no
+// per-process profile file (unlike seatbelt) — every argument is on the
+// command line, so there is nothing to clean up.
+// ──────────────────────────────────────────────
+
+describe("createSandboxedShell — bubblewrap launch (linux only)", () => {
+  if (process.platform !== "linux") {
+    it.skip("skipped: bwrap is a Linux-only backend", () => {});
+    return;
+  }
+  // If `which bwrap` fails, skip the whole block with a reason — a launch
+  // without a runner is an infrastructure failure, not a denial to assert.
+  const hasBwrap = (() => {
+    try {
+      execFileSync("which", ["bwrap"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const itBwrap = it.skipIf(!hasBwrap);
+  if (!hasBwrap) {
+    it.skip("skipped: bwrap binary not installed on this host", () => {});
+  }
+
+  itBwrap("launch denies writes outside roots with the bwrap dialect", async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-out-"));
+    try {
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "bubblewrap",
+        writableRoots: [scratch],
+        network: { enabled: false },
+      });
+      const id = await shell.launch!(`touch "${path.join(outside, "denied.txt")}"`);
+      // Poll until the process exits (bwrap denial is near-instant).
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const info = shell.listProcesses!().find((p) => p.id === id);
+        if (!info?.running) break;
+        if (Date.now() > deadline) throw new Error("process did not exit in time");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // §2.1: non-zero exit code PLUS the backend's denial dialect — never
+      // dialect alone, and never a cross-backend union (seatbelt says
+      // "Operation not permitted"; bwrap says "Read-only file system").
+      const info = shell.listProcesses!().find((p) => p.id === id);
+      expect(info?.running).toBe(false);
+      expect(info?.exitCode).not.toBe(0);
+      const out = await shell.readProcessOutput!(id);
+      expect(out.text.toLowerCase()).toContain("read-only file system");
+      expect(fs.existsSync(path.join(outside, "denied.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  itBwrap("launch enforces sandboxEnforcement as a runtime fact", async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "volto-bwrap-"));
+    try {
+      const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "bubblewrap",
+        writableRoots: [scratch],
+      });
+      expect(shell.sandboxEnforcement).toBe("full");
+      const id = await shell.launch!("echo bwrap-bg-ok");
+      await new Promise((r) => setTimeout(r, 500));
+      const out = await shell.readProcessOutput!(id);
+      expect(out.text).toContain("bwrap-bg-ok");
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });
 
@@ -695,6 +922,16 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "volto-seatbelt-test-"));
     scratchDirs.push(dir);
     return dir;
+  }
+
+  /** A non-internal IPv4 address of this host, or undefined if none is configured. */
+  function lanAddress(): string | undefined {
+    for (const addrs of Object.values(os.networkInterfaces())) {
+      for (const addr of addrs ?? []) {
+        if (addr.family === "IPv4" && !addr.internal) return addr.address;
+      }
+    }
+    return undefined;
   }
 
   it("actually executes a simple command and returns its real stdout + exit 0", async () => {
@@ -820,7 +1057,12 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
         });
 
         const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 http://127.0.0.1:${port}/`),
+          // The budget only has to catch "the sandbox blocked it"; it must not
+          // double as a latency assertion. The server answering this request
+          // runs on THIS test worker's event loop, so a whole-repo gate that
+          // saturates the CPU can push the round trip past a tight budget and
+          // report a denial that never happened (curl exit 28).
+          shell.exec(`curl -sS --max-time 20 http://127.0.0.1:${port}/`),
         );
 
         expect(code).toBe(0);
@@ -853,7 +1095,7 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
         });
 
         const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 http://${lan}:${port}/`),
+          shell.exec(`curl -sS --max-time 20 http://${lan}:${port}/`),
         );
 
         expect(code).toBe(0);
@@ -938,6 +1180,193 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
       expect(code).toBe(0);
       expect(out).not.toContain("confstr");
     });
+  });
+
+  // ──────────────────────────────────────────────
+  // Task 5 — background launch under a per-process seatbelt profile.
+  //
+  // The seatbelt branch used to omit `launch` entirely (C4): the profile
+  // was tied to exec's temp-file lifecycle, so a passthrough launch would
+  // have run fully unisolated. Now each launch writes its own profile and
+  // drops it when the child dies, so runInBackground is confined.
+  // ──────────────────────────────────────────────
+
+  it("launch() runs under a per-process seatbelt profile and denies writes outside roots", async () => {
+    const scratch = makeScratch();
+    const outsideDir = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    const id = await shell.launch!(`touch "${path.join(outsideDir, "denied.txt")}"`);
+    // Poll until the process exits (seatbelt denial is near-instant).
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const info = shell.listProcesses!().find((p) => p.id === id);
+      if (!info?.running) break;
+      if (Date.now() > deadline) throw new Error("process did not exit in time");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // §2.1: non-zero exit code PLUS the backend's denial dialect — never
+    // dialect alone, and never a cross-backend union.
+    const info = shell.listProcesses!().find((p) => p.id === id);
+    expect(info?.running).toBe(false);
+    expect(info?.exitCode).not.toBe(0);
+    const out = await shell.readProcessOutput!(id);
+    expect(out.text.toLowerCase()).toContain("operation not permitted");
+    expect(fs.existsSync(path.join(outsideDir, "denied.txt"))).toBe(false);
+  });
+
+  it("launch() enforces the allowedHosts egress allowlist, not just network on/off", async () => {
+    // Regression test: launch() used to skip the proxy setup exec() does for
+    // `allowedHosts`, so a background-launched curl reached any host the
+    // seatbelt network toggle allowed (i.e. everything) regardless of the
+    // configured allowlist.
+    //
+    // The proxy only speaks CONNECT (it tunnels, never relays a plain HTTP
+    // request — see sandbox-proxy.ts), so `--proxytunnel` forces curl through
+    // that tunnel instead of sending an absolute-URI GET straight to it.
+    // The target must be a non-loopback address: HTTP_PROXY/HTTPS_PROXY is
+    // paired with NO_PROXY=localhost,127.0.0.1 (same as exec()'s existing
+    // egress-proxy setup), so 127.0.0.1 would bypass the proxy entirely and
+    // this test would pass for the wrong reason.
+    if (!probeBinary("socat")) return; // proxy needs socat to bridge TCP → unix socket
+    const lan = lanAddress();
+    if (!lan) return; // no non-loopback interface on this machine to target
+
+    const scratch = makeScratch();
+    const server = http.createServer((_req, res) => res.end("reached-allowed"));
+    await new Promise<void>((resolve) => server.listen(0, lan, () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+
+    async function readUntilExit(
+      shell: ReturnType<typeof createSandboxedShell>,
+      id: string,
+    ): Promise<{ text: string; exitCode: number | undefined }> {
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const info = shell.listProcesses!().find((p) => p.id === id);
+        if (!info?.running) {
+          return { text: (await shell.readProcessOutput!(id)).text, exitCode: info?.exitCode };
+        }
+        if (Date.now() > deadline) throw new Error("process did not exit in time");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    try {
+      // Allowlist does NOT include this server's host — the launched curl's
+      // CONNECT tunnel must be refused by the proxy (403), not silently
+      // reach it. The proxy only speaks CONNECT (never relays a plain HTTP
+      // request), so a 403 fails the tunnel itself: curl exits 56 before it
+      // ever gets an HTTP response to attach -w's %{http_code} to.
+      const denyShell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: true, allowedHosts: ["example.invalid"] },
+      });
+      const deniedId = await denyShell.launch!(
+        `curl -sS --proxytunnel --max-time 8 -o /dev/null http://${lan}:${port}/`,
+      );
+      const denied = await readUntilExit(denyShell, deniedId);
+      expect(denied.exitCode).not.toBe(0);
+      expect(denied.text).not.toContain("reached-allowed");
+      // curl's exact wording for a failed CONNECT varies ("CONNECT tunnel
+      // failed, response 403" vs "Proxy CONNECT aborted"); what must hold
+      // is that the failure is the proxy refusing the tunnel, not a
+      // timeout, DNS failure, or the sandbox blocking the connection outright.
+      expect(denied.text).toContain("CONNECT");
+      expect(denied.text).not.toContain("Connection timed out");
+
+      // Allowlist includes this server's host — the launched curl must reach it.
+      // KNOWN ISSUE: the egress proxy's start() is fire-and-forget (launch()
+      // is async but does not block on the proxy's unix-socket listener
+      // coming up before wrapping the command), so under load the very first
+      // proxied launch can run before the proxy is ready. That fails CLOSED
+      // (socat can't bridge yet, so curl's CONNECT is refused) rather than
+      // bypassing the allowlist — a reliability gap, not a security one —
+      // hence the retry here instead of asserting success on attempt one.
+      const allowShell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: true, allowedHosts: [lan] },
+      });
+      let allowed: Awaited<ReturnType<typeof readUntilExit>> | undefined;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const allowedId = await allowShell.launch!(
+          `curl -sS --proxytunnel --max-time 8 http://${lan}:${port}/`,
+        );
+        allowed = await readUntilExit(allowShell, allowedId);
+        if (allowed.exitCode === 0) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      expect(allowed!.exitCode).toBe(0);
+      expect(allowed!.text).toContain("reached-allowed");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("launch() enforces sandboxEnforcement as a runtime fact", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+    });
+    expect(shell.sandboxEnforcement).toBe("full");
+    const id = await shell.launch!("echo seatbelt-bg-ok");
+    await new Promise((r) => setTimeout(r, 500));
+    const out = await shell.readProcessOutput!(id);
+    expect(out.text).toContain("seatbelt-bg-ok");
+  });
+
+  it("launch() cleans up its per-process seatbelt profile after the process exits", async () => {
+    const scratch = makeScratch();
+    const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+      mode: "workspace-write",
+      backend: "seatbelt",
+      writableRoots: [scratch],
+      network: { enabled: false },
+    });
+
+    /** Count seatbelt profile files belonging to this Node process. */
+    const profileCount = (): number =>
+      fs.readdirSync(os.tmpdir()).filter(
+        (f) => f.startsWith(`volto-sandbox-${process.pid}-`) && f.endsWith(".sb"),
+      ).length;
+
+    const before = profileCount();
+
+    // Earlier tests in this file may have left profiles whose 1s cleanup
+    // interval hasn't fired yet. Drain them so `before` is a clean baseline.
+    if (before > 0) {
+      const drainDeadline = Date.now() + 5000;
+      while (profileCount() > 0 && Date.now() < drainDeadline) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    const baseline = profileCount();
+
+    // Use a command that lives long enough for us to observe the profile
+    // mid-flight — `sleep 0.4` gives a ~400ms window.
+    await shell.launch!("sleep 0.4");
+
+    // Mid-flight: the profile MUST exist while the process is running.
+    // Without this, the test passes vacuously if launch never wrote one.
+    await new Promise((r) => setTimeout(r, 150));
+    const during = profileCount();
+    expect(during).toBeGreaterThan(baseline);
+
+    // Wait for exit + the 1s cleanup interval + margin.
+    await new Promise((r) => setTimeout(r, 2500));
+    const after = profileCount();
+    expect(after).toBe(baseline);
   });
 });
 

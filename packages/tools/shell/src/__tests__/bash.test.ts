@@ -76,22 +76,26 @@ describe("bash tool", () => {
     expect(result.displayMetadata?.totalLength).toBe(longOutput.length);
   });
 
-  it("returns full output when showFullOutput is true", async () => {
+  it("returns full output when show_full_output is true", async () => {
     const longOutput = "y".repeat(150_000);
     const tool = createBashTool(mockShell(longOutput));
-    const result = await tool.handler({ command: "generate-output", showFullOutput: true });
+    const result = await tool.handler({ command: "generate-output", show_full_output: true });
     expect(result.modelContent).toBe(longOutput);
     expect(result.displayMetadata?.truncated).toBe(false);
   });
 
-  it("launches in background when runInBackground is true", async () => {
+  it("launches in background when run_in_background is true", async () => {
     const tool = createBashTool(mockShellWithLaunch(""));
-    const result = await tool.handler({ command: "long-task", runInBackground: true });
-    expect(result.modelContent).toContain("PID: 12345");
+    const result = await tool.handler({ command: "long-task", run_in_background: true });
+    expect(result.modelContent).toContain("process_id: 12345");
+    expect(result.displayMetadata?.processId).toBe("12345");
     expect(result.displayMetadata?.backgroundPid).toBe("12345");
     expect(result.displayMetadata?.runInBackground).toBe(true);
   });
 
+  // Post-B-1: every confining sandbox backend exposes launch, so this
+  // fallback fires only when the underlying Shell truly has no launch
+  // method (bare adapter, or a runtime without process support).
   it("falls back to foreground when launch() is not available", async () => {
     const shell: Shell = {
       async *exec() {
@@ -100,12 +104,12 @@ describe("bash tool", () => {
       },
     };
     const tool = createBashTool(shell);
-    const result = await tool.handler({ command: "test", runInBackground: true });
+    const result = await tool.handler({ command: "test", run_in_background: true });
     // No launch() defined, falls back to foreground exec
     expect(result.modelContent).toContain("fg-ok");
   });
 
-  it("reports the foreground fallback in modelContent and displayMetadata when runInBackground is requested but launch() is unavailable", async () => {
+  it("reports the foreground fallback in modelContent and displayMetadata when run_in_background is requested but launch() is unavailable", async () => {
     const shell: Shell = {
       async *exec() {
         yield { type: "stdout", data: "fg-ok" };
@@ -113,7 +117,7 @@ describe("bash tool", () => {
       },
     };
     const tool = createBashTool(shell);
-    const result = await tool.handler({ command: "test", runInBackground: true });
+    const result = await tool.handler({ command: "test", run_in_background: true });
     expect(result.isError).toBeFalsy();
     expect(result.modelContent).toContain("fg-ok");
     // The model needs to be told background execution didn't happen, or it
@@ -132,5 +136,196 @@ describe("bash tool", () => {
   it("definition has valid input schema requiring command", () => {
     const tool = createBashTool(mockShell(""));
     expect(tool.definition.inputSchema.required).toContain("command");
+  });
+
+  it("definition description does not promise streaming output (spec §2.4)", () => {
+    const tool = createBashTool(mockShell(""));
+    expect(tool.definition.description).not.toMatch(
+      /output will stream as it becomes available/i,
+    );
+    expect(tool.definition.description).toMatch(/bash_output/i);
+  });
+
+  it("description documents the persistent session and isolated escape hatch", () => {
+    const tool = createBashTool(mockShell(""));
+    expect(tool.definition.description).toMatch(/persistent|持久/i);
+    expect(tool.definition.description).toMatch(/isolated/i);
+    // The description must use the real Zod field name, or a model that
+    // follows it sends the wrong case and Zod silently drops the flag.
+    expect(tool.definition.description).toMatch(/run_in_background/);
+    expect(tool.definition.description).not.toMatch(/runInBackground/);
+  });
+
+  it("background launch result explains how to read output", async () => {
+    const tool = createBashTool(mockShellWithLaunch(""));
+    const result = await tool.handler({ command: "long-task", run_in_background: true });
+    expect(result.modelContent).toContain("process_id");
+    expect(result.modelContent).toContain("bash_output");
+    expect(result.modelContent).not.toMatch(
+      /output will stream as it becomes available/i,
+    );
+  });
+});
+
+describe("bash isolated escape hatch", () => {
+  it("isolated:true uses shell.exec, not the session", async () => {
+    const execCalls: string[] = [];
+    const sessionCalls: string[] = [];
+    const shell: Shell = {
+      async *exec(cmd: string) {
+        execCalls.push(cmd);
+        yield { type: "stdout", data: "isolated-ok" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, {
+      getSession: () => ({
+        async run(cmd: string) {
+          sessionCalls.push(cmd);
+          return { stdout: "session-ok", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x", isolated: true });
+    expect(r.modelContent).toContain("isolated-ok");
+    expect(execCalls.length).toBe(1);
+    expect(sessionCalls.length).toBe(0);
+  });
+
+  it("without isolated, routes through the session", async () => {
+    const sessionCalls: string[] = [];
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: "exec-path" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, {
+      getSession: () => ({
+        async run(cmd: string) {
+          sessionCalls.push(cmd);
+          return { stdout: "session-path", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("session-path");
+    expect(sessionCalls).toEqual(["echo x"]);
+  });
+
+  it("falls back to shell.exec when no session is available", async () => {
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: "exec-path" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, { getSession: () => undefined });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("exec-path");
+  });
+
+  it("surfaces stateResetReason in modelContent when the session was rebuilt", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return {
+            stdout: "after-reset",
+            stderr: "",
+            exitCode: 124,
+            stateResetReason:
+              "Session was rebuilt after a stuck command. Working directory and environment variables were reset to the session defaults.",
+          };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("after-reset");
+    expect(r.modelContent).toContain("Session was rebuilt");
+    expect(r.modelContent).toContain("exit code: 124");
+    expect(r.displayMetadata?.fromSession).toBe(true);
+    expect(r.displayMetadata?.stateReset).toBe(true);
+  });
+
+  it("session.run rejection becomes an isError tool result", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          throw new Error("session dead");
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toContain("session dead");
+  });
+
+  it("session path forwards cwd and timeout", async () => {
+    const seen: Array<{ cmd: string; cwd?: string; timeout?: number }> = [];
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run(cmd, opts) {
+          seen.push({ cmd, cwd: opts?.cwd, timeout: opts?.timeout });
+          return { stdout: "ok", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    await tool.handler({ command: "echo x", cwd: "/tmp", timeout: 5000 });
+    expect(seen).toEqual([{ cmd: "echo x", cwd: "/tmp", timeout: 5000 }]);
+  });
+
+  // Residual fix from Task 6 review: run_in_background requested, no launch(),
+  // session present → must still say background was unavailable, or the model
+  // keeps expecting a PID from a call that actually blocked.
+  it("session path notes when run_in_background was requested but launch is unavailable", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: "session-ran", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x", run_in_background: true });
+    expect(r.isError).toBeFalsy();
+    expect(r.modelContent).toContain("session-ran");
+    expect(r.modelContent).toMatch(/background/i);
+    expect(r.modelContent).toMatch(/session|foreground/i);
+    expect(r.displayMetadata?.backgroundFallback).toBe(true);
+  });
+
+  // Residual fix from Task 6 review: session output must go through the same
+  // OUTPUT_LIMIT / show_full_output policy as the exec path.
+  it("session path applies OUTPUT_LIMIT truncation", async () => {
+    const longOutput = "z".repeat(150_000);
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: longOutput, stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "generate-output" });
+    expect(r.modelContent).toContain("truncated");
+    expect(r.displayMetadata?.truncated).toBe(true);
+    expect(r.displayMetadata?.totalLength).toBe(longOutput.length);
+    expect(r.displayMetadata?.fromSession).toBe(true);
+  });
+
+  it("session path returns full output when show_full_output is true", async () => {
+    const longOutput = "w".repeat(150_000);
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: longOutput, stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({
+      command: "generate-output",
+      show_full_output: true,
+    });
+    expect(r.modelContent).toBe(longOutput);
+    expect(r.displayMetadata?.truncated).toBe(false);
+    expect(r.displayMetadata?.fromSession).toBe(true);
   });
 });

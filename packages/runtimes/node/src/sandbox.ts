@@ -16,7 +16,7 @@
  * All rejections are expressed as ShellEvents (stdout/stderr/exit), never thrown.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
+import type { Shell, ShellExecOptions, ShellEvent, ShellLaunchOptions } from "@volto/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
 import type { SandboxMode } from "@volto/core";
 import { spawn, execFileSync } from "node:child_process";
@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
 import type { SandboxEnforcement } from "./sandbox-enforcement.js";
+import type { SessionSpawnHandle } from "./persistent-session.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -327,26 +328,56 @@ export function createSandboxedShell(
     // that happens to lack seatbelt/bwrap.
     const stripped = config.strippedEnvVars ?? [];
     const strippedPatterns = config.strippedEnvPatterns ?? [];
-    return {
+
+    const warnOnce = (): void => {
+      if (!warned) {
+        warned = true;
+        console.warn(
+          "[sandbox] WARNING: No sandbox backend available on this platform. " +
+          "Commands will run without isolation. This is a security risk.",
+        );
+      }
+    };
+
+    const shell: SandboxedShell = {
       sandboxEnforcement: "none",
       exec(cmd: string, opts?: ShellExecOptions) {
-        if (!warned) {
-          warned = true;
-          console.warn(
-            "[sandbox] WARNING: No sandbox backend available on this platform. " +
-            "Commands will run without isolation. This is a security risk.",
-          );
-        }
+        warnOnce();
         return realShell.exec(cmd, stripEnvFrom(opts, stripped, strippedPatterns));
       },
-      // No `launch`: only danger-full-access exposes the real shell's
-      // background-launch path (see C4 — a passthrough here would let
-      // `bash({ runInBackground: true })` bypass isolation entirely, and
-      // there is nothing sandboxed on this backend for it to bypass into
-      // safely). The bash tool's `if (runInBackground && shell.launch)`
-      // guard falls back to the (still unsandboxed-with-warning) `exec`
-      // path on its own when `launch` is absent.
     };
+
+    // Background launch on the opt-out path. This backend confines nothing —
+    // exec is already unconfined — so a launch passthrough does not "bypass"
+    // any boundary that exists; it is the same unconfined process, with the
+    // same one-time warning and the same env stripping. The previous refusal
+    // to expose launch here (C4) only pushed the caller onto the equally
+    // unconfined exec path via the bash tool's fallback.
+    //
+    // Process methods are attached only when the underlying shell provides
+    // them: absent means unsupported, same contract as the confining branches.
+    if (realShell.launch) {
+      shell.launch = async (cmd: string, opts?: ShellLaunchOptions) => {
+        warnOnce();
+        return realShell.launch!(
+          cmd,
+          stripEnvFrom(opts, stripped, strippedPatterns) as ShellLaunchOptions | undefined,
+        );
+      };
+    }
+    if (realShell.readProcessOutput) {
+      shell.readProcessOutput = (id, cursor) => realShell.readProcessOutput!(id, cursor);
+    }
+    if (realShell.killProcess) {
+      shell.killProcess = (id) => realShell.killProcess!(id);
+    }
+    if (realShell.listProcesses) {
+      shell.listProcesses = () => realShell.listProcesses!();
+    }
+    if (realShell.disposeProcesses) {
+      shell.disposeProcesses = () => realShell.disposeProcesses!();
+    }
+    return shell;
   }
 
   // ── Resolve config defaults (Phase 2) ──
@@ -379,8 +410,10 @@ export function createSandboxedShell(
   const strippedEnvVars = resolvedConfig.strippedEnvVars ?? [];
   const strippedEnvPatterns = resolvedConfig.strippedEnvPatterns ?? [];
 
-  function withStrippedEnv(opts: ShellExecOptions | undefined): ShellExecOptions | undefined {
-    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns);
+  function withStrippedEnv(
+    opts: ShellExecOptions | ShellLaunchOptions | undefined,
+  ): typeof opts {
+    return stripEnvFrom(opts, strippedEnvVars, strippedEnvPatterns) as typeof opts;
   }
 
   // ── Egress proxy setup (Phase 4: lazy start on first exec) ──
@@ -457,6 +490,14 @@ export function createSandboxedShell(
                   `UNIX-CONNECT:${p.socketPath}`,
                 ], { stdio: "ignore", detached: false });
                 proxyEnv = {
+                  // curl ignores uppercase HTTP_PROXY for plain http:// URLs
+                  // (httpoxy CVE mitigation — it only trusts the lowercase
+                  // form, since HTTP_PROXY is attacker-settable via a
+                  // "Proxy:" header under old CGI setups). HTTPS_PROXY has
+                  // no such restriction and is read case-insensitively, but
+                  // without http_proxy an http:// command connects direct,
+                  // bypassing the allowlist entirely.
+                  http_proxy: `http://127.0.0.1:${socatPort}`,
                   HTTP_PROXY: `http://127.0.0.1:${socatPort}`,
                   HTTPS_PROXY: `http://127.0.0.1:${socatPort}`,
                   NO_PROXY: "localhost,127.0.0.1",
@@ -513,12 +554,99 @@ export function createSandboxedShell(
           }
         })();
       },
-      // No `launch` (see C4): the seatbelt profile only wraps `exec`'s
-      // per-call temp-file lifecycle, so a passthrough `launch` here would
-      // run the command with zero isolation — silently, since the only
-      // signal was a `console.warn` nobody sees. Omitting it makes the bash
-      // tool's `runInBackground` path fall back to the sandboxed `exec`
-      // above instead.
+      // Background launch under a per-process seatbelt profile. Each launch
+      // writes its own profile file and registers a cleanup that drops it
+      // when the child dies — the same -f discipline as exec() above.
+      async launch(
+        cmd: string,
+        opts?: ShellLaunchOptions,
+      ): Promise<string> {
+        // Re-probe at launch time: the binary could have been removed since
+        // construction. A missing runner is infrastructure failure, not a
+        // command failure — refuse rather than run unconfined.
+        if (!runnerBinaryAvailable(seatbeltBinary)) {
+          throw new Error(
+            `${INFRA_FAILURE_PREFIX} the sandbox runner "${seatbeltBinary}" is not available; ` +
+            `refusing to background-launch without isolation.`,
+          );
+        }
+
+        const profileId = `${process.pid}-${++profileCounter}`;
+        const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
+        writeFileSync(profilePath, profileContent, "utf-8");
+
+        // Same egress-proxy discipline as exec() above: without this a
+        // background launch reaches any host directly, bypassing
+        // `allowedHosts` entirely — the seatbelt profile itself only turns
+        // network on/off, it cannot filter by host.
+        let socatProc: ReturnType<typeof spawn> | undefined;
+        let envPrefix = "";
+        if (needsProxy) {
+          const p = await ensureProxy();
+          if (probeBinary("socat")) {
+            const socatPort = 18080 + (++socatPortCounter);
+            socatProc = spawn("socat", [
+              `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+              `UNIX-CONNECT:${p.socketPath}`,
+            ], { stdio: "ignore", detached: false });
+            envPrefix = [
+              `export http_proxy='http://127.0.0.1:${socatPort}'`,
+              `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+              `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+              "export NO_PROXY='localhost,127.0.0.1'",
+            ].join(" && ") + " && ";
+          } else {
+            console.warn(
+              "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
+              "Background launch network requests may not be filtered. Install: apt install socat",
+            );
+          }
+        }
+
+        const escapedCmd = cmd.replace(/'/g, "'\\''");
+        // `-f` takes a profile FILE path; `-p` takes an inline profile
+        // string. Passing the path to `-p` makes sandbox-exec try to parse
+        // the path itself as a profile, which fails with "unbound variable"
+        // — same defect documented on the exec() path above.
+        const wrapped = `${envPrefix}${seatbeltBinary} -f '${profilePath}' /bin/bash -c '${escapedCmd}'`;
+
+        let id: string;
+        try {
+          id = await realShell.launch!(wrapped, withStrippedEnv(opts));
+        } catch (err) {
+          // Launch failed — don't leak the profile file or the socat bridge.
+          try { unlinkSync(profilePath); } catch { /* best-effort */ }
+          try { socatProc?.kill("SIGTERM"); } catch { /* best-effort */ }
+          throw err;
+        }
+
+        // Drop the profile and kill the socat bridge when the process dies.
+        // A 1s poll is enough: the file is small, and the same interval
+        // covers kill/dispose paths.
+        const timer = setInterval(() => {
+          const info = realShell.listProcesses?.().find((p) => p.id === id);
+          if (!info || !info.running) {
+            clearInterval(timer);
+            try { unlinkSync(profilePath); } catch { /* best-effort */ }
+            try { socatProc?.kill("SIGTERM"); } catch { /* best-effort */ }
+          }
+        }, 1000);
+        // Don't let the cleanup timer keep the host event loop alive.
+        timer.unref();
+        return id;
+      },
+      readProcessOutput(id: string, cursor?: string) {
+        return realShell.readProcessOutput!(id, cursor);
+      },
+      killProcess(id: string) {
+        return realShell.killProcess!(id);
+      },
+      listProcesses() {
+        return realShell.listProcesses!();
+      },
+      async disposeProcesses() {
+        await realShell.disposeProcesses!();
+      },
     };
   }
 
@@ -574,6 +702,7 @@ export function createSandboxedShell(
                   `UNIX-CONNECT:${p.socketPath}`,
                 ], { stdio: "ignore", detached: false });
                 envPrefix = [
+                  `export http_proxy='http://127.0.0.1:${socatPort}'`,
                   `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
                   `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
                   "export NO_PROXY='localhost,127.0.0.1'",
@@ -588,13 +717,15 @@ export function createSandboxedShell(
 
             // Escape cmd for safe embedding in bash -c single-quoted string
             const escapedCmd = cmd.replace(/'/g, "'\\''");
-            // Build inner command: envPrefix is already single-quote safe, escapedCmd is already escaped
-            const innerCmd = envPrefix
-              ? `${envPrefix} && ${escapedCmd}`
-              : escapedCmd;
             // Shell-escape each bwrap arg to handle paths with spaces
             const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-            const wrappedCmd = `${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${innerCmd}'`;
+            // envPrefix runs in the OUTER shell, before bwrap — bwrap passes
+            // the environment through by default (no --clearenv), so the
+            // exported HTTP_PROXY/HTTPS_PROXY reach the sandboxed bash the
+            // same way PATH does. Putting it outside also sidesteps nesting
+            // its single-quoted export values inside the inner /bin/bash -c
+            // '...' string, which would prematurely close that quote.
+            const wrappedCmd = `${envPrefix ? `${envPrefix} && ` : ""}${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${escapedCmd}'`;
 
             yield* withRunnerFailureClassification(
               realShell.exec(wrappedCmd, withStrippedEnv(opts)),
@@ -607,9 +738,95 @@ export function createSandboxedShell(
           }
         })();
       },
-      // No `launch` (see C4): same reasoning as the seatbelt branch above —
-      // bwrap wraps `exec`'s command string, a passthrough `launch` would
-      // run fully unisolated.
+      // Background launch under bwrap. Unlike seatbelt there is no profile
+      // file to write or clean up — every isolation argument is on the
+      // command line, so the wrap is pure string construction and the
+      // process methods all delegate straight to realShell.
+      async launch(
+        cmd: string,
+        opts?: ShellLaunchOptions,
+      ): Promise<string> {
+        // Re-probe at launch time: the binary could have been removed since
+        // construction. A missing runner is infrastructure failure, not a
+        // command failure — refuse rather than run unconfined.
+        if (!runnerBinaryAvailable(bwrapBinary)) {
+          throw new Error(
+            `${INFRA_FAILURE_PREFIX} the sandbox runner "${bwrapBinary}" is not available; ` +
+            `refusing to background-launch without isolation.`,
+          );
+        }
+
+        // Same egress-proxy discipline as exec() above: without this a
+        // background launch reaches any host directly, bypassing
+        // `allowedHosts` entirely — bwrap's --unshare-net is all-or-nothing,
+        // it cannot filter by host.
+        let socatProc: ReturnType<typeof spawn> | undefined;
+        let envPrefix = "";
+        if (needsProxy) {
+          const p = await ensureProxy();
+          if (probeBinary("socat")) {
+            const socatPort = 18080 + (++socatPortCounter);
+            socatProc = spawn("socat", [
+              `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+              `UNIX-CONNECT:${p.socketPath}`,
+            ], { stdio: "ignore", detached: false });
+            envPrefix = [
+              `export http_proxy='http://127.0.0.1:${socatPort}'`,
+              `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+              `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+              "export NO_PROXY='localhost,127.0.0.1'",
+            ].join(" && ") + " && ";
+          } else {
+            console.warn(
+              "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
+              "Background launch network requests may not be filtered. Install: apt install socat",
+            );
+          }
+        }
+
+        // Escape cmd for safe embedding in bash -c single-quoted string
+        const escapedCmd = cmd.replace(/'/g, "'\\''");
+        // Shell-escape each bwrap arg to handle paths with spaces
+        const escapedArgs = bwrapArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+        // envPrefix runs in the OUTER shell, before bwrap — bwrap passes the
+        // environment through by default, so putting it here (rather than
+        // nested inside the inner /bin/bash -c '...' string) also avoids its
+        // single-quoted export values prematurely closing that quote.
+        const wrapped = `${envPrefix}${bwrapBinary} ${escapedArgs} -- /bin/bash -c '${escapedCmd}'`;
+
+        let id: string;
+        try {
+          id = await realShell.launch!(wrapped, withStrippedEnv(opts));
+        } catch (err) {
+          try { socatProc?.kill("SIGTERM"); } catch { /* best-effort */ }
+          throw err;
+        }
+
+        if (socatProc) {
+          const proc = socatProc;
+          const timer = setInterval(() => {
+            const info = realShell.listProcesses?.().find((p) => p.id === id);
+            if (!info || !info.running) {
+              clearInterval(timer);
+              try { proc.kill("SIGTERM"); } catch { /* best-effort */ }
+            }
+          }, 1000);
+          timer.unref();
+        }
+        return id;
+      },
+      readProcessOutput(id: string, cursor?: string) {
+        return realShell.readProcessOutput!(id, cursor);
+      },
+      killProcess(id: string) {
+        return realShell.killProcess!(id);
+      },
+      listProcesses() {
+        return realShell.listProcesses!();
+      },
+      async disposeProcesses() {
+        await realShell.disposeProcesses!();
+      },
     };
   }
 
@@ -617,6 +834,278 @@ export function createSandboxedShell(
   return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
     sandboxEnforcement: "none" as const,
   }) as SandboxedShell;
+}
+
+// ──────────────────────────────────────────────
+// Persistent-session spawner (B-2 Task 8)
+// ──────────────────────────────────────────────
+
+/**
+ * Environment for a spawned child: `process.env` minus `strippedNames` and
+ * any name matching `strippedPatterns`. Spawn's `env` replaces the whole
+ * environment rather than merging, so PATH and friends must be rebuilt here.
+ */
+function buildStrippedEnv(
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[] = [],
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  for (const name of strippedNames) delete env[name];
+  for (const name of Object.keys(env)) {
+    for (const pattern of strippedPatterns) {
+      // A /g or /y regex carries lastIndex across calls; reset every test.
+      pattern.lastIndex = 0;
+      if (pattern.test(name)) {
+        delete env[name];
+        break;
+      }
+    }
+  }
+  return env;
+}
+
+/**
+ * Pin the same defaults `createSandboxedShell` uses so a profile built for a
+ * long-lived session matches one built for a one-shot exec.
+ */
+function resolveSessionSandboxConfig(config: SandboxConfig): SandboxConfig {
+  const isWriteMode = config.mode === "workspace-write";
+  return {
+    ...config,
+    // Verified required: seatbelt's `(subpath "...")` match is evaluated
+    // against the REAL (symlink-resolved) path — see createSandboxedShell.
+    writableRoots: isWriteMode
+      ? (config.writableRoots ?? [process.cwd(), tmpdir()]).map(resolveRealRootPath)
+      : config.writableRoots,
+    readOnlyOverlays: isWriteMode
+      ? (config.readOnlyOverlays ?? [".git", ".env"])
+      : config.readOnlyOverlays,
+    deniedReadPaths: config.deniedReadPaths?.map(resolveRealRootPath),
+  };
+}
+
+/** Bare `/bin/bash -s` spawner — no isolation, env stripping still applies. */
+function makeBareSessionSpawner(
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[],
+  warnOnce?: () => void,
+): (opts: { cwd: string }) => SessionSpawnHandle {
+  return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+    warnOnce?.();
+    return {
+      child: spawn("/bin/bash", ["-s"], {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: buildStrippedEnv(strippedNames, strippedPatterns),
+      }),
+    };
+  };
+}
+
+/**
+ * Build a spawn factory that wraps a long-lived `bash -s` in the sandbox.
+ *
+ * - seatbelt: `sandbox-exec -f <profile> /bin/bash -s` (per-session profile
+ *   file, unlinked by `cleanup`)
+ * - bwrap:    `bwrap <args> -- /bin/bash -s`
+ * - danger-full-access / none: bare `/bin/bash -s` (none warns once)
+ *
+ * Returns `undefined` when a confining backend was selected but its runner
+ * binary is missing and the caller opted out of the throw — that shell cannot
+ * confine a long-lived process, and silently running unconfined is the failure
+ * this phase exists to prevent. Throws at construction when
+ * `failIfUnavailable` (the default) and no usable backend is present.
+ */
+/**
+ * Egress proxy for a session spawner, shared across every session that
+ * spawner creates. Same `allowedHosts` enforcement as `createSandboxedShell`'s
+ * `exec()`/`launch()` — without it a persistent session's `curl` etc. reaches
+ * any host directly, since the seatbelt/bwrap network toggle is on/off only.
+ *
+ * Unlike exec()/launch(), a session spawn is synchronous (persistent-session.ts
+ * calls `options.spawn()` without awaiting), so the proxy is started eagerly,
+ * fire-and-forget, the first time a spawner needing it is created — not lazily
+ * per spawn. A session spawned before start() resolves fails closed (socat's
+ * TCP-LISTEN isn't up yet, so the child's HTTP_PROXY connection is refused)
+ * rather than bypassing the allowlist.
+ */
+function createSessionEgressProxy(
+  config: SandboxConfig,
+): {
+  start(): void;
+  /** Env vars for one session's child, plus the socat bridge's own cleanup. */
+  forSession(): { env: Record<string, string>; cleanup?: () => void };
+} | undefined {
+  const needsProxy =
+    config.network?.enabled === true && (config.network.allowedHosts?.length ?? 0) > 0;
+  if (!needsProxy) return undefined;
+
+  const proxy = createSandboxProxy({ allowedHosts: config.network!.allowedHosts! });
+  let started = false;
+  return {
+    start() {
+      if (started) return;
+      started = true;
+      void proxy.start().catch(() => { /* best-effort; sessions fail closed until ready */ });
+      process.once("exit", () => { try { proxy.stop(); } catch { /* best-effort */ } });
+    },
+    forSession(): { env: Record<string, string>; cleanup?: () => void } {
+      if (!probeBinary("socat")) {
+        console.warn(
+          "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
+          "Session network requests may not be filtered. Install: apt install socat",
+        );
+        return { env: {} };
+      }
+      const socatPort = 18080 + (++socatPortCounter);
+      // One socat bridge per session, killed by the caller's cleanup — a
+      // session is long-lived, unlike exec()/launch()'s one-shot bridges.
+      const socatProc = spawn("socat", [
+        `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+        `UNIX-CONNECT:${proxy.socketPath}`,
+      ], { stdio: "ignore", detached: false });
+      return {
+        env: {
+          // curl (and most other tools) ignore uppercase HTTP_PROXY for
+          // plain http:// requests — see the matching comment on exec()'s
+          // proxyEnv above. Without the lowercase form, a session's
+          // `curl http://...` connects direct, bypassing the allowlist.
+          http_proxy: `http://127.0.0.1:${socatPort}`,
+          HTTP_PROXY: `http://127.0.0.1:${socatPort}`,
+          HTTPS_PROXY: `http://127.0.0.1:${socatPort}`,
+          NO_PROXY: "localhost,127.0.0.1",
+        },
+        cleanup: () => { try { socatProc.kill("SIGTERM"); } catch { /* best-effort */ } },
+      };
+    },
+  };
+}
+
+export function createSandboxSessionSpawner(
+  config: SandboxConfig,
+): ((opts: { cwd: string }) => SessionSpawnHandle) | undefined {
+  const backend = config.backend ?? detectBackend();
+  const strippedNames = config.strippedEnvVars ?? [];
+  const strippedPatterns = config.strippedEnvPatterns ?? [];
+
+  // danger-full-access: no isolation by definition.
+  if (config.mode === "danger-full-access") {
+    return makeBareSessionSpawner(strippedNames, strippedPatterns);
+  }
+
+  const failIfUnavailable = config.failIfUnavailable ?? true;
+
+  // No backend for this platform. Default is refuse; opt-out warns once and
+  // runs unconfined — same discipline as createSandboxedShell.
+  if (backend === "none") {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
+        `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
+        `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
+        `failIfUnavailable: false to accept an unconfined process under this mode.`,
+      );
+    }
+    let warned = false;
+    const warnOnce = (): void => {
+      if (!warned) {
+        warned = true;
+        console.warn(
+          "[sandbox] WARNING: No sandbox backend available on this platform. " +
+          "Persistent session commands will run without isolation. This is a security risk.",
+        );
+      }
+    };
+    return makeBareSessionSpawner(strippedNames, strippedPatterns, warnOnce);
+  }
+
+  const resolved = resolveSessionSandboxConfig(config);
+  const strippedNamesR = resolved.strippedEnvVars ?? [];
+  const strippedPatternsR = resolved.strippedEnvPatterns ?? [];
+  const egressProxy = createSessionEgressProxy(resolved);
+  egressProxy?.start();
+
+  if (backend === "seatbelt") {
+    const seatbeltBinary = resolved.seatbeltBinary ?? "sandbox-exec";
+    if (!runnerBinaryAvailable(seatbeltBinary)) {
+      if (failIfUnavailable) {
+        throw new Error(
+          `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
+          "Install sandbox-exec, or use mode \"danger-full-access\" to run without isolation " +
+          "deliberately. Setting failIfUnavailable: false only moves the refusal from " +
+          "construction to the spawner returning undefined — it does not grant an unconfined process.",
+        );
+      }
+      // Honest "cannot confine": never fall through to a bare bash -s.
+      return undefined;
+    }
+
+    const profileContent = buildSeatbeltProfile(resolved);
+    return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+      const profileId = `${process.pid}-${++profileCounter}`;
+      const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
+      writeFileSync(profilePath, profileContent, "utf-8");
+      // Env is passed directly to the sandbox-exec process (not embedded in
+      // a shell string), and both sandbox-exec and the inner /bin/bash -s it
+      // launches inherit it — no quoting concerns, unlike exec()/launch().
+      const proxySession = egressProxy?.forSession();
+      let child: ReturnType<typeof spawn>;
+      try {
+        // `-f` takes a profile FILE path; `-p` takes an inline profile string.
+        // Passing the path to `-p` makes sandbox-exec parse the path itself
+        // as a profile and fail with "unbound variable" — same defect
+        // documented on the exec() path above.
+        child = spawn(seatbeltBinary, ["-f", profilePath, "/bin/bash", "-s"], {
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...buildStrippedEnv(strippedNamesR, strippedPatternsR), ...proxySession?.env },
+        });
+      } catch (err) {
+        try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+        proxySession?.cleanup?.();
+        throw err;
+      }
+      return {
+        child,
+        cleanup: () => {
+          try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+          proxySession?.cleanup?.();
+        },
+      };
+    };
+  }
+
+  // bubblewrap
+  const bwrapBinary = resolved.bwrapBinary ?? "bwrap";
+  if (!runnerBinaryAvailable(bwrapBinary)) {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
+        "Install bubblewrap (apt install bubblewrap), or use mode \"danger-full-access\" to run " +
+        "without isolation deliberately. Setting failIfUnavailable: false only moves the refusal " +
+        "from construction to the spawner returning undefined — it does not grant an unconfined process.",
+      );
+    }
+    return undefined;
+  }
+
+  const bwrapArgs = buildBwrapArgs(resolved);
+  return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+    // bwrap has no profile file — every isolation argument is on the argv.
+    // Env is passed directly to the spawned child (not embedded in a shell
+    // string); bwrap passes it through to the inner /bin/bash -s (no
+    // --clearenv), same as PATH — no quoting concerns.
+    const proxySession = egressProxy?.forSession();
+    const child = spawn(bwrapBinary, [...bwrapArgs, "--", "/bin/bash", "-s"], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...buildStrippedEnv(strippedNamesR, strippedPatternsR), ...proxySession?.env },
+    });
+    return { child, cleanup: proxySession?.cleanup };
+  };
 }
 
 // ──────────────────────────────────────────────

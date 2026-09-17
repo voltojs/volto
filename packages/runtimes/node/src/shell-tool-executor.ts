@@ -1,34 +1,46 @@
 import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@volto/core";
-import type { ShellTool } from "@volto/tools-shell";
-import { createBashTool } from "@volto/tools-shell";
+import type { ShellTool, BashToolOptions, BashSessionLike } from "@volto/tools-shell";
+import { createBashTool, createBashOutputTool, createKillShellTool } from "@volto/tools-shell";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateShellToolExecutorOptions {
   shell: Shell;
+  /**
+   * Lazy persistent session for bash. When provided, non-isolated bash
+   * calls route through session.run — including the abortable branch below.
+   * Without this, abort used to rebuild createBashTool(shell) with no
+   * options and silently drop session-routed calls onto one-shot exec.
+   */
+  getSession?: () => BashSessionLike | undefined;
 }
 
 export function createShellToolExecutor(options: CreateShellToolExecutorOptions): ToolExecutor {
-  const tools: ShellTool[] = [createBashTool(options.shell)];
+  const bashOptions: BashToolOptions | undefined = options.getSession
+    ? { getSession: options.getSession }
+    : undefined;
+  const tools: ShellTool[] = [
+    createBashTool(options.shell, bashOptions),
+    createBashOutputTool(options.shell),
+    createKillShellTool(options.shell),
+  ];
 
   return async (call: PendingToolCall, ctx: import("./runner.js").ToolExecutorContext): Promise<ToolResult> => {
+    // Forward abortSignal into bash's exec/launch only. bash_output and
+    // kill_shell are short registry lookups with no streaming to cancel, so
+    // they use the original shell as-is.
+    if (call.name === "bash" && ctx.abortSignal) {
+      const abortableShell: Shell = {
+        ...options.shell,
+        exec: (cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> =>
+          options.shell.exec(cmd, { ...opts, abortSignal: ctx.abortSignal }),
+      };
+      // Forward bashOptions so the abort path does not drop session routing.
+      return createBashTool(abortableShell, bashOptions).handler(call.input);
+    }
+
     const tool = tools.find((entry) => entry.definition.name === call.name);
     if (!tool) {
       return { modelContent: `Unknown tool: ${call.name}`, isError: true };
-    }
-
-    // Forward abortSignal by wrapping the shell adapter rather than passing
-    // through the Zod schema (AbortSignal can't round-trip JSON Schema).
-    if (ctx.abortSignal) {
-      const abortableShell: Shell = {
-        exec: (cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> =>
-          options.shell.exec(cmd, { ...opts, abortSignal: ctx.abortSignal }),
-        launch: options.shell.launch
-          ? (cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">): Promise<string> =>
-              options.shell.launch!(cmd, opts)
-          : undefined,
-      };
-      const abortableTool = createBashTool(abortableShell);
-      return abortableTool.handler(call.input);
     }
 
     return tool.handler(call.input);

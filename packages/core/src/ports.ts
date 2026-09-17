@@ -264,10 +264,59 @@ export interface ShellExecOptions {
   env?: Record<string, string>;
 }
 
+/**
+ * A background process started via `launch`. Persistent shell sessions are
+ * deliberately NOT part of this registry and never appear here — see the
+ * separation rationale in
+ * `docs/superpowers/specs/2026-09-16-shell-lifecycle-design.md` §5.
+ */
+export interface ShellProcessInfo {
+  id: string;
+  /** OS pid of the managed process; 0 when unknown. */
+  pid: number;
+  command: string;
+  running: boolean;
+  /** Set only after exit. */
+  exitCode?: number;
+}
+
+export interface ShellProcessOutput {
+  /** Incremental text since the cursor. May start with an overflow note. */
+  text: string;
+  /** Opaque cursor for the next incremental read. */
+  cursor: string;
+  /** True when the ring buffer discarded earlier bytes. */
+  overflowed: boolean;
+  /** Cumulative discarded bytes for this process (0 when never overflowed). */
+  droppedBytes: number;
+}
+
+export interface ShellLaunchOptions {
+  cwd?: string;
+  /** Replaces the child environment entirely when supplied (same as exec). */
+  env?: Record<string, string>;
+  /** Optional kill-after timeout for the background process (ms). */
+  timeout?: number;
+}
+
 export interface Shell {
   exec(cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent>;
-  /** Launch a command in the background. Returns immediately with a process ID. */
-  launch?(cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">): Promise<string>;
+  /**
+   * Start a background process. Returns a registry id usable with
+   * readProcessOutput / killProcess. Absent when the adapter cannot
+   * background-launch (tool falls back / errors).
+   */
+  launch?(cmd: string, opts?: ShellLaunchOptions): Promise<string>;
+  /**
+   * Incremental output read. Throws on unknown process id — never
+   * returns empty output to fake success.
+   */
+  readProcessOutput?(processId: string, cursor?: string): Promise<ShellProcessOutput>;
+  /** Kill a managed process. Throws on unknown process id. */
+  killProcess?(processId: string): Promise<void>;
+  listProcesses?(): ShellProcessInfo[];
+  /** Kill every managed background process. Called when the agent session ends. */
+  disposeProcesses?(): Promise<void>;
 }
 
 // ──────────────────────────────────────────────

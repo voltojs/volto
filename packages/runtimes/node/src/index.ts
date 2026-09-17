@@ -7,6 +7,17 @@ export { createNodeFileSystem } from "./filesystem.js";
 export type { NodeFileSystemOptions } from "./filesystem.js";
 export { createNodeShell } from "./shell.js";
 export type { NodeShellOptions } from "./shell.js";
+export { createProcessRegistry, DEFAULT_MAX_BACKGROUND } from "./process-registry.js";
+export type { ProcessRegistry, ProcessRegistryOptions } from "./process-registry.js";
+export { createProcessOutputBuffer, DEFAULT_PROCESS_BUFFER_BYTES } from "./process-buffer.js";
+export type { ProcessOutputBuffer, ProcessBufferRead } from "./process-buffer.js";
+export { createPersistentSession } from "./persistent-session.js";
+export type {
+  PersistentSession,
+  PersistentSessionOptions,
+  SessionCommandResult,
+  SessionSpawnHandle,
+} from "./persistent-session.js";
 export { createNodeNetwork } from "./network.js";
 export type { NodeNetworkOptions } from "./network.js";
 export { createFsToolExecutor } from "./tool-executor.js";
@@ -18,7 +29,7 @@ export type { CreateNetworkToolExecutorOptions } from "./network-tool-executor.j
 export { createAutoAllowGate, createSubAgentApprovalGate, createInteractiveGate } from "./approval-gate.js";
 export { createAllowAllPolicyEngine, createRuleBasedPolicyEngine } from "./policy-engine.js";
 export type { PolicyRule } from "./policy-engine.js";
-export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, buildSeatbeltProfile, buildBwrapArgs, expandOverlays } from "./sandbox.js";
+export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, createSandboxSessionSpawner, buildSeatbeltProfile, buildBwrapArgs, expandOverlays } from "./sandbox.js";
 export type { SandboxPolicy, NodeSandboxOptions, SandboxMode, SandboxBackend, SandboxConfig, SandboxNetworkConfig, SandboxedShell } from "./sandbox.js";
 export type { SandboxEnforcement, SandboxBackendName, RunnerFailureRule } from "./sandbox-enforcement.js";
 export { classifyRunnerFailure, DENIAL_SIGNATURES, RUNNER_FAILURE_RULES } from "./sandbox-enforcement.js";

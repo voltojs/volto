@@ -419,6 +419,22 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
   const sessions = new Map<string, Session>();
 
+  /**
+   * Release the child processes an agent instance owns — the persistent bash
+   * session and every background process. Dropping the reference is not
+   * enough: those processes outlive GC and only die with the server.
+   * Best-effort, and never allowed to reject into an eviction/shutdown path.
+   */
+  function disposeAgent(agent: Session["agent"]): Promise<void> {
+    // `agentFactory` lets a caller (tests) supply a stub without dispose.
+    if (!agent?.dispose) return Promise.resolve();
+    try {
+      return Promise.resolve(agent.dispose()).catch(() => undefined);
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
   function evictIfNeeded(): void {
     if (sessions.size <= maxSessions) return;
     // Evict the least recently used session that has no live connection.
@@ -426,7 +442,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       .filter((s) => !s.connection && !s.running)
       .sort((a, b) => a.lastUsed - b.lastUsed);
     const victim = candidates[0];
-    if (victim) sessions.delete(victim.id);
+    if (victim) {
+      sessions.delete(victim.id);
+      void disposeAgent(victim.agent);
+    }
   }
 
   function get(sessionId: string): Session {
@@ -756,6 +775,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     const seeded = seedHistory(session.history);
     // Plan 2: default-on. Absent config uses DEFAULT_COMPACTION; false disables.
     const compaction = resolveHostCompaction(configuredCompaction);
+    // A rebuild replaces the instance, so the outgoing one's persistent bash
+    // session and background processes have to be reclaimed here — nothing
+    // else holds a reference to them afterwards.
+    const outgoing = session.agent;
     session.agent = await buildAgent({
       ...wiring,
       // Explicit override of the spread so the default-on decision is visible here.
@@ -805,6 +828,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         : {}),
     });
     session.config = config;
+    await disposeAgent(outgoing);
   }
 
   /**
@@ -1001,12 +1025,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return "ok";
   }
 
-  /** Close every connection and drop all sessions (used on shutdown). */
-  function closeAll(): void {
+  /**
+   * Close every connection and drop all sessions (used on shutdown).
+   * Awaits agent disposal so the persistent bash sessions and background
+   * processes are reaped instead of being orphaned by the exiting server.
+   */
+  async function closeAll(): Promise<void> {
+    const agents = [...sessions.values()].map((s) => s.agent);
     for (const session of sessions.values()) {
       detach(session);
     }
     sessions.clear();
+    await Promise.all(agents.map(disposeAgent));
   }
 
   return {

@@ -1,7 +1,9 @@
 /**
  * Node Shell adapter — implements the Shell port using child_process.spawn.
  * Streams stdout/stderr/exit events as an AsyncIterable<ShellEvent>.
- * Also supports `launch()` for background process execution.
+ * Also supports `launch()` for background process execution; launch also
+ * drains both streams concurrently into a ring buffer via the process
+ * registry (prevents pipe-buffer deadlock when a command writes >64 KB).
  *
  * Key design: stdout and stderr are consumed CONCURRENTLY via event listeners
  * pushed into a shared async queue, preventing pipe-buffer deadlock when a
@@ -10,14 +12,23 @@
 
 import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createProcessRegistry, type ProcessRegistry } from "./process-registry.js";
 
 export interface NodeShellOptions {
   /** Default working directory (can be overridden per-exec) */
   defaultCwd?: string;
+  /** Maximum concurrent background processes (default: 8) */
+  maxBackgroundProcesses?: number;
+  /** Per-process output ring buffer capacity in bytes (default: 256 KiB) */
+  processBufferBytes?: number;
 }
 
 export function createNodeShell(options?: NodeShellOptions): Shell {
-  const backgroundProcesses = new Map<string, ChildProcess>();
+  const registry: ProcessRegistry = createProcessRegistry({
+    defaultCwd: options?.defaultCwd,
+    maxBackground: options?.maxBackgroundProcesses,
+    bufferCapacityBytes: options?.processBufferBytes,
+  });
 
   function resolveCwd(cwd?: string): string {
     return cwd ?? options?.defaultCwd ?? process.cwd();
@@ -123,21 +134,23 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
     },
 
     async launch(cmd: string, opts?: Omit<ShellExecOptions, "runInBackground">): Promise<string> {
-      const cwd = resolveCwd(opts?.cwd);
-      const child: ChildProcess = spawn(cmd, [], {
-        cwd,
-        shell: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      return registry.launch(cmd, opts);
+    },
 
-      const pid = String(child.pid ?? 0);
-      backgroundProcesses.set(pid, child);
+    async readProcessOutput(id: string, cursor?: string) {
+      return registry.readOutput(id, cursor);
+    },
 
-      child.on("close", () => {
-        backgroundProcesses.delete(pid);
-      });
+    async killProcess(id: string) {
+      return registry.kill(id);
+    },
 
-      return pid;
+    listProcesses() {
+      return registry.list();
+    },
+
+    async disposeProcesses() {
+      return registry.disposeAll();
     },
   };
 }

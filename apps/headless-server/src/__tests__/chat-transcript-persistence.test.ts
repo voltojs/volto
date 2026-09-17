@@ -4,10 +4,10 @@ import type { ReducerState, Message, TranscriptStore, TranscriptEvent, Transcrip
 import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
-const created: Array<{ closeAll: () => void }> = [];
+const created: Array<{ closeAll: () => Promise<void> }> = [];
 
-afterEach(() => {
-  for (const registry of created) registry.closeAll();
+afterEach(async () => {
+  for (const registry of created) await registry.closeAll();
   created.length = 0;
 });
 
