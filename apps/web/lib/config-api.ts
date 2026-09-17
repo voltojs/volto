@@ -38,6 +38,12 @@ export interface Model {
     efforts: ReasoningEffort[];
     defaultEffort?: string;
   };
+  /**
+   * Image-input support, three-state. Absent means UNKNOWN (a gateway that
+   * cannot describe its models), which must behave like `true` here: only an
+   * explicit `false` gates the composer's attachment entry off.
+   */
+  vision?: boolean;
 }
 
 /**
@@ -62,6 +68,8 @@ export interface CatalogProviderModel {
    * suppressed by a stored per-model override (see `CatalogModelInput.reasoning`).
    */
   reasoning?: NonNullable<Model['reasoning']>;
+  /** Image-input support, same three-state contract as `Model['vision']`. */
+  vision?: boolean;
 }
 
 /** One catalog-provider model entry, as sent in a create/update request body. */

@@ -175,8 +175,18 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 /**
- * Inline each configured model's resolved reasoning capability into a
- * `GET /providers` response.
+ * Project `ResolvedModelInfo.vision` onto the wire, preserving its three
+ * states: `true` / `false` verbatim, UNKNOWN as the absence of the key.
+ * Collapsing absent to `false` here would gate the composer off for every
+ * gateway that cannot describe its models — the failure mode spec §7 rejects.
+ */
+function visionKey(vision: boolean | undefined): { vision?: boolean } {
+  return vision === undefined ? {} : { vision };
+}
+
+/**
+ * Inline each configured model's resolved capabilities — reasoning effort
+ * levels and image input — into a `GET /providers` response.
  *
  * `ModelPort.describeModel` (from `createPiAiModelPort`) is used to derive
  * this rather than duplicating pi-ai's capability logic: it re-projects
@@ -243,7 +253,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               // The stored boolean override is stripped here and replaced by
               // the resolved capability object — never both on the wire.
               const { reasoning: _storedFlag, ...rest } = model;
-              return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+              return {
+                ...rest,
+                ...(info.reasoning ? { reasoning: info.reasoning } : {}),
+                ...visionKey(info.vision),
+              };
             } catch {
               const { reasoning: _storedFlag, ...rest } = model;
               return rest;
@@ -301,7 +315,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           const { reasoning: _reasoningFlag, ...rest } = m;
           try {
             const info = await port.describeModel!(m.code);
-            return { ...rest, ...(info.reasoning ? { reasoning: info.reasoning } : {}) };
+            return {
+              ...rest,
+              ...(info.reasoning ? { reasoning: info.reasoning } : {}),
+              ...visionKey(info.vision),
+            };
           } catch {
             return rest;
           }

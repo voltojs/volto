@@ -582,6 +582,10 @@ export function ChatPanel() {
                 onSend={handleSubmit}
                 sessionId={currentSessionId}
                 projectId={currentProject?.id ?? null}
+                // Three-state passthrough: undefined (the gateway never
+                // declared) keeps the attachment entry; only an explicit
+                // false disables it and says why.
+                visionSupported={currentModel?.vision}
                 onInputAction={handleInputAction}
                 disabled={
                   isGenerating || missingBinding || pendingApprovals.length > 0
