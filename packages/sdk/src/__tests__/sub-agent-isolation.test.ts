@@ -70,7 +70,11 @@ describe("task sub-agent — context isolation", () => {
 
     // The tool result should contain the sub-agent's output
     const taskResult = toolResults.find((m) =>
-      m.content.some((c) => c.type === "tool_result" && c.content.includes("Sub-agent found")),
+      m.content.some(
+        (c) =>
+          c.type === "tool_result" &&
+          c.content.some((b) => b.type === "text" && b.text.includes("Sub-agent found")),
+      ),
     );
     expect(taskResult).toBeDefined();
   });

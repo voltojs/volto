@@ -226,8 +226,11 @@ describe("createAgent with plugins (M13)", () => {
     // permissionConfig (defaulted when not given), so the reducer injects a
     // permission-boundary reminder ahead of the real user turn on turn 1.
     expect(state.messages).toHaveLength(5);
-    const toolResult = state.messages[3] as unknown as { content: Array<{ content: string }> };
-    expect(toolResult.content[0]!.content).toContain("from plugin");
+    const toolResult = state.messages[3] as unknown as {
+      content: Array<{ content: Array<{ type: string; text?: string }> }>;
+    };
+    const textBlock = toolResult.content[0]!.content.find((b) => b.type === "text")!;
+    expect(textBlock.text).toContain("from plugin");
   });
 
   it("plugin tool missing capability is gated out", async () => {

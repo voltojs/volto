@@ -1,4 +1,4 @@
-import type { PendingToolCall, ToolResult, FileSystem } from "@volto/core";
+import type { PendingToolCall, ToolResult, FileSystem, AttachmentStore } from "@volto/core";
 import { evaluateEditGate, evaluateOverwriteGate } from "@volto/core";
 import type { FileTool } from "@volto/tools-fs";
 import {
@@ -15,6 +15,16 @@ import type { ToolExecutor } from "./runner.js";
 
 export interface CreateFsToolExecutorOptions {
   fs: FileSystem;
+  /**
+   * Attachment store for the image path of read_file. Without it, image
+   * reads return isError — the bytes have nowhere durable to live as a ref.
+   */
+  attachments?: AttachmentStore;
+  /**
+   * Tri-state vision gate forwarded to read_file. Absent means unknown
+   * (do not gate); only explicit `false` rejects image reads.
+   */
+  visionSupported?: boolean;
 }
 
 /**
@@ -30,7 +40,10 @@ export interface CreateFsToolExecutorOptions {
  */
 export function createFsToolExecutor(options: CreateFsToolExecutorOptions): ToolExecutor {
   const tools: FileTool[] = [
-    createReadFileTool(options.fs),
+    createReadFileTool(options.fs, {
+      attachments: options.attachments,
+      visionSupported: options.visionSupported,
+    }),
     createEditFileTool(options.fs),
     createWriteFileTool(options.fs),
     createApplyPatchTool(options.fs),

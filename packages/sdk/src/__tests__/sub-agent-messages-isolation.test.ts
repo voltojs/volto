@@ -91,7 +91,15 @@ describe("task sub-agent — messages isolation", () => {
       .map((m) =>
         Array.isArray(m.content)
           ? m.content
-              .map((c) => (c.type === "tool_result" ? c.content : c.type === "text" ? c.text : ""))
+              .map((c) => {
+                if (c.type === "tool_result") {
+                  // tool_result content is a block array since Task 1.
+                  return Array.isArray(c.content)
+                    ? c.content.map((b) => (b.type === "text" ? b.text : "")).join("")
+                    : "";
+                }
+                return c.type === "text" ? c.text : "";
+              })
               .join("")
           : typeof m.content === "string"
             ? m.content

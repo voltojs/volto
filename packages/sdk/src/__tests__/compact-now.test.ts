@@ -45,7 +45,7 @@ function makeToolResult(id: string, toolUseId: string, content: string): Message
   return {
     id,
     role: "tool",
-    content: [{ type: "tool_result", toolUseId, content }],
+    content: [{ type: "tool_result", toolUseId, content: [{ type: "text", text: content }] }],
   } as Message;
 }
 
@@ -204,7 +204,8 @@ describe("compactNow", () => {
     // The tool_result content in state must now be the pruned version.
     const toolMsg = agent.getState().messages.find((m) => m.role === "tool");
     expect(toolMsg).toBeDefined();
-    const block = (toolMsg!.content as Array<{ type: string; content?: string }>)[0]!;
-    expect(block.content!.length).toBeLessThan(overSized.length);
+    const resultBlock = (toolMsg!.content as Array<{ type: string; content: Array<{ type: string; text?: string }> }>)[0]!;
+    const textBlock = resultBlock.content.find((b) => b.type === "text")!;
+    expect(textBlock.text!.length).toBeLessThan(overSized.length);
   });
 });

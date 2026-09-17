@@ -85,8 +85,14 @@ describe("TC-001: MCP 工具通过 ToolSource 进入可见集并可调用", () =
     expect(mockModel.callCount).toBe(2);
     const toolMsg = state.messages.find((m) => m.role === "tool");
     expect(toolMsg).toBeDefined();
-    const blocks = toolMsg?.content as Array<{ type: string; content: string }>;
-    expect(blocks.some((b) => b.type === "tool_result" && b.content.includes("mock-result: 42"))).toBe(true);
+    const blocks = toolMsg?.content as Array<{ type: string; content: Array<{ type: string; text?: string }> }>;
+    expect(
+      blocks.some(
+        (b) =>
+          b.type === "tool_result" &&
+          b.content.some((inner) => inner.type === "text" && inner.text?.includes("mock-result: 42")),
+      ),
+    ).toBe(true);
   });
 });
 

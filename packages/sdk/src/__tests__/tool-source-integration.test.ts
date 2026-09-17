@@ -76,8 +76,14 @@ describe("createAgent — ToolSource integration", () => {
       // Tool result message present
       const toolMsg = state.messages.find((m) => m.role === "tool");
       expect(toolMsg).toBeDefined();
-      const blocks = toolMsg?.content as Array<{ type: string; content: string }>;
-      expect(blocks.some((b) => b.type === "tool_result" && b.content === `${UNTRUSTED_PREFIX}mock: mcp__srv__greet`)).toBe(true);
+      const blocks = toolMsg?.content as Array<{ type: string; content: Array<{ type: string; text?: string }> }>;
+      expect(
+        blocks.some(
+          (b) =>
+            b.type === "tool_result" &&
+            b.content.some((inner) => inner.type === "text" && inner.text === `${UNTRUSTED_PREFIX}mock: mcp__srv__greet`),
+        ),
+      ).toBe(true);
     });
 
     it("backward compat: no toolSources = same as before (no ToolSource tools)", async () => {
@@ -122,8 +128,14 @@ describe("createAgent — ToolSource integration", () => {
       // Error should be in tool result, not thrown
       const toolMsg = state.messages.find((m) => m.role === "tool");
       expect(toolMsg).toBeDefined();
-      const blocks = toolMsg?.content as Array<{ type: string; content: string }>;
-      expect(blocks.some((b) => b.type === "tool_result" && b.content?.includes("Unknown tool"))).toBe(true);
+      const blocks = toolMsg?.content as Array<{ type: string; content: Array<{ type: string; text?: string }> }>;
+      expect(
+        blocks.some(
+          (b) =>
+            b.type === "tool_result" &&
+            b.content.some((inner) => inner.type === "text" && inner.text?.includes("Unknown tool")),
+        ),
+      ).toBe(true);
     });
   });
 });

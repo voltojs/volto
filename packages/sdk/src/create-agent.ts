@@ -44,6 +44,7 @@ import type {
   ContextLayerHints,
   SkillRegistry,
   SkillSummary,
+  AttachmentStore,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -54,6 +55,7 @@ import {
   extractTouchedToolPaths,
   parseSkillInvocation,
   ReasoningEffortId,
+  CAP_MODEL_VISION,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -65,6 +67,7 @@ import {
 } from "@volto/runtime-node";
 import { createAutoAllowGate } from "@volto/runtime-node";
 import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
+import { createNodeAttachmentStore, createNodeDocumentParser } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentExecutor } from "@volto/tools-agent";
 import { createTaskTool } from "@volto/tools-agent";
@@ -142,6 +145,24 @@ import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
 // ──────────────────────────────────────────────
 // Config resolution helper
 // ──────────────────────────────────────────────
+
+/**
+ * Lazy node document parser. `createNodeDocumentParser` is async (optional
+ * format libraries load on demand), but createAgent is sync — so the adapter
+ * resolves the real parser on first parse() instead of at construction.
+ * A missing format library surfaces as that tool call's isError, never as a
+ * construction-time failure that would hide the whole tool.
+ */
+function createLazyNodeDocumentParser(): DocumentParserAdapter {
+  let pending: Promise<DocumentParserAdapter> | undefined;
+  return {
+    async parse(filePath: string) {
+      pending ??= createNodeDocumentParser();
+      const parser = await pending;
+      return parser.parse(filePath);
+    },
+  };
+}
 
 /**
  * Resolve a value: explicit opts wins, then config layer, then undefined.
@@ -435,8 +456,32 @@ export interface CreateAgentOptions {
   /** Database adapter — when provided, db_query / db_exec tools are auto-created */
   dbAdapter?: DatabaseAdapter;
 
-  /** Document parser adapter — when provided, read_document tool is auto-created */
+  /** Document parser adapter — when provided, overrides the default node parser */
   documentParser?: DocumentParserAdapter;
+
+  /**
+   * Attachment store for image bytes. Images leave tools as AttachmentStore
+   * refs; the Runner resolves those refs into base64 on the ModelRequest
+   * surface just before calling the model, so durable state never carries
+   * the bytes. When omitted, a node store rooted at `~/.volto/attachments`
+   * is constructed (mkdir happens on first put, not at construction).
+   */
+  attachmentStore?: AttachmentStore;
+
+  /**
+   * Model image-input support, matching `ResolvedModelInfo.vision`'s
+   * tri-state. Pass the value from `modelPort.describeModel(model)?.vision`
+   * when the port can describe its models.
+   *
+   * - absent (`undefined`): unknown — image tools are not gated and
+   *   `CAP_MODEL_VISION` is not granted.
+   * - `false`: image reads return isError at call time.
+   * - `true`: `CAP_MODEL_VISION` is granted; image reads proceed.
+   *
+   * Never coerce absent to false: a gateway that cannot describe its models
+   * must not silently lose the image path.
+   */
+  modelVision?: boolean;
 
   /** Available capabilities (auto-populated from injected adapters if not set) */
   capabilities?: Set<string>;
@@ -685,6 +730,27 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const resolve = <T>(explicit: T | undefined, key: keyof ConfigLayer): T | undefined =>
     resolveConfigValue(explicit, cfg, key);
 
+  // ── Attachment store ─────────────────────
+  // Images leave tools as refs; the Runner resolves them to base64 on the
+  // request surface. Default is the node store under ~/.volto/attachments
+  // (mkdir is deferred to the first put, so constructing it is side-effect
+  // free). Tests inject a temp rootDir via opts.attachmentStore.
+  // Deliberately does NOT consume idPort: P0-3 requires Id.next() to stay
+  // at 0 until run(). The store's sessionId is a disk namespace, not the
+  // agent's replay-critical sessionId.
+  const attachmentStore: AttachmentStore =
+    opts.attachmentStore ??
+    createNodeAttachmentStore({
+      sessionId: opts.chatSessionId ?? "default",
+    });
+
+  // ── Document parser (default-enabled) ────
+  // An unwired tool is an absent capability: read_document ships enabled and
+  // a missing format library degrades to that call's isError instead of
+  // hiding the tool. The lazy adapter keeps createAgent synchronous.
+  const documentParser: DocumentParserAdapter =
+    opts.documentParser ?? createLazyNodeDocumentParser();
+
   // ── Resolve capabilities ──────────────────
   // Config layer capabilities (string[]) merged with explicit opts.capabilities (Set)
   const configCaps = cfg?.capabilities;
@@ -709,8 +775,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     capabilities.add("db:query");
     capabilities.add("db:exec");
   }
-  if (opts.documentParser) {
-    capabilities.add("document:parse");
+  // read_document always ships now — grant the capability unconditionally.
+  capabilities.add("document:parse");
+  // Tri-state: only an explicit true grants vision. Absent stays unknown so
+  // a gateway that cannot describe its models does not lose pure image
+  // producers; mixed tools (read_file / read_document) gate at call time.
+  if (opts.modelVision === true) {
+    capabilities.add(CAP_MODEL_VISION);
   }
   if (resolve(opts.enableTaskTool, "enableTaskTool")) {
     capabilities.add("agent:task");
@@ -723,7 +794,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const adapterTools: Tool[] = [];
   if (opts.fs) {
     adapterTools.push(
-      createReadFileTool(opts.fs),
+      createReadFileTool(opts.fs, {
+        attachments: attachmentStore,
+        visionSupported: opts.modelVision,
+      }),
       createEditFileTool(opts.fs),
       createWriteFileTool(opts.fs),
       createApplyPatchTool(opts.fs),
@@ -772,11 +846,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createDbExecTool(opts.dbAdapter),
     );
   }
-  if (opts.documentParser) {
-    adapterTools.push(
-      createReadDocumentTool(opts.documentParser),
-    );
-  }
+  // read_document always ships — the default lazy node parser degrades
+  // per format (missing library → that call's isError) instead of hiding
+  // the tool behind an opt-in adapter the host may never learn about.
+  adapterTools.push(
+    createReadDocumentTool(documentParser, {
+      attachments: attachmentStore,
+      visionSupported: opts.modelVision,
+    }),
+  );
   if (opts.scheduler) {
     capabilities.add("scheduler:exec");
     adapterTools.push(
@@ -822,6 +900,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         allCustomTools,
         adapterTools,
         capabilities,
+        attachmentStore,
         compactionConfig,
         1,
         effectiveShell,
@@ -972,7 +1051,23 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     customToolMap.set(t.definition.name, t);
   }
 
-  const fsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
+  // Specialized executors own the fs/shell/network name sets; everything else
+  // routes through customToolMap. Adapter tools that are not covered by those
+  // three (read_document, lsp, browser, db, scheduler, …) must land in the
+  // map or the model sees a callable definition and gets "Unknown tool".
+  for (const t of adapterTools) {
+    if (!customToolMap.has(t.definition.name)) {
+      customToolMap.set(t.definition.name, t);
+    }
+  }
+
+  const fsExecutor = opts.fs
+    ? createFsToolExecutor({
+        fs: opts.fs,
+        attachments: attachmentStore,
+        visionSupported: opts.modelVision,
+      })
+    : undefined;
   const shellExecutor = effectiveShell ? createShellToolExecutor({ shell: effectiveShell }) : undefined;
   const networkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
@@ -1192,6 +1287,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       pricing: opts.pricing,
       auditSink: opts.auditSink ?? defaultAuditSink,
       hooks: allHooks.length > 0 ? allHooks : undefined,
+      // State keeps AttachmentStore refs; the Runner swaps them for base64
+      // on the ModelRequest surface just before calling the model.
+      attachmentStore,
     };
 
     if (previousState && previousState.status === "done") {
@@ -1506,6 +1604,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // resumed turn's header would silently drop the seed system prompt.
         ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
         clock: opts.clock,
+        attachmentStore,
       });
 
       lastRunner = resumeRunner;
@@ -1767,6 +1866,7 @@ function createSubAgentExecutor(
   parentCustomTools: Tool[],
   parentAdapterTools: Tool[],
   capabilities: Set<string>,
+  attachmentStore: AttachmentStore,
   compactionConfig?: CompactionConfig,
   depth: number = 1,
   shellOverride?: Shell,
@@ -1875,8 +1975,20 @@ function createSubAgentExecutor(
     for (const t of subCustomTools) {
       subCustomToolMap.set(t.definition.name, t);
     }
+    // Same gap as the parent: non-specialized adapter tools must be routable.
+    for (const t of parentAdapterTools) {
+      if (!subCustomToolMap.has(t.definition.name)) {
+        subCustomToolMap.set(t.definition.name, t);
+      }
+    }
 
-    const subFsExecutor = opts.fs ? createFsToolExecutor({ fs: opts.fs }) : undefined;
+    const subFsExecutor = opts.fs
+      ? createFsToolExecutor({
+          fs: opts.fs,
+          attachments: attachmentStore,
+          visionSupported: opts.modelVision,
+        })
+      : undefined;
     const subShellExecutor = shellOverride ? createShellToolExecutor({ shell: shellOverride }) : undefined;
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
@@ -1941,6 +2053,7 @@ function createSubAgentExecutor(
       chatStore: parentChatSessionId ? chatStore : undefined,
       chatSessionId: childSessionId,
       clock: opts.clock,
+      attachmentStore,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
         ...(resolveConfigValue(opts.maxDollarsPerTurn, opts.config?.config, "maxDollarsPerTurn") !== undefined

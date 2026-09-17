@@ -169,9 +169,13 @@ describe("Runner hooks integration (M13)", () => {
     // 2: createAgent always resolves a permissionConfig (defaulted when not
     // given), so the reducer injects a permission-boundary reminder message
     // ahead of the real user turn on index 0, shifting everything after it.
-    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string; isError?: boolean }> };
+    // tool_result content is a block array since Task 1: [{ type:"text", text }].
+    const toolResultMsg = state.messages[3] as unknown as {
+      content: Array<{ isError?: boolean; content: Array<{ type: string; text?: string }> }>;
+    };
     expect(toolResultMsg.content[0]!.isError).toBe(true);
-    expect(toolResultMsg.content[0]!.content).toContain("hook blocked echo");
+    const textBlock = toolResultMsg.content[0]!.content.find((b) => b.type === "text")!;
+    expect(textBlock.text).toContain("hook blocked echo");
   });
 
   it("preToolUse modify → modified input passed to tool executor", async () => {
@@ -211,8 +215,11 @@ describe("Runner hooks integration (M13)", () => {
     const state = await agent.run("echo hello");
     expect(state.status).toBe("done");
     // Index 3: see the permission-boundary reminder note above.
-    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string }> };
-    expect(toolResultMsg.content[0]!.content).toContain("modified-input");
+    const toolResultMsg = state.messages[3] as unknown as {
+      content: Array<{ content: Array<{ type: string; text?: string }> }>;
+    };
+    const textBlock = toolResultMsg.content[0]!.content.find((b) => b.type === "text")!;
+    expect(textBlock.text).toContain("modified-input");
   });
 
   it("postToolUse modify → redacted output fed to reducer", async () => {
@@ -247,8 +254,11 @@ describe("Runner hooks integration (M13)", () => {
     const state = await agent.run("echo secret");
     expect(state.status).toBe("done");
     // Index 3: see the permission-boundary reminder note above.
-    const toolResultMsg = state.messages[3] as unknown as { content: Array<{ content: string }> };
-    expect(toolResultMsg.content[0]!.content).toBe("REDACTED");
+    const toolResultMsg = state.messages[3] as unknown as {
+      content: Array<{ content: Array<{ type: string; text?: string }> }>;
+    };
+    const textBlock = toolResultMsg.content[0]!.content.find((b) => b.type === "text")!;
+    expect(textBlock.text).toBe("REDACTED");
   });
 
   it("session:start and session:end hooks are called", async () => {
