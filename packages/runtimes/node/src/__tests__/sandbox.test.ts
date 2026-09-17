@@ -379,6 +379,18 @@ describe("createSandboxedShell", () => {
   });
 });
 
+// Task 11 — the post-B-1 launch contract (replaces the old C4 "sandbox has
+// no launch" contract):
+//
+// 1. Confining backends (seatbelt / bubblewrap) expose launch AND isolate it.
+//    Real denial is asserted in the platform-specific describes below
+//    (seatbelt dialect: "Operation not permitted"; bwrap: "Read-only file
+//    system") — never a cross-backend union.
+// 2. Non-confining backends (danger-full-access / none) expose launch as an
+//    unconfined passthrough; enforcement is reported as "none".
+// 3. Absence of process methods means the *real shell* does not provide them
+//    — the wrapper never invents launch. The bash tool's foreground fallback
+//    covers that case.
 describe("createSandboxedShell — launch availability by backend", () => {
   /** A mock Shell whose `launch` is a real, unsandboxed passthrough — the
    * shape `createSandboxedShell` receives from a real Node shell adapter. */
@@ -521,6 +533,8 @@ describe("createSandboxedShell — launch on non-confining backends", () => {
     }
   });
 
+  // Not the obsolete C4 contract: this asserts "absent means unsupported"
+  // for a bare realShell, not "the sandbox strips launch".
   it("none backend omits process methods the real shell does not provide", () => {
     const bare = {
       async *exec() { yield { type: "exit" as const, code: 0 }; },

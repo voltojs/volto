@@ -93,6 +93,9 @@ describe("bash tool", () => {
     expect(result.displayMetadata?.runInBackground).toBe(true);
   });
 
+  // Post-B-1: every confining sandbox backend exposes launch, so this
+  // fallback fires only when the underlying Shell truly has no launch
+  // method (bare adapter, or a runtime without process support).
   it("falls back to foreground when launch() is not available", async () => {
     const shell: Shell = {
       async *exec() {
