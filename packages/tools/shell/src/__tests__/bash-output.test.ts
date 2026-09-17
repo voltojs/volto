@@ -126,4 +126,12 @@ describe("bash_output tool", () => {
     expect(tool.definition.riskTier).toBe("READ_ONLY");
     expect(tool.definition.inputSchema.required).toContain("process_id");
   });
+
+  it("description names the real bash field runInBackground, not snake_case", () => {
+    const tool = createBashOutputTool(shellWithProcesses({}));
+    // The description must use the real Zod field name on bash, or a model
+    // that follows it sends snake_case and Zod silently drops the flag.
+    expect(tool.definition.description).toMatch(/runInBackground/i);
+    expect(tool.definition.description).not.toMatch(/run_in_background/i);
+  });
 });
