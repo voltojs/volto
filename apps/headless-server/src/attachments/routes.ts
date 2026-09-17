@@ -139,7 +139,15 @@ export function createAttachmentRoutes(deps: AttachmentRouteDeps) {
             return true;
           }
 
-          const store = storeFor(sessionId);
+          // storeFor throws on a sessionId that is not a single safe path
+          // segment (e.g. "../escape"); that is client input, not a server fault.
+          let store;
+          try {
+            store = storeFor(sessionId);
+          } catch {
+            jsonResponse(res, 400, { error: "Invalid sessionId" });
+            return true;
+          }
           const result = await store.get(id);
           if (!result) {
             // 404 for both "unknown id" and "wrong session" — see file header.

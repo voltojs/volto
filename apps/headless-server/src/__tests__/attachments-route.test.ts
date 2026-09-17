@@ -104,4 +104,58 @@ describe("/attachments", () => {
       await close();
     }
   });
+
+  it("rejects a percent-encoded path-traversal id instead of serving another session", async () => {
+    const { url, token, sessionId, otherSessionId, close } = await startTestServer();
+    try {
+      // A real attachment exists under the other session; the attack id
+      // decodes to ../other-session/<real-id> and must not reach its bytes.
+      const created = (await (
+        await fetch(`${url}/attachments`, {
+          method: "POST",
+          headers: auth(token),
+          body: JSON.stringify({ sessionId: otherSessionId, data: PNG, mimeType: "image/png" }),
+        })
+      ).json()) as { id: string };
+
+      const escapedId = encodeURIComponent(`../${otherSessionId}/${created.id}`);
+      const res = await fetch(`${url}/attachments/${escapedId}?sessionId=${sessionId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(404);
+      expect(Buffer.from(await res.arrayBuffer()).toString("base64")).not.toBe(PNG);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects a bare .. id", async () => {
+    const { url, token, sessionId, close } = await startTestServer();
+    try {
+      // Percent-encoded so the URL parser does not collapse the segment.
+      const res = await fetch(`${url}/attachments/%2E%2E?sessionId=${sessionId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(404);
+      expect(Buffer.from(await res.arrayBuffer()).toString("base64")).not.toBe(PNG);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects a path-traversal sessionId instead of escaping the store root", async () => {
+    const { url, token, close } = await startTestServer();
+    try {
+      for (const bad of ["../escape", "..%2Fescape"]) {
+        const res = await fetch(`${url}/attachments/any-id?sessionId=${bad}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        // Invalid sessionId is client input, not a server fault.
+        expect(res.status).toBe(400);
+        expect(Buffer.from(await res.arrayBuffer()).toString("base64")).not.toBe(PNG);
+      }
+    } finally {
+      await close();
+    }
+  });
 });
