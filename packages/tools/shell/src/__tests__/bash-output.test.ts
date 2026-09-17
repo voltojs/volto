@@ -41,8 +41,15 @@ function shellWithProcesses(outputs: Record<string, FakeOutput>): Shell {
   };
 }
 
+/** Extract next_cursor from modelContent — the only surface the model sees. */
+function cursorFromModelContent(modelContent: unknown): string {
+  const m = /next_cursor=(\S+)/.exec(String(modelContent ?? ""));
+  if (!m) throw new Error(`modelContent has no next_cursor: ${String(modelContent)}`);
+  return m[1]!;
+}
+
 describe("bash_output tool", () => {
-  it("returns process output", async () => {
+  it("returns process output and a model-visible next_cursor", async () => {
     const tool = createBashOutputTool(
       shellWithProcesses({
         p1: { text: "log line", cursor: "8", overflowed: false, droppedBytes: 0 },
@@ -51,6 +58,8 @@ describe("bash_output tool", () => {
     const r = await tool.handler({ process_id: "p1" });
     expect(r.isError).toBeFalsy();
     expect(r.modelContent).toContain("log line");
+    expect(r.modelContent).toContain("next_cursor=8");
+    expect(cursorFromModelContent(r.modelContent)).toBe("8");
     expect(r.displayMetadata?.processId).toBe("p1");
     expect(r.displayMetadata?.cursor).toBe("8");
   });
@@ -62,11 +71,13 @@ describe("bash_output tool", () => {
       }),
     );
     const first = await tool.handler({ process_id: "p1" });
-    const cursor = String(first.displayMetadata?.cursor ?? "8");
+    // Parse the cursor the way a model must — from modelContent, not metadata.
+    const cursor = cursorFromModelContent(first.modelContent);
     const second = await tool.handler({ process_id: "p1", cursor });
     expect(second.isError).toBeFalsy();
     expect(second.modelContent).not.toContain("log line");
     expect(second.modelContent).toContain("no new output");
+    expect(second.modelContent).toContain("next_cursor=8");
   });
 
   it("notes overflow when the ring buffer discarded earlier bytes", async () => {

@@ -5,7 +5,12 @@ import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const bashOutputSchema = z.object({
   process_id: z.string().describe("Process id returned by bash run_in_background"),
-  cursor: z.string().optional().describe("Opaque cursor from a previous bash_output call"),
+  cursor: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor from a previous bash_output next_cursor. Omit to re-read from the start of the retained buffer.",
+    ),
 });
 
 export function createBashOutputTool(shell: Shell) {
@@ -13,7 +18,7 @@ export function createBashOutputTool(shell: Shell) {
     name: "bash_output",
     description:
       "Read incremental output from a background process started with bash(run_in_background=true). " +
-      "Pass the cursor from a previous call to avoid re-reading the same bytes.",
+      "Every result ends with next_cursor=… — pass that value as cursor on the next call to avoid re-reading the same bytes.",
     schema: bashOutputSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "READ_ONLY",
@@ -30,8 +35,12 @@ export function createBashOutputTool(shell: Shell) {
           ? `\n\n(earlier output discarded from the ring buffer; ${out.droppedBytes} bytes total)`
           : "";
         const body = out.text.length === 0 ? "(no new output)" : out.text;
+        // Cursor must be model-visible: displayMetadata is UI-only, and a
+        // model that never sees the cursor cannot do an incremental second
+        // read (it re-reads from the start and repeats the same output).
+        const cursorNote = `\n\nnext_cursor=${out.cursor}`;
         return {
-          modelContent: `${body}${overflowNote}`,
+          modelContent: `${body}${overflowNote}${cursorNote}`,
           displayMetadata: {
             processId: input.process_id,
             cursor: out.cursor,
