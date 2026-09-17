@@ -23,8 +23,26 @@ function isPathEscape(segment: string): boolean {
   return segment.includes("/") || segment.includes("\\") || segment.includes("..");
 }
 
+/**
+ * A session id must be a single, non-empty path segment under root.
+ *
+ * The empty string matters as much as a separator does: path.join(root, "")
+ * resolves to root itself, so an unguarded deleteBySession("") would
+ * recursively remove every session's attachments rather than one session's.
+ */
+function isValidSegment(segment: string): boolean {
+  if (segment.trim() === "") return false;
+  if (segment === "." || segment === "..") return false;
+  return !segment.includes("/") && !segment.includes("\\") && !segment.includes("..");
+}
+
 export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): AttachmentStore {
   const root = opts.rootDir ?? path.join(os.homedir(), ".volto", "attachments");
+  if (!isValidSegment(opts.sessionId)) {
+    throw new Error(
+      `Invalid attachment store sessionId: ${JSON.stringify(opts.sessionId)} — must be a non-empty path segment`,
+    );
+  }
   const dirFor = (sessionId: string) => path.join(root, sessionId);
 
   return {
@@ -63,9 +81,10 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
     },
 
     async deleteBySession(sessionId: string) {
-      // Same separator rejection as get(): a sessionId is a single path
-      // segment under root. Anything else would rm outside the store.
-      if (isPathEscape(sessionId)) return;
+      // Reject anything that is not a single non-empty segment: an empty or
+      // "." id resolves to root itself, and separators would rm outside the
+      // store. A stray delete is a runtime call, so ignore rather than throw.
+      if (!isValidSegment(sessionId)) return;
       await fs.rm(dirFor(sessionId), { recursive: true, force: true });
     },
   };
