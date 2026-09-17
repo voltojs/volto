@@ -4,7 +4,14 @@
  * The core imports these interfaces, never their implementations.
  */
 
-import type { AgentState, ContentBlock, Message, PendingToolCall, TodoItem } from "./state.js";
+import type {
+  AgentState,
+  ContentBlock,
+  Message,
+  PendingToolCall,
+  TodoItem,
+  ToolResultBlock,
+} from "./state.js";
 import type { RiskTier, ToolDefinition, JSONSchema } from "./tool.js";
 
 // ──────────────────────────────────────────────
@@ -373,7 +380,12 @@ export interface TranscriptEventMap {
   tool_result: {
     callId: string;
     name?: string;
-    content: string;
+    /**
+     * String for plain-text results (legacy logs stay valid); a block array
+     * when the tool returned images or mixed content. Never join-flattened on
+     * the way in — the attachment ref is the only handle on an image.
+     */
+    content: string | ToolResultBlock[];
     isError: boolean;
     durationMs?: number;
     displayMetadata?: Record<string, unknown>;

@@ -713,15 +713,9 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
           durationMs: input.result.displayMetadata?.["durationMs"],
           // The result's own text and host annotations, so the transcript can
           // record what the tool actually produced rather than just that it ran.
-          // The event log's `content` stays a string; block arrays are joined
-          // here so the transcript surface is unchanged.
-          content:
-            typeof input.result.modelContent === "string"
-              ? input.result.modelContent
-              : input.result.modelContent
-                  .filter((b): b is { type: "text"; text: string } => b.type === "text")
-                  .map((b) => b.text)
-                  .join("\n"),
+          // Structured blocks (including image refs) pass through unchanged —
+          // joining text here would drop attachment ids permanently.
+          content: input.result.modelContent,
           displayMetadata: input.result.displayMetadata,
           // Results arrive in completion order but flush in pendingTools order
           // (see the allDone branch below). Carrying the index lets a reader

@@ -9,7 +9,7 @@
  * Pure: no I/O, no clock, no randomness. Browser-safe.
  */
 
-import type { ContentBlock } from "./state.js";
+import type { ContentBlock, ToolResultBlock } from "./state.js";
 import type {
   ApprovalDenialReason,
   TokenUsage,
@@ -18,6 +18,7 @@ import type {
   TranscriptEventMap,
   TurnEndReason,
 } from "./ports.js";
+import { extractBlockText } from "./text-extract.js";
 
 // ──────────────────────────────────────────────
 // Intermediate layer
@@ -54,7 +55,8 @@ export interface ToolCallRecord {
   orderInBatch: number;
   startedAt: number;
   // ── Result half; all absent until the tool reports. ──
-  content?: string;
+  /** String for plain-text results; a block array when the tool returned images. */
+  content?: string | ToolResultBlock[];
   isError?: boolean;
   durationMs?: number;
   displayMetadata?: Record<string, unknown>;
@@ -489,7 +491,20 @@ export interface ConversationToolCall {
 export type ConversationBlock =
   | { type: "text"; text: string }
   | { type: "tool_call"; call: ConversationToolCall }
-  | { type: "reasoning"; text: string };
+  | { type: "reasoning"; text: string }
+  /**
+   * An image attached to a user message. Ref-only: the UI resolves
+   * `attachmentId` against the attachment endpoint. Base64 must never enter
+   * this projection — the view crosses process boundaries and is rebuilt
+   * from the durable log on every cold load.
+   */
+  | {
+      type: "image";
+      attachmentId: string;
+      mediaType?: string;
+      width?: number;
+      height?: number;
+    };
 
 export interface ConversationMessage {
   /** Stable across incremental rebuilds — never an array index. */
@@ -512,6 +527,37 @@ function textOf(content: string | ContentBlock[]): string {
     .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
     .map((b) => b.text)
     .join("");
+}
+
+/** Flatten a tool result into display text; image blocks become placeholders. */
+function toolResultText(content: string | ToolResultBlock[]): string {
+  if (typeof content === "string") return content;
+  return content.map(extractBlockText).join("\n");
+}
+
+/**
+ * Map user-facing content blocks into the conversation feed. Text and image
+ * refs ride through; other block kinds are not user-message payload.
+ */
+function userConversationBlocks(content: string | ContentBlock[]): ConversationBlock[] {
+  if (typeof content === "string") {
+    return content ? [{ type: "text", text: content }] : [];
+  }
+  const blocks: ConversationBlock[] = [];
+  for (const block of content) {
+    if (block.type === "text") {
+      if (block.text) blocks.push({ type: "text", text: block.text });
+    } else if (block.type === "image") {
+      blocks.push({
+        type: "image",
+        attachmentId: block.source.id,
+        mediaType: block.source.mediaType,
+        ...(block.width !== undefined ? { width: block.width } : {}),
+        ...(block.height !== undefined ? { height: block.height } : {}),
+      });
+    }
+  }
+  return blocks;
 }
 
 /**
@@ -541,7 +587,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
       messages.push({
         id,
         role: "user",
-        blocks: text ? [{ type: "text", text }] : [],
+        blocks: userConversationBlocks(input.content),
         content: text,
         timestamp: input.time,
       });
@@ -575,7 +621,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   id: block.id,
                   name: block.name,
                   args: block.input,
-                  ...(call?.content !== undefined ? { result: call.content } : {}),
+                  ...(call?.content !== undefined ? { result: toolResultText(call.content) } : {}),
                   ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                   ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
                   ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
@@ -904,7 +950,7 @@ export function toTrajectoryView(
           ...(call.childSessionId !== undefined
             ? { childSessionId: call.childSessionId }
             : call.content !== undefined
-              ? { outputDetail: call.content }
+              ? { outputDetail: toolResultText(call.content) }
               : {}),
           ...(header !== undefined
             ? { schemaDetail: JSON.stringify(header.tools.filter((t) => t.name === call.name), null, 2) }

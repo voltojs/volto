@@ -93,6 +93,18 @@ export function MessageBubble({ message, onOpenSubagent }: MessageBubbleProps) {
               }
               return <ToolCallCard key={block.call.id} call={block.call} />;
             }
+            if (block.type === 'image') {
+              // History images are ref-only; the attachment endpoint resolves
+              // the id. Full thumbnail rendering lands with the upload UI.
+              return (
+                <div
+                  key={index}
+                  className="text-muted-foreground rounded-md border border-dashed px-2 py-1 text-xs"
+                >
+                  [image: {block.mediaType ?? 'image'} · {block.attachmentId}]
+                </div>
+              );
+            }
             const isStreamingTail =
               message.isStreaming && index === message.blocks.length - 1;
             return isStreamingTail ? (

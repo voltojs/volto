@@ -154,7 +154,10 @@ export function foldContextUsageEvent(
     }
     case "tool_result": {
       const data = event.data as TranscriptEventMap["tool_result"];
-      const added = tokenizer.count(data.content) + BLOCK_OVERHEAD;
+      const added =
+        typeof data.content === "string"
+          ? tokenizer.count(data.content) + BLOCK_OVERHEAD
+          : estimateContentTokens(data.content, tokenizer) + BLOCK_OVERHEAD;
       return {
         ...fold,
         pendingTokens: fold.pendingTokens + added,
