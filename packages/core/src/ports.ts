@@ -234,14 +234,17 @@ export interface ShellExecOptions {
   env?: Record<string, string>;
 }
 
-export type ShellProcessKind = "background" | "session";
-
+/**
+ * A background process started via `launch`. Persistent shell sessions are
+ * deliberately NOT part of this registry and never appear here — see the
+ * separation rationale in
+ * `docs/superpowers/specs/2026-09-16-shell-lifecycle-design.md` §5.
+ */
 export interface ShellProcessInfo {
   id: string;
   /** OS pid of the managed process; 0 when unknown. */
   pid: number;
   command: string;
-  kind: ShellProcessKind;
   running: boolean;
   /** Set only after exit. */
   exitCode?: number;

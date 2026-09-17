@@ -42,7 +42,6 @@ function stubShell(overrides: Partial<Shell> = {}): Shell {
           id: "bg-1",
           pid: 1,
           command: "x",
-          kind: "background" as const,
           running: false,
         },
       ];

@@ -151,7 +151,6 @@ export function createProcessRegistry(options?: ProcessRegistryOptions): Process
         id: e.id,
         pid: e.pid,
         command: e.command,
-        kind: "background" as const,
         running: e.running,
         ...(e.exitCode !== undefined ? { exitCode: e.exitCode } : {}),
       }));

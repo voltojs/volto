@@ -36,7 +36,6 @@ describe("process registry", () => {
     const info = reg.list().find((p) => p.id === id);
     expect(info).toBeDefined();
     expect(info!.running).toBe(true);
-    expect(info!.kind).toBe("background");
     expect(info!.pid).toBeGreaterThan(0);
   });
 

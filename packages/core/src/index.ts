@@ -82,7 +82,6 @@ export type {
   ShellEventExit,
   ShellEvent,
   ShellExecOptions,
-  ShellProcessKind,
   ShellProcessInfo,
   ShellProcessOutput,
   ShellLaunchOptions,
