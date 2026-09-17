@@ -406,6 +406,11 @@ export interface TranscriptEventMap {
   user_message: { content: string | ContentBlock[] };
   /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event. */
   steering_queued: { content: string | ContentBlock[] };
+  /** A debounced FileWatcher batch injected as AgentInput. Paths only — never file content. */
+  file_changed: {
+    watchId: string;
+    events: Array<{ type: "change" | "rename"; path: string; mtime?: number }>;
+  };
 
   // ── Sub-agents ──
   subagent_started: { childSessionId: string; label: string; depth: number };
