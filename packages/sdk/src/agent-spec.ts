@@ -44,7 +44,11 @@ export interface AgentSpec {
   capabilities?: string[];
   /** Permission policy override */
   policy?: PermissionConfig;
-  /** Enable the task sub-agent tool */
+  /**
+   * Legacy switch, no longer read for sub-agent dispatch. Whether a child may
+   * delegate is decided by `maxAgentDepth` plus the intersection rule: a
+   * definition that lists `tools` must name `task` to get one.
+   */
   enableTaskTool?: boolean;
   /** Max inner-loop iterations */
   maxIterations?: number;

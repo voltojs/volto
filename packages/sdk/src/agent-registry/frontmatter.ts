@@ -15,6 +15,7 @@ import type {
   ApprovalPolicy,
   Decision,
 } from "@volto/core";
+import type { JSONSchema } from "@volto/core";
 import type { AgentSpec } from "../agent-spec.js";
 
 export interface ParsedAgentFile {
@@ -37,6 +38,7 @@ const OWNED_KEYS = new Set([
   "maxIterations",
   "maxToolCalls",
   "enableTaskTool",
+  "responseFormat",
 ]);
 
 const SANDBOX_MODES = new Set<SandboxMode>([
@@ -275,6 +277,31 @@ function isPolicy(value: unknown): value is PermissionConfig {
   return true;
 }
 
+/**
+ * Type guard for `AgentSpec["responseFormat"]`. Only `type: "json"` exists
+ * today; the schema itself is passed through to the provider untouched, so
+ * it is checked for shape (an object) rather than validated as JSON Schema.
+ */
+function isResponseFormat(
+  value: unknown,
+): value is { type: "json"; schema?: JSONSchema } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  for (const k of Object.keys(obj)) {
+    if (k !== "type" && k !== "schema") return false;
+  }
+  if (obj["type"] !== "json") return false;
+  if (obj["schema"] !== undefined) {
+    const schema = obj["schema"];
+    if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // ──────────────────────────────────────────────
 // Owned-field type validation
 // ──────────────────────────────────────────────
@@ -301,6 +328,7 @@ const OWNED_FIELD_TYPES: Record<string, (v: unknown) => boolean> = {
   maxIterations: (v) => typeof v === "number",
   maxToolCalls: (v) => typeof v === "number",
   enableTaskTool: (v) => typeof v === "boolean",
+  responseFormat: isResponseFormat,
 };
 
 /** Returns the offending key when a present owned field has the wrong type. */
@@ -401,6 +429,9 @@ export function parseAgentFile(
       : {}),
     ...(typeof front["enableTaskTool"] === "boolean"
       ? { enableTaskTool: front["enableTaskTool"] }
+      : {}),
+    ...(isResponseFormat(front["responseFormat"])
+      ? { responseFormat: front["responseFormat"] }
       : {}),
     ...(isPolicy(front["policy"]) ? { policy: front["policy"] } : {}),
   };

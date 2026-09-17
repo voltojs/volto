@@ -42,6 +42,34 @@ describe("SubagentForm", () => {
     expect(screen.queryByLabelText(/作用范围/)).not.toBeInTheDocument();
   });
 
+  it("keeps spec fields it does not edit when saving", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        entry={{
+          id: "project:x", name: "x", scope: "project", readOnly: false, shadowed: false,
+          spec: {
+            name: "x",
+            maxIterations: 7,
+            responseFormat: { type: "json", schema: { type: "object" } },
+          },
+        } as never}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.submit(screen.getByDisplayValue("x").closest("form")!);
+    // The server replaces the file's owned frontmatter wholesale, so a field
+    // this form drops is a field the user loses.
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0].spec).toMatchObject({
+      maxIterations: 7,
+      responseFormat: { type: "json", schema: { type: "object" } },
+    });
+  });
+
   it("warns that a project-level definition changes the workspace", () => {
     render(<SubagentForm mode="create" tools={TOOLS} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.click(screen.getByText(/项目级/));

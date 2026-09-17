@@ -26,6 +26,36 @@ describe("parseAgentFile", () => {
     expect(parsed.spec.maxIterations).toBe(20);
   });
 
+  it("maps responseFormat onto the spec", () => {
+    const raw = `---
+name: json-reader
+responseFormat: { type: json, schema: { type: object } }
+---
+
+body
+`;
+    const parsed = parseAgentFile(raw, "/p/a.md");
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.responseFormat).toEqual({
+      type: "json",
+      schema: { type: "object" },
+    });
+    // Owned keys never double as unknown keys, or serialize would emit them twice.
+    expect(parsed.unknownKeys["responseFormat"]).toBeUndefined();
+  });
+
+  it("fails the file when responseFormat is not a json format object", () => {
+    const raw = `---
+name: json-reader
+responseFormat: text
+---
+
+body
+`;
+    const parsed = parseAgentFile(raw, "/p/a.md");
+    expect("error" in parsed && parsed.error).toMatch(/responseFormat/);
+  });
+
   it("uses the body as the system prompt", () => {
     const parsed = parseAgentFile(VALID, "/p/a.md");
     if ("error" in parsed) throw new Error(parsed.error);
