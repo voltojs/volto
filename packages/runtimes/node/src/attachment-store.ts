@@ -74,7 +74,7 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
           fs.readFile(path.join(dir, id + SIDECAR), "utf8"),
         ]);
         const meta = JSON.parse(raw) as StoredAttachment;
-        return { data: bytes.toString("base64"), mimeType: meta.mimeType };
+        return { ...meta, data: bytes.toString("base64") };
       } catch {
         return undefined;
       }

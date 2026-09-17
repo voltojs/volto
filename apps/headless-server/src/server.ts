@@ -573,6 +573,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         const imageBlocks: Array<{
           type: "image";
           source: { type: "ref"; id: string; mediaType: string };
+          width?: number;
+          height?: number;
         }> = [];
         if (body.attachments !== undefined) {
           if (!Array.isArray(body.attachments) || body.attachments.some((a) => typeof a !== "string")) {
@@ -588,11 +590,14 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
                 return;
               }
               // Ref-only: the bytes stay in the store, the Runner resolves
-              // them later. Dimensions are not in the store's get() result,
-              // so they are omitted rather than invented.
+              // them later. Dimensions come from the store's ingest-time
+              // metadata — absent only when the bytes were not recognized
+              // as an image, never invented.
               imageBlocks.push({
                 type: "image",
                 source: { type: "ref", id, mediaType: found.mimeType },
+                ...(found.width === undefined ? {} : { width: found.width }),
+                ...(found.height === undefined ? {} : { height: found.height }),
               });
             }
           }
@@ -625,6 +630,22 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         if (body.reasoningEffort !== undefined) {
           try {
             await registry.resolveConfig(turnConfig);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            jsonResponse(res, 400, { error: message });
+            return;
+          }
+        }
+
+        // Server-side backstop for the composer's vision gate: a model that
+        // declares no image input must refuse the images here, before the
+        // ack, rather than let them travel to a provider that cannot read
+        // them. UI gating alone is not a boundary. Same reasoning-effort
+        // shape above: only an explicit `vision: false` refuses; UNKNOWN
+        // goes through (spec §7).
+        if (imageBlocks.length > 0) {
+          try {
+            await registry.assertImageInput(turnConfig);
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             jsonResponse(res, 400, { error: message });

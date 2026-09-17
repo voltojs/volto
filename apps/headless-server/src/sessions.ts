@@ -206,6 +206,30 @@ async function assertSupportedReasoningEffort(
   }
 }
 
+/**
+ * Validates that a turn carrying images runs against a model that can read
+ * them, throwing when the model declares `vision: false`.
+ *
+ * The composer already hides its attachment entry for such a model, but UI
+ * gating is not a boundary — a direct API call must be refused too. Only an
+ * explicit `false` gates: UNKNOWN (an absent flag, e.g. a gateway that
+ * cannot describe its models) goes through and degrades to whatever the
+ * provider answers, per spec §7.
+ */
+async function assertImageInputSupported(
+  providerId: string | undefined,
+  credentials: ResolvedCredentials,
+): Promise<void> {
+  const providerConfig = buildProviderConfig(providerId, credentials);
+  const port = createPiAiModelPort({ providers: [providerConfig], defaultProviderId: providerConfig.id });
+  const info = await port.describeModel!(credentials.code);
+  if (info.vision === false) {
+    throw new Error(
+      `Model "${credentials.code}" does not support image input; remove the attachments or switch models`,
+    );
+  }
+}
+
 /** SHA-256 hex digest of an apiKey, for change detection without storing the secret. */
 function fingerprintApiKey(apiKey: string): string {
   return crypto.createHash("sha256").update(apiKey).digest("hex");
@@ -1006,5 +1030,21 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
      * as a mid-stream `error` event after the agent factory has already run.
      */
     resolveConfig,
+    /**
+     * Throws when the turn's bound model declares `vision: false`. Exposed
+     * so `POST /messages` can refuse attachments with a real HTTP 400 before
+     * acking the turn.
+     *
+     * A missing or unresolvable binding is NOT this check's business — it
+     * returns quietly and leaves that failure to the existing
+     * resolveConfig()/runTurn() path, which reports it the way every other
+     * binding error is reported.
+     */
+    async assertImageInput(requested: TurnConfig): Promise<void> {
+      if (!providerStore || !requested.providerId || !requested.modelId) return;
+      const resolved = await providerStore.resolveModel(requested.providerId, requested.modelId);
+      if (!resolved) return;
+      await assertImageInputSupported(requested.providerId, resolved);
+    },
   };
 }

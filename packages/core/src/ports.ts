@@ -725,8 +725,15 @@ export interface StoredAttachment {
 export interface AttachmentStore {
   /** Store bytes and return the reference. `data` is base64. */
   put(data: string, mimeType: string): Promise<StoredAttachment>;
-  /** Fetch bytes as base64. Returns undefined when the id is unknown. */
-  get(id: string): Promise<{ data: string; mimeType: string } | undefined>;
+  /**
+   * Fetch the bytes as base64 alongside the metadata recorded at ingest.
+   * Returns undefined when the id is unknown.
+   *
+   * The metadata is part of the contract, not a convenience: a caller
+   * building an ImageContent ref has no other source for `width`/`height`,
+   * and without them the token estimate falls back to a constant.
+   */
+  get(id: string): Promise<(StoredAttachment & { data: string }) | undefined>;
   /** Drop every attachment belonging to a session. */
   deleteBySession(sessionId: string): Promise<void>;
 }

@@ -89,12 +89,14 @@ describe("uploaded attachments on the model request", () => {
     const blocks = userBlocks(requests[0]!.messages);
 
     // The bytes themselves must be on the wire, carrying the upload's mime
-    // type. Dimensions are absent by a separate, known gap: AttachmentStore
-    // .get() returns no metadata, so POST /messages cannot stamp the ref
-    // with width/height.
+    // type and the dimensions recorded at ingest — the area formula in
+    // core's token estimate falls back to a conservative constant without
+    // them, so an image with known size must never arrive unstamped.
     expect(blocks).toContainEqual({
       type: "image",
       source: { type: "base64", mediaType: "image/png", data: PNG_B64 },
+      width: 1,
+      height: 1,
     });
 
     // And the degradation path must not have fired.
