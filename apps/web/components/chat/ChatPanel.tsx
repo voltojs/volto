@@ -138,8 +138,12 @@ export function ChatPanel() {
 
   // Once a session exists (the conversation branch below), sendMessage can
   // dispatch directly — the welcome screen is the only place that still needs
-  // to create one first, via startSession.
-  const handleSubmit = (content: string) => sendMessage(content);
+  // to create one first, via startSession. The welcome InputBar has no
+  // sessionId yet, so its attachment entries stay off and it keeps the
+  // text-only `onSubmit` path; the conversation bar carries ready attachment
+  // ids through `onSend`.
+  const handleSubmit = (payload: { text: string; attachments: string[] }) =>
+    void sendMessage(payload.text, payload.attachments);
 
   // Approvals still waiting on the user, derived from the buffered event
   // stream (see lib/approvals.ts) so a reconnect shows the same set as the
@@ -571,7 +575,8 @@ export function ChatPanel() {
                 </div>
               )}
               <InputBar
-                onSubmit={handleSubmit}
+                onSend={handleSubmit}
+                sessionId={currentSessionId}
                 projectId={currentProject?.id ?? null}
                 onInputAction={handleInputAction}
                 disabled={

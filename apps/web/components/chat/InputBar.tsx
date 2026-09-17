@@ -6,10 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Square, Paperclip } from 'lucide-react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import { Document } from '@tiptap/extension-document';
@@ -23,8 +24,10 @@ import { PluginKey } from '@tiptap/pm/state';
 import { Button } from '@/components/ui/button';
 import { matchActionCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
 import { drillPath, type MentionEntry } from '@/lib/mention-data';
+import { usePendingAttachments } from '@/hooks/use-attachments';
 import { SlashPanel } from './SlashPanel';
 import { FileMentionPanel } from './FileMentionPanel';
+import { AttachmentChips } from './AttachmentChips';
 import { createSuggestionPopup } from './suggestion-popup';
 import { SlashCommandNode } from './slash-command-node';
 
@@ -33,6 +36,12 @@ const SingleParagraphDocument = Document.extend({ content: 'paragraph' });
 
 export interface InputBarProps {
   onSubmit?: (message: string) => void;
+  /**
+   * Preferred send path once attachments exist: carries the trimmed text plus
+   * the server ids of every ready upload. `onSubmit` stays for callers that
+   * have no attachment surface (subagent continued-chat).
+   */
+  onSend?: (payload: { text: string; attachments: string[] }) => void;
   disabled?: boolean;
   placeholder?: string;
   /** Controls on the left of the toolbar (permission / project pickers). */
@@ -53,10 +62,23 @@ export interface InputBarProps {
   onInputAction?: (action: InputAction) => void;
   /** 编辑器实例注入口（测试与高级用法）。 */
   onEditorReady?: (editor: Editor) => void;
+  /**
+   * Session the attachments belong to. Uploads are session-scoped on the
+   * server, so the image entries stay off until a session exists (the
+   * welcome screen creates one only on first send).
+   */
+  sessionId?: string | null;
+  /**
+   * Whether the selected model accepts images. `false` disables all three
+   * entry points and explains why; `undefined`/`true` keeps them enabled —
+   * an absent capability record must not silently block a supported path.
+   */
+  visionSupported?: boolean;
 }
 
 export function InputBar({
   onSubmit,
+  onSend,
   disabled,
   placeholder,
   toolbar,
@@ -66,13 +88,42 @@ export function InputBar({
   projectId,
   onInputAction,
   onEditorReady,
+  sessionId,
+  visionSupported,
 }: InputBarProps) {
   const [isEmpty, setIsEmpty] = useState(true);
+
+  // 附件条目：sessionId 缺失时上传无处可去（服务端按会话隔离），入口整体关闭。
+  // hook 仍需无条件调用（rules of hooks），空串只是占位，add 不会在该状态下触发。
+  const attachmentsEnabled = Boolean(sessionId) && visionSupported !== false;
+  const {
+    items: pendingItems,
+    add: addAttachment,
+    remove: removeAttachment,
+    retry: retryAttachment,
+    clear: clearAttachments,
+  } = usePendingAttachments(sessionId ?? '');
+  // 发送前经 ref 读取最新列表：submit 是 [] 依赖的 useCallback，闭包里的
+  // items 会过期；与 onSubmitRef 同一套路。
+  const pendingItemsRef = useRef(pendingItems);
+  const addAttachmentRef = useRef(addAttachment);
+  const removeAttachmentRef = useRef(removeAttachment);
+  const retryAttachmentRef = useRef(retryAttachment);
+  const clearAttachmentsRef = useRef(clearAttachments);
+  const attachmentsEnabledRef = useRef(attachmentsEnabled);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** 只接受图片文件；其余（文本拖拽、mention 粘贴）原样放行。 */
+  const takeImageFiles = useCallback((fileList: FileList | null | undefined): File[] => {
+    if (!fileList) return [];
+    return Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+  }, []);
 
   // 编辑器实例只创建一次，回调经 ref 读取最新 props，闭包不过期。
   // react-hooks v7 的 refs 规则禁止在 render 期写 ref，镜像挪进无依赖
   // effect（每次 render 后运行；事件回调的读取时机都在其之后，时序等价）。
   const onSubmitRef = useRef(onSubmit);
+  const onSendRef = useRef(onSend);
   const onInputActionRef = useRef(onInputAction);
   const disabledRef = useRef(disabled);
   const placeholderRef = useRef(placeholder);
@@ -266,10 +317,22 @@ export function InputBar({
     const editor = editorRef.current;
     if (!editor || disabledRef.current) return;
     const text = editor.getText({ blockSeparator: '\n' }).trim();
+    // 只有附件、没有文字时不发送：服务端把 message 当必填（POST /messages
+    // 无 message 直接 400），前端提前拦下比让请求失败更安静。
     if (!text) return;
+    // 上传还在飞就发送，等于引用一个还不存在的 id —— 服务端会 400。
+    // 在这里拦（而非只靠按钮 disabled）：Enter 提交走的是同一条路径。
+    if (pendingItemsRef.current.some((item) => item.status === 'uploading')) return;
     const action = matchActionCommand(text);
     if (action) {
       onInputActionRef.current?.(action.action);
+    } else if (onSendRef.current) {
+      const attachments = pendingItemsRef.current
+        .filter((item) => item.status === 'ready' && item.id !== undefined)
+        .map((item) => item.id as string);
+      onSendRef.current({ text, attachments });
+      // 已随消息送出的附件不应再留在待发列表里（再次发送会重复引用同一批 id）。
+      clearAttachmentsRef.current();
     } else {
       onSubmitRef.current?.(text);
     }
@@ -279,12 +342,19 @@ export function InputBar({
 
   useEffect(() => {
     onSubmitRef.current = onSubmit;
+    onSendRef.current = onSend;
     onInputActionRef.current = onInputAction;
     disabledRef.current = disabled;
     placeholderRef.current = placeholder;
     projectIdRef.current = projectId;
     onEditorReadyRef.current = onEditorReady;
     submitRef.current = submit;
+    pendingItemsRef.current = pendingItems;
+    addAttachmentRef.current = addAttachment;
+    removeAttachmentRef.current = removeAttachment;
+    retryAttachmentRef.current = retryAttachment;
+    clearAttachmentsRef.current = clearAttachments;
+    attachmentsEnabledRef.current = attachmentsEnabled;
   });
 
   const editor = useEditor({
@@ -329,6 +399,18 @@ export function InputBar({
         }
         return false;
       },
+      // 粘贴入口：仅当剪贴板真的带了图片文件时接管。返回 false 让 prosemirror
+      // 继续默认粘贴——文本粘贴、mention 触发、slash 面板都不受影响。
+      handlePaste: (_view, event) => {
+        if (!attachmentsEnabledRef.current) return false;
+        const images = Array.from(event.clipboardData?.files ?? []).filter((f) =>
+          f.type.startsWith('image/'),
+        );
+        if (images.length === 0) return false;
+        event.preventDefault();
+        for (const file of images) void addAttachmentRef.current(file);
+        return true;
+      },
     },
     onCreate: ({ editor: instance }) => {
       editorRef.current = instance;
@@ -361,16 +443,72 @@ export function InputBar({
     submit();
   };
 
+  // 拖拽入口：拖的是文件才 preventDefault（接管），文本拖拽/内部拖动原样放行。
+  const handleDragOver = (e: DragEvent) => {
+    if (!attachmentsEnabled) return;
+    if (Array.from(e.dataTransfer.types ?? []).includes('Files')) e.preventDefault();
+  };
+  const handleDrop = (e: DragEvent) => {
+    if (!attachmentsEnabled) return;
+    const images = takeImageFiles(e.dataTransfer?.files);
+    if (images.length === 0) return;
+    e.preventDefault();
+    for (const file of images) void addAttachment(file);
+  };
+
+  const hasUploading = pendingItems.some((item) => item.status === 'uploading');
   const showStop = Boolean(isGenerating && onStop);
 
   return (
     <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-4">
-      <div className="bg-card focus-within:border-ring focus-within:ring-ring/30 rounded-xl border shadow-sm transition-shadow focus-within:ring-3">
+      <div
+        data-testid="composer-drop-zone"
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className="bg-card focus-within:border-ring focus-within:ring-ring/30 rounded-xl border shadow-sm transition-shadow focus-within:ring-3"
+      >
+        <AttachmentChips
+          items={pendingItems}
+          onRemove={removeAttachment}
+          onRetry={(localId) => void retryAttachment(localId)}
+        />
         {/* 占位内容区：点击非编辑区也能聚焦编辑器（原 textarea 的整域点击语义） */}
         <div onClick={() => editor?.commands.focus()}>
           <EditorContent editor={editor} />
         </div>
         <div className="flex items-center gap-1 px-2.5 pb-2.5">
+          {attachmentsEnabled && (
+            <>
+              {/* 隐藏的 file input：由左侧 paperclip 按钮触发，accept 限图片。 */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                data-testid="attachment-file-input"
+                className="hidden"
+                onChange={(e) => {
+                  const images = takeImageFiles(e.target.files);
+                  // 清空 value：同一文件被再次选中时 change 仍会触发。
+                  e.target.value = '';
+                  for (const file of images) void addAttachment(file);
+                }}
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="text-muted-foreground h-8 w-8 shrink-0 rounded-full"
+                aria-label="添加图片"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+          {!attachmentsEnabled && visionSupported === false && (
+            <span className="text-muted-foreground text-xs">当前模型不支持图片输入</span>
+          )}
           {toolbar}
           <div className="ml-auto flex items-center gap-1">
             {trailing}
@@ -392,8 +530,9 @@ export function InputBar({
               <Button
                 type="submit"
                 size="icon"
+                data-testid="composer-send"
                 className="h-8 w-8 shrink-0 rounded-full"
-                disabled={isEmpty || disabled}
+                disabled={isEmpty || disabled || hasUploading}
                 aria-label="发送"
               >
                 <ArrowUp className="h-4 w-4" />

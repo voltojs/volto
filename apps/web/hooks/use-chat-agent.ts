@@ -23,7 +23,12 @@ interface Connection {
 }
 
 interface UseChatAgentReturn {
-  sendMessage: (content: string) => Promise<void>;
+  /**
+   * `attachments` carries server-side attachment ids staged by
+   * `POST /attachments`; they travel with the message body so the gateway
+   * can resolve them into image blocks.
+   */
+  sendMessage: (content: string, attachments?: string[]) => Promise<void>;
   /** Cancels the turn currently streaming, if any. */
   stopGeneration: () => Promise<void>;
   connectionState: ConnectionState;
@@ -179,7 +184,7 @@ export function useChatAgent(): UseChatAgentReturn {
   }, [currentSessionId, ensureConnection]);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, attachments?: string[]) => {
       if (useChatStore.getState().isGenerating) return;
 
       const sessionStore = useSessionStore.getState();
@@ -214,16 +219,21 @@ export function useChatAgent(): UseChatAgentReturn {
 
       try {
         await ensureConnection(sessionId);
-        await postMessage(sessionId, content, {
-          projectId: session?.projectId ?? null,
-          providerId: session?.providerId ?? null,
-          modelId: session?.modelId ?? null,
-          permissionMode: session?.permissionMode,
-          // The session is the single source of truth for the tier: the
-          // picker writes it there, and omitting it here silently ran every
-          // turn at the provider's own default no matter what the user chose.
-          reasoningEffort: session?.reasoningEffort,
-        });
+        await postMessage(
+          sessionId,
+          content,
+          {
+            projectId: session?.projectId ?? null,
+            providerId: session?.providerId ?? null,
+            modelId: session?.modelId ?? null,
+            permissionMode: session?.permissionMode,
+            // The session is the single source of truth for the tier: the
+            // picker writes it there, and omitting it here silently ran every
+            // turn at the provider's own default no matter what the user chose.
+            reasoningEffort: session?.reasoningEffort,
+          },
+          attachments,
+        );
       } catch (error) {
         const message =
           error instanceof Error ? error.message : '发送失败，请稍后重试';

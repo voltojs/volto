@@ -60,11 +60,16 @@ export interface TurnConfig {
 /**
  * Ask the server to run one turn. The response only acknowledges the request —
  * the actual output arrives on the session's SSE channel.
+ *
+ * `attachments` carries server-side attachment ids (from `POST /attachments`).
+ * The gateway resolves each id to an image block before acking; an unknown id
+ * is a 400, never a silent drop.
  */
 export async function postMessage(
   sessionId: string,
   message: string,
   config: TurnConfig = {},
+  attachments?: string[],
 ): Promise<void> {
   const response = await fetch(`${SERVER_URL}/messages`, {
     method: 'POST',
@@ -82,6 +87,10 @@ export async function postMessage(
       ...(config.reasoningEffort
         ? { reasoningEffort: config.reasoningEffort }
         : {}),
+      // Omit when empty: the gateway treats a missing field and an empty
+      // list identically, but sending nothing keeps the common no-image
+      // request body unchanged.
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     }),
   });
 
