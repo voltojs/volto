@@ -106,6 +106,15 @@ export function createAgentStore(opts: CreateAgentStoreOptions): AgentStore {
     async update(id, spec) {
       const parsedId = parseId(id);
       if (!parsedId) return undefined;
+      // The id pins both scope and file name; a diverging spec.name would
+      // write a frontmatter name that disagrees with the file it lives in.
+      // Renames go through remove + create.
+      if (spec.name !== parsedId.name) {
+        throw new Error(
+          `cannot update ${id}: spec.name ${JSON.stringify(spec.name)} does not match the id's name ` +
+            `${JSON.stringify(parsedId.name)} — use remove + create to rename`,
+        );
+      }
       const filePath = path.join(writeDir(parsedId.scope), `${parsedId.name}.md`);
       let raw: string;
       try {

@@ -38,6 +38,22 @@ describe("serializeAgentFile", () => {
     if ("error" in parsed) throw new Error(parsed.error);
     expect(parsed.unknownKeys).toMatchObject({ authoredBy: "leo" });
   });
+
+  it("round-trips responseFormat instead of silently dropping it", () => {
+    const spec = {
+      name: "structured",
+      responseFormat: {
+        type: "json" as const,
+        schema: { type: "object", properties: { answer: { type: "string" } } },
+      },
+    };
+    const out = serializeAgentFile(spec);
+    expect(out).toContain("responseFormat: {type: json, schema: {type: object, properties: {answer: {type: string}}}}");
+    const parsed = parseAgentFile(out, "/structured.md");
+    if ("error" in parsed) throw new Error(parsed.error);
+    // The parser does not own responseFormat; it must survive as an unknownKey.
+    expect(parsed.unknownKeys["responseFormat"]).toMatchObject({ type: "json" });
+  });
 });
 
 describe("AgentStore", () => {
@@ -90,6 +106,16 @@ describe("AgentStore", () => {
     const created = await s.create({ spec: { name: "gone" }, scope: "project" });
     await expect(s.remove("project:gone")).resolves.toBe(true);
     await expect(fs.access(created.filePath!)).rejects.toThrow();
+  });
+
+  it("rejects an update whose spec.name diverges from the id's name", async () => {
+    const { store: s } = await store();
+    const created = await s.create({ spec: { name: "keep" }, scope: "project" });
+    await expect(
+      s.update("project:keep", { name: "renamed" }),
+    ).rejects.toThrow(/does not match.*name/i);
+    // The mismatch must be rejected before any write.
+    await expect(fs.readFile(created.filePath!, "utf8")).resolves.toContain("name: keep");
   });
 
   it("returns undefined / false for an unknown id instead of throwing", async () => {

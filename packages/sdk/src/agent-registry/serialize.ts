@@ -73,6 +73,7 @@ export function serializeAgentFile(
   push("enableTaskTool", spec.enableTaskTool);
   push("maxIterations", spec.maxIterations);
   push("maxToolCalls", spec.maxToolCalls);
+  push("responseFormat", spec.responseFormat);
 
   for (const [key, value] of Object.entries(unknownKeys)) {
     // A key already written from the spec must not appear twice.
