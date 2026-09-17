@@ -53,43 +53,133 @@ function wrapWithCwd(cmd: string, cwd?: string): string {
   return `(cd '${escaped}' && ${cmd})`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Best-effort signal; a process that already exited must not throw. */
+function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    child.kill(signal);
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
+ * Wait until the child process itself has exited (exitCode or signalCode
+ * set, or an exit/close event). A grandchild holding the stdio pipes must
+ * not block us forever, so this is bounded by `timeoutMs`.
+ */
+function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      child.removeListener("exit", done);
+      child.removeListener("close", done);
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    child.once("exit", done);
+    child.once("close", done);
+  });
+}
+
 export function createPersistentSession(options: PersistentSessionOptions): PersistentSession {
   const id = `session-${++sessionSeq}`;
   const generateNonce =
     options.generateNonce ?? (() => randomBytes(8).toString("hex"));
 
-  // Task 5 rebuilds the session by replacing this handle; keep the binding name stable.
-  const handle: SessionSpawnHandle = options.spawn({ cwd: options.cwd });
+  // Reassigned on rebuild (stuck-command recovery).
+  let handle: SessionSpawnHandle = options.spawn({ cwd: options.cwd });
   let alive = true;
   let childExitCode: number | null = null;
   let stdoutBuf = "";
   let stderrBuf = "";
   // Serializes run() — a persistent shell is a single ordered pipeline.
   let queue: Promise<unknown> = Promise.resolve();
+  // Guards cleanup() so signal-death + kill() cannot double-call it.
+  let cleanedUp = false;
 
-  handle.child.stdout?.on("data", (c: Buffer) => {
-    stdoutBuf += c.toString("utf8");
-  });
-  handle.child.stderr?.on("data", (c: Buffer) => {
-    stderrBuf += c.toString("utf8");
-  });
-  handle.child.on("close", (code) => {
-    alive = false;
-    childExitCode = code;
-  });
+  /**
+   * Bind stdio/close listeners for a spawn handle. Used for the first
+   * spawn and again after a rebuild. Listeners ignore events from a child
+   * that is no longer the current one (a late close from a killed shell
+   * must not flag the rebuilt session as dead).
+   */
+  function attachStreams(h: SessionSpawnHandle): void {
+    const child = h.child;
+    child.stdout?.on("data", (c: Buffer) => {
+      if (handle.child !== child) return;
+      stdoutBuf += c.toString("utf8");
+    });
+    child.stderr?.on("data", (c: Buffer) => {
+      if (handle.child !== child) return;
+      stderrBuf += c.toString("utf8");
+    });
+    child.on("close", (code) => {
+      if (handle.child !== child) return;
+      alive = false;
+      childExitCode = code;
+    });
+  }
+
+  function runCleanup(): void {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    handle.cleanup?.();
+  }
+
+  attachStreams(handle);
 
   async function kill(): Promise<void> {
-    if (!alive && handle.child.exitCode !== null) {
-      handle.cleanup?.();
+    // Signal-death sets signalCode and leaves exitCode null; keying the
+    // early-return on exitCode alone misses that case and double-cleans.
+    if (!alive) {
+      runCleanup();
       return;
     }
-    handle.child.kill("SIGKILL");
-    await new Promise<void>((r) => {
-      if (!alive) return r();
-      handle.child.once("close", () => r());
-    });
-    handle.cleanup?.();
+    signalChild(handle.child, "SIGKILL");
+    await waitForProcessExit(handle.child, 2000);
     alive = false;
+    runCleanup();
+  }
+
+  /**
+   * Stuck-command recovery chain (spec §7):
+   * timeout → SIGINT → gracePeriodMs → SIGKILL → cleanup → respawn.
+   * The rebuilt session starts at options.cwd with a clean environment, so
+   * the result carries an explicit stateResetReason the model must see.
+   */
+  async function interruptAndRebuild(reason: string): Promise<SessionCommandResult> {
+    const stale = handle;
+    signalChild(stale.child, "SIGINT");
+    await sleep(options.gracePeriodMs ?? 2000);
+    if (stale.child.exitCode === null && stale.child.signalCode === null) {
+      signalChild(stale.child, "SIGKILL");
+      await waitForProcessExit(stale.child, 2000);
+    }
+    // Drop stdio so a grandchild holding the pipes cannot wedge cleanup.
+    stale.child.stdin?.destroy();
+    stale.child.stdout?.destroy();
+    stale.child.stderr?.destroy();
+    stale.cleanup?.();
+    handle = options.spawn({ cwd: options.cwd });
+    cleanedUp = false;
+    stdoutBuf = "";
+    stderrBuf = "";
+    childExitCode = null;
+    attachStreams(handle);
+    alive = true;
+    return {
+      stdout: "",
+      stderr: reason,
+      exitCode: 124,
+      stateResetReason:
+        "Session was rebuilt after a stuck command. " +
+        "Working directory and environment variables were reset to the session defaults.",
+    };
   }
 
   async function runOnce(
@@ -137,13 +227,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         };
       }
       if (Date.now() - start > timeoutMs) {
-        // Task 5 replaces this with SIGINT → grace → kill+rebuild.
-        return {
-          stdout: "",
-          stderr: "timeout",
-          exitCode: 124,
-          stateResetReason: "timeout",
-        };
+        return interruptAndRebuild("command timed out");
       }
       await new Promise((r) => setTimeout(r, 15));
     }

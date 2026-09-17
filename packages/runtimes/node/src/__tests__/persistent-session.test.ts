@@ -119,12 +119,15 @@ describe("marker protocol", () => {
     const s = makeSession({
       generateNonce: () => "fixednonce",
       defaultTimeoutMs: 300,
+      gracePeriodMs: 50,
     });
     // A stdin-reading builtin: the canonical stuck case from the spec.
     // Avoids forking a child that would hold stdio pipes open on kill().
     const r = await s.run("read -r");
     expect(r.exitCode).toBe(124);
-    expect(r.stateResetReason).toBe("timeout");
+    // Task 5: timeout no longer poisons the session — it rebuilds it.
+    expect(r.stateResetReason).toMatch(/rebuilt/i);
+    expect(s.alive).toBe(true);
   });
 });
 
@@ -173,5 +176,82 @@ describe("cwd option", () => {
     expect(still.stdout.trim()).toMatch(/\/tmp$/);
     // Subshell must not respawn the long-lived child either.
     expect(lastChild?.pid).toBe(pid);
+  });
+});
+
+describe("stuck-command recovery", () => {
+  it("times out a bare cat, rebuilds, and reports state reset", async () => {
+    const s = makeSession({ defaultTimeoutMs: 400, gracePeriodMs: 200 });
+    await s.run("cd /tmp");
+    const r = await s.run("cat"); // eats stdin / never finishes
+    expect(r.stateResetReason).toBeDefined();
+    expect(r.stateResetReason).toMatch(/rebuilt/i);
+    expect(r.stateResetReason).toMatch(/Working directory/i);
+    expect(s.alive).toBe(true);
+  });
+
+  it("after rebuild, previous cd is gone", async () => {
+    const s = makeSession({ defaultTimeoutMs: 400, gracePeriodMs: 200 });
+    await s.run("cd /tmp");
+    await s.run("cat"); // forces rebuild
+    const pwd = await s.run("pwd");
+    // Positive assertion: the rebuilt session starts back at options.cwd.
+    // An empty stdout would also "not match /\/tmp$/" — that is not a pass.
+    expect(pwd.exitCode).toBe(0);
+    expect(pwd.stdout.trim()).toBe(process.cwd());
+  });
+
+  it("session remains usable for normal commands after recovery", async () => {
+    const s = makeSession({ defaultTimeoutMs: 400, gracePeriodMs: 200 });
+    await s.run("cat");
+    const r = await s.run("echo recovered");
+    expect(r.stdout).toContain("recovered");
+    expect(r.exitCode).toBe(0);
+    expect(r.stateResetReason).toBeUndefined();
+  });
+
+  it("rebuild replaces the child process", async () => {
+    const s = makeSession({ defaultTimeoutMs: 400, gracePeriodMs: 200 });
+    const pidBefore = lastChild!.pid;
+    expect(pidBefore).toBeGreaterThan(0);
+    await s.run("cat");
+    const pidAfter = lastChild!.pid;
+    expect(pidAfter).toBeGreaterThan(0);
+    // Same logical session, different OS process.
+    expect(pidAfter).not.toBe(pidBefore);
+    expect(s.alive).toBe(true);
+  });
+
+  it("kill() after signal-death does not double-call cleanup", async () => {
+    let cleanupCalls = 0;
+    const s = createPersistentSession({
+      spawn: ({ cwd }) => {
+        const child = spawn("/bin/bash", ["-s"], {
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        lastChild = child;
+        return {
+          child,
+          cleanup: () => {
+            cleanupCalls += 1;
+          },
+        };
+      },
+      cwd: process.cwd(),
+      defaultTimeoutMs: 30_000,
+    });
+    sessions.push(s);
+    // Signal-death: exitCode stays null, signalCode is set. The old
+    // early-return keyed on `exitCode !== null` missed this case and fell
+    // through to a second cleanup call.
+    lastChild!.kill("SIGKILL");
+    await new Promise((r) => {
+      lastChild!.once("close", () => r(undefined));
+    });
+    expect(s.alive).toBe(false);
+    await s.kill();
+    await s.kill();
+    expect(cleanupCalls).toBe(1);
   });
 });
