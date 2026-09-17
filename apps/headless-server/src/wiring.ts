@@ -24,7 +24,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
+import type { AttachmentStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createSkillRegistry } from "./skills/registry.js";
@@ -114,6 +114,14 @@ export interface WiringOptions {
   chatStore?: TranscriptStore;
   /** The chatStore's stable, whole-conversation session id. */
   chatSessionId?: string;
+  /**
+   * Store the Runner resolves image refs against. Must be the very store the
+   * /attachments routes wrote to: createAgent's own default is rooted at
+   * ~/.volto/attachments and ignores VOLTO_CONFIG_DIR, so leaving it to the
+   * default makes every uploaded image degrade to "[image unavailable]"
+   * whenever the config dir is redirected.
+   */
+  attachmentStore?: AttachmentStore;
   /**
    * Config binding recorded once as a `session_meta` transcript event (via
    * chatStore.appendEvents()) when the agent is (re)built. Widened with an
@@ -367,6 +375,7 @@ export function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
+    ...(opts.attachmentStore ? { attachmentStore: opts.attachmentStore } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),

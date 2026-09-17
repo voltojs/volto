@@ -109,13 +109,22 @@ function isEventPayload(data: unknown): data is FrameEventPayload {
   );
 }
 
-export async function startTestServer(): Promise<TestServer> {
+export interface StartTestServerOptions {
+  /**
+   * Model port the gateway hands to createAgent. Defaults to IDLE_MODEL;
+   * tests that need to inspect the assembled ModelRequest inject a
+   * capturing port here.
+   */
+  modelPort?: ModelPort;
+}
+
+export async function startTestServer(opts: StartTestServerOptions = {}): Promise<TestServer> {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
   process.env["VOLTO_CONFIG_DIR"] = configDir;
 
   const server: HeadlessServer = await createServer({
     port: 0,
-    modelPort: IDLE_MODEL,
+    modelPort: opts.modelPort ?? IDLE_MODEL,
     chatStore: createStore({ directory: configDir }),
   });
 

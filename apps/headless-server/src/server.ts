@@ -374,14 +374,22 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
   const pathRevealer = opts.pathRevealer ?? createPathRevealer();
   const chatStore = opts.chatStore ?? createJsonlStore({ directory: path.join(getConfigDir(), "sessions") });
-  const registry = createSessionRegistry({ ...opts, projectStore, providerStore, chatStore });
   // Attachment root lives under the config dir (~/.volto/attachments by
   // default) — outside the workspace so the agent cannot read its own store
-  // back through read_file / glob / bash. One cache serves both the
-  // /attachments routes and POST /messages' pre-ack id validation.
+  // back through read_file / glob / bash. One cache serves the /attachments
+  // routes, POST /messages' pre-ack id validation, AND the agent itself:
+  // the Runner resolves image refs against the same store, so an id that
+  // validated here is one it can actually read back.
   const attachmentRoot = path.join(getConfigDir(), "attachments");
   const attachmentStoreFor = createAttachmentStoreCache(attachmentRoot);
   const attachmentRoutes = createAttachmentRoutes({ storeFor: attachmentStoreFor });
+  const registry = createSessionRegistry({
+    ...opts,
+    projectStore,
+    providerStore,
+    chatStore,
+    attachmentStoreFor,
+  });
 
   /**
    * Only a browser attaches an `Origin` header; a non-browser client (curl,

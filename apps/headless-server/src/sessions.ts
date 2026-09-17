@@ -22,8 +22,15 @@ import { resolveProjectPath, unknownProjectMessage, type createProjectStore } fr
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
 import { getConfigDirRealPath } from "./config/paths.js";
+import type { StoreFor } from "./attachments/store.js";
 
-export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore"> {
+export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore" | "attachmentStore"> {
+  /**
+   * Per-session attachment store factory, shared with the /attachments
+   * routes. Session-scoped, so it is a factory here rather than the single
+   * `attachmentStore` WiringOptions takes.
+   */
+  attachmentStoreFor?: StoreFor;
   /** Maximum number of live sessions before the oldest is evicted. @default 100 */
   maxSessions?: number;
   /** Events retained per session for Last-Event-ID replay. @default 200 */
@@ -377,6 +384,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     providerStore,
     agentFactory,
     chatStore,
+    attachmentStoreFor,
     // Destructured out so `wiring` never carries a raw `false` that the
     // spread below would leak into createAgent.
     compaction: configuredCompaction,
@@ -728,6 +736,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...wiring,
       // Explicit override of the spread so the default-on decision is visible here.
       ...(compaction !== undefined ? { compaction } : {}),
+      // Same store the /attachments routes wrote to, scoped to this session:
+      // the Runner resolves image refs against it when it assembles the
+      // ModelRequest.
+      ...(attachmentStoreFor ? { attachmentStore: attachmentStoreFor(session.id) } : {}),
       ...(config.projectPath ? { cwd: config.projectPath } : {}),
       configDirRealPath,
       ...(credentials
