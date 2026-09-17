@@ -40,7 +40,7 @@ const bashSchema = z.object({
 export interface BashToolOptions {
   /**
    * Lazy persistent session. When provided and the call is not
-   * isolated / run_in_background, bash routes through session.run.
+   * isolated / runInBackground, bash routes through session.run.
    */
   getSession?: () => BashSessionLike | undefined;
 }
@@ -52,7 +52,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       "Execute a shell command. By default this uses a persistent session so " +
       "cd, export, and source effects carry across calls. Pass isolated=true " +
       "for a one-shot process that neither sees nor changes session state. " +
-      "Pass run_in_background=true for a long-lived process (use bash_output / " +
+      "Pass runInBackground=true for a long-lived process (use bash_output / " +
       "kill_shell). Output may be truncated when large.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],

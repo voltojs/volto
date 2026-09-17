@@ -150,6 +150,10 @@ describe("bash tool", () => {
     const tool = createBashTool(mockShell(""));
     expect(tool.definition.description).toMatch(/persistent|持久/i);
     expect(tool.definition.description).toMatch(/isolated/i);
+    // The description must use the real Zod field name, or a model that
+    // follows it sends snake_case and Zod silently drops the flag.
+    expect(tool.definition.description).toMatch(/runInBackground/i);
+    expect(tool.definition.description).not.toMatch(/run_in_background/i);
   });
 
   it("background launch result explains how to read output", async () => {
