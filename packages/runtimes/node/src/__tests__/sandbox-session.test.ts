@@ -7,8 +7,6 @@ import { createSandboxedShell, createSandboxSessionSpawner } from "../sandbox.js
 import { createNodeShell } from "../shell.js";
 import { createPersistentSession, type PersistentSession } from "../persistent-session.js";
 
-const itDarwin = process.platform === "darwin" ? it : it.skip;
-
 /** Snapshot of seatbelt profile files currently in tmpdir. */
 function listSandboxProfiles(): string[] {
   return fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith("volto-sandbox-"));
@@ -211,6 +209,3 @@ describe("sandboxed persistent session (linux bwrap)", () => {
     }
   });
 });
-
-// itDarwin keeps the constant referenced even when the outer describe skips.
-void itDarwin;
