@@ -74,6 +74,39 @@ describe("narrowPermission", () => {
     expect(evaluatePermission(out, "bash", "WRITE_HIGH")).toBe("deny");
   });
 
+  // A parent `allow` is an exemption granted to the parent session (often a
+  // user's "always allow this tool"). Rules outrank the matrix, so carrying
+  // it into a child narrowed to read-only would let the child write anyway —
+  // the definition's sandbox would be decoration.
+  it("drops a parent allow rule when the child declares its own policy", () => {
+    const exemptingParent: PermissionConfig = {
+      sandbox: "workspace-write",
+      approval: "ask",
+      rules: [{ toolName: "edit_file", decision: "allow" }],
+    };
+    const out = narrowPermission(exemptingParent, { sandbox: "read-only", approval: "ask" });
+    expect(out.sandbox).toBe("read-only");
+    expect(evaluatePermission(out, "edit_file", "WRITE_LOW")).not.toBe("allow");
+  });
+
+  it("keeps a parent allow rule when there is no child policy to narrow to", () => {
+    const exemptingParent: PermissionConfig = {
+      sandbox: "workspace-write",
+      approval: "ask",
+      rules: [{ toolName: "edit_file", decision: "allow" }],
+    };
+    // No definition policy: the child runs the parent's boundary as-is, so
+    // the parent's own exemptions still apply.
+    expect(evaluatePermission(narrowPermission(exemptingParent, undefined), "edit_file", "WRITE_LOW")).toBe(
+      "allow",
+    );
+  });
+
+  it("keeps a parent deny rule even when the child declares a policy", () => {
+    const out = narrowPermission(parent, { sandbox: "read-only", approval: "ask" });
+    expect(evaluatePermission(out, "bash", "WRITE_HIGH")).toBe("deny");
+  });
+
   it("keeps a child ask rule so the matrix cannot silently allow it", () => {
     const lenientParent: PermissionConfig = { sandbox: "danger-full-access", approval: "never" };
     const out = narrowPermission(lenientParent, {

@@ -206,11 +206,18 @@ export function narrowPermission(
   // first-match-wins and outrank the sandbox×approval matrix. A child `allow`
   // would therefore bypass the narrowed ceiling — drop it. Child `deny`/`ask`
   // only tighten; keep those.
+  //
+  // The parent's own `allow` rules are dropped too, and for the same reason
+  // read the other way: an exemption granted to the parent session (a user's
+  // "always allow this tool", a deployment rule) outranks the matrix, so
+  // carrying it into a child narrowed to read-only would let the child write
+  // anyway and make the definition's sandbox decoration. Everything that only
+  // tightens — the parent's `ask` rules — is kept.
   const parentDenies = (parent.rules ?? []).filter((r) => r.decision === "deny");
   const childNarrowing = (child.rules ?? []).filter((r) => r.decision !== "allow");
-  const parentRest = (parent.rules ?? []).filter((r) => r.decision !== "deny");
+  const parentAsks = (parent.rules ?? []).filter((r) => r.decision === "ask");
 
-  const rules = [...parentDenies, ...childNarrowing, ...parentRest];
+  const rules = [...parentDenies, ...childNarrowing, ...parentAsks];
   return {
     sandbox,
     approval,
