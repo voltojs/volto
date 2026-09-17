@@ -8,4 +8,7 @@ export const FS_TOOL_NAMES: ReadonlySet<string> = new Set([
   "ls",
   "glob",
   "grep",
+  "watch_files",
+  "unwatch_files",
+  "list_watches",
 ]);
