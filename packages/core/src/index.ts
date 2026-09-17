@@ -37,6 +37,7 @@ export type {
   SelfCorrectInput,
   ToolResultsPrunedInput,
   CompactionAppliedInput,
+  FileChangedInput,
   AgentInput,
 } from "./input.js";
 
@@ -122,6 +123,9 @@ export type {
   SandboxEvent,
   Sandbox,
   Secrets,
+  FileWatchEvent,
+  FileWatchRegistration,
+  FileWatcher,
   Scheduler,
   PolicyRequest,
   PolicyEngine,

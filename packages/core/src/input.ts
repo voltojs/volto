@@ -5,7 +5,7 @@
 
 import type { ContentBlock, TodoItem } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
-import type { ApprovalDenialReason } from "./ports.js";
+import type { ApprovalDenialReason, FileWatchEvent } from "./ports.js";
 
 /** User sent a message */
 export interface UserMessageInput {
@@ -173,6 +173,17 @@ export interface CompactionAppliedInput {
   replacedIds: string[];
 }
 
+/**
+ * Debounced batch of file-watch events, injected by the host/SDK when a
+ * `FileWatcher` registration fires. Reducer handling lands in a later task;
+ * this input is a pure type addition so far.
+ */
+export interface FileChangedInput {
+  type: "file_changed";
+  watchId: string;
+  events: FileWatchEvent[];
+}
+
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
@@ -186,4 +197,5 @@ export type AgentInput =
   | BudgetExceededInput
   | SelfCorrectInput
   | ToolResultsPrunedInput
-  | CompactionAppliedInput;
+  | CompactionAppliedInput
+  | FileChangedInput;
