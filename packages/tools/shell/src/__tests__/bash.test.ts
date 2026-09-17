@@ -156,3 +156,111 @@ describe("bash tool", () => {
     );
   });
 });
+
+describe("bash isolated escape hatch", () => {
+  it("isolated:true uses shell.exec, not the session", async () => {
+    const execCalls: string[] = [];
+    const sessionCalls: string[] = [];
+    const shell: Shell = {
+      async *exec(cmd: string) {
+        execCalls.push(cmd);
+        yield { type: "stdout", data: "isolated-ok" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, {
+      getSession: () => ({
+        async run(cmd: string) {
+          sessionCalls.push(cmd);
+          return { stdout: "session-ok", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x", isolated: true });
+    expect(r.modelContent).toContain("isolated-ok");
+    expect(execCalls.length).toBe(1);
+    expect(sessionCalls.length).toBe(0);
+  });
+
+  it("without isolated, routes through the session", async () => {
+    const sessionCalls: string[] = [];
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: "exec-path" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, {
+      getSession: () => ({
+        async run(cmd: string) {
+          sessionCalls.push(cmd);
+          return { stdout: "session-path", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("session-path");
+    expect(sessionCalls).toEqual(["echo x"]);
+  });
+
+  it("falls back to shell.exec when no session is available", async () => {
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: "exec-path" };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createBashTool(shell, { getSession: () => undefined });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("exec-path");
+  });
+
+  it("surfaces stateResetReason in modelContent when the session was rebuilt", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return {
+            stdout: "after-reset",
+            stderr: "",
+            exitCode: 124,
+            stateResetReason:
+              "Session was rebuilt after a stuck command. Working directory and environment variables were reset to the session defaults.",
+          };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.modelContent).toContain("after-reset");
+    expect(r.modelContent).toContain("Session was rebuilt");
+    expect(r.modelContent).toContain("exit code: 124");
+    expect(r.displayMetadata?.fromSession).toBe(true);
+    expect(r.displayMetadata?.stateReset).toBe(true);
+  });
+
+  it("session.run rejection becomes an isError tool result", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          throw new Error("session dead");
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toContain("session dead");
+  });
+
+  it("session path forwards cwd and timeout", async () => {
+    const seen: Array<{ cmd: string; cwd?: string; timeout?: number }> = [];
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run(cmd, opts) {
+          seen.push({ cmd, cwd: opts?.cwd, timeout: opts?.timeout });
+          return { stdout: "ok", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    await tool.handler({ command: "echo x", cwd: "/tmp", timeout: 5000 });
+    expect(seen).toEqual([{ cmd: "echo x", cwd: "/tmp", timeout: 5000 }]);
+  });
+});

@@ -1,5 +1,10 @@
 export type { Tool as ShellTool, ToolHandler } from "@volto/tools-common";
 export { createBashTool } from "./bash.js";
+export type { BashToolOptions } from "./bash.js";
+export type {
+  BashSessionLike,
+  BashSessionRunResult,
+} from "./session-port.js";
 export { createBashOutputTool } from "./bash-output.js";
 export { createKillShellTool } from "./kill-shell.js";
 export { CAP_SHELL_EXEC } from "./capabilities.js";

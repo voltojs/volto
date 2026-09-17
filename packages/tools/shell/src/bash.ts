@@ -2,6 +2,7 @@ import type { Shell, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
+import type { BashSessionLike } from "./session-port.js";
 
 const OUTPUT_LIMIT = 100_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -27,21 +28,39 @@ const bashSchema = z.object({
         "Not available under every sandbox mode — when unavailable, the command runs " +
         "in the foreground instead and the result says so.",
     ),
+  isolated: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, run this command as a one-shot process: it will not see " +
+        "and will not modify the persistent session's cd/export/source state.",
+    ),
 });
 
-export function createBashTool(shell: Shell) {
+export interface BashToolOptions {
+  /**
+   * Lazy persistent session. When provided and the call is not
+   * isolated / run_in_background, bash routes through session.run.
+   */
+  getSession?: () => BashSessionLike | undefined;
+}
+
+export function createBashTool(shell: Shell, options?: BashToolOptions) {
   return defineTool({
     name: "bash",
     description:
       "Execute a shell command. By default runs in the foreground and returns output. " +
       "Pass runInBackground=true to start a long-lived process and get a process_id; " +
       "read it later with bash_output and stop it with kill_shell. " +
+      "Pass isolated=true for a one-shot process that does not see or change " +
+      "the persistent session's cd/export state. " +
       "Output may be truncated when large.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
     run: async (input): Promise<ToolResult> => {
-      const { command, cwd, timeout, showFullOutput, runInBackground } = input;
+      const { command, cwd, timeout, showFullOutput, runInBackground, isolated } =
+        input;
       const effectiveTimeout = timeout ?? DEFAULT_TIMEOUT_MS;
 
       // Background mode: launch via Shell.launch() and return PID immediately
@@ -70,6 +89,40 @@ export function createBashTool(shell: Shell) {
       // (both to the model, so it stops expecting an immediate PID, and to
       // the UI/log channel, so a stalled-looking 30s call is explained).
       const backgroundUnavailable = Boolean(runInBackground) && !shell.launch;
+
+      // Default path: a live persistent session keeps cd/export/source
+      // across calls. isolated (or no session) falls through to a one-shot
+      // shell.exec below.
+      const session = options?.getSession?.();
+      if (!isolated && session) {
+        try {
+          const r = await session.run(command, {
+            cwd,
+            timeout: effectiveTimeout,
+          });
+          const resetNote = r.stateResetReason
+            ? `\n\n[${r.stateResetReason}]`
+            : "";
+          const combined =
+            r.stdout + (r.stderr ? `\n[stderr]\n${r.stderr}` : "");
+          const exitNote =
+            r.exitCode !== 0 ? `\n(exit code: ${r.exitCode})` : "";
+          return {
+            modelContent: `${combined}${exitNote}${resetNote}`,
+            displayMetadata: {
+              exitCode: r.exitCode,
+              fromSession: true,
+              stateReset: Boolean(r.stateResetReason),
+            },
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            modelContent: `bash session failed: ${message}`,
+            isError: true,
+          };
+        }
+      }
 
       let stdout = "";
       let stderr = "";
