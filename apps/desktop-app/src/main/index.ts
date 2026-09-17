@@ -9,7 +9,7 @@ import { createMainWindow } from "./window.js";
 import { registerIpcHandlers } from "./ipc/handlers.js";
 import { getStoreIpcHandlers } from "./ipc/store-handlers.js";
 import { getAgentIpcHandlers } from "./ipc/agent-handlers.js";
-import { getAgentManager } from "./agent/agent-manager.js";
+import { getAgentManager, destroyAgentManager } from "./agent/agent-manager.js";
 import { createIpcEventSink } from "./agent/event-bridge.js";
 
 function initApp(): void {
@@ -47,6 +47,19 @@ function initApp(): void {
     if (process.platform !== "darwin") {
       app.quit();
     }
+  });
+
+  // 退出前回收每个 agent 实例持有的长驻 bash 会话与后台进程。
+  // 用 before-quit 而非 will-quit：此时还允许 async 收尾，且要先阻止默认退出，
+  // 否则子进程会随主进程一起被留成孤儿。
+  let teardownDone = false;
+  app.on("before-quit", (event) => {
+    if (teardownDone) return;
+    event.preventDefault();
+    void destroyAgentManager().finally(() => {
+      teardownDone = true;
+      app.quit();
+    });
   });
 
   // 外部链接用系统浏览器打开

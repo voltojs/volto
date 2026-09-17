@@ -213,19 +213,41 @@ export class AgentManager {
 
   /**
    * 销毁某个 session 的 Agent 实例。
+   * 必须 await agent.dispose()：实例持有长驻 bash 会话与后台进程，光从 Map
+   * 里删掉只会让它们一直跑到整个 app 退出。
    * approval gate 是全 app 共享的，不随单个 session 销毁而 dispose——
    * 只有 disposeAll()（整个 app 退出）才会清空全部挂起审批。
    */
-  destroy(sessionId: string): void {
+  async destroy(sessionId: string): Promise<void> {
+    const agent = this.agents.get(sessionId);
     this.agents.delete(sessionId);
     this.statuses.delete(sessionId);
+    await this.disposeAgent(agent, sessionId);
   }
 
   /** 销毁所有 session 的实例并 dispose 共享 approval gate（app 退出时用） */
-  disposeAll(): void {
+  async disposeAll(): Promise<void> {
+    const agents = [...this.agents.entries()];
     this.agents.clear();
     this.statuses.clear();
+    await Promise.all(agents.map(([id, agent]) => this.disposeAgent(agent, id)));
     this.approval.dispose();
+  }
+
+  /**
+   * 子进程回收是尽力而为：一个实例 dispose 失败不能阻断其余实例的回收，
+   * 也不该把 app 退出流程炸掉，所以归一化成 EventSink 上的 error 事件。
+   */
+  private async disposeAgent(
+    agent: AgentInstance | undefined,
+    sessionId: string,
+  ): Promise<void> {
+    if (!agent) return;
+    try {
+      await agent.dispose();
+    } catch (error) {
+      this.emitError("agent:dispose", error, sessionId);
+    }
   }
 }
 
@@ -244,9 +266,10 @@ export function getAgentManager(eventSink?: EventSink, cwd?: string): AgentManag
 }
 
 /** 销毁 Agent Manager 单例（app 退出时调用） */
-export function destroyAgentManager(): void {
+export async function destroyAgentManager(): Promise<void> {
   if (agentManagerInstance) {
-    agentManagerInstance.disposeAll();
+    const manager = agentManagerInstance;
     agentManagerInstance = null;
+    await manager.disposeAll();
   }
 }

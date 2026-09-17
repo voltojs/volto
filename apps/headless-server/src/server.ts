@@ -1451,7 +1451,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     })();
   });
 
-  httpServer.on("close", () => registry.closeAll());
+  httpServer.on("close", () => void registry.closeAll());
 
   // Configured-port URL for the return value. The listen callback re-derives
   // the real port (relevant when port: 0 asked the OS to pick one).

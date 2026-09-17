@@ -147,9 +147,9 @@ function createAgentGetStateHandler(): IpcChannel<SessionScopedArgs, unknown> {
 function createAgentDestroyHandler(): IpcChannel<SessionScopedArgs, void> {
   return createIpcChannel<SessionScopedArgs, void>(
     "agent:destroy",
-    (_event: IpcMainInvokeEvent, args: SessionScopedArgs) => {
+    async (_event: IpcMainInvokeEvent, args: SessionScopedArgs) => {
       const manager = getAgentManager();
-      manager.destroy(args.sessionId);
+      await manager.destroy(args.sessionId);
     },
   );
 }
