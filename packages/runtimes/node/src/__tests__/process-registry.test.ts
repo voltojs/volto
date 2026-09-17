@@ -97,6 +97,26 @@ describe("process registry", () => {
     await expect(reg.kill("nope")).rejects.toThrow(/not found/i);
   });
 
+  it("a fresh registry (host restart) does not resolve ids from a previous registry", async () => {
+    // Host restart / new agent: the previous process registry is gone.
+    // A stale id from the previous host must throw not-found — never
+    // resolve into a different process that happens to reuse the seq.
+    const previous = makeRegistry();
+    const previousId = await previous.launch("sleep 30");
+    await previous.disposeAll();
+
+    const fresh = makeRegistry();
+    await expect(fresh.readOutput(previousId)).rejects.toThrow(/not found/i);
+    await expect(fresh.kill(previousId)).rejects.toThrow(/not found/i);
+
+    // Seq restart from 1 is allowed (per plan Task 10): the fresh registry
+    // may mint ids that look like the old ones, but the old ids themselves
+    // still miss because the map is empty.
+    const freshId = await fresh.launch("sleep 30");
+    expect(freshId).toMatch(/^bg-1-/);
+    expect(freshId).not.toBe(previousId);
+  });
+
   it("enforces maxBackground (default 8) with a clear error", async () => {
     const reg = makeRegistry();
     const ids: string[] = [];

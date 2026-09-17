@@ -56,6 +56,24 @@ describe("kill_shell tool", () => {
     expect(r.modelContent).toMatch(/not found|已结束/i);
   });
 
+  it("kill_shell on an id from a previous host process is an explicit isError", async () => {
+    // Host restart / new agent: the process registry is empty, so a stale
+    // id from the previous host must surface as isError with a not-found
+    // message — never as a silent success.
+    const tool = createKillShellTool({
+      async *exec() {
+        yield { type: "exit", code: 0 };
+      },
+      async killProcess() {
+        throw new Error("Process not found: bg-1-1234 (可能已随上次会话结束)");
+      },
+    });
+    const r = await tool.handler({ process_id: "bg-1-1234" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toMatch(/not found|已结束/i);
+    expect(r.modelContent).not.toContain("terminated");
+  });
+
   it("missing killProcess on shell is an explicit isError", async () => {
     const tool = createKillShellTool({
       async *exec() {

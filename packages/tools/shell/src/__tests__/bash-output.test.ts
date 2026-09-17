@@ -91,6 +91,24 @@ describe("bash_output tool", () => {
     expect(r.modelContent).toMatch(/not found|已结束/i);
   });
 
+  it("bash_output on an id from a previous host process is an explicit isError", async () => {
+    // Host restart / new agent: the process registry is empty, so a stale
+    // id from the previous host must surface as isError with a not-found
+    // message — never as silent empty output.
+    const tool = createBashOutputTool({
+      async *exec() {
+        yield { type: "exit", code: 0 };
+      },
+      async readProcessOutput() {
+        throw new Error("Process not found: bg-1-1234 (可能已随上次会话结束)");
+      },
+    });
+    const r = await tool.handler({ process_id: "bg-1-1234" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toMatch(/not found|已结束/i);
+    expect(r.modelContent).not.toMatch(/^\(no new output\)$/);
+  });
+
   it("missing readProcessOutput on shell is an explicit isError", async () => {
     const tool = createBashOutputTool({
       async *exec() {
