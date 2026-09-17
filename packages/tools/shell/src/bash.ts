@@ -49,12 +49,11 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
   return defineTool({
     name: "bash",
     description:
-      "Execute a shell command. By default runs in the foreground and returns output. " +
-      "Pass runInBackground=true to start a long-lived process and get a process_id; " +
-      "read it later with bash_output and stop it with kill_shell. " +
-      "Pass isolated=true for a one-shot process that does not see or change " +
-      "the persistent session's cd/export state. " +
-      "Output may be truncated when large.",
+      "Execute a shell command. By default this uses a persistent session so " +
+      "cd, export, and source effects carry across calls. Pass isolated=true " +
+      "for a one-shot process that neither sees nor changes session state. " +
+      "Pass run_in_background=true for a long-lived process (use bash_output / " +
+      "kill_shell). Output may be truncated when large.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
@@ -105,14 +104,31 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
             : "";
           const combined =
             r.stdout + (r.stderr ? `\n[stderr]\n${r.stderr}` : "");
+          // Same OUTPUT_LIMIT / showFullOutput policy as the exec path, so a
+          // chatty session cannot flood modelContext.
+          const truncated = combined.length > OUTPUT_LIMIT && !showFullOutput;
+          const content = truncated
+            ? combined.slice(0, OUTPUT_LIMIT)
+            : combined;
+          const truncationNote = truncated
+            ? `\n\n(output truncated: ${combined.length} chars total, showing first ${OUTPUT_LIMIT})`
+            : "";
           const exitNote =
             r.exitCode !== 0 ? `\n(exit code: ${r.exitCode})` : "";
+          // runInBackground was requested but shell.launch is absent — say so
+          // on the session path too, or the model keeps expecting a PID.
+          const backgroundNote = backgroundUnavailable
+            ? "\n\n(background execution is not available under the active sandbox; ran in the persistent session instead)"
+            : "";
           return {
-            modelContent: `${combined}${exitNote}${resetNote}`,
+            modelContent: `${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}`,
             displayMetadata: {
               exitCode: r.exitCode,
               fromSession: true,
               stateReset: Boolean(r.stateResetReason),
+              truncated,
+              totalLength: combined.length,
+              ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
             },
           };
         } catch (error) {

@@ -146,6 +146,12 @@ describe("bash tool", () => {
     expect(tool.definition.description).toMatch(/bash_output/i);
   });
 
+  it("description documents the persistent session and isolated escape hatch", () => {
+    const tool = createBashTool(mockShell(""));
+    expect(tool.definition.description).toMatch(/persistent|持久/i);
+    expect(tool.definition.description).toMatch(/isolated/i);
+  });
+
   it("background launch result explains how to read output", async () => {
     const tool = createBashTool(mockShellWithLaunch(""));
     const result = await tool.handler({ command: "long-task", runInBackground: true });
@@ -262,5 +268,60 @@ describe("bash isolated escape hatch", () => {
     });
     await tool.handler({ command: "echo x", cwd: "/tmp", timeout: 5000 });
     expect(seen).toEqual([{ cmd: "echo x", cwd: "/tmp", timeout: 5000 }]);
+  });
+
+  // Residual fix from Task 6 review: runInBackground requested, no launch(),
+  // session present → must still say background was unavailable, or the model
+  // keeps expecting a PID from a call that actually blocked.
+  it("session path notes when runInBackground was requested but launch is unavailable", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: "session-ran", stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo x", runInBackground: true });
+    expect(r.isError).toBeFalsy();
+    expect(r.modelContent).toContain("session-ran");
+    expect(r.modelContent).toMatch(/background/i);
+    expect(r.modelContent).toMatch(/session|foreground/i);
+    expect(r.displayMetadata?.backgroundFallback).toBe(true);
+  });
+
+  // Residual fix from Task 6 review: session output must go through the same
+  // OUTPUT_LIMIT / showFullOutput policy as the exec path.
+  it("session path applies OUTPUT_LIMIT truncation", async () => {
+    const longOutput = "z".repeat(150_000);
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: longOutput, stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "generate-output" });
+    expect(r.modelContent).toContain("truncated");
+    expect(r.displayMetadata?.truncated).toBe(true);
+    expect(r.displayMetadata?.totalLength).toBe(longOutput.length);
+    expect(r.displayMetadata?.fromSession).toBe(true);
+  });
+
+  it("session path returns full output when showFullOutput is true", async () => {
+    const longOutput = "w".repeat(150_000);
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return { stdout: longOutput, stderr: "", exitCode: 0 };
+        },
+      }),
+    });
+    const r = await tool.handler({
+      command: "generate-output",
+      showFullOutput: true,
+    });
+    expect(r.modelContent).toBe(longOutput);
+    expect(r.displayMetadata?.truncated).toBe(false);
+    expect(r.displayMetadata?.fromSession).toBe(true);
   });
 });
