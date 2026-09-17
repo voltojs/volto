@@ -69,13 +69,14 @@ import { createAutoAllowGate } from "@volto/runtime-node";
 import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentDispatch } from "@volto/tools-agent";
-import { createTaskTool } from "@volto/tools-agent";
+import { createTaskTool, createTaskOutputTool } from "@volto/tools-agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
 
 /**
- * Sync sub-agent request. Background dispatch (and task_output collection)
- * is a later task — this shape is what the task tool's sync path needs.
+ * Sync sub-agent request handed to the per-dispatch executor. Background
+ * dispatch wraps the same executor: the promise is registered with the
+ * BackgroundRegistry instead of awaited inline.
  */
 type SyncSubAgentRequest = { message: string; subagentType?: string };
 type SyncSubAgentExecutor = (req: SyncSubAgentRequest) => Promise<string>;
@@ -199,6 +200,66 @@ function bestEffortAppend(
       // turn it is recording.
     }
   })();
+}
+
+// ──────────────────────────────────────────────
+// Background registry
+// ──────────────────────────────────────────────
+
+/** Result of collecting a background task: either its text or a normalized error. */
+export type BackgroundCollectResult = { text: string } | { error: string };
+
+/**
+ * Holds promises for detached sub-agents. Deliberately separate from
+ * AgentState: a promise cannot be serialized, and state only needs to record
+ * that a task exists so a resumed Runner can fail it.
+ *
+ * A rejection is normalized into an error result rather than propagated —
+ * a detached task must never take the parent loop down with it.
+ */
+export interface BackgroundRegistry {
+  register(taskId: string, promise: Promise<string>): void;
+  collect(taskId: string): Promise<BackgroundCollectResult>;
+  /** Ids registered but not yet collected. */
+  pending(): string[];
+}
+
+export function createBackgroundRegistry(): BackgroundRegistry {
+  // Settled-result cache: collect() is idempotent because the second call
+  // hits this map instead of re-awaiting (and re-normalizing) the promise.
+  const settled = new Map<string, BackgroundCollectResult>();
+  const inFlight = new Map<string, Promise<BackgroundCollectResult>>();
+
+  return {
+    register(taskId, promise) {
+      // Normalize once at registration so an early rejection never becomes an
+      // unhandled rejection while the task is still running detached.
+      const normalized = promise.then<BackgroundCollectResult, BackgroundCollectResult>(
+        (text) => ({ text }),
+        (err: unknown) => ({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      inFlight.set(taskId, normalized);
+    },
+
+    async collect(taskId) {
+      const done = settled.get(taskId);
+      if (done !== undefined) return done;
+      const pendingPromise = inFlight.get(taskId);
+      if (pendingPromise === undefined) {
+        return { error: `unknown task: ${taskId}` };
+      }
+      const result = await pendingPromise;
+      settled.set(taskId, result);
+      inFlight.delete(taskId);
+      return result;
+    },
+
+    pending() {
+      return [...inFlight.keys()];
+    },
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -875,14 +936,25 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       () => turnCounter,
       agentSpecs,
     );
-    // Sync-only for now: a background request must fail loudly — faking a
-    // task id would tell the model a detached task is running while
-    // discarding the result text and with no task_output collector
-    // registered to retrieve it. Background dispatch + task_output land in
-    // a later task.
+    // Registry of detached background tasks for this agent instance.
+    // Promises live here, never in AgentState (not serializable).
+    const backgroundRegistry = createBackgroundRegistry();
     const dispatch: SubAgentDispatch = async ({ message, subagentType, background }) => {
       if (background) {
-        throw new Error("background dispatch is not wired yet");
+        const taskId = idPort.next();
+        // Fire the executor detached; the registry normalizes a rejection so
+        // an uncollected failure can never surface as an unhandled rejection
+        // or take the parent loop down.
+        backgroundRegistry.register(taskId, executor({ message, subagentType }));
+        // Record the task in serializable state so a checkpoint/resume can
+        // discover it. Mid-turn feed is safe: the background_task_started
+        // handler is status-independent and emits no effects.
+        lastRunner?.send({
+          type: "background_task_started",
+          taskId,
+          ...(subagentType !== undefined ? { subagentType } : {}),
+        });
+        return { taskId };
       }
       return { taskId: "sync", text: await executor({ message, subagentType }) };
     };
@@ -898,6 +970,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           : {}),
       }));
     allCustomTools.push(createTaskTool(dispatch, { types: agentTypes }));
+    // task_output collects a previously dispatched background task; the
+    // registry's collect is idempotent and normalizes unknown ids to errors.
+    allCustomTools.push(createTaskOutputTool((taskId) => backgroundRegistry.collect(taskId)));
   }
   if (opts.skillRegistry) {
     // Local const so the narrowing survives inside the loader callback.
@@ -1026,6 +1101,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
     id: idPort,
+    // Stamps BackgroundTask.startedAt via the reducer's ctx.clock — same
+    // injected Clock the Runner uses, so replay stays deterministic.
+    ...(opts.clock !== undefined ? { clock: opts.clock } : {}),
     ...(resolvedReasoningEffort !== undefined
       ? { reasoningEffort: ReasoningEffortId(resolvedReasoningEffort) }
       : {}),

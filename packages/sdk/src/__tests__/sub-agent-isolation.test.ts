@@ -98,16 +98,19 @@ describe("task sub-agent — context isolation", () => {
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("should surface an isError when the model asks for background dispatch (not wired yet)", async () => {
-    // The temporary SDK adapter is sync-only. A run_in_background request must
-    // fail with a real isError ToolResult rather than fabricate a task id.
+  it("returns a task id without the result text when dispatched in background", async () => {
+    // Background dispatch is wired: the tool_result carries the task id and
+    // collection instructions, never the (still running) result text.
     const mockModel = createMockModelPort([
       toolCallScript(
         "main-call-1",
         "task",
         JSON.stringify({ message: "Go", run_in_background: true }),
       ),
-      textScript("Understood, I will run it inline instead."),
+      // Detached sub-agent's own model call (races the parent's next call;
+      // both scripts are plain text so either assignment completes).
+      textScript("Sub-agent result text"),
+      textScript("Understood, I will collect it later."),
     ]);
 
     const agent = createAgent({
@@ -124,10 +127,12 @@ describe("task sub-agent — context isolation", () => {
       | undefined;
     expect(toolResultMsg).toBeDefined();
     const first = toolResultMsg!.content[0]!;
-    expect(first.isError).toBe(true);
-    expect(first.content).toContain("background dispatch is not wired yet");
-    // No fake "started in background" success, and no discarded result text.
-    expect(first.content).not.toContain("started in background");
+    expect(first.isError).toBeFalsy();
+    expect(first.content).toContain("started in background");
+    // No discarded result text leaked into the dispatch tool_result.
+    expect(first.content).not.toContain("Sub-agent result text");
+    // The task is recorded in serializable state as running.
+    expect(state.backgroundTasks?.[0]).toMatchObject({ status: "running" });
   });
 
   it("should not have task tool in sub-agent's tool set (no recursion)", async () => {
