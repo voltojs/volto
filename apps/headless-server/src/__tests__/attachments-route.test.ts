@@ -18,7 +18,7 @@ describe("/attachments", () => {
         body: JSON.stringify({ sessionId, data: PNG, mimeType: "image/png" }),
       });
       expect(res.status).toBe(201);
-      expect(await res.json()).toMatchObject({ mimeType: "image/png", width: 1, height: 1 });
+      expect(await res.json()).toMatchObject({ mimeType: "image/png", size: 70, width: 1, height: 1 });
     } finally {
       await close();
     }

@@ -139,28 +139,32 @@ export function createAttachmentRoutes(deps: AttachmentRouteDeps) {
     if (req.method === "GET") {
       const match = url.pathname.match(/^\/attachments\/([^/]+)$/);
       if (match) {
-        const id = decodeURIComponent(match[1]!);
-        const sessionId = url.searchParams.get("sessionId");
-        if (!sessionId) {
-          jsonResponse(res, 400, { error: "sessionId query parameter is required" });
-          return true;
-        }
+        try {
+          const id = decodeURIComponent(match[1]!);
+          const sessionId = url.searchParams.get("sessionId");
+          if (!sessionId) {
+            jsonResponse(res, 400, { error: "sessionId query parameter is required" });
+            return true;
+          }
 
-        const store = storeFor(sessionId);
-        const result = await store.get(id);
-        if (!result) {
-          // 404 for both "unknown id" and "wrong session" — see file header.
-          jsonResponse(res, 404, { error: "Not found" });
-          return true;
-        }
+          const store = storeFor(sessionId);
+          const result = await store.get(id);
+          if (!result) {
+            // 404 for both "unknown id" and "wrong session" — see file header.
+            jsonResponse(res, 404, { error: "Not found" });
+            return true;
+          }
 
-        const bytes = Buffer.from(result.data, "base64");
-        res.writeHead(200, {
-          "Content-Type": result.mimeType,
-          "Content-Length": bytes.byteLength,
-          ...corsHeaders,
-        });
-        res.end(bytes);
+          const bytes = Buffer.from(result.data, "base64");
+          res.writeHead(200, {
+            "Content-Type": result.mimeType,
+            "Content-Length": bytes.byteLength,
+            ...corsHeaders,
+          });
+          res.end(bytes);
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
         return true;
       }
     }
