@@ -9,6 +9,7 @@ import { Notice } from './Notice';
 function renderEntry(
   entry: ChatEntry,
   onOpenSubagent?: (childSessionId: string) => void,
+  sessionId?: string | null,
 ) {
   switch (entry.kind) {
     case 'message':
@@ -17,6 +18,7 @@ function renderEntry(
           key={entry.message.id}
           message={entry.message}
           onOpenSubagent={onOpenSubagent}
+          sessionId={sessionId}
         />
       );
     case 'error':
@@ -29,9 +31,12 @@ function renderEntry(
 export function MessageList({
   entries,
   onOpenSubagent,
+  sessionId,
 }: {
   entries: ChatEntry[];
   onOpenSubagent?: (childSessionId: string) => void;
+  /** Session for resolving image attachment refs; omitted → images stay as placeholders. */
+  sessionId?: string | null;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +54,7 @@ export function MessageList({
           second argument); the reference handed down stays whatever the
           caller passed, so downstream memo comparators see a stable prop. */}
       <div className="mx-auto max-w-3xl px-6 py-2">
-        {entries.map((entry) => renderEntry(entry, onOpenSubagent))}
+        {entries.map((entry) => renderEntry(entry, onOpenSubagent, sessionId))}
       </div>
       <div ref={bottomRef} />
     </div>

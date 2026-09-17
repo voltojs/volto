@@ -557,7 +557,11 @@ export function ChatPanel() {
             className="flex min-h-0 flex-1 flex-row"
           >
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <MessageList entries={entries} onOpenSubagent={openSubagent} />
+              <MessageList
+                entries={entries}
+                onOpenSubagent={openSubagent}
+                sessionId={currentSessionId}
+              />
               {pendingApprovals.length > 0 && (
                 <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
                   {pendingApprovals.map((approval) => (
