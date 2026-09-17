@@ -5,7 +5,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { createAgent, scanAgentSources } from "@volto/sdk";
+import { createAgent, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import {
@@ -152,6 +152,13 @@ export interface WiringOptions {
    * Tokenizer is injected by createAgent (character-count default).
    */
   compaction?: Omit<CompactionConfig, "tokenizer"> | false;
+  /**
+   * Plugin-provided agent specs, forwarded to the definition scan as
+   * lowest-priority `plugin` entries — the same list GET /agents reports.
+   * Without these the UI would list a plugin agent the task tool then
+   * rejects as an unknown `subagent_type`.
+   */
+  pluginAgents?: AgentSpec[];
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -345,16 +352,23 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
   }
 
-  // Rescan on every construction — i.e. on every rebuild, which is what lets a
-  // definition created mid-session reach the next turn without a restart
-  // (F-020). Mirrors the /agents routes: definitions are files a user may
-  // create or edit between calls, so a cached list would serve stale agents.
-  // Shadowed entries stay in the list; createAgent filters them out of the
-  // model-facing task-tool types itself.
+  // Rescan on every construction — i.e. on every (re)build of an agent
+  // instance — so a definition created after the server started is picked
+  // up without a restart (F-020). This is per-rebuild, not per-turn: a
+  // session keeps its built agent across turns and only rebuilds when its
+  // resolved config changes (sessions.ts), so a mid-session definition
+  // reaches the next rebuild, not automatically the next turn. Mirrors the
+  // /agents routes: definitions are files a user may create or edit between
+  // calls, so a cached list would serve stale agents. Shadowed entries stay
+  // in the list; createAgent filters them out of the model-facing task-tool
+  // types itself. Plugin specs go in too: the UI lists them from the /agents
+  // scan, and without the same entries here the task tool would reject a
+  // `subagent_type` the UI offered.
   const { entries: agentSpecs } = await scanAgentSources({
     cwd,
     configDir: getConfigDir(),
     homeDir: os.homedir(),
+    ...(opts.pluginAgents ? { pluginSpecs: opts.pluginAgents } : {}),
   });
 
   return createAgent({

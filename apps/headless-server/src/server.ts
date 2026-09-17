@@ -37,7 +37,6 @@ import {
   readConversation,
   readTrajectory,
   CompactionBusyError,
-  type AgentSpec,
 } from "@volto/sdk";
 import {
   createStore as createJsonlStore,
@@ -138,12 +137,6 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
    * this construction site was invoked.
    */
   agentFactory?: typeof createWiredAgent;
-  /**
-   * Plugin-provided agent specs listed by GET /agents as read-only `plugin`
-   * entries. Forwarded to the scan on every request alongside the on-disk
-   * sources; write attempts against them answer 409.
-   */
-  pluginAgents?: AgentSpec[];
 }
 
 /** Session id used when a client does not supply one. */
@@ -378,6 +371,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // approval gate is never consulted and can safely stay absent.
   const agent = await buildAgent({
     ...agentOpts,
+    // Destructured out of agentOpts above (the /agents routes read it from
+    // the same binding); pass it back so this agent's scan lists the same
+    // plugin entries the UI shows.
+    pluginAgents,
     permissionConfig: agentOpts.permissionConfig ?? buildPermissionConfig("read-only"),
     sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),
   });

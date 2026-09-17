@@ -72,6 +72,7 @@ export async function startTestServer(
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-route-test-"));
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-route-project-"));
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-route-home-"));
+  const previousConfigDir = process.env["VOLTO_CONFIG_DIR"];
   process.env["VOLTO_CONFIG_DIR"] = configDir;
   const previousHome = process.env["HOME"];
   process.env["HOME"] = homeDir;
@@ -209,6 +210,8 @@ export async function startTestServer(
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (previousHome === undefined) delete process.env["HOME"];
       else process.env["HOME"] = previousHome;
+      if (previousConfigDir === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+      else process.env["VOLTO_CONFIG_DIR"] = previousConfigDir;
       // Best-effort transcript writes fired during a real turn may still be
       // landing as the server winds down, recreating a dir mid-remove — retry
       // like trajectory-e2e does rather than surfacing ENOTEMPTY.

@@ -70,7 +70,7 @@ describe("/agents", () => {
 
   it("requires authentication on every verb", async () => {
     const { url, close } = await startTestServer();
-    for (const [method, path] of [["GET", "/agents"], ["POST", "/agents"], ["DELETE", "/agents/project:x"]] as const) {
+    for (const [method, path] of [["GET", "/agents"], ["POST", "/agents"], ["PUT", "/agents/project:x"], ["DELETE", "/agents/project:x"]] as const) {
       const res = await fetch(`${url}${path}`, { method });
       expect(res.status).toBe(401);
     }

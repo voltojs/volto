@@ -54,6 +54,27 @@ describe("serializeAgentFile", () => {
     // The parser does not own responseFormat; it must survive as an unknownKey.
     expect(parsed.unknownKeys["responseFormat"]).toMatchObject({ type: "json" });
   });
+
+  it("quotes object keys containing structure characters so they round-trip", () => {
+    const spec = {
+      name: "structured",
+      responseFormat: {
+        type: "json" as const,
+        schema: {
+          type: "object",
+          properties: { "a,b:c": { type: "string" } },
+        },
+      },
+    };
+    const out = serializeAgentFile(spec);
+    expect(out).toContain('"a,b:c": {type: string}');
+    const parsed = parseAgentFile(out, "/structured.md");
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(
+      (parsed.unknownKeys["responseFormat"] as { schema: { properties: Record<string, unknown> } })
+        .schema.properties,
+    ).toMatchObject({ "a,b:c": { type: "string" } });
+  });
 });
 
 describe("AgentStore", () => {

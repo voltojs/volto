@@ -146,12 +146,34 @@ function parseValue(raw: string): unknown {
     if (inner === "") return {};
     const obj: Record<string, unknown> = {};
     for (const part of splitTopLevel(inner, ",")) {
-      const idx = part.indexOf(":");
-      if (idx < 0) throw new Error(`malformed object entry: ${part.trim()}`);
-      const key = part.slice(0, idx).trim();
-      const val = part.slice(idx + 1).trim();
-      if (key.length === 0) throw new Error(`empty key in object: ${part.trim()}`);
-      obj[key] = parseValue(val);
+      // A quoted key (serializeAgentFile emits one when the key contains
+      // `,`/`:` etc.) ends at its matching quote; the separating colon is
+      // the first one after it, not the first one in the part.
+      const trimmedPart = part.trim();
+      const quote = trimmedPart[0];
+      let key: string;
+      let valRaw: string;
+      if (quote === '"' || quote === "'") {
+        let end = -1;
+        for (let i = 1; i < trimmedPart.length; i++) {
+          if (trimmedPart[i] === quote) {
+            end = i;
+            break;
+          }
+        }
+        if (end < 0) throw new Error(`unterminated quoted key: ${trimmedPart}`);
+        key = trimmedPart.slice(1, end);
+        const rest = trimmedPart.slice(end + 1).trim();
+        if (!rest.startsWith(":")) throw new Error(`malformed object entry: ${trimmedPart}`);
+        valRaw = rest.slice(1).trim();
+      } else {
+        const idx = trimmedPart.indexOf(":");
+        if (idx < 0) throw new Error(`malformed object entry: ${trimmedPart}`);
+        key = trimmedPart.slice(0, idx).trim();
+        valRaw = trimmedPart.slice(idx + 1).trim();
+      }
+      if (key.length === 0) throw new Error(`empty key in object: ${trimmedPart}`);
+      obj[key] = parseValue(valRaw);
     }
     return obj;
   }

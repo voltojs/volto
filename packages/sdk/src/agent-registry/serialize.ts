@@ -32,8 +32,11 @@ function formatScalar(value: unknown): string {
     return `[${value.map((v) => formatScalar(v)).join(", ")}]`;
   }
   if (typeof value === "object") {
+    // Keys go through the same quoting as values: a JSON Schema property
+    // name containing `,` or `:` would otherwise render ambiguously (the
+    // parser splits entries on `,` and key/value on the first `:`).
     const entries = Object.entries(value as Record<string, unknown>).map(
-      ([k, v]) => `${k}: ${formatScalar(v)}`,
+      ([k, v]) => `${formatScalar(k)}: ${formatScalar(v)}`,
     );
     return `{${entries.join(", ")}}`;
   }
