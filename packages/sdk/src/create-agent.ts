@@ -44,6 +44,8 @@ import type {
   ContextLayerHints,
   SkillRegistry,
   SkillSummary,
+  FileWatcher,
+  FileWatchEvent,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -77,6 +79,10 @@ import {
   createLsTool,
   createGlobTool,
   createGrepTool,
+  createWatchFilesTool,
+  createUnwatchFilesTool,
+  createListWatchesTool,
+  CAP_FS_WATCH,
   FS_TOOL_NAMES,
 } from "@volto/tools-fs";
 import { createBashTool, SHELL_TOOL_NAMES } from "@volto/tools-shell";
@@ -504,6 +510,29 @@ export interface CreateAgentOptions {
   /** Timed / delayed / background tasks. Defaults to no-op. */
   scheduler?: Scheduler;
 
+  /**
+   * Event-triggered file watcher port. When set, `filesystem:watch` is added
+   * to capabilities and `watch_files` / `unwatch_files` / `list_watches` are
+   * registered. Hosts own the watcher lifetime and MUST call
+   * `fileWatcher.dispose?.()` on session/process teardown — AgentInstance has
+   * no dispose hook.
+   */
+  fileWatcher?: FileWatcher;
+
+  /**
+   * Auto-start a turn when idle on file_changed. Default true when
+   * fileWatcher is set. When false, watch batches still reach
+   * `onFileWatchEvents` but never start a turn.
+   */
+  fileWatchAutoWake?: boolean;
+
+  /**
+   * Host sink for every watch batch (UI toast / log). Optional. Called
+   * before any auto-wake action; a throw here is swallowed so the host
+   * callback cannot break the agent.
+   */
+  onFileWatchEvents?: (watchId: string, events: FileWatchEvent[]) => void;
+
   /** External authorization decision engine. Defaults to allow-all. */
   policyEngine?: PolicyEngine;
 
@@ -785,6 +814,78 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     );
   }
 
+  // ── File watcher wiring state ──────────────
+  // Tools themselves are registered after allCustomTools is declared (they
+  // are FileWatcher-backed, not FileSystem-backed — createFsToolExecutor
+  // does not implement them even though FS_TOOL_NAMES lists them).
+  let fileWatchAutoWake = false;
+  const pendingFileInputs: AgentInput[] = [];
+  let drainScheduled = false;
+  // Late-bound public run — the wrap is built before the AgentInstance
+  // object exists, so the handler closes over this cell instead.
+  let agentRun: ((input: string | AgentInput) => Promise<ReducerState>) | null = null;
+
+  function drainPendingFileInputs(): void {
+    if (drainScheduled) return;
+    const next = pendingFileInputs.shift();
+    if (!next) return;
+    drainScheduled = true;
+    // After the current turn settles (run/stream finally already flipped
+    // turnInFlight), start the next auto-wake turn. queueMicrotask keeps
+    // this off the synchronous finally path.
+    queueMicrotask(() => {
+      drainScheduled = false;
+      if (turnInFlight) {
+        // Still busy (should not happen — finally drains) — requeue and
+        // wait for the next settle rather than starting a concurrent runner.
+        pendingFileInputs.unshift(next);
+        return;
+      }
+      void runAutoWake(next);
+    });
+  }
+
+  function emitAutoWakeError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      (opts.eventSink ?? defaultEventSink).emit({
+        type: "error",
+        data: { error: message },
+      });
+    } catch {
+      // EventSink must never turn an auto-wake failure into an unhandled throw.
+    }
+  }
+
+  async function runAutoWake(input: AgentInput): Promise<void> {
+    if (!agentRun) return;
+    try {
+      await agentRun(input);
+    } catch (err) {
+      emitAutoWakeError(err);
+    }
+  }
+
+  function handleFileWatchBatch(watchId: string, events: FileWatchEvent[]): void {
+    try {
+      opts.onFileWatchEvents?.(watchId, events);
+    } catch {
+      // Host callback must not break the agent or the watcher.
+    }
+    if (!fileWatchAutoWake) return;
+    const input: AgentInput = { type: "file_changed", watchId, events };
+    if (turnInFlight) {
+      pendingFileInputs.push(input);
+      return;
+    }
+    void runAutoWake(input);
+  }
+
+  if (opts.fileWatcher) {
+    fileWatchAutoWake = opts.fileWatchAutoWake !== false;
+    capabilities.add(CAP_FS_WATCH);
+  }
+
   // ── Compaction config ─────────────────────
   const resolvedCompaction = resolve(opts.compaction, "compaction") as
     (Omit<CompactionConfig, "tokenizer"> & { tokenizer?: CompactionConfig["tokenizer"] }) | undefined;
@@ -799,6 +900,18 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     : { tools: [], providers: new Map(), hooks: [], commands: [], skills: [], agentSpecs: [] };
 
   const allCustomTools: Tool[] = [...(opts.tools ?? []), ...pluginData.tools];
+
+  if (opts.fileWatcher) {
+    // customToolMap (not adapterTools / fsExecutor): these tools call the
+    // FileWatcher port, not FileSystem. Routing excludes them from the
+    // FS_TOOL_NAMES short-circuit in toolExecutor below.
+    const wrappedWatcher = wrapFileWatcher(opts.fileWatcher, handleFileWatchBatch);
+    allCustomTools.push(
+      createWatchFilesTool(wrappedWatcher),
+      createUnwatchFilesTool(wrappedWatcher),
+      createListWatchesTool(wrappedWatcher),
+    );
+  }
 
   // ask_user tool — always available. Defaults to auto-allow rather than
   // falling back to the shared permission approvalGate: see the
@@ -980,7 +1093,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     call: PendingToolCall,
     ctx: { readFiles: ReadFileRecord[]; abortSignal?: AbortSignal },
   ): Promise<ToolResult> => {
-    if (fsExecutor && FS_TOOL_NAMES.has(call.name)) return fsExecutor(call, ctx);
+    if (fsExecutor && FS_TOOL_NAMES.has(call.name) && !WATCH_TOOL_NAMES.has(call.name)) {
+      return fsExecutor(call, ctx);
+    }
     if (shellExecutor && SHELL_TOOL_NAMES.has(call.name)) return shellExecutor(call, ctx);
     if (networkExecutor && NETWORK_TOOL_NAMES.has(call.name)) return networkExecutor(call, ctx);
     const tool = customToolMap.get(call.name);
@@ -1055,6 +1170,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // `createAgent()` instances, or serialize calls on the same one.
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
+  /**
+   * True while a turn claimed via run()/stream() (or an auto-wake turn) is
+   * still in flight. File-watch batches arriving during a turn are queued and
+   * drained after settle so auto-wake never starts a concurrent runner.
+   */
+  let turnInFlight = false;
   // Most recently resolved per-turn contextLayers, cached for resume()'s
   // fallback branch (see below). Only covers same-process resume
   // (lastRunner.resume() throwing but the agent instance still alive) — a
@@ -1331,35 +1452,41 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     return normalizeInput(raw);
   }
 
-  return {
+  const agentInstance: AgentInstance = {
     ports: resolvedPorts,
 
     async run(input: string | AgentInput): Promise<ReducerState> {
-      await initToolSources();
-      const agentInput = await resolveInput(input);
-      // `runner` stays undefined until createNextRunner() actually returns
-      // one — the catch block below uses that to distinguish "the Runner
-      // never existed" (record turn_end ourselves) from "the Runner existed
-      // and its own run() rejected" (the Runner's try/finally has normally
-      // already recorded turn_end for the turn — except the
-      // gate-threw-while-paused corner, where no turn_end exists and the
-      // turn legitimately stays open; either way record only the error text,
-      // via a separate `error` event).
-      let runner: Runner | undefined;
+      turnInFlight = true;
       try {
-        runner = await createNextRunner(
-          opts.eventSink ?? defaultEventSink,
-          undefined,
-          extractInputText(agentInput),
-        );
-        lastRunner = runner;
-        const finalState = await runner.run(agentInput);
-        lastFinalState = finalState;
-        return finalState;
-      } catch (err: unknown) {
-        if (runner) recordTurnError(err);
-        else recordTurnEndError(err);
-        throw err;
+        await initToolSources();
+        const agentInput = await resolveInput(input);
+        // `runner` stays undefined until createNextRunner() actually returns
+        // one — the catch block below uses that to distinguish "the Runner
+        // never existed" (record turn_end ourselves) from "the Runner existed
+        // and its own run() rejected" (the Runner's try/finally has normally
+        // already recorded turn_end for the turn — except the
+        // gate-threw-while-paused corner, where no turn_end exists and the
+        // turn legitimately stays open; either way record only the error text,
+        // via a separate `error` event).
+        let runner: Runner | undefined;
+        try {
+          runner = await createNextRunner(
+            opts.eventSink ?? defaultEventSink,
+            undefined,
+            extractInputText(agentInput),
+          );
+          lastRunner = runner;
+          const finalState = await runner.run(agentInput);
+          lastFinalState = finalState;
+          return finalState;
+        } catch (err: unknown) {
+          if (runner) recordTurnError(err);
+          else recordTurnEndError(err);
+          throw err;
+        }
+      } finally {
+        turnInFlight = false;
+        drainPendingFileInputs();
       }
     },
 
@@ -1367,71 +1494,77 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       input: string | AgentInput,
       streamOpts?: { signal?: AbortSignal },
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
-      await initToolSources();
-      const agentInput = await resolveInput(input);
-      const channel = createStreamChannel();
-      // AbortController lets us cancel the runner if the consumer breaks
-      // out of `for await` early. Without it, the detached runner would
-      // keep going and any error it threw would be swallowed silently.
-      const abortController = new AbortController();
-      // An external signal (e.g. a UI "stop" button) is linked into the same
-      // controller, so cancelling from the outside takes the identical path
-      // as an early `break`: the runner observes the abort, unwinds, and
-      // closes the turn with `reason: "cancelled"`.
-      const externalSignal = streamOpts?.signal;
-      if (externalSignal) {
-        if (externalSignal.aborted) abortController.abort();
-        else
-          externalSignal.addEventListener("abort", () => abortController.abort(), {
-            once: true,
-          });
-      }
-      let runner: Runner;
+      turnInFlight = true;
       try {
-        runner = await createNextRunner(
-          channel.eventSink,
-          abortController.signal,
-          extractInputText(agentInput),
+        await initToolSources();
+        const agentInput = await resolveInput(input);
+        const channel = createStreamChannel();
+        // AbortController lets us cancel the runner if the consumer breaks
+        // out of `for await` early. Without it, the detached runner would
+        // keep going and any error it threw would be swallowed silently.
+        const abortController = new AbortController();
+        // An external signal (e.g. a UI "stop" button) is linked into the same
+        // controller, so cancelling from the outside takes the identical path
+        // as an early `break`: the runner observes the abort, unwinds, and
+        // closes the turn with `reason: "cancelled"`.
+        const externalSignal = streamOpts?.signal;
+        if (externalSignal) {
+          if (externalSignal.aborted) abortController.abort();
+          else
+            externalSignal.addEventListener("abort", () => abortController.abort(), {
+              once: true,
+            });
+        }
+        let runner: Runner;
+        try {
+          runner = await createNextRunner(
+            channel.eventSink,
+            abortController.signal,
+            extractInputText(agentInput),
+          );
+        } catch (err: unknown) {
+          recordTurnEndError(err);
+          throw err;
+        }
+        lastRunner = runner;
+
+        let runError: unknown;
+        const runPromise = runner.run(agentInput).then(
+          async (finalState) => {
+            lastFinalState = finalState;
+            channel.done();
+          },
+          async (err) => {
+            runError = err;
+            // The Runner exists here (constructed above) — a rejection normally
+            // means its own try/finally already recorded turn_end; record the
+            // error text separately rather than duplicating turn_end. (The one
+            // gap is the gate-threw-while-paused corner: status is still
+            // waiting_for_approval, no turn_end is recorded, and the turn
+            // legitimately stays open with only this `error` event added.)
+            recordTurnError(err);
+            channel.done();
+          },
         );
-      } catch (err: unknown) {
-        recordTurnEndError(err);
-        throw err;
-      }
-      lastRunner = runner;
 
-      let runError: unknown;
-      const runPromise = runner.run(agentInput).then(
-        async (finalState) => {
-          lastFinalState = finalState;
-          channel.done();
-        },
-        async (err) => {
-          runError = err;
-          // The Runner exists here (constructed above) — a rejection normally
-          // means its own try/finally already recorded turn_end; record the
-          // error text separately rather than duplicating turn_end. (The one
-          // gap is the gate-threw-while-paused corner: status is still
-          // waiting_for_approval, no turn_end is recorded, and the turn
-          // legitimately stays open with only this `error` event added.)
-          recordTurnError(err);
-          channel.done();
-        },
-      );
-
-      // try/finally so that consumer break / return / throw still awaits the
-      // runner and surfaces its error. AsyncGenerator runs `finally` blocks
-      // when `.return()` is invoked (e.g. by an early `break`), which gives
-      // us a deterministic place to abort and observe runError.
-      try {
-        yield* channel.events();
+        // try/finally so that consumer break / return / throw still awaits the
+        // runner and surfaces its error. AsyncGenerator runs `finally` blocks
+        // when `.return()` is invoked (e.g. by an early `break`), which gives
+        // us a deterministic place to abort and observe runError.
+        try {
+          yield* channel.events();
+        } finally {
+          abortController.abort();
+          // Drain queued events / let runner observe abort. Errors thrown by
+          // the runner during abort are captured in runError above; we still
+          // wait for the promise to settle before propagating.
+          await runPromise;
+        }
+        if (runError) throw runError;
       } finally {
-        abortController.abort();
-        // Drain queued events / let runner observe abort. Errors thrown by
-        // the runner during abort are captured in runError above; we still
-        // wait for the promise to settle before propagating.
-        await runPromise;
+        turnInFlight = false;
+        drainPendingFileInputs();
       }
-      if (runError) throw runError;
     },
 
     async resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
@@ -1538,11 +1671,80 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // history (time-travel debugger) and drive rewind/resume themselves.
     sessionStore,
   };
+
+  // Late-bind so watch-batch auto-wake can start a turn through the public
+  // run() (which owns turnInFlight) after the instance object exists.
+  agentRun = (input) => agentInstance.run(input);
+  return agentInstance;
 }
 
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+// Watch tools are listed in FS_TOOL_NAMES (they are exported from tools-fs)
+// but are FileWatcher-backed — createFsToolExecutor does not implement them.
+// Route them via customToolMap instead of the FileSystem executor short-circuit.
+const WATCH_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "watch_files",
+  "unwatch_files",
+  "list_watches",
+]);
+
+/**
+ * Wrap an injected FileWatcher so every `watch()` registration delivers
+ * batches through the agent's handler (host callback + auto-wake) as well as
+ * the tool's own onEvents. Tools stay unchanged; the SDK owns event wiring.
+ * Batches that somehow fire before `watch()` resolves are buffered and
+ * flushed once the id is known, so the watchId in FileChangedInput is never
+ * empty.
+ */
+function wrapFileWatcher(
+  inner: FileWatcher,
+  onBatch: (watchId: string, events: FileWatchEvent[]) => void,
+): FileWatcher {
+  return {
+    async watch(reg, onEvents) {
+      // Object cell rather than a reassignable let: the adapter callback may
+      // fire before watch() resolves, and prefer-const rejects a let whose
+      // only write is the post-await assignment.
+      const cell: { id: string | undefined } = { id: undefined };
+      const early: FileWatchEvent[][] = [];
+      const deliver = (id: string, events: FileWatchEvent[]): void => {
+        try {
+          onBatch(id, events);
+        } catch {
+          // Never throw into the adapter — a host/agent handler failure must
+          // not crash the watcher.
+        }
+        try {
+          onEvents(events);
+        } catch {
+          // Same isolation for the tool-provided callback.
+        }
+      };
+      const id = await inner.watch(reg, (events) => {
+        if (cell.id === undefined) {
+          early.push(events);
+          return;
+        }
+        deliver(cell.id, events);
+      });
+      cell.id = id;
+      for (const batch of early) deliver(id, batch);
+      return id;
+    },
+    async unwatch(id) {
+      return inner.unwatch(id);
+    },
+    async list() {
+      return inner.list();
+    },
+    async dispose() {
+      await inner.dispose?.();
+    },
+  };
+}
 
 /**
  * Codepoint comparator by skill name — locale-independent determinism.
@@ -1881,7 +2083,9 @@ function createSubAgentExecutor(
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
     const subExecutor: ToolExecutor = async (call, ctx) => {
-      if (subFsExecutor && FS_TOOL_NAMES.has(call.name)) return subFsExecutor(call, ctx);
+      if (subFsExecutor && FS_TOOL_NAMES.has(call.name) && !WATCH_TOOL_NAMES.has(call.name)) {
+        return subFsExecutor(call, ctx);
+      }
       if (subShellExecutor && SHELL_TOOL_NAMES.has(call.name)) return subShellExecutor(call, ctx);
       if (subNetworkExecutor && NETWORK_TOOL_NAMES.has(call.name)) return subNetworkExecutor(call, ctx);
       const tool = subCustomToolMap.get(call.name);
