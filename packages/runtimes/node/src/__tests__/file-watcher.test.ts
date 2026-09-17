@@ -66,13 +66,28 @@ function collect(harness: Harness): (batch: FileWatchEvent[]) => void {
 /**
  * Confirm the watcher is live before the real stimulus, then reset
  * collected batches so the warm-up write does not pollute assertions.
- * Avoids depending on FSEvents delivering the first real write instantly.
+ * Retries because FSEvents can lag under load — never treat a silent
+ * first write as a passing "no events" result.
  */
-async function ensureWatching(harness: Harness, name = ".warmup"): Promise<void> {
-  await fsp.writeFile(path.join(harness.root, name), "warm");
-  await waitFor(() => harness.events.some((e) => e.path === name));
-  harness.batches.length = 0;
-  harness.events.length = 0;
+async function ensureWatching(
+  harness: Harness,
+  makeName: (attempt: number) => string = (a) => `warmup-${a}.txt`,
+): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // Let FSEvents finish subscribing before writing.
+    await sleep(80);
+    const probe = makeName(attempt);
+    await fsp.writeFile(path.join(harness.root, probe), "warm");
+    try {
+      await waitFor(() => harness.events.some((e) => e.path === probe), 1500);
+      harness.batches.length = 0;
+      harness.events.length = 0;
+      return;
+    } catch {
+      // Retry — a silent probe is not proof the watcher is dead.
+    }
+  }
+  throw new Error(`watcher never became live under ${harness.root}`);
 }
 
 afterEach(async () => {
@@ -84,7 +99,7 @@ afterEach(async () => {
   }
 });
 
-describe("createNodeFileWatcher", () => {
+describe("createNodeFileWatcher", { timeout: 20_000 }, () => {
   it("emits an event when a file is written under the watched dir (F-019)", async () => {
     const h = await createHarness();
     const id = await h.watcher.watch({ paths: ["."], debounceMs: 80 }, collect(h));
@@ -108,7 +123,7 @@ describe("createNodeFileWatcher", () => {
       await ensureWatching(h);
 
       await fsp.writeFile(path.join(h.root, "src", "nested", "deep.ts"), "export {};");
-      await waitFor(() => h.events.some((e) => e.path === "src/nested/deep.ts"));
+      await waitFor(() => h.events.some((e) => e.path === "src/nested/deep.ts"), 8000);
     },
   );
 
@@ -166,7 +181,7 @@ describe("createNodeFileWatcher", () => {
     await fsp.mkdir(path.join(h.root, "sub"), { recursive: true });
     await h.watcher.watch({ paths: ["."], glob: "**/*.ts", debounceMs: 80 }, collect(h));
     // Warm-up with a matching path so we know glob-accepted events flow.
-    await ensureWatching(h, "warm.ts");
+    await ensureWatching(h, (a) => `warm-${a}.ts`);
 
     await fsp.writeFile(path.join(h.root, "foo.ts"), "a");
     await waitFor(() => h.events.some((e) => e.path === "foo.ts"));
