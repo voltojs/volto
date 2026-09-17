@@ -5,7 +5,7 @@
 
 import type { ContentBlock, TodoItem, ToolResultBlock } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
-import type { ApprovalDenialReason } from "./ports.js";
+import type { ApprovalDenialReason, FileWatchEvent } from "./ports.js";
 
 /** User sent a message */
 export interface UserMessageInput {
@@ -196,6 +196,17 @@ export interface BackgroundTaskCompletedInput {
   isError?: boolean;
 }
 
+/**
+ * Debounced batch of file-watch events, injected by the host/SDK when a
+ * `FileWatcher` registration fires. The reducer appends (or, mid-turn,
+ * queues) a notice message and — when idle — opens a turn.
+ */
+export interface FileChangedInput {
+  type: "file_changed";
+  watchId: string;
+  events: FileWatchEvent[];
+}
+
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
@@ -211,4 +222,5 @@ export type AgentInput =
   | ToolResultsPrunedInput
   | CompactionAppliedInput
   | BackgroundTaskStartedInput
-  | BackgroundTaskCompletedInput;
+  | BackgroundTaskCompletedInput
+  | FileChangedInput;

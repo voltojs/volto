@@ -41,6 +41,8 @@ export type { SqliteDatabaseOptions } from "./database.js";
 export { createNodeDocumentParser } from "./document-parser.js";
 export type { NodeDocumentParserOptions } from "./document-parser.js";
 export { createNodeTokenizer } from "./tokenizer.js";
+export { createNodeFileWatcher } from "./file-watcher.js";
+export type { NodeFileWatcherOptions, NodeFileWatcher } from "./file-watcher.js";
 export { InMemoryTelemetry } from "./telemetry.js";
 export type { RecordedSpan, RecordedMetric } from "./telemetry.js";
 export { createNodeAttachmentStore } from "./attachment-store.js";

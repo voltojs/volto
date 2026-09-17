@@ -29,6 +29,10 @@ export type {
   ReducerState,
   PermissionConfig,
   ToolScopeConfig,
+  FileWatcher,
+  FileWatchEvent,
+  FileWatchRegistration,
+  FileChangedInput,
 } from "@volto/core";
 
 // Re-export runner types for advanced usage

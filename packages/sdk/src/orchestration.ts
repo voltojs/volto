@@ -32,7 +32,7 @@ import {
   createShellToolExecutor,
   createNetworkToolExecutor,
 } from "@volto/runtime-node";
-import { FS_TOOL_NAMES } from "@volto/tools-fs";
+import { FS_EXECUTOR_TOOL_NAMES } from "@volto/tools-fs";
 import { SHELL_TOOL_NAMES } from "@volto/tools-shell";
 import { NETWORK_TOOL_NAMES } from "@volto/tools-web";
 
@@ -85,7 +85,10 @@ export function createOrchestrator(opts: OrchestratorOptions): {
       : undefined;
 
     const executor: ToolExecutor = async (call, ctx) => {
-      if (fsExecutor && FS_TOOL_NAMES.has(call.name)) return fsExecutor(call, ctx);
+      // FS_EXECUTOR_TOOL_NAMES, not FS_TOOL_NAMES: the latter also lists
+      // FileWatcher-backed watch tools that createFsToolExecutor does not
+      // implement (they would short-circuit to "Unknown tool").
+      if (fsExecutor && FS_EXECUTOR_TOOL_NAMES.has(call.name)) return fsExecutor(call, ctx);
       if (shellExecutor && SHELL_TOOL_NAMES.has(call.name)) return shellExecutor(call, ctx);
       if (networkExecutor && NETWORK_TOOL_NAMES.has(call.name)) return networkExecutor(call, ctx);
       const tool = toolMap.get(call.name);

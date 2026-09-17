@@ -367,6 +367,15 @@ export function step(
     };
   }
 
+  // Unified file_changed handler — the host/SDK injects debounced FileWatcher
+  // batches as this input. Cross-status by design (same shape as self_correct):
+  // idle wakes a new turn; active states queue the notice for the next turn
+  // boundary without interrupting the in-flight model call or pending tools;
+  // cancelling/done drop with an observable emit. The reducer never throws.
+  if (input.type === "file_changed") {
+    return handleFileChanged(state, input, ctx);
+  }
+
   switch (state.status) {
     case "idle":
       return handleIdle(state, input, ctx);
@@ -1055,6 +1064,97 @@ function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
     };
   }
   return errorResult(state, `cancelling: unexpected input type "${input.type}"`);
+}
+
+/**
+ * Format a FileChangedInput batch as the model-visible user notice.
+ * Pure and deterministic — no clock, no random, no I/O. An empty batch still
+ * produces the header line so the model learns the watch fired (debounce/glob
+ * may legitimately filter every event out of a batch).
+ */
+export function formatFileChangedNotice(input: {
+  watchId: string;
+  events: ReadonlyArray<{ type: string; path: string }>;
+}): string {
+  const lines = input.events.map((e) => `- ${e.type} ${e.path}`);
+  return [`File watch "${input.watchId}" reported ${input.events.length} change(s):`, ...lines].join(
+    "\n",
+  );
+}
+
+/**
+ * Reducer handling for a debounced FileWatcher batch.
+ *
+ * - idle: append the notice as a user message and wake a new model call.
+ * - active/busy: append only — the message rides into the next call_model;
+ *   never interrupt an in-flight model call or pending tool roster.
+ * - cancelling / done: drop with an observable warning emit; never throw.
+ */
+function handleFileChanged(
+  state: ReducerState,
+  input: Extract<AgentInput, { type: "file_changed" }>,
+  ctx: StepContext,
+): StepResult {
+  const notice = formatFileChangedNotice(input);
+  const fileChangedEmit: Effect = {
+    type: "emit",
+    event: {
+      type: "file_changed",
+      data: { watchId: input.watchId, events: input.events },
+    },
+  };
+
+  if (state.status === "idle") {
+    const noticeMsg = stamp({ id: "", role: "user" as const, content: notice }, ctx);
+    const newState: ReducerState = {
+      ...state,
+      messages: [...state.messages, noticeMsg],
+      status: "calling_model",
+      iterationCount: 0,
+    };
+    return {
+      state: newState,
+      effects: [
+        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
+        fileChangedEmit,
+      ],
+    };
+  }
+
+  if (
+    state.status === "calling_model" ||
+    state.status === "executing_tools" ||
+    state.status === "waiting_for_approval" ||
+    state.status === "waiting_for_input"
+  ) {
+    // Same steering-queue pattern as user_message: a turn may have an
+    // assistant tool_use awaiting its tool_result, and providers like
+    // Anthropic reject a request where a user message splits that pair.
+    // Queuing defers the notice to the turn boundary (drained alongside
+    // queuedUserInputs once every pending tool result has flushed) instead
+    // of appending it into messages mid-turn.
+    const noticeMsg = stamp({ id: "", role: "user" as const, content: notice }, ctx);
+    return {
+      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, noticeMsg] },
+      effects: [fileChangedEmit],
+    };
+  }
+
+  // cancelling / done — drop with an observable warning; never throw.
+  return {
+    state,
+    effects: [
+      {
+        type: "emit",
+        event: {
+          type: "error",
+          data: {
+            error: `file_changed dropped: agent status is "${state.status}" (watchId=${input.watchId})`,
+          },
+        },
+      },
+    ],
+  };
 }
 
 // ──────────────────────────────────────────────

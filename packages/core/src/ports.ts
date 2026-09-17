@@ -442,6 +442,11 @@ export interface TranscriptEventMap {
   user_message: { content: string | ContentBlock[] };
   /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event. */
   steering_queued: { content: string | ContentBlock[] };
+  /** A debounced FileWatcher batch injected as AgentInput. Paths only — never file content. */
+  file_changed: {
+    watchId: string;
+    events: Array<{ type: "change" | "rename"; path: string; mtime?: number }>;
+  };
 
   // ── Sub-agents ──
   subagent_started: { childSessionId: string; label: string; depth: number };
@@ -680,6 +685,46 @@ export interface Sandbox {
 
 export interface Secrets {
   resolve(ref: string): Promise<string | undefined>;
+}
+
+// ──────────────────────────────────────────────
+// FileWatcher — event-triggered workspace file watching
+// ──────────────────────────────────────────────
+
+export interface FileWatchEvent {
+  /** "change" = content/metadata; "rename" = create/delete/rename */
+  type: "change" | "rename";
+  /** Workspace-relative path */
+  path: string;
+  /** Present when the path still exists after the event */
+  mtime?: number;
+}
+
+export interface FileWatchRegistration {
+  /** Workspace-relative file paths and/or directories */
+  paths: string[];
+  /** Optional glob filter applied to event paths (e.g. "**&#47;*.ts") */
+  glob?: string;
+  /** Debounce window in ms. Adapter default: 200 */
+  debounceMs?: number;
+}
+
+export interface FileWatcher {
+  /**
+   * Start watching. Returns a watch id.
+   * Events are delivered to `onEvents` as debounced batches.
+   * `onEvents` may be called many times; it must not throw into the adapter.
+   */
+  watch(
+    reg: FileWatchRegistration,
+    onEvents: (events: FileWatchEvent[]) => void,
+  ): Promise<string>;
+  /** Stop one watch. Unknown id is a no-op (returns false). */
+  unwatch(id: string): Promise<boolean>;
+  /** Active watch ids, for list_watches. */
+  list(): Promise<string[]>;
+  /** Tear down every watch (process exit / session dispose). */
+  dispose?(): Promise<void>;
 }
 
 // ──────────────────────────────────────────────
