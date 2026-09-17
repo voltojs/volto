@@ -46,4 +46,21 @@ describe("useAgents", () => {
     await act(async () => { await result.current.refresh(); });
     expect(fetchSpy.mock.calls.length).toBeGreaterThan(callsBefore);
   });
+
+  it("refetches the whole list after a successful mutate", async () => {
+    const fetchSpy = stubFetch({
+      "/agents": { agents: [] },
+      "/tools": { tools: [] },
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result } = renderHook(() => useAgents(null));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    const callsBefore = fetchSpy.mock.calls.length;
+    const value = await act(async () => result.current.mutate(async () => "ok"));
+    expect(value).toBe("ok");
+    // mutate must refetch (F-034): shadowed flags are server-computed, so
+    // skipping the load would leave stale list data without failing here.
+    expect(fetchSpy.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
 });
