@@ -111,6 +111,9 @@ describe("task sub-agent — context isolation", () => {
       // both scripts are plain text so either assignment completes).
       textScript("Sub-agent result text"),
       textScript("Understood, I will collect it later."),
+      // Task 9: the turn-end drain feeds the uncollected completion, which
+      // reopens the turn — the model gets one more call to fold it in.
+      textScript("Folded the background result in."),
     ]);
 
     const agent = createAgent({
@@ -131,8 +134,17 @@ describe("task sub-agent — context isolation", () => {
     expect(first.content).toContain("started in background");
     // No discarded result text leaked into the dispatch tool_result.
     expect(first.content).not.toContain("Sub-agent result text");
-    // The task is recorded in serializable state as running.
-    expect(state.backgroundTasks?.[0]).toMatchObject({ status: "running" });
+    // Task 9: the model never called task_output, so the turn-boundary
+    // drain collected the task at end of turn — the record ends
+    // "collected" and the result reached the model as a drain notice.
+    expect(state.backgroundTasks?.[0]).toMatchObject({ status: "collected" });
+    const drainNotice = state.messages.find(
+      (m) =>
+        typeof m.content === "string" &&
+        m.content.includes("[background task") &&
+        m.content.includes("Sub-agent result text"),
+    );
+    expect(drainNotice).toBeDefined();
   });
 
   it("should not have task tool in sub-agent's tool set (no recursion)", async () => {

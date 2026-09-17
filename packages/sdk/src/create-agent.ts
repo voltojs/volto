@@ -222,6 +222,14 @@ export interface BackgroundRegistry {
   collect(taskId: string): Promise<BackgroundCollectResult>;
   /** Ids registered but not yet collected. */
   pending(): string[];
+  /**
+   * True when collect() has already cached a result for this id. The
+   * Runner's turn-boundary drain uses this to skip tasks the model picked
+   * up via task_output: that path updates only this cache, never
+   * state.backgroundTasks.status, so without the check the drain would
+   * feed the same result to the model a second time.
+   */
+  isCollected(taskId: string): boolean;
 }
 
 export function createBackgroundRegistry(): BackgroundRegistry {
@@ -258,6 +266,10 @@ export function createBackgroundRegistry(): BackgroundRegistry {
 
     pending() {
       return [...inFlight.keys()];
+    },
+
+    isCollected(taskId) {
+      return settled.has(taskId);
     },
   };
 }
@@ -919,6 +931,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   capabilities.add(CAP_PLAN_WRITE);
   allCustomTools.push(createTodoWriteTool());
 
+  // Registry of detached background tasks for this agent instance.
+  // Promises live here, never in AgentState (not serializable). Declared
+  // outside the enableTaskTool block so every Runner this agent creates
+  // can receive it for turn-boundary draining (undefined = no drain).
+  let backgroundRegistry: BackgroundRegistry | undefined;
+
   if (opts.enableTaskTool) {
     const agentSpecs = opts.agentSpecs ?? [];
     const executor = createSubAgentExecutor(
@@ -936,16 +954,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       () => turnCounter,
       agentSpecs,
     );
-    // Registry of detached background tasks for this agent instance.
-    // Promises live here, never in AgentState (not serializable).
-    const backgroundRegistry = createBackgroundRegistry();
+    // Assign into the outer binding so createNextRunner's runnerOpts can
+    // hand the registry to each Runner for turn-boundary draining.
+    const registry = createBackgroundRegistry();
+    backgroundRegistry = registry;
     const dispatch: SubAgentDispatch = async ({ message, subagentType, background }) => {
       if (background) {
         const taskId = idPort.next();
         // Fire the executor detached; the registry normalizes a rejection so
         // an uncollected failure can never surface as an unhandled rejection
         // or take the parent loop down.
-        backgroundRegistry.register(taskId, executor({ message, subagentType }));
+        registry.register(taskId, executor({ message, subagentType }));
         // Record the task in serializable state so a checkpoint/resume can
         // discover it. Mid-turn feed is safe: the background_task_started
         // handler is status-independent and emits no effects.
@@ -972,7 +991,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     allCustomTools.push(createTaskTool(dispatch, { types: agentTypes }));
     // task_output collects a previously dispatched background task; the
     // registry's collect is idempotent and normalizes unknown ids to errors.
-    allCustomTools.push(createTaskOutputTool((taskId) => backgroundRegistry.collect(taskId)));
+    allCustomTools.push(createTaskOutputTool((taskId) => registry.collect(taskId)));
   }
   if (opts.skillRegistry) {
     // Local const so the narrowing survives inside the loader callback.
@@ -1335,6 +1354,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       pricing: opts.pricing,
       auditSink: opts.auditSink ?? defaultAuditSink,
       hooks: allHooks.length > 0 ? allHooks : undefined,
+      // Turn-boundary drain: lets the Runner collect background tasks the
+      // model never picked up via task_output before the turn ends.
+      backgroundRegistry,
     };
 
     if (previousState && previousState.status === "done") {
@@ -1649,6 +1671,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // resumed turn's header would silently drop the seed system prompt.
         ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
         clock: opts.clock,
+        // Same registry as the live runners: an in-process fallback resume
+        // keeps its handles; a cross-process rebuild constructs a fresh
+        // agent (empty registry), so a checkpointed running task drains as
+        // a ghost — collect() fails it with an explanation (F-036).
+        backgroundRegistry,
       });
 
       lastRunner = resumeRunner;
