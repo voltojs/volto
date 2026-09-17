@@ -751,6 +751,13 @@ export interface AgentInstance {
    */
   sessionStore: SessionStore;
 
+  /**
+   * Tool list assembled at construction (custom + adapter tools, including
+   * the task / task_output tools when the task tool is enabled). Snapshot
+   * for inspection — ToolSource tools merged later are not reflected here.
+   */
+  tools: Tool[];
+
   /** Resolved M8 port instances (for advanced usage / testing) */
   ports: ResolvedPorts;
 }
@@ -1707,6 +1714,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // Expose the backing session store so hosts can inspect checkpoint
     // history (time-travel debugger) and drive rewind/resume themselves.
     sessionStore,
+
+    tools: allTools,
   };
 }
 
