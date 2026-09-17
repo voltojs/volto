@@ -63,7 +63,9 @@ describe("background task state", () => {
       { type: "background_task_started", taskId: "t1" },
       ctx,
     ).state;
-    expect(resetTurnForNextInput(started).backgroundTasks ?? []).toEqual([]);
+    // No `??` fallback: the implementation writes `backgroundTasks: []`
+    // explicitly (triple-state semantics); a deleted field must fail here.
+    expect(resetTurnForNextInput(started).backgroundTasks).toEqual([]);
   });
 
   it("survives a serialize/deserialize round trip", () => {
@@ -74,5 +76,40 @@ describe("background task state", () => {
     ).state;
     const revived = JSON.parse(JSON.stringify(started)) as typeof started;
     expect(revived.backgroundTasks).toEqual(started.backgroundTasks);
+  });
+
+  it("drains a completion at the turn boundary: done → calling_model", () => {
+    // Dispatch a background task, then drive a full user → assistant turn
+    // to "done" — the state a Task 9 drain feed actually arrives at.
+    let state = step(
+      createInitialState(),
+      { type: "background_task_started", taskId: "t1" },
+      ctx,
+    ).state;
+    state = step(state, { type: "user_message", content: "hi" }, ctx).state;
+    state = step(
+      state,
+      { type: "model_chunk", chunk: { type: "text_delta", text: "hello" } },
+      ctx,
+    ).state;
+    state = step(state, { type: "model_done", stopReason: "end_turn" }, ctx).state;
+    expect(state.status).toBe("done");
+
+    const { state: drained, effects } = step(
+      state,
+      { type: "background_task_completed", taskId: "t1", text: "found 3 matches" },
+      ctx,
+    );
+
+    expect(drained.status).toBe("calling_model");
+    const callModel = effects.find((e) => e.type === "call_model");
+    expect(callModel).toBeDefined();
+
+    const noticeText = "[background task t1 finished]\nfound 3 matches";
+    expect(drained.messages.at(-1)?.content).toBe(noticeText);
+    if (callModel?.type !== "call_model") throw new Error("expected call_model effect");
+    expect(
+      callModel.request.messages.some((m) => m.content === noticeText),
+    ).toBe(true);
   });
 });
