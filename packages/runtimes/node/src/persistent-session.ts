@@ -189,7 +189,14 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   ): Promise<SessionCommandResult> {
     cmd = wrapWithCwd(cmd, cwd);
     const nonce = generateNonce();
-    const markerRe = new RegExp(`\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+)\\n?$`);
+    // Deliberately NOT anchored to the end of the buffer. A job left running
+    // with `&` inherits the session's stdout and keeps appending after the
+    // sentinel; an end-anchored match would never fire again, turning a
+    // finished command into a phantom stuck command that burns the whole
+    // timeout and resets cd/export state. The per-command random nonce is
+    // what rules out a false positive (spec §6.1) — the anchor was a
+    // redundant second lock that cost more than it bought.
+    const markerRe = new RegExp(`\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+)\\n`);
     stdoutBuf = "";
     stderrBuf = "";
     // The printf is a separate stdin line so `$?` captures the user command.

@@ -97,6 +97,25 @@ describe("marker protocol", () => {
     expect(r.exitCode).toBe(0);
   });
 
+  it("completes while a background job keeps writing to the shared stdout", async () => {
+    // A job left running with `&` inherits the session's stdout and keeps
+    // appending AFTER the sentinel. The sentinel must still be recognised —
+    // anchoring the match to the end of the buffer turns `npm run dev &`
+    // into a phantom stuck command that burns the whole timeout and
+    // destroys the session's cd/export state.
+    // The writer starts immediately and stays busy for far longer than one
+    // poll tick, so the sentinel is reliably NOT the tail of the buffer.
+    // Bounded on purpose — an unbounded flood starves the rest of the suite
+    // when vitest runs files in parallel.
+    const s = makeSession({ defaultTimeoutMs: 4000, gracePeriodMs: 300 });
+    const t0 = Date.now();
+    const r = await s.run("seq 1 100000 & echo started");
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("started");
+    expect(r.stateResetReason).toBeUndefined();
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it("captures stderr that belongs to the command", async () => {
     const s = makeSession({ generateNonce: () => "fixednonce" });
     const r = await s.run("echo out; echo err 1>&2");
