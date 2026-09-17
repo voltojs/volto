@@ -1,15 +1,25 @@
 import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@volto/core";
-import type { ShellTool } from "@volto/tools-shell";
+import type { ShellTool, BashToolOptions, BashSessionLike } from "@volto/tools-shell";
 import { createBashTool, createBashOutputTool, createKillShellTool } from "@volto/tools-shell";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateShellToolExecutorOptions {
   shell: Shell;
+  /**
+   * Lazy persistent session for bash. When provided, non-isolated bash
+   * calls route through session.run — including the abortable branch below.
+   * Without this, abort used to rebuild createBashTool(shell) with no
+   * options and silently drop session-routed calls onto one-shot exec.
+   */
+  getSession?: () => BashSessionLike | undefined;
 }
 
 export function createShellToolExecutor(options: CreateShellToolExecutorOptions): ToolExecutor {
+  const bashOptions: BashToolOptions | undefined = options.getSession
+    ? { getSession: options.getSession }
+    : undefined;
   const tools: ShellTool[] = [
-    createBashTool(options.shell),
+    createBashTool(options.shell, bashOptions),
     createBashOutputTool(options.shell),
     createKillShellTool(options.shell),
   ];
@@ -24,7 +34,8 @@ export function createShellToolExecutor(options: CreateShellToolExecutorOptions)
         exec: (cmd: string, opts?: ShellExecOptions): AsyncIterable<ShellEvent> =>
           options.shell.exec(cmd, { ...opts, abortSignal: ctx.abortSignal }),
       };
-      return createBashTool(abortableShell).handler(call.input);
+      // Forward bashOptions so the abort path does not drop session routing.
+      return createBashTool(abortableShell, bashOptions).handler(call.input);
     }
 
     const tool = tools.find((entry) => entry.definition.name === call.name);
