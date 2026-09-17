@@ -1047,7 +1047,12 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
         });
 
         const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 http://127.0.0.1:${port}/`),
+          // The budget only has to catch "the sandbox blocked it"; it must not
+          // double as a latency assertion. The server answering this request
+          // runs on THIS test worker's event loop, so a whole-repo gate that
+          // saturates the CPU can push the round trip past a tight budget and
+          // report a denial that never happened (curl exit 28).
+          shell.exec(`curl -sS --max-time 20 http://127.0.0.1:${port}/`),
         );
 
         expect(code).toBe(0);
@@ -1080,7 +1085,7 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
         });
 
         const { code, out } = await drain(
-          shell.exec(`curl -sS --max-time 3 http://${lan}:${port}/`),
+          shell.exec(`curl -sS --max-time 20 http://${lan}:${port}/`),
         );
 
         expect(code).toBe(0);

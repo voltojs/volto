@@ -177,8 +177,18 @@ function parseFrames(raw: string): ProtocolFrame[] {
     });
 }
 
-/** Quiet window after the last frame at which a turn is considered complete. */
-const TURN_IDLE_MS = 400;
+/**
+ * Fallback quiet window for turns that never emit `turn_end` (error paths).
+ * The happy path resolves on the `turn_end` frame itself, so this only has to
+ * be long enough that a starved worker — the whole-repo gate runs ~68 test
+ * tasks plus tsc and eslint at once — is not mistaken for a finished turn.
+ * At 400ms a slow first delta made the collector resolve holding only the
+ * `connected` frame, and the turn's text assertions failed against ''.
+ */
+const TURN_IDLE_MS = 3_000;
+
+/** Grace period after `turn_end` to let trailing frames land. */
+const TURN_END_GRACE_MS = 150;
 
 /**
  * Open an /events channel, trigger one turn via POST /messages, and collect
@@ -190,9 +200,12 @@ const TURN_IDLE_MS = 400;
  * run (rather than immediately error) must supply one — see
  * `createTestProjectAndModel` below.
  *
- * The v2 protocol has no terminal `done` frame — turn end is expressed by
- * `turn_end` events in the transcript — so completion is detected as a quiet
- * period once the turn's frames have drained.
+ * The v2 protocol has no terminal `done` frame — turn end is expressed by a
+ * `turn_end` event in the transcript, so that frame is what completion waits
+ * on. The quiet window is only a fallback for turns that never reach
+ * `turn_end` (error paths): treating "quiet" as "finished" on its own makes
+ * the collector resolve early whenever the machine is loaded, and the turn's
+ * frames then arrive after the assertions have already run.
  */
 function collectProtocolTurn(
   sessionId: string,
@@ -208,16 +221,32 @@ function collectProtocolTurn(
     const req = http.get(url, { headers: authHeaders(token) }, (res) => {
       let raw = "";
       let idle: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (idle) clearTimeout(idle);
+        clearTimeout(timer);
+        req.destroy();
+        resolve(parseFrames(raw));
+      };
       const scheduleIdle = (): void => {
         if (idle) clearTimeout(idle);
-        idle = setTimeout(() => {
-          clearTimeout(timer);
-          req.destroy();
-          resolve(parseFrames(raw));
-        }, TURN_IDLE_MS);
+        idle = setTimeout(finish, TURN_IDLE_MS);
       };
+      const sawTurnEnd = (): boolean =>
+        parseFrames(raw).some(
+          (f) => f.event === "event" && (f.data as { type?: string }).type === "turn_end",
+        );
       res.on("data", (chunk: Buffer) => {
         raw += chunk.toString("utf-8");
+        if (sawTurnEnd()) {
+          // Authoritative end of turn. A short grace lets any frame already
+          // in flight behind it land before the socket is torn down.
+          if (idle) clearTimeout(idle);
+          idle = setTimeout(finish, TURN_END_GRACE_MS);
+          return;
+        }
         scheduleIdle();
       });
       res.on("error", reject);
