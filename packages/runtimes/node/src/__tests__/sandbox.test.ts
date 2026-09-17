@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs } from "../sandbox.js";
+import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs, probeBinary } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
@@ -924,6 +924,16 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
     return dir;
   }
 
+  /** A non-internal IPv4 address of this host, or undefined if none is configured. */
+  function lanAddress(): string | undefined {
+    for (const addrs of Object.values(os.networkInterfaces())) {
+      for (const addr of addrs ?? []) {
+        if (addr.family === "IPv4" && !addr.internal) return addr.address;
+      }
+    }
+    return undefined;
+  }
+
   it("actually executes a simple command and returns its real stdout + exit 0", async () => {
     const scratch = makeScratch();
     const shell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
@@ -1208,6 +1218,98 @@ describe("createSandboxedShell — real seatbelt execution (darwin only)", () =>
     const out = await shell.readProcessOutput!(id);
     expect(out.text.toLowerCase()).toContain("operation not permitted");
     expect(fs.existsSync(path.join(outsideDir, "denied.txt"))).toBe(false);
+  });
+
+  it("launch() enforces the allowedHosts egress allowlist, not just network on/off", async () => {
+    // Regression test: launch() used to skip the proxy setup exec() does for
+    // `allowedHosts`, so a background-launched curl reached any host the
+    // seatbelt network toggle allowed (i.e. everything) regardless of the
+    // configured allowlist.
+    //
+    // The proxy only speaks CONNECT (it tunnels, never relays a plain HTTP
+    // request — see sandbox-proxy.ts), so `--proxytunnel` forces curl through
+    // that tunnel instead of sending an absolute-URI GET straight to it.
+    // The target must be a non-loopback address: HTTP_PROXY/HTTPS_PROXY is
+    // paired with NO_PROXY=localhost,127.0.0.1 (same as exec()'s existing
+    // egress-proxy setup), so 127.0.0.1 would bypass the proxy entirely and
+    // this test would pass for the wrong reason.
+    if (!probeBinary("socat")) return; // proxy needs socat to bridge TCP → unix socket
+    const lan = lanAddress();
+    if (!lan) return; // no non-loopback interface on this machine to target
+
+    const scratch = makeScratch();
+    const server = http.createServer((_req, res) => res.end("reached-allowed"));
+    await new Promise<void>((resolve) => server.listen(0, lan, () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+
+    async function readUntilExit(
+      shell: ReturnType<typeof createSandboxedShell>,
+      id: string,
+    ): Promise<{ text: string; exitCode: number | undefined }> {
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const info = shell.listProcesses!().find((p) => p.id === id);
+        if (!info?.running) {
+          return { text: (await shell.readProcessOutput!(id)).text, exitCode: info?.exitCode };
+        }
+        if (Date.now() > deadline) throw new Error("process did not exit in time");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    try {
+      // Allowlist does NOT include this server's host — the launched curl's
+      // CONNECT tunnel must be refused by the proxy (403), not silently
+      // reach it. The proxy only speaks CONNECT (never relays a plain HTTP
+      // request), so a 403 fails the tunnel itself: curl exits 56 before it
+      // ever gets an HTTP response to attach -w's %{http_code} to.
+      const denyShell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: true, allowedHosts: ["example.invalid"] },
+      });
+      const deniedId = await denyShell.launch!(
+        `curl -sS --proxytunnel --max-time 8 -o /dev/null http://${lan}:${port}/`,
+      );
+      const denied = await readUntilExit(denyShell, deniedId);
+      expect(denied.exitCode).not.toBe(0);
+      expect(denied.text).not.toContain("reached-allowed");
+      // curl's exact wording for a failed CONNECT varies ("CONNECT tunnel
+      // failed, response 403" vs "Proxy CONNECT aborted"); what must hold
+      // is that the failure is the proxy refusing the tunnel, not a
+      // timeout, DNS failure, or the sandbox blocking the connection outright.
+      expect(denied.text).toContain("CONNECT");
+      expect(denied.text).not.toContain("Connection timed out");
+
+      // Allowlist includes this server's host — the launched curl must reach it.
+      // KNOWN ISSUE: the egress proxy's start() is fire-and-forget (launch()
+      // is async but does not block on the proxy's unix-socket listener
+      // coming up before wrapping the command), so under load the very first
+      // proxied launch can run before the proxy is ready. That fails CLOSED
+      // (socat can't bridge yet, so curl's CONNECT is refused) rather than
+      // bypassing the allowlist — a reliability gap, not a security one —
+      // hence the retry here instead of asserting success on attempt one.
+      const allowShell = createSandboxedShell(createNodeShell({ defaultCwd: scratch }), {
+        mode: "workspace-write",
+        backend: "seatbelt",
+        writableRoots: [scratch],
+        network: { enabled: true, allowedHosts: [lan] },
+      });
+      let allowed: Awaited<ReturnType<typeof readUntilExit>> | undefined;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const allowedId = await allowShell.launch!(
+          `curl -sS --proxytunnel --max-time 8 http://${lan}:${port}/`,
+        );
+        allowed = await readUntilExit(allowShell, allowedId);
+        if (allowed.exitCode === 0) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      expect(allowed!.exitCode).toBe(0);
+      expect(allowed!.text).toContain("reached-allowed");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("launch() enforces sandboxEnforcement as a runtime fact", async () => {

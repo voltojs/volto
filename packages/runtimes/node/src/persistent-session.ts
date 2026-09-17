@@ -101,6 +101,12 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   let queue: Promise<unknown> = Promise.resolve();
   // Guards cleanup() so signal-death + kill() cannot double-call it.
   let cleanedUp = false;
+  // Set once kill() is called. interruptAndRebuild's grace-period sleep has
+  // no way to observe a concurrent kill()/dispose() otherwise — without this
+  // flag, the sleep resolving after dispose() would unconditionally spawn a
+  // fresh bash (and its sandbox-exec/bwrap parent) that nothing holds a
+  // reference to, leaking it for the life of the host process.
+  let disposed = false;
 
   /**
    * Bind stdio/close listeners for a spawn handle. Used for the first
@@ -134,6 +140,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   attachStreams(handle);
 
   async function kill(): Promise<void> {
+    disposed = true;
     // Signal-death sets signalCode and leaves exitCode null; keying the
     // early-return on exitCode alone misses that case and double-cleans.
     if (!alive) {
@@ -165,6 +172,19 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     stale.child.stdout?.destroy();
     stale.child.stderr?.destroy();
     stale.cleanup?.();
+    // A concurrent kill()/dispose() may have landed while we were asleep —
+    // it has no way to interrupt this sleep, so it can only set `disposed`.
+    // Spawning a fresh bash (and its sandbox-exec/bwrap parent) here would
+    // orphan it: nothing holds a reference to this session anymore.
+    if (disposed) {
+      alive = false;
+      return {
+        stdout: "",
+        stderr: reason,
+        exitCode: 124,
+        stateResetReason: "session was disposed while recovering from a stuck command",
+      };
+    }
     handle = options.spawn({ cwd: options.cwd });
     cleanedUp = false;
     stdoutBuf = "";
