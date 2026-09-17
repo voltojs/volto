@@ -84,6 +84,7 @@ import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
+import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
 
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
@@ -1077,6 +1078,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           return;
         }
         await chatStore.deleteSession(id);
+        // Drop the session's attachments alongside its transcript. The store
+        // treats an empty/invalid session id as a no-op, so a malformed id
+        // can never wipe the whole root.
+        await attachmentStoreFor(id).deleteBySession(id);
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {
@@ -1532,6 +1537,29 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       webUrl.searchParams.set("token", auth.launchToken);
       console.log(`Or open the web app URL: ${webUrl.toString()}`);
     }
+
+    // Best-effort orphan reclaim on startup. Failures must never block or
+    // fail the server — a leftover attachment dir is a disk-usage issue,
+    // not a reason to refuse connections.
+    void (async () => {
+      try {
+        const { records } = await chatStore.listSessions();
+        const liveSessionIds = new Set(records.map((r) => r.sessionId));
+        const { removed } = await cleanupOrphanAttachments({
+          rootDir: attachmentRoot,
+          now: Date.now(),
+          liveSessionIds,
+        });
+        if (removed.length > 0) {
+          console.log(`Reclaimed ${removed.length} orphaned attachment dir(s): ${removed.join(", ")}`);
+        }
+      } catch (err: unknown) {
+        console.warn(
+          "Orphan attachment cleanup failed (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    })();
   });
 
   return Object.assign(httpServer, {

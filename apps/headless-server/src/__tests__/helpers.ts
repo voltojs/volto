@@ -179,6 +179,16 @@ export async function startTestServer(): Promise<TestServer> {
   }
 
   async function openEvents(sessionId?: string): Promise<void> {
+    // Opening a new channel replaces the previous one: destroy the old
+    // request and clear the buffer so a second session's frames are not
+    // mixed with (or short-circuited by) the first session's turn_end.
+    eventsReq?.destroy();
+    rawSse = "";
+    frames = [];
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = undefined;
+    }
     const sid = sessionId ?? "test-session";
     return new Promise<void>((resolve, reject) => {
       const req = http.get(
