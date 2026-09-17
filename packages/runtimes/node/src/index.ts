@@ -10,6 +10,13 @@ export { createProcessRegistry, DEFAULT_MAX_BACKGROUND } from "./process-registr
 export type { ProcessRegistry, ProcessRegistryOptions } from "./process-registry.js";
 export { createProcessOutputBuffer, DEFAULT_PROCESS_BUFFER_BYTES } from "./process-buffer.js";
 export type { ProcessOutputBuffer, ProcessBufferRead } from "./process-buffer.js";
+export { createPersistentSession } from "./persistent-session.js";
+export type {
+  PersistentSession,
+  PersistentSessionOptions,
+  SessionCommandResult,
+  SessionSpawnHandle,
+} from "./persistent-session.js";
 export { createNodeNetwork } from "./network.js";
 export type { NodeNetworkOptions } from "./network.js";
 export { createFsToolExecutor } from "./tool-executor.js";
