@@ -849,10 +849,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // read_document always ships — the default lazy node parser degrades
   // per format (missing library → that call's isError) instead of hiding
   // the tool behind an opt-in adapter the host may never learn about.
+  // The default parser uses raw fs, so constrain paths to the workspace
+  // via the FileSystem port (same boundary read_file enforces). Hosts that
+  // bring their own documentParser keep the existing unrooted contract.
   adapterTools.push(
     createReadDocumentTool(documentParser, {
       attachments: attachmentStore,
       visionSupported: opts.modelVision,
+      ...(opts.documentParser ? {} : { fs: opts.fs }),
     }),
   );
   if (opts.scheduler) {

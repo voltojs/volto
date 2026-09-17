@@ -2,7 +2,7 @@
  * read_document — document parsing tool wrapping DocumentParserAdapter.
  */
 
-import type { AttachmentStore } from "@volto/core";
+import type { AttachmentStore, FileSystem } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
@@ -23,6 +23,15 @@ export interface ReadDocumentToolOptions {
    * does not gate (hosts that have not wired capability yet keep working).
    */
   visionSupported?: boolean;
+  /**
+   * Workspace boundary. When provided, the path is checked against this
+   * FileSystem port before the parser runs. The default node parser uses
+   * raw `fs`, so without this a model could read_document an absolute path
+   * outside the workspace that read_file would refuse. Hosts that bring
+   * their own documentParser and intentionally parse outside the workspace
+   * omit this option.
+   */
+  fs?: FileSystem;
 }
 
 /**
@@ -43,6 +52,13 @@ export function createReadDocumentTool(
     riskTier: "READ_ONLY",
     run: async ({ path: filePath }) => {
       try {
+        // Force the same workspace-boundary check read_file uses. stat() is
+        // the cheapest FileSystem method that routes through the port's
+        // path resolver; an escape throws the denial before the parser (raw
+        // fs) ever sees the path.
+        if (opts?.fs) {
+          await opts.fs.stat(filePath);
+        }
         const result = await parser.parse(filePath);
 
         if (result.contentType === "text") {

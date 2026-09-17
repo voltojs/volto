@@ -198,4 +198,37 @@ describe("image pipeline end to end", () => {
     expect(persisted).toContain("hello from a note");
     expect(persisted).not.toContain("Unknown tool");
   });
+
+  it("rejects read_document paths outside the workspace root", async () => {
+    const { fs, attachmentStore } = await makeWorkspace();
+    // A file outside the workspace — the default node parser would happily
+    // open it via raw fs, but the FileSystem port must refuse first.
+    const outsidePath = path.join(tmpdir(), `volto-img-e2e-outside-${Date.now()}.txt`);
+    const secret = "TOP SECRET OUTSIDE THE WORKSPACE";
+    await writeFile(outsidePath, secret);
+    cleanups.push(() => rm(outsidePath, { force: true }));
+
+    const seen: ModelRequest[] = [];
+    const modelPort = capturingPort(
+      [
+        toolCallScript("call-1", "read_document", JSON.stringify({ path: outsidePath })),
+        textScript("done"),
+      ],
+      seen,
+    );
+
+    const agent = createAgent({ modelPort, fs, attachmentStore, modelVision: true });
+    const state = await agent.run("read the secret");
+    expect(state.status).toBe("done");
+
+    const toolMsg = state.messages.find((m) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    const persisted = JSON.stringify(toolMsg);
+    // Assert the denial itself (non-empty isError + boundary dialect), not
+    // merely the absence of content.
+    expect(persisted).toContain('"isError":true');
+    expect(persisted).toContain("escapes the workspace boundary");
+    // The secret bytes must never reach the model surface.
+    expect(persisted).not.toContain(secret);
+  });
 });
