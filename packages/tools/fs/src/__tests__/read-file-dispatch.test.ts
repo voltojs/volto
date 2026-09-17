@@ -56,6 +56,39 @@ describe("read_file dispatch", () => {
     expect(result.modelContent as string).toMatch(/too large/i);
   });
 
+  it("suggests downscaling when the long edge exceeds 1568px", async () => {
+    const bigDims = {
+      put: vi.fn(async () => ({ id: "att-big", mimeType: "image/png", size: 10, width: 2000, height: 800 })),
+      get: vi.fn(),
+      deleteBySession: vi.fn(),
+    } as unknown as AttachmentStore;
+    const tool = createReadFileTool(
+      fsWith({ readBytes: async () => ({ data: PNG, size: 10, mimeType: "image/png" }) }),
+      { attachments: bigDims, visionSupported: true },
+    );
+    const result = await tool.handler({ path: "/tmp/wide.png" });
+    const textBlock = (result.modelContent as Array<{ type: string; text?: string }>).find(
+      (b) => b.type === "text",
+    );
+    expect(textBlock?.text).toContain(
+      "Image long edge is 2000px (> 1568px); consider downscaling to reduce token cost.",
+    );
+  });
+
+  it("does not suggest downscaling for small images", async () => {
+    // The default mock store returns 4x4 — within budget.
+    const tool = createReadFileTool(
+      fsWith({ readBytes: async () => ({ data: PNG, size: 10, mimeType: "image/png" }) }),
+      { attachments, visionSupported: true },
+    );
+    const result = await tool.handler({ path: "/tmp/a.png" });
+    const textBlock = (result.modelContent as Array<{ type: string; text?: string }>).find(
+      (b) => b.type === "text",
+    );
+    expect(textBlock?.text).toBe("Image /tmp/a.png");
+    expect(textBlock?.text).not.toMatch(/downscal/i);
+  });
+
   it("returns notebook cells with their outputs", async () => {
     const nb = JSON.stringify({
       cells: [

@@ -1,12 +1,11 @@
 import type { AttachmentStore, FileReadResult, FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
+import { defineTool as defineFileTool, MAX_IMAGE_BASE64, imageDownscaleHint } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
 import { formatNotebook } from "./notebook.js";
 
 const MAX_LINES = 2000;
-const MAX_IMAGE_BASE64 = 5 * 1024 * 1024;
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 
 const schema = z.object({
@@ -53,9 +52,10 @@ export function createReadFileTool(fs: FileSystem, opts?: ReadFileToolOptions): 
             return { modelContent: `Image is too large to send (${bytes.size} bytes).`, isError: true };
           }
           const stored = await opts.attachments.put(bytes.data, bytes.mimeType ?? "image/png");
+          const hint = imageDownscaleHint(stored.width, stored.height);
           return {
             modelContent: [
-              { type: "text", text: `Image ${path}` },
+              { type: "text", text: hint ? `Image ${path}\n${hint}` : `Image ${path}` },
               {
                 type: "image",
                 source: { type: "ref", id: stored.id, mediaType: stored.mimeType },

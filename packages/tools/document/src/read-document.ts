@@ -4,7 +4,7 @@
 
 import type { AttachmentStore, FileSystem } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
 import type { DocumentParserAdapter } from "./document-parser.js";
 
@@ -100,11 +100,19 @@ export function createReadDocumentTool(
             isError: true,
           };
         }
+        // Same Global Constraint as read_file: never forward a >5 MB base64 image.
+        if (result.data.length > MAX_IMAGE_BASE64) {
+          return {
+            modelContent: `Image is too large to send (${result.data.length} bytes).`,
+            isError: true,
+          };
+        }
 
         const stored = await opts.attachments.put(result.data, result.mimeType);
+        const hint = imageDownscaleHint(stored.width, stored.height);
         return {
           modelContent: [
-            { type: "text", text: `Image ${filePath}` },
+            { type: "text", text: hint ? `Image ${filePath}\n${hint}` : `Image ${filePath}` },
             {
               type: "image",
               source: { type: "ref", id: stored.id, mediaType: stored.mimeType },

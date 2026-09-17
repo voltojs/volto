@@ -84,9 +84,9 @@ function mapUserMessage(message: Extract<Message, { role: "user" }>): PiUserMess
     if (block.type === "text") {
       content.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
-      // Image forwarding lands in Task 6/7. Core state now carries
-      // AttachmentStore refs, not bytes; the Runner does not resolve them
-      // yet, so there is nothing to send. Skip defensively.
+      // The Runner resolves AttachmentStore refs to base64 on the request
+      // surface; pi-ai image forwarding itself is still unimplemented, so
+      // skip image blocks rather than send a payload this adapter drops.
       continue;
     }
     // Other ContentBlock variants (tool_use / tool_result / reasoning) are not

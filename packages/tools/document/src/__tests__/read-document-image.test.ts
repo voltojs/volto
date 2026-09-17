@@ -41,4 +41,51 @@ describe("read_document image path", () => {
     expect(result.isError).toBe(true);
     expect(result.modelContent as string).toMatch(/does not support image input/i);
   });
+
+  it("rejects an image beyond the 5 MB base64 cap", async () => {
+    const huge = "A".repeat(6 * 1024 * 1024);
+    const put = vi.fn();
+    const store = { put, get: vi.fn(), deleteBySession: vi.fn() } as unknown as AttachmentStore;
+    const parser: DocumentParserAdapter = {
+      parse: async () => ({ contentType: "image", mimeType: "image/png", data: huge }),
+    };
+    const tool = createReadDocumentTool(parser, { attachments: store, visionSupported: true });
+    const result = await tool.handler({ path: "/tmp/big.png" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent as string).toMatch(/too large/i);
+    // Must never reach the store once the cap is exceeded.
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("suggests downscaling when the long edge exceeds 1568px", async () => {
+    const store = {
+      put: vi.fn(async () => ({ id: "att-big", mimeType: "image/png", size: 10, width: 2000, height: 800 })),
+      get: vi.fn(),
+      deleteBySession: vi.fn(),
+    } as unknown as AttachmentStore;
+    const parser: DocumentParserAdapter = {
+      parse: async () => ({ contentType: "image", mimeType: "image/png", data: PNG }),
+    };
+    const tool = createReadDocumentTool(parser, { attachments: store, visionSupported: true });
+    const result = await tool.handler({ path: "/tmp/wide.png" });
+    const textBlock = (result.modelContent as Array<{ type: string; text?: string }>).find(
+      (b) => b.type === "text",
+    );
+    expect(textBlock?.text).toContain(
+      "Image long edge is 2000px (> 1568px); consider downscaling to reduce token cost.",
+    );
+  });
+
+  it("does not suggest downscaling when dimensions are small", async () => {
+    const parser: DocumentParserAdapter = {
+      parse: async () => ({ contentType: "image", mimeType: "image/png", data: PNG, width: 2, height: 2 }),
+    };
+    const tool = createReadDocumentTool(parser, { attachments, visionSupported: true });
+    const result = await tool.handler({ path: "/tmp/scan.png" });
+    const textBlock = (result.modelContent as Array<{ type: string; text?: string }>).find(
+      (b) => b.type === "text",
+    );
+    expect(textBlock?.text).toBe("Image /tmp/scan.png");
+    expect(textBlock?.text).not.toMatch(/downscal/i);
+  });
 });
