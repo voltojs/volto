@@ -269,14 +269,30 @@ describe("createNodeFileWatcher", { timeout: 20_000 }, () => {
 
   it("callback throw does not crash the adapter (F-025)", async () => {
     const h = await createHarness();
-    const id = await h.watcher.watch({ paths: ["."], debounceMs: 80 }, () => {
+    const seen: string[] = [];
+    const id = await h.watcher.watch({ paths: ["."], debounceMs: 80 }, (batch) => {
+      for (const e of batch) seen.push(e.path);
       throw new Error("host callback boom");
     });
 
-    await fsp.writeFile(path.join(h.root, "boom.txt"), "x");
-    await sleep(250);
+    // Prove the throwing callback actually ran — retry because FSEvents
+    // can lag on the first write after watch. A silent probe is not a pass.
+    let live = false;
+    for (let attempt = 0; attempt < 4 && !live; attempt++) {
+      await sleep(80);
+      const probe = `boom-${attempt}.txt`;
+      await fsp.writeFile(path.join(h.root, probe), "x");
+      try {
+        await waitFor(() => seen.includes(probe), 1500);
+        live = true;
+      } catch {
+        // Retry.
+      }
+    }
+    expect(live).toBe(true);
+    expect(seen.some((p) => p.startsWith("boom-"))).toBe(true);
 
-    // Adapter still alive: list + unwatch work.
+    // Adapter still alive after the throw: list + unwatch work.
     expect(await h.watcher.list()).toContain(id);
     expect(await h.watcher.unwatch(id)).toBe(true);
   });

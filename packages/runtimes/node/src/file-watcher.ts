@@ -151,7 +151,8 @@ export function createNodeFileWatcher(options: NodeFileWatcherOptions): NodeFile
   }
 
   function recordEvent(watch: ActiveWatch, type: "change" | "rename", relPath: string): void {
-    // Drop events that resolve outside the workspace (e.g. via symlink).
+    // Drop events whose relative path string resolves outside the workspace.
+    // Path-string check only — does not resolve symlinks.
     try {
       resolveWithinRoot(relPath);
     } catch {
