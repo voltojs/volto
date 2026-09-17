@@ -79,7 +79,12 @@ import {
   createGrepTool,
   FS_TOOL_NAMES,
 } from "@volto/tools-fs";
-import { createBashTool, SHELL_TOOL_NAMES } from "@volto/tools-shell";
+import {
+  createBashTool,
+  createBashOutputTool,
+  createKillShellTool,
+  SHELL_TOOL_NAMES,
+} from "@volto/tools-shell";
 import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@volto/tools-web";
 import {
   createLspDefinitionTool,
@@ -641,6 +646,14 @@ export interface AgentInstance {
    */
   sessionStore: SessionStore;
 
+  /**
+   * Tear down agent-owned resources when the host ends the session.
+   * Currently kills every managed background shell process via
+   * `Shell.disposeProcesses` (when the shell implements it). Safe to call
+   * when no shell was configured — it resolves as a no-op.
+   */
+  dispose(): Promise<void>;
+
   /** Resolved M8 port instances (for advanced usage / testing) */
   ports: ResolvedPorts;
 }
@@ -656,6 +669,11 @@ export interface ResolvedPorts {
   secrets: Secrets;
   scheduler: Scheduler;
   policyEngine: PolicyEngine;
+  /**
+   * The effective shell (sandbox-wrapped when sandboxConfig was provided).
+   * Exposed so hosts can reuse the same instance for teardown / inspection.
+   */
+  shell?: Shell;
 }
 
 // ──────────────────────────────────────────────
@@ -734,7 +752,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     );
   }
   if (opts.shell) {
-    adapterTools.push(createBashTool(effectiveShell!));
+    adapterTools.push(
+      createBashTool(effectiveShell!),
+      createBashOutputTool(effectiveShell!),
+      createKillShellTool(effectiveShell!),
+    );
     adapterTools.push(
       createGitStatusTool(effectiveShell!),
       createGitDiffTool(effectiveShell!),
@@ -1015,6 +1037,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     secrets: opts.secrets ?? defaultSecrets,
     scheduler: opts.scheduler ?? defaultScheduler,
     policyEngine: opts.policyEngine ?? defaultPolicyEngine,
+    ...(effectiveShell ? { shell: effectiveShell } : {}),
   };
 
   // ── Build initial messages (system prompt) ──
@@ -1537,6 +1560,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // Expose the backing session store so hosts can inspect checkpoint
     // history (time-travel debugger) and drive rewind/resume themselves.
     sessionStore,
+
+    async dispose(): Promise<void> {
+      await effectiveShell?.disposeProcesses?.();
+    },
   };
 }
 
