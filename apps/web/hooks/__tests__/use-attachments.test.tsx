@@ -170,4 +170,31 @@ describe('usePendingAttachments', () => {
       expect(revokedUrls).toContain(url);
     }
   });
+
+  it('resets pending items when sessionId changes so a failed pick cannot cross sessions', async () => {
+    const fetchSpy = vi.fn(async () => new Response('boom', { status: 500 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => usePendingAttachments(sid),
+      { initialProps: { sid: 's-a' } },
+    );
+    await act(async () => {
+      await result.current.add(pngFile());
+    });
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('failed'));
+    const staleLocalId = result.current.items[0]!.localId;
+    const staleUrl = result.current.items[0]!.previewUrl;
+    fetchSpy.mockClear();
+
+    rerender({ sid: 's-b' });
+    await waitFor(() => expect(result.current.items).toHaveLength(0));
+    expect(revokedUrls).toContain(staleUrl);
+
+    // A leftover localId from session A must not POST A's file under B.
+    await act(async () => {
+      await result.current.retry(staleLocalId);
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

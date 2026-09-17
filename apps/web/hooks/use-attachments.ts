@@ -61,6 +61,29 @@ export function usePendingAttachments(sessionId: string) {
     };
   }, []);
 
+  /**
+   * Drop every pending item: revoke object URLs and forget the source Files.
+   * Side effects run outside any setItems updater — React Strict Mode
+   * double-invokes updaters, so they must stay pure.
+   */
+  const resetAll = useCallback((): void => {
+    for (const item of itemsRef.current) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+    filesRef.current.clear();
+    setItems([]);
+  }, []);
+
+  // Pending attachments are session-scoped: a failed pick from session A
+  // must not be retried (or shown) under session B. Reset on change rather
+  // than relying on consumers to remount with key={sessionId}.
+  const prevSessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    if (prevSessionIdRef.current === sessionId) return;
+    prevSessionIdRef.current = sessionId;
+    resetAll();
+  }, [sessionId, resetAll]);
+
   const uploadOne = useCallback(
     async (localId: string, file: File): Promise<void> => {
       setItems((prev) =>
@@ -124,12 +147,10 @@ export function usePendingAttachments(sessionId: string) {
   );
 
   const remove = useCallback((localId: string): void => {
-    setItems((prev) => {
-      const target = prev.find((item) => item.localId === localId);
-      if (target) URL.revokeObjectURL(target.previewUrl);
-      filesRef.current.delete(localId);
-      return prev.filter((item) => item.localId !== localId);
-    });
+    const target = itemsRef.current.find((item) => item.localId === localId);
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    filesRef.current.delete(localId);
+    setItems((prev) => prev.filter((item) => item.localId !== localId));
   }, []);
 
   const retry = useCallback(
@@ -142,14 +163,8 @@ export function usePendingAttachments(sessionId: string) {
   );
 
   const clear = useCallback((): void => {
-    setItems((prev) => {
-      for (const item of prev) {
-        URL.revokeObjectURL(item.previewUrl);
-      }
-      return [];
-    });
-    filesRef.current.clear();
-  }, []);
+    resetAll();
+  }, [resetAll]);
 
   return { items, add, remove, retry, clear };
 }
