@@ -142,6 +142,23 @@ export interface TodoItem {
   status: TodoStatus;
 }
 
+/**
+ * A detached sub-agent task tracked in serializable state. Deliberately
+ * metadata-only: the promise handle stays with the Runner — a promise cannot
+ * be serialized, and state only needs to record that a task exists so a
+ * resumed Runner can discover it and fail it rather than wait forever.
+ */
+export interface BackgroundTask {
+  id: string;
+  subagentType?: string;
+  /**
+   * "running" can survive into a checkpoint. A resumed Runner holds no
+   * handle for it and must fail it rather than wait forever.
+   */
+  status: "running" | "collected";
+  startedAt: number;
+}
+
 /** The complete agent state */
 export interface AgentState {
   messages: Message[];
@@ -214,4 +231,12 @@ export interface AgentState {
    * Survives turns and checkpoint/resume. Never written by Compactor.
    */
   todos?: TodoItem[];
+  /**
+   * Background sub-agent tasks dispatched this turn.
+   * - `undefined`: never written
+   * - `[]`: explicitly cleared
+   * - non-empty: tasks dispatched, each `running` until collected
+   * Survives turns and checkpoint/resume; cleared by resetTurnForNextInput.
+   */
+  backgroundTasks?: BackgroundTask[];
 }

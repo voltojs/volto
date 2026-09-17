@@ -20,6 +20,7 @@ export type {
   ReadFileRecord,
   TodoItem,
   TodoStatus,
+  BackgroundTask,
   AgentState,
 } from "./state.js";
 
@@ -37,6 +38,8 @@ export type {
   SelfCorrectInput,
   ToolResultsPrunedInput,
   CompactionAppliedInput,
+  BackgroundTaskStartedInput,
+  BackgroundTaskCompletedInput,
   AgentInput,
 } from "./input.js";
 

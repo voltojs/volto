@@ -4,8 +4,8 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem } from "./state.js";
-import type { ApprovalDenialReason, Id, ReasoningEffortId } from "./ports.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem, BackgroundTask } from "./state.js";
+import type { ApprovalDenialReason, Clock, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
 import type { Effect } from "./effect.js";
 import type { ToolDefinition, JSONSchema } from "./tool.js";
@@ -52,6 +52,12 @@ export interface StepContext {
    * id: ctx.id.next(). Absent → messages keep their construction-time id.
    */
   id?: Id;
+  /**
+   * Optional time source for startedAt stamps on BackgroundTask records.
+   * Absent → startedAt falls back to 0 (deterministic; hosts that need real
+   * timestamps inject a Clock).
+   */
+  clock?: Clock;
 }
 
 // ──────────────────────────────────────────────
@@ -150,6 +156,7 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     _accumulatedReasoning: "",
     _accumulatedToolCalls: [],
     _toolResultBuffer: {},
+    backgroundTasks: [],
   };
 }
 
@@ -285,6 +292,77 @@ export function step(
           },
         },
       ],
+    };
+  }
+
+  // Unified background_task_started handler — records a detached sub-agent
+  // dispatch in serializable state. Status-independent: the dispatch can be
+  // fed at any point the Runner spawns a task, and recording it never
+  // changes the turn's control flow.
+  if (input.type === "background_task_started") {
+    const task: BackgroundTask = {
+      id: input.taskId,
+      ...(input.subagentType !== undefined ? { subagentType: input.subagentType } : {}),
+      status: "running",
+      startedAt: ctx.clock?.now() ?? 0,
+    };
+    return {
+      state: {
+        ...state,
+        backgroundTasks: [...(state.backgroundTasks ?? []), task],
+      },
+      effects: [],
+    };
+  }
+
+  // Unified background_task_completed handler — collection of a detached
+  // sub-agent's result. The result travels back as a user-role message so it
+  // is part of the canonical history and survives replay/checkpoint. Fed at
+  // the turn boundary (status "done"): the injection pushes the turn back to
+  // calling_model so the loop continues with the collected information.
+  if (input.type === "background_task_completed") {
+    // Worded as a collection notice, not a fresh user request: the model should
+    // fold the result into what it already said instead of restating everything.
+    const text = `[background task ${input.taskId} finished]\n${input.text}`;
+    const notice = stamp({ id: "", role: "user" as const, content: text }, ctx);
+    const backgroundTasks = (state.backgroundTasks ?? []).map((t) =>
+      t.id === input.taskId ? { ...t, status: "collected" as const } : t,
+    );
+    const reminder: Effect = {
+      type: "emit",
+      event: {
+        type: "context_reminder",
+        data: {
+          kind: "background_task",
+          text,
+          displayMetadata: { taskId: input.taskId, isError: input.isError ?? false },
+        },
+      },
+    };
+
+    if (state.status === "done") {
+      const newState: ReducerState = {
+        ...state,
+        backgroundTasks,
+        messages: [...state.messages, notice],
+        status: "calling_model",
+      };
+      return {
+        state: newState,
+        effects: [
+          reminder,
+          buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
+        ],
+      };
+    }
+
+    return {
+      state: {
+        ...state,
+        backgroundTasks,
+        messages: [...state.messages, notice],
+      },
+      effects: [reminder],
     };
   }
 

@@ -173,6 +173,29 @@ export interface CompactionAppliedInput {
   replacedIds: string[];
 }
 
+/**
+ * A background sub-agent was dispatched. Fed by the Runner when a detached
+ * task starts, so state records the task even though the promise handle
+ * never enters the reducer.
+ */
+export interface BackgroundTaskStartedInput {
+  type: "background_task_started";
+  taskId: string;
+  subagentType?: string;
+}
+
+/**
+ * A background sub-agent finished and its result is being handed to the
+ * model. Fed at turn-boundary drain (or resume-loss fail); the reducer
+ * appends the result as a user message and marks the task collected.
+ */
+export interface BackgroundTaskCompletedInput {
+  type: "background_task_completed";
+  taskId: string;
+  text: string;
+  isError?: boolean;
+}
+
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
@@ -186,4 +209,6 @@ export type AgentInput =
   | BudgetExceededInput
   | SelfCorrectInput
   | ToolResultsPrunedInput
-  | CompactionAppliedInput;
+  | CompactionAppliedInput
+  | BackgroundTaskStartedInput
+  | BackgroundTaskCompletedInput;
