@@ -5,7 +5,7 @@ import { createWatchFilesTool } from "../watch-files.js";
 import { createUnwatchFilesTool } from "../unwatch-files.js";
 import { createListWatchesTool } from "../list-watches.js";
 import { CAP_FS_WATCH } from "../capabilities.js";
-import { FS_TOOL_NAMES } from "../tool-names.js";
+import { FS_TOOL_NAMES, FS_EXECUTOR_TOOL_NAMES } from "../tool-names.js";
 
 /** Build a FileWatcher fake; override only the methods a given test exercises. */
 function fakeWatcher(overrides: Partial<FileWatcher> = {}): FileWatcher {
@@ -213,5 +213,21 @@ describe("watch tool capability gating (F-017, F-018)", () => {
     expect(FS_TOOL_NAMES.has("watch_files")).toBe(true);
     expect(FS_TOOL_NAMES.has("unwatch_files")).toBe(true);
     expect(FS_TOOL_NAMES.has("list_watches")).toBe(true);
+  });
+
+  it("excludes the three watch names from FS_EXECUTOR_TOOL_NAMES (routing contract)", () => {
+    // createFsToolExecutor only implements the FileSystem-backed tools.
+    // Routing a watch name through it would produce "Unknown tool".
+    expect(FS_EXECUTOR_TOOL_NAMES.has("watch_files")).toBe(false);
+    expect(FS_EXECUTOR_TOOL_NAMES.has("unwatch_files")).toBe(false);
+    expect(FS_EXECUTOR_TOOL_NAMES.has("list_watches")).toBe(false);
+    // The classic FileSystem tools remain in the executor set.
+    for (const name of ["read_file", "edit_file", "write_file", "ls", "glob", "grep"]) {
+      expect(FS_EXECUTOR_TOOL_NAMES.has(name)).toBe(true);
+    }
+    // Every executor name is also an export name.
+    for (const name of FS_EXECUTOR_TOOL_NAMES) {
+      expect(FS_TOOL_NAMES.has(name)).toBe(true);
+    }
   });
 });

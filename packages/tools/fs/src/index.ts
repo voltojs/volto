@@ -15,4 +15,4 @@ export { createWatchFilesTool } from "./watch-files.js";
 export { createUnwatchFilesTool } from "./unwatch-files.js";
 export { createListWatchesTool } from "./list-watches.js";
 export { CAP_FS_READ, CAP_FS_WRITE, CAP_FS_WATCH } from "./capabilities.js";
-export { FS_TOOL_NAMES } from "./tool-names.js";
+export { FS_TOOL_NAMES, FS_EXECUTOR_TOOL_NAMES } from "./tool-names.js";

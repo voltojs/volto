@@ -83,7 +83,7 @@ import {
   createUnwatchFilesTool,
   createListWatchesTool,
   CAP_FS_WATCH,
-  FS_TOOL_NAMES,
+  FS_EXECUTOR_TOOL_NAMES,
 } from "@volto/tools-fs";
 import { createBashTool, SHELL_TOOL_NAMES } from "@volto/tools-shell";
 import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@volto/tools-web";
@@ -816,8 +816,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── File watcher wiring state ──────────────
   // Tools themselves are registered after allCustomTools is declared (they
-  // are FileWatcher-backed, not FileSystem-backed — createFsToolExecutor
-  // does not implement them even though FS_TOOL_NAMES lists them).
+  // are FileWatcher-backed, not FileSystem-backed — see
+  // FS_EXECUTOR_TOOL_NAMES in tools-fs).
   let fileWatchAutoWake = false;
   const pendingFileInputs: AgentInput[] = [];
   let drainScheduled = false;
@@ -903,8 +903,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   if (opts.fileWatcher) {
     // customToolMap (not adapterTools / fsExecutor): these tools call the
-    // FileWatcher port, not FileSystem. Routing excludes them from the
-    // FS_TOOL_NAMES short-circuit in toolExecutor below.
+    // FileWatcher port, not FileSystem — FS_EXECUTOR_TOOL_NAMES does not
+    // list them, so toolExecutor below routes via customToolMap.
     const wrappedWatcher = wrapFileWatcher(opts.fileWatcher, handleFileWatchBatch);
     allCustomTools.push(
       createWatchFilesTool(wrappedWatcher),
@@ -1093,7 +1093,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     call: PendingToolCall,
     ctx: { readFiles: ReadFileRecord[]; abortSignal?: AbortSignal },
   ): Promise<ToolResult> => {
-    if (fsExecutor && FS_TOOL_NAMES.has(call.name) && !WATCH_TOOL_NAMES.has(call.name)) {
+    if (fsExecutor && FS_EXECUTOR_TOOL_NAMES.has(call.name)) {
       return fsExecutor(call, ctx);
     }
     if (shellExecutor && SHELL_TOOL_NAMES.has(call.name)) return shellExecutor(call, ctx);
@@ -1682,15 +1682,6 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 // Helpers
 // ──────────────────────────────────────────────
 
-// Watch tools are listed in FS_TOOL_NAMES (they are exported from tools-fs)
-// but are FileWatcher-backed — createFsToolExecutor does not implement them.
-// Route them via customToolMap instead of the FileSystem executor short-circuit.
-const WATCH_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "watch_files",
-  "unwatch_files",
-  "list_watches",
-]);
-
 /**
  * Wrap an injected FileWatcher so every `watch()` registration delivers
  * batches through the agent's handler (host callback + auto-wake) as well as
@@ -2083,7 +2074,7 @@ function createSubAgentExecutor(
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 
     const subExecutor: ToolExecutor = async (call, ctx) => {
-      if (subFsExecutor && FS_TOOL_NAMES.has(call.name) && !WATCH_TOOL_NAMES.has(call.name)) {
+      if (subFsExecutor && FS_EXECUTOR_TOOL_NAMES.has(call.name)) {
         return subFsExecutor(call, ctx);
       }
       if (subShellExecutor && SHELL_TOOL_NAMES.has(call.name)) return subShellExecutor(call, ctx);
