@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
 import type { SandboxEnforcement } from "./sandbox-enforcement.js";
+import type { SessionSpawnHandle } from "./persistent-session.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -739,6 +740,201 @@ export function createSandboxedShell(
   return Object.assign(Object.create(Object.getPrototypeOf(realShell) as object), realShell, {
     sandboxEnforcement: "none" as const,
   }) as SandboxedShell;
+}
+
+// ──────────────────────────────────────────────
+// Persistent-session spawner (B-2 Task 8)
+// ──────────────────────────────────────────────
+
+/**
+ * Environment for a spawned child: `process.env` minus `strippedNames` and
+ * any name matching `strippedPatterns`. Spawn's `env` replaces the whole
+ * environment rather than merging, so PATH and friends must be rebuilt here.
+ */
+function buildStrippedEnv(
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[] = [],
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  for (const name of strippedNames) delete env[name];
+  for (const name of Object.keys(env)) {
+    for (const pattern of strippedPatterns) {
+      // A /g or /y regex carries lastIndex across calls; reset every test.
+      pattern.lastIndex = 0;
+      if (pattern.test(name)) {
+        delete env[name];
+        break;
+      }
+    }
+  }
+  return env;
+}
+
+/**
+ * Pin the same defaults `createSandboxedShell` uses so a profile built for a
+ * long-lived session matches one built for a one-shot exec.
+ */
+function resolveSessionSandboxConfig(config: SandboxConfig): SandboxConfig {
+  const isWriteMode = config.mode === "workspace-write";
+  return {
+    ...config,
+    // Verified required: seatbelt's `(subpath "...")` match is evaluated
+    // against the REAL (symlink-resolved) path — see createSandboxedShell.
+    writableRoots: isWriteMode
+      ? (config.writableRoots ?? [process.cwd(), tmpdir()]).map(resolveRealRootPath)
+      : config.writableRoots,
+    readOnlyOverlays: isWriteMode
+      ? (config.readOnlyOverlays ?? [".git", ".env"])
+      : config.readOnlyOverlays,
+    deniedReadPaths: config.deniedReadPaths?.map(resolveRealRootPath),
+  };
+}
+
+/** Bare `/bin/bash -s` spawner — no isolation, env stripping still applies. */
+function makeBareSessionSpawner(
+  strippedNames: readonly string[],
+  strippedPatterns: readonly RegExp[],
+  warnOnce?: () => void,
+): (opts: { cwd: string }) => SessionSpawnHandle {
+  return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+    warnOnce?.();
+    return {
+      child: spawn("/bin/bash", ["-s"], {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: buildStrippedEnv(strippedNames, strippedPatterns),
+      }),
+    };
+  };
+}
+
+/**
+ * Build a spawn factory that wraps a long-lived `bash -s` in the sandbox.
+ *
+ * - seatbelt: `sandbox-exec -f <profile> /bin/bash -s` (per-session profile
+ *   file, unlinked by `cleanup`)
+ * - bwrap:    `bwrap <args> -- /bin/bash -s`
+ * - danger-full-access / none: bare `/bin/bash -s` (none warns once)
+ *
+ * Returns `undefined` when a confining backend was selected but its runner
+ * binary is missing and the caller opted out of the throw — that shell cannot
+ * confine a long-lived process, and silently running unconfined is the failure
+ * this phase exists to prevent. Throws at construction when
+ * `failIfUnavailable` (the default) and no usable backend is present.
+ */
+export function createSandboxSessionSpawner(
+  config: SandboxConfig,
+): ((opts: { cwd: string }) => SessionSpawnHandle) | undefined {
+  const backend = config.backend ?? detectBackend();
+  const strippedNames = config.strippedEnvVars ?? [];
+  const strippedPatterns = config.strippedEnvPatterns ?? [];
+
+  // danger-full-access: no isolation by definition.
+  if (config.mode === "danger-full-access") {
+    return makeBareSessionSpawner(strippedNames, strippedPatterns);
+  }
+
+  const failIfUnavailable = config.failIfUnavailable ?? true;
+
+  // No backend for this platform. Default is refuse; opt-out warns once and
+  // runs unconfined — same discipline as createSandboxedShell.
+  if (backend === "none") {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
+        `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
+        `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
+        `failIfUnavailable: false to accept an unconfined process under this mode.`,
+      );
+    }
+    let warned = false;
+    const warnOnce = (): void => {
+      if (!warned) {
+        warned = true;
+        console.warn(
+          "[sandbox] WARNING: No sandbox backend available on this platform. " +
+          "Persistent session commands will run without isolation. This is a security risk.",
+        );
+      }
+    };
+    return makeBareSessionSpawner(strippedNames, strippedPatterns, warnOnce);
+  }
+
+  const resolved = resolveSessionSandboxConfig(config);
+  const strippedNamesR = resolved.strippedEnvVars ?? [];
+  const strippedPatternsR = resolved.strippedEnvPatterns ?? [];
+
+  if (backend === "seatbelt") {
+    const seatbeltBinary = resolved.seatbeltBinary ?? "sandbox-exec";
+    if (!runnerBinaryAvailable(seatbeltBinary)) {
+      if (failIfUnavailable) {
+        throw new Error(
+          `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
+          "Install sandbox-exec, or use mode \"danger-full-access\" to run without isolation " +
+          "deliberately. Setting failIfUnavailable: false only moves the refusal from " +
+          "construction to the spawner returning undefined — it does not grant an unconfined process.",
+        );
+      }
+      // Honest "cannot confine": never fall through to a bare bash -s.
+      return undefined;
+    }
+
+    const profileContent = buildSeatbeltProfile(resolved);
+    return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+      const profileId = `${process.pid}-${++profileCounter}`;
+      const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
+      writeFileSync(profilePath, profileContent, "utf-8");
+      let child: ReturnType<typeof spawn>;
+      try {
+        // `-f` takes a profile FILE path; `-p` takes an inline profile string.
+        // Passing the path to `-p` makes sandbox-exec parse the path itself
+        // as a profile and fail with "unbound variable" — same defect
+        // documented on the exec() path above.
+        child = spawn(seatbeltBinary, ["-f", profilePath, "/bin/bash", "-s"], {
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: buildStrippedEnv(strippedNamesR, strippedPatternsR),
+        });
+      } catch (err) {
+        try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+        throw err;
+      }
+      return {
+        child,
+        cleanup: () => {
+          try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+        },
+      };
+    };
+  }
+
+  // bubblewrap
+  const bwrapBinary = resolved.bwrapBinary ?? "bwrap";
+  if (!runnerBinaryAvailable(bwrapBinary)) {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
+        "Install bubblewrap (apt install bubblewrap), or use mode \"danger-full-access\" to run " +
+        "without isolation deliberately. Setting failIfUnavailable: false only moves the refusal " +
+        "from construction to the spawner returning undefined — it does not grant an unconfined process.",
+      );
+    }
+    return undefined;
+  }
+
+  const bwrapArgs = buildBwrapArgs(resolved);
+  return ({ cwd }: { cwd: string }): SessionSpawnHandle => {
+    // bwrap has no profile file — every isolation argument is on the argv.
+    const child = spawn(bwrapBinary, [...bwrapArgs, "--", "/bin/bash", "-s"], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: buildStrippedEnv(strippedNamesR, strippedPatternsR),
+    });
+    return { child };
+  };
 }
 
 // ──────────────────────────────────────────────
