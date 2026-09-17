@@ -160,3 +160,18 @@ describe("session state retention", () => {
     }
   });
 });
+
+describe("cwd option", () => {
+  it("runs the command in cwd without moving the session", async () => {
+    const s = makeSession({ cwd: process.cwd() });
+    const pid = lastChild?.pid;
+    expect(pid).toBeGreaterThan(0);
+    await s.run("cd /tmp");
+    const inOther = await s.run("pwd", { cwd: "/" });
+    expect(inOther.stdout.trim()).toBe("/");
+    const still = await s.run("pwd");
+    expect(still.stdout.trim()).toMatch(/\/tmp$/);
+    // Subshell must not respawn the long-lived child either.
+    expect(lastChild?.pid).toBe(pid);
+  });
+});

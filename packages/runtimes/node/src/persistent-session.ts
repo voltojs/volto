@@ -41,6 +41,18 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Scope a command to a per-call working directory without moving the
+ * long-lived session. Subshell semantics: `cd` (and any other state the
+ * command mutates) dies with the subshell.
+ */
+function wrapWithCwd(cmd: string, cwd?: string): string {
+  if (!cwd) return cmd;
+  // Escape single quotes for embedding in a subshell.
+  const escaped = cwd.replace(/'/g, "'\\''");
+  return `(cd '${escaped}' && ${cmd})`;
+}
+
 export function createPersistentSession(options: PersistentSessionOptions): PersistentSession {
   const id = `session-${++sessionSeq}`;
   const generateNonce =
@@ -80,7 +92,12 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     alive = false;
   }
 
-  async function runOnce(cmd: string, timeoutMs: number): Promise<SessionCommandResult> {
+  async function runOnce(
+    cmd: string,
+    timeoutMs: number,
+    cwd?: string,
+  ): Promise<SessionCommandResult> {
+    cmd = wrapWithCwd(cmd, cwd);
     const nonce = generateNonce();
     const markerRe = new RegExp(`\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+)\\n?$`);
     stdoutBuf = "";
@@ -148,7 +165,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
           };
         }
         const timeout = opts?.timeout ?? options.defaultTimeoutMs;
-        return runOnce(cmd, timeout);
+        return runOnce(cmd, timeout, opts?.cwd);
       });
       queue = task.catch(() => undefined);
       return task;
