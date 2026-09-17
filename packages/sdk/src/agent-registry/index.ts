@@ -1,5 +1,6 @@
 /**
- * Agent registry public surface: definition parsing plus multi-level scan.
+ * Agent registry public surface: definition parsing, multi-level scan, and
+ * the create/update/delete write layer.
  */
 
 export { parseAgentFile } from "./frontmatter.js";
@@ -11,3 +12,8 @@ export type {
   AgentScanResult,
   ScanAgentSourcesOptions,
 } from "./scan.js";
+
+export { serializeAgentFile } from "./serialize.js";
+
+export { createAgentStore } from "./store.js";
+export type { AgentStore, CreateAgentStoreOptions } from "./store.js";

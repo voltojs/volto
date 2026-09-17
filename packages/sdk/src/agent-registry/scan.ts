@@ -40,9 +40,10 @@ export interface ScanAgentSourcesOptions {
 /**
  * File sources in ascending priority (later wins). Order mirrors the skill
  * registry: user-level homes first, then project; within a level `.volto`
- * beats `.claude` beats `.agents`.
+ * beats `.claude` beats `.agents`. Exported because the write layer shares
+ * this layout for same-scope duplicate checks.
  */
-function fileSources(opts: {
+export function fileSources(opts: {
   cwd: string;
   configDir: string;
   homeDir: string;
