@@ -83,6 +83,7 @@ import {
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
+import { createAttachmentStoreCache } from "./attachments/store.js";
 
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
@@ -375,10 +376,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const registry = createSessionRegistry({ ...opts, projectStore, providerStore, chatStore });
   // Attachment root lives under the config dir (~/.volto/attachments by
   // default) — outside the workspace so the agent cannot read its own store
-  // back through read_file / glob / bash.
-  const attachmentRoutes = createAttachmentRoutes({
-    attachmentRoot: path.join(getConfigDir(), "attachments"),
-  });
+  // back through read_file / glob / bash. One cache serves both the
+  // /attachments routes and POST /messages' pre-ack id validation.
+  const attachmentRoot = path.join(getConfigDir(), "attachments");
+  const attachmentStoreFor = createAttachmentStoreCache(attachmentRoot);
+  const attachmentRoutes = createAttachmentRoutes({ storeFor: attachmentStoreFor });
 
   /**
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
@@ -521,6 +523,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           modelId?: string;
           permissionMode?: string;
           reasoningEffort?: string;
+          attachments?: string[];
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
@@ -534,6 +537,40 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           jsonResponse(res, 400, { error: `Unsupported permissionMode: ${body.permissionMode}` });
           return;
         }
+
+        // Resolve attachments to image blocks BEFORE the 202 ack. This
+        // endpoint acks first and streams later, so a missing id discovered
+        // after the ack would surface as an unexplained SSE error instead of
+        // a rejected request. Every id must exist in THIS session's store —
+        // the same store the /attachments routes write to.
+        const imageBlocks: Array<{
+          type: "image";
+          source: { type: "ref"; id: string; mediaType: string };
+        }> = [];
+        if (body.attachments !== undefined) {
+          if (!Array.isArray(body.attachments) || body.attachments.some((a) => typeof a !== "string")) {
+            jsonResponse(res, 400, { error: "attachments must be an array of attachment ids" });
+            return;
+          }
+          if (body.attachments.length > 0) {
+            const store = attachmentStoreFor(sessionId);
+            for (const id of body.attachments) {
+              const found = await store.get(id);
+              if (!found) {
+                jsonResponse(res, 400, { error: `Unknown attachment id: ${id}` });
+                return;
+              }
+              // Ref-only: the bytes stay in the store, the Runner resolves
+              // them later. Dimensions are not in the store's get() result,
+              // so they are omitted rather than invented.
+              imageBlocks.push({
+                type: "image",
+                source: { type: "ref", id, mediaType: found.mimeType },
+              });
+            }
+          }
+        }
+
         if (!registry.hasConnection(sessionId)) {
           jsonResponse(res, 409, {
             error: `No active /events stream for session ${sessionId}`,
@@ -568,10 +605,21 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           }
         }
 
+        // No attachments → keep the plain string. Wrapping every message in a
+        // one-element block array would needlessly shift snapshot and
+        // projection shapes for the common case.
+        const turnInput =
+          imageBlocks.length > 0
+            ? {
+                type: "user_message" as const,
+                content: [{ type: "text" as const, text: body.message }, ...imageBlocks],
+              }
+            : body.message;
+
         // Ack immediately; the turn streams over SSE. runTurn never rejects —
         // failures are delivered to the client as protocol `error` events.
         jsonResponse(res, 202, { sessionId, accepted: true });
-        void registry.runTurn(sessionId, body.message, turnConfig);
+        void registry.runTurn(sessionId, turnInput, turnConfig);
       } catch (err: unknown) {
         if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);

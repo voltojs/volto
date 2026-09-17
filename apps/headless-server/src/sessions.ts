@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput } from "@volto/core";
 import { projectMessages, isPermissionReminder } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -788,6 +788,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   /**
    * Run one turn for a session, streaming every event onto its SSE channel.
    *
+   * `message` is a plain string for a text-only turn, or a `user_message`
+   * AgentInput when the caller (POST /messages) resolved attachment ids into
+   * image blocks — `createAgent().stream()` accepts either.
+   *
    * Errors are delivered as protocol `error` events rather than thrown, so a
    * failed turn never kills the connection or the process. The session's
    * agent is only rebuilt when its resolved config (project path, model,
@@ -797,7 +801,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    */
   async function runTurn(
     sessionId: string,
-    message: string,
+    message: string | AgentInput,
     requested: TurnConfig = {},
   ): Promise<void> {
     const session = get(sessionId);

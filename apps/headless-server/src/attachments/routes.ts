@@ -11,9 +11,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createNodeAttachmentStore } from "@volto/runtime-node";
-import type { AttachmentStore } from "@volto/core";
 import { MAX_IMAGE_BASE64 } from "@volto/tools-common";
+import type { StoreFor } from "./store.js";
 
 /** Image MIME types accepted on upload. */
 const ALLOWED_MIME_TYPES = new Set([
@@ -63,8 +62,12 @@ class BodyTooLarge extends Error {
 }
 
 export interface AttachmentRouteDeps {
-  /** Root directory for the attachment store (outside the workspace). */
-  attachmentRoot: string;
+  /**
+   * Per-session store factory. Shared with POST /messages so attachment-id
+   * validation resolves against the same root and session scoping as
+   * upload/download — see attachments/store.ts.
+   */
+  storeFor: StoreFor;
 }
 
 /**
@@ -72,18 +75,7 @@ export interface AttachmentRouteDeps {
  * attempts to handle the request; returns true if it wrote a response.
  */
 export function createAttachmentRoutes(deps: AttachmentRouteDeps) {
-  // Per-session store cache. Stores are cheap to create but reusing them
-  // avoids repeated mkdir calls for the same session.
-  const stores = new Map<string, AttachmentStore>();
-
-  function storeFor(sessionId: string): AttachmentStore {
-    let store = stores.get(sessionId);
-    if (!store) {
-      store = createNodeAttachmentStore({ rootDir: deps.attachmentRoot, sessionId });
-      stores.set(sessionId, store);
-    }
-    return store;
-  }
+  const { storeFor } = deps;
 
   return async function handle(
     req: IncomingMessage,
