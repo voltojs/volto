@@ -17,6 +17,7 @@
     "@volto/provider-pi-ai": "workspace:*",
     "@volto/runtime-node": "workspace:*",
     "@volto/sdk": "workspace:*",
+    "@volto/tools-common": "workspace:*",
     "@volto/store-jsonl": "workspace:*",
     "@volto/store-sqlite": "workspace:*",
     "ws": "^8.16.0"

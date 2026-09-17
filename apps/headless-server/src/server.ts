@@ -82,6 +82,7 @@ import {
 } from "./git/git.js";
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
+import { createAttachmentRoutes } from "./attachments/routes.js";
 
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
@@ -372,6 +373,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const pathRevealer = opts.pathRevealer ?? createPathRevealer();
   const chatStore = opts.chatStore ?? createJsonlStore({ directory: path.join(getConfigDir(), "sessions") });
   const registry = createSessionRegistry({ ...opts, projectStore, providerStore, chatStore });
+  // Attachment root lives under the config dir (~/.volto/attachments by
+  // default) — outside the workspace so the agent cannot read its own store
+  // back through read_file / glob / bash.
+  const attachmentRoutes = createAttachmentRoutes({
+    attachmentRoot: path.join(getConfigDir(), "attachments"),
+  });
 
   /**
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
@@ -1375,6 +1382,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // GET /health
     if (req.method === "GET" && url.pathname === "/health") {
       jsonResponse(res, 200, { status: "ok" });
+      return;
+    }
+
+    // /attachments routes — POST upload, GET download
+    if (await attachmentRoutes(req, res, url, corsHeaders, jsonResponse)) {
       return;
     }
 
