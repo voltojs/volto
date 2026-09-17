@@ -19,6 +19,20 @@ export function createAutoAllowGate(): ApprovalGate {
 }
 
 /**
+ * Sub-agent approval gate — maps "ask" to "deny".
+ *
+ * A sub-agent cannot prompt the parent session's human mid-turn, so an
+ * "ask" decision must resolve without HITL. Denying is the safe default:
+ * a WRITE_HIGH tool that needs confirmation in the parent must not be
+ * silently executed in the child.
+ */
+export function createSubAgentApprovalGate(): ApprovalGate {
+  return {
+    ask: async () => "deny",
+  };
+}
+
+/**
  * Interactive gate — prompts the user in the terminal.
  * Displays tool name, risk tier, and input, then waits for y/n.
  */

@@ -15,7 +15,7 @@ export { createShellToolExecutor } from "./shell-tool-executor.js";
 export type { CreateShellToolExecutorOptions } from "./shell-tool-executor.js";
 export { createNetworkToolExecutor } from "./network-tool-executor.js";
 export type { CreateNetworkToolExecutorOptions } from "./network-tool-executor.js";
-export { createAutoAllowGate, createInteractiveGate } from "./approval-gate.js";
+export { createAutoAllowGate, createSubAgentApprovalGate, createInteractiveGate } from "./approval-gate.js";
 export { createAllowAllPolicyEngine, createRuleBasedPolicyEngine } from "./policy-engine.js";
 export type { PolicyRule } from "./policy-engine.js";
 export { createNodeSandbox, detectBackend, probeBinary, createSandboxedShell, buildSeatbeltProfile, buildBwrapArgs, expandOverlays } from "./sandbox.js";

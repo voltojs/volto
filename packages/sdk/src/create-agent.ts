@@ -65,7 +65,7 @@ import {
   createShellToolExecutor,
   createNetworkToolExecutor,
 } from "@volto/runtime-node";
-import { createAutoAllowGate } from "@volto/runtime-node";
+import { createAutoAllowGate, createSubAgentApprovalGate } from "@volto/runtime-node";
 import { createSandboxedShell, type SandboxConfig } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentDispatch } from "@volto/tools-agent";
@@ -2277,7 +2277,10 @@ function createSubAgentExecutor(
       toolExecutor: subExecutor,
       availableCapabilities: childCapabilities,
       permissionConfig: childPermissionConfig,
-      approvalGate: createAutoAllowGate(),
+      // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
+      // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
+      // never silently executed in the child.
+      approvalGate: createSubAgentApprovalGate(),
       eventSink: taggedSink,
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
