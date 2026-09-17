@@ -18,6 +18,11 @@ export interface NodeAttachmentStoreOptions {
 
 const SIDECAR = ".json";
 
+/** A storage path segment is a single name; separators or `..` are escapes. */
+function isPathEscape(segment: string): boolean {
+  return segment.includes("/") || segment.includes("\\") || segment.includes("..");
+}
+
 export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): AttachmentStore {
   const root = opts.rootDir ?? path.join(os.homedir(), ".volto", "attachments");
   const dirFor = (sessionId: string) => path.join(root, sessionId);
@@ -43,7 +48,7 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
     async get(id: string) {
       // Reject separators outright: an id is a uuid, and anything else is an
       // attempt to escape the session directory.
-      if (id.includes("/") || id.includes("\\") || id.includes("..")) return undefined;
+      if (isPathEscape(id)) return undefined;
       const dir = dirFor(opts.sessionId);
       try {
         const [bytes, raw] = await Promise.all([
@@ -58,6 +63,9 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
     },
 
     async deleteBySession(sessionId: string) {
+      // Same separator rejection as get(): a sessionId is a single path
+      // segment under root. Anything else would rm outside the store.
+      if (isPathEscape(sessionId)) return;
       await fs.rm(dirFor(sessionId), { recursive: true, force: true });
     },
   };

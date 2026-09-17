@@ -70,6 +70,29 @@ describe("node AttachmentStore", () => {
     await expect(store.get(stored.id)).resolves.toBeUndefined();
   });
 
+  it("deleteBySession refuses path traversal and leaves outside files intact", async () => {
+    const store = await tmpStore("s1");
+    const stored = await store.put(PNG_1X1, "image/png");
+    // Victim sits next to the store root. A traversal sessionId such as
+    // "../<victim>" or ".." would resolve here (or to tmpdir itself) if
+    // separators were accepted.
+    const victimDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-victim-"));
+    roots.push(victimDir);
+    const sentinel = path.join(victimDir, "keep-me");
+    await fs.writeFile(sentinel, "alive", "utf8");
+
+    await store.deleteBySession(`../${path.basename(victimDir)}`);
+    await store.deleteBySession("nested/session");
+    await store.deleteBySession("a\\b");
+    await store.deleteBySession("..");
+
+    // Assert the denial itself: the outside sentinel still exists with its
+    // original content — not merely that some recursive rm produced nothing.
+    await expect(fs.readFile(sentinel, "utf8")).resolves.toBe("alive");
+    // And the legitimate session directory was not collateral damage.
+    await expect(store.get(stored.id)).resolves.toBeDefined();
+  });
+
   it("defaults the store root outside any workspace", () => {
     const store = createNodeAttachmentStore({ sessionId: "s1" });
     expect(store).toBeDefined();
