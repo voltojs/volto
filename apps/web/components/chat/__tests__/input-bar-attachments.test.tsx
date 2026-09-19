@@ -1,6 +1,7 @@
 // InputBar 的三种图片入口（粘贴 / 拖拽 / 文件选择）与发送时的附件 id 透传。
 // 断言对象是真实 DOM 结构：chip 的缩略图、移除按钮、发送 payload。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
 import { InputBar } from '../InputBar';
@@ -163,5 +164,73 @@ describe('InputBar attachments', () => {
     // 给异步 add 一个不可能发生的机会：稍等后仍无 chip。
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('attachment-chip')).not.toBeInTheDocument();
+  });
+});
+
+// 欢迎屏（新会话）：sessionId 尚不存在。三个图片入口必须保持可用——首次
+// attach 时经 ensureSessionId 创建草稿会话，上传挂在其名下，发送走 onSend。
+describe('InputBar attachments — welcome screen (no session yet)', () => {
+  function WelcomeHarness(props: {
+    onSend: (p: { text: string; attachments: string[] }) => void;
+    onEditorReady?: (e: Editor) => void;
+  }) {
+    const [sid, setSid] = useState<string | null>(null);
+    return (
+      <InputBar
+        sessionId={sid}
+        ensureSessionId={() => {
+          if (sid) return sid;
+          setSid('draft-1');
+          return 'draft-1';
+        }}
+        onSend={props.onSend}
+        onEditorReady={props.onEditorReady}
+      />
+    );
+  }
+
+  it('keeps the paperclip entry available before a session exists', () => {
+    stubUpload();
+    render(<WelcomeHarness onSend={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '添加图片' })).toBeInTheDocument();
+  });
+
+  it('uploads a dropped image against the draft session and sends its id', async () => {
+    stubUpload();
+    const onSend = vi.fn();
+    let editor: Editor | undefined;
+    render(
+      <WelcomeHarness
+        onSend={onSend}
+        onEditorReady={(e) => {
+          editor = e;
+        }}
+      />,
+    );
+    fireEvent.drop(screen.getByTestId('composer-drop-zone'), {
+      dataTransfer: { files: [pngFile()], items: [], types: ['Files'] },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('attachment-chip').dataset.status).toBe('ready'),
+    );
+    editor!.commands.insertContent('look');
+    // isEmpty 的更新随事务异步提交：等发送键真正可用再点击。
+    await waitFor(() => expect(screen.getByTestId('composer-send')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('composer-send'));
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith({ text: 'look', attachments: ['att-1'] }),
+    );
+  });
+
+  it('accepts a pasted image before a session exists', async () => {
+    stubUpload();
+    const onSend = vi.fn();
+    render(<WelcomeHarness onSend={onSend} />);
+    fireEvent.paste(screen.getByTestId('input-editor'), {
+      clipboardData: { files: [pngFile()], items: [], types: ['Files'], getData: () => '' },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('attachment-chip').dataset.status).toBe('ready'),
+    );
   });
 });

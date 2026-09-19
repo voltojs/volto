@@ -12,7 +12,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadAttachment } from '@/lib/attachments-api';
 
-export type PendingAttachmentStatus = 'uploading' | 'ready' | 'failed';
+/**
+ * 'local' = 已选入但还没有会话可上传（欢迎屏：会话在首次发送时才创建）。
+ * 会话 id 出现后由 hook 自动把这些条目排队上传。
+ */
+export type PendingAttachmentStatus = 'uploading' | 'ready' | 'failed' | 'local';
 
 export interface PendingAttachmentItem {
   localId: string;
@@ -75,14 +79,10 @@ export function usePendingAttachments(sessionId: string) {
   }, []);
 
   // Pending attachments are session-scoped: a failed pick from session A
-  // must not be retried (or shown) under session B. Reset on change rather
-  // than relying on consumers to remount with key={sessionId}.
+  // must not be retried (or shown) under session B. The reset/lazy-upload
+  // effect below lives after uploadOne — it queues local picks on the
+  // '' → id transition and cannot reference uploadOne before initialization.
   const prevSessionIdRef = useRef(sessionId);
-  useEffect(() => {
-    if (prevSessionIdRef.current === sessionId) return;
-    prevSessionIdRef.current = sessionId;
-    resetAll();
-  }, [sessionId, resetAll]);
 
   const uploadOne = useCallback(
     async (localId: string, file: File): Promise<void> => {
@@ -122,6 +122,28 @@ export function usePendingAttachments(sessionId: string) {
     [sessionId],
   );
 
+  // Session-id transitions: a switch between two real sessions resets the
+  // list (a failed pick from session A must not be retried or shown under
+  // session B). The '' → id transition is NOT a switch: '' is the
+  // pre-session state (welcome screen), and the picks queued there belong
+  // to the session being created — upload them now instead of wiping.
+  // id → '' only happens on unmount-shaped teardown; the unmount cleanup
+  // above already revokes object URLs.
+  useEffect(() => {
+    const prev = prevSessionIdRef.current;
+    if (prev === sessionId) return;
+    prevSessionIdRef.current = sessionId;
+    if (prev === '' && sessionId !== '') {
+      const queued = itemsRef.current.filter((item) => item.status === 'local');
+      for (const item of queued) {
+        const file = filesRef.current.get(item.localId);
+        if (file) void uploadOne(item.localId, file);
+      }
+      return;
+    }
+    if (prev !== '' && sessionId !== '') resetAll();
+  }, [sessionId, uploadOne, resetAll]);
+
   const add = useCallback(
     async (file: File): Promise<void> => {
       // Reject non-images before any network work — the server would 400
@@ -131,19 +153,28 @@ export function usePendingAttachments(sessionId: string) {
       const localId = nextLocalId();
       filesRef.current.set(localId, file);
       const previewUrl = URL.createObjectURL(file);
+      // 无会话（欢迎屏）先以 'local' 入列，绝不拿空 sessionId 发请求。
+      const initialStatus: PendingAttachmentStatus = sessionId
+        ? 'uploading'
+        : 'local';
       setItems((prev) => [
         ...prev,
         {
           localId,
-          status: 'uploading' as const,
+          status: initialStatus,
           previewUrl,
           name: file.name,
           mimeType: file.type,
         },
       ]);
+      if (!sessionId) {
+        // 欢迎屏：会话还不存在。条目保持 'local'，会话 id 出现时由上面的
+        // effect 统一上传——不能拿空 sessionId 打请求（服务端 400）。
+        return;
+      }
       await uploadOne(localId, file);
     },
-    [uploadOne],
+    [sessionId, uploadOne],
   );
 
   const remove = useCallback((localId: string): void => {

@@ -198,3 +198,64 @@ describe('usePendingAttachments', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+// 欢迎屏没有 sessionId：会话要到首次发送才创建。选中的图片必须以 'local'
+// 状态留在列表里（不上传），并在会话 id 出现的那一刻自动排队上传——而不是
+// 丢失，也不是用空 sessionId 打网络请求。
+describe('usePendingAttachments — welcome screen (no session yet)', () => {
+  it('keeps a pick local without uploading until a session id appears', async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ id: 'att-9', mimeType: 'image/png', size: 4 }),
+          { status: 201 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => usePendingAttachments(sid),
+      { initialProps: { sid: '' } },
+    );
+    await act(async () => {
+      await result.current.add(pngFile());
+    });
+    // 无会话可传：本地持有，不发网络请求。
+    expect(result.current.items[0]?.status).toBe('local');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // 草稿会话 id 出现（首次 attach 时由宿主创建）：本地 picks 自动上传。
+    rerender({ sid: 'draft-1' });
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('ready'));
+    expect(result.current.items[0]?.id).toBe('att-9');
+    // 上传挂在草稿会话名下，而不是空的 sessionId。
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0]?.[1]?.body ?? '') as string,
+    ) as { sessionId: string };
+    expect(body.sessionId).toBe('draft-1');
+  });
+
+  it('still resets picks when switching between two real sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ id: 'att-10', mimeType: 'image/png', size: 4 }),
+            { status: 201 },
+          ),
+      ),
+    );
+    const { result, rerender } = renderHook(
+      ({ sid }: { sid: string }) => usePendingAttachments(sid),
+      { initialProps: { sid: 's-a' } },
+    );
+    await act(async () => {
+      await result.current.add(pngFile());
+    });
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('ready'));
+
+    rerender({ sid: 's-b' });
+    await waitFor(() => expect(result.current.items).toHaveLength(0));
+  });
+});

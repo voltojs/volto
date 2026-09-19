@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
@@ -120,7 +120,14 @@ export function ChatPanel() {
     }
   }, [currentSessionId]);
 
-  const startSession = (content: string) => {
+  // 欢迎屏的草稿会话：首次 attach 图片时立即创建（纯内存记录，首次消息
+  // 持久化前服务器毫不知情），让附件上传有会话可落。ref 持真值，state 只
+  // 负责把 sessionId 传进 InputBar 触发 hook 的懒上传。
+  const [draftSessionId, setDraftSessionId] = useState<string | null>(null);
+  const draftSessionIdRef = useRef<string | null>(null);
+  const ensureDraftSession = useCallback(() => {
+    const existing = draftSessionIdRef.current;
+    if (existing) return existing;
     const id = useSessionStore.getState().createSession({
       projectId: pendingProjectId,
       providerId: effectiveProviderId,
@@ -128,20 +135,51 @@ export function ChatPanel() {
       permissionMode: pendingPermissionMode,
       reasoningEffort: effectiveReasoningEffort,
     });
+    draftSessionIdRef.current = id;
+    setDraftSessionId(id);
+    return id;
+  }, [
+    pendingProjectId,
+    effectiveProviderId,
+    effectiveModelId,
+    pendingPermissionMode,
+    effectiveReasoningEffort,
+  ]);
+
+  const handleWelcomeSend = (payload: { text: string; attachments: string[] }) => {
+    const id = draftSessionIdRef.current ?? ensureDraftSession();
+    // attach 之后用户可能改过工作区 / 模型 / 权限：发送前同步进草稿，
+    // 避免拿着创建草稿时的旧绑定发出消息。
+    if (effectiveProviderId && effectiveModelId) {
+      useSessionStore
+        .getState()
+        .setSessionModel(id, effectiveProviderId, effectiveModelId);
+    }
+    useSessionStore.getState().setSessionPermissionMode(id, pendingPermissionMode);
+    useSessionStore.getState().setSessionReasoningEffort(id, effectiveReasoningEffort);
     useSessionStore.getState().setCurrentSession(id);
-    // No `ensureSessionDetail(id)` call here: `createSession` always sets
-    // `detailLoaded: true` (a brand-new session's "detail" is just empty), so
-    // it would be a guaranteed no-op — the effect above already covers any
-    // session that needs a real fetch.
-    void sendMessage(content);
+    draftSessionIdRef.current = null;
+    setDraftSessionId(null);
+    void sendMessage(payload.text, payload.attachments);
   };
 
+  // 用户 attach 后没发送就点开了别的会话：丢弃草稿（纯内存，从未持久化；
+  // 若已上传过附件，孤儿目录由网关的 24h 回收机制清理）。
+  useEffect(() => {
+    if (currentSessionId === null) return;
+    const draft = draftSessionIdRef.current;
+    if (draft && draft !== currentSessionId) {
+      draftSessionIdRef.current = null;
+      setDraftSessionId(null);
+      useSessionStore.getState().deleteSession(draft);
+    }
+  }, [currentSessionId]);
+
   // Once a session exists (the conversation branch below), sendMessage can
-  // dispatch directly — the welcome screen is the only place that still needs
-  // to create one first, via startSession. The welcome InputBar has no
-  // sessionId yet, so its attachment entries stay off and it keeps the
-  // text-only `onSubmit` path; the conversation bar carries ready attachment
-  // ids through `onSend`.
+  // dispatch directly. The welcome screen sends through handleWelcomeSend:
+  // text-only sends create the session on the spot (the old startSession
+  // path), and sends carrying attachments reuse the draft session the first
+  // attach already created, so the ready ids stay valid.
   const handleSubmit = (payload: { text: string; attachments: string[] }) =>
     void sendMessage(payload.text, payload.attachments);
 
@@ -316,6 +354,12 @@ export function ChatPanel() {
     ),
   );
 
+  // 欢迎屏没有会话可读：按「当前选中的模型」（而非会话绑定模型）判定
+  // vision 能力。同为 hook，必须在 welcome 分支的 early return 之前调用。
+  const welcomeModel = useConfigStore((s) =>
+    s.findModel(effectiveProviderId, effectiveModelId),
+  );
+
   // Gates ContextMeter's "provider isn't reporting usage" hint: only true
   // once a full assistant round-trip has completed, so the hint cannot fire
   // mid-first-generation (see shouldShowUnanchoredHint).
@@ -467,8 +511,13 @@ export function ChatPanel() {
                     )}
                   </div>
                   <InputBar
-                    onSubmit={startSession}
+                    onSend={handleWelcomeSend}
+                    sessionId={draftSessionId}
+                    ensureSessionId={ensureDraftSession}
                     projectId={pendingProjectId}
+                    // 欢迎屏还没有会话可读：按当前选中的模型判定 vision，
+                    // 与会话内分支的 currentModel?.vision 三态语义一致。
+                    visionSupported={welcomeModel?.vision}
                     onInputAction={handleInputAction}
                     disabled={
                       isGenerating ||

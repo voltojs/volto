@@ -64,10 +64,17 @@ export interface InputBarProps {
   onEditorReady?: (editor: Editor) => void;
   /**
    * Session the attachments belong to. Uploads are session-scoped on the
-   * server, so the image entries stay off until a session exists (the
-   * welcome screen creates one only on first send).
+   * server; a null/undefined sessionId means "pre-session" (welcome
+   * screen) — picks are held locally as 'local' items and upload once a
+   * session id arrives, so the entries stay AVAILABLE, not off.
    */
   sessionId?: string | null;
+  /**
+   * Creates (or returns the already-created) draft session for the welcome
+   * screen, without switching the view. Called on the first attach so the
+   * pending upload has a session to land in once the id propagates.
+   */
+  ensureSessionId?: () => string;
   /**
    * Whether the selected model accepts images. `false` disables all three
    * entry points and explains why; `undefined`/`true` keeps them enabled —
@@ -89,13 +96,16 @@ export function InputBar({
   onInputAction,
   onEditorReady,
   sessionId,
+  ensureSessionId,
   visionSupported,
 }: InputBarProps) {
   const [isEmpty, setIsEmpty] = useState(true);
 
-  // 附件条目：sessionId 缺失时上传无处可去（服务端按会话隔离），入口整体关闭。
+  // 附件条目：有会话直接可用；欢迎屏（无会话）配合 ensureSessionId 同样
+  // 可用——选中的图先挂在 hook 的 'local' 状态，草稿会话 id 出现后自动上传。
   // hook 仍需无条件调用（rules of hooks），空串只是占位，add 不会在该状态下触发。
-  const attachmentsEnabled = Boolean(sessionId) && visionSupported !== false;
+  const attachmentsEnabled =
+    (Boolean(sessionId) || Boolean(ensureSessionId)) && visionSupported !== false;
   const {
     items: pendingItems,
     add: addAttachment,
@@ -111,7 +121,21 @@ export function InputBar({
   const retryAttachmentRef = useRef(retryAttachment);
   const clearAttachmentsRef = useRef(clearAttachments);
   const attachmentsEnabledRef = useRef(attachmentsEnabled);
+  const sessionIdRef = useRef(sessionId);
+  const ensureSessionIdRef = useRef(ensureSessionId);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * 统一的图片入列口（粘贴 / 拖拽 / 文件选择共用）：欢迎屏首次 attach 时先
+   * 经 ensureSessionId 建好草稿会话（宿主只创建不切换视图），随后的 re-render
+   * 把 sessionId 传进 hook，'local' 条目由 hook 的 effect 自动上传。
+   */
+  const addFiles = useCallback((files: File[]): void => {
+    if (files.length === 0) return;
+    if (!sessionIdRef.current) ensureSessionIdRef.current?.();
+    for (const file of files) void addAttachmentRef.current(file);
+  }, []);
+  const addFilesRef = useRef(addFiles);
 
   /** 只接受图片文件；其余（文本拖拽、mention 粘贴）原样放行。 */
   const takeImageFiles = useCallback((fileList: FileList | null | undefined): File[] => {
@@ -320,9 +344,16 @@ export function InputBar({
     // 只有附件、没有文字时不发送：服务端把 message 当必填（POST /messages
     // 无 message 直接 400），前端提前拦下比让请求失败更安静。
     if (!text) return;
-    // 上传还在飞就发送，等于引用一个还不存在的 id —— 服务端会 400。
-    // 在这里拦（而非只靠按钮 disabled）：Enter 提交走的是同一条路径。
-    if (pendingItemsRef.current.some((item) => item.status === 'uploading')) return;
+    // 上传还在飞（或还压在本地等会话 id）就发送，等于引用一个不存在的
+    // id —— 服务端会 400。在这里拦（而非只靠按钮 disabled）：Enter 提交
+    // 走的是同一条路径。
+    if (
+      pendingItemsRef.current.some(
+        (item) => item.status === 'uploading' || item.status === 'local',
+      )
+    ) {
+      return;
+    }
     const action = matchActionCommand(text);
     if (action) {
       onInputActionRef.current?.(action.action);
@@ -355,6 +386,9 @@ export function InputBar({
     retryAttachmentRef.current = retryAttachment;
     clearAttachmentsRef.current = clearAttachments;
     attachmentsEnabledRef.current = attachmentsEnabled;
+    sessionIdRef.current = sessionId;
+    ensureSessionIdRef.current = ensureSessionId;
+    addFilesRef.current = addFiles;
   });
 
   const editor = useEditor({
@@ -408,7 +442,7 @@ export function InputBar({
         );
         if (images.length === 0) return false;
         event.preventDefault();
-        for (const file of images) void addAttachmentRef.current(file);
+        addFilesRef.current(images);
         return true;
       },
     },
@@ -453,7 +487,7 @@ export function InputBar({
     const images = takeImageFiles(e.dataTransfer?.files);
     if (images.length === 0) return;
     e.preventDefault();
-    for (const file of images) void addAttachment(file);
+    addFiles(images);
   };
 
   const hasUploading = pendingItems.some((item) => item.status === 'uploading');
@@ -491,7 +525,7 @@ export function InputBar({
                   const images = takeImageFiles(e.target.files);
                   // 清空 value：同一文件被再次选中时 change 仍会触发。
                   e.target.value = '';
-                  for (const file of images) void addAttachment(file);
+                  addFiles(images);
                 }}
               />
               <Button
