@@ -10,6 +10,7 @@ import {
   GitGraph,
   ListTodo,
   Plus,
+  ScrollText,
   X,
 } from 'lucide-react';
 import {
@@ -26,8 +27,20 @@ import { BackgroundTasksTab } from './BackgroundTasksTab';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
 import { GitGraphTab } from './GitGraphTab';
+import { PlanTab } from './PlanPane';
 import { SubagentTab } from './SubagentTab';
 import { PaneCategoryItems, PaneOverview } from './PaneOverview';
+
+/**
+ * 标签体渲染入参：tab 载荷 + 跨标签共享的可选回调。现有多数标签体只吃
+ * `tab`——组件以 `{ tab }` 入参声明即满足本类型（结构化 assignable），用到
+ * 回调的标签（plan）自行从入参取。
+ */
+interface PaneTabBodyProps {
+  tab: PaneTab;
+  /** 「按计划执行」派发（ChatPanel：切回 planPreviousMode ?? 'ask' + 发消息）。 */
+  onExecutePlan?: (sessionId: string) => void;
+}
 
 /**
  * RightPane shell：顶部标签栏 + 内容区分发。shell 对标签类型零感知——
@@ -35,13 +48,14 @@ import { PaneCategoryItems, PaneOverview } from './PaneOverview';
  * 注册表值类型带 undefined（Partial），未注册的 kind 渲染空白而不是崩溃。
  */
 const PANE_TAB_RENDERERS: {
-  readonly [K in PaneTab['kind']]: ComponentType<{ tab: PaneTab }> | undefined;
+  readonly [K in PaneTab['kind']]: ComponentType<PaneTabBodyProps> | undefined;
 } = {
   subagent: SubagentTab,
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
   'git-graph': GitGraphTab,
   tasks: BackgroundTasksTab,
+  plan: PlanTab,
 };
 
 const IMAGE_EXTS = new Set([
@@ -66,6 +80,8 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
       return GitGraph;
     case 'tasks':
       return ListTodo;
+    case 'plan':
+      return ScrollText;
     case 'file-preview':
       return IMAGE_EXTS.has(
         tab.path.slice(tab.path.lastIndexOf('.')).toLowerCase(),
@@ -85,15 +101,20 @@ function tabTitle(tab: PaneTab): string {
       return 'Git 图谱';
     case 'tasks':
       return '任务';
+    case 'plan':
+      return '计划';
     case 'file-preview':
       return tab.path.split('/').at(-1) ?? tab.path;
   }
 }
 
-function ActiveTabBody({ tab }: { tab: PaneTab }) {
+function ActiveTabBody({
+  tab,
+  onExecutePlan,
+}: PaneTabBodyProps) {
   const Renderer = PANE_TAB_RENDERERS[tab.kind];
   if (Renderer === undefined) return null;
-  return <Renderer tab={tab} />;
+  return <Renderer tab={tab} onExecutePlan={onExecutePlan} />;
 }
 
 function PlusMenu({ projectId }: { projectId: string }) {
@@ -124,9 +145,14 @@ function PlusMenu({ projectId }: { projectId: string }) {
 interface RightPaneProps {
   /** Current workspace; required to open project-scoped categories / overview. */
   projectId: string | null;
+  /**
+   * 「按计划执行」派发回调，透传给 plan 标签体。可选：欢迎屏没有可派发的
+   * 会话（plan 标签也不可能在无会话时出现）。
+   */
+  onExecutePlan?: (sessionId: string) => void;
 }
 
-export function RightPane({ projectId }: RightPaneProps) {
+export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
   const tabs = usePaneStore((s) => s.tabs);
   const activeTabId = usePaneStore((s) => s.activeTabId);
   const open = usePaneStore((s) => s.open);
@@ -224,7 +250,7 @@ export function RightPane({ projectId }: RightPaneProps) {
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {activeTab !== null ? (
-            <ActiveTabBody tab={activeTab} />
+            <ActiveTabBody tab={activeTab} onExecutePlan={onExecutePlan} />
           ) : (
             projectId !== null && <PaneOverview projectId={projectId} />
           )}

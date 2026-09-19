@@ -167,6 +167,36 @@ export async function fetchSessionEvents(
 }
 
 /**
+ * `GET /sessions/:id/plan` — the session's current plan document (plan mode,
+ * spec 2026-09-19 §3.5). 404 = no plan yet (the session has no project
+ * binding, or `save_plan` never wrote one) and folds to `null` per the
+ * caller's "no plan" semantics; every other non-ok status is a network /
+ * server fault and throws. `updatedAt` is the plan file's mtime, converted
+ * from the server's ISO string to epoch milliseconds.
+ */
+export async function fetchPlan(
+  id: string,
+): Promise<{ content: string; updatedAt: number } | null> {
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/plan`,
+    { credentials: 'include' },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Failed to load plan ${id}: HTTP ${response.status}`);
+  }
+  const body = (await response.json()) as {
+    content?: unknown;
+    updatedAt?: unknown;
+  };
+  return {
+    content: typeof body.content === 'string' ? body.content : '',
+    updatedAt:
+      typeof body.updatedAt === 'string' ? Date.parse(body.updatedAt) || 0 : 0,
+  };
+}
+
+/**
  * Renames a session. The server stores titles as session_meta (last-wins),
  * so callers that race each other (the derived title vs. a manual rename)
  * must serialize via cancellation rather than relying on request ordering —

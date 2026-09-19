@@ -26,7 +26,9 @@ export type PaneTab =
   | { kind: 'files'; id: string; projectId: string }
   | { kind: 'file-preview'; id: string; projectId: string; path: string }
   | { kind: 'git-graph'; id: string; projectId: string }
-  | { kind: 'tasks'; id: string };
+  | { kind: 'tasks'; id: string }
+  /** 计划文档标签（plan 模式）。内容不进标签载荷——标签体按 sessionId 自拉。 */
+  | { kind: 'plan'; id: string; sessionId: string };
 
 export const PANE_WIDTH_MIN = 320;
 export const PANE_WIDTH_MAX = 720;
@@ -64,7 +66,7 @@ interface PaneState {
   /**
    * Point project-scoped tabs at a new workspace. `files` / `git-graph` keep
    * their kind and become `${kind}:${projectId}`; `file-preview` paths are
-   * project-relative so those tabs close. Subagent and tasks tabs are
+   * project-relative so those tabs close. Subagent, tasks, and plan tabs are
    * session-scoped and stay. Idempotent when the project is unchanged.
    */
   retargetProjectTabs: (projectId: string) => void;
@@ -129,7 +131,11 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
         const seen = new Set<string>();
         const tabs: PaneTab[] = [];
         for (const tab of state.tabs) {
-          if (tab.kind === 'subagent' || tab.kind === 'tasks') {
+          if (
+            tab.kind === 'subagent' ||
+            tab.kind === 'tasks' ||
+            tab.kind === 'plan'
+          ) {
             if (!seen.has(tab.id)) {
               seen.add(tab.id);
               tabs.push(tab);

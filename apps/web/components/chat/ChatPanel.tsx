@@ -25,13 +25,14 @@ import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
+import { fetchPlan } from '@/lib/sessions-api';
+import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals } from '@/lib/approvals';
-import { foldTodosFromEvents } from '@/lib/todos-model';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
@@ -326,6 +327,48 @@ export function ChatPanel() {
   const liveTodos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
   const todos = liveTodos ?? currentSession?.todos ?? null;
 
+  // Turn-end 信号：主缓冲里最新 turn_end 事件的对象身份（见
+  // selectLastTurnEnd）。它在（1）新 turn 收口（2）会话切换重置缓冲时变化
+  // ——正好是「需要重查计划」的两个时机，包括 resume 进一个已有计划的
+  // plan 态会话时自动补开标签。
+  const lastTurnEnd = useMemo(() => selectLastTurnEnd(chatEvents), [chatEvents]);
+
+  // plan 态会话每轮结束都可能有新计划落盘：拉一次，存在则打开（已开则
+  // 激活；内容刷新由标签体自身的 turn-end 重拉完成）。404（本轮没写计划）
+  // 与网络失败都不动面板。非 plan 态不查——执行轮（切回原档位后）的收口
+  // 不该再触发。
+  const planMode = currentSession?.permissionMode === 'plan';
+  useEffect(() => {
+    if (lastTurnEnd === null || !planMode || currentSessionId === null) return;
+    let cancelled = false;
+    fetchPlan(currentSessionId)
+      .then((plan) => {
+        if (cancelled || plan === null) return;
+        usePaneStore.getState().openTab({
+          kind: 'plan',
+          id: currentSessionId,
+          sessionId: currentSessionId,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [lastTurnEnd, planMode, currentSessionId]);
+
+  // 「按计划执行」派发（plan 标签按钮 → RightPane → PlanTab 上抛到这里）：
+  // 切回进入 plan 前的权限档——内存里没记（页面刷新丢失）就回退 'ask'，
+  // 不静默继承不确定的模式——然后发送执行消息，与 handleSubmit 同型走
+  // sendMessage 路径（由服务器把用户消息回显进会话流）。
+  const handleExecutePlan = useCallback(
+    (sessionId: string) => {
+      const store = useSessionStore.getState();
+      store.setSessionPermissionMode(sessionId, store.planPreviousMode ?? 'ask');
+      void sendMessage('按已批准的计划开始执行');
+    },
+    [sendMessage],
+  );
+
   // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
   const headerTitle =
     currentSession?.title || currentProject?.name || '探索未至之境';
@@ -614,7 +657,10 @@ export function ChatPanel() {
               )}
             </div>
           </div>
-          <RightPane projectId={pendingProjectId} />
+          <RightPane
+            projectId={pendingProjectId}
+            onExecutePlan={handleExecutePlan}
+          />
         </div>
       </div>
     );
@@ -758,7 +804,10 @@ export function ChatPanel() {
             <TrajectoryPanel sessionId={currentSessionId} />
           </TabsContent>
         </Tabs>
-        <RightPane projectId={currentProject?.id ?? null} />
+        <RightPane
+          projectId={currentProject?.id ?? null}
+          onExecutePlan={handleExecutePlan}
+        />
       </div>
     </div>
   );
