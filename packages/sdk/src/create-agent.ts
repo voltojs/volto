@@ -78,7 +78,8 @@ import {
   type PersistentSession,
   type SessionSpawnHandle,
 } from "@volto/runtime-node";
-import { createNodeAttachmentStore, createNodeDocumentParser } from "@volto/runtime-node";
+import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgress } from "@volto/runtime-node";
+import type { EgressPolicy } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentDispatch, AgentTypeSummary } from "@volto/tools-agent";
 import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@volto/tools-agent";
@@ -640,6 +641,16 @@ export interface CreateAgentOptions {
   /** Network adapter */
   network?: Network;
 
+  /**
+   * Optional egress policy for the Network port (web_fetch / web_search /
+   * http_query). Exact-hostname matching, denylist wins; denied requests
+   * answer with a structured 403 and never reach the adapter. The model's
+   * own transport does not go through this port, and neither does anything
+   * the bash tool launches — this policy governs the Network port only.
+   * Absent → the network is used as-is.
+   */
+  egressPolicy?: EgressPolicy;
+
   /** LSP client adapter — when provided, LSP code intelligence tools are auto-created */
   lspClient?: import("@volto/tools-code").LspClient;
 
@@ -980,6 +991,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     ? (opts.sandboxConfig ? createSandboxedShell(opts.shell, opts.sandboxConfig) : opts.shell)
     : undefined;
 
+  // One egress policy wraps the Network port for every consumer — the web
+  // tools and the network tool executor (the sub-agent's executor included).
+  // Without a policy the adapter is used as-is; behavior is unchanged.
+  const network: Network | undefined = opts.network
+    ? (opts.egressPolicy ? wrapNetworkWithEgress(opts.network, opts.egressPolicy) : opts.network)
+    : undefined;
+
   // ── Persistent bash session (B-2) ─────────
   // At most ONE long-lived session per createAgent instance. Lazily created
   // on the first non-isolated bash call; dispose() kills it before tearing
@@ -1063,7 +1081,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.shell) {
     capabilities.add("shell:exec");
   }
-  if (opts.network) {
+  if (network) {
     capabilities.add("network:fetch");
   }
   if (opts.lspClient) {
@@ -1129,9 +1147,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createBuildTool(effectiveShell!),
     );
   }
-  if (opts.network) {
-    adapterTools.push(createWebFetchTool(opts.network), createWebSearchTool(opts.network));
-    adapterTools.push(createHttpQueryTool(opts.network));
+  if (network) {
+    adapterTools.push(createWebFetchTool(network), createWebSearchTool(network));
+    adapterTools.push(createHttpQueryTool(network));
   }
   if (opts.lspClient) {
     adapterTools.push(
@@ -1301,7 +1319,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.enableTaskTool) {
     const agentSpecs = withPluginAgentSpecs(opts.agentSpecs ?? [], pluginData.agentSpecs);
     const executor = createSubAgentExecutor(
-      opts,
+      // The sub-agent inherits the parent's egress-wrapped network — a raw
+      // opts pass-through would let a dispatched child bypass the policy.
+      { ...opts, network },
       allCustomTools,
       adapterTools,
       capabilities,
@@ -1518,7 +1538,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const shellExecutor = effectiveShell
     ? createShellToolExecutor({ shell: effectiveShell, getSession })
     : undefined;
-  const networkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
+  const networkExecutor = network ? createNetworkToolExecutor({ network }) : undefined;
 
   const toolExecutor: ToolExecutor = async (
     call: PendingToolCall,

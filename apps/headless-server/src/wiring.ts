@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { createAgent, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
+import { loadEgressPolicy } from "./config/egress.js";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -377,6 +378,14 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // types itself. Plugin specs go in too: the UI lists them from the /agents
   // scan, and without the same entries here the task tool would reject a
   // `subagent_type` the UI offered.
+  // Egress policy for the Network port (web_fetch / web_search /
+  // http_query): ~/.volto/egress.json, re-read on every session build so an
+  // edit reaches new sessions without a restart. A malformed file refuses
+  // the build (fail-closed) — same discipline as the sandbox's
+  // failIfUnavailable. Scope: the Network port only; model traffic and
+  // bash-launched processes are untouched by design.
+  const egressPolicy = await loadEgressPolicy(getConfigDir());
+
   const { entries: agentSpecs } = await scanAgentSources({
     cwd,
     configDir: getConfigDir(),
@@ -401,6 +410,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     // `const shell = rawShell` above): the SDK wraps the shell port and
     // builds the persistent-session spawner from this single config.
     ...(shellSandboxConfig ? { sandboxConfig: shellSandboxConfig } : {}),
+    ...(egressPolicy ? { egressPolicy } : {}),
     network,
     sessionStore,
     enableTaskTool: true,

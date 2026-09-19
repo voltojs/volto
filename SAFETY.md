@@ -26,6 +26,8 @@ volto 是实验性软件，未经过安全审计，不应用于生产环境。
 
 后端为 macOS seatbelt (`sandbox-exec`) 与 Linux bubblewrap (`bwrap`)。两者语义并不等价，例如 Linux 侧的 denied-read 是用空 tmpfs 掩蔽实现的，已持有 fd 的进程仍可继续读——这类差异在代码注释里逐条标注为 PARITY NOTE。其他平台目前没有隔离后端。
 
+**Network port 的出口策略是工具级的，不是系统级的。** `~/.volto/egress.json` 的 allow/deny 列表只作用于 `web_fetch` / `web_search` / `http_query` 三个工具：精确主机名匹配，denylist 优先，被拒请求得到结构化 403。模型自身的传输不经此通道（配置出口策略影响不了与供应商的连接），bash 里启动的任何进程（curl、pip 等）同样不经此通道——上一段"`workspace-write` 下的命令可以正常联网"不会因为配置了出口策略而改变。把这份名单当机器出站防火墙用是错误的。
+
 **唯一被专门保护的读取目标是 volto 自己的凭据目录**（`~/.volto`，shell 与文件系统两侧都拒绝）。理由是闭环提权：沙箱内的进程若能读到 `auth-secret`，就能伪造网关的认证 cookie，接管本该约束它的控制平面。同理，名字形如 `*API_KEY*` / `*TOKEN*` / `*SECRET*` / `*PASSWORD*` / `*CREDENTIAL*` 的环境变量会在进入沙箱子进程前被剥离。
 
 **宿主自己的凭据不在保护范围内。** `~/.ssh`、`~/.aws`、`~/.kube` 等目录对沙箱内的命令仍然可读。`SSH_AUTH_SOCK` 也被有意保留——剥离它会让 `git push` 无法工作，而这正是 `workspace-write` 应当允许的操作。在「防模型犯错」的威胁模型下这是合理的取舍；如果你的威胁模型不同，请见上一节。

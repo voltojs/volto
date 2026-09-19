@@ -42,6 +42,16 @@ pnpm dev
 
 沙箱边界防的是「模型犯错」，**不承诺**防「模型被诱导」。命令内容不做分类定级——`SAFETY.md` 论证了为什么"看起来挡得住"的错觉比不做更危险。平台支持的完整边界、已知不保护项、以及与沙箱 / 权限相关的威胁模型，见 [SAFETY.md](SAFETY.md)。
 
+### 网络出口（egress）
+
+`~/.volto/egress.json` 可约束 Network port 的三个工具（`web_fetch` / `web_search` / `http_query`）：
+
+```json
+{ "allowHosts": ["api.example.com"], "denyHosts": ["evil.example.net"] }
+```
+
+精确主机名匹配（大小写不敏感，无通配符），denylist 优先，被拒请求得到结构化 403；配置损坏会拒绝启动而非静默失效；改动对新构建的会话生效。**边界：该策略只作用于 Network port——模型自身的传输与 bash 里启动的任何进程（curl 等）都不经过它**，别把它当机器的出站防火墙。
+
 ## 文档
 
 | 文档 | 路径 | 用途 |
