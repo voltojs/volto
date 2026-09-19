@@ -147,9 +147,9 @@ export function createAgentInstance(options: AgentWiringOptions) {
     // back allow/deny, which also covers ask_user (name: "ask_user",
     // input: { question }, riskTier: READ_ONLY) — the user sees the
     // question's JSON payload and decides allow/deny, which the tool then
-    // maps back to "yes"/"no". The SDK defaults askUserGate to auto-allow,
-    // which would silently return "User confirmed: yes" with no human
-    // involved; this must be overridden explicitly.
+    // maps to "用户回答：yes"/"用户未回答此问题". The SDK defaults
+    // askUserGate to auto-allow, which would silently answer "yes" with no
+    // human involved; this must be overridden explicitly.
     askUserGate: approvalGate,
     initialMessages,
   });

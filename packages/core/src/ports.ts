@@ -611,6 +611,8 @@ export type ApprovalDenialReason = "user" | "connection-lost" | "interrupted";
 export interface ApprovalResult {
   decision: "allow" | "deny";
   reason?: ApprovalDenialReason;
+  /** ask_user 的回答（选中 label 与自由输入的归并）。仅 ask 类调用携带。 */
+  answer?: string[];
 }
 
 export interface ApprovalGate {

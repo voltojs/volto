@@ -12,6 +12,11 @@ import type { Tool } from "@volto/tools-common";
 
 const schema = z.object({
   question: z.string().describe("The question to ask the user."),
+  options: z
+    .array(z.object({ label: z.string(), description: z.string().optional() }))
+    .optional()
+    .describe("Present these choices to the user (single-select unless multiSelect)."),
+  multiSelect: z.boolean().optional().describe("Allow choosing several options."),
 });
 
 export interface AskUserOptions {
@@ -36,15 +41,13 @@ export interface AskUserOptions {
 /**
  * Create an ask_user tool that prompts the host for input.
  *
- * The tool emits an "ask_user" event via EventSink and waits for
- * the ApprovalGate response. Since ApprovalGate is designed for
- * tool-call approval (allow/deny), we use a thin wrapper:
- * - The question is emitted as an event so the host UI can display it
- * - The ApprovalGate.ask() result maps "allow" → user answered "yes"
- *   and "deny" → user answered "no"
- *
- * For a real interactive implementation, hosts should override this
- * with their own ApprovalGate that supports free-text responses.
+ * The tool emits an "ask_user" event (question, options, multiSelect and a
+ * gate-facing callId) via EventSink and waits for the ApprovalGate response:
+ * - "allow" → the user answered; an `ApprovalResult.answer` array carries the
+ *   selected labels and/or free text, joined into the tool result. A bare
+ *   allow (no answer) falls back to "yes".
+ * - "deny"  → the user skipped; reported as plain text, not an error, so the
+ *   model can continue with what it already knows.
  */
 export function createAskUserTool(opts: AskUserOptions): Tool {
   // Fallback uniqueness source when no Id port is injected — still
@@ -56,38 +59,39 @@ export function createAskUserTool(opts: AskUserOptions): Tool {
     schema,
     requires: [],
     riskTier: "READ_ONLY",
-    run: async ({ question }) => {
-      // Emit an event so the host UI can display the question
+    run: async (input) => {
+      const { question, options, multiSelect } = input;
+      // Unique gate-facing call id, generated before the emit so the host UI
+      // can correlate the ask_user event with the pending gate call.
+      const callId = opts.id ? `ask_user-${opts.id.next()}` : `ask_user-${++localCounter}`;
+      // Emit an event so the host UI can display the question with its choices
       opts.eventSink.emit({
         type: "ask_user",
-        data: { question },
+        data: { callId, question, options, multiSelect },
       });
 
       try {
-        // Use ApprovalGate to present the question.
-        // The gate returns "allow" or "deny" — we interpret allow as "user confirmed"
-        // and deny as "user declined". For a real interactive host, the gate
-        // implementation should be overridden to support free-text input.
-        const callId = opts.id ? `ask_user-${opts.id.next()}` : `ask_user-${++localCounter}`;
-        // A gate may answer with a bare decision or with an ApprovalResult
-        // (reason attached). Normalize before comparing — `object === "allow"`
-        // is always false, which would silently report every confirmation as
-        // a decline.
+        // Use ApprovalGate to present the question. A gate may answer with a
+        // bare decision or with an ApprovalResult (reason / answer attached).
+        // Normalize before comparing — `object === "allow"` is always false,
+        // which would silently report every confirmation as a decline.
         const raw = await opts.approvalGate.ask(
           { id: callId, name: "ask_user", input: { question } },
           "READ_ONLY",
         );
         const decision = typeof raw === "string" ? raw : raw.decision;
+        const answer = typeof raw === "string" ? undefined : raw.answer;
 
         if (decision === "allow") {
+          const joined = (answer ?? []).join("；") || "yes";
           return {
-            modelContent: `User confirmed: yes`,
-            displayMetadata: { question, answer: "yes" },
+            modelContent: `用户回答：${joined}`,
+            displayMetadata: { question, answer },
           };
         }
         return {
-          modelContent: `User declined: no`,
-          displayMetadata: { question, answer: "no" },
+          modelContent: "用户未回答此问题。请基于已有信息继续，或稍后再问。",
+          displayMetadata: { question, answered: false },
         };
       } catch {
         return {
