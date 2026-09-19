@@ -26,7 +26,7 @@ import type { Tool } from "@volto/tools-common";
 import { createRunner } from "@volto/runtime-node";
 import type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
 import { createAutoAllowGate } from "@volto/runtime-node";
-import { createInitialState } from "@volto/core";
+import { createInitialState, ceilingOf } from "@volto/core";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
@@ -112,6 +112,12 @@ export function createOrchestrator(opts: OrchestratorOptions): {
       toolExecutor: executor,
       availableCapabilities: nodeCaps,
       permissionConfig: agentOpts.permissionConfig,
+      // Same ceiling derivation as createAgent's Runners: with a policy in
+      // force, above-ceiling tools leave the node's visible set instead of
+      // only being refused after the model tries them.
+      riskCeiling: agentOpts.permissionConfig
+        ? ceilingOf(agentOpts.permissionConfig.sandbox)
+        : undefined,
       approvalGate: createAutoAllowGate(),
       eventSink,
       sessionId: `topo-${topology.name}-${node.name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,

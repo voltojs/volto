@@ -36,6 +36,7 @@ import type {
   TokenUsage,
   AssistantMessage,
   PricingEntry,
+  RiskTier,
 } from "@volto/core";
 import {
   step,
@@ -191,6 +192,14 @@ export interface RunnerOptions {
   abortSignal?: AbortSignal;
   initialState?: ReducerState;
   availableCapabilities?: Set<string>;
+  /**
+   * Risk ceiling for visible-set filtering. Tools whose riskTier ranks above
+   * it are pruned from the model's visible tool set before any call happens
+   * (filterVisibleTools) — the model never sees them, rather than seeing them
+   * refused. Hosts derive it from the session's sandbox mode via `ceilingOf`.
+   * Omit for no ceiling (capability gating still applies).
+   */
+  riskCeiling?: RiskTier;
   /** Permission policy — if set, tools are checked before execution */
   permissionConfig?: PermissionConfig;
   /** Session store for checkpoint/resume persistence */
@@ -553,7 +562,11 @@ export function createRunner(opts: RunnerOptions): Runner {
   });
 
   const availableCapabilities = opts.availableCapabilities ?? new Set<string>();
-  const visibleTools = filterVisibleTools(opts.stepContext.tools, availableCapabilities);
+  const visibleTools = filterVisibleTools(
+    opts.stepContext.tools,
+    availableCapabilities,
+    opts.riskCeiling,
+  );
   const stepContext: StepContext = {
     ...opts.stepContext,
     tools: visibleTools,

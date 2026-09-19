@@ -50,6 +50,7 @@ import type {
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
+  ceilingOf,
   extractPlainText,
   createInitialState,
   resetTurnForNextInput,
@@ -1492,6 +1493,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Permission config ─────────────────────
   const permissionConfig = resolve(opts.permissionConfig, "permissionConfig") ?? createDefaultPermissionConfig();
+  // The sandbox mode fixes the highest risk tier the session may reach at
+  // all. Passed to every Runner as `riskCeiling` so above-ceiling tools are
+  // pruned from the model's visible set (filterVisibleTools) instead of only
+  // being refused after the model tries them.
+  const riskCeiling = ceilingOf(permissionConfig.sandbox);
 
   // ── Step context ─────────────────────────
   const resolvedReasoningEffort = resolve(opts.reasoningEffort, "reasoningEffort");
@@ -1745,6 +1751,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       toolExecutor,
       availableCapabilities: capabilities,
       permissionConfig,
+      riskCeiling,
       approvalGate,
       sessionStore,
       compaction: compactionConfig,
@@ -2064,6 +2071,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         toolExecutor,
         availableCapabilities: capabilities,
         permissionConfig,
+        riskCeiling,
         approvalGate,
         sessionStore,
         compaction: compactionConfig,
@@ -2866,6 +2874,12 @@ function createSubAgentExecutor(
       toolExecutor: subExecutor,
       availableCapabilities: childCapabilities,
       permissionConfig: childPermissionConfig,
+      // Derived from the child's OWN (narrowed) policy, not the parent's: a
+      // definition narrowed to read-only must lose its write tools from the
+      // visible set exactly like a parent session configured read-only.
+      riskCeiling: childPermissionConfig
+        ? ceilingOf(childPermissionConfig.sandbox)
+        : undefined,
       // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
       // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
       // never silently executed in the child.
