@@ -13,7 +13,6 @@ import {
   createNodeShell,
   createNodeNetwork,
   createSandboxedFileSystem,
-  createSandboxedShell,
 } from "@volto/runtime-node";
 import type { SandboxConfig } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
@@ -324,7 +323,13 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   const fs = sandboxConfig
     ? createSandboxedFileSystem(rawFs, sandboxConfig, { root: cwd })
     : rawFs;
-  const shell = shellSandboxConfig ? createSandboxedShell(rawShell, shellSandboxConfig) : rawShell;
+  // The shell side is NOT wrapped here. createAgent derives every sandboxed
+  // surface — the shell port AND the persistent-session spawner — from the
+  // single sandboxConfig passed below. Wrapping the shell here instead left
+  // the default (persistent-session) bash path unconfined while the
+  // isolated/background paths stayed sandboxed: the config claimed
+  // workspace-write while commands ran with full access.
+  const shell = rawShell;
   const network = createNodeNetwork();
   const model = opts.model ?? DEFAULT_MODEL;
   const modelPort = opts.modelPort ?? createPiAiModelPort(
@@ -382,12 +387,20 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   return createAgent({
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
+    // Anchors the persistent bash session's initial cwd at the project —
+    // without it the session spawns at the gateway process cwd, which is
+    // neither the workspace nor a writable root.
+    cwd,
     // `null` opts out of a system message entirely; undefined takes the default.
     ...(opts.systemPrompt === null
       ? {}
       : { systemPrompt: opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT }),
     fs,
     shell,
+    // One sandbox knob drives every shell surface (see the comment at
+    // `const shell = rawShell` above): the SDK wraps the shell port and
+    // builds the persistent-session spawner from this single config.
+    ...(shellSandboxConfig ? { sandboxConfig: shellSandboxConfig } : {}),
     network,
     sessionStore,
     enableTaskTool: true,

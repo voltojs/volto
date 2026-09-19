@@ -3,7 +3,8 @@
  * 负责组装 agent 的所有依赖项
  */
 
-import { createAgent } from "@volto/sdk";
+import * as os from "node:os";
+import { createAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "@volto/sdk";
 import type { ApprovalGate, EventSink, Message, PermissionConfig } from "@volto/core";
 import { createPiAiModelPort } from "@volto/provider-pi-ai";
 import {
@@ -11,7 +12,9 @@ import {
   createNodeShell,
   createNodeNetwork,
   createNodeScheduler,
+  createSandboxedFileSystem,
 } from "@volto/runtime-node";
+import type { SandboxConfig } from "@volto/runtime-node";
 import { getStore } from "../store/index.js";
 import type { StoreSchema } from "../store/schema.js";
 
@@ -104,16 +107,40 @@ export function createAgentInstance(options: AgentWiringOptions) {
         ? { sandbox: "read-only", approval: "never" }
         : { sandbox: "workspace-write", approval: "ask" };
 
+  // One sandbox knob drives every sandboxed surface: the SDK wraps the shell
+  // port AND builds the persistent-session spawner from this single config.
+  // Without it the default (persistent-session) bash path ran unconfined
+  // under the "ask" and "deny" tiers while permissionConfig claimed
+  // confinement — the same wiring gap the headless-server had. "auto" keeps
+  // null: danger-full-access confines nothing by definition.
+  const sandboxConfig: SandboxConfig | null =
+    permissionMode === "auto"
+      ? null
+      : {
+          mode: permissionMode === "deny" ? "read-only" : "workspace-write",
+          writableRoots: [cwd, "/tmp", os.tmpdir()],
+          readOnlyOverlays: [],
+          network: { enabled: true },
+          strippedEnvPatterns: [...DEFAULT_SESSION_SECRET_ENV_PATTERNS],
+        };
+  const sandboxedFs = sandboxConfig
+    ? createSandboxedFileSystem(fs, sandboxConfig, { root: cwd })
+    : fs;
+
   // 创建 agent
   const agent = createAgent({
     modelPort,
     model: modelName,
-    fs,
+    // Anchors the persistent bash session's initial cwd at the workspace —
+    // without it the session spawns at the Electron process cwd.
+    cwd,
+    fs: sandboxedFs,
     shell,
     network,
     eventSink,
     scheduler,
     permissionConfig,
+    sandboxConfig: sandboxConfig ?? undefined,
     approvalGate,
     // ask_user reuses the same approvalGate: the renderer's ApprovalDialog
     // already displays any PendingToolCall's name/args/riskTier and writes

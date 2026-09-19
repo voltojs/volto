@@ -374,7 +374,7 @@ const SHELL_SESSION_DEFAULT_TIMEOUT_MS = 30_000;
  * control should pass `sandboxConfig.strippedEnvPatterns` or a custom
  * `sessionSpawner`.
  */
-const DEFAULT_SESSION_SECRET_ENV_PATTERNS: readonly RegExp[] = [
+export const DEFAULT_SESSION_SECRET_ENV_PATTERNS: readonly RegExp[] = [
   /SECRET/i,
   /TOKEN/i,
   /API_?KEY/i,

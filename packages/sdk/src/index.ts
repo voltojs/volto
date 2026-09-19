@@ -1,6 +1,6 @@
 // @volto/sdk — facade: createAgent, run / stream / resume
 
-export { createAgent, assembleSubAgent } from "./create-agent.js";
+export { createAgent, assembleSubAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "./create-agent.js";
 export type { CreateAgentOptions, AgentInstance, ResolvedPorts, AssembledSubAgent } from "./create-agent.js";
 // Background sub-agent registry: holds detached task promises outside
 // AgentState; hosts and the Runner-side drain consume it via collect/pending.

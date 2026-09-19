@@ -678,3 +678,84 @@ describe("buildSandboxConfigs — confining modes refuse to run unconfined", () 
     expect(shellConfig?.failIfUnavailable).not.toBe(false);
   });
 });
+
+// ──────────────────────────────────────────────
+// The wired agent's PERSISTENT bash session must inherit the sandbox the
+// same way the shell exec path does. createAgent only builds a sandboxed
+// session spawner when it receives sandboxConfig — a host that pre-wraps
+// the shell but drops sandboxConfig leaves the default (highest-frequency)
+// bash path running unconfined while the isolated/background paths stay
+// confined. Behavioral proof, darwin only: a write outside every writable
+// root through the DEFAULT bash path is denied with seatbelt's own
+// signature, and the same session still executes inside the workspace.
+// ──────────────────────────────────────────────
+describe("createWiredAgent — the persistent bash session inherits the sandbox (darwin only)", () => {
+  if (process.platform !== "darwin") {
+    it.skip("skipped: seatbelt is a macOS-only backend", () => {});
+    return;
+  }
+
+  it(
+    "denies a default-path bash write outside every writable root and keeps in-workspace commands working",
+    async () => {
+      // REAL_HOME sits outside cwd / /tmp / os.tmpdir() even though this
+      // file's beforeEach points $HOME under os.tmpdir() — see R1 above.
+      const escapePath = path.join(REAL_HOME, `wiring-session-escape-${process.pid}.txt`);
+      fsSync.rmSync(escapePath, { force: true });
+
+      const requests: ModelRequest[] = [];
+      const inner = createMockModelPort([
+        toolCallScript("c1", "bash", JSON.stringify({
+          command: `echo pwned > "${escapePath}"; cat "${escapePath}"`,
+        })),
+        toolCallScript("c2", "bash", JSON.stringify({ command: `echo inside-ok > ./in.txt; cat ./in.txt` })),
+        textScript("done"),
+      ]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          requests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      try {
+        const agent = await createWiredAgent({
+          modelPort,
+          cwd: tempProjectDir,
+          // The server's "auto" preset: a confining boundary whose
+          // enforcement — not the approval policy — is under test here.
+          sandboxMode: "workspace-write",
+          permissionConfig: { sandbox: "workspace-write", approval: "never" },
+        });
+        await agent.run("go");
+
+        // The turn after c1 must carry the sandbox's own rejection dialect,
+        // not the command's success output and not merely "no output".
+        // Scoped to the tool-result message: the assistant's tool_use input
+        // legitimately echoes the command text, which contains "pwned".
+        const escapeResult = JSON.stringify(
+          (requests[1]?.messages ?? []).filter((m) => m.role === "tool"),
+        );
+        expect(escapeResult).toContain("Operation not permitted");
+        expect(escapeResult).not.toContain("pwned");
+
+        // The same persistent session keeps working inside the workspace —
+        // anchored at the project cwd (not the gateway's process cwd), which
+        // the on-disk write below proves. The message-body assertion alone
+        // would be toothless: the tool_use input echoes "inside-ok" whether
+        // or not the command succeeded.
+        const afterInside = JSON.stringify(requests[2]?.messages ?? []);
+        expect(afterInside).toContain("inside-ok");
+        const insideFile = path.join(tempProjectDir, "in.txt");
+        expect(fsSync.readFileSync(insideFile, "utf-8")).toBe("inside-ok\n");
+        fsSync.rmSync(insideFile, { force: true });
+
+        // The boundary held on disk: nothing landed outside the sandbox.
+        expect(fsSync.existsSync(escapePath)).toBe(false);
+      } finally {
+        fsSync.rmSync(escapePath, { force: true });
+      }
+    },
+    60_000,
+  );
+});
