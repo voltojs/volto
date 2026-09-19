@@ -141,12 +141,18 @@ export async function interruptTurn(sessionId: string): Promise<boolean> {
  * or wrong one, thrown here like any other non-409 failure: unlike a stale
  * card (409), a rejected token is not something the UI should silently shrug
  * off.
+ *
+ * `answer` carries the user's response to an ask_user prompt (selected labels
+ * and free-form input merged). Only the ask branch of the approval card sets
+ * it; the gateway validates it as an array of strings before anything
+ * settles.
  */
 export async function postApproval(
   sessionId: string,
   callId: string,
   decision: 'allow' | 'deny',
   token: string | null,
+  answer?: string[],
 ): Promise<boolean> {
   const response = await fetch(`${SERVER_URL}/approvals`, {
     method: 'POST',
@@ -157,6 +163,7 @@ export async function postApproval(
       callId,
       decision,
       ...(token ? { token } : {}),
+      ...(answer !== undefined ? { answer } : {}),
     }),
   });
 

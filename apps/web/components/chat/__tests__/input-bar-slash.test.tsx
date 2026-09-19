@@ -194,16 +194,18 @@ describe('InputBar / 斜杠命令面板', () => {
     expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeNull();
   });
 
-  it('选中后补参数发送 → onSubmit 收到完整 /plan 命令文本', async () => {
+  it('选中后补参数发送 → onSubmit 收到完整 /review 命令文本', async () => {
+    // 模板命令的代表用 review（/plan 已升级为客户端 enter-plan action，
+    // 在 submit 处被拦截，不再走 onSend——见 input-bar.test.tsx 的 /plan 用例）。
     vi.stubGlobal('fetch', stubFetch(ROUTES));
     const { editor, onSubmit } = setup();
     const sendButton = () => screen.getByRole('button', { name: '发送' });
-    act(() => void editor.commands.insertContent('/pl'));
-    await waitFor(() => expect(screen.getByText('/plan')).toBeTruthy());
-    fireEvent.click(screen.getByText('/plan').closest('button')!);
+    act(() => void editor.commands.insertContent('/re'));
+    await waitFor(() => expect(screen.getByText('/review')).toBeTruthy());
+    fireEvent.click(screen.getByText('/review').closest('button')!);
     act(() => void editor.commands.insertContent('做个深色模式'));
     fireEvent.click(sendButton());
-    expect(onSubmit).toHaveBeenCalledWith('/plan 做个深色模式');
+    expect(onSubmit).toHaveBeenCalledWith('/review 做个深色模式');
   });
 
   it('/@ 双激活：Escape 只关 @ 面板，存活的斜杠面板继续吞咽 Enter（门控按面板活性判定）', async () => {

@@ -74,9 +74,26 @@ const OPTIONS: Array<{
  *
  * Switching into `full` is the one path that needs a second click — it
  * drops every sandbox and approval gate, so it is never one-click.
+ *
+ * `plan` is not a user-chosen preset: it is entered by the `/plan` action
+ * command, so the picker degrades to a read-only badge instead of offering
+ * the four presets (the server's plan preset also has no equivalent among
+ * them — showing one would let the user "switch" to a mode the session
+ * isn't in).
  */
 export function PermissionPicker({ value, onChange }: PermissionPickerProps) {
   const [confirmFull, setConfirmFull] = useState(false);
+  if (value === 'plan') {
+    return (
+      <span
+        aria-disabled="true"
+        title="退出计划：批准计划或手动切换权限"
+        className="text-muted-foreground border-border bg-muted/50 inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 font-mono text-xs select-none"
+      >
+        计划中
+      </span>
+    );
+  }
   const selected = OPTIONS.find((o) => o.value === value) ?? OPTIONS[0]!;
   const Icon = selected.Icon;
 

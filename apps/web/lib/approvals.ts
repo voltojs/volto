@@ -43,6 +43,36 @@ export function riskNoteFor(kind: CommandRiskKind): string {
   }
 }
 
+/** One choice of an ask_user prompt (mirrors the ask tool's schema). */
+export interface AskUserOption {
+  label: string;
+  description?: string;
+}
+
+/**
+ * Payload of the ask tool's `ask_user` effect-channel event. Not part of the
+ * core `TranscriptEventMap` vocabulary — it rides the stream as a raw event —
+ * so every field is read defensively here.
+ */
+interface AskUserEventData {
+  callId?: unknown;
+  question?: unknown;
+  options?: unknown;
+  multiSelect?: unknown;
+}
+
+function isAskUserOptionArray(value: unknown): value is AskUserOption[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (option) =>
+        option !== null &&
+        typeof option === 'object' &&
+        typeof (option as AskUserOption).label === 'string',
+    )
+  );
+}
+
 /** One approval the agent is currently blocked on. */
 export interface PendingApproval {
   callId: string;
@@ -58,6 +88,15 @@ export interface PendingApproval {
    * the approval still renders, just without arguments.
    */
   input?: Record<string, unknown>;
+  /**
+   * ask_user prompt data, merged from the `ask_user` event sharing this
+   * callId (the ask tool emits it right before parking on the gate). Present
+   * only while that event is still in the replay buffer; an ask_user pending
+   * approval without it degrades to the free-text-only card.
+   */
+  question?: string;
+  options?: AskUserOption[];
+  multiSelect?: boolean;
 }
 
 /**
@@ -77,12 +116,36 @@ export interface PendingApproval {
  * solves the same problem with an explicit cache, if a caller ever needs a
  * stable identity without a hook.)
  */
+/**
+ * Attach the ask_user prompt data an event carried to a pending approval,
+ * field-by-field guarded: the event rides the wire untyped, and a malformed
+ * payload must degrade to "no ask data" (the card then falls back to the
+ * free-text-only ask UI), never to a blank screen.
+ */
+function withAskData(
+  approval: PendingApproval,
+  data: AskUserEventData,
+): PendingApproval {
+  return {
+    ...approval,
+    ...(typeof data.question === 'string' ? { question: data.question } : {}),
+    ...(isAskUserOptionArray(data.options) ? { options: data.options } : {}),
+    ...(typeof data.multiSelect === 'boolean'
+      ? { multiSelect: data.multiSelect }
+      : {}),
+  };
+}
+
 export function selectPendingApprovals(
   events: readonly TranscriptEventInput[],
 ): PendingApproval[] {
   const pending = new Map<string, PendingApproval>();
   // callId -> the arguments streamed for it, filled as we walk the log.
   const inputs = new Map<string, unknown>();
+  // callId -> ask_user prompt data. The ask tool emits its event BEFORE the
+  // approval parks, so either order is legal: data seen first is staged here
+  // and merged when the matching approval_asked lands (and vice versa).
+  const askData = new Map<string, AskUserEventData>();
 
   for (const event of events) {
     if (event.type === 'assistant_message') {
@@ -102,16 +165,32 @@ export function selectPendingApprovals(
       }
       continue;
     }
+    if ((event.type as string) === 'ask_user') {
+      // The ask tool's own event: carries the prompt data the approval card
+      // renders its radio/checkbox/free-text UI from. Same callId the gate
+      // (and therefore POST /approvals) keys on. Not in the core event
+      // vocabulary, so the discriminant is widened here.
+      const data = event.data as AskUserEventData;
+      if (typeof data?.callId !== 'string' || data.callId === '') continue;
+      askData.set(data.callId, data);
+      const existing = pending.get(data.callId);
+      if (existing) {
+        pending.set(data.callId, withAskData(existing, data));
+      }
+      continue;
+    }
     if (event.type === 'approval_asked') {
       const data = event.data as TranscriptEventMap['approval_asked'];
       if (data.callId === '') continue;
       const input = inputs.get(data.callId);
-      pending.set(data.callId, {
+      const approval: PendingApproval = {
         callId: data.callId,
         toolName: data.name,
         riskTier: data.riskTier,
         ...(input !== undefined ? { input: input as Record<string, unknown> } : {}),
-      });
+      };
+      const staged = askData.get(data.callId);
+      pending.set(data.callId, staged ? withAskData(approval, staged) : approval);
       continue;
     }
     if (event.type === 'approval_decision') {

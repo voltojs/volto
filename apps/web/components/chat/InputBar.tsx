@@ -22,7 +22,7 @@ import { Placeholder, UndoRedo } from '@tiptap/extensions';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { PluginKey } from '@tiptap/pm/state';
 import { Button } from '@/components/ui/button';
-import { matchActionCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
+import { matchActionCommand, matchPlanCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
 import { drillPath, type MentionEntry } from '@/lib/mention-data';
 import { usePendingAttachments } from '@/hooks/use-attachments';
 import { SlashPanel } from './SlashPanel';
@@ -58,8 +58,12 @@ export interface InputBarProps {
   onStop?: () => void;
   /** 绑定项目 id：@ 文件面板与 skills 目录数据源。null/undefined = 未绑定。 */
   projectId?: string | null;
-  /** 动作命令（/clear）在前端拦截后的执行入口。 */
-  onInputAction?: (action: InputAction) => void;
+  /**
+   * 动作命令（/clear、/plan）在前端拦截后的执行入口。`rawText` 是触发动作的
+   * 原始输入（trim 后），供需要余文的动作使用——enter-plan 从中提取目标；
+   * 其余动作可忽略。
+   */
+  onInputAction?: (action: InputAction, rawText?: string) => void;
   /** 编辑器实例注入口（测试与高级用法）。 */
   onEditorReady?: (editor: Editor) => void;
   /**
@@ -354,18 +358,25 @@ export function InputBar({
     ) {
       return;
     }
-    const action = matchActionCommand(text);
-    if (action) {
-      onInputActionRef.current?.(action.action);
-    } else if (onSendRef.current) {
-      const attachments = pendingItemsRef.current
-        .filter((item) => item.status === 'ready' && item.id !== undefined)
-        .map((item) => item.id as string);
-      onSendRef.current({ text, attachments });
-      // 已随消息送出的附件不应再留在待发列表里（再次发送会重复引用同一批 id）。
-      clearAttachmentsRef.current();
+    // /plan 在 /clear 同类动作之前判：它带任意余文（/plan 目标），不能走
+    // matchActionCommand 的无参精确匹配。命中时把原始输入一并上抛，目标由
+    // ChatPanel 从中提取。
+    if (matchPlanCommand(text)) {
+      onInputActionRef.current?.('enter-plan', text);
     } else {
-      onSubmitRef.current?.(text);
+      const action = matchActionCommand(text);
+      if (action) {
+        onInputActionRef.current?.(action.action);
+      } else if (onSendRef.current) {
+        const attachments = pendingItemsRef.current
+          .filter((item) => item.status === 'ready' && item.id !== undefined)
+          .map((item) => item.id as string);
+        onSendRef.current({ text, attachments });
+        // 已随消息送出的附件不应再留在待发列表里（再次发送会重复引用同一批 id）。
+        clearAttachmentsRef.current();
+      } else {
+        onSubmitRef.current?.(text);
+      }
     }
     editor.commands.clearContent(true);
   }, []);

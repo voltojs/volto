@@ -24,7 +24,7 @@ import { useAutoOpenTasksTab } from '@/hooks/use-auto-open-tasks-tab';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
-import type { InputAction } from '@/lib/input-commands';
+import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
@@ -146,22 +146,32 @@ export function ChatPanel() {
     effectiveReasoningEffort,
   ]);
 
-  const handleWelcomeSend = (payload: { text: string; attachments: string[] }) => {
-    const id = draftSessionIdRef.current ?? ensureDraftSession();
-    // attach 之后用户可能改过工作区 / 模型 / 权限：发送前同步进草稿，
-    // 避免拿着创建草稿时的旧绑定发出消息。
-    if (effectiveProviderId && effectiveModelId) {
-      useSessionStore
-        .getState()
-        .setSessionModel(id, effectiveProviderId, effectiveModelId);
-    }
-    useSessionStore.getState().setSessionPermissionMode(id, pendingPermissionMode);
-    useSessionStore.getState().setSessionReasoningEffort(id, effectiveReasoningEffort);
-    useSessionStore.getState().setCurrentSession(id);
-    draftSessionIdRef.current = null;
-    setDraftSessionId(null);
-    void sendMessage(payload.text, payload.attachments);
-  };
+  const handleWelcomeSend = useCallback(
+    (payload: { text: string; attachments: string[] }) => {
+      const id = draftSessionIdRef.current ?? ensureDraftSession();
+      // attach 之后用户可能改过工作区 / 模型 / 权限：发送前同步进草稿，
+      // 避免拿着创建草稿时的旧绑定发出消息。
+      if (effectiveProviderId && effectiveModelId) {
+        useSessionStore
+          .getState()
+          .setSessionModel(id, effectiveProviderId, effectiveModelId);
+      }
+      useSessionStore.getState().setSessionPermissionMode(id, pendingPermissionMode);
+      useSessionStore.getState().setSessionReasoningEffort(id, effectiveReasoningEffort);
+      useSessionStore.getState().setCurrentSession(id);
+      draftSessionIdRef.current = null;
+      setDraftSessionId(null);
+      void sendMessage(payload.text, payload.attachments);
+    },
+    [
+      ensureDraftSession,
+      effectiveProviderId,
+      effectiveModelId,
+      pendingPermissionMode,
+      effectiveReasoningEffort,
+      sendMessage,
+    ],
+  );
 
   // 用户 attach 后没发送就点开了别的会话：丢弃草稿（纯内存，从未持久化；
   // 若已上传过附件，孤儿目录由网关的 24h 回收机制清理）。
@@ -220,30 +230,68 @@ export function ChatPanel() {
 
   // /clear 动作命令：与侧栏「新会话」完全同一行为（回欢迎屏 + 清聊天缓冲）。
   // /compact：与 Header「压缩上下文」按钮同一路径（toast 反馈，不改对话流）。
-  const handleInputAction = useCallback((action: InputAction) => {
-    if (action === 'clear-session') {
-      useSessionStore.getState().setCurrentSession(null);
-      useChatStore.getState().clear();
-      return;
-    }
-    if (action === 'compact-session') {
-      const sessionId = useSessionStore.getState().currentSessionId;
-      if (!sessionId) return;
-      void runSessionCompact({
-        sessionId,
-        notify: {
-          success: (message) => toast.success(message),
-          error: (message) => toast.error(message),
-        },
-      });
-    }
-  }, []);
+  // /plan：当前会话切到 plan 权限档（记住进入前档位），发送增强版计划提示
+  // 词；welcome 屏还没有会话，不切模式，原文继续走既有发送路径。
+  const handleInputAction = useCallback(
+    (action: InputAction, rawText?: string) => {
+      if (action === 'clear-session') {
+        useSessionStore.getState().setCurrentSession(null);
+        useChatStore.getState().clear();
+        return;
+      }
+      if (action === 'compact-session') {
+        const sessionId = useSessionStore.getState().currentSessionId;
+        if (!sessionId) return;
+        void runSessionCompact({
+          sessionId,
+          notify: {
+            success: (message) => toast.success(message),
+            error: (message) => toast.error(message),
+          },
+        });
+        return;
+      }
+      if (action === 'enter-plan') {
+        const goal = matchPlanCommand(rawText ?? '')?.goal ?? '';
+        const store = useSessionStore.getState();
+        const sid = store.currentSessionId;
+        if (sid) {
+          const current = store.sessions.find((s) => s.id === sid);
+          // 已在 plan 态的重复 /plan 不重记进入前档位：否则 planPreviousMode
+          // 会被 'plan' 覆盖，退出计划时无从恢复真正的原档位。
+          if (current?.permissionMode !== 'plan') {
+            store.setPlanPreviousMode(current?.permissionMode ?? 'ask');
+          }
+          store.setSessionPermissionMode(sid, 'plan');
+          void sendMessage(
+            '你已进入计划模式：工作区只读，唯一的写入口是 save_plan 工具（把计划写入 volto 存储）。\n' +
+              '请按以下流程工作：\n' +
+              '1. 调研相关代码与文档（read_file / glob / grep / bash 只读命令）；\n' +
+              '2. 有不明确之处用 ask_user 向用户提问对齐（可给选项）；\n' +
+              '3. 形成完整实施计划并用 save_plan 保存（分步任务、涉及文件、风险点）；\n' +
+              '4. 保存后简短总结计划要点，等待用户批准。不要尝试修改工作区文件。\n' +
+              (goal ? `目标：${goal}` : '目标：见上文用户描述'),
+          );
+        } else if (rawText) {
+          // welcome 屏：没有会话可切，/plan 退回普通消息（服务器端按既有
+          // 路径处理原文），与简报「welcome 回退」一致。
+          handleWelcomeSend({ text: rawText, attachments: [] });
+        }
+        return;
+      }
+    },
+    [sendMessage, handleWelcomeSend],
+  );
 
   // Header 标题与右侧面板切换：依赖 currentSession/currentProject（下方
   // 声明），只在会话/项目解析后计算。
 
   const handleDecide = useCallback(
-    async (callId: string, decision: 'allow' | 'deny'): Promise<void> => {
+    async (
+      callId: string,
+      decision: 'allow' | 'deny',
+      answer?: string[],
+    ): Promise<void> => {
       if (!currentSessionId) return;
       try {
         await postApproval(
@@ -251,6 +299,9 @@ export function ChatPanel() {
           callId,
           decision,
           getApprovalToken(),
+          // 仅 ask_user 卡片携带（选中 label 与自由输入的归并）；网关在
+          // settle 前校验为 string[]。其余审批 undefined，请求体不带该字段。
+          answer,
         );
       } catch (error) {
         const message =

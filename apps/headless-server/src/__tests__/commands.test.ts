@@ -46,11 +46,11 @@ describe("BUILT_IN_COMMANDS 与 GET /commands", () => {
     return { status: response.status, body: await response.text() };
   }
 
-  it("GET /commands 返回三个内置命令的映射形状", async () => {
+  it("GET /commands 返回内置命令的映射形状（/plan 已升级为客户端 action，不再列出）", async () => {
     const { status, body } = await get("/commands");
     expect(status).toBe(200);
     const parsed = JSON.parse(body) as { commands: Array<{ name: string; description: string }> };
-    expect(parsed.commands.map((c) => c.name)).toEqual(["plan", "review", "explain"]);
+    expect(parsed.commands.map((c) => c.name)).toEqual(["review", "explain"]);
     expect(parsed.commands.every((c) => typeof c.description === "string" && c.description.length > 0)).toBe(true);
   });
 
@@ -59,10 +59,10 @@ describe("BUILT_IN_COMMANDS 与 GET /commands", () => {
     expect(response.status).toBe(401);
   });
 
-  it("renderCommand 展开 /plan positional 参数；未知命令回包语义不变", () => {
-    const rendered = renderCommand(BUILT_IN_COMMANDS, "/plan 加一个深色模式");
-    expect(rendered).toContain("制定实施计划");
-    expect(rendered).toContain("加一个深色模式");
+  it("/plan 不再是服务端模板（客户端 action）；未知命令回包语义不变", () => {
+    expect(BUILT_IN_COMMANDS.some((c) => c.name === "plan")).toBe(false);
+    // /plan 由 web 客户端拦截（enter-plan action），到达服务端即按未知命令回包。
+    expect(renderCommand(BUILT_IN_COMMANDS, "/plan 加一个深色模式")).toContain("Unknown command: /plan");
     expect(renderCommand(BUILT_IN_COMMANDS, "/nope")).toContain("Unknown command: /nope");
   });
 });

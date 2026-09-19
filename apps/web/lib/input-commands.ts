@@ -5,7 +5,7 @@
  * GET /commands); "SKILLS" comes from GET /skills, filtered to userInvocable.
  */
 
-export type InputAction = 'clear-session' | 'compact-session';
+export type InputAction = 'clear-session' | 'compact-session' | 'enter-plan';
 
 export interface ActionCommandItem {
   kind: 'action';
@@ -43,6 +43,13 @@ export function matchActionCommand(text: string): ActionCommandItem | undefined 
   const name = trimmed.slice(1);
   if (name.includes(' ')) return undefined;
   return ACTION_COMMANDS.find((c) => c.name === name);
+}
+
+/** `/plan` 前缀动作：启用计划模式，余文作为目标。非 action 的 /plan 落到模板。 */
+export function matchPlanCommand(text: string): { goal: string } | undefined {
+  const m = /^\/plan(?:\s+([\s\S]+))?$/.exec(text.trim());
+  if (!m) return undefined;
+  return { goal: (m[1] ?? "").trim() };
 }
 
 export function filterCommandItems(items: readonly CommandItem[], query: string): CommandItem[] {

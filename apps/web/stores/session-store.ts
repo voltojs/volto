@@ -11,7 +11,7 @@ type ReasoningCapability = Model['reasoning'];
 // Types
 // ---------------------------------------------------------------------------
 
-export type PermissionMode = 'read-only' | 'ask' | 'auto' | 'full';
+export type PermissionMode = 'read-only' | 'plan' | 'ask' | 'auto' | 'full';
 
 export interface Session {
   id: string;
@@ -123,6 +123,17 @@ interface SessionState {
    * not persisted, since a stale default from a prior visit isn't meaningful.
    */
   pendingProjectId: string | null;
+  /**
+   * The permission preset the session was on when `/plan` switched it to
+   * `'plan'` (see ChatPanel's enter-plan action). Store-level rather than
+   * per-session on purpose: plan mode is entered and exited within one
+   * browsing session's active view, and the consumer (the plan pane's
+   * execute path) restores exactly the mode that was current at entry.
+   * `null` = no client-initiated plan switch is in flight. Not persisted —
+   * a reload drops the memory of the entry mode, and the picker shows the
+   * session's actual (plan) mode until the user changes it.
+   */
+  planPreviousMode: PermissionMode | null;
 
   createSession: (options?: CreateSessionOptions) => string;
   /** Replaces the whole list with the server's summaries (newest first). */
@@ -136,6 +147,8 @@ interface SessionState {
     kind?: 'legacy' | 'network' | null,
   ) => void;
   setPendingProjectId: (id: string | null) => void;
+  /** Records (or clears, with `null`) the mode to restore when plan mode exits. */
+  setPlanPreviousMode: (mode: PermissionMode | null) => void;
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setCurrentSession: (id: string | null) => void;
@@ -196,8 +209,11 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   currentSessionId: null,
   sidebarOpen: true,
   pendingProjectId: null,
+  planPreviousMode: null,
 
   setPendingProjectId: (id) => set({ pendingProjectId: id }),
+
+  setPlanPreviousMode: (mode) => set({ planPreviousMode: mode }),
 
   createSession: (options = {}) => {
     const id = generateId();

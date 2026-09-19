@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ACTION_COMMANDS,
   matchActionCommand,
+  matchPlanCommand,
   filterCommandItems,
   groupCommandItems,
   type CommandItem,
@@ -30,6 +31,14 @@ describe('matchActionCommand', () => {
   it('非 / 开头与未知命令返回 undefined', () => {
     expect(matchActionCommand('hello')).toBeUndefined();
     expect(matchActionCommand('/nope')).toBeUndefined();
+  });
+});
+
+describe('matchPlanCommand', () => {
+  it("matches /plan with an optional goal", () => {
+    expect(matchPlanCommand("/plan")).toEqual({ goal: "" });
+    expect(matchPlanCommand("/plan 重构登录")).toEqual({ goal: "重构登录" });
+    expect(matchPlanCommand("/plans")).toBeUndefined();
   });
 });
 

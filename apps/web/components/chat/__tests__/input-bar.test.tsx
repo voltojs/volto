@@ -98,6 +98,23 @@ describe('InputBar（tiptap 底座）', () => {
     expect(onSubmit).toHaveBeenCalledWith('/clear now');
   });
 
+  it('/plan 拦截：onInputAction("enter-plan", 原文) 被调、onSubmit 不被调', () => {
+    const { editor, onSubmit, onInputAction, sendButton } = setup();
+    act(() => void editor.commands.insertContent('/plan 重构登录'));
+    fireEvent.click(sendButton());
+    expect(onInputAction).toHaveBeenCalledWith('enter-plan', '/plan 重构登录');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(editor.isEmpty).toBe(true);
+  });
+
+  it('/plans 不拦截（前缀相同但命令名不同）', () => {
+    const { editor, onSubmit, onInputAction, sendButton } = setup();
+    act(() => void editor.commands.insertContent('/plans'));
+    fireEvent.click(sendButton());
+    expect(onInputAction).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledWith('/plans');
+  });
+
   it('mention 节点序列化为 @路径 纯文本', () => {
     const { editor, onSubmit, sendButton } = setup();
     act(() =>
