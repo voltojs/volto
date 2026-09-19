@@ -31,7 +31,7 @@ describe('SlashPanel', () => {
 
   it('渲染两组（系统内置 + SKILLS）并高亮 activeIndex', async () => {
     vi.stubGlobal('fetch', stubFetch({
-      '/commands': { commands: [{ name: 'plan', description: '制定计划' }] },
+      '/commands': { commands: [] },
       '/skills': { skills: [{ name: 'pdf', description: 'PDF', modelInvocable: true, userInvocable: true }] },
     }));
     render(<SlashPanel query="" projectId="p1" onSelect={vi.fn()} />);
@@ -47,7 +47,7 @@ describe('SlashPanel', () => {
 
   it('query 过滤 + 空态 + error 重试', async () => {
     vi.stubGlobal('fetch', stubFetch({
-      '/commands': { commands: [{ name: 'plan', description: '制定计划' }] },
+      '/commands': { commands: [] },
       '/skills': { skills: [] },
     }));
     const { rerender } = render(<SlashPanel query="zz" projectId="p1" onSelect={vi.fn()} />);
@@ -65,14 +65,14 @@ describe('SlashPanel', () => {
   it('点击行回调 onSelect；键盘 Enter 选中首个并恒消费', async () => {
     const onSelect = vi.fn();
     vi.stubGlobal('fetch', stubFetch({
-      '/commands': { commands: [{ name: 'plan', description: '制定计划' }] },
+      '/commands': { commands: [] },
       '/skills': { skills: [] },
     }));
     const ref = createRef<SlashPanelHandle>();
     render(<SlashPanel ref={ref} query="" projectId="p1" onSelect={onSelect} />);
     await waitFor(() => expect(screen.getByText('/plan')).toBeTruthy());
     fireEvent.click(screen.getByText('/plan').closest('button')!);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: 'template', name: 'plan' }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: 'action', name: 'plan', action: 'enter-plan' }));
     expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
   });
 

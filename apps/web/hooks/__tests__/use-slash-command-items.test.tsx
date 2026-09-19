@@ -19,7 +19,7 @@ describe('useSlashCommandItems', () => {
 
   it('合并 action + templates + skills（顺序 verbatim），skills 过滤 userInvocable', async () => {
     vi.stubGlobal('fetch', stubFetch({
-      '/commands': { commands: [{ name: 'plan', description: '制定计划', args: { type: 'string' } }] },
+      '/commands': { commands: [{ name: 'review', description: '制定计划', args: { type: 'string' } }] },
       '/skills': { skills: [
         { name: 'pdf', description: 'PDF 工具', modelInvocable: true, userInvocable: true },
         { name: 'hidden', description: '不给用户用', modelInvocable: true, userInvocable: false },
@@ -27,7 +27,7 @@ describe('useSlashCommandItems', () => {
     }));
     const { result } = renderHook(() => useSlashCommandItems('p1'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.items.map((i) => i.name)).toEqual(['clear', 'compact', 'plan', 'pdf']);
+    expect(result.current.items.map((i) => i.name)).toEqual(['plan', 'clear', 'compact', 'review', 'pdf']);
   });
 
   it('缓存命中：第二个 hook 实例不再发请求', async () => {
@@ -63,6 +63,6 @@ describe('useSlashCommandItems', () => {
     vi.stubGlobal('fetch', stubFetch({ '/commands': { commands: [] }, '/skills': { skills: [] } }));
     act(() => result.current.retry());
     await waitFor(() => expect(result.current.error).toBeNull());
-    await waitFor(() => expect(result.current.items.map((i) => i.name)).toEqual(['clear', 'compact']));
+    await waitFor(() => expect(result.current.items.map((i) => i.name)).toEqual(['plan', 'clear', 'compact']));
   });
 });

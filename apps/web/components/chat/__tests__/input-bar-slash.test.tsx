@@ -32,7 +32,6 @@ function stubFetch(routes: Record<string, unknown>) {
 const ROUTES = {
   '/commands': {
     commands: [
-      { name: 'plan', description: '制定计划' },
       { name: 'review', description: '审查改动' },
       { name: 'explain', description: '解释实现' },
     ],
@@ -153,7 +152,7 @@ describe('InputBar / 斜杠命令面板', () => {
     expect(chip).toBeTruthy();
     expect(chip?.textContent).toBe('/plan');
     expect(chip?.getAttribute('data-name')).toBe('plan');
-    expect(chip?.getAttribute('data-description')).toBe('制定计划');
+    expect(chip?.getAttribute('data-description')).toBe('进入计划模式：只读调研并对齐需求');
     await waitFor(() => expect(document.body.querySelector('[data-testid="slash-panel"]')).toBeNull());
   });
 
@@ -169,7 +168,7 @@ describe('InputBar / 斜杠命令面板', () => {
     fireEvent.mouseOver(chip);
     const tip = document.querySelector('.slash-command-tooltip') as HTMLElement | null;
     expect(tip).toBeTruthy();
-    expect(tip?.textContent).toBe('制定计划');
+    expect(tip?.textContent).toBe('进入计划模式：只读调研并对齐需求');
 
     fireEvent.mouseOut(chip);
     expect(document.querySelector('.slash-command-tooltip')).toBeNull();
