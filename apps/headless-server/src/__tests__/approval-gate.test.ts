@@ -108,4 +108,61 @@ describe("createApprovalRegistry", () => {
     // 路由层测试在 server.test.ts 的 /approvals 用例里覆盖；这里只钉 registry 类型。
     expect(true).toBe(true);
   });
+
+  describe("lifecycle hooks (sessions.ts's ask_user bracket synthesis)", () => {
+    it("fires onPending after the call is parked, with the gate-facing identity", async () => {
+      const seen: Array<{ id: string; name: string; riskTier: string; pendingAtFire: number }> = [];
+      const registry = createApprovalRegistry({
+        onPending: (call, riskTier) => {
+          seen.push({ id: call.id, name: call.name, riskTier, pendingAtFire: registry.size() });
+        },
+      });
+
+      const pending = registry.gate.ask(call("ask_user-1", "ask_user"), "READ_ONLY");
+
+      // onPending 已经看到 park 后的 registry（size 1）——观察者与簿记一致。
+      expect(seen).toEqual([
+        { id: "ask_user-1", name: "ask_user", riskTier: "READ_ONLY", pendingAtFire: 1 },
+      ]);
+      registry.settle("ask_user-1", "allow");
+      await pending;
+    });
+
+    it("fires onSettled with the settled entry's toolName, only for actually pending calls", () => {
+      const settled: Array<[string, string, string]> = [];
+      const registry = createApprovalRegistry({
+        onSettled: (callId, toolName, decision) => settled.push([callId, toolName, decision]),
+      });
+      registry.gate.ask(call("c1", "ask_user"), "READ_ONLY");
+      registry.gate.ask(call("c2", "bash"), "WRITE_HIGH");
+
+      expect(registry.settle("c1", "allow", ["x"])).toBe(true);
+      expect(registry.settle("ghost", "allow")).toBe(false);
+      registry.settleAll("deny", "connection-lost");
+
+      // 两次结算都上报（用户点击 + fail-closed），未知 callId 不上报。
+      expect(settled).toEqual([
+        ["c1", "ask_user", "allow"],
+        ["c2", "bash", "deny"],
+      ]);
+    });
+
+    it("tolerates a throwing observer without disturbing the approval", async () => {
+      const registry = createApprovalRegistry({
+        onPending: () => {
+          throw new Error("observer bug");
+        },
+        onSettled: () => {
+          throw new Error("observer bug");
+        },
+      });
+
+      // gate.ask 的 observer 在 Promise 构造器里同步抛出——异常不得吞噬
+      // park 本身，也不得阻止结算。
+      const pending = registry.gate.ask(call("c1"), "WRITE_HIGH");
+      expect(registry.size()).toBe(1);
+      expect(() => registry.settle("c1", "allow")).not.toThrow();
+      await expect(pending).resolves.toEqual({ decision: "allow", reason: "user" });
+    });
+  });
 });

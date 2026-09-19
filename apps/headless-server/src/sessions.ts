@@ -20,7 +20,7 @@ import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
-import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry } from "./approval-gate.js";
+import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
 import { getConfigDirRealPath } from "./config/paths.js";
 import type { StoreFor } from "./attachments/store.js";
 
@@ -461,7 +461,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         buffer: [],
         running: false,
         abort: null,
-        approvals: createApprovalRegistry(),
+        approvals: createApprovalRegistry(approvalHooks(sessionId)),
         lastUsed: Date.now(),
       };
       sessions.set(sessionId, session);
@@ -522,6 +522,78 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       if (session.buffer.length > replayBufferSize) session.buffer.shift();
     }
     session.connection?.res.write(sse.formatSSEFrame(message));
+  }
+
+  /**
+   * Deliver one out-of-band event to a session's live /events connection —
+   * the escape hatch for events that do NOT ride the turn's stream channel:
+   *
+   * - the ask_user tool's own prompt event (callId / question / options /
+   *   multiSelect), which the SDK emits to the construction-time eventSink,
+   *   not the per-turn channel (create-agent.ts wires createAskUserTool with
+   *   `opts.eventSink`, resolved once at agent construction);
+   * - the synthetic approval_asked / approval_decision brackets below, which
+   *   ask_user needs because it parks the gate directly, bypassing the
+   *   Runner that emits those transcript events for every other approval.
+   *
+   * These events are deliberately NOT persisted to the chat store — ask_user's
+   * event is not part of core's transcript vocabulary, and making it one (or
+   * persisting the synthetic brackets) would mean a core event-type change,
+   * which is ruled out. They ride `event:` frames with a real emission
+   * timestamp so the shared client (which only routes the five protocol frame
+   * names) delivers them like any transcript event, and they are buffered for
+   * Last-Event-ID replay exactly like one — so a quick reconnect re-derives a
+   * still-pending ask card. Nothing re-materialises them on a cold reload:
+   * GET /sessions/:id/events serves only persisted events, and a pending ask
+   * whose page was reloaded degrades to no card until the next turn (v1).
+   *
+   * Returns whether a live connection received it. False for an unknown or
+   * connection-less session — a gate promise parked with nobody watching
+   * still resolves when `POST /approvals` (or the fail-closed paths) settle
+   * it, so a dropped card never wedges the turn.
+   */
+  function emitToSession(
+    sessionId: string,
+    event: { type: string; data: Record<string, unknown> },
+  ): boolean {
+    // Lookup without materialising: an emit for a session this process never
+    // created must not conjure one into the eviction pool.
+    const session = sessions.get(sessionId);
+    if (!session) return false;
+    push(
+      session,
+      session.mapper.event({ ...event, time: Date.now() } as TranscriptEventInput),
+    );
+    return session.connection != null;
+  }
+
+  /**
+   * The approval lifecycle hooks the per-session registry is built with. Only
+   * `ask_user` needs synthesis: it is the one tool that calls the gate
+   * directly (bypassing the Runner and therefore the native approval_asked /
+   * approval_decision transcript events), and the web card derivation never
+   * creates a pending entry from the bare ask_user event — it only enriches
+   * an `approval_asked` entry by callId (apps/web/lib/approvals.ts). Normal
+   * tool approvals are untouched: the Runner already brackets them, and a
+   * synthetic duplicate would just be noise on the wire.
+   */
+  function approvalHooks(sessionId: string): ApprovalRegistryHooks {
+    return {
+      onPending: (call, riskTier) => {
+        if (call.name !== "ask_user") return;
+        emitToSession(sessionId, {
+          type: "approval_asked",
+          data: { callId: call.id, name: call.name, riskTier },
+        });
+      },
+      onSettled: (callId, toolName, decision) => {
+        if (toolName !== "ask_user") return;
+        emitToSession(sessionId, {
+          type: "approval_decision",
+          data: { callId, decision },
+        });
+      },
+    };
   }
 
   /**
@@ -820,8 +892,28 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
             permissionConfig: buildPermissionConfig(config.permissionMode),
             sandboxMode: sandboxModeFor(config.permissionMode),
             approvalGate: session.approvals.gate,
+            // ask_user reuses the same gate (the desktop host's precedent):
+            // the tool parks it directly, POST /approvals settles it, and the
+            // registry's hooks above bracket the card on the SSE channel.
+            // SDK default is auto-allow, which would answer every question
+            // with "yes" and no human involved — must be overridden.
+            askUserGate: session.approvals.gate,
           }
         : {}),
+      // ask_user's prompt event rides the construction-time sink, not the
+      // turn's stream channel — forward it (and any other out-of-band agent
+      // event) to this session's live connection. Deliberately an explicit
+      // override of the `...wiring` spread above: the sink must target THIS
+      // session's channel, and it resolves the connection at emit time, so a
+      // reconnect mid-turn delivers to the new connection and a dropped one
+      // simply drops events (the parked gate still settles — see
+      // emitToSession). No sink objects are registered here, so there is
+      // nothing to clean up on detach.
+      eventSink: {
+        emit: (event) => {
+          emitToSession(session.id, event);
+        },
+      },
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(seeded.length > 0 ? { initialMessages: seeded } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
@@ -1069,6 +1161,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     ensureAgent,
     closeAll,
     size: () => sessions.size,
+    /**
+     * Deliver one out-of-band event to a session's live /events connection.
+     * Used internally by the wiring's eventSink adapter and the approval
+     * hooks; exposed for hosts/tests that must push a session-scoped event
+     * without riding a turn's stream. Returns whether anyone received it.
+     */
+    emitToSession,
     /**
      * Resolves and validates a `TurnConfig` without building/rebuilding an
      * agent — throws exactly as `runTurn()`'s internal call would. Exposed so

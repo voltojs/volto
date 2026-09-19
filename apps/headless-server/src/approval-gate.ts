@@ -42,6 +42,25 @@ export interface PendingApproval {
   resolve: (result: ApprovalResult) => void;
 }
 
+/**
+ * Lifecycle observers for the registry. The registry is the one place that
+ * sees BOTH sides of an approval — the ask parking and the settle — including
+ * the settle paths (fail-closed settleAll) no tool or runner observes. Hooks
+ * fire synchronously, after the pending bookkeeping they describe; the
+ * registry guards every invocation so an observer bug cannot fail the
+ * approval it observes.
+ *
+ * The session registry uses these to synthesize the approval_asked /
+ * approval_decision brackets for `ask_user` on the session's SSE channel —
+ * see sessions.ts.
+ */
+export interface ApprovalRegistryHooks {
+  /** A call just parked on the gate. */
+  onPending?: (call: PendingToolCall, riskTier: RiskTier) => void;
+  /** A pending call was settled — by a user decision or a fail-closed path. */
+  onSettled?: (callId: string, toolName: string, decision: "allow" | "deny") => void;
+}
+
 export interface ApprovalRegistry {
   /** The port handed to createAgent(). */
   readonly gate: ApprovalGate;
@@ -60,13 +79,31 @@ export interface ApprovalRegistry {
   size(): number;
 }
 
-export function createApprovalRegistry(): ApprovalRegistry {
+export function createApprovalRegistry(hooks: ApprovalRegistryHooks = {}): ApprovalRegistry {
   const pending = new Map<string, PendingApproval>();
 
+  /**
+   * Hooks are observer callbacks: a bug in one must never reach the approval
+   * itself. onPending runs inside a Promise constructor, so a synchronous
+   * throw there would reject the gate promise and turn a parked approval into
+   * an error — wrap every invocation.
+   */
+  function safeCall(hook: (() => void) | undefined): void {
+    if (!hook) return;
+    try {
+      hook();
+    } catch {
+      // Observer failure is not an approval failure.
+    }
+  }
+
   const gate: ApprovalGate = {
-    ask(call: PendingToolCall, _riskTier: RiskTier): Promise<ApprovalResult> {
+    ask(call: PendingToolCall, riskTier: RiskTier): Promise<ApprovalResult> {
       return new Promise<ApprovalResult>((resolve) => {
         pending.set(call.id, { callId: call.id, toolName: call.name, resolve });
+        // After the bookkeeping, so an observer that settles synchronously
+        // (a test, a fail-fast host) observes a consistent registry.
+        safeCall(() => hooks.onPending?.(call, riskTier));
       });
     },
   };
@@ -79,12 +116,14 @@ export function createApprovalRegistry(): ApprovalRegistry {
       if (!entry) return false;
       pending.delete(callId);
       entry.resolve({ decision, reason: "user", answer });
+      safeCall(() => hooks.onSettled?.(callId, entry.toolName, decision));
       return true;
     },
 
     settleAll(decision: ApprovalDecision, reason: ApprovalDenialReason): void {
       for (const entry of pending.values()) {
         entry.resolve({ decision, reason });
+        safeCall(() => hooks.onSettled?.(entry.callId, entry.toolName, decision));
       }
       pending.clear();
     },

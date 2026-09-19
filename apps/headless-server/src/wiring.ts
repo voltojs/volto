@@ -24,7 +24,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { AttachmentStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
+import type { AttachmentStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
@@ -88,6 +88,29 @@ export interface WiringOptions {
   sandboxMode?: SandboxMode;
   /** HITL approval gate. Omit to fall back to the SDK's auto-allow gate. */
   approvalGate?: ApprovalGate;
+  /**
+   * Approval gate for the `ask_user` tool specifically. The SDK defaults this
+   * to auto-allow — "helpfully" answering every question with "yes" and no
+   * human involved — so it must be overridden explicitly (the desktop host's
+   * precedent: ask_user reuses the same gate as every other approval).
+   *
+   * The session registry passes `session.approvals.gate` here: ask_user calls
+   * `ApprovalGate.ask()` directly, bypassing the Runner, so the call parks on
+   * the registry and is settled by `POST /approvals` like any other approval.
+   * The registry's per-session hooks additionally synthesize the
+   * approval_asked / approval_decision brackets the web card derives from —
+   * see sessions.ts.
+   */
+  askUserGate?: ApprovalGate;
+  /**
+   * Sink for the agent's out-of-band events. ask_user emits its prompt event
+   * (callId / question / options / multiSelect) to the construction-time sink
+   * — NOT the per-turn stream channel the turn's transcript events ride — so
+   * without one wired here the event lands in the SDK's no-op sink and the
+   * web app never sees the question. The session registry passes an adapter
+   * that forwards to the session's live /events connection; see sessions.ts.
+   */
+  eventSink?: EventSink;
   /**
    * Reasoning effort for this agent instance, forwarded verbatim to
    * createAgent()'s own `reasoningEffort` option. Validated by the caller
@@ -426,6 +449,8 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
     ...(opts.approvalGate ? { approvalGate: opts.approvalGate } : {}),
+    ...(opts.askUserGate ? { askUserGate: opts.askUserGate } : {}),
+    ...(opts.eventSink ? { eventSink: opts.eventSink } : {}),
     ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),

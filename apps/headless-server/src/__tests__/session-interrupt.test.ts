@@ -141,3 +141,129 @@ describe("model maxOutputTokens plumbing", () => {
     expect(builds[0]).not.toHaveProperty("maxTokens");
   });
 });
+
+/**
+ * Collect the SSE frames a fake connection receives. `res.write` is the only
+ * channel surface emitToSession (and push) touch; each write() carries one
+ * full frame (`id: …\nevent: …\ndata: …\n\n`).
+ */
+function makeCapturingConnection() {
+  const written: string[] = [];
+  const res = { write: (chunk: string) => void written.push(chunk) } as never;
+  return { res, written };
+}
+
+/** The event payloads of the `event` frames among the written chunks. */
+function eventPayloadsOf(written: string[]): Array<Record<string, unknown>> {
+  return written
+    .filter((chunk) => chunk.includes("\nevent: event\n"))
+    .map((chunk) => {
+      const dataLine = chunk.split("\n").find((line) => line.startsWith("data: ")) ?? "";
+      return JSON.parse(dataLine.slice("data: ".length)) as Record<string, unknown>;
+    });
+}
+
+describe("registry.emitToSession", () => {
+  it("delivers an out-of-band event as an `event` frame to the live connection and reports delivery", async () => {
+    const registry = createSessionRegistry({});
+    created.push(registry);
+    const conn = makeCapturingConnection();
+    registry.attach("s1", conn.res as never);
+    // Detach-on-attach fires on the FIRST attach of a session object only
+    // when one existed; the token is minted per attach, irrelevant here.
+
+    const delivered = registry.emitToSession("s1", {
+      type: "ask_user",
+      data: { callId: "ask_user-1", question: "q?", options: [], multiSelect: false },
+    });
+
+    expect(delivered).toBe(true);
+    expect(conn.written.length).toBeGreaterThan(0);
+    const eventFrames = eventPayloadsOf(conn.written);
+    const ask = eventFrames.find((e) => e["type"] === "ask_user");
+    expect(ask).toBeDefined();
+    expect((ask!["data"] as Record<string, unknown>)["callId"]).toBe("ask_user-1");
+    // A real emission timestamp rides the frame — the shared client treats it
+    // like any transcript-stamped event.
+    expect(typeof ask!["time"]).toBe("number");
+  });
+
+  it("writes to the CURRENT connection only after a reconnect supersedes the old one", async () => {
+    const registry = createSessionRegistry({});
+    created.push(registry);
+    const first = makeCapturingConnection();
+    const second = makeCapturingConnection();
+    registry.attach("s1", first.res as never);
+    registry.attach("s1", second.res as never);
+
+    registry.emitToSession("s1", { type: "ask_user", data: { callId: "c1" } });
+
+    // The superseded connection receives nothing new; the live one does.
+    // (first.written holds only its own attach-time frames, never the emit.)
+    expect(eventPayloadsOf(second.written).length).toBe(1);
+    expect(eventPayloadsOf(first.written)).toEqual([]);
+  });
+
+  it("buffers for a connection-less session (replayable) and reports no delivery", () => {
+    const registry = createSessionRegistry({});
+    created.push(registry);
+    registry.get("s1"); // materialise without attaching
+
+    expect(registry.emitToSession("s1", { type: "ask_user", data: { callId: "c1" } })).toBe(false);
+  });
+
+  it("returns false for an unknown session without materialising it", () => {
+    const registry = createSessionRegistry({});
+    created.push(registry);
+
+    expect(registry.emitToSession("never-seen", { type: "ask_user", data: {} })).toBe(false);
+    // No phantom session entered the pool (eviction candidates, /sessions listings).
+    expect(registry.size()).toBe(0);
+  });
+
+  it("keeps the approval brackets on the live channel: deny-on-interrupt settles a parked ask_user and emits approval_decision", async () => {
+    // The synthesis wiring (sessions.ts's approvalHooks): a parked ask_user
+    // entry settled through the fail-closed path must emit a synthetic
+    // approval_decision so the web card clears even for the deny paths.
+    const registry = createSessionRegistry({});
+    created.push(registry);
+    const conn = makeCapturingConnection();
+    registry.attach("s1", conn.res as never);
+
+    // Park a real ask_user call through the same gate the wiring hands createAgent.
+    const pending = registry.get("s1").approvals.gate.ask(
+      { id: "ask_user-9", name: "ask_user", input: { question: "q?" } },
+      "READ_ONLY",
+    );
+    // The same fail-closed settlement interrupt()/detach() run (interrupt()
+    // itself needs a running turn; the hook contract under test is settleAll's).
+    registry.get("s1").approvals.settleAll("deny", "interrupted");
+
+    await expect(pending).resolves.toMatchObject({ decision: "deny" });
+    const eventFrames = eventPayloadsOf(conn.written);
+    const asked = eventFrames.find((e) => e["type"] === "approval_asked");
+    const decision = eventFrames.find((e) => e["type"] === "approval_decision");
+    expect((asked!["data"] as Record<string, unknown>)["name"]).toBe("ask_user");
+    expect((decision!["data"] as Record<string, unknown>)).toMatchObject({
+      callId: "ask_user-9",
+      decision: "deny",
+    });
+  });
+
+  it("does not synthesize brackets for ordinary tool approvals (the Runner already brackets those)", async () => {
+    const registry = createSessionRegistry({});
+    created.push(registry);
+    const conn = makeCapturingConnection();
+    registry.attach("s1", conn.res as never);
+
+    const pending = registry
+      .get("s1")
+      .approvals.gate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+    registry.get("s1").approvals.settleAll("deny", "interrupted");
+    await pending;
+
+    const types = eventPayloadsOf(conn.written).map((e) => e["type"]);
+    expect(types).not.toContain("approval_asked");
+    expect(types).not.toContain("approval_decision");
+  });
+});
