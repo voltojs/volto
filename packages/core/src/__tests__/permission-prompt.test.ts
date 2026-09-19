@@ -8,9 +8,11 @@ const auto: PermissionConfig = { sandbox: "workspace-write", approval: "never" }
 const readOnly: PermissionConfig = { sandbox: "read-only", approval: "never" };
 /**
  * The sixth (sandbox x approval) combination. Unreachable through the four
- * host presets, reachable through the SDK's public `permissionConfig`, and
- * the one cell where a write above the ceiling is escalated rather than
- * refused.
+ * host presets, reachable through the SDK's public `permissionConfig`. The
+ * matrix still says "ask" for a write above the READ_ONLY ceiling, but with
+ * the risk ceiling wired into the visible set the write tool is pruned
+ * before any decision can escalate — the one cell where the old escalation
+ * wording had to give way to removal wording.
  */
 const readOnlyAsk: PermissionConfig = { sandbox: "read-only", approval: "ask" };
 const full: PermissionConfig = { sandbox: "danger-full-access", approval: "never" };
@@ -61,15 +63,19 @@ describe("buildPermissionReminder", () => {
     expect(buildPermissionReminder(readOnly)).toMatch(/every write is refused/i);
   });
 
-  it("does not claim writes are refused under read-only + ask, where they are escalated", () => {
-    // decide("READ_ONLY", "ask", "WRITE_LOW") === "ask": a write above the
-    // ceiling goes to the user, it is not refused. The sentence is derived
-    // from that decision so it cannot drift from it.
+  it("says write tools were removed from the available list under read-only + ask", () => {
+    // The matrix still says "ask" for a write above the READ_ONLY ceiling,
+    // but the risk ceiling is wired into the visible set: the write tool is
+    // pruned before any decision can escalate it. An approval prompt needs a
+    // visible tool to trigger on, so the old "put to the user for approval"
+    // described a path that no longer exists — and "every write is refused"
+    // would contradict the matrix, which still says "ask".
     expect(decide("READ_ONLY", "ask", "WRITE_LOW")).toBe("ask");
     const text = buildPermissionReminder(readOnlyAsk);
     expect(text).not.toMatch(/every write is refused/i);
-    expect(text).toMatch(/cannot write to the filesystem on your own/i);
-    expect(text).toMatch(/approval/i);
+    expect(text).not.toMatch(/put to the user for approval/i);
+    expect(text).toMatch(/cannot write to the filesystem/i);
+    expect(text).toMatch(/removed from your available tool list/i);
   });
 
   it("never says a tier is refused when the matrix would escalate it", () => {

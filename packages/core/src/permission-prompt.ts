@@ -39,9 +39,13 @@ export function permissionFingerprint(config: PermissionConfig): string {
  *
  * The sandbox mode fixes the SCOPE of writes; what happens when the agent
  * reaches past that scope comes from `decide`, never from a hand-written
- * assumption. Under `read-only` a write sits above the ceiling, so an `ask`
- * approval policy escalates it to the user instead of refusing it — telling
- * the model "every write is refused" there would be simply false.
+ * assumption. Under `read-only` every write sits above the ceiling, and the
+ * risk ceiling is wired into the visible set (`filterVisibleTools`): write
+ * tools are pruned before the model ever sees them — under `ask` too, since
+ * an approval prompt needs a visible tool to trigger on. There the reminder
+ * must say the tools are gone: claiming the user would be asked describes a
+ * path that no longer exists, and claiming refusal would contradict the
+ * matrix, which still says "ask".
  */
 function writeBoundaryLine(config: PermissionConfig): string {
   switch (config.sandbox) {
@@ -49,7 +53,7 @@ function writeBoundaryLine(config: PermissionConfig): string {
       const onWrite = decide(ceilingOf(config.sandbox), config.approval, "WRITE_LOW");
       return onWrite === "deny"
         ? "- You cannot write to the filesystem at all. Every write is refused."
-        : "- You cannot write to the filesystem on your own. Every write is put to the user for approval first.";
+        : "- You cannot write to the filesystem. All write tools have been removed from your available tool list.";
     }
     case "workspace-write":
       return "- Filesystem writes are confined to the workspace. Writes outside it are refused.";
