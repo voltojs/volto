@@ -834,3 +834,16 @@ export interface AttachmentStore {
   /** Drop every attachment belonging to a session. */
   deleteBySession(sessionId: string): Promise<void>;
 }
+
+// ──────────────────────────────────────────────
+// PlanStore — plan-mode artifact storage (gateway-managed, project-scoped)
+// ──────────────────────────────────────────────
+
+export interface PlanStore {
+  /** Overwrite the session's current plan document. */
+  save(sessionId: string, projectPath: string, content: string): Promise<void>;
+  /** The session's current plan, or null when none was saved. */
+  read(sessionId: string, projectPath: string): Promise<string | null>;
+  /** Drop the plan alongside its session (same lifecycle as the transcript). */
+  deleteBySession(sessionId: string, projectPath: string): Promise<void>;
+}

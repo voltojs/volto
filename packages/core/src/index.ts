@@ -140,6 +140,7 @@ export type {
   PolicyEngine,
   StoredAttachment,
   AttachmentStore,
+  PlanStore,
 } from "./ports.js";
 
 // Types — Tool

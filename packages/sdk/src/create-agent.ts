@@ -45,6 +45,7 @@ import type {
   SkillRegistry,
   SkillSummary,
   AttachmentStore,
+  PlanStore,
   FileWatcher,
   FileWatchEvent,
 } from "@volto/core";
@@ -597,6 +598,13 @@ export interface CreateAgentOptions {
    * `approvalGate` back in here without confirming the UI can display it.
    */
   askUserGate?: ApprovalGate;
+
+  /**
+   * Plan-mode artifact store (gateway-managed). Provided → the save_plan
+   * tool is registered; it is the ONLY write surface inside plan mode
+   * (workspace writes stay removed by the ceiling).
+   */
+  planStore?: PlanStore;
 
   /** Event sink for observability */
   eventSink?: EventSink;
@@ -1306,6 +1314,33 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   allCustomTools.push(
     createAskUserTool({ approvalGate: resolvedAskUserGate, eventSink: resolvedEventSink, id: idPort }),
   );
+
+  if (opts.planStore) {
+    const planStore = opts.planStore;
+    adapterTools.push({
+      definition: {
+        name: "save_plan",
+        description:
+          "Save the current plan document (markdown) to volto's storage. " +
+          "One plan per session; saving again overwrites it. Available in plan mode.",
+        inputSchema: {
+          type: "object",
+          properties: { content: { type: "string", description: "Full plan document in markdown" } },
+          required: ["content"],
+        },
+        requires: [],
+        riskTier: "READ_ONLY",
+      },
+      handler: async (input: Record<string, unknown>): Promise<ToolResult> => {
+        const content = String(input["content"] ?? "");
+        await planStore.save(opts.chatSessionId ?? "default", opts.cwd ?? process.cwd(), content);
+        return {
+          modelContent:
+            "PLAN_SAVED\n计划已保存到 volto 存储，用户可在计划面板查看。请简短总结计划要点并等待用户批准。",
+        };
+      },
+    });
+  }
 
   // Standing todos: pure state tool (no ports). Capability-gated by plan:write.
   capabilities.add(CAP_PLAN_WRITE);
