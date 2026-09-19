@@ -68,6 +68,11 @@ function approvalLine(config: PermissionConfig): string {
  * Describe how the matrix treats the tier above the sandbox ceiling, if there
  * is one. Derived, not hardcoded: `decide` is the same function the Runner
  * consults, so this sentence cannot claim a behaviour that will not happen.
+ *
+ * Above-ceiling tiers are not only refused when a call is attempted — with the
+ * risk ceiling in force (`filterVisibleTools`) they are pruned from the
+ * model's visible tool set, so the reminder says so in the same breath. The
+ * model should learn the tools are gone, not that calls to them would fail.
  */
 function ceilingLine(config: PermissionConfig): string | null {
   const ceiling = ceilingOf(config.sandbox);
@@ -78,7 +83,10 @@ function ceilingLine(config: PermissionConfig): string | null {
   const refused = above.filter((tier) => decide(ceiling, config.approval, tier) === "deny");
   if (refused.length === 0) return null;
 
-  return `- Operations classified ${refused.join(" / ")} are above this session's ceiling and are refused outright.`;
+  return (
+    `- Operations classified ${refused.join(" / ")} are above this session's ceiling and are refused outright.\n` +
+    `- 优先级高于 ${ceiling} 的操作已从可用工具列表移除。`
+  );
 }
 
 /**

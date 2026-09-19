@@ -1,5 +1,6 @@
 import type { PendingToolCall } from "./state.js";
-import type { ToolDefinition, ToolResult, JSONSchema } from "./tool.js";
+import type { ToolDefinition, ToolResult, JSONSchema, RiskTier } from "./tool.js";
+import { riskRank } from "./permission-policy.js";
 
 /**
  * Granted while the agent is still below maxAgentDepth. Delegation tools
@@ -69,8 +70,17 @@ export function validateToolInput(schema: JSONSchema | undefined, input: unknown
   return null;
 }
 
-export function filterVisibleTools(tools: ToolDefinition[], availableCapabilities: Set<string>): ToolDefinition[] {
-  return tools.filter((tool) => tool.requires.every((capability) => availableCapabilities.has(capability)));
+export function filterVisibleTools(
+  tools: ToolDefinition[],
+  availableCapabilities: Set<string>,
+  ceiling?: RiskTier,
+): ToolDefinition[] {
+  const capFiltered = tools.filter((tool) =>
+    tool.requires.every((capability) => availableCapabilities.has(capability)),
+  );
+  if (ceiling === undefined) return capFiltered;
+  const max = riskRank(ceiling);
+  return capFiltered.filter((tool) => riskRank(tool.riskTier) <= max);
 }
 
 // ──────────────────────────────────────────────

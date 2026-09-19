@@ -93,6 +93,11 @@ describe("buildPermissionReminder", () => {
     expect(buildPermissionReminder(auto)).toMatch(/refused outright/i);
   });
 
+  it("mentions visible-set removal for tiers above the ceiling", () => {
+    const text = buildPermissionReminder(readOnly);
+    expect(text).toContain("已从可用工具列表移除");
+  });
+
   it("carries the no-routing-around rule in every config", () => {
     for (const config of allConfigs) {
       expect(buildPermissionReminder(config)).toMatch(/do not use `bash`/i);

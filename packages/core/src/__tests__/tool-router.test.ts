@@ -8,6 +8,7 @@ import {
 import type { ToolScopeConfig } from "../tool-router.js";
 import type { ToolDefinition, JSONSchema } from "../tool.js";
 import type { PendingToolCall } from "../state.js";
+import { riskRank } from "../permission-policy.js";
 
 const objectSchema: JSONSchema = {
   type: "object",
@@ -210,5 +211,44 @@ describe("filterByScope", () => {
     const r1 = filterByScope(tools, scope, 10);
     const r2 = filterByScope(tools, scope, 10);
     expect(r1.map((t) => t.name)).toEqual(r2.map((t) => t.name));
+  });
+});
+
+function toolNamed(name: string, riskTier: ToolDefinition["riskTier"]): ToolDefinition {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+    requires: [],
+    riskTier,
+  };
+}
+
+describe("filterVisibleTools — risk ceiling", () => {
+  const read = toolNamed("read_file", "READ_ONLY");
+  const writeLow = toolNamed("task", "WRITE_LOW");
+  const writeHigh = toolNamed("write_file", "WRITE_HIGH");
+  const irreversible = toolNamed("git_push", "IRREVERSIBLE");
+  const tools = [read, writeLow, writeHigh, irreversible];
+
+  it("hides tools above the ceiling and keeps the rest", () => {
+    const visible = filterVisibleTools(tools, new Set(), "READ_ONLY");
+    expect(visible.map((t) => t.name)).toEqual(["read_file"]);
+  });
+
+  it("workspace-write ceiling keeps everything but IRREVERSIBLE", () => {
+    const visible = filterVisibleTools(tools, new Set(), "WRITE_HIGH");
+    expect(visible.map((t) => t.name)).toEqual(["read_file", "task", "write_file"]);
+  });
+
+  it("no ceiling keeps all tools (unchanged behavior)", () => {
+    expect(filterVisibleTools(tools, new Set())).toHaveLength(4);
+  });
+
+  it("riskRank matches the documented total order", () => {
+    expect(riskRank("READ_ONLY")).toBe(0);
+    expect(riskRank("WRITE_LOW")).toBe(1);
+    expect(riskRank("WRITE_HIGH")).toBe(2);
+    expect(riskRank("IRREVERSIBLE")).toBe(3);
   });
 });

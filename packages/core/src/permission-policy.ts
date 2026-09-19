@@ -70,6 +70,11 @@ const TIER_RANK: Record<RiskTier, number> = {
   IRREVERSIBLE: 3,
 };
 
+/** Total order over risk tiers — shared with visible-set filtering. */
+export function riskRank(tier: RiskTier): number {
+  return TIER_RANK[tier];
+}
+
 /** Check if a risk tier is a write-class tier (not READ_ONLY) */
 export function isWriteTier(tier: RiskTier): boolean {
   return tier === "WRITE_LOW" || tier === "WRITE_HIGH" || tier === "IRREVERSIBLE";
