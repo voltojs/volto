@@ -4,7 +4,7 @@
  * Protocol routes (consumed by apps/web via `@volto/sdk/sse`):
  *   GET  /events?sessionId=   — long-lived SSE channel for one chat session
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
- *   POST /approvals           — { sessionId, callId, decision } settles one approval
+ *   POST /approvals           — { sessionId, callId, decision, answer? } settles one approval
  *
  * Input-command & workspace routes (consumed by apps/web input bar / panes):
  *   GET  /commands            — slash command templates for the `/` panel
@@ -738,6 +738,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           callId?: string;
           decision?: string;
           token?: string;
+          answer?: unknown;
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
@@ -755,13 +756,32 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           return;
         }
 
+        // The user's answer to an ask_user prompt rides on the decision.
+        // Body-shape validation, like the checks above, runs BEFORE the token
+        // check — and before anything settles: a malformed body must never be
+        // mistaken for a settled approval. Absent means "no answer", which is
+        // every non-ask_user decision's legitimate shape.
+        if (
+          body.answer !== undefined &&
+          !(Array.isArray(body.answer) && body.answer.every((a) => typeof a === "string"))
+        ) {
+          jsonResponse(res, 400, { error: "answer must be an array of strings" });
+          return;
+        }
+
         // Bound to the SSE connection the approval was shown on — see
         // sessions.ts's decideApproval for the full threat model. A missing
         // or wrong token answers 403 with the exact same message an unknown
         // callId gets below, and is checked first, so a caller without the
         // connection token can never learn whether a given callId is
         // actually pending.
-        const result = registry.decideApproval(sessionId, body.callId, body.decision, body.token);
+        const result = registry.decideApproval(
+          sessionId,
+          body.callId,
+          body.decision,
+          body.token,
+          body.answer as string[] | undefined,
+        );
         if (result === "forbidden") {
           jsonResponse(res, 403, {
             error: `No pending approval ${body.callId} for session ${sessionId}`,

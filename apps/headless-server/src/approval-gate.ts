@@ -45,8 +45,15 @@ export interface PendingApproval {
 export interface ApprovalRegistry {
   /** The port handed to createAgent(). */
   readonly gate: ApprovalGate;
-  /** Settle one pending approval as a user decision. False when callId is unknown. */
-  settle(callId: string, decision: ApprovalDecision): boolean;
+  /**
+   * Settle one pending approval as a user decision. False when callId is unknown.
+   *
+   * `answer` carries the user's response to an ask_user prompt (selected
+   * labels and free-form input merged, the shape ask_user reads back off the
+   * resolved ApprovalResult). Only ever set on this one-shot user path —
+   * `settleAll`'s fail-closed settlements have no user to answer anything.
+   */
+  settle(callId: string, decision: ApprovalDecision, answer?: string[]): boolean;
   /** Settle every pending approval at once — the fail-closed path. */
   settleAll(decision: ApprovalDecision, reason: ApprovalDenialReason): void;
   /** How many approvals are waiting on a human. */
@@ -67,11 +74,11 @@ export function createApprovalRegistry(): ApprovalRegistry {
   return {
     gate,
 
-    settle(callId: string, decision: ApprovalDecision): boolean {
+    settle(callId: string, decision: ApprovalDecision, answer?: string[]): boolean {
       const entry = pending.get(callId);
       if (!entry) return false;
       pending.delete(callId);
-      entry.resolve({ decision, reason: "user" });
+      entry.resolve({ decision, reason: "user", answer });
       return true;
     },
 

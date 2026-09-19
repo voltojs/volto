@@ -1015,13 +1015,17 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     callId: string,
     decision: ApprovalDecision,
     token: string | undefined,
+    answer?: string[],
   ): ApprovalDecisionResult {
     const session = sessions.get(sessionId);
     const connection = session?.connection;
     if (connection && (!token || !tokensMatch(token, connection.token))) {
       return "forbidden";
     }
-    if (!session?.approvals.settle(callId, decision)) return "unknown";
+    // `answer` rides untouched on the one-shot user decision (ask_user's
+    // response — see ApprovalResult.answer); the fail-closed paths above and
+    // in interrupt()/detach() never fabricate one.
+    if (!session?.approvals.settle(callId, decision, answer)) return "unknown";
     return "ok";
   }
 

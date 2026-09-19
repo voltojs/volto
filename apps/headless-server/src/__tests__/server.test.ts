@@ -1779,7 +1779,11 @@ interface StubApprovalGate {
   ask(
     call: { id: string; name: string; input: unknown },
     tier: string,
-  ): Promise<"allow" | "deny" | { decision: "allow" | "deny"; reason?: string }>;
+  ): Promise<
+    | "allow"
+    | "deny"
+    | { decision: "allow" | "deny"; reason?: string; answer?: string[] }
+  >;
 }
 
 /**
@@ -1797,6 +1801,7 @@ function makeApprovalPendingFactory() {
     resolveAsked = resolve;
   });
   let resultText = "";
+  let rawResult: unknown;
   const factory = (opts: Record<string, unknown>) => {
     const approvalGate = opts["approvalGate"] as StubApprovalGate | undefined;
     return {
@@ -1807,6 +1812,9 @@ function makeApprovalPendingFactory() {
         }
         resolveAsked();
         const raw = await approvalGate.ask({ id: "call-1", name: "bash", input: {} }, "WRITE_HIGH");
+        // The full gate result (decision, reason, and any user answer) for
+        // tests that need to assert beyond the bare decision.
+        rawResult = raw;
         // The gate may answer with a bare decision or an ApprovalResult.
         const decision = typeof raw === "string" ? raw : raw.decision;
         resultText = decision;
@@ -1817,7 +1825,7 @@ function makeApprovalPendingFactory() {
       },
     };
   };
-  return { factory, asked, getResultText: () => resultText };
+  return { factory, asked, getResultText: () => resultText, getRawResult: () => rawResult };
 }
 
 /** Boots a dedicated server instance with a custom agentFactory (not modelPort). */
@@ -2059,6 +2067,88 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
     } finally {
       channelA.stop();
       channelB?.stop();
+      await close();
+    }
+  });
+});
+
+describe("POST /approvals — carrying the user's answer", () => {
+  it("rejects a non-string-array answer with 400 and leaves the approval pending", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-answer-invalid-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createTestProjectAndModel();
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", answer: "not-an-array", token },
+        base,
+        ephemeralToken,
+        );
+      expect(response.status).toBe(400);
+      expect((response.data as { error: string }).error).toBe(
+        "answer must be an array of strings",
+      );
+
+      // The malformed body must not have settled anything: the same approval
+      // is still pending and a well-formed answer settles it afterwards.
+      const retry = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", answer: ["a"], token },
+        base,
+        ephemeralToken,
+        );
+      expect(retry.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("carries a valid answer into the ApprovalResult the gate resolves with", async () => {
+    const { factory, asked, getRawResult } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-answer-valid-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createTestProjectAndModel();
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", answer: ["a"], token },
+        base,
+        ephemeralToken,
+        );
+      expect(response.status).toBe(202);
+
+      // The stub records whatever the real approval gate resolved with —
+      // the answer must have ridden all the way through the route.
+      await until(() => getRawResult() !== undefined, 2000, "gate never actually settled");
+      expect(getRawResult()).toMatchObject({ decision: "allow", answer: ["a"] });
+    } finally {
+      channel.stop();
       await close();
     }
   });

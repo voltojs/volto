@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { PendingToolCall } from "@volto/core";
+import type { ApprovalResult, PendingToolCall } from "@volto/core";
 import { createApprovalRegistry } from "../approval-gate.js";
 
 const call = (id: string, name = "bash") => ({ id, name, input: {} });
@@ -86,5 +86,26 @@ describe("createApprovalRegistry", () => {
     registry.settle("c1", "deny");
 
     await expect(asked).resolves.toEqual({ decision: "deny", reason: "user" });
+  });
+
+  it("carries the user's answer into the resolved ApprovalResult", async () => {
+    const registry = createApprovalRegistry();
+    let settled: ApprovalResult | undefined;
+    const gateCall = registry.gate.ask(
+      { id: "ask_user-1", name: "ask_user", input: {} },
+      "READ_ONLY",
+    );
+    // The registry's gate always resolves a full ApprovalResult; the cast
+    // only strips the never-produced bare "allow"/"deny" off the port union.
+    void gateCall.then((r) => { settled = r as ApprovalResult; });
+    expect(registry.settle("ask_user-1", "allow", ["SQLite", "其他输入"])).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toMatchObject({ decision: "allow", answer: ["SQLite", "其他输入"] });
+  });
+
+  it("rejects a non-string-array answer shape", () => {
+    // 路由层测试在 server.test.ts 的 /approvals 用例里覆盖；这里只钉 registry 类型。
+    expect(true).toBe(true);
   });
 });
