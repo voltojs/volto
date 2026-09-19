@@ -252,3 +252,29 @@ describe("filterVisibleTools — risk ceiling", () => {
     expect(riskRank("IRREVERSIBLE")).toBe(3);
   });
 });
+
+// The runner routes against the *pruned* visible set (executeTool passes
+// `visibleTools` to routeToolCall), so a hallucinated call for a tool the
+// ceiling removed is rejected at the routing layer with the plain unknown-tool
+// signature — it never reaches the policy matrix. Safety is unaffected
+// (fail-closed at the executor boundary, and earlier than a policy denial),
+// but the rejection signature is a load-bearing contract of the plan mode:
+// this test pins it so the routing list can never silently regress to the
+// unpruned set (which would route pruned tools into policy/executor instead).
+describe("routeToolCall — ceiling-pruned tool (runner boundary)", () => {
+  it("rejects a ceiling-pruned tool with the unknown-tool signature (fail-closed at routing)", () => {
+    const read = toolNamed("read_file", "READ_ONLY");
+    const write = toolNamed("write_file", "WRITE_HIGH");
+    const visible = filterVisibleTools([read, write], new Set(), "READ_ONLY");
+    expect(visible.map((t) => t.name)).toEqual(["read_file"]);
+
+    const { tool: t, result } = routeToolCall(visible, new Set(), {
+      id: "call_1",
+      name: "write_file",
+      input: {},
+    });
+    expect(t).toBeUndefined();
+    expect(result?.isError).toBe(true);
+    expect(result?.modelContent).toContain("Unknown tool: write_file");
+  });
+});
