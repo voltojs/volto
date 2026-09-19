@@ -14,9 +14,10 @@
  *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
  *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
  *   GET  /git/commits/:hash   — workspace git pane data
- *   GET  /sessions            — list sessions; /sessions/:id (+ /trajectory,
- *                               /events) read, PATCH rename, DELETE remove,
- *                               POST /sessions/:id/compact on-demand compaction
+   *   GET  /sessions            — list sessions; /sessions/:id (+ /trajectory,
+   *                               /events, /plan) read, PATCH rename, DELETE
+   *                               remove, POST /sessions/:id/compact
+   *                               on-demand compaction
  *   GET|POST /projects, DELETE /projects/:id — project registry
  *   GET|POST /providers, PUT|DELETE /providers/:id — model provider config
  *   GET  /catalog/providers   — provider catalog for the add-provider flow
@@ -29,6 +30,7 @@
  */
 
 import * as http from "node:http";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -40,6 +42,7 @@ import {
 } from "@volto/sdk";
 import {
   createStore as createJsonlStore,
+  encodeWorkspaceName,
   TranscriptFormatError,
   asTranscriptReader,
   type ChatSessionMeta,
@@ -60,6 +63,7 @@ import {
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
+import { createPlanStore } from "./config/plan-store.js";
 import { isUiPermissionMode, buildPermissionConfig, sandboxModeFor } from "./permission-modes.js";
 import {
   createDirectoryPicker,
@@ -420,6 +424,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const attachmentRoot = path.join(getConfigDir(), "attachments");
   const attachmentStoreFor = createAttachmentStoreCache(attachmentRoot);
   const attachmentRoutes = createAttachmentRoutes({ storeFor: attachmentStoreFor });
+  // The plan-mode artifact store the /sessions/:id/plan routes read and
+  // reclaim on. Rooted at the config dir via createPlanStore's own default —
+  // the very root wiring.ts hands every agent instance, so a plan the
+  // save_plan tool wrote is the plan these routes serve.
+  const planStore = createPlanStore();
   const registry = createSessionRegistry({
     ...opts,
     projectStore,
@@ -1239,6 +1248,53 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       }
     }
 
+    // GET /sessions/:id/plan — the session's current plan document (plan
+    // mode, spec 2026-09-19 §4). 404 = no plan: either the session has no
+    // project binding (a plan is only ever written under one, via save_plan)
+    // or none was saved yet. Same auth as every other /sessions route — the
+    // guard above runs before any route matching.
+    if (req.method === "GET") {
+      const planMatch = url.pathname.match(/^\/sessions\/([^/]+)\/plan$/);
+      if (planMatch) {
+        const id = decodeURIComponent(planMatch[1]!);
+        try {
+          const projectPath = registry.getSessionProjectPath(id);
+          // A session with no project binding has no reachable plan: only a
+          // rebuilt session's agent (save_plan) ever writes one, and it
+          // writes under the very projectPath resolved here.
+          if (projectPath === null) {
+            jsonResponse(res, 404, { error: "no plan" });
+            return;
+          }
+          const content = await planStore.read(id, projectPath);
+          if (content === null) {
+            jsonResponse(res, 404, { error: "no plan" });
+            return;
+          }
+          // updatedAt is the plan file's own mtime. The PlanStore port
+          // returns content only, so the mtime is stat'ed from the file this
+          // store manages — the layout formula is createPlanStore's contract,
+          // pinned by plan-store.test.ts. A file that vanished between the
+          // read and this stat reads as "no plan" rather than a 500.
+          const planFile = path.join(
+            getConfigDir(),
+            "sessions",
+            encodeWorkspaceName(projectPath),
+            `${id}.plan.md`,
+          );
+          const stat = await fs.stat(planFile).catch(() => undefined);
+          if (!stat) {
+            jsonResponse(res, 404, { error: "no plan" });
+            return;
+          }
+          jsonResponse(res, 200, { content, updatedAt: stat.mtime.toISOString() });
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+    }
+
     // PATCH /sessions/:id — rename. Titles are session_meta (last-wins), so a
     // rename is an appended meta event, not an in-place edit of the log.
     if (req.method === "PATCH" && url.pathname.startsWith("/sessions/")) {
@@ -1293,6 +1349,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // treats an empty/invalid session id as a no-op, so a malformed id
         // can never wipe the whole root.
         await attachmentStoreFor(id).deleteBySession(id);
+        // Drop the plan document too — same lifecycle as the transcript
+        // (spec 2026-09-19 §3.3). A session this process never rebuilt has no
+        // reachable projectPath; the empty one degrades to an rm of a path
+        // that cannot exist (force:true), a harmless no-op.
+        await planStore.deleteBySession(id, registry.getSessionProjectPath(id) ?? "");
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {

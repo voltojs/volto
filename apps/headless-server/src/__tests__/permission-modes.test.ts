@@ -8,14 +8,21 @@ import {
 } from "../permission-modes.js";
 
 describe("UI_PERMISSION_MODES", () => {
-  it("advertises the four presets in escalating order", () => {
-    expect(UI_PERMISSION_MODES).toEqual(["read-only", "ask", "auto", "full"]);
+  it("advertises the five presets in escalating order", () => {
+    expect(UI_PERMISSION_MODES).toEqual(["read-only", "plan", "ask", "auto", "full"]);
   });
 });
 
 describe("buildPermissionConfig", () => {
   it("maps read-only to a boundary that denies every write", () => {
     expect(buildPermissionConfig("read-only")).toEqual({
+      sandbox: "read-only",
+      approval: "never",
+    });
+  });
+
+  it("maps plan to the same read-only boundary (the plan document is volto's own storage, not the workspace)", () => {
+    expect(buildPermissionConfig("plan")).toEqual({
       sandbox: "read-only",
       approval: "never",
     });
@@ -46,6 +53,7 @@ describe("buildPermissionConfig", () => {
 describe("sandboxModeFor", () => {
   it("returns the sandbox knob each preset bundles", () => {
     expect(sandboxModeFor("read-only")).toBe("read-only");
+    expect(sandboxModeFor("plan")).toBe("read-only");
     expect(sandboxModeFor("ask")).toBe("workspace-write");
     expect(sandboxModeFor("auto")).toBe("workspace-write");
     expect(sandboxModeFor("full")).toBe("danger-full-access");
@@ -57,12 +65,13 @@ describe("isUiPermissionMode", () => {
     for (const mode of UI_PERMISSION_MODES) {
       expect(isUiPermissionMode(mode)).toBe(true);
     }
+    // plan is a first-class preset now, not the retired alias it used to be.
+    expect(isUiPermissionMode("plan")).toBe(true);
   });
 
   it("rejects retired names on the write path", () => {
     // Legacy values are readable (see normaliseUiPermissionMode) but must
     // never be accepted from a client request.
-    expect(isUiPermissionMode("plan")).toBe(false);
     expect(isUiPermissionMode("auto-accept")).toBe(false);
     expect(isUiPermissionMode("default")).toBe(false);
     expect(isUiPermissionMode(undefined)).toBe(false);
@@ -73,10 +82,9 @@ describe("isUiPermissionMode", () => {
 describe("normaliseUiPermissionMode", () => {
   it("passes current presets through", () => {
     expect(normaliseUiPermissionMode("full")).toBe("full");
-  });
-
-  it("migrates plan to read-only", () => {
-    expect(normaliseUiPermissionMode("plan")).toBe("read-only");
+    // A persisted "plan" now means the real plan preset — the old
+    // plan→read-only migration was retired when plan became first-class.
+    expect(normaliseUiPermissionMode("plan")).toBe("plan");
   });
 
   it("migrates auto-accept to auto", () => {

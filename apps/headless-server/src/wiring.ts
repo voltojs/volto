@@ -27,6 +27,7 @@ import {
 import type { AttachmentStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
+import { createPlanStore } from "./config/plan-store.js";
 import { createSkillRegistry } from "./skills/registry.js";
 
 /**
@@ -413,6 +414,10 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(egressPolicy ? { egressPolicy } : {}),
     network,
     sessionStore,
+    // Plan-mode artifact storage (save_plan tool). Rooted at the config dir
+    // via createPlanStore's own default — same store every rebuilt agent
+    // instance hands the SDK, so one session's plan survives rebuilds.
+    planStore: createPlanStore(),
     enableTaskTool: true,
     agentSpecs,
     resolveContextLayers,

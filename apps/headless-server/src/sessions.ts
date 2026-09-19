@@ -603,6 +603,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   }
 
   /**
+   * The project path this session's agent was last built with, or null when
+   * the session is unknown to this process or has not completed a rebuild
+   * yet (`config` is only fixed by runTurn's resolveConfig → rebuild). Read
+   * only — unlike get(), this never materialises a session entry. Consumed
+   * by the route handlers that must reach a session's plan document (GET /
+   * DELETE /sessions/:id/plan), which need the same projectPath the agent's
+   * save_plan writes resolved, not a re-derived one.
+   */
+  function getSessionProjectPath(sessionId: string): string | null {
+    return sessions.get(sessionId)?.config?.projectPath ?? null;
+  }
+
+  /**
    * Turn the ids sent by the client into concrete construction inputs.
    *
    * This is reached exclusively through `runTurn()`, i.e. `POST /messages` —
@@ -1049,6 +1062,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     detachById,
     hasConnection,
     hasSession,
+    getSessionProjectPath,
     runTurn,
     interrupt,
     decideApproval,

@@ -10,6 +10,9 @@ import { RevealUnsupportedError } from "../fs/path-revealer.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
 import { buildSandboxConfigs } from "../wiring.js";
 import { buildPermissionConfig } from "../permission-modes.js";
+import { createPlanStore } from "../config/plan-store.js";
+import { getConfigDir } from "../config/paths.js";
+import { encodeWorkspaceName } from "@volto/store-jsonl";
 import {
   applyPartial,
   buildTurnRecords,
@@ -1188,6 +1191,42 @@ describe("Headless server", () => {
     });
   });
 
+  describe("GET /sessions/:id/plan", () => {
+    /** The session's plan file: it bound to process.cwd() via startSessionWithOneTurn. */
+    function planFileFor(sessionId: string): string {
+      return path.join(getConfigDir(), "sessions", encodeWorkspaceName(process.cwd()), `${sessionId}.plan.md`);
+    }
+
+    it("404s with { error: \"no plan\" } before any plan was saved", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const response = await getJson(`/sessions/${sessionId}/plan`);
+      expect(response.status).toBe(404);
+      expect((response.data as { error: string }).error).toBe("no plan");
+    });
+
+    it("returns the saved plan content with the plan file's mtime as updatedAt", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const store = createPlanStore();
+      await store.save(sessionId, process.cwd(), "# the plan\n\n1. measure twice");
+
+      const response = await getJson(`/sessions/${sessionId}/plan`);
+      expect(response.status).toBe(200);
+      const body = response.data as { content: string; updatedAt: string };
+      expect(body.content).toBe("# the plan\n\n1. measure twice");
+      // updatedAt is the plan file's own mtime — the very value a fresh stat
+      // of that file reports (asserting "a string exists" would also pass if
+      // the route echoed some unrelated timestamp).
+      const stat = await fs.stat(planFileFor(sessionId));
+      expect(body.updatedAt).toBe(stat.mtime.toISOString());
+    });
+
+    it("404s a session with no project binding — no plan is reachable for it", async () => {
+      const response = await getJson("/sessions/never-ran-a-turn/plan");
+      expect(response.status).toBe(404);
+      expect((response.data as { error: string }).error).toBe("no plan");
+    });
+  });
+
   describe("DELETE /sessions/:id", () => {
     it("removes the session from the list and the detail endpoint", async () => {
       const sessionId = await startSessionWithOneTurn();
@@ -1210,6 +1249,24 @@ describe("Headless server", () => {
       // this actually verifies the DELETE handler ran its own not-found check.
       const body = (await response.json()) as { error: string };
       expect(body.error).toContain("nope");
+    });
+
+    it("removes the session's plan document alongside the transcript", async () => {
+      const sessionId = await startSessionWithOneTurn();
+      const store = createPlanStore();
+      await store.save(sessionId, process.cwd(), "# doomed plan");
+      const planFile = path.join(
+        getConfigDir(),
+        "sessions",
+        encodeWorkspaceName(process.cwd()),
+        `${sessionId}.plan.md`,
+      );
+
+      const response = await fetch(`${baseUrl}/sessions/${sessionId}`, { method: "DELETE", headers: authHeaders() });
+      expect(response.status).toBe(204);
+      // The file itself is gone — ENOENT, not merely "the store said null".
+      await expect(fs.stat(planFile)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(store.read(sessionId, process.cwd())).resolves.toBeNull();
     });
   });
 

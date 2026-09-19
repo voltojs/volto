@@ -10,11 +10,12 @@
 
 import type { ApprovalPolicy, PermissionConfig, SandboxMode } from "@volto/core";
 
-export type UiPermissionMode = "read-only" | "ask" | "auto" | "full";
+export type UiPermissionMode = "read-only" | "plan" | "ask" | "auto" | "full";
 
 /** In escalating order — a client renders the picker in this order. */
 export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = [
   "read-only",
+  "plan",
   "ask",
   "auto",
   "full",
@@ -22,6 +23,13 @@ export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = [
 
 const PRESETS: Record<UiPermissionMode, { sandbox: SandboxMode; approval: ApprovalPolicy }> = {
   "read-only": { sandbox: "read-only", approval: "never" },
+  // Same boundary as read-only: the only write a plan-mode session makes is
+  // the plan document itself — volto's own storage (save_plan), not the
+  // workspace — and save_plan is a READ_ONLY-tier bookkeeping tool that this
+  // sandbox never removes. The ceiling (tools-*/task's visible-set
+  // derivation) strips the workspace-write tools; the preset says nothing
+  // about it.
+  plan: { sandbox: "read-only", approval: "never" },
   ask: { sandbox: "workspace-write", approval: "ask" },
   auto: { sandbox: "workspace-write", approval: "never" },
   full: { sandbox: "danger-full-access", approval: "never" },
@@ -30,10 +38,10 @@ const PRESETS: Record<UiPermissionMode, { sandbox: SandboxMode; approval: Approv
 /**
  * Retired preset names, still readable from persisted transcripts. Accepted
  * only on the read path — `isUiPermissionMode` rejects them, so a client
- * cannot ask for one.
+ * cannot ask for one. ("plan" used to live here as an alias for "read-only";
+ * it is a first-class preset now, so persisted "plan" reads back as itself.)
  */
 const LEGACY_ALIASES: Record<string, UiPermissionMode> = {
-  plan: "read-only",
   "auto-accept": "auto",
 };
 
