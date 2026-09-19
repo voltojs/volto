@@ -53,9 +53,21 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function Sidebar() {
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  const sessions = useSessionStore((s) => s.sessions);
+  const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
   const connectionState = useChatStore((s) => s.connectionState);
   const load = useConfigStore((s) => s.load);
   const error = useConfigStore((s) => s.error);
+
+  // The settings dialog's subagents panel must resolve project-scoped
+  // definitions against the workspace the user is actually in — the active
+  // session's project, or the workspace picked on the welcome screen. Null
+  // (no workspace anywhere) falls back to the gateway's default cwd.
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+  const settingsProjectId =
+    currentSessionId === null
+      ? pendingProjectId
+      : (currentSession?.projectId ?? null);
 
   const [showSettings, setShowSettings] = useState(false);
   const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
@@ -214,7 +226,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
+      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} projectId={settingsProjectId} />
     </div>
   );
 }

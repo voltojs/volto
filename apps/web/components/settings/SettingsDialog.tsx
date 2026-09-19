@@ -16,16 +16,25 @@ import { SubagentsPanel } from './SubagentsPanel';
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Current workspace's project id, when one is selected. Scopes the
+   * subagents panel's list/create/update/delete to THIS workspace's
+   * `.volto/agents` — without it the gateway resolves project-level
+   * definitions against the gateway process cwd, so definitions created
+   * here never take effect in workspace sessions (and existing ones are
+   * invisible). Null keeps the gateway default (no workspace open).
+   */
+  projectId?: string | null;
 }
 
 const TABS = [
+  { value: 'general', label: '通用设置', icon: SlidersHorizontal },
   { value: 'models', label: '模型配置', icon: KeyRound },
   { value: 'subagents', label: '子代理', icon: Bot },
-  { value: 'general', label: '通用设置', icon: SlidersHorizontal },
 ] as const;
 
 /** 设置面板：左侧 Tab 导航，右侧对应内容。 */
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, projectId = null }: SettingsDialogProps) {
   const [tab, setTab] = useState<string>('models');
 
   return (
@@ -60,10 +69,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <TabsContent value="models">
               <ProvidersPanel />
             </TabsContent>
-            {/* Global settings dialog: null scopes the gateway to its default
-                cwd, matching how other panels resolve project-relative paths. */}
             <TabsContent value="subagents">
-              <SubagentsPanel projectId={null} />
+              <SubagentsPanel projectId={projectId} />
             </TabsContent>
             <TabsContent value="general">
               <GeneralPanel />
