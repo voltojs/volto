@@ -49,6 +49,11 @@ describe("loadPermissionRules", () => {
     await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
   });
 
+  it("rejects a valid rule that also carries an unknown key", async () => {
+    await write({ rules: [{ pathPattern: "src/**", decision: "deny", foo: "bar" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
+  });
+
   it("rejects a top-level key other than rules", async () => {
     await write({ rules: [], rulez: [] });
     await expect(loadPermissionRules(dir)).rejects.toThrow(/unknown key/i);
@@ -66,6 +71,35 @@ describe("loadPermissionRules", () => {
 
   it("rejects a malformed file loudly rather than running without the policy", async () => {
     await fs.writeFile(path.join(dir, "permissions.json"), "{ not json", "utf-8");
+    await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
+  });
+
+  it("rejects more than 100 rules", async () => {
+    const rules = Array.from({ length: 101 }, (_, i) => ({
+      pathPattern: `file-${i}.txt`,
+      decision: "allow" as const,
+    }));
+    await write({ rules });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
+  });
+
+  it("accepts exactly 100 rules", async () => {
+    const rules = Array.from({ length: 100 }, (_, i) => ({
+      pathPattern: `file-${i}.txt`,
+      decision: "allow" as const,
+    }));
+    await write({ rules });
+    const loaded = await loadPermissionRules(dir);
+    expect(loaded).toHaveLength(100);
+  });
+
+  it("rejects rules when the value is not an array", async () => {
+    await write({ rules: "not-an-array" });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
+  });
+
+  it("rejects a non-object entry inside rules", async () => {
+    await write({ rules: ["bad"] });
     await expect(loadPermissionRules(dir)).rejects.toThrow(PermissionRulesConfigError);
   });
 });
