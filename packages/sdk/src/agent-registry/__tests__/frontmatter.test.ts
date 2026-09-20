@@ -173,3 +173,108 @@ describe("parseAgentFile — parameter permission rules", () => {
     expect(parsed).toHaveProperty("error");
   });
 });
+
+describe("parseAgentFile — command permission rules", () => {
+  it("accepts a valid commandPrefix rule with toolName", () => {
+    const parsed = parseAgentFile(
+      '---\nname: bash-runner\npolicy: { rules: [{ toolName: bash, commandPrefix: ["pnpm", "test"], decision: allow }] }\n---\nbody',
+      "/p/cmd-a.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.policy?.rules).toEqual([
+      { toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" },
+    ]);
+  });
+
+  it("accepts a valid commandPrefix rule with toolPattern", () => {
+    const parsed = parseAgentFile(
+      '---\nname: shell-runner\npolicy: { rules: [{ toolPattern: "sh_*", commandPrefix: ["git", "status"], decision: allow }] }\n---\nbody',
+      "/p/cmd-b.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.policy?.rules).toEqual([
+      { toolPattern: "sh_*", commandPrefix: ["git", "status"], decision: "allow" },
+    ]);
+  });
+
+  it("rejects commandPrefix without toolName or toolPattern", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ commandPrefix: ["pnpm", "test"], decision: allow }] }\n---\nbody',
+      "/p/cmd-c.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with non-allow decision", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: ["pnpm", "test"], decision: deny }] }\n---\nbody',
+      "/p/cmd-d.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix that is not an array", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: "pnpm test", decision: allow }] }\n---\nbody',
+      "/p/cmd-e.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with empty array", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: [], decision: allow }] }\n---\nbody',
+      "/p/cmd-f.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with more than 8 entries", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: ["a", "b", "c", "d", "e", "f", "g", "h", "i"], decision: allow }] }\n---\nbody',
+      "/p/cmd-g.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with a non-string entry", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: [123], decision: allow }] }\n---\nbody',
+      "/p/cmd-h.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with an empty string entry", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: [""], decision: allow }] }\n---\nbody',
+      "/p/cmd-i.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects commandPrefix with a disqualifying token (shell metachar)", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: ["pnpm", "test*"], decision: allow }] }\n---\nbody',
+      "/p/cmd-j.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("accepts commandPrefix at exactly 8 entries", () => {
+    const parsed = parseAgentFile(
+      '---\nname: ok\npolicy: { rules: [{ toolName: bash, commandPrefix: ["a", "b", "c", "d", "e", "f", "g", "h"], decision: allow }] }\n---\nbody',
+      "/p/cmd-k.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.policy?.rules![0]!.commandPrefix).toHaveLength(8);
+  });
+
+  it("rejects commandPrefix whose rule has an unknown extra key", () => {
+    const parsed = parseAgentFile(
+      '---\nname: broken\npolicy: { rules: [{ toolName: bash, commandPrefix: ["pnpm"], decision: allow, oops: true }] }\n---\nbody',
+      "/p/cmd-l.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+});

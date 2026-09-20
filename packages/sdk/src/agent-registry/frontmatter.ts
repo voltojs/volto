@@ -16,6 +16,7 @@ import type {
   Decision,
 } from "@volto/core";
 import type { JSONSchema } from "@volto/core";
+import { isMatchableCommandToken } from "@volto/core";
 import type { AgentSpec } from "../agent-spec.js";
 
 export interface ParsedAgentFile {
@@ -231,20 +232,52 @@ function isPermissionRule(value: unknown): value is PermissionRule {
   // Only the documented match fields are accepted; unknown fields are not
   // silently dropped — they fail the whole policy so a broken AgentSpec
   // never enters the registry.
+  //
+  // `commandPrefix` is array-valued so it must be checked separately from
+  // the string match keys to avoid being rejected by the string-type guard.
+  const STRING_MATCH_KEYS = (RULE_MATCH_KEYS as readonly string[]);
   for (const key of Object.keys(obj)) {
-    if (key !== "decision" && !(RULE_MATCH_KEYS as readonly string[]).includes(key)) {
+    if (key !== "decision" && key !== "commandPrefix" && !STRING_MATCH_KEYS.includes(key)) {
       return false;
     }
   }
-  for (const key of RULE_MATCH_KEYS) {
+  for (const key of STRING_MATCH_KEYS) {
     const raw = obj[key];
     if (raw !== undefined && (typeof raw !== "string" || raw.trim().length === 0)) {
       return false;
     }
   }
+  // commandPrefix validation: non-empty array, at most 8 entries, each a
+  // non-empty string passing isMatchableCommandToken. A commandPrefix rule
+  // also requires a tool selector (toolName or toolPattern) and must be an
+  // allow decision — prefix rules can only turn "ask" into "allow", never
+  // deny.
+  if (obj["commandPrefix"] !== undefined) {
+    const cp = obj["commandPrefix"];
+    if (!Array.isArray(cp) || cp.length === 0 || cp.length > 8) {
+      return false;
+    }
+    if (typeof decision !== "string" || decision !== "allow") {
+      return false;
+    }
+    if (!STRING_MATCH_KEYS.includes("toolName") && !STRING_MATCH_KEYS.includes("toolPattern")) {
+      // defensive: should never happen since both are in RULE_MATCH_KEYS
+      return false;
+    }
+    if (obj["toolName"] === undefined && obj["toolPattern"] === undefined) {
+      return false;
+    }
+    for (const token of cp) {
+      if (typeof token !== "string" || !isMatchableCommandToken(token)) {
+        return false;
+      }
+    }
+  }
   // A rule with no match key would match every tool call; reject it at the
   // definition instead of letting it become a blanket deny.
-  if (!RULE_MATCH_KEYS.some((key) => obj[key] !== undefined)) return false;
+  if (!STRING_MATCH_KEYS.some((key) => obj[key] !== undefined) && obj["commandPrefix"] === undefined) {
+    return false;
+  }
   // A pathPattern is a filesystem path the Runner matches against a real
   // path, and this parser has no business reading $HOME. A literal `~` would
   // reach core, match nothing, and look like a rule that works — reject it
