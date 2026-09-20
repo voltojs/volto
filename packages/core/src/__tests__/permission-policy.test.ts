@@ -8,6 +8,8 @@ import {
   policyDenialMessage,
   narrowPermission,
   hasParameterRules,
+  resolvePermission,
+  hasCommandRules,
 } from "../permission-policy.js";
 import type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision } from "../permission-policy.js";
 import type { RiskTier } from "../tool.js";
@@ -331,5 +333,75 @@ describe("narrowPermission — parameter rules", () => {
       rules: [{ pathPattern: "**", decision: "allow" }],
     });
     expect(child.rules).toEqual([{ pathPattern: "**/.env", decision: "deny" }]);
+  });
+});
+
+describe("evaluatePermission — command prefix rules", () => {
+  const askPreset: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
+  const allowTest: PermissionConfig = {
+    ...askPreset,
+    rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }],
+  };
+
+  it("turns ask into allow for a matching single command", () => {
+    expect(evaluatePermission(allowTest, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"])).toBe("allow");
+    expect(
+      evaluatePermission(allowTest, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test --filter x"]),
+    ).toBe("allow");
+  });
+
+  it("stays ask for a compound command, an assignment, or a near miss", () => {
+    for (const command of [
+      "pnpm test; rm -rf ~",
+      "pnpm test && rm -rf ~",
+      "FOO=1 pnpm test",
+      "pnpm test2",
+    ]) {
+      expect(evaluatePermission(allowTest, "bash", "WRITE_HIGH", undefined, undefined, [command])).toBe("ask");
+    }
+  });
+
+  it("never matches when the Runner passed no command values", () => {
+    expect(evaluatePermission(allowTest, "bash", "WRITE_HIGH")).toBe("ask");
+  });
+
+  it("never matches when the caller supplied no command values", () => {
+    // The Runner supplies values only for tools that declare `commandInputs`,
+    // so a tool that declares none can never reach the command branch. This
+    // pins the core side of that contract.
+    expect(evaluatePermission(allowTest, "bash", "WRITE_HIGH")).toBe("ask");
+  });
+
+  it("cannot widen past the sandbox ceiling even with a matching command", () => {
+    const readOnly: PermissionConfig = {
+      sandbox: "read-only",
+      approval: "never",
+      rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }],
+    };
+    expect(evaluatePermission(readOnly, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"])).toBe("deny");
+  });
+
+  it("requires the tool key group as well as the command group", () => {
+    const otherTool: PermissionConfig = {
+      ...askPreset,
+      rules: [{ toolName: "other_exec", commandPrefix: ["pnpm", "test"], decision: "allow" }],
+    };
+    expect(evaluatePermission(otherTool, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"])).toBe("ask");
+  });
+
+  it("reports which rule produced the decision", () => {
+    const resolution = resolvePermission(allowTest, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"]);
+    expect(resolution.decision).toBe("allow");
+    expect(resolution.rule).toEqual({ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" });
+
+    const matrix = resolvePermission(askPreset, "bash", "WRITE_HIGH");
+    expect(matrix.decision).toBe("ask");
+    expect(matrix.rule).toBeUndefined();
+  });
+
+  it("reports whether the Runner must collect command values", () => {
+    expect(hasCommandRules(askPreset)).toBe(false);
+    expect(hasCommandRules({ ...askPreset, rules: [{ toolName: "bash", decision: "allow" }] })).toBe(false);
+    expect(hasCommandRules(allowTest)).toBe(true);
   });
 });

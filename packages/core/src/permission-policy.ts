@@ -12,6 +12,7 @@
  */
 
 import type { RiskTier } from "./tool.js";
+import { matchesCommandPrefix } from "./command-match.js";
 
 // ──────────────────────────────────────────────
 // Types
@@ -49,6 +50,13 @@ export interface PermissionRule {
   pathPattern?: string;
   /** Glob over a declared URL input's lowercased hostname. Requires `hostInputs`. */
   hostPattern?: string;
+  /**
+   * Argv prefix of a single simple command, compared token by token. Only
+   * meaningful on tools that declare `commandInputs`, and (by config
+   * validation) only on rules whose decision is `allow`. Any shell
+   * metacharacter makes the command ineligible — see command-match.ts.
+   */
+  commandPrefix?: string[];
   /** Decision to apply when matched */
   decision: Decision;
 }
@@ -142,7 +150,7 @@ function matchesHostPattern(pattern: string, hosts: ResolvedToolInput["hosts"]):
 }
 
 const TOOL_MATCH_KEYS = ["toolName", "toolPattern", "capability"] as const;
-const PARAM_MATCH_KEYS = ["pathPattern", "hostPattern"] as const;
+const PARAM_MATCH_KEYS = ["pathPattern", "hostPattern", "commandPrefix"] as const;
 
 /**
  * Tool-level keys are one group (OR within it), parameter keys a second (OR
@@ -154,6 +162,7 @@ function ruleMatches(
   toolName: string,
   toolCapabilities: Set<string>,
   resolved: ResolvedToolInput | undefined,
+  commands: readonly string[] | undefined,
 ): boolean {
   const hasToolKey = TOOL_MATCH_KEYS.some((key) => rule[key] !== undefined);
   const hasParamKey = PARAM_MATCH_KEYS.some((key) => rule[key] !== undefined);
@@ -170,10 +179,14 @@ function ruleMatches(
     if (!toolHit) return false;
   }
 
+  const commandPrefix = rule.commandPrefix;
   if (hasParamKey) {
     const paramHit =
       (rule.pathPattern !== undefined && matchesPathPattern(rule.pathPattern, resolved?.paths)) ||
-      (rule.hostPattern !== undefined && matchesHostPattern(rule.hostPattern, resolved?.hosts));
+      (rule.hostPattern !== undefined && matchesHostPattern(rule.hostPattern, resolved?.hosts)) ||
+      (commandPrefix !== undefined &&
+        commands !== undefined &&
+        commands.some((command) => matchesCommandPrefix(command, commandPrefix)));
     if (!paramHit) return false;
   }
 
@@ -227,8 +240,15 @@ function moreRestrictive(a: Decision, b: Decision): Decision {
   return DECISION_RANK[a] >= DECISION_RANK[b] ? a : b;
 }
 
+/** The decision plus, when a rule produced it, the rule itself (for audit). */
+export interface PermissionResolution {
+  decision: Decision;
+  /** The first matching rule; undefined means the sandbox x approval matrix. */
+  rule?: PermissionRule;
+}
+
 /**
- * Evaluate the permission decision for a tool call.
+ * Resolve a tool call's permission decision, reporting which rule matched.
  *
  * Lookup order (highest priority first):
  * 1. `rules[]` — pattern/capability/parameter rules (first match wins)
@@ -238,9 +258,44 @@ function moreRestrictive(a: Decision, b: Decision): Decision {
  * an "ask" into an "allow". Above the ceiling the sandbox has already spoken:
  * a rule can only make the outcome stricter, never more permissive —
  * otherwise a config file could write through a read-only session.
+ * Parameter rules (pathPattern, hostPattern, commandPrefix) join the tool
+ * key group via AND: a rule with both `toolName` and `commandPrefix` fires
+ * only when both the tool and the command match.
  *
  * @param resolved - parameter facts the Runner resolved from the raw input;
  *                   required for `pathPattern` / `hostPattern` to match.
+ * @param commands - values of the tool's declared `commandInputs`, in
+ *                   declaration order; required for `commandPrefix`.
+ */
+export function resolvePermission(
+  config: PermissionConfig,
+  toolName: string,
+  riskTier: RiskTier,
+  toolCapabilities?: Set<string>,
+  resolved?: ResolvedToolInput,
+  commands?: readonly string[],
+): PermissionResolution {
+  const ceiling = ceilingOf(config.sandbox);
+  const base = decide(ceiling, config.approval, riskTier);
+
+  if (config.rules) {
+    const caps = toolCapabilities ?? new Set<string>();
+    for (const rule of config.rules) {
+      if (!ruleMatches(rule, toolName, caps, resolved, commands)) continue;
+      const decision =
+        TIER_RANK[riskTier] > TIER_RANK[ceiling]
+          ? moreRestrictive(rule.decision, base)
+          : rule.decision;
+      return { decision, rule };
+    }
+  }
+
+  return { decision: base };
+}
+
+/**
+ * Evaluate the permission decision for a tool call. Thin wrapper around
+ * `resolvePermission` that discards the matched rule.
  */
 export function evaluatePermission(
   config: PermissionConfig,
@@ -248,22 +303,9 @@ export function evaluatePermission(
   riskTier: RiskTier,
   toolCapabilities?: Set<string>,
   resolved?: ResolvedToolInput,
+  commands?: readonly string[],
 ): Decision {
-  const ceiling = ceilingOf(config.sandbox);
-  const base = decide(ceiling, config.approval, riskTier);
-
-  if (config.rules) {
-    const caps = toolCapabilities ?? new Set<string>();
-    for (const rule of config.rules) {
-      if (!ruleMatches(rule, toolName, caps, resolved)) continue;
-      if (TIER_RANK[riskTier] > TIER_RANK[ceiling]) {
-        return moreRestrictive(rule.decision, base);
-      }
-      return rule.decision;
-    }
-  }
-
-  return base;
+  return resolvePermission(config, toolName, riskTier, toolCapabilities, resolved, commands).decision;
 }
 
 /**
@@ -274,6 +316,14 @@ export function hasParameterRules(config: PermissionConfig): boolean {
   return (config.rules ?? []).some(
     (rule) => rule.pathPattern !== undefined || rule.hostPattern !== undefined,
   );
+}
+
+/**
+ * Whether any rule needs the tool's command values collected. Pure string
+ * work — the Runner collects values itself, no I/O is involved.
+ */
+export function hasCommandRules(config: PermissionConfig): boolean {
+  return (config.rules ?? []).some((rule) => rule.commandPrefix !== undefined);
 }
 
 /**

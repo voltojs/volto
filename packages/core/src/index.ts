@@ -235,8 +235,8 @@ export { pruneOversizedToolResults } from "./tool-result-prune.js";
 export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-prune.js";
 
 // PermissionPolicy — pure permission decision logic
-export { evaluatePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules } from "./permission-policy.js";
-export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule, ResolvedToolInput } from "./permission-policy.js";
+export { evaluatePermission, resolvePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules, hasCommandRules } from "./permission-policy.js";
+export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule, ResolvedToolInput, PermissionResolution } from "./permission-policy.js";
 
 // PermissionPrompt — model-facing description of the permission boundary
 export { permissionFingerprint, buildPermissionReminder } from "./permission-prompt.js";
