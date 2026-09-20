@@ -2399,6 +2399,7 @@ describe("POST /approvals — remembering a rule", () => {
       );
       // The approval itself must have settled — the stub saw "allow".
       // The remember error is a sidecar, not a replacement.
+      expect(response.status).toBe(202);
       const body = response.data as { remembered?: unknown; rememberError?: string };
       expect(body.remembered).toBeUndefined();
       expect(body.rememberError).toBeTruthy();

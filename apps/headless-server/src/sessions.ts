@@ -989,6 +989,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         : {}),
     });
     session.config = config;
+    session.permissionsDirty = false;
     await disposeAgent(outgoing);
   }
 
@@ -1073,7 +1074,6 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     try {
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config) || session.permissionsDirty) {
-        session.permissionsDirty = false;
         await rebuild(session, config, credentials);
       }
 
