@@ -6,6 +6,8 @@ import {
   decide,
   isWriteTier,
   policyDenialMessage,
+  narrowPermission,
+  hasParameterRules,
 } from "../permission-policy.js";
 import type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision } from "../permission-policy.js";
 import type { RiskTier } from "../tool.js";
@@ -181,5 +183,130 @@ describe("policyDenialMessage", () => {
     const readOnly: PermissionConfig = { sandbox: "read-only", approval: "never" };
     expect(policyDenialMessage("write_file", readOnly)).toContain("read-only");
     expect(policyDenialMessage("write_file", readOnly)).not.toContain("workspace-write");
+  });
+});
+
+describe("evaluatePermission — parameter rules", () => {
+  const askPreset: PermissionConfig = { sandbox: "workspace-write", approval: "ask" };
+  const envPaths = [{ field: "path", absolute: "/proj/src/.env", relative: "src/.env" }];
+  const deepPath = [{ field: "path", absolute: "/proj/src/a/b.ts", relative: "src/a/b.ts" }];
+  const internalHost = [{ field: "url", host: "db.internal.example" }];
+
+  it("matches a pathPattern against both the absolute and the workspace-relative form", () => {
+    const absolute: PermissionConfig = {
+      ...askPreset,
+      rules: [{ pathPattern: "**/src/**", decision: "deny" }],
+    };
+    expect(evaluatePermission(absolute, "read_file", "READ_ONLY", undefined, { paths: envPaths })).toBe("deny");
+
+    const relative: PermissionConfig = {
+      ...askPreset,
+      rules: [{ pathPattern: "src/**", decision: "deny" }],
+    };
+    expect(evaluatePermission(relative, "read_file", "READ_ONLY", undefined, { paths: envPaths })).toBe("deny");
+  });
+
+  it("does not let * cross a path separator", () => {
+    const config: PermissionConfig = {
+      ...askPreset,
+      rules: [{ pathPattern: "src/*.ts", decision: "deny" }],
+    };
+    expect(evaluatePermission(config, "read_file", "READ_ONLY", undefined, { paths: deepPath })).toBe("allow");
+  });
+
+  it("never matches a pathPattern when the tool declared no path facts", () => {
+    const config: PermissionConfig = { ...askPreset, rules: [{ pathPattern: "**", decision: "deny" }] };
+    expect(evaluatePermission(config, "bash", "WRITE_HIGH")).toBe("ask");
+  });
+
+  it("requires the tool key group and the parameter key group to both match", () => {
+    const config: PermissionConfig = {
+      ...askPreset,
+      rules: [{ toolName: "read_file", pathPattern: "**/.env", decision: "deny" }],
+    };
+    expect(evaluatePermission(config, "read_file", "READ_ONLY", undefined, { paths: envPaths })).toBe("deny");
+    expect(evaluatePermission(config, "write_file", "WRITE_HIGH", undefined, { paths: envPaths })).toBe("ask");
+  });
+
+  it("treats a rule with no match key as inert", () => {
+    const config: PermissionConfig = { ...askPreset, rules: [{ decision: "deny" }] };
+    expect(evaluatePermission(config, "read_file", "READ_ONLY")).toBe("allow");
+  });
+
+  it("clamps an allow rule that would cross the sandbox ceiling", () => {
+    const config: PermissionConfig = {
+      sandbox: "read-only",
+      approval: "never",
+      rules: [{ toolName: "write_file", decision: "allow" }],
+    };
+    expect(evaluatePermission(config, "write_file", "WRITE_HIGH")).toBe("deny");
+  });
+
+  it("clamps an allow rule to ask above the ceiling instead of granting it", () => {
+    const config: PermissionConfig = {
+      sandbox: "workspace-write",
+      approval: "ask",
+      rules: [{ toolName: "git_push", decision: "allow" }],
+    };
+    expect(evaluatePermission(config, "git_push", "IRREVERSIBLE")).toBe("ask");
+  });
+
+  it("clamps an ask rule to deny above the ceiling under the never policy", () => {
+    const config: PermissionConfig = {
+      sandbox: "workspace-write",
+      approval: "never",
+      rules: [{ toolName: "git_push", decision: "ask" }],
+    };
+    expect(evaluatePermission(config, "git_push", "IRREVERSIBLE")).toBe("deny");
+  });
+
+  it("still lets an allow rule reduce prompts below the ceiling", () => {
+    const config: PermissionConfig = { ...askPreset, rules: [{ toolName: "bash", decision: "allow" }] };
+    expect(evaluatePermission(config, "bash", "WRITE_HIGH")).toBe("allow");
+  });
+
+  it("matches a hostPattern only when the host is exactly what the glob describes", () => {
+    const config: PermissionConfig = {
+      ...askPreset,
+      rules: [{ hostPattern: "*.internal.example", decision: "ask" }],
+    };
+    expect(evaluatePermission(config, "web_fetch", "READ_ONLY", undefined, { hosts: internalHost })).toBe("ask");
+    expect(
+      evaluatePermission(config, "web_fetch", "READ_ONLY", undefined, {
+        hosts: [{ field: "url", host: "internal.example" }],
+      }),
+    ).toBe("allow");
+  });
+
+  it("reports whether the Runner must resolve parameter facts", () => {
+    expect(hasParameterRules(askPreset)).toBe(false);
+    expect(hasParameterRules({ ...askPreset, rules: [{ toolName: "bash", decision: "ask" }] })).toBe(false);
+    expect(hasParameterRules({ ...askPreset, rules: [{ pathPattern: "src/**", decision: "ask" }] })).toBe(true);
+    expect(hasParameterRules({ ...askPreset, rules: [{ hostPattern: "x.example", decision: "ask" }] })).toBe(true);
+  });
+});
+
+describe("narrowPermission — parameter rules", () => {
+  const parent: PermissionConfig = {
+    sandbox: "workspace-write",
+    approval: "ask",
+    rules: [
+      { pathPattern: "**/.env", decision: "deny" },
+      { pathPattern: "src/**", decision: "allow" },
+    ],
+  };
+
+  it("keeps the parent's tightening rules so a child cannot read a denied path", () => {
+    const child = narrowPermission(parent, { sandbox: "workspace-write", approval: "ask" });
+    expect(child.rules).toEqual([{ pathPattern: "**/.env", decision: "deny" }]);
+  });
+
+  it("drops a child's own allow rule", () => {
+    const child = narrowPermission(parent, {
+      sandbox: "workspace-write",
+      approval: "ask",
+      rules: [{ pathPattern: "**", decision: "allow" }],
+    });
+    expect(child.rules).toEqual([{ pathPattern: "**/.env", decision: "deny" }]);
   });
 });

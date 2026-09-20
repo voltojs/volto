@@ -40,8 +40,29 @@ export interface PermissionRule {
   toolPattern?: string;
   /** Capability match: if tool requires this capability, apply the rule */
   capability?: string;
+  /**
+   * Glob over a declared path input. Matched against both the canonical
+   * absolute path and the workspace-relative form. Requires the tool to
+   * declare `pathInputs` — a tool that declares none can never match, which
+   * is how `bash` stays out of path rules entirely.
+   */
+  pathPattern?: string;
+  /** Glob over a declared URL input's lowercased hostname. Requires `hostInputs`. */
+  hostPattern?: string;
   /** Decision to apply when matched */
   decision: Decision;
+}
+
+/**
+ * Facts the Runner resolved from a tool call's raw input. Core never computes
+ * these: following a symlink and parsing a URL are I/O, and the Runner owns
+ * both. A `pathPattern` / `hostPattern` rule matches only what is here.
+ */
+export interface ResolvedToolInput {
+  /** Declared path inputs, already absolute and symlink-resolved. */
+  paths?: Array<{ field: string; absolute: string; relative: string }>;
+  /** Declared URL inputs, reduced to a lowercased hostname. */
+  hosts?: Array<{ field: string; host: string }>;
 }
 
 export interface PermissionConfig {
@@ -51,9 +72,9 @@ export interface PermissionConfig {
   approval: ApprovalPolicy;
   /**
    * Rule set — evaluated in order, first match wins, and outranks the
-   * sandbox/approval matrix. This is where a deployment's static rules live,
-   * and where a host appends a session-scoped "always allow this tool"
-   * decision that a user granted at an approval prompt.
+   * sandbox/approval matrix. This is where a deployment's static rules live. A
+   * session-scoped "always allow" grant from an approval prompt deliberately
+   * does not exist — see docs/superpowers/specs/2026-09-10-security-roadmap-decisions.md §1.4.
    */
   rules?: PermissionRule[];
 }
@@ -89,16 +110,74 @@ function matchesPattern(toolName: string, pattern: string): boolean {
   return toolName === pattern;
 }
 
-/** Check if a permission rule matches a tool */
+/** `**` crosses a path separator, `*` does not; everything else is literal. */
+function globToRegExp(pattern: string): RegExp {
+  let source = "^";
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (ch === "*") {
+      if (pattern[i + 1] === "*") {
+        source += ".*";
+        i++;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    source += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`${source}$`);
+}
+
+function matchesPathPattern(pattern: string, paths: ResolvedToolInput["paths"]): boolean {
+  if (paths === undefined || paths.length === 0) return false;
+  const re = globToRegExp(pattern);
+  return paths.some((entry) => re.test(entry.absolute) || re.test(entry.relative));
+}
+
+function matchesHostPattern(pattern: string, hosts: ResolvedToolInput["hosts"]): boolean {
+  if (hosts === undefined || hosts.length === 0) return false;
+  const re = globToRegExp(pattern);
+  return hosts.some((entry) => re.test(entry.host));
+}
+
+const TOOL_MATCH_KEYS = ["toolName", "toolPattern", "capability"] as const;
+const PARAM_MATCH_KEYS = ["pathPattern", "hostPattern"] as const;
+
+/**
+ * Tool-level keys are one group (OR within it), parameter keys a second (OR
+ * within it), and the two groups are ANDed. So `{toolName, pathPattern}` means
+ * "this tool AND this path", not "this tool OR this path".
+ */
 function ruleMatches(
   rule: PermissionRule,
   toolName: string,
   toolCapabilities: Set<string>,
+  resolved: ResolvedToolInput | undefined,
 ): boolean {
-  if (rule.toolName !== undefined && rule.toolName === toolName) return true;
-  if (rule.toolPattern !== undefined && matchesPattern(toolName, rule.toolPattern)) return true;
-  if (rule.capability !== undefined && toolCapabilities.has(rule.capability)) return true;
-  return false;
+  const hasToolKey = TOOL_MATCH_KEYS.some((key) => rule[key] !== undefined);
+  const hasParamKey = PARAM_MATCH_KEYS.some((key) => rule[key] !== undefined);
+  // A keyless rule would otherwise match every call. The config validators
+  // reject one; it stays inert here so a hand-built config cannot become a
+  // blanket deny.
+  if (!hasToolKey && !hasParamKey) return false;
+
+  if (hasToolKey) {
+    const toolHit =
+      (rule.toolName !== undefined && rule.toolName === toolName) ||
+      (rule.toolPattern !== undefined && matchesPattern(toolName, rule.toolPattern)) ||
+      (rule.capability !== undefined && toolCapabilities.has(rule.capability));
+    if (!toolHit) return false;
+  }
+
+  if (hasParamKey) {
+    const paramHit =
+      (rule.pathPattern !== undefined && matchesPathPattern(rule.pathPattern, resolved?.paths)) ||
+      (rule.hostPattern !== undefined && matchesHostPattern(rule.hostPattern, resolved?.hosts));
+    if (!paramHit) return false;
+  }
+
+  return true;
 }
 
 // ──────────────────────────────────────────────
@@ -141,35 +220,60 @@ export function decide(
 // Core decision function
 // ──────────────────────────────────────────────
 
+/** deny is stricter than ask, which is stricter than allow. */
+const DECISION_RANK: Record<Decision, number> = { deny: 3, ask: 2, allow: 1 };
+
+function moreRestrictive(a: Decision, b: Decision): Decision {
+  return DECISION_RANK[a] >= DECISION_RANK[b] ? a : b;
+}
+
 /**
  * Evaluate the permission decision for a tool call.
  *
  * Lookup order (highest priority first):
- * 1. `rules[]` — pattern/capability-based rule set (first match wins)
+ * 1. `rules[]` — pattern/capability/parameter rules (first match wins)
  * 2. the sandbox x approval matrix
  *
- * There is no third layer: the matrix decides every (sandbox, approval, tier)
- * triple, so anything after it would be unreachable.
+ * Rules may tighten freely, and below the sandbox ceiling they may also turn
+ * an "ask" into an "allow". Above the ceiling the sandbox has already spoken:
+ * a rule can only make the outcome stricter, never more permissive —
+ * otherwise a config file could write through a read-only session.
  *
- * @param toolCapabilities - the set of capabilities the tool requires
- *                           (optional, needed for rule capability matching)
+ * @param resolved - parameter facts the Runner resolved from the raw input;
+ *                   required for `pathPattern` / `hostPattern` to match.
  */
 export function evaluatePermission(
   config: PermissionConfig,
   toolName: string,
   riskTier: RiskTier,
   toolCapabilities?: Set<string>,
+  resolved?: ResolvedToolInput,
 ): Decision {
+  const ceiling = ceilingOf(config.sandbox);
+  const base = decide(ceiling, config.approval, riskTier);
+
   if (config.rules) {
     const caps = toolCapabilities ?? new Set<string>();
     for (const rule of config.rules) {
-      if (ruleMatches(rule, toolName, caps)) {
-        return rule.decision;
+      if (!ruleMatches(rule, toolName, caps, resolved)) continue;
+      if (TIER_RANK[riskTier] > TIER_RANK[ceiling]) {
+        return moreRestrictive(rule.decision, base);
       }
+      return rule.decision;
     }
   }
 
-  return decide(ceilingOf(config.sandbox), config.approval, riskTier);
+  return base;
+}
+
+/**
+ * Whether any rule needs parameter facts (paths / hostnames) resolved. The
+ * Runner skips that I/O entirely when this is false.
+ */
+export function hasParameterRules(config: PermissionConfig): boolean {
+  return (config.rules ?? []).some(
+    (rule) => rule.pathPattern !== undefined || rule.hostPattern !== undefined,
+  );
 }
 
 /**
@@ -213,8 +317,8 @@ export function narrowPermission(
   // only tighten; keep those.
   //
   // The parent's own `allow` rules are dropped too, and for the same reason
-  // read the other way: an exemption granted to the parent session (a user's
-  // "always allow this tool", a deployment rule) outranks the matrix, so
+  // read the other way: an exemption granted to the parent session (a deployment
+  // rule, or an agent definition's own rule) outranks the matrix, so
   // carrying it into a child narrowed to read-only would let the child write
   // anyway and make the definition's sandbox decoration. Everything that only
   // tightens — the parent's `ask` rules — is kept.
