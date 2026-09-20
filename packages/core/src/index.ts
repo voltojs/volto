@@ -372,3 +372,6 @@ export { createCharTokenizer, createFixedTokenizer, createMappedTokenizer } from
 // Command risk classifier — display-only labelling for the approval prompt, never a permission gate
 export { classifyCommandRisk } from "./command-risk.js";
 export type { CommandRiskKind } from "./command-risk.js";
+
+// Command matching — strict argv tokenization + prefix matching for commandPrefix rules
+export { tokenizeCommand, matchesCommandPrefix, isMatchableCommandToken } from "./command-match.js";
