@@ -260,10 +260,6 @@ function isPermissionRule(value: unknown): value is PermissionRule {
     if (typeof decision !== "string" || decision !== "allow") {
       return false;
     }
-    if (!STRING_MATCH_KEYS.includes("toolName") && !STRING_MATCH_KEYS.includes("toolPattern")) {
-      // defensive: should never happen since both are in RULE_MATCH_KEYS
-      return false;
-    }
     if (obj["toolName"] === undefined && obj["toolPattern"] === undefined) {
       return false;
     }

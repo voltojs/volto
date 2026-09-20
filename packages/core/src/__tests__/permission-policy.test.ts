@@ -334,6 +334,18 @@ describe("narrowPermission — parameter rules", () => {
     });
     expect(child.rules).toEqual([{ pathPattern: "**/.env", decision: "deny" }]);
   });
+
+  it("drops a commandPrefix allow rule when narrowing", () => {
+    const child = narrowPermission(
+      {
+        sandbox: "workspace-write",
+        approval: "ask",
+        rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }],
+      },
+      { sandbox: "read-only", approval: "never" },
+    );
+    expect(child.rules ?? []).toEqual([]);
+  });
 });
 
 describe("evaluatePermission — command prefix rules", () => {
