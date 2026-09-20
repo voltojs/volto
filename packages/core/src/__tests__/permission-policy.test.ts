@@ -361,10 +361,6 @@ describe("evaluatePermission — command prefix rules", () => {
     }
   });
 
-  it("never matches when the Runner passed no command values", () => {
-    expect(evaluatePermission(allowTest, "bash", "WRITE_HIGH")).toBe("ask");
-  });
-
   it("never matches when the caller supplied no command values", () => {
     // The Runner supplies values only for tools that declare `commandInputs`,
     // so a tool that declares none can never reach the command branch. This
@@ -379,6 +375,21 @@ describe("evaluatePermission — command prefix rules", () => {
       rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }],
     };
     expect(evaluatePermission(readOnly, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"])).toBe("deny");
+  });
+
+  it("matches a commandPrefix-only rule (no tool key) when a matching command is supplied", () => {
+    // Core is shape-agnostic: it does NOT enforce the "must name the tool" constraint.
+    // That is the config loaders' duty (Tasks 6/7 reject a rule that carries commandPrefix
+    // but no toolName/toolPattern/capability). This test pins that split so nobody later
+    // "fixes" core and quietly removes the reason the loaders exist.
+    const prefixOnly: PermissionConfig = {
+      ...askPreset,
+      rules: [{ commandPrefix: ["pnpm", "test"], decision: "allow" }],
+    };
+    // Matching command supplied → rule matches → allow
+    expect(evaluatePermission(prefixOnly, "bash", "WRITE_HIGH", undefined, undefined, ["pnpm test"])).toBe("allow");
+    // No command supplied → rule does not match → falls to matrix → ask
+    expect(evaluatePermission(prefixOnly, "bash", "WRITE_HIGH")).toBe("ask");
   });
 
   it("requires the tool key group as well as the command group", () => {
