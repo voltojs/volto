@@ -1525,6 +1525,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               const toolCaps = new Set(toolDef.requires ?? []);
               const resolved =
                 factResolver !== undefined ? await factResolver.resolve(toolDef, toolCall.input) : undefined;
+              // Re-check after the await: the fact resolver performs I/O
+              // (realpath, DNS lookups), so the turn may have been cancelled
+              // or the status may have changed during that yield.
+              if (cancelled || getStatus() !== "executing_tools") break;
               let permDecision = evaluatePermission(
                 opts.permissionConfig,
                 toolCall.name,
