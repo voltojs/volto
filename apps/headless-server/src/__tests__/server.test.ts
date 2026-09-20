@@ -2173,10 +2173,13 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
 });
 
 describe("POST /approvals — remembering a rule", () => {
-  const previousConfigDir = process.env["VOLTO_CONFIG_DIR"];
+  let previousConfigDir: string | undefined;
   let rememberConfigDir: string;
 
   beforeEach(async () => {
+    // Capture AFTER beforeAll has set the env to its temp dir — a const at
+    // describe scope would run before beforeAll and see `undefined`.
+    previousConfigDir = process.env["VOLTO_CONFIG_DIR"];
     rememberConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-remember-"));
     process.env["VOLTO_CONFIG_DIR"] = rememberConfigDir;
   });
