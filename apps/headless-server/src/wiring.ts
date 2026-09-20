@@ -9,6 +9,7 @@ import { createAgent, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
+import { loadPermissionRules, mergePermissionRules } from "./config/permissions.js";
 import type { UiPermissionMode } from "./permission-modes.js";
 import {
   createNodeFileSystem,
@@ -439,6 +440,10 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // bash-launched processes are untouched by design.
   const egressPolicy = await loadEgressPolicy(getConfigDir());
 
+  // Parameter permission rules (path / host) from ~/.volto/permissions.json.
+  // Same reload discipline and same fail-closed stance as the egress policy.
+  const permissionRules = await loadPermissionRules(getConfigDir());
+
   const { entries: agentSpecs } = await scanAgentSources({
     cwd,
     configDir: getConfigDir(),
@@ -476,7 +481,9 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     skillRegistry,
     commands: BUILT_IN_COMMANDS,
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
-    ...(opts.permissionConfig ? { permissionConfig: opts.permissionConfig } : {}),
+    ...(opts.permissionConfig
+      ? { permissionConfig: mergePermissionRules(opts.permissionConfig, permissionRules) }
+      : {}),
     ...(opts.approvalGate ? { approvalGate: opts.approvalGate } : {}),
     ...(opts.askUserGate ? { askUserGate: opts.askUserGate } : {}),
     ...(opts.eventSink ? { eventSink: opts.eventSink } : {}),
