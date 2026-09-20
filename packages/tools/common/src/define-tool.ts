@@ -16,6 +16,8 @@ export function defineTool<S extends z.ZodType>(spec: {
   riskTier: RiskTier;
   /** Output trust level — untrusted output is annotated for prompt-injection defense */
   trust?: "trusted" | "untrusted";
+  pathInputs?: string[];
+  hostInputs?: string[];
   run: (input: z.infer<S>) => Promise<ToolResult>;
 }): Tool {
   const definition: ToolDefinition = {
@@ -25,6 +27,8 @@ export function defineTool<S extends z.ZodType>(spec: {
     requires: spec.requires,
     riskTier: spec.riskTier,
     trust: spec.trust,
+    pathInputs: spec.pathInputs,
+    hostInputs: spec.hostInputs,
   };
 
   return {

@@ -61,6 +61,15 @@ export interface ToolDefinition {
   riskTier: RiskTier;
   /** Output trust level — untrusted output is annotated for prompt-injection defense */
   trust?: "trusted" | "untrusted";
+  /**
+   * Input properties whose values are filesystem paths. The Runner resolves
+   * them (absolute + symlinks) before permission rules run, so a
+   * `pathPattern` rule can match them. A tool that declares none — `bash` is
+   * the important one — can never match a path rule.
+   */
+  pathInputs?: string[];
+  /** Input properties whose values are URLs; the Runner extracts the hostname. */
+  hostInputs?: string[];
 }
 
 // ──────────────────────────────────────────────
