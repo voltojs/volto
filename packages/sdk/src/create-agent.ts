@@ -1813,6 +1813,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // Turn-boundary drain: lets the Runner collect background tasks the
       // model never picked up via task_output before the turn ends.
       backgroundRegistry,
+      pathRoot: opts.cwd ?? process.cwd(),
     };
 
     if (previousState && previousState.status === "done") {
@@ -2112,6 +2113,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         compaction: compactionConfig,
         sessionId,
         initialState: restoredState,
+        pathRoot: opts.cwd ?? process.cwd(),
         // Wire the transcript the same way createNextRunner() does — without
         // this, the tool_result and the assistant_message that follow it
         // never reach the durable log, leaving it ending on an
@@ -2915,6 +2917,7 @@ function createSubAgentExecutor(
       riskCeiling: childPermissionConfig
         ? ceilingOf(childPermissionConfig.sandbox)
         : undefined,
+      pathRoot: opts.cwd ?? process.cwd(),
       // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
       // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
       // never silently executed in the child.

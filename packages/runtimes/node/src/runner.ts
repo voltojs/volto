@@ -44,6 +44,7 @@ import {
   filterVisibleTools,
   routeToolCall,
   evaluatePermission,
+  hasParameterRules,
   policyDenialMessage,
   decideCompaction,
   estimateTokens,
@@ -60,6 +61,7 @@ import type { Hook } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
 import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
 import { createTranscriptRecorder } from "./transcript-recorder.js";
+import { createToolInputFactResolver } from "./tool-input-facts.js";
 import * as crypto from "node:crypto";
 
 // ──────────────────────────────────────────────
@@ -200,6 +202,14 @@ export interface RunnerOptions {
    * Omit for no ceiling (capability gating still applies).
    */
   riskCeiling?: RiskTier;
+  /**
+   * The workspace root a model-supplied relative path resolves against —
+   * i.e. what the FileSystem port was constructed with. Required for
+   * `pathPattern` rules to mean anything; must be the same root the sandbox
+   * decorator was given, or the permission layer and the boundary would
+   * resolve the same relative target differently.
+   */
+  pathRoot?: string;
   /** Permission policy — if set, tools are checked before execution */
   permissionConfig?: PermissionConfig;
   /** Session store for checkpoint/resume persistence */
@@ -1487,6 +1497,13 @@ export function createRunner(opts: RunnerOptions): Runner {
         const parallelBatch: PendingToolCall[] = [];
         const approvalQueue: PendingToolCall[] = [];
 
+        // Path/host facts are I/O, so they are computed here and never in
+        // core. Skipped entirely unless a rule actually needs them.
+        const factResolver =
+          opts.permissionConfig !== undefined && hasParameterRules(opts.permissionConfig)
+            ? createToolInputFactResolver(opts.pathRoot ?? process.cwd())
+            : undefined;
+
         for (const toolCall of pending) {
           if (cancelled) {
             forwardEmit(feed({ type: "cancel", reason: "abort" }));
@@ -1506,11 +1523,14 @@ export function createRunner(opts: RunnerOptions): Runner {
             const toolDef = visibleTools.find((t) => t.name === toolCall.name);
             if (toolDef) {
               const toolCaps = new Set(toolDef.requires ?? []);
+              const resolved =
+                factResolver !== undefined ? await factResolver.resolve(toolDef, toolCall.input) : undefined;
               let permDecision = evaluatePermission(
                 opts.permissionConfig,
                 toolCall.name,
                 toolDef.riskTier,
                 toolCaps,
+                resolved,
               );
 
               // Combine with external PolicyEngine (most restrictive wins)

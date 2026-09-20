@@ -18,6 +18,7 @@ export function createWriteFileTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_WRITE],
     riskTier: "WRITE_HIGH",
+    pathInputs: ["path"],
     run: async ({ path, content }) => {
       try {
         await fs.write(path, content);
