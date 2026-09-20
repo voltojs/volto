@@ -891,6 +891,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         ? {
             permissionConfig: buildPermissionConfig(config.permissionMode),
             sandboxMode: sandboxModeFor(config.permissionMode),
+            permissionMode: config.permissionMode,
             approvalGate: session.approvals.gate,
             // ask_user reuses the same gate (the desktop host's precedent):
             // the tool parks it directly, POST /approvals settles it, and the

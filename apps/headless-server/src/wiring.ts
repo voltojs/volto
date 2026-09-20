@@ -9,6 +9,7 @@ import { createAgent, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
+import type { UiPermissionMode } from "./permission-modes.js";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -86,6 +87,13 @@ export interface WiringOptions {
    * undecorated (the legacy no-session routes and tests).
    */
   sandboxMode?: SandboxMode;
+  /**
+   * The session's permission preset. Drives the plan-mode workflow layer:
+   * `plan` injects PLAN_MODE_LAYER as a system context layer (the /plan
+   * entry shows only the user's own text in the chat). Other modes don't
+   * get the layer; absent = no layer (legacy callers / tests).
+   */
+  permissionMode?: UiPermissionMode;
   /** HITL approval gate. Omit to fall back to the SDK's auto-allow gate. */
   approvalGate?: ApprovalGate;
   /**
@@ -316,6 +324,23 @@ export function buildSandboxConfigs(
   };
 }
 
+/**
+ * Plan-mode workflow layer (方案 A) — the /plan entry no longer ships the
+ * flow instructions as user-visible message text: the chat shows only what
+ * the user typed, and the workflow rides this static system layer. Keyed on
+ * the plan permissionMode (not the read-only sandbox — the two presets share
+ * a PermissionConfig on purpose), rebuilt with the session, so entering /
+ * leaving plan mode changes the system prefix exactly at a turn boundary.
+ */
+const PLAN_MODE_LAYER = [
+  "你已进入计划模式（plan）。此模式下的工作流程：",
+  "1. 工作区只读：用 read_file / glob / grep / bash 只读命令调研；",
+  "2. 有不明确之处用 ask_user 向用户提问对齐（可给选项，支持多选与自由输入）；",
+  "3. 形成完整实施计划并用 save_plan 保存（分步任务、涉及文件、风险点）；再次保存会覆盖当前计划；",
+  "4. 保存后简短总结计划要点，等待用户批准。不要尝试修改工作区文件——用户批准后才会切回可写模式执行。",
+  "用户发来的消息是计划目标，或对已保存计划的调整意见。",
+].join("\n");
+
 export async function createWiredAgent(opts: WiringOptions = {}) {
   const cwd = opts.cwd ?? process.cwd();
   // User-level, not workspace-relative: the default used to land a
@@ -387,7 +412,11 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
     const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
     const loaded = await collectInstructionFiles(cwd, discoveredDirs);
-    return renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
+    const layers = renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
+    if (opts.permissionMode === "plan") {
+      layers.push({ id: "plan-mode", text: PLAN_MODE_LAYER });
+    }
+    return layers;
   }
 
   // Rescan on every construction — i.e. on every (re)build of an agent

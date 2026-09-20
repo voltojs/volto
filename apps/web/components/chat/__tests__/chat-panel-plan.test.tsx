@@ -249,9 +249,9 @@ describe('ChatPanel — welcome 屏的 /plan', () => {
     fireEvent.click(screen.getByTestId('stub-enter-plan'));
     await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalled());
 
+    // 只发送用户输入的目标（流程说明经服务端 system 层注入，不占用户消息）。
     const sent = mocks.sendMessage.mock.calls[0]?.[0] as string;
-    expect(sent).toContain('计划模式');
-    expect(sent).toContain('目标：重构登录');
+    expect(sent).toBe('重构登录');
 
     const store = useSessionStore.getState();
     expect(store.sessions).toHaveLength(1);
@@ -259,5 +259,43 @@ describe('ChatPanel — welcome 屏的 /plan', () => {
     expect(store.currentSessionId).toBe(store.sessions[0]?.id);
     // welcome 没有进入前档位：planPreviousMode 保持 null（执行回退 ask）。
     expect(store.planPreviousMode).toBeNull();
+  });
+});
+
+// 会话内 /plan：切 plan 档 + 只发用户目标文本（流程说明走 system 层）。
+describe('ChatPanel — 会话内 /plan', () => {
+  beforeEach(() => {
+    mocks.sendMessage.mockClear();
+    useSessionStore.setState({
+      currentSessionId: 'session-1',
+      planPreviousMode: null,
+      sessions: [
+        {
+          id: 'session-1',
+          title: 't',
+          messages: [],
+          messageCount: 0,
+          detailLoaded: true,
+          createdAt: 1,
+          updatedAt: 1,
+          projectId: 'proj-1',
+          providerId: 'prov-1',
+          modelId: 'm1',
+          permissionMode: 'ask',
+        },
+      ],
+    } as never);
+  });
+
+  it('切换 plan 档且只发送目标文本', async () => {
+    render(<ChatPanel />);
+    fireEvent.click(screen.getByTestId('stub-enter-plan'));
+    await waitFor(() =>
+      expect(
+        useSessionStore.getState().sessions.find((s) => s.id === 'session-1')?.permissionMode,
+      ).toBe('plan'),
+    );
+    expect(mocks.sendMessage).toHaveBeenCalledWith('重构登录');
+    expect(mocks.sendMessage).not.toHaveBeenCalledWith(expect.stringContaining('save_plan'));
   });
 });

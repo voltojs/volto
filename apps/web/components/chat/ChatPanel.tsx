@@ -35,19 +35,6 @@ import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
 
-/** /plan 进入计划模式时随模式切换一起发出的计划流程提示词。 */
-function planPrompt(goal: string): string {
-  return (
-    '你已进入计划模式：工作区只读，唯一的写入口是 save_plan 工具（把计划写入 volto 存储）。\n' +
-    '请按以下流程工作：\n' +
-    '1. 调研相关代码与文档（read_file / glob / grep / bash 只读命令）；\n' +
-    '2. 有不明确之处用 ask_user 向用户提问对齐（可给选项）；\n' +
-    '3. 形成完整实施计划并用 save_plan 保存（分步任务、涉及文件、风险点）；\n' +
-    '4. 保存后简短总结计划要点，等待用户批准。不要尝试修改工作区文件。\n' +
-    (goal ? `目标：${goal}` : '目标：见上文用户描述')
-  );
-}
-
 export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const chatEvents = useChatStore((s) => s.events);
@@ -277,7 +264,10 @@ export function ChatPanel() {
             store.setPlanPreviousMode(current?.permissionMode ?? 'ask');
           }
           store.setSessionPermissionMode(sid, 'plan');
-          void sendMessage(planPrompt(goal));
+          // 流程说明经服务端 plan 专属 system 层注入；用户消息只承载用户
+          // 自己输入的目标。裸 /plan（无目标）只切档不发消息——用户接下
+          // 来输入的第一条消息就是计划目标。
+          if (goal) void sendMessage(goal);
         } else {
           // welcome 屏：没有会话可切。服务器端 /plan 模板已移除，回退普通
           // 消息只会得到 "Unknown command"——直接以 plan 档开新会话（或
@@ -302,7 +292,7 @@ export function ChatPanel() {
             store.setSessionPermissionMode(id, 'plan');
           }
           store.setCurrentSession(id);
-          void sendMessage(planPrompt(goal));
+          if (goal) void sendMessage(goal);
         }
         return;
       }
@@ -780,6 +770,15 @@ export function ChatPanel() {
                           .getState()
                           .setSessionPermissionMode(currentSessionId, mode)
                       }
+                      onExitPlan={() => {
+                        const store = useSessionStore.getState();
+                        // 手动退出：切回进入前档位（缺省 ask），并清空记住的档位。
+                        store.setSessionPermissionMode(
+                          currentSessionId,
+                          store.planPreviousMode ?? 'ask',
+                        );
+                        store.setPlanPreviousMode(null);
+                      }}
                     />
                   ) : null
                 }

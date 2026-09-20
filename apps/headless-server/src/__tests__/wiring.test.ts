@@ -759,3 +759,41 @@ describe("createWiredAgent — the persistent bash session inherits the sandbox 
     60_000,
   );
 });
+
+// ──────────────────────────────────────────────
+// Plan-mode workflow layer (方案 A): /plan 不再把流程说明当作用户消息发出
+// ——聊天里只展示用户输入的原文，流程说明作为 plan 态专属的静态 system 层
+// 注入（随 rebuild 生效，turn 边界变化）。read-only 档不注入：该层按
+// permissionMode（plan）键控，而非 sandbox（read-only）。
+// ──────────────────────────────────────────────
+describe("createWiredAgent plan-mode workflow layer", () => {
+  it("injects the plan workflow layer when permissionMode is plan", async () => {
+    const { modelPort, requests } = captureModelPort();
+    const agent = await createWiredAgent({
+      modelPort,
+      cwd: tempProjectDir,
+      permissionMode: "plan",
+    });
+    await agent.run("为整理工作区文件制定计划");
+
+    const systems = requests[0]!.messages.filter((m) => m.role === "system");
+    const joined = systems.map((m) => (m as { content: string }).content).join("\n");
+    expect(joined).toContain("计划模式");
+    expect(joined).toContain("ask_user");
+    expect(joined).toContain("save_plan");
+  });
+
+  it("does not inject the layer for other permission modes", async () => {
+    const { modelPort, requests } = captureModelPort();
+    const agent = await createWiredAgent({
+      modelPort,
+      cwd: tempProjectDir,
+      permissionMode: "read-only",
+    });
+    await agent.run("go");
+
+    const systems = requests[0]!.messages.filter((m) => m.role === "system");
+    const joined = systems.map((m) => (m as { content: string }).content).join("\n");
+    expect(joined).not.toContain("计划模式");
+  });
+});

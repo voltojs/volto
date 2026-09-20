@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Shield, ShieldAlert, ShieldCheck, ShieldOff, X } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -27,6 +27,11 @@ import { cn } from '@/lib/utils';
 interface PermissionPickerProps {
   value: PermissionMode;
   onChange: (mode: PermissionMode) => void;
+  /**
+   * plan 态专用：点击徽标 hover 显形的 × 时退出计划（宿主切回进入前档
+   * 位）。缺省不渲染退出入口（子代理面板等复用方无需退出语义）。
+   */
+  onExitPlan?: () => void;
 }
 
 /**
@@ -81,16 +86,28 @@ const OPTIONS: Array<{
  * them — showing one would let the user "switch" to a mode the session
  * isn't in).
  */
-export function PermissionPicker({ value, onChange }: PermissionPickerProps) {
+export function PermissionPicker({ value, onChange, onExitPlan }: PermissionPickerProps) {
   const [confirmFull, setConfirmFull] = useState(false);
   if (value === 'plan') {
     return (
+      // 不挂 aria-disabled：徽标内含可交互的退出按钮，把容器标成禁用会让
+      // 辅助技术与自动化工具把该按钮一并视为禁用（浏览器不拦点击，语义却
+      // 撒谎）。"不可切换档位"的语义由 title 承载。
       <span
-        aria-disabled="true"
-        title="退出计划：批准计划或手动切换权限"
-        className="text-muted-foreground border-border bg-muted/50 inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 font-mono text-xs select-none"
+        title="计划模式：批准计划后执行，悬停可手动退出"
+        className="group text-muted-foreground border-border bg-muted/50 inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 font-mono text-xs select-none"
       >
         计划中
+        {onExitPlan && (
+          <button
+            type="button"
+            aria-label="退出计划模式"
+            onClick={onExitPlan}
+            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
       </span>
     );
   }
