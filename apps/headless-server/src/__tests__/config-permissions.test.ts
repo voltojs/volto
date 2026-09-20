@@ -235,4 +235,12 @@ describe("savePermissionRule", () => {
     await Promise.all([savePermissionRule(dir, a), savePermissionRule(dir, b)]);
     expect(await loadPermissionRules(dir)).toHaveLength(2);
   });
+
+  it("does not report a pattern-only candidate as covered or duplicate", async () => {
+    // A candidate with only toolPattern (no toolName) must not match the
+    // existing rule's toolName via toolKeyMatches — the guard returns false.
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }] });
+    const patternCandidate = { toolPattern: "bash*", commandPrefix: ["pnpm", "test"], decision: "allow" };
+    expect((await savePermissionRule(dir, patternCandidate)).status).toBe("saved");
+  });
 });

@@ -197,21 +197,40 @@ export type SaveRuleResult =
   | { status: "duplicate"; rule: PermissionRule }
   | { status: "covered"; by: PermissionRule };
 
-/** Same tool key resolution as core's matcher: exact name, or `prefix*`. */
+/**
+ * Check whether an existing rule's tool key matches the candidate's concrete
+ * tool name — by equality, or by the existing rule's `prefix*` pattern.
+ *
+ * Coverage is only defined when the candidate names a concrete tool; a
+ * candidate that carries only a `toolPattern` has no well-defined reach
+ * against an existing rule, so we conservatively return false.  This is a
+ * deliberate limitation, not an oversight.
+ *
+ * The `prefix*` path mirrors core's `matchesPattern` semantics locally on
+ * purpose — this host package does not import core internals, so a future
+ * change to one should be recognisably mirrored in the other.
+ */
 function toolKeyMatches(existing: PermissionRule, candidate: PermissionRule): boolean {
-  if (existing.toolName !== undefined && candidate.toolName !== undefined) {
+  // Coverage only makes sense when the candidate pins a concrete tool name.
+  // A pattern-only candidate's reach is not compared here — deliberate.
+  if (candidate.toolName === undefined) return false;
+
+  if (existing.toolName !== undefined) {
     return existing.toolName === candidate.toolName;
   }
-  if (existing.toolPattern !== undefined && candidate.toolName !== undefined) {
+
+  if (existing.toolPattern !== undefined) {
     const pattern = existing.toolPattern;
+    // Mirror core's matchesPattern: `foo*` does startsWith("foo"), exact otherwise.
     return pattern.endsWith("*")
       ? candidate.toolName.startsWith(pattern.slice(0, -1))
       : candidate.toolName === pattern;
   }
+
   return false;
 }
 
-function samePrefix(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+function sameTokenList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
   return a !== undefined && b !== undefined && a.length === b.length && a.every((t, i) => t === b[i]);
 }
 
@@ -223,7 +242,7 @@ function isIdentical(a: PermissionRule, b: PermissionRule): boolean {
     a.capability === b.capability &&
     a.pathPattern === b.pathPattern &&
     a.hostPattern === b.hostPattern &&
-    samePrefix(a.commandPrefix, b.commandPrefix)
+    sameTokenList(a.commandPrefix, b.commandPrefix)
   );
 }
 
@@ -260,6 +279,12 @@ export async function savePermissionRule(
   const rule = validatePermissionRule(candidate);
   return withSaveLock(async () => {
     const file = path.join(configDir, "permissions.json");
+    // Two reads on purpose: `readJsonFile` gives us the raw document so
+    // anything we don't own (extra top-level keys, comments if JSON5 ever
+    // lands) survives verbatim.  `loadPermissionRules` gives us the
+    // validated, expanded rules used for dedup/coverage — expanding `~` in
+    // pathPattern, for instance.  Merging the two into one read would risk
+    // writing back expanded paths where the user originally wrote `~`.
     const doc = await readJsonFile<Record<string, unknown>>(file, {});
     const existing = await loadPermissionRules(configDir);
 
