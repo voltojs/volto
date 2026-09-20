@@ -219,6 +219,29 @@ describe("evaluatePermission — parameter rules", () => {
     expect(evaluatePermission(config, "bash", "WRITE_HIGH")).toBe("ask");
   });
 
+  it("parameter-only pathPattern matches any tool whose resolved paths match", () => {
+    const config: PermissionConfig = {
+      ...askPreset,
+      rules: [{ pathPattern: "**/src/**", decision: "deny" }],
+    };
+    // Any tool with a matching path → deny
+    expect(evaluatePermission(config, "read_file", "READ_ONLY", undefined, { paths: envPaths })).toBe("deny");
+    expect(evaluatePermission(config, "unknown_tool", "WRITE_LOW", undefined, { paths: envPaths })).toBe("deny");
+    // Same tool, no resolved facts → rule doesn't match → matrix result
+    expect(evaluatePermission(config, "read_file", "READ_ONLY")).toBe("allow");
+    expect(evaluatePermission(config, "unknown_tool", "WRITE_LOW")).toBe("allow");
+  });
+
+  it("never matches a hostPattern when the tool declared no host facts", () => {
+    const config: PermissionConfig = { ...askPreset, rules: [{ hostPattern: "**", decision: "deny" }] };
+    // No resolved → rule doesn't match → falls to matrix → WRITE_HIGH under ask → "ask"
+    expect(evaluatePermission(config, "web_fetch", "WRITE_HIGH")).toBe("ask");
+    // Even with paths but no hosts → still doesn't match
+    expect(
+      evaluatePermission(config, "web_fetch", "WRITE_HIGH", undefined, { paths: envPaths }),
+    ).toBe("ask");
+  });
+
   it("requires the tool key group and the parameter key group to both match", () => {
     const config: PermissionConfig = {
       ...askPreset,
