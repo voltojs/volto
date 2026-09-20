@@ -5,7 +5,6 @@ import * as path from "node:path";
 import {
   loadPermissionRules,
   mergePermissionRules,
-  validatePermissionRule,
   savePermissionRule,
   PermissionRulesConfigError,
 } from "../config/permissions.js";
