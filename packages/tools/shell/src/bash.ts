@@ -57,6 +57,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
+    commandInputs: ["command"],
     run: async (input): Promise<ToolResult> => {
       const {
         command,
