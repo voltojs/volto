@@ -211,6 +211,14 @@ function parseYamlSubset(frontmatter: string): Record<string, unknown> {
 // Policy validation
 // ──────────────────────────────────────────────
 
+const RULE_MATCH_KEYS = [
+  "toolName",
+  "toolPattern",
+  "capability",
+  "pathPattern",
+  "hostPattern",
+] as const;
+
 function isPermissionRule(value: unknown): value is PermissionRule {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -223,19 +231,25 @@ function isPermissionRule(value: unknown): value is PermissionRule {
   // Only the documented match fields are accepted; unknown fields are not
   // silently dropped — they fail the whole policy so a broken AgentSpec
   // never enters the registry.
-  for (const k of Object.keys(obj)) {
-    if (
-      k !== "decision" &&
-      k !== "toolName" &&
-      k !== "toolPattern" &&
-      k !== "capability"
-    ) {
+  for (const key of Object.keys(obj)) {
+    if (key !== "decision" && !(RULE_MATCH_KEYS as readonly string[]).includes(key)) {
       return false;
     }
   }
-  for (const k of ["toolName", "toolPattern", "capability"] as const) {
-    if (obj[k] !== undefined && typeof obj[k] !== "string") return false;
+  for (const key of RULE_MATCH_KEYS) {
+    const raw = obj[key];
+    if (raw !== undefined && (typeof raw !== "string" || raw.length === 0)) return false;
   }
+  // A rule with no match key would match every tool call; reject it at the
+  // definition instead of letting it become a blanket deny.
+  if (!RULE_MATCH_KEYS.some((key) => obj[key] !== undefined)) return false;
+  // A pathPattern is a filesystem path the Runner matches against a real
+  // path, and this parser has no business reading $HOME. A literal `~` would
+  // reach core, match nothing, and look like a rule that works — reject it
+  // and make the author write an absolute or workspace-relative path. (The
+  // user-level ~/.volto/permissions.json loader *does* expand `~`, because
+  // there the loader itself is the I/O boundary.)
+  if (typeof obj["pathPattern"] === "string" && obj["pathPattern"].startsWith("~")) return false;
   return true;
 }
 

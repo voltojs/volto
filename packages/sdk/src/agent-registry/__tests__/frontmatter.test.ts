@@ -129,3 +129,39 @@ body
     expect((result as { error: string }).error).toMatch(/tools/i);
   });
 });
+
+describe("parseAgentFile — parameter permission rules", () => {
+  it("accepts a pathPattern rule", () => {
+    const parsed = parseAgentFile(
+      '---\nname: reviewer\npolicy: { rules: [{ pathPattern: "**/.env", decision: deny }] }\n---\nbody',
+      "/p/param-a.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.policy?.rules).toEqual([{ pathPattern: "**/.env", decision: "deny" }]);
+  });
+
+  it("accepts a hostPattern rule", () => {
+    const parsed = parseAgentFile(
+      '---\nname: researcher\npolicy: { rules: [{ hostPattern: "*.internal.example", decision: ask }] }\n---\nbody',
+      "/p/param-b.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.policy?.rules).toEqual([{ hostPattern: "*.internal.example", decision: "ask" }]);
+  });
+
+  it("rejects a rule with no match key instead of letting it match everything", () => {
+    const parsed = parseAgentFile(
+      "---\nname: broken\npolicy: { rules: [{ decision: deny }] }\n---\nbody",
+      "/p/param-c.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+
+  it("rejects a literal ~ in a pathPattern rather than letting it silently never match", () => {
+    const parsed = parseAgentFile(
+      '---\nname: tilde\npolicy: { rules: [{ pathPattern: "~/.ssh/**", decision: deny }] }\n---\nbody',
+      "/p/param-d.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
+});
