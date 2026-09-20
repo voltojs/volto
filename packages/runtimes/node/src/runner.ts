@@ -43,8 +43,9 @@ import {
   createInitialState,
   filterVisibleTools,
   routeToolCall,
-  evaluatePermission,
+  resolvePermission,
   hasParameterRules,
+  hasCommandRules,
   policyDenialMessage,
   decideCompaction,
   estimateTokens,
@@ -399,13 +400,17 @@ export interface Runner {
 
 /** Structured audit entry for approval decisions and high-risk tool executions. */
 export interface AuditEntry {
-  kind: "approval" | "high_risk_exec";
+  kind: "approval" | "high_risk_exec" | "rule_allow";
   toolName: string;
   riskTier?: string;
   decision?: "allow" | "deny";
   timestamp: number;
   isError?: boolean;
   sessionId?: string;
+  /** For `rule_allow`: a compact summary of the rule that matched. */
+  ruleSummary?: string;
+  /** For `rule_allow`: the command text the rule matched. */
+  commandText?: string;
 }
 
 /** Sink for audit entries — records structured audit data. */
@@ -1529,13 +1534,42 @@ export function createRunner(opts: RunnerOptions): Runner {
               // (realpath, DNS lookups), so the turn may have been cancelled
               // or the status may have changed during that yield.
               if (cancelled || getStatus() !== "executing_tools") break;
-              let permDecision = evaluatePermission(
+              const commandValues =
+                opts.permissionConfig !== undefined &&
+                toolDef.commandInputs !== undefined &&
+                hasCommandRules(opts.permissionConfig)
+                  ? collectCommandValues(toolDef.commandInputs, toolCall.input)
+                  : undefined;
+              const resolution = resolvePermission(
                 opts.permissionConfig,
                 toolCall.name,
                 toolDef.riskTier,
                 toolCaps,
                 resolved,
+                commandValues,
               );
+              let permDecision = resolution.decision;
+              const matchedRule = resolution.rule;
+
+              // Audit: a command-prefix rule turned an "ask" into an "allow".
+              // Recorded before the PolicyEngine can tighten it below, so the
+              // entry says what the rule did, not what the final decision was.
+              if (
+                permDecision === "allow" &&
+                matchedRule?.commandPrefix !== undefined &&
+                opts.auditSink
+              ) {
+                opts.auditSink.record({
+                  kind: "rule_allow",
+                  toolName: toolCall.name,
+                  riskTier: toolDef.riskTier,
+                  decision: "allow",
+                  timestamp: opts.clock?.now() ?? Date.now(),
+                  sessionId: opts.sessionId,
+                  ruleSummary: `commandPrefix:${matchedRule.commandPrefix.join(" ")}`,
+                  ...(commandValues?.[0] !== undefined ? { commandText: commandValues[0] } : {}),
+                });
+              }
 
               // Combine with external PolicyEngine (most restrictive wins)
               if (opts.policyEngine && permDecision !== "deny") {
@@ -2056,6 +2090,19 @@ function mostRestrictive(
 ): "allow" | "deny" | "ask" {
   const rank = { deny: 3, ask: 2, allow: 1 };
   return rank[a] >= rank[b] ? a : b;
+}
+
+/** Values of a tool's declared command inputs, in declaration order. */
+function collectCommandValues(
+  fields: readonly string[],
+  input: Record<string, unknown>,
+): string[] | undefined {
+  const values: string[] = [];
+  for (const field of fields) {
+    const raw = input[field];
+    if (typeof raw === "string" && raw.length > 0) values.push(raw);
+  }
+  return values.length > 0 ? values : undefined;
 }
 
 /** Extract the text content of the last user message for RAG query building */
