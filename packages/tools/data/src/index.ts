@@ -47,6 +47,7 @@ export function createHttpQueryTool(network: Network): Tool {
     schema,
     requires: [CAP_NETWORK],
     riskTier: "READ_ONLY",
+    hostInputs: ["url"],
     run: async ({ url, method, headers, body }) => {
       try {
         const response = await network.fetch({

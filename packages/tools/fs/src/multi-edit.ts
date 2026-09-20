@@ -75,6 +75,7 @@ export function createMultiEditTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_WRITE],
     riskTier: "WRITE_LOW",
+    pathInputs: ["path"],
     run: async ({ path, edits }) => {
       // Read current content
       let originalContent: string;

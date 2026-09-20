@@ -24,6 +24,7 @@ export function createEditFileTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_WRITE],
     riskTier: "WRITE_LOW",
+    pathInputs: ["path"],
     run: async ({ path, old_string: oldString, new_string: newString, replace_all: replaceAll = false }) => {
       if (!oldString) {
         return { modelContent: `edit_file failed: old_string must not be empty.`, isError: true };

@@ -21,6 +21,7 @@ export function createWebFetchTool(network: Network) {
     schema: webFetchSchema,
     requires: [CAP_NETWORK_FETCH],
     riskTier: "READ_ONLY",
+    hostInputs: ["url"],
     trust: "untrusted",
     run: async (input): Promise<ToolResult> => {
       const { url, method, headers } = input;

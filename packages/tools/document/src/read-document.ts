@@ -50,6 +50,9 @@ export function createReadDocumentTool(
     schema: readDocumentSchema,
     requires: [CAP_DOCUMENT],
     riskTier: "READ_ONLY",
+    // A document's `path` is a filesystem path too: the Runner resolves it the
+    // same way it resolves read_file's, so path rules apply here as well.
+    pathInputs: ["path"],
     run: async ({ path: filePath }) => {
       try {
         // Force the same workspace-boundary check read_file uses. stat() is

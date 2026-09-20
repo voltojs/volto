@@ -140,6 +140,7 @@ export function createApplyPatchTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_WRITE],
     riskTier: "WRITE_LOW",
+    pathInputs: ["path"],
     run: async ({ path, patch }) => {
       // Parse the diff
       const hunks = parseUnifiedDiff(patch);

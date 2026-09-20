@@ -15,6 +15,7 @@ export function createLsTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
+    pathInputs: ["path"],
     run: async ({ path }) => {
       try {
         const result = await fs.list(path);

@@ -31,6 +31,7 @@ export function createReadFileTool(fs: FileSystem, opts?: ReadFileToolOptions): 
     schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
+    pathInputs: ["path"],
     run: async ({ path, offset, limit }) => {
       const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
 

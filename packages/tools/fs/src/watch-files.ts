@@ -20,6 +20,9 @@ export function createWatchFilesTool(watcher: FileWatcher): FileTool {
     schema,
     requires: [CAP_FS_WATCH],
     riskTier: "READ_ONLY",
+    // `paths` is a list, not a single path: the Runner resolves every entry
+    // before permission rules run, so a path rule sees each watched path.
+    pathInputs: ["paths"],
     run: async ({ paths, glob, debounce_ms }) => {
       try {
         const debounceMs = debounce_ms ?? 200;

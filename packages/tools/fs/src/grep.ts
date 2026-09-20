@@ -20,6 +20,7 @@ export function createGrepTool(fs: FileSystem): FileTool {
     schema,
     requires: [CAP_FS_READ],
     riskTier: "READ_ONLY",
+    pathInputs: ["path"],
     run: async ({ query, path, glob, limit }) => {
       const effectiveLimit = limit ?? DEFAULT_LIMIT;
       try {
