@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import * as http from "node:http";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -12,6 +12,7 @@ import { buildSandboxConfigs } from "../wiring.js";
 import { buildPermissionConfig } from "../permission-modes.js";
 import { createPlanStore } from "../config/plan-store.js";
 import { getConfigDir } from "../config/paths.js";
+import { loadPermissionRules } from "../config/permissions.js";
 import { encodeWorkspaceName } from "@volto/store-jsonl";
 import {
   applyPartial,
@@ -1907,6 +1908,48 @@ async function connectedToken(channel: { frames: ProtocolFrame[] }): Promise<str
   return (frame.data as { token: string }).token;
 }
 
+/**
+ * Like makeApprovalPendingFactory, but parks a real bash command so the
+ * remember flow has something to derive a rule from. Counts builds so the
+ * next-turn rebuild is observable. Only parks an approval when the gate is
+ * present AND `asked` hasn't resolved yet; subsequent calls yield immediately
+ * so a second turn completes.
+ */
+function makeRememberFactory(command: string) {
+  let resolveAsked!: () => void;
+  const asked = new Promise<void>((resolve) => {
+    resolveAsked = resolve;
+  });
+  let didPark = false;
+  const builds: Array<Record<string, unknown>> = [];
+  const factory = (opts: Record<string, unknown>) => {
+    builds.push(opts);
+    const approvalGate = opts["approvalGate"] as StubApprovalGate | undefined;
+    return {
+      async *stream() {
+        // Park only once — the first session turn that has a gate.
+        if (approvalGate && !didPark) {
+          didPark = true;
+          resolveAsked();
+          const raw = await approvalGate.ask(
+            { id: "call-1", name: "bash", input: { command } },
+            "WRITE_HIGH",
+          );
+          const decision = typeof raw === "string" ? raw : raw.decision;
+          yield { type: "text_delta", data: { text: `decision:${decision}` } };
+        } else {
+          yield { type: "text_delta", data: { text: "ok" } };
+          yield { type: "done", stopReason: "end_turn" };
+        }
+      },
+      async getState() {
+        return { messages: [] };
+      },
+    };
+  };
+  return { factory, asked, builds };
+}
+
 describe("POST /approvals — per-connection token binding (real turn, real approval gate)", () => {
   it("no token: rejected with 403, approval stays pending", async () => {
     const { factory, asked } = makeApprovalPendingFactory();
@@ -2124,6 +2167,398 @@ describe("POST /approvals — per-connection token binding (real turn, real appr
     } finally {
       channelA.stop();
       channelB?.stop();
+      await close();
+    }
+  });
+});
+
+describe("POST /approvals — remembering a rule", () => {
+  const previousConfigDir = process.env["VOLTO_CONFIG_DIR"];
+  let rememberConfigDir: string;
+
+  beforeEach(async () => {
+    rememberConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-remember-"));
+    process.env["VOLTO_CONFIG_DIR"] = rememberConfigDir;
+  });
+  afterEach(async () => {
+    if (previousConfigDir === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+    else process.env["VOLTO_CONFIG_DIR"] = previousConfigDir;
+    await fs.rm(rememberConfigDir, { recursive: true, force: true });
+  });
+
+  /** Create a project and provider via the given server (not the global one). */
+  async function createProjectOn(
+    base: string,
+    token: string,
+  ): Promise<{ projectId: string; providerId: string; modelId: string }> {
+    const project = await post("/projects", { name: "remember-test", path: process.cwd() }, base, token);
+    const provider = await post(
+      "/providers",
+      { name: "remember-provider", models: [{ name: "test-model", code: "test-model" }] },
+      base,
+      token,
+    );
+    const providerData = provider.data as { id: string; models: Array<{ id: string }> };
+    return {
+      projectId: (project.data as { id: string }).id,
+      providerId: providerData.id,
+      modelId: providerData.models[0]!.id,
+    };
+  }
+
+  it("writes the remembered prefix and rebuilds on the next turn", async () => {
+    const { factory, asked, builds } = makeRememberFactory("pnpm test --filter x");
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `remember-write-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const connectionToken = await connectedToken(channel);
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        {
+          sessionId,
+          callId: "call-1",
+          decision: "allow",
+          token: connectionToken,
+          remember: { prefixTokens: 2 },
+        },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(202);
+      const body = response.data as {
+        status: string;
+        remembered?: {
+          rule: { toolName: string; commandPrefix: string[]; decision: string };
+          outcome: string;
+          effectiveFrom: string;
+        };
+      };
+      expect(body.status).toBe("ok");
+      expect(body.remembered).toMatchObject({
+        rule: { toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" },
+        outcome: "saved",
+        effectiveFrom: "next_turn",
+      });
+
+      // The durable record is the file, in the shape the loader accepts.
+      const rules = await loadPermissionRules(rememberConfigDir);
+      expect(rules).toEqual([
+        { toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" },
+      ]);
+
+      // A second turn rebuilds because the session is dirty.
+      const buildsBefore = builds.length;
+      await post(
+        "/messages",
+        { sessionId, message: "again", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      // The second turn triggers a rebuild because permissionsDirty is true.
+      await until(() => builds.length > buildsBefore, 5000, "session did not rebuild");
+      expect(builds.length).toBeGreaterThan(buildsBefore);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("reports a prefix longer than the command without writing anything", async () => {
+    // Command is "pnpm test --filter x" (4 tokens); request prefix 5.
+    const { factory, asked } = makeRememberFactory("pnpm test --filter x");
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `remember-long-prefix-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const connectionToken = await connectedToken(channel);
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        {
+          sessionId,
+          callId: "call-1",
+          decision: "allow",
+          token: connectionToken,
+          remember: { prefixTokens: 5 },
+        },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(202);
+      const body = response.data as { remembered?: unknown; rememberError?: string };
+      expect(body.remembered).toBeUndefined();
+      expect(body.rememberError).toBeDefined();
+      expect(body.rememberError).toMatch(/prefix/i);
+      // permissions.json must not exist.
+      await expect(fs.readFile(path.join(rememberConfigDir, "permissions.json"), "utf-8")).rejects.toThrow();
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("refuses to remember for a call with no command", async () => {
+    // Reuse makeApprovalPendingFactory which parks { id: "call-1", name: "bash", input: {} }
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `remember-no-cmd-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const connectionToken = await connectedToken(channel);
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        {
+          sessionId,
+          callId: "call-1",
+          decision: "allow",
+          token: connectionToken,
+          remember: { prefixTokens: 1 },
+        },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(202);
+      const body = response.data as { remembered?: unknown; rememberError?: string };
+      expect(body.remembered).toBeUndefined();
+      expect(body.rememberError).toBeDefined();
+      expect(body.rememberError).toMatch(/command/i);
+      // permissions.json must not exist.
+      await expect(fs.readFile(path.join(rememberConfigDir, "permissions.json"), "utf-8")).rejects.toThrow();
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("still allows the call when the rule cannot be saved", async () => {
+    // chmod the config dir read-only before answering: the approval must still
+    // settle as allow, and the body must carry rememberError — never remembered.
+    const { factory, asked } = makeRememberFactory("ls -la");
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `remember-save-fail-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const connectionToken = await connectedToken(channel);
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      // Make the config dir read-only so the save fails.
+      await fs.chmod(rememberConfigDir, 0o555);
+
+      const response = await post(
+        "/approvals",
+        {
+          sessionId,
+          callId: "call-1",
+          decision: "allow",
+          token: connectionToken,
+          remember: { prefixTokens: 1 },
+        },
+        base,
+        ephemeralToken,
+      );
+      // The approval itself must have settled — the stub saw "allow".
+      // The remember error is a sidecar, not a replacement.
+      const body = response.data as { remembered?: unknown; rememberError?: string };
+      expect(body.remembered).toBeUndefined();
+      expect(body.rememberError).toBeTruthy();
+    } finally {
+      // Restore perms so cleanup can delete the dir.
+      await fs.chmod(rememberConfigDir, 0o755);
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("rejects a non-object remember with 400 and leaves the approval pending", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-remember-nonobj-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token, remember: "yes" },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(400);
+      expect((response.data as { error: string }).error).toBe("remember must be an object");
+
+      // The approval is still pending — the malformed body did not settle anything.
+      const retry = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+        ephemeralToken,
+      );
+      expect(retry.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("rejects unknown keys inside remember with 400", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-remember-smuggle-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token, remember: { prefixTokens: 2, decision: "deny" } },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(400);
+      expect((response.data as { error: string }).error).toContain("unknown key");
+
+      // Still pending — same approval can be settled with a clean body.
+      const retry = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+        ephemeralToken,
+      );
+      expect(retry.status).toBe(202);
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("rejects a non-integer prefixTokens", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-remember-nonint-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      for (const remember of [{ prefixTokens: "2" }, { prefixTokens: 0 }, { prefixTokens: -1 }, { prefixTokens: 1.5 }, {}]) {
+        const response = await post(
+          "/approvals",
+          { sessionId, callId: "call-1", decision: "allow", token, remember },
+          base,
+          ephemeralToken,
+        );
+        expect(response.status).toBe(400);
+      }
+    } finally {
+      channel.stop();
+      await close();
+    }
+  });
+
+  it("rejects remember on a deny decision with 400", async () => {
+    const { factory, asked } = makeApprovalPendingFactory();
+    const { base, launchToken: ephemeralToken, close } = await startEphemeralServerWithFactory(factory);
+    const sessionId = `approval-remember-deny-${Date.now()}`;
+    const channel = openEventChannel(sessionId, undefined, base, ephemeralToken);
+    try {
+      await channel.opened;
+      const token = await connectedToken(channel);
+
+      const config = await createProjectOn(base, ephemeralToken);
+      await post(
+        "/messages",
+        { sessionId, message: "hi", permissionMode: "ask", ...config },
+        base,
+        ephemeralToken,
+      );
+      await asked;
+
+      const response = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "deny", token, remember: { prefixTokens: 1 } },
+        base,
+        ephemeralToken,
+      );
+      expect(response.status).toBe(400);
+      expect((response.data as { error: string }).error).toBe("remember is only valid with decision: allow");
+
+      // Still pending.
+      const retry = await post(
+        "/approvals",
+        { sessionId, callId: "call-1", decision: "allow", token },
+        base,
+        ephemeralToken,
+      );
+      expect(retry.status).toBe(202);
+    } finally {
+      channel.stop();
       await close();
     }
   });

@@ -53,7 +53,7 @@ import { BUILT_IN_COMMANDS } from "./commands.js";
 import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
-import { createSessionRegistry } from "./sessions.js";
+import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
 import {
   createProjectStore,
   InvalidPathError,
@@ -748,6 +748,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           decision?: string;
           token?: string;
           answer?: unknown;
+          remember?: unknown;
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
@@ -778,20 +779,56 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           return;
         }
 
+        // Validate the `remember` field BEFORE the token check — a malformed
+        // body must never settle anything. `{prefixTokens: number}` is the
+        // only accepted shape; unknown keys are rejected to prevent rule
+        // smuggling. Only a COUNT crosses the wire: a client that could send
+        // a rule object could grant itself permissions.
+        let rememberCount: number | undefined;
+        if (body.remember !== undefined) {
+          if (body.decision !== "allow") {
+            jsonResponse(res, 400, { error: "remember is only valid with decision: allow" });
+            return;
+          }
+          if (typeof body.remember !== "object" || body.remember === null || Array.isArray(body.remember)) {
+            jsonResponse(res, 400, { error: "remember must be an object" });
+            return;
+          }
+          const remObj = body.remember as Record<string, unknown>;
+          const remKeys = Object.keys(remObj);
+          const allowedKeys = ["prefixTokens"];
+          const unknownRem = remKeys.filter((k) => !allowedKeys.includes(k));
+          if (unknownRem.length > 0) {
+            jsonResponse(res, 400, { error: `remember has unknown key(s): ${unknownRem.join(", ")} — expected prefixTokens` });
+            return;
+          }
+          if (!("prefixTokens" in remObj)) {
+            jsonResponse(res, 400, { error: "remember.prefixTokens is required" });
+            return;
+          }
+          const pt = remObj["prefixTokens"];
+          if (typeof pt !== "number" || !Number.isInteger(pt) || pt < 1) {
+            jsonResponse(res, 400, { error: "remember.prefixTokens must be a positive integer" });
+            return;
+          }
+          rememberCount = pt;
+        }
+
         // Bound to the SSE connection the approval was shown on — see
         // sessions.ts's decideApproval for the full threat model. A missing
         // or wrong token answers 403 with the exact same message an unknown
         // callId gets below, and is checked first, so a caller without the
         // connection token can never learn whether a given callId is
         // actually pending.
-        const result = registry.decideApproval(
+        const result: ApprovalDecisionOutcome = await registry.decideApproval(
           sessionId,
           body.callId,
           body.decision,
           body.token,
           body.answer as string[] | undefined,
+          rememberCount,
         );
-        if (result === "forbidden") {
+        if (result.status === "forbidden") {
           jsonResponse(res, 403, {
             error: `No pending approval ${body.callId} for session ${sessionId}`,
           });
@@ -800,14 +837,21 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // 409 rather than a silent 200: an unknown callId means the client's
         // card is stale (the approval already settled, or the session went
         // away), which it can surface instead of pretending it landed.
-        if (result === "unknown") {
+        if (result.status === "unknown") {
           jsonResponse(res, 409, {
             error: `No pending approval ${body.callId} for session ${sessionId}`,
           });
           return;
         }
 
-        jsonResponse(res, 202, { sessionId, callId: body.callId, settled: true });
+        // Build the receipt. A save error or semantic error is reported as
+        // `rememberError` — the approval itself succeeded (202).  The brief
+        // uses status: "ok" in the body; 202 already conveys the HTTP status.
+        jsonResponse(res, 202, {
+          status: "ok",
+          ...(result.remembered !== undefined ? { remembered: result.remembered } : {}),
+          ...(result.rememberError !== undefined ? { rememberError: result.rememberError } : {}),
+        });
       } catch (err: unknown) {
         if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);

@@ -11,8 +11,8 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput } from "@volto/core";
-import { projectMessages, isPermissionReminder } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule } from "@volto/core";
+import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
@@ -21,7 +21,8 @@ import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
-import { getConfigDirRealPath } from "./config/paths.js";
+import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
+import { savePermissionRule } from "./config/permissions.js";
 import type { StoreFor } from "./attachments/store.js";
 
 export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore" | "attachmentStore"> {
@@ -278,8 +279,29 @@ function resolveHostCompaction(
   return configured ?? DEFAULT_COMPACTION;
 }
 
-/** Outcome of `decideApproval` — see its doc comment for the full contract. */
-export type ApprovalDecisionResult = "ok" | "forbidden" | "unknown";
+/**
+ * What the user decided to remember about a command approval.
+ */
+export interface RememberedRule {
+  rule: PermissionRule;
+  outcome: "saved" | "duplicate" | "covered";
+  /** The saved rule is applied by the session rebuild at the start of the next turn. */
+  effectiveFrom: "next_turn";
+}
+
+/**
+ * Outcome of `decideApproval` — see its doc comment for the full contract.
+ *
+ * When the caller included `rememberCount` and the approval settled as allow,
+ * the outcome carries a `RememberedRule` receipt so the route can build the
+ * response.  A `rememberError` is a *semantic* failure (untokenizable command,
+ * out-of-range prefix, non-matchable token) — the approval itself succeeded;
+ * only the "remember" sidecar failed.
+ */
+export type ApprovalDecisionOutcome =
+  | { status: "forbidden" }
+  | { status: "unknown" }
+  | { status: "ok"; remembered?: RememberedRule; rememberError?: string };
 
 /**
  * Highest `turn` ordinal among a session's `turn_start` events, or
@@ -352,6 +374,21 @@ interface Session {
    */
   approvals: ApprovalRegistry;
   lastUsed: number;
+  /**
+   * Map from callId to the parked bash command string. Recorded by the
+   * approval gate's `onPending` hook so `decideApproval` can read the
+   * command when the user clicks "remember". Entries are deleted by the
+   * `onSettled` hook — the command is only available for the lifetime
+   * of the pending approval.
+   */
+  pendingCommands: Map<string, string>;
+  /**
+   * Set when a permission rule was successfully written (or already covered)
+   * during `decideApproval`. Checked at the next `runTurn` rebuild gate so
+   * the fresh rule takes effect immediately instead of waiting for the next
+   * config change.
+   */
+  permissionsDirty: boolean;
 }
 
 /** An event as an agent's stream() yields it.
@@ -463,6 +500,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         abort: null,
         approvals: createApprovalRegistry(approvalHooks(sessionId)),
         lastUsed: Date.now(),
+        pendingCommands: new Map(),
+        permissionsDirty: false,
       };
       sessions.set(sessionId, session);
       evictIfNeeded();
@@ -580,6 +619,16 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   function approvalHooks(sessionId: string): ApprovalRegistryHooks {
     return {
       onPending: (call, riskTier) => {
+        // Record the parked bash command so `decideApproval` can read it
+        // back when the user clicks "remember". Only bash tool calls carry
+        // a command; other tools record nothing.
+        if (call.name === "bash") {
+          const session = sessions.get(sessionId);
+          const command = (call.input as Record<string, unknown>)["command"];
+          if (typeof command === "string") {
+            session?.pendingCommands.set(call.id, command);
+          }
+        }
         if (call.name !== "ask_user") return;
         emitToSession(sessionId, {
           type: "approval_asked",
@@ -587,6 +636,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         });
       },
       onSettled: (callId, toolName, decision) => {
+        // Clean up the parked command recording — it is only valid for the
+        // lifetime of the pending approval. Runs BEFORE `decideApproval`
+        // reads it, so the read must happen before `settle()` (see that
+        // function's doc comment).
+        const session = sessions.get(sessionId);
+        session?.pendingCommands.delete(callId);
         if (toolName !== "ask_user") return;
         emitToSession(sessionId, {
           type: "approval_decision",
@@ -1017,7 +1072,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     let turnReachedStream = false;
     try {
       const { config, credentials } = await resolveConfig(requested);
-      if (!session.agent || !sameConfig(session.config, config)) {
+      if (!session.agent || !sameConfig(session.config, config) || session.permissionsDirty) {
+        session.permissionsDirty = false;
         await rebuild(session, config, credentials);
       }
 
@@ -1116,23 +1172,95 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * `"forbidden"` — so an unauthenticated caller learns nothing about
    * whether a given `callId` is actually pending.
    */
-  function decideApproval(
+  /**
+   * Settle one pending approval and, when the user included `rememberCount`,
+   * attempt to save a permission rule.  Semantic errors (untokenizable
+   * command, out-of-range prefix, non-matchable token) are reported as
+   * `rememberError` — the approval itself succeeded; only the sidecar failed.
+   *
+   * Order matters: the parked command is read BEFORE `settle()` because
+   * `settle()` triggers `onSettled`, which deletes the recording.  The save
+   * happens AFTER settle — a save failure rides on top of a settled allow,
+   * never instead of one.  A failed save does NOT set `permissionsDirty`
+   * (no pointless rebuild).
+   */
+  async function decideApproval(
     sessionId: string,
     callId: string,
     decision: ApprovalDecision,
     token: string | undefined,
     answer?: string[],
-  ): ApprovalDecisionResult {
+    rememberCount?: number,
+  ): Promise<ApprovalDecisionOutcome> {
     const session = sessions.get(sessionId);
     const connection = session?.connection;
     if (connection && (!token || !tokensMatch(token, connection.token))) {
-      return "forbidden";
+      return { status: "forbidden" };
     }
-    // `answer` rides untouched on the one-shot user decision (ask_user's
-    // response — see ApprovalResult.answer); the fail-closed paths above and
-    // in interrupt()/detach() never fabricate one.
-    if (!session?.approvals.settle(callId, decision, answer)) return "unknown";
-    return "ok";
+
+    // Read the command BEFORE settling: settle() runs onSettled, which drops
+    // the recording.
+    const command = rememberCount !== undefined ? session?.pendingCommands.get(callId) : undefined;
+
+    // Settle first: the user's "allow" must not depend on the bookkeeping that
+    // follows. A save failure rides on top of a settled approval, never
+    // instead of one (spec D6).
+    if (!session?.approvals.settle(callId, decision, answer)) {
+      return { status: "unknown" };
+    }
+
+    // --- "remember" sidecar ---
+    if (decision !== "allow" || rememberCount === undefined) {
+      return { status: "ok" };
+    }
+
+    const outcome = await rememberRule(session, command, rememberCount);
+    return "error" in outcome
+      ? { status: "ok", rememberError: outcome.error }
+      : { status: "ok", remembered: outcome.remembered };
+  }
+
+  /** Returns the receipt, or the reason the rule could not be written. */
+  async function rememberRule(
+    session: Session,
+    command: string | undefined,
+    prefixTokens: number,
+  ): Promise<{ remembered: RememberedRule } | { error: string }> {
+    if (command === undefined) {
+      return { error: "this approval has no command to remember" };
+    }
+    const tokens = tokenizeCommand(command);
+    if (tokens === null) {
+      return { error: "this command cannot be expressed as a prefix rule" };
+    }
+    if (!Number.isInteger(prefixTokens) || prefixTokens < 1 || prefixTokens > tokens.length) {
+      return { error: `prefixTokens must be between 1 and ${tokens.length}` };
+    }
+    const prefix = tokens.slice(0, prefixTokens);
+    if (!prefix.every(isMatchableCommandToken)) {
+      return { error: "this prefix contains a token that cannot be matched" };
+    }
+    try {
+      const result = await savePermissionRule(getConfigDir(), {
+        toolName: "bash",
+        commandPrefix: prefix,
+        decision: "allow",
+      });
+      // Only a written (or already-covered) rule earns the dirty flag: a
+      // failed save must not rebuild the session for nothing.
+      if (result.status === "saved" || result.status === "covered") {
+        session.permissionsDirty = true;
+      }
+      return {
+        remembered: {
+          rule: result.status === "covered" ? result.by : result.rule,
+          outcome: result.status,
+          effectiveFrom: "next_turn",
+        },
+      };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
