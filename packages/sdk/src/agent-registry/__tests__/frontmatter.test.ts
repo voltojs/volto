@@ -164,4 +164,12 @@ describe("parseAgentFile — parameter permission rules", () => {
     );
     expect(parsed).toHaveProperty("error");
   });
+
+  it("rejects a whitespace-only match key instead of letting it silently never match", () => {
+    const parsed = parseAgentFile(
+      '---\nname: blank\npolicy: { rules: [{ pathPattern: "   ", decision: deny }] }\n---\nbody',
+      "/p/param-e.md",
+    );
+    expect(parsed).toHaveProperty("error");
+  });
 });

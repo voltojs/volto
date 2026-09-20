@@ -238,7 +238,9 @@ function isPermissionRule(value: unknown): value is PermissionRule {
   }
   for (const key of RULE_MATCH_KEYS) {
     const raw = obj[key];
-    if (raw !== undefined && (typeof raw !== "string" || raw.length === 0)) return false;
+    if (raw !== undefined && (typeof raw !== "string" || raw.trim().length === 0)) {
+      return false;
+    }
   }
   // A rule with no match key would match every tool call; reject it at the
   // definition instead of letting it become a blanket deny.
