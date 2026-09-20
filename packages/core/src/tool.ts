@@ -70,6 +70,13 @@ export interface ToolDefinition {
   pathInputs?: string[];
   /** Input properties whose values are URLs; the Runner extracts the hostname. */
   hostInputs?: string[];
+  /**
+   * Input properties whose values are free-text shell commands. The Runner
+   * collects their values and hands them to the permission decision, where a
+   * `commandPrefix` rule may match them. A tool that declares none can never
+   * match a command rule.
+   */
+  commandInputs?: string[];
 }
 
 // ──────────────────────────────────────────────

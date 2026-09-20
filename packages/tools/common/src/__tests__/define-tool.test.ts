@@ -42,4 +42,17 @@ describe("defineTool — parameter declarations", () => {
     expect(tool.definition.pathInputs).toBeUndefined();
     expect(tool.definition.hostInputs).toBeUndefined();
   });
+
+  it("carries commandInputs for a free-text command tool", () => {
+    const tool = defineTool({
+      name: "bash",
+      description: "run",
+      schema: z.object({ command: z.string() }),
+      requires: ["shell:exec"],
+      riskTier: "WRITE_HIGH",
+      commandInputs: ["command"],
+      run: async () => ({ modelContent: "ok" }),
+    });
+    expect(tool.definition.commandInputs).toEqual(["command"]);
+  });
 });

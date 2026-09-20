@@ -18,6 +18,7 @@ export function defineTool<S extends z.ZodType>(spec: {
   trust?: "trusted" | "untrusted";
   pathInputs?: string[];
   hostInputs?: string[];
+  commandInputs?: string[];
   run: (input: z.infer<S>) => Promise<ToolResult>;
 }): Tool {
   const definition: ToolDefinition = {
@@ -29,6 +30,7 @@ export function defineTool<S extends z.ZodType>(spec: {
     trust: spec.trust,
     pathInputs: spec.pathInputs,
     hostInputs: spec.hostInputs,
+    commandInputs: spec.commandInputs,
   };
 
   return {
