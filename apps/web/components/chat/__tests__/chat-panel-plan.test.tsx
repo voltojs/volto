@@ -13,7 +13,7 @@
  * 派发用 welcome 分支（entries 为空）——两条分支都避开了 tiptap / Markdown
  * 等纯展示子树。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ChatPanel } from '../ChatPanel';
 import { useSessionStore } from '@/stores/session-store';
@@ -203,5 +203,61 @@ describe('ChatPanel — 「按计划执行」派发', () => {
       .getState()
       .sessions.find((s) => s.id === 'session-1')?.permissionMode;
     expect(mode).toBe('auto');
+  });
+});
+
+// welcome 屏的 /plan（用户实测踩坑）：无活动会话时不能把 "/plan" 原文发给
+// 服务器（/plan 模板已移除 → "Unknown command"）——应当以 plan 档创建会话
+// 并发送计划提示。
+vi.mock('@/components/chat/InputBar', () => ({
+  InputBar: (props: { onInputAction?: (action: string, rawText?: string) => void }) => (
+    <button
+      type="button"
+      data-testid="stub-enter-plan"
+      onClick={() => props.onInputAction?.('enter-plan', '/plan 重构登录')}
+    >
+      stub-input
+    </button>
+  ),
+}));
+
+describe('ChatPanel — welcome 屏的 /plan', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })),
+    );
+    mocks.sendMessage.mockClear();
+    useSessionStore.setState({
+      currentSessionId: null,
+      planPreviousMode: null,
+      pendingProjectId: 'proj-1',
+      sessions: [],
+    });
+    useConfigStore.setState({
+      projects: [{ id: 'proj-1', name: 'P', path: '/tmp/p', createdAt: 0 }],
+      providers: [
+        { id: 'prov-1', name: 'P', models: [{ id: 'm1', code: 'model-1' }] },
+      ] as never,
+    });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('以 plan 档创建会话并发送计划提示，而不是把 /plan 原文发出去', async () => {
+    render(<ChatPanel />);
+    fireEvent.click(screen.getByTestId('stub-enter-plan'));
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalled());
+
+    const sent = mocks.sendMessage.mock.calls[0]?.[0] as string;
+    expect(sent).toContain('计划模式');
+    expect(sent).toContain('目标：重构登录');
+
+    const store = useSessionStore.getState();
+    expect(store.sessions).toHaveLength(1);
+    expect(store.sessions[0]?.permissionMode).toBe('plan');
+    expect(store.currentSessionId).toBe(store.sessions[0]?.id);
+    // welcome 没有进入前档位：planPreviousMode 保持 null（执行回退 ask）。
+    expect(store.planPreviousMode).toBeNull();
   });
 });
