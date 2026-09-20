@@ -19,19 +19,16 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Decision, PermissionConfig, PermissionRule } from "@volto/core";
+import { isMatchableCommandToken } from "@volto/core";
 
 const TOP_LEVEL_KEYS = ["rules"] as const;
-const RULE_KEYS = [
-  "toolName",
-  "toolPattern",
-  "capability",
-  "pathPattern",
-  "hostPattern",
-  "decision",
-] as const;
-const MATCH_KEYS = ["toolName", "toolPattern", "capability", "pathPattern", "hostPattern"] as const;
+const STRING_MATCH_KEYS = ["toolName", "toolPattern", "capability", "pathPattern", "hostPattern"] as const;
+/** Every key that can make a rule match, including the array-valued one. */
+const MATCH_KEYS = [...STRING_MATCH_KEYS, "commandPrefix"] as const;
+const RULE_KEYS = [...MATCH_KEYS, "decision"] as const;
 const DECISIONS: ReadonlySet<string> = new Set<Decision>(["allow", "deny", "ask"]);
 const MAX_RULES = 100;
+const MAX_COMMAND_TOKENS = 8;
 
 export class PermissionRulesConfigError extends Error {
   constructor(message: string) {
@@ -67,7 +64,7 @@ function parseRule(value: unknown, index: number): PermissionRule {
   }
 
   const rule: PermissionRule = { decision: decision as Decision };
-  for (const key of MATCH_KEYS) {
+  for (const key of STRING_MATCH_KEYS) {
     const raw = obj[key];
     if (raw === undefined) continue;
     if (typeof raw !== "string" || raw.trim().length === 0) {
@@ -81,11 +78,54 @@ function parseRule(value: unknown, index: number): PermissionRule {
     else rule.hostPattern = value;
   }
 
+  // commandPrefix is array-valued — handled separately from the string-key loop.
+  const commandPrefix = obj["commandPrefix"];
+  if (commandPrefix !== undefined) {
+    if (!Array.isArray(commandPrefix) || commandPrefix.length === 0) {
+      throw new PermissionRulesConfigError(
+        `${where}.commandPrefix must be a non-empty array of tokens`,
+      );
+    }
+    if (commandPrefix.length > MAX_COMMAND_TOKENS) {
+      throw new PermissionRulesConfigError(
+        `${where}.commandPrefix supports at most ${MAX_COMMAND_TOKENS} tokens`,
+      );
+    }
+    for (const token of commandPrefix) {
+      if (typeof token !== "string" || !isMatchableCommandToken(token)) {
+        throw new PermissionRulesConfigError(
+          `${where}.commandPrefix tokens must be non-empty strings without whitespace or shell metacharacters`,
+        );
+      }
+    }
+    rule.commandPrefix = [...(commandPrefix as string[])];
+  }
+
   if (!MATCH_KEYS.some((key) => rule[key] !== undefined)) {
     throw new PermissionRulesConfigError(
       `${where} needs at least one match key (${MATCH_KEYS.join(" / ")})`,
     );
   }
+
+  // Cross-constraints for command prefix rules.
+  if (rule.commandPrefix !== undefined) {
+    // A command-only rule would silently start matching any future tool that
+    // declares a command input (an ssh/docker executor, say). Require the
+    // author to name the tool.
+    if (rule.toolName === undefined && rule.toolPattern === undefined) {
+      throw new PermissionRulesConfigError(
+        `${where}.commandPrefix requires a toolName or toolPattern match key`,
+      );
+    }
+    // Allow-only: a deny/ask prefix rule fails open on everything it does not
+    // match, which is the illusion this feature must not create.
+    if (rule.decision !== "allow") {
+      throw new PermissionRulesConfigError(
+        `${where}.commandPrefix is allow-only; a "${rule.decision}" rule would permit whatever it fails to match`,
+      );
+    }
+  }
+
   return rule;
 }
 

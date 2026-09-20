@@ -104,6 +104,50 @@ describe("loadPermissionRules", () => {
   });
 });
 
+describe("loadPermissionRules — command rules", () => {
+  it("loads an allow command rule", async () => {
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" }] });
+    expect(await loadPermissionRules(dir)).toEqual([
+      { toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" },
+    ]);
+  });
+
+  it("rejects a deny or ask command rule", async () => {
+    for (const decision of ["deny", "ask"]) {
+      await write({ rules: [{ toolName: "bash", commandPrefix: ["rm"], decision }] });
+      await expect(loadPermissionRules(dir)).rejects.toThrow(/allow-only/i);
+    }
+  });
+
+  it("rejects a command rule with no tool key", async () => {
+    await write({ rules: [{ commandPrefix: ["pnpm", "test"], decision: "allow" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(/toolName or toolPattern/i);
+  });
+
+  it("rejects an empty commandPrefix array", async () => {
+    await write({ rules: [{ toolName: "bash", commandPrefix: [], decision: "allow" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(/non-empty array/i);
+  });
+
+  it("rejects non-string, blank and over-long token lists", async () => {
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", 1], decision: "allow" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(/non-empty strings/i);
+
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", " "], decision: "allow" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(/non-empty strings/i);
+
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["a", "b", "c", "d", "e", "f", "g", "h", "i"], decision: "allow" }] });
+    await expect(loadPermissionRules(dir)).rejects.toThrow(/at most 8/i);
+  });
+
+  it("rejects a token that could never match a command", async () => {
+    for (const token of ["test*", "a|b", "~"]) {
+      await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", token], decision: "allow" }] });
+      await expect(loadPermissionRules(dir)).rejects.toThrow(/without whitespace or shell metacharacters/i);
+    }
+  });
+});
+
 describe("mergePermissionRules", () => {
   it("puts user rules ahead of the preset's own rules (first match wins)", () => {
     const merged = mergePermissionRules(
