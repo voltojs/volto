@@ -4,6 +4,7 @@ import type {
   TranscriptEventMap,
 } from '@volto/core';
 import type { CommandRiskKind } from '@volto/sdk/sse';
+import { isMatchableCommandToken, tokenizeCommand } from '@volto/sdk/sse';
 
 /**
  * User-facing wording for a settled denial, keyed by the reason the gate
@@ -202,4 +203,36 @@ export function selectPendingApprovals(
   }
 
   return [...pending.values()];
+}
+
+/** v1 remembers bash prefixes only — see the approval-remember spec (D9). */
+const REMEMBER_TOOL = 'bash';
+const MAX_REMEMBER_TOKENS = 8;
+
+/**
+ * Prefix candidates a user may remember for this approval, shortest first.
+ *
+ * Returns [] when the command cannot be expressed as a rule at all — a
+ * compound command, an untokenizable one, or one whose leading tokens are not
+ * matchable. The card shows no "always allow" entry in that case rather than
+ * offering a button whose label would be wider than its effect.
+ *
+ * This is the one place the web reads `input.command` by name. The display
+ * path deliberately stays schema-agnostic (see `soleStringArg`); a remember
+ * flow scoped to bash may name bash's field, and keeping it here means a
+ * future second command-bearing tool has one function to generalise.
+ */
+export function rememberablePrefixes(approval: PendingApproval): string[][] {
+  if (approval.toolName !== REMEMBER_TOOL) return [];
+  const command = approval.input?.['command'];
+  if (typeof command !== 'string') return [];
+  const tokens = tokenizeCommand(command);
+  if (tokens === null) return [];
+  const prefixes: string[][] = [];
+  for (let size = 1; size <= tokens.length && size <= MAX_REMEMBER_TOKENS; size++) {
+    const prefix = tokens.slice(0, size);
+    if (!prefix.every(isMatchableCommandToken)) break;
+    prefixes.push(prefix);
+  }
+  return prefixes;
 }
