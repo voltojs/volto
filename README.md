@@ -52,6 +52,25 @@ pnpm dev
 
 精确主机名匹配（大小写不敏感，无通配符），denylist 优先，被拒请求得到结构化 403；配置损坏会拒绝启动而非静默失效；改动对新构建的会话生效。**边界：该策略只作用于 Network port——模型自身的传输与 bash 里启动的任何进程（curl 等）都不经过它**，别把它当机器的出站防火墙。
 
+### 参数级权限规则
+
+`~/.volto/permissions.json`（改动在下一次会话重建时生效）：
+
+```json
+{
+  "rules": [
+    { "pathPattern": "**/.env", "decision": "ask" },
+    { "toolName": "write_file", "pathPattern": "src/**", "decision": "allow" },
+    { "hostPattern": "*.internal.example", "decision": "ask" }
+  ]
+}
+```
+
+- 规则按顺序匹配，第一条命中生效；`allow` / `deny` / `ask` 三档。
+- 路径同时按绝对真实路径与工作区相对路径匹配，软链接会被跟随。
+- 规则只能收紧权限，或在不越过沙箱边界的前提下减少询问；`read-only` 下任何 `allow` 规则都不会放行写入。
+- 只对声明了路径 / URL 入参的工具生效，`bash` 不在此列。域名的硬边界是 `egress.json`。
+
 ## 文档
 
 | 文档 | 路径 | 用途 |
