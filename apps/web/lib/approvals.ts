@@ -74,6 +74,25 @@ function isAskUserOptionArray(value: unknown): value is AskUserOption[] {
   );
 }
 
+/**
+ * Receipt from `POST /approvals` carrying the remember-rule outcome.
+ *
+ * `remembered` is present when the rule was written or already covered.
+ * `rememberError` is present when the save failed — the approval itself
+ * still succeeded; this is NOT an error state for the approval.
+ *
+ * Both fields are optional: a plain allow/deny without remember returns
+ * neither; a 409 (stale card) returns `{}`.
+ */
+export interface ApprovalOutcome {
+  remembered?: {
+    rule: unknown;
+    outcome: string;
+    effectiveFrom: string;
+  };
+  rememberError?: string;
+}
+
 /** One approval the agent is currently blocked on. */
 export interface PendingApproval {
   callId: string;

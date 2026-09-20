@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { CircleHelp, ShieldAlert } from 'lucide-react';
 import { classifyCommandRisk } from '@volto/sdk/sse';
 import { Button } from '@/components/ui/button';
-import { riskNoteFor } from '@/lib/approvals';
-import type { PendingApproval } from '@/lib/approvals';
+import { riskNoteFor, rememberablePrefixes } from '@/lib/approvals';
+import type { PendingApproval, ApprovalOutcome } from '@/lib/approvals';
 
 interface ApprovalCardProps {
   approval: PendingApproval;
@@ -13,7 +13,8 @@ interface ApprovalCardProps {
     callId: string,
     decision: 'allow' | 'deny',
     answer?: string[],
-  ) => Promise<void>;
+    remember?: { prefixTokens: number },
+  ) => Promise<ApprovalOutcome | void>;
 }
 
 /**
@@ -154,12 +155,19 @@ function AskUserForm({
  */
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const [busy, setBusy] = useState(false);
+  const [rememberSize, setRememberSize] = useState<number | null>(null);
+  const [receipt, setReceipt] = useState<ApprovalOutcome | null>(null);
 
-  const decide = async (decision: 'allow' | 'deny', answer?: string[]) => {
+  const decide = async (
+    decision: 'allow' | 'deny',
+    answer?: string[],
+    remember?: { prefixTokens: number },
+  ) => {
     if (busy) return;
     setBusy(true);
     try {
-      await onDecide(approval.callId, decision, answer);
+      const outcome = await onDecide(approval.callId, decision, answer, remember);
+      if (outcome) setReceipt(outcome);
     } finally {
       // The card disappears when the decision event lands; releasing here
       // covers the failure path, where it stays and must stay clickable.
@@ -214,6 +222,47 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           ))}
         </ul>
       ) : null}
+
+      {(() => {
+        const prefixes = rememberablePrefixes(approval);
+        if (prefixes.length === 0) return null;
+        const selected = rememberSize ?? prefixes.at(-1)?.length ?? 0;
+        const selectedPrefix = prefixes.find((p) => p.length === selected);
+        return (
+          <fieldset className="mt-3 rounded border border-border/60 p-2">
+            <legend className="px-1 text-xs">始终允许…</legend>
+            <div className="space-y-1">
+              {prefixes.map((prefix) => (
+                <label key={prefix.join(' ')} className="flex items-center gap-2 font-mono text-xs">
+                  <input
+                    type="radio"
+                    name={`remember-${approval.callId}`}
+                    checked={selected === prefix.length}
+                    onChange={() => setRememberSize(prefix.length)}
+                    className="accent-primary mt-0.5"
+                  />
+                  {prefix.join(' ')}
+                </label>
+              ))}
+            </div>
+            <p className="text-muted-foreground mt-2 text-xs">
+              将写入 <code>~/.volto/permissions.json</code>：
+              <code className="ml-1">{JSON.stringify({ toolName: 'bash', commandPrefix: selectedPrefix, decision: 'allow' })}</code>
+              （用户级，对所有项目生效；下一轮生效）
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              className="mt-2"
+              onClick={() => void decide('allow', undefined, { prefixTokens: selected })}
+            >
+              记住并允许
+            </Button>
+          </fieldset>
+        );
+      })()}
+
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
           允许一次
@@ -227,6 +276,17 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           拒绝
         </Button>
       </div>
+
+      {receipt?.remembered ? (
+        <p className="text-muted-foreground mt-2 text-xs">
+          已保存：<code>{JSON.stringify(receipt.remembered.rule)}</code>
+          {receipt.remembered.outcome === 'covered' ? '（已被现有更宽规则覆盖，未重复写入）' : ''}
+          ，下一轮生效。
+        </p>
+      ) : null}
+      {receipt?.rememberError ? (
+        <p className="text-destructive/90 mt-2 text-xs">未能保存规则：{receipt.rememberError}</p>
+      ) : null}
     </div>
   );
 }

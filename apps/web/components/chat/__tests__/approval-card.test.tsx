@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApprovalCard } from '../ApprovalCard';
@@ -11,6 +11,77 @@ const askApproval: PendingApproval = {
   question: '选择一个方案',
   options: [{ label: '方案 A', description: '改动最小' }, { label: '方案 B' }],
 };
+
+// ── remember (Task 4) ──────────────────────────────────────────────────────
+
+function bashApproval(command: string): PendingApproval {
+  return {
+    callId: 'c1',
+    toolName: 'bash',
+    riskTier: 'WRITE_HIGH',
+    input: { command },
+  };
+}
+
+describe('ApprovalCard remember 功能', () => {
+  let onDecide: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    onDecide = vi.fn().mockResolvedValue(undefined);
+  });
+
+  it('为简单 bash 命令展示前缀选择器，默认选中完整 argv', () => {
+    render(<ApprovalCard approval={bashApproval('pnpm test --filter x')} onDecide={onDecide} />);
+    expect(screen.getByText('始终允许…')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'pnpm test --filter x' })).toBeChecked();
+  });
+
+  it('复合命令不展示 remember 入口', () => {
+    render(<ApprovalCard approval={bashApproval('pnpm test; rm -rf /tmp/x')} onDecide={onDecide} />);
+    expect(screen.queryByText('始终允许…')).toBeNull();
+  });
+
+  it('发送选中的前缀 token 数并渲染回执', async () => {
+    const user = userEvent.setup();
+    onDecide.mockResolvedValue({
+      remembered: { rule: { toolName: 'bash', commandPrefix: ['pnpm'], decision: 'allow' }, outcome: 'saved', effectiveFrom: 'next_turn' },
+    });
+    render(<ApprovalCard approval={bashApproval('pnpm test')} onDecide={onDecide} />);
+    await user.click(screen.getByRole('radio', { name: 'pnpm' }));
+    await user.click(screen.getByRole('button', { name: '记住并允许' }));
+    expect(onDecide).toHaveBeenCalledWith('c1', 'allow', undefined, { prefixTokens: 1 });
+    expect(await screen.findByText(/已保存/)).toBeInTheDocument();
+  });
+
+  it('规则保存失败时如实展示，不显示"已保存"文本', async () => {
+    const user = userEvent.setup();
+    onDecide.mockResolvedValue({ rememberError: 'permissions.json: rules[0] …' });
+    render(<ApprovalCard approval={bashApproval('pnpm test')} onDecide={onDecide} />);
+    await user.click(screen.getByRole('button', { name: '记住并允许' }));
+    expect(await screen.findByText(/未能保存规则/)).toBeInTheDocument();
+    expect(screen.queryByText(/已保存/)).toBeNull();
+  });
+
+  it('covered 结果展示已覆盖提示', async () => {
+    const user = userEvent.setup();
+    onDecide.mockResolvedValue({
+      remembered: { rule: { toolName: 'bash', commandPrefix: ['pnpm'], decision: 'allow' }, outcome: 'covered', effectiveFrom: 'next_turn' },
+    });
+    render(<ApprovalCard approval={bashApproval('pnpm test')} onDecide={onDecide} />);
+    await user.click(screen.getByRole('button', { name: '记住并允许' }));
+    expect(await screen.findByText(/已被现有更宽规则覆盖/)).toBeInTheDocument();
+  });
+
+  it('非 bash 工具不展示 remember 入口', () => {
+    render(
+      <ApprovalCard
+        approval={{ callId: 'c2', toolName: 'write_file', riskTier: 'WRITE_HIGH', input: { path: 'a.ts' } }}
+        onDecide={onDecide}
+      />,
+    );
+    expect(screen.queryByText('始终允许…')).toBeNull();
+  });
+});
 
 describe('ApprovalCard ask_user 分支', () => {
   it('单选渲染 radio 与"其他"自由输入框', () => {
@@ -70,7 +141,9 @@ describe('ApprovalCard ask_user 分支', () => {
     await user.type(screen.getByPlaceholderText(/其他/), '补充说明');
     await user.click(screen.getByRole('button', { name: '提交回答' }));
     expect(onDecide).toHaveBeenCalledTimes(1);
-    expect(onDecide).toHaveBeenCalledWith('ask-1', 'allow', [
+    expect(onDecide.mock.calls[0]?.[0]).toBe('ask-1');
+    expect(onDecide.mock.calls[0]?.[1]).toBe('allow');
+    expect(onDecide.mock.calls[0]?.[2]).toEqual([
       '方案 B',
       '方案 A',
       '补充说明',
@@ -84,7 +157,9 @@ describe('ApprovalCard ask_user 分支', () => {
     await user.click(screen.getByRole('radio', { name: /方案 A/ }));
     await user.click(screen.getByRole('button', { name: '提交回答' }));
     expect(onDecide).toHaveBeenCalledTimes(1);
-    expect(onDecide).toHaveBeenCalledWith('ask-1', 'allow', ['方案 A']);
+    expect(onDecide.mock.calls[0]?.[0]).toBe('ask-1');
+    expect(onDecide.mock.calls[0]?.[1]).toBe('allow');
+    expect(onDecide.mock.calls[0]?.[2]).toEqual(['方案 A']);
   });
 
   it('跳过 → deny 且不带 answer', async () => {

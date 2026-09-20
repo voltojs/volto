@@ -14,6 +14,7 @@
 
 import { createSSEClient } from '@volto/sdk/sse';
 import type { ConnectionState, EventSourceLike } from '@volto/sdk/sse';
+import type { ApprovalOutcome } from '@/lib/approvals';
 
 export { createSSEClient };
 export type { ConnectionState };
@@ -153,7 +154,8 @@ export async function postApproval(
   decision: 'allow' | 'deny',
   token: string | null,
   answer?: string[],
-): Promise<boolean> {
+  remember?: { prefixTokens: number },
+): Promise<ApprovalOutcome> {
   const response = await fetch(`${SERVER_URL}/approvals`, {
     method: 'POST',
     credentials: 'include',
@@ -164,18 +166,21 @@ export async function postApproval(
       decision,
       ...(token ? { token } : {}),
       ...(answer !== undefined ? { answer } : {}),
+      ...(remember ? { remember } : {}),
     }),
   });
 
-  if (response.ok) return true;
-  if (response.status === 409) return false;
-
-  const detail = (await response.json().catch(() => null)) as {
-    error?: string;
-  } | null;
-  throw new Error(
-    detail?.error ?? `Request failed with HTTP ${response.status}`,
-  );
+  if (response.status === 409) return {};
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      detail?.error ?? `Request failed with HTTP ${response.status}`,
+    );
+  }
+  const body = (await response.json().catch(() => null)) as ApprovalOutcome | null;
+  return body ?? {};
 }
 
 // ── Command / skill catalog (slash menu data sources) ──────────────────────

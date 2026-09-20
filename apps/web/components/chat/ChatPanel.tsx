@@ -32,7 +32,7 @@ import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
-import { selectPendingApprovals } from '@/lib/approvals';
+import { selectPendingApprovals, type ApprovalOutcome } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
@@ -308,10 +308,11 @@ export function ChatPanel() {
       callId: string,
       decision: 'allow' | 'deny',
       answer?: string[],
-    ): Promise<void> => {
+      remember?: { prefixTokens: number },
+    ): Promise<ApprovalOutcome | void> => {
       if (!currentSessionId) return;
       try {
-        await postApproval(
+        return await postApproval(
           currentSessionId,
           callId,
           decision,
@@ -319,6 +320,7 @@ export function ChatPanel() {
           // 仅 ask_user 卡片携带（选中 label 与自由输入的归并）；网关在
           // settle 前校验为 string[]。其余审批 undefined，请求体不带该字段。
           answer,
+          remember,
         );
       } catch (error) {
         const message =
