@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
-import { FolderTree, GitBranch, ListTodo } from 'lucide-react';
+import { ClipboardList, FolderTree, GitBranch, ListTodo } from 'lucide-react';
 import { fetchGitSummary, type GitSummary } from '@/lib/git-api';
+import { fetchPlan } from '@/lib/sessions-api';
+import { useSessionStore } from '@/stores/session-store';
 import { openTasksTab, usePaneStore } from '@/stores/pane-store';
 
 /**
@@ -51,6 +53,8 @@ function PaneCategoryItemsInner({
   onSelected?: () => void;
 }) {
   const [summary, setSummary] = useState<GitSummary | null>(null);
+  const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  const [hasPlan, setHasPlan] = useState(false);
 
   // No synchronous setState in the effect body (react-hooks/set-state-in-effect);
   // projectId is fixed for this mount, so the probe runs once and cancelled
@@ -71,6 +75,27 @@ function PaneCategoryItemsInner({
       cancelled = true;
     };
   }, [projectId]);
+
+  // 计划存在性探测：仅活动会话有计划时露出「计划」入口。失败按"无计划"
+  // 处理（与 git 探测的探测失败语义一致）。
+  useEffect(() => {
+    if (currentSessionId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 会话切换时同步收起入口
+      setHasPlan(false);
+      return;
+    }
+    let cancelled = false;
+    fetchPlan(currentSessionId)
+      .then((plan) => {
+        if (!cancelled) setHasPlan(plan !== null);
+      })
+      .catch(() => {
+        if (!cancelled) setHasPlan(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId]);
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -96,6 +121,22 @@ function PaneCategoryItemsInner({
           label="Git 图谱"
           onClick={() => {
             openPaneCategory(projectId, 'git-graph');
+            onSelected?.();
+          }}
+        />
+      )}
+      {hasPlan && currentSessionId !== null && (
+        // 关闭计划标签后的重开入口：id 取 sessionId，与 turn-end 自动打开
+        // 的标签同 id（openTab 按 id 去重，重开等于激活）。
+        <CategoryButton
+          icon={ClipboardList}
+          label="计划"
+          onClick={() => {
+            usePaneStore.getState().openTab({
+              kind: 'plan',
+              id: currentSessionId,
+              sessionId: currentSessionId,
+            });
             onSelected?.();
           }}
         />
