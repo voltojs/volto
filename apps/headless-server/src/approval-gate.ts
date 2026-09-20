@@ -28,11 +28,22 @@ import type {
 /**
  * What a client may answer at an approval prompt.
  *
- * One-shot only. A session-scoped "always allow" used to exist here; it was
- * removed because a grant that outlives model switches, project switches and
- * a downgrade of the permission preset is a scope no user can predict --
- * granting it under `auto` left `bash` running after a downgrade to
- * `read-only`. If a persistent grant returns, it must be turn-scoped.
+ * The gate itself remains one-shot: every call is settled exactly once, by
+ * an explicit user click or a fail-closed path.  The earlier prohibition on
+ * persistent grants ("if a persistent grant returns, it must be
+ * turn-scoped") ruled on *in-session implicit grants* — the deleted
+ * `dynamicRules` that silently persisted across model / project switches
+ * and preset downgrades (see spec §1.4, 2026-09-10).
+ *
+ * The "remember" feature (spec 2026-09-20) takes a fundamentally different
+ * path: the user explicitly chooses to write a rule to the *visible,
+ * user-editable* file `~/.volto/permissions.json`, subject to the same
+ * ceiling clamp and R1/R2 caveats as hand-written rules.  The file is
+ * user-level (applies to every project) and takes effect on the *next*
+ * turn — the current turn may still ask again.  This is not a session-
+ * scoped override; it is a durable, inspectable, deletable config entry
+ * that the user chose to create.  See `permissions.ts` for the write path
+ * and `sessions.ts` for the rebuild-on-dirty-flag mechanism.
  */
 export type ApprovalDecision = "allow" | "deny";
 
