@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadPermissionRules, mergePermissionRules, PermissionRulesConfigError } from "../config/permissions.js";
+import {
+  loadPermissionRules,
+  mergePermissionRules,
+  validatePermissionRule,
+  savePermissionRule,
+  PermissionRulesConfigError,
+} from "../config/permissions.js";
 
 let dir: string;
 
@@ -163,5 +169,70 @@ describe("mergePermissionRules", () => {
   it("returns the config untouched when there are no user rules", () => {
     const config = { sandbox: "workspace-write" as const, approval: "ask" as const };
     expect(mergePermissionRules(config, [])).toBe(config);
+  });
+});
+
+describe("savePermissionRule", () => {
+  const candidate = { toolName: "bash", commandPrefix: ["pnpm", "test"], decision: "allow" };
+
+  it("appends a new rule without disturbing the existing ones", async () => {
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["git", "status"], decision: "allow" }] });
+    const result = await savePermissionRule(dir, candidate);
+    expect(result).toEqual({ status: "saved", rule: candidate });
+    expect(await loadPermissionRules(dir)).toEqual([
+      { toolName: "bash", commandPrefix: ["git", "status"], decision: "allow" },
+      candidate,
+    ]);
+  });
+
+  it("creates the file when it does not exist yet", async () => {
+    const result = await savePermissionRule(dir, candidate);
+    expect(result.status).toBe("saved");
+    expect(await loadPermissionRules(dir)).toEqual([candidate]);
+  });
+
+  it("reports an identical rule as a duplicate instead of writing it twice", async () => {
+    await write({ rules: [candidate] });
+    expect(await savePermissionRule(dir, candidate)).toEqual({ status: "duplicate", rule: candidate });
+    expect(await loadPermissionRules(dir)).toHaveLength(1);
+  });
+
+  it("reports a rule already covered by a broader prefix", async () => {
+    await write({ rules: [candidate] });
+    const narrower = { toolName: "bash", commandPrefix: ["pnpm", "test", "--filter", "x"], decision: "allow" };
+    expect(await savePermissionRule(dir, narrower)).toEqual({ status: "covered", by: candidate });
+    expect(await loadPermissionRules(dir)).toHaveLength(1);
+  });
+
+  it("does not treat a different tool or a narrower existing rule as coverage", async () => {
+    await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test", "extra"], decision: "allow" }] });
+    expect((await savePermissionRule(dir, candidate)).status).toBe("saved");
+    await write({ rules: [{ toolName: "other", commandPrefix: ["pnpm"], decision: "allow" }] });
+    expect((await savePermissionRule(dir, candidate)).status).toBe("saved");
+  });
+
+  it("rejects a candidate the loader would reject", async () => {
+    await expect(savePermissionRule(dir, { toolName: "bash", commandPrefix: [], decision: "allow" })).rejects.toThrow(
+      PermissionRulesConfigError,
+    );
+    await expect(savePermissionRule(dir, { commandPrefix: ["pnpm"], decision: "allow" })).rejects.toThrow(
+      /toolName or toolPattern/,
+    );
+    await expect(
+      savePermissionRule(dir, { toolName: "bash", commandPrefix: ["pnpm"], decision: "deny" }),
+    ).rejects.toThrow(/allow-only/);
+  });
+
+  it("refuses to overwrite a corrupt file", async () => {
+    await fs.writeFile(path.join(dir, "permissions.json"), "{ not json", "utf-8");
+    await expect(savePermissionRule(dir, candidate)).rejects.toThrow();
+    expect(await fs.readFile(path.join(dir, "permissions.json"), "utf-8")).toBe("{ not json");
+  });
+
+  it("serialises concurrent saves so neither is lost", async () => {
+    const a = { toolName: "bash", commandPrefix: ["a"], decision: "allow" };
+    const b = { toolName: "bash", commandPrefix: ["b"], decision: "allow" };
+    await Promise.all([savePermissionRule(dir, a), savePermissionRule(dir, b)]);
+    expect(await loadPermissionRules(dir)).toHaveLength(2);
   });
 });

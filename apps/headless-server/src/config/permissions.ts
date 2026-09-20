@@ -20,6 +20,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Decision, PermissionConfig, PermissionRule } from "@volto/core";
 import { isMatchableCommandToken } from "@volto/core";
+import { readJsonFile, writeJsonFileAtomic } from "./io.js";
 
 const TOP_LEVEL_KEYS = ["rules"] as const;
 const STRING_MATCH_KEYS = ["toolName", "toolPattern", "capability", "pathPattern", "hostPattern"] as const;
@@ -44,8 +45,7 @@ function expandHome(pattern: string): string {
   return pattern;
 }
 
-function parseRule(value: unknown, index: number): PermissionRule {
-  const where = `permissions.json: rules[${index}]`;
+function parseRule(value: unknown, where: string): PermissionRule {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new PermissionRulesConfigError(`${where} must be an object`);
   }
@@ -129,6 +129,16 @@ function parseRule(value: unknown, index: number): PermissionRule {
   return rule;
 }
 
+/**
+ * Validate one rule with the loader's own constraints. Exported so the
+ * one-click "remember" path cannot drift from what the loader accepts —
+ * two copies of "allow-only, tool-scoped, ≤8 matchable tokens" is exactly
+ * how a saved rule ends up being one the loader later refuses.
+ */
+export function validatePermissionRule(value: unknown, where = "remembered rule"): PermissionRule {
+  return parseRule(value, where);
+}
+
 /** Load parameter rules from `<configDir>/permissions.json`. `[]` when absent. */
 export async function loadPermissionRules(configDir: string): Promise<PermissionRule[]> {
   const file = path.join(configDir, "permissions.json");
@@ -166,7 +176,7 @@ export async function loadPermissionRules(configDir: string): Promise<Permission
   if (rules.length > MAX_RULES) {
     throw new PermissionRulesConfigError(`permissions.json: at most ${MAX_RULES} rules are supported`);
   }
-  return rules.map((rule, index) => parseRule(rule, index));
+  return rules.map((rule, index) => parseRule(rule, `permissions.json: rules[${index}]`));
 }
 
 /** User rules first: rules are first-match-wins, so user intent outranks presets. */
@@ -176,4 +186,90 @@ export function mergePermissionRules(
 ): PermissionConfig {
   if (rules.length === 0) return config;
   return { ...config, rules: [...rules, ...(config.rules ?? [])] };
+}
+
+// ---------------------------------------------------------------------------
+// savePermissionRule — atomic append for the one-click "remember" flow
+// ---------------------------------------------------------------------------
+
+export type SaveRuleResult =
+  | { status: "saved"; rule: PermissionRule }
+  | { status: "duplicate"; rule: PermissionRule }
+  | { status: "covered"; by: PermissionRule };
+
+/** Same tool key resolution as core's matcher: exact name, or `prefix*`. */
+function toolKeyMatches(existing: PermissionRule, candidate: PermissionRule): boolean {
+  if (existing.toolName !== undefined && candidate.toolName !== undefined) {
+    return existing.toolName === candidate.toolName;
+  }
+  if (existing.toolPattern !== undefined && candidate.toolName !== undefined) {
+    const pattern = existing.toolPattern;
+    return pattern.endsWith("*")
+      ? candidate.toolName.startsWith(pattern.slice(0, -1))
+      : candidate.toolName === pattern;
+  }
+  return false;
+}
+
+function samePrefix(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  return a !== undefined && b !== undefined && a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+function isIdentical(a: PermissionRule, b: PermissionRule): boolean {
+  return (
+    a.decision === b.decision &&
+    a.toolName === b.toolName &&
+    a.toolPattern === b.toolPattern &&
+    a.capability === b.capability &&
+    a.pathPattern === b.pathPattern &&
+    a.hostPattern === b.hostPattern &&
+    samePrefix(a.commandPrefix, b.commandPrefix)
+  );
+}
+
+/** A broader allow rule makes a narrower one pointless (spec D4). */
+function covers(existing: PermissionRule, candidate: PermissionRule): boolean {
+  if (existing.decision !== "allow" || candidate.decision !== "allow") return false;
+  if (!toolKeyMatches(existing, candidate)) return false;
+  const e = existing.commandPrefix;
+  const c = candidate.commandPrefix;
+  if (e === undefined || c === undefined) return false;
+  return c.length >= e.length && e.every((token, index) => c[index] === token);
+}
+
+// One writer in this process (the gateway); a promise chain is enough to keep
+// two clicks from interleaving a read-modify-write into a lost update.
+let saveChain: Promise<unknown> = Promise.resolve();
+function withSaveLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = saveChain.then(fn, fn);
+  saveChain = next.catch(() => undefined);
+  return next;
+}
+
+/**
+ * Append one remembered rule to the user-level permissions.json.
+ *
+ * Read-modify-write under a process lock, and never through a corrupt file:
+ * `readJsonFile` throws rather than reporting "empty", so a save can never
+ * turn one damaged file into a total loss of the rules it used to hold.
+ */
+export async function savePermissionRule(
+  configDir: string,
+  candidate: unknown,
+): Promise<SaveRuleResult> {
+  const rule = validatePermissionRule(candidate);
+  return withSaveLock(async () => {
+    const file = path.join(configDir, "permissions.json");
+    const doc = await readJsonFile<Record<string, unknown>>(file, {});
+    const existing = await loadPermissionRules(configDir);
+
+    for (const current of existing) {
+      if (isIdentical(current, rule)) return { status: "duplicate", rule };
+      if (covers(current, rule)) return { status: "covered", by: current };
+    }
+
+    const rawRules = Array.isArray(doc["rules"]) ? (doc["rules"] as unknown[]) : [];
+    await writeJsonFileAtomic(file, { ...doc, rules: [...rawRules, rule] });
+    return { status: "saved", rule };
+  });
 }
