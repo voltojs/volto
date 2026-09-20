@@ -101,7 +101,7 @@ const MAX_SYMLINK_HOPS = 40;
  * exists), and a chain of symlinks — every hop is dereferenced via
  * `readlink`, not assumed away.
  */
-async function realResolve(target: string): Promise<string> {
+export async function realResolve(target: string): Promise<string> {
   const absolute = path.resolve(target);
   const queue = absolute.split(path.sep).filter(Boolean);
   let resolved = path.parse(absolute).root;
@@ -157,7 +157,7 @@ async function realResolve(target: string): Promise<string> {
  * than throwing, so a misconfigured-but-not-yet-created root simply fails to
  * match anything instead of crashing the decorator at construction time.
  */
-async function realResolveRoot(root: string): Promise<string> {
+export async function realResolveRoot(root: string): Promise<string> {
   return realResolve(root);
 }
 

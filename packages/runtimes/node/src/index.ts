@@ -35,6 +35,9 @@ export type { SandboxEnforcement, SandboxBackendName, RunnerFailureRule } from "
 export { classifyRunnerFailure, DENIAL_SIGNATURES, RUNNER_FAILURE_RULES } from "./sandbox-enforcement.js";
 export { createSandboxedFileSystem, SandboxBoundaryError } from "./sandboxed-filesystem.js";
 export type { SandboxedFileSystem } from "./sandboxed-filesystem.js";
+export { realResolve, realResolveRoot } from "./sandboxed-filesystem.js";
+export { createToolInputFactResolver } from "./tool-input-facts.js";
+export type { ToolInputFactResolver } from "./tool-input-facts.js";
 export { createSandboxProxy, isHostAllowed } from "./sandbox-proxy.js";
 export type { SandboxProxy, SandboxProxyConfig } from "./sandbox-proxy.js";
 export { createNodeSecrets } from "./secrets.js";
