@@ -33,3 +33,6 @@ pnpm-debug.log*
 
 # Git worktrees (local isolation)
 .worktrees/
+
+# SDD scratch (superpowers subagent-driven ledger/reports)
+.superpowers/
