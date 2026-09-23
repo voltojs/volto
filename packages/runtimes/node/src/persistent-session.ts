@@ -26,6 +26,16 @@ export interface PersistentSessionOptions {
   gracePeriodMs?: number;
   /** Injectable for deterministic tests. Default: crypto.randomBytes(8).toString("hex") */
   generateNonce?: () => string;
+  /** Retention cap per stream, in characters. Default DEFAULT_SESSION_BUFFER_CHARS. */
+  maxBufferChars?: number;
+}
+
+export const DEFAULT_SESSION_BUFFER_CHARS = 256 * 1024;
+
+const DROPPED_NOTE_PREFIX = "更早的输出已丢弃（共 ";
+
+function droppedNote(dropped: number): string {
+  return dropped > 0 ? `${DROPPED_NOTE_PREFIX}${dropped} 字符）\n` : "";
 }
 
 export interface PersistentSession {
@@ -95,8 +105,31 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   let handle: SessionSpawnHandle = options.spawn({ cwd: options.cwd });
   let alive = true;
   let childExitCode: number | null = null;
+  // Both streams are retention-capped: eviction happens on append so memory
+  // is bounded even between commands. Evicted characters are counted per run
+  // and disclosed on return — a cap that silently hides a gap would be
+  // worse than the old unbounded buffer for the model's point of view.
+  const cap = Math.max(1024, options.maxBufferChars ?? DEFAULT_SESSION_BUFFER_CHARS);
   let stdoutBuf = "";
   let stderrBuf = "";
+  let stdoutDropped = 0;
+  let stderrDropped = 0;
+  // Set by the stdout listener once the current command's sentinel has been
+  // seen. Matching is event-driven (once per chunk), never a regex over the
+  // whole buffer on every 15ms poll. Absolute offsets are captured at match
+  // time; eviction freezes while a match is pending, so the consume step can
+  // map them back with a plain subtraction.
+  let activeMarkerRe: RegExp | null = null;
+  let stdoutMatch: { startAbs: number; endAbs: number; code: number } | null = null;
+
+  function resetRunBuffers(): void {
+    stdoutBuf = "";
+    stderrBuf = "";
+    stdoutDropped = 0;
+    stderrDropped = 0;
+    stdoutMatch = null;
+    activeMarkerRe = null;
+  }
   // Serializes run() — a persistent shell is a single ordered pipeline.
   let queue: Promise<unknown> = Promise.resolve();
   // Guards cleanup() so signal-death + kill() cannot double-call it.
@@ -119,10 +152,39 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     child.stdout?.on("data", (c: Buffer) => {
       if (handle.child !== child) return;
       stdoutBuf += c.toString("utf8");
+      if (stdoutMatch) {
+        // Positions were captured at match time; eviction is frozen so the
+        // consume step's offsets stay valid. Appends continue — a trailing
+        // background writer's output belongs to the post-marker remainder.
+        return;
+      }
+      if (stdoutBuf.length > cap) {
+        const excess = stdoutBuf.length - cap;
+        stdoutBuf = stdoutBuf.slice(excess);
+        stdoutDropped += excess;
+      }
+      // Sentinel scan runs once per chunk here — never in the poll loop.
+      const re = activeMarkerRe;
+      if (re) {
+        const m = re.exec(stdoutBuf);
+        if (m && m.index >= 0) {
+          const code = Number.parseInt(m[1]!, 10);
+          stdoutMatch = {
+            startAbs: stdoutDropped + m.index,
+            endAbs: stdoutDropped + m.index + m[0].length,
+            code,
+          };
+        }
+      }
     });
     child.stderr?.on("data", (c: Buffer) => {
       if (handle.child !== child) return;
       stderrBuf += c.toString("utf8");
+      if (stderrBuf.length > cap) {
+        const excess = stderrBuf.length - cap;
+        stderrBuf = stderrBuf.slice(excess);
+        stderrDropped += excess;
+      }
     });
     child.on("close", (code) => {
       if (handle.child !== child) return;
@@ -187,8 +249,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     }
     handle = options.spawn({ cwd: options.cwd });
     cleanedUp = false;
-    stdoutBuf = "";
-    stderrBuf = "";
+    resetRunBuffers();
     childExitCode = null;
     attachStreams(handle);
     alive = true;
@@ -217,8 +278,8 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     // what rules out a false positive (spec §6.1) — the anchor was a
     // redundant second lock that cost more than it bought.
     const markerRe = new RegExp(`\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+)\\n`);
-    stdoutBuf = "";
-    stderrBuf = "";
+    resetRunBuffers();
+    activeMarkerRe = markerRe;
     // The printf is a separate stdin line so `$?` captures the user command.
     // A leading `\n` keeps the marker readable even when the command's own
     // output does not end with a newline.
@@ -229,23 +290,27 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
 
     const start = Date.now();
     for (;;) {
-      const m = markerRe.exec(stdoutBuf);
-      if (m && m.index >= 0) {
-        const code = Number.parseInt(m[1]!, 10);
-        // m.index points at the '\n' that precedes __VOLTO_DONE_...
-        const stdout = stdoutBuf.slice(0, m.index);
-        stdoutBuf = stdoutBuf.slice(m.index + m[0].length);
-        const stderr = stderrBuf;
-        stderrBuf = "";
+      const match = stdoutMatch;
+      if (match) {
+        // Offsets are absolute within this run's stream; eviction froze at
+        // match time, so mapping back is a plain subtraction.
+        const pos = Math.max(0, match.startAbs - stdoutDropped);
+        const end = Math.max(0, match.endAbs - stdoutDropped);
+        const stdout = droppedNote(stdoutDropped) + stdoutBuf.slice(0, pos);
+        const remainder = stdoutBuf.slice(end);
+        const stderr = droppedNote(stderrDropped) + stderrBuf;
+        const { code } = match;
+        resetRunBuffers();
+        // Post-marker tail (background writer) carries into the next run.
+        stdoutBuf = remainder;
         return { stdout, stderr, exitCode: Number.isFinite(code) ? code : 1 };
       }
       // Shell died before printing a sentinel (e.g. the command called exit).
       // Surface the process exit code so `run("exit 3")` yields 3.
       if (!alive) {
-        const stdout = stdoutBuf;
-        stdoutBuf = "";
-        const stderr = stderrBuf;
-        stderrBuf = "";
+        const stdout = droppedNote(stdoutDropped) + stdoutBuf;
+        const stderr = droppedNote(stderrDropped) + stderrBuf;
+        resetRunBuffers();
         return {
           stdout,
           stderr,

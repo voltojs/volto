@@ -183,6 +183,48 @@ describe("session state retention", () => {
   });
 });
 
+describe("bounded output retention", () => {
+  // The session buffer used to be an unbounded string concat: a single
+  // `cat huge.log` inside the session grew memory without limit, and the
+  // sentinel scan ran O(n) over the whole buffer every 15ms poll. Retention
+  // must be capped — but the cap must NEVER stop the sentinel from being
+  // found, otherwise a normal big-output command would be misjudged as
+  // stuck and trigger a rebuild that loses cd/export state.
+  const CAP = 256 * 1024;
+
+  it("retains only a bounded tail of stdout, discloses the drop, and still finds the sentinel", async () => {
+    const s = makeSession({ generateNonce: () => "fixednonce" });
+    // ~590KB of stdout — well past the 256KB retention cap, so eviction
+    // happens mid-stream while the sentinel still has to be detected after.
+    const r = await s.run("seq 1 100000");
+    expect(r.exitCode).toBe(0);
+    // Sentinel survived the cap: no stuck-command rebuild.
+    expect(r.stateResetReason).toBeUndefined();
+    // Retention bounded: cap + disclosure-note slack, never the full 590KB.
+    expect(r.stdout.length).toBeLessThan(CAP + 500);
+    expect(r.stdout).toMatch(/更早的输出已丢弃/);
+    // The tail (last line) must still be there — it is what the model needs.
+    expect(r.stdout).toContain("100000");
+  });
+
+  it("caps stderr retention with a disclosure note", async () => {
+    const s = makeSession({ generateNonce: () => "fixednonce" });
+    const r = await s.run("seq 1 100000 >&2");
+    expect(r.exitCode).toBe(0);
+    expect(r.stateResetReason).toBeUndefined();
+    expect(r.stderr.length).toBeLessThan(CAP + 500);
+    expect(r.stderr).toMatch(/更早的输出已丢弃/);
+  });
+
+  it("keeps normal small commands byte-identical with no disclosure note", async () => {
+    const s = makeSession({ generateNonce: () => "fixednonce" });
+    const r = await s.run("echo small-output");
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("small-output");
+    expect(r.stdout).not.toMatch(/更早的输出已丢弃/);
+  });
+});
+
 describe("cwd option", () => {
   it("runs the command in cwd without moving the session", async () => {
     const s = makeSession({ cwd: process.cwd() });
