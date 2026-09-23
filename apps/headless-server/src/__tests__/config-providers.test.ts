@@ -549,3 +549,64 @@ describe("model maxOutputTokens", () => {
     expect(resolved).not.toHaveProperty("maxOutputTokens");
   });
 });
+
+it("persists a catalog input override and returns it from resolveModel", async () => {
+  const store = createProviderStore(dir);
+  const created = await store.create({
+    name: "DeepSeek",
+    kind: "catalog",
+    piProvider: "deepseek",
+    models: [{ code: "deepseek-flash", input: ["text"] }],
+  });
+  const resolved = await store.resolveModel(created.id, "deepseek-flash");
+  expect(resolved).toMatchObject({ kind: "catalog", input: ["text"] });
+});
+
+it("persists a custom model's input declaration", async () => {
+  const store = createProviderStore(dir);
+  const created = asCustom(
+    await store.create({
+      name: "Gateway",
+      kind: "custom",
+      baseURL: "https://gateway.example",
+      apiKey: "k",
+      models: [{ name: "m", code: "m", input: ["text", "image"] }],
+    }),
+  );
+  const resolved = await store.resolveModel(created.id, created.models[0]!.id);
+  expect(resolved).toMatchObject({ kind: "custom", input: ["text", "image"] });
+});
+
+it("rejects an input list that is neither [text] nor [text,image]", async () => {
+  const store = createProviderStore(dir);
+  await expect(
+    store.create({
+      name: "Bad",
+      kind: "custom",
+      baseURL: "https://bad.example",
+      apiKey: "k",
+      models: [{ name: "m", code: "m", input: ["image"] }],
+    }),
+  ).rejects.toThrow(/input must be/);
+  await expect(
+    store.create({
+      name: "Empty",
+      kind: "catalog",
+      piProvider: "groq",
+      models: [{ code: "llama-3.1-8b-instant", input: [] }],
+    }),
+  ).rejects.toThrow(/input must be/);
+});
+
+it("drops an unrecognized legacy vision key at the write boundary instead of migrating it", async () => {
+  const store = createProviderStore(dir);
+  const created = await store.create({
+    name: "Legacy",
+    kind: "custom",
+    baseURL: "https://legacy.example",
+    apiKey: "k",
+    models: [{ name: "m", code: "m", vision: false } as never],
+  });
+  expect(created.models[0]).not.toHaveProperty("vision");
+  expect(created.models[0]).not.toHaveProperty("input");
+});
