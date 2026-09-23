@@ -10,8 +10,16 @@ describe('normalisePermissionMode', () => {
   });
 
   it('migrates the retired names stored in old transcripts', () => {
-    expect(normalisePermissionMode('plan')).toBe('read-only');
     expect(normalisePermissionMode('auto-accept')).toBe('auto');
+  });
+
+  it('reads plan back as itself, like the gateway twin', () => {
+    // `plan` is a first-class preset (server normaliseUiPermissionMode keeps
+    // it: "persisted plan reads back as itself"). Mapping it to read-only on
+    // the web read path silently downgraded the badge of every plan session
+    // reloaded from the server — the UI showed read-only while the gateway
+    // still ran plan.
+    expect(normalisePermissionMode('plan')).toBe('plan');
   });
 
   it('falls back to ask rather than to the widest tier', () => {

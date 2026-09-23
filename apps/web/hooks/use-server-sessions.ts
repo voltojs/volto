@@ -25,16 +25,19 @@ const inFlight = new Map<string, Promise<void>>();
  * rather than casting, so a value outside the union can't flow into the
  * store (and from there into gateway requests) unchecked. Transcripts
  * persisted before the redesign carry the retired names, which are accepted
- * here on the read path only — they are never sent back.
+ * here on the read path only — they are never sent back. Mirrors the
+ * gateway's twin (permission-modes.ts LEGACY_ALIASES): `plan` is NOT a
+ * legacy name — it is a first-class preset, and mapping it to read-only
+ * here downgraded the badge of every plan session reloaded from the server.
  */
 const LEGACY_PERMISSION_MODES: Record<string, PermissionMode> = {
-  plan: 'read-only',
   'auto-accept': 'auto',
 };
 
 export function normalisePermissionMode(mode: string | null): PermissionMode {
   if (
     mode === 'read-only' ||
+    mode === 'plan' ||
     mode === 'ask' ||
     mode === 'auto' ||
     mode === 'full'
