@@ -144,7 +144,7 @@ function seedStores(provider: Provider): void {
   });
 }
 
-describe('ChatPanel vision gating', () => {
+describe('ChatPanel input-modality gating', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

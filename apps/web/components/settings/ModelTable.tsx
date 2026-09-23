@@ -120,7 +120,8 @@ function formatInputLimits(
 /**
  * Column widths, shared by the header and every row so the two stay aligned.
  * Model id and display name take the slack; the two token caps are numeric
- * and narrow; the trailing two columns are fixed-size controls.
+ * and narrow; the trailing three columns — reasoning, expand, delete — are
+ * fixed-size controls.
  */
 const GRID =
   'grid grid-cols-[1.4fr_1.2fr_5.5rem_5.5rem_2.5rem_1.75rem_1.75rem] gap-1.5';
