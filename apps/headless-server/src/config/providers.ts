@@ -224,8 +224,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
    */
   function normalizeInput(input: ModelInputValue | undefined): ModelInputValue | undefined {
     if (input === undefined) return undefined;
-    const legal = ["text"].length === input.length && input.includes("text") ||
-      input.length === 2 && input.includes("text") && input.includes("image");
+    const legal =
+      (input.length === 1 && input[0] === "text") ||
+      (input.length === 2 && input[0] === "text" && input[1] === "image");
     if (!legal) {
       throw new Error(`input must be ["text"] or ["text","image"] (got ${JSON.stringify(input)})`);
     }

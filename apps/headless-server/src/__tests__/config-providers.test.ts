@@ -596,6 +596,16 @@ it("rejects an input list that is neither [text] nor [text,image]", async () => 
       models: [{ code: "llama-3.1-8b-instant", input: [] }],
     }),
   ).rejects.toThrow(/input must be/);
+  // Order-variant: legal lists are *exactly* ["text"] / ["text","image"].
+  await expect(
+    store.create({
+      name: "Reordered",
+      kind: "custom",
+      baseURL: "https://reordered.example",
+      apiKey: "k",
+      models: [{ name: "m", code: "m", input: ["image", "text"] as never }],
+    }),
+  ).rejects.toThrow(/input must be/);
 });
 
 it("drops an unrecognized legacy vision key at the write boundary instead of migrating it", async () => {
