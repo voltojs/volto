@@ -43,14 +43,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function setup(props: { visionSupported?: boolean; onSend?: (p: { text: string; attachments: string[] }) => void } = {}) {
+function setup(props: { imageInput?: ('text' | 'image')[]; onSend?: (p: { text: string; attachments: string[] }) => void } = {}) {
   const onSend = props.onSend ?? vi.fn();
   let editor: Editor | undefined;
   const utils = render(
     <InputBar
       sessionId="s1"
       onSend={onSend}
-      visionSupported={props.visionSupported}
+      imageInput={props.imageInput}
       onEditorReady={(e) => {
         editor = e;
       }}
@@ -145,9 +145,9 @@ describe('InputBar attachments', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('disables every entry when the model has no vision support', async () => {
+  it('disables every entry when the model declares text-only input', async () => {
     stubUpload();
-    setup({ visionSupported: false });
+    setup({ imageInput: ['text'] });
     // 原因必须可见，而不是静默消失。
     expect(screen.getByText('当前模型不支持图片输入')).toBeInTheDocument();
     // 文件选择入口整体不渲染（不存在可点的 paperclip / input）。

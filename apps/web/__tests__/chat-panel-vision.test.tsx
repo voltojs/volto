@@ -72,7 +72,7 @@ if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
 Element.prototype.scrollIntoView ??= () => {};
 Element.prototype.setPointerCapture ??= () => {};
 
-function providerWith(vision?: boolean): Provider {
+function providerWith(input?: ('text' | 'image')[]): Provider {
   return {
     kind: 'custom',
     id: 'v1',
@@ -84,7 +84,7 @@ function providerWith(vision?: boolean): Provider {
         id: 'm1',
         name: 'Some model',
         code: 'some-model',
-        ...(vision === undefined ? {} : { vision }),
+        ...(input === undefined ? {} : { input }),
       },
     ],
   };
@@ -150,7 +150,7 @@ describe('ChatPanel vision gating', () => {
   });
 
   it('hides the attachment entry and explains why when the model declares no image input', () => {
-    seedStores(providerWith(false));
+    seedStores(providerWith(['text']));
 
     render(<ChatPanel />);
 
@@ -159,7 +159,7 @@ describe('ChatPanel vision gating', () => {
   });
 
   it('keeps the attachment entry when image support is declared', () => {
-    seedStores(providerWith(true));
+    seedStores(providerWith(['text', 'image']));
 
     render(<ChatPanel />);
 

@@ -30,6 +30,7 @@ import { FileMentionPanel } from './FileMentionPanel';
 import { AttachmentChips } from './AttachmentChips';
 import { createSuggestionPopup } from './suggestion-popup';
 import { SlashCommandNode } from './slash-command-node';
+import type { ModelInputValue } from '@/lib/config-api';
 
 /** 单段落文档：Enter 永远是"发送"，换行走 Shift+Enter（HardBreak）。 */
 const SingleParagraphDocument = Document.extend({ content: 'paragraph' });
@@ -80,11 +81,11 @@ export interface InputBarProps {
    */
   ensureSessionId?: () => string;
   /**
-   * Whether the selected model accepts images. `false` disables all three
-   * entry points and explains why; `undefined`/`true` keeps them enabled —
-   * an absent capability record must not silently block a supported path.
+   * 当前模型的输入模态（三态）：`["text"]` 关闭附件入口并显示原因行，
+   * `undefined`/含 `"image"` 保持开启——缺失能力记录不得静默挡住本可用
+   * 的图片路径（spec §7 / D2，原 visionSupported 的语义平移）。
    */
-  visionSupported?: boolean;
+  imageInput?: ModelInputValue;
 }
 
 export function InputBar({
@@ -101,15 +102,18 @@ export function InputBar({
   onEditorReady,
   sessionId,
   ensureSessionId,
-  visionSupported,
+  imageInput,
 }: InputBarProps) {
   const [isEmpty, setIsEmpty] = useState(true);
 
   // 附件条目：有会话直接可用；欢迎屏（无会话）配合 ensureSessionId 同样
   // 可用——选中的图先挂在 hook 的 'local' 状态，草稿会话 id 出现后自动上传。
   // hook 仍需无条件调用（rules of hooks），空串只是占位，add 不会在该状态下触发。
+  // 三态判定收进组件：只有「明确声明了 input 且不含 image」才关门。
+  const imageBlocked =
+    imageInput !== undefined && !imageInput.includes('image');
   const attachmentsEnabled =
-    (Boolean(sessionId) || Boolean(ensureSessionId)) && visionSupported !== false;
+    (Boolean(sessionId) || Boolean(ensureSessionId)) && !imageBlocked;
   const {
     items: pendingItems,
     add: addAttachment,
@@ -551,7 +555,7 @@ export function InputBar({
               </Button>
             </>
           )}
-          {!attachmentsEnabled && visionSupported === false && (
+          {!attachmentsEnabled && imageBlocked && (
             <span className="text-muted-foreground text-xs">当前模型不支持图片输入</span>
           )}
           {toolbar}

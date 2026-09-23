@@ -135,7 +135,7 @@ describe('historical image rendering', () => {
 describe('vision gating in the composer', () => {
   it('disables the attachment entries when the model has no vision support', () => {
     render(
-      <InputBar sessionId="s1" onSend={vi.fn()} visionSupported={false} />,
+      <InputBar sessionId="s1" onSend={vi.fn()} imageInput={['text']} />,
     );
     // Task 8 的实现选择是「入口整体不渲染」——比 disabled 更强的门控。
     expect(
@@ -154,7 +154,7 @@ describe('vision gating in the composer', () => {
       <InputBar
         sessionId="s1"
         onSend={vi.fn()}
-        visionSupported={undefined}
+        imageInput={undefined}
       />,
     );
     expect(screen.getByTestId('attachment-file-input')).not.toBeDisabled();
