@@ -10,11 +10,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ModelInputLimits, ModelInputValue } from "@volto/core";
 import { startTestServer, type TestServer } from "./helpers.js";
 
 interface WireModel {
   code: string;
   vision?: boolean;
+  input?: ModelInputValue;
+  inputLimits?: ModelInputLimits;
 }
 
 let server: TestServer;
@@ -64,11 +67,16 @@ describe("GET /providers vision capability", () => {
       kind: "catalog",
       piProvider: "deepseek",
       apiKey: "sk-test",
-      models: [{ code: "deepseek-v4-pro" }],
+      models: [{ code: "deepseek-v4-pro" }, { code: "deepseek-flash" }],
     });
 
     expect((await findModel("gpt-4o"))?.vision).toBe(true);
     expect((await findModel("deepseek-v4-pro"))?.vision).toBe(false);
+    expect((await findModel("gpt-4o"))?.input).toEqual(["text", "image"]);
+    expect((await findModel("deepseek-v4-pro"))?.input).toEqual(["text"]);
+    expect(
+      (await findModel("deepseek-flash"))?.inputLimits?.images?.resize?.maxWidth,
+    ).toBe(2000);
   });
 
   it("omits the key for a hand-declared model whose support is unknown", async () => {
@@ -83,5 +91,7 @@ describe("GET /providers vision capability", () => {
     const model = await findModel("mystery");
     expect(model).toBeDefined();
     expect(model).not.toHaveProperty("vision");
+    expect(model).not.toHaveProperty("input");
+    expect(model).not.toHaveProperty("inputLimits");
   });
 });

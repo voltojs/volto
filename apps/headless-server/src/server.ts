@@ -35,6 +35,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos } from "@volto/core";
+import type { ModelInputLimits, ModelInputValue } from "@volto/core";
 import {
   readConversation,
   readTrajectory,
@@ -198,9 +199,25 @@ function readBody(req: http.IncomingMessage): Promise<string> {
  * states: `true` / `false` verbatim, UNKNOWN as the absence of the key.
  * Collapsing absent to `false` here would gate the composer off for every
  * gateway that cannot describe its models — the failure mode spec §7 rejects.
+ *
+ * Transitional: retired in the vision-removal task (spec D2).
  */
 function visionKey(vision: boolean | undefined): { vision?: boolean } {
   return vision === undefined ? {} : { vision };
+}
+
+/**
+ * Project `ResolvedModelInfo.input` onto the wire, preserving its
+ * three-state: absent = UNKNOWN and must stay absent on the wire so the
+ * composer can tell "text-only" from "the gateway never said".
+ */
+function inputKey(input: ModelInputValue | undefined): { input?: ModelInputValue } {
+  return input === undefined ? {} : { input };
+}
+
+/** Same three-state projection for the read-only directory facts. */
+function inputLimitsKey(limits: ModelInputLimits | undefined): { inputLimits?: ModelInputLimits } {
+  return limits === undefined ? {} : { inputLimits: limits };
 }
 
 /**
@@ -237,6 +254,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           reasoningOverrides: Object.fromEntries(
             provider.models.flatMap((m) =>
               m.reasoning === undefined ? [] : [[m.code, m.reasoning] as const],
+            ),
+          ),
+          inputOverrides: Object.fromEntries(
+            provider.models.flatMap((m) =>
+              m.input === undefined ? [] : [[m.code, m.input] as const],
             ),
           ),
         };
@@ -276,6 +298,8 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
                 ...rest,
                 ...(info.reasoning ? { reasoning: info.reasoning } : {}),
                 ...visionKey(info.vision),
+                ...inputKey(info.input),
+                ...inputLimitsKey(info.inputLimits),
               };
             } catch {
               const { reasoning: _storedFlag, ...rest } = model;
@@ -338,6 +362,8 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               ...rest,
               ...(info.reasoning ? { reasoning: info.reasoning } : {}),
               ...visionKey(info.vision),
+              ...inputKey(info.input),
+              ...inputLimitsKey(info.inputLimits),
             };
           } catch {
             return rest;
@@ -669,7 +695,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // declares no image input must refuse the images here, before the
         // ack, rather than let them travel to a provider that cannot read
         // them. UI gating alone is not a boundary. Same reasoning-effort
-        // shape above: only an explicit `vision: false` refuses; UNKNOWN
+        // shape above: only an explicit text-only input refuses; UNKNOWN
         // goes through (spec §7).
         if (imageBlocks.length > 0) {
           try {
