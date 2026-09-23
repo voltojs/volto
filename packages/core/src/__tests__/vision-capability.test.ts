@@ -52,3 +52,37 @@ describe("ResolvedModelInfo.vision tri-state", () => {
     expect(supported.vision).toBe(true);
   });
 });
+
+describe("ResolvedModelInfo.input tri-state", () => {
+  it("absence means unknown; only an explicit text-only list gates images", () => {
+    const unknown: ResolvedModelInfo = { model: "gateway-mystery" };
+    expect(unknown.input).toBeUndefined();
+
+    const textOnly: ResolvedModelInfo = { model: "text-only", input: ["text"] };
+    expect(textOnly.input).toEqual(["text"]);
+    expect(textOnly.input?.includes("image")).toBe(false);
+
+    const multimodal: ResolvedModelInfo = {
+      model: "multi",
+      input: ["text", "image"],
+    };
+    expect(multimodal.input?.includes("image")).toBe(true);
+  });
+
+  it("carries pi-ai-shaped inputLimits verbatim", () => {
+    const info: ResolvedModelInfo = {
+      model: "deepseek-flash",
+      inputLimits: {
+        images: {
+          resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4718592, jpegQuality: 80 },
+          maxPerMessage: 4,
+          maxPerRequest: 8,
+        },
+        maxRequestBytes: 1024,
+      },
+    };
+    expect(info.inputLimits?.images?.resize?.maxWidth).toBe(2000);
+    expect(info.inputLimits?.images?.maxPerRequest).toBe(8);
+    expect(info.inputLimits?.maxRequestBytes).toBe(1024);
+  });
+});
