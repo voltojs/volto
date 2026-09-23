@@ -274,6 +274,12 @@ function synthesizeUnknownCatalogModel(
       // access in getSupportedThinkingLevels.
       ...(reasoningTemplate ? {} : { thinkingLevelMap: undefined }),
       ...(baseURL ? { baseUrl: baseURL } : {}),
+      // Same reasoning as inputDeclarations below: the template's
+      // inputLimits are directory facts about the TEMPLATE, not about a
+      // code the catalog does not know. Clear them so describeModelInfo's
+      // `!== undefined` gate reports absence (spec §4.1 / D5: "absent for
+      // custom/synthesized models") instead of fabricating a known fact.
+      inputLimits: undefined,
     } as Model<Api>;
     // Inherited `input` is structural, not a statement about this unknown
     // code — leave input UNKNOWN rather than trusting the template.

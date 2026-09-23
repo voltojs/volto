@@ -506,7 +506,12 @@ describe("describeModelInfo.input", () => {
       },
     ]);
 
-    expect(describeModelInfo(models, "deepseek", "deepseek-fantasy").input).toBeUndefined();
+    const info = describeModelInfo(models, "deepseek", "deepseek-fantasy");
+    expect(info.input).toBeUndefined();
+    // inputLimits is a directory fact (D5): an unknown code has no catalog
+    // entry, so inheriting the synthesis template's limits would fabricate a
+    // "known" fact for a model that does not exist.
+    expect(info.inputLimits).toBeUndefined();
   });
 
   it("passes the catalog's inputLimits through untouched", () => {
