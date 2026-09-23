@@ -170,18 +170,20 @@ describe("describeModelInfo", () => {
   });
 });
 
-describe("catalog provider registration", () => {
-  function catalogConfig(overrides: Partial<Extract<PiAiProviderConfig, { kind: "catalog" }>> = {}): PiAiProviderConfig {
-    return {
-      kind: "catalog",
-      id: "my-deepseek",
-      piProvider: "deepseek",
-      apiKey: "ds-key",
-      modelCodes: ["deepseek-flash"],
-      ...overrides,
-    };
-  }
+// Module scope: shared by the "catalog provider registration" tests below and
+// the "describeModelInfo.input" tests (which assert on its inputLimits).
+function catalogConfig(overrides: Partial<Extract<PiAiProviderConfig, { kind: "catalog" }>> = {}): PiAiProviderConfig {
+  return {
+    kind: "catalog",
+    id: "my-deepseek",
+    piProvider: "deepseek",
+    apiKey: "ds-key",
+    modelCodes: ["deepseek-flash"],
+    ...overrides,
+  };
+}
 
+describe("catalog provider registration", () => {
   it("resolves a catalog model via getModel(pi-ai provider id, code)", () => {
     const models = buildModels([catalogConfig()]);
 
@@ -425,52 +427,56 @@ describe("custom provider: reasoning config flag", () => {
   });
 });
 
-describe("describeModelInfo.vision", () => {
-  it("publishes catalog input modalities as vision true/false", () => {
+describe("describeModelInfo.input", () => {
+  it("publishes catalog input modalities verbatim (both image-capable and text-only occur)", () => {
     // gpt-4o is ["text","image"] and deepseek-v4-pro is ["text"] in
-    // pi-ai's catalog — both are known facts, not guesses. (deepseek-flash is
-    // ["text","image"] as of pi-ai 0.87, so the text-only side is v4-pro.)
+    // pi-ai's catalog — both are known facts, not guesses.
     const models = buildModels([
       { kind: "catalog", id: "v", piProvider: "openai", modelCodes: ["gpt-4o"] },
       { kind: "catalog", id: "d", piProvider: "deepseek", modelCodes: ["deepseek-v4-pro"] },
     ]);
 
-    expect(describeModelInfo(models, "openai", "gpt-4o").vision).toBe(true);
-    expect(describeModelInfo(models, "deepseek", "deepseek-v4-pro").vision).toBe(false);
+    expect(describeModelInfo(models, "openai", "gpt-4o").input).toEqual([
+      "text",
+      "image",
+    ]);
+    expect(describeModelInfo(models, "deepseek", "deepseek-v4-pro").input).toEqual([
+      "text",
+    ]);
   });
 
-  it("publishes an explicit custom vision: true and lets pi-ai send images", () => {
+  it("publishes an explicit custom input declaration and keeps pi-ai's wire value in sync", () => {
     const models = buildModels([
       {
         kind: "custom",
         id: "gw",
         baseURL: "https://gateway.example/v1",
         apiKey: "k",
-        models: [{ code: "vlm", vision: true }],
+        models: [{ code: "vlm", input: ["text", "image"] }],
       },
     ]);
 
-    expect(describeModelInfo(models, "gw", "vlm").vision).toBe(true);
-    // Wire path: pi-ai only attaches images when input lists "image".
+    expect(describeModelInfo(models, "gw", "vlm").input).toEqual(["text", "image"]);
+    // Wire path: pi-ai attaches images only when Model.input lists "image".
     expect(models.getModel("gw", "vlm")?.input).toEqual(["text", "image"]);
   });
 
-  it("publishes an explicit custom vision: false", () => {
+  it("publishes an explicit custom text-only declaration", () => {
     const models = buildModels([
       {
         kind: "custom",
         id: "gw",
         baseURL: "https://gateway.example/v1",
         apiKey: "k",
-        models: [{ code: "text-only", vision: false }],
+        models: [{ code: "text-only", input: ["text"] }],
       },
     ]);
 
-    expect(describeModelInfo(models, "gw", "text-only").vision).toBe(false);
+    expect(describeModelInfo(models, "gw", "text-only").input).toEqual(["text"]);
     expect(models.getModel("gw", "text-only")?.input).toEqual(["text"]);
   });
 
-  it("leaves vision absent for a custom model with no declaration (UNKNOWN, not false)", () => {
+  it("leaves input absent for a custom model with no declaration (UNKNOWN, not text-only)", () => {
     const models = buildModels([
       {
         kind: "custom",
@@ -482,15 +488,14 @@ describe("describeModelInfo.vision", () => {
     ]);
 
     const info = describeModelInfo(models, "gw", "mystery");
-    expect(info.vision).toBeUndefined();
-    // UNKNOWN must not gate the wire path (spec §7): a gateway that cannot
-    // describe its models would otherwise lose image input silently, which
-    // is far harder to diagnose than the provider 400 we accept instead.
-    // Only an explicit `false` keeps a model text-only.
+    expect(info.input).toBeUndefined();
+    // UNKNOWN must not gate the wire path (spec §7): the registered model
+    // still ships image-capable so a gateway that cannot describe itself
+    // does not silently lose images.
     expect(models.getModel("gw", "mystery")?.input).toEqual(["text", "image"]);
   });
 
-  it("leaves vision absent for a synthesized unknown catalog code", () => {
+  it("leaves input absent for a synthesized unknown catalog code", () => {
     const models = buildModels([
       {
         kind: "catalog",
@@ -501,7 +506,37 @@ describe("describeModelInfo.vision", () => {
       },
     ]);
 
-    expect(describeModelInfo(models, "deepseek", "deepseek-fantasy").vision).toBeUndefined();
+    expect(describeModelInfo(models, "deepseek", "deepseek-fantasy").input).toBeUndefined();
+  });
+
+  it("passes the catalog's inputLimits through untouched", () => {
+    const models = buildModels([catalogConfig()]); // modelCodes: ["deepseek-flash"]
+    const info = describeModelInfo(models, "deepseek", "deepseek-flash");
+
+    expect(info.inputLimits?.images?.resize).toEqual({
+      maxWidth: 2000,
+      maxHeight: 2000,
+      maxBytes: 4718592,
+      jpegQuality: 80,
+    });
+  });
+
+  it("applies a stored input override over the catalog's own modalities", () => {
+    const models = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-flash"],
+        inputOverrides: { "deepseek-flash": ["text"] },
+      },
+    ]);
+
+    const info = describeModelInfo(models, "deepseek", "deepseek-flash");
+    expect(info.input).toEqual(["text"]);
+    // The override lands on Model.input, so pi-ai's transformMessages
+    // strips images on the wire too — declaration and behavior agree.
+    expect(models.getModel("deepseek", "deepseek-flash")?.input).toEqual(["text"]);
   });
 });
 

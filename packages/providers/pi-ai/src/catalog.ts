@@ -1,4 +1,5 @@
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import type { ModelInputValue, ModelInputLimits } from "@volto/core";
 
 /** A single model surfaced from pi-ai's built-in catalog. */
 export interface CatalogModel {
@@ -7,6 +8,10 @@ export interface CatalogModel {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning: boolean;
+  /** Input modalities from pi-ai's catalog (verbatim). */
+  input?: ModelInputValue;
+  /** Provider input limits from pi-ai's catalog (verbatim; absent for most models). */
+  inputLimits?: ModelInputLimits;
 }
 
 /** A single provider surfaced from pi-ai's built-in catalog. */
@@ -49,6 +54,9 @@ export function listCatalogProviders(): CatalogProvider[] {
         maxOutputTokens: model.maxTokens,
         // Taken directly from pi-ai's model metadata, not inferred.
         reasoning: model.reasoning,
+        // Verbatim from pi-ai's model metadata, same as reasoning above.
+        input: model.input,
+        ...(model.inputLimits === undefined ? {} : { inputLimits: model.inputLimits }),
       })),
     }))
     // Dynamic providers (e.g. "radius") report no models until
