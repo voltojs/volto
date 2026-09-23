@@ -16,6 +16,7 @@ import {
   createNodeShell,
   createNodeNetwork,
   createSandboxedFileSystem,
+  createFileAuditSink,
 } from "@volto/runtime-node";
 import type { SandboxConfig } from "@volto/runtime-node";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
@@ -444,6 +445,15 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // Same reload discipline and same fail-closed stance as the egress policy.
   const permissionRules = await loadPermissionRules(getConfigDir());
 
+  // Audit trail for approval decisions, high-risk executions, and
+  // command-prefix rule hits (rule_allow). The SDK defaults to a no-op sink,
+  // which silently discards every entry — and the shell prefix rules
+  // deliberately trade asking for remembering, so a hit MUST leave a durable
+  // trace. JSONL under the config dir: same protection domain as
+  // permissions.json (see SAFETY.md). Re-created per build: append-only, so
+  // reopening is free and a config-dir swap between builds lands cleanly.
+  const auditSink = createFileAuditSink(path.join(getConfigDir(), "audit.jsonl"));
+
   const { entries: agentSpecs } = await scanAgentSources({
     cwd,
     configDir: getConfigDir(),
@@ -469,6 +479,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     // builds the persistent-session spawner from this single config.
     ...(shellSandboxConfig ? { sandboxConfig: shellSandboxConfig } : {}),
     ...(egressPolicy ? { egressPolicy } : {}),
+    auditSink,
     network,
     sessionStore,
     // Plan-mode artifact storage (save_plan tool). Rooted at the config dir

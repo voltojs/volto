@@ -133,6 +133,14 @@ type ResolvedCredentials =
  * and it is the narrowest tier, the correct default for a caller that
  * supplied no preference on a route that cannot ask a human.
  */
+/**
+ * How long runTurn waits for a PREVIOUS turn's settling window (turn_end
+ * already pushed, `running` latch not yet released through captureHistory /
+ * stream teardown) before answering BUSY. Generous for bookkeeping, short
+ * enough that a genuinely overlapping turn still fails fast.
+ */
+const SETTLE_GRACE_MS = 2000;
+
 const EMPTY_CONFIG: ResolvedConfig = {
   projectPath: undefined,
   projectId: undefined,
@@ -1027,19 +1035,41 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     requested: TurnConfig = {},
   ): Promise<void> {
     const session = get(sessionId);
-    if (session.running) {
-      push(session, session.mapper.error("A turn is already running for this session", "BUSY", true));
-      return;
-    }
 
     // Cold start (server restart, or first turn after this Session object was
     // just created by get()): the in-memory history is empty, but a durable
     // transcript from a prior process may still exist. Without this, a
     // restart silently truncates multi-turn context back to zero even though
-    // it was recorded on disk.
+    // it was recorded on disk. Idempotent and harmless to run while another
+    // turn is in flight, so it goes before the running gate below.
     if (chatStore && session.history.length === 0) {
       const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
       if (persisted) session.history = projectMessages(persisted.events);
+    }
+
+    // Settling-window grace: `turn_end` is pushed from INSIDE the stream
+    // loop, but `running` is only released in finally — after captureHistory
+    // and stream teardown. A client that reacts to turn_end (the web composer
+    // re-enabling, a script chaining turns) lands in that window, and an
+    // instant BUSY would silently drop its message behind the 202 ack —
+    // server bookkeeping the client cannot observe or avoid. Wait the window
+    // out; only a turn that is genuinely still streaming answers BUSY, after
+    // the grace expires. Regression test: "waits out a settling previous
+    // turn" in session-rebuild.test.ts; observed in the wild as the remember
+    // e2e failing under suite load only.
+    //
+    // Invariant: no await between the final `session.running` check below and
+    // `session.running = true` — two waiters released on the same tick must
+    // not both slip through (the cold-start read above is the last await).
+    if (session.running) {
+      const settleDeadline = Date.now() + SETTLE_GRACE_MS;
+      while (session.running && Date.now() < settleDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (session.running) {
+        push(session, session.mapper.error("A turn is already running for this session", "BUSY", true));
+        return;
+      }
     }
 
     session.running = true;

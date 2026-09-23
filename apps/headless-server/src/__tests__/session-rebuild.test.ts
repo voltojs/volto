@@ -292,6 +292,48 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: done"))).toBe(false);
   });
 
+  it("waits out a settling previous turn instead of dropping the next message as BUSY", async () => {
+    // Regression (intermittent under suite load, diagnosed via breadcrumbs):
+    // `turn_end` is pushed from INSIDE the stream loop, but session.running
+    // is only released in finally — after captureHistory() and stream
+    // teardown. A client that reacts to turn_end immediately (POST the next
+    // message) lands in that settling window. It used to get an instant
+    // BUSY rejection — a silent drop behind the 202 ack — even though, from
+    // the client's side, the previous turn was already over. The window is
+    // server bookkeeping the client cannot observe or avoid, so runTurn
+    // must wait it out; only a turn that is genuinely still streaming may
+    // answer BUSY (after the grace window).
+    const { factory } = makeFactory();
+    const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
+    let streams = 0;
+    const countingFactory = (opts: Record<string, unknown>) => {
+      const agent = factory(opts);
+      const original = agent.stream.bind(agent);
+      agent.stream = async function* () {
+        streams += 1;
+        yield* original();
+      };
+      return agent;
+    };
+    const { registry, written } = makeRegistry(countingFactory);
+
+    await registry.runTurn("s1", "one", config);
+    expect(streams).toBe(1);
+
+    // Simulate the post-turn_end settling window: latch still held.
+    registry.get("s1").running = true;
+    setTimeout(() => {
+      registry.get("s1").running = false;
+    }, 100);
+
+    // The second message must run (after the release), not bounce as BUSY.
+    await registry.runTurn("s1", "two", config);
+
+    expect(streams).toBe(2);
+    expect(written.some((chunk) => chunk.includes("BUSY"))).toBe(false);
+    expect(registry.get("s1").running).toBe(false);
+  });
+
   it("never leaks the plaintext apiKey into an SSE frame", async () => {
     const { factory } = makeFactory();
     const { registry, written } = makeRegistry(factory);
