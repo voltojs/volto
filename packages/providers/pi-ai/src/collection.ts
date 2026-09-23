@@ -492,9 +492,6 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     : model.input;
   if (input !== undefined) {
     info.input = input;
-    // Transitional: vision derives from the single source until its
-    // retirement lands (spec D2); wire/web still read it until then.
-    info.vision = input.includes("image");
   }
   // Directory fact, read-only (D5): custom/synthesized models have none.
   if (model.inputLimits !== undefined) {

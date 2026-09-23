@@ -23,20 +23,19 @@ describe("openaiFamilyVision", () => {
 describe("createOpenAIModelPort.describeModel", () => {
   const port = createOpenAIModelPort({ apiKey: "k" });
 
-  it("publishes family-derived vision for a known model", async () => {
+  it("publishes family-derived input for a known model", async () => {
     const info = await port.describeModel!("gpt-4o-mini");
-    expect(info.model).toBe("gpt-4o-mini");
-    expect(info.vision).toBe(true);
+    expect(info.input).toEqual(["text", "image"]);
   });
 
-  it("lets an explicit options.vision override the family heuristic", async () => {
-    const forced = createOpenAIModelPort({ apiKey: "k", vision: true });
+  it("lets an explicit options.input override the family heuristic", async () => {
+    const forced = createOpenAIModelPort({ apiKey: "k", input: ["text", "image"] });
     const info = await forced.describeModel!("my-vllm-llava");
-    expect(info.vision).toBe(true);
+    expect(info.input).toEqual(["text", "image"]);
   });
 
-  it("leaves vision absent for an unknown gateway model", async () => {
-    const info = await port.describeModel!("xiaomi-mimo-v2.5");
-    expect(info.vision).toBeUndefined();
+  it("leaves input absent for an unknown gateway model", async () => {
+    const info = await port.describeModel!("my-vllm-llava");
+    expect(info.input).toBeUndefined();
   });
 });

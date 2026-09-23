@@ -1,7 +1,7 @@
 /**
  * ChatPanel must hand the session's model capability down to the composer.
  *
- * InputBar has always known how to gate on `visionSupported`, but nothing
+ * InputBar has always known how to gate on `imageInput`, but nothing
  * passed it: the prop had no producer, so a model the gateway declares
  * text-only still offered an attachment button that could only fail. This
  * covers the wiring, not InputBar's own branch.

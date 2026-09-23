@@ -11,6 +11,7 @@ import type {
   ModelEvent,
   ModelRequest,
   Message,
+  ModelInputValue,
   ToolResultMessage,
   ToolResultBlock,
   ResolvedModelInfo,
@@ -25,11 +26,11 @@ export interface OpenAIModelPortOptions {
   /** Default model if not specified in request */
   defaultModel?: string;
   /**
-   * Image-input override for every model this port serves. Absent lets
+   * Input-modalities override for every model this port serves. Absent lets
    * {@link openaiFamilyVision} decide from well-known OpenAI model ids;
-   * unrecognized gateway ids stay UNKNOWN rather than guessing false.
+   * unrecognized gateway ids stay UNKNOWN rather than guessing text-only.
    */
-  vision?: boolean;
+  input?: ModelInputValue;
 }
 
 /**
@@ -43,6 +44,12 @@ export function openaiFamilyVision(model: string): boolean | undefined {
   if (/^gpt-4o|^gpt-4-turbo|^gpt-4\.1|^gpt-4-vision|^o[134](?:-|$)/.test(model)) return true;
   if (/^gpt-3\.5/.test(model)) return false;
   return undefined;
+}
+
+/** bool→input at the projection boundary; keeps the family helpers boolean-shaped. */
+function toInput(vision: boolean | undefined): ModelInputValue | undefined {
+  if (vision === undefined) return undefined;
+  return vision ? ["text", "image"] : ["text"];
 }
 
 export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
@@ -109,9 +116,9 @@ export function createOpenAIModelPort(opts: OpenAIModelPortOptions): ModelPort {
     },
     describeModel: async (model: string): Promise<ResolvedModelInfo> => {
       const info: ResolvedModelInfo = { model };
-      const vision = opts.vision ?? openaiFamilyVision(model);
-      if (vision !== undefined) {
-        info.vision = vision;
+      const input = opts.input ?? toInput(openaiFamilyVision(model));
+      if (input !== undefined) {
+        info.input = input;
       }
       return info;
     },

@@ -195,18 +195,6 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 /**
- * Project `ResolvedModelInfo.vision` onto the wire, preserving its three
- * states: `true` / `false` verbatim, UNKNOWN as the absence of the key.
- * Collapsing absent to `false` here would gate the composer off for every
- * gateway that cannot describe its models — the failure mode spec §7 rejects.
- *
- * Transitional: retired in the vision-removal task (spec D2).
- */
-function visionKey(vision: boolean | undefined): { vision?: boolean } {
-  return vision === undefined ? {} : { vision };
-}
-
-/**
  * Project `ResolvedModelInfo.input` onto the wire, preserving its
  * three-state: absent = UNKNOWN and must stay absent on the wire so the
  * composer can tell "text-only" from "the gateway never said".
@@ -297,7 +285,6 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               return {
                 ...rest,
                 ...(info.reasoning ? { reasoning: info.reasoning } : {}),
-                ...visionKey(info.vision),
                 ...inputKey(info.input),
                 ...inputLimitsKey(info.inputLimits),
               };
@@ -337,6 +324,10 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           contextWindow: m.contextWindow,
           maxOutputTokens: m.maxOutputTokens,
           reasoning: m.reasoning,
+          // Forward the stored declaration (mirrors sessions.buildProviderConfig
+          // custom branch) so `info` and `rest` below derive input from one
+          // source instead of the wire key surviving only via `...rest`.
+          ...(m.input === undefined ? {} : { input: m.input }),
         })),
       };
       let port;
@@ -361,7 +352,6 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
             return {
               ...rest,
               ...(info.reasoning ? { reasoning: info.reasoning } : {}),
-              ...visionKey(info.vision),
               ...inputKey(info.input),
               ...inputLimitsKey(info.inputLimits),
             };

@@ -128,17 +128,11 @@ export interface ResolvedModelInfo {
   contextWindow?: number;
   reasoning?: ModelReasoningInfo;
   /**
-   * Image input support. Unlike `reasoning`, absence here means UNKNOWN,
-   * not unavailable: gateways that cannot describe their models must not
-   * silently lose the capability, because a vanished tool is harder to
-   * diagnose than a 400. Only an explicit `false` gates tools out.
-   */
-  vision?: boolean;
-  /**
-   * Input modalities, tri-state with the same contract as `vision`:
-   * absent = UNKNOWN (never gated); present without "image" = text-only
-   * (gates). Source of truth going forward — `vision` derives from it
-   * until retirement (spec D2).
+   * Input modalities, tri-state: absent = UNKNOWN (never gated); present
+   * without "image" = text-only (gates). Absence means UNKNOWN, not
+   * unavailable: gateways that cannot describe their models must not
+   * silently lose the image path, because a vanished tool is harder to
+   * diagnose than a 400. Only an explicit text-only list gates tools out.
    */
   input?: ModelInputValue;
   /** Provider input limits (directory fact, read-only). Absent for custom/synthesized models. */

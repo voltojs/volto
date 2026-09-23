@@ -467,7 +467,7 @@ export function ChatPanel() {
   );
 
   // 欢迎屏没有会话可读：按「当前选中的模型」（而非会话绑定模型）判定
-  // vision 能力。同为 hook，必须在 welcome 分支的 early return 之前调用。
+  // 输入模态。同为 hook，必须在 welcome 分支的 early return 之前调用。
   const welcomeModel = useConfigStore((s) =>
     s.findModel(effectiveProviderId, effectiveModelId),
   );

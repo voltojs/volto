@@ -1,6 +1,6 @@
 // 历史消息中的图片块渲染为真实 <img>，指向附件路由；附件被清理时降级为
-// 说明文案而不是破碎图标。InputBar 的 vision 三态门控：false 关入口并说明
-// 原因，undefined（能力未知）保持可用。
+// 说明文案而不是破碎图标。InputBar 的输入模态门控：imageInput 不含 image
+// 时关入口并说明原因，undefined（能力未知）保持可用。
 //
 // 浏览器鉴权：网关用 HttpOnly cookie（同源 /gateway rewrite），同源 <img>
 // 请求自动携带，无需 crossOrigin / credentials 属性。

@@ -41,18 +41,6 @@ describe("vision capability gating", () => {
   });
 });
 
-describe("ResolvedModelInfo.vision tri-state", () => {
-  it("treats absence as unknown, not unavailable", () => {
-    const unknown: ResolvedModelInfo = { model: "gateway-mystery" };
-    expect(unknown.vision).toBeUndefined();
-    // Explicit false is the only value that means "no image input".
-    const unsupported: ResolvedModelInfo = { model: "text-only", vision: false };
-    expect(unsupported.vision).toBe(false);
-    const supported: ResolvedModelInfo = { model: "multimodal", vision: true };
-    expect(supported.vision).toBe(true);
-  });
-});
-
 describe("ResolvedModelInfo.input tri-state", () => {
   it("absence means unknown; only an explicit text-only list gates images", () => {
     const unknown: ResolvedModelInfo = { model: "gateway-mystery" };
