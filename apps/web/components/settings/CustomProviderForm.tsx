@@ -145,6 +145,7 @@ function CustomProviderCard({
             ? {}
             : { maxOutputTokens: m.maxOutputTokens }),
           reasoning: m.reasoning,
+          ...(m.input === undefined ? {} : { input: m.input }),
         })),
       });
       setApiKey('');

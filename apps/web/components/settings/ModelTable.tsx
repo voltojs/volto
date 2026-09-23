@@ -1,12 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { ListPlus, Plus, Trash2 } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { ChevronRight, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import type { Model } from '@/stores/config-store';
-import type { CatalogProviderModel } from '@/lib/config-api';
+import type {
+  CatalogProviderModel,
+  ModelInputLimits,
+  ModelInputValue,
+} from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
 
 /**
@@ -30,6 +34,10 @@ export interface DraftModel {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning: boolean;
+  /** 三态：undefined = 从未声明（UNKNOWN），展示为图片勾上；切换后只在两个显式值间摆动。 */
+  input?: ModelInputValue;
+  /** 仅展示种子（目录事实），custom 行恒无。 */
+  inputLimits?: ModelInputLimits;
 }
 
 export function toDraftModels(models: Model[]): DraftModel[] {
@@ -41,6 +49,8 @@ export function toDraftModels(models: Model[]): DraftModel[] {
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
+    input: m.input,
+    inputLimits: undefined, // config-store `Model` has no limits; explicit keeps both converters shape-identical
   }));
 }
 
@@ -58,6 +68,8 @@ export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
+    input: m.input,
+    inputLimits: m.inputLimits,
   }));
 }
 
@@ -77,13 +89,41 @@ function parsePositiveInt(raw: string): number | undefined {
   return digits === '' ? undefined : Number(digits);
 }
 
+/** 只拼实际存在的字段；全部缺失返回 undefined（调用方据此隐藏分组）。 */
+function formatInputLimits(
+  limits: ModelInputLimits | undefined,
+): string | undefined {
+  const resize = limits?.images?.resize;
+  const parts: string[] = [];
+  if (resize?.maxWidth !== undefined && resize?.maxHeight !== undefined) {
+    parts.push(`≤${resize.maxWidth}×${resize.maxHeight}`);
+  }
+  if (resize?.maxBytes !== undefined) {
+    parts.push(`≤${(resize.maxBytes / (1024 * 1024)).toFixed(1)}MB`);
+  }
+  if (resize?.jpegQuality !== undefined)
+    parts.push(`JPEG ${resize.jpegQuality}`);
+  if (limits?.images?.maxPerMessage !== undefined) {
+    parts.push(`单条 ≤${limits.images.maxPerMessage} 张`);
+  }
+  if (limits?.images?.maxPerRequest !== undefined) {
+    parts.push(`单请求 ≤${limits.images.maxPerRequest} 张`);
+  }
+  if (limits?.maxRequestBytes !== undefined) {
+    parts.push(
+      `请求 ≤${(limits.maxRequestBytes / (1024 * 1024)).toFixed(1)}MB`,
+    );
+  }
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
 /**
  * Column widths, shared by the header and every row so the two stay aligned.
  * Model id and display name take the slack; the two token caps are numeric
  * and narrow; the trailing two columns are fixed-size controls.
  */
 const GRID =
-  'grid grid-cols-[1.4fr_1.2fr_5.5rem_5.5rem_2.5rem_1.75rem] gap-1.5';
+  'grid grid-cols-[1.4fr_1.2fr_5.5rem_5.5rem_2.5rem_1.75rem_1.75rem] gap-1.5';
 
 /**
  * The model list as one form row per model — every field of a model is
@@ -111,6 +151,8 @@ export function ModelTable({
     contextWindow?: number;
     maxOutputTokens?: number;
     reasoning?: boolean;
+    input?: ModelInputValue;
+    inputLimits?: ModelInputLimits;
   }>;
   /** Must be unique per rendered table when `codeOptions` is given. */
   codeListId?: string;
@@ -119,6 +161,15 @@ export function ModelTable({
 }) {
   const patch = (index: number, next: Partial<DraftModel>) =>
     onChange(models.map((m, i) => (i === index ? { ...m, ...next } : m)));
+
+  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
+  const toggleOpen = (key: string) =>
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const selectedCodes = models.map((m) => m.code).filter((c) => c.trim());
@@ -142,92 +193,159 @@ export function ModelTable({
           <span>最大输出</span>
           <span className="text-center">推理</span>
           <span />
+          <span />
         </div>
       )}
 
       {models.map((model, index) => {
         const inherited = codeOptions?.find((o) => o.code === model.code);
         return (
-          <div key={model.clientKey} className={`${GRID} items-center`}>
-            <Input
-              className="h-8 font-mono text-xs"
-              value={model.code}
-              placeholder="model-id"
-              aria-label={`模型 ID ${index + 1}`}
-              list={codeOptions ? codeListId : undefined}
-              onChange={(e) => {
-                const code = e.target.value;
-                const match = codeOptions?.find((o) => o.code === code);
-                patch(index, {
-                  code,
-                  // Seed from the catalog only when the typed code matches;
-                  // a later toggle still wins until the code changes again.
-                  ...(match?.reasoning !== undefined
-                    ? { reasoning: match.reasoning }
-                    : {}),
-                });
-              }}
-            />
-            <Input
-              className="h-8 text-xs"
-              value={model.name}
-              placeholder={inherited?.name ?? '展示名'}
-              aria-label={`显示名称 ${index + 1}`}
-              onChange={(e) => patch(index, { name: e.target.value })}
-            />
-            {/* Both caps are optional: empty means "use the provider's own
+          <Fragment key={model.clientKey}>
+            <div className={`${GRID} items-center`}>
+              <Input
+                className="h-8 font-mono text-xs"
+                value={model.code}
+                placeholder="model-id"
+                aria-label={`模型 ID ${index + 1}`}
+                list={codeOptions ? codeListId : undefined}
+                onChange={(e) => {
+                  const code = e.target.value;
+                  const match = codeOptions?.find((o) => o.code === code);
+                  patch(index, {
+                    code,
+                    // Seed from the catalog only when the typed code matches;
+                    // a later toggle still wins until the code changes again.
+                    ...(match?.reasoning !== undefined
+                      ? { reasoning: match.reasoning }
+                      : {}),
+                    ...(match !== undefined && match.input !== undefined
+                      ? { input: match.input }
+                      : {}),
+                    ...(match !== undefined
+                      ? { inputLimits: match.inputLimits }
+                      : {}),
+                  });
+                }}
+              />
+              <Input
+                className="h-8 text-xs"
+                value={model.name}
+                placeholder={inherited?.name ?? '展示名'}
+                aria-label={`显示名称 ${index + 1}`}
+                onChange={(e) => patch(index, { name: e.target.value })}
+              />
+              {/* Both caps are optional: empty means "use the provider's own
               default", which is why neither shows a fabricated number. */}
-            <Input
-              className="h-8 font-mono text-xs"
-              inputMode="numeric"
-              value={model.contextWindow ?? ''}
-              placeholder={
-                inherited?.contextWindow === undefined
-                  ? '默认'
-                  : String(inherited.contextWindow)
-              }
-              aria-label={`上下文窗口 ${index + 1}`}
-              onChange={(e) =>
-                patch(index, {
-                  contextWindow: parsePositiveInt(e.target.value),
-                })
-              }
-            />
-            <Input
-              className="h-8 font-mono text-xs"
-              inputMode="numeric"
-              value={model.maxOutputTokens ?? ''}
-              placeholder={
-                inherited?.maxOutputTokens === undefined
-                  ? '默认'
-                  : String(inherited.maxOutputTokens)
-              }
-              aria-label={`最大输出 Token ${index + 1}`}
-              onChange={(e) =>
-                patch(index, {
-                  maxOutputTokens: parsePositiveInt(e.target.value),
-                })
-              }
-            />
-            <div className="flex justify-center">
-              <Checkbox
-                checked={model.reasoning}
-                aria-label={`支持推理 ${index + 1}`}
-                onCheckedChange={(checked) =>
-                  patch(index, { reasoning: checked === true })
+              <Input
+                className="h-8 font-mono text-xs"
+                inputMode="numeric"
+                value={model.contextWindow ?? ''}
+                placeholder={
+                  inherited?.contextWindow === undefined
+                    ? '默认'
+                    : String(inherited.contextWindow)
+                }
+                aria-label={`上下文窗口 ${index + 1}`}
+                onChange={(e) =>
+                  patch(index, {
+                    contextWindow: parsePositiveInt(e.target.value),
+                  })
                 }
               />
+              <Input
+                className="h-8 font-mono text-xs"
+                inputMode="numeric"
+                value={model.maxOutputTokens ?? ''}
+                placeholder={
+                  inherited?.maxOutputTokens === undefined
+                    ? '默认'
+                    : String(inherited.maxOutputTokens)
+                }
+                aria-label={`最大输出 Token ${index + 1}`}
+                onChange={(e) =>
+                  patch(index, {
+                    maxOutputTokens: parsePositiveInt(e.target.value),
+                  })
+                }
+              />
+              <div className="flex justify-center">
+                <Checkbox
+                  checked={model.reasoning}
+                  aria-label={`支持推理 ${index + 1}`}
+                  onCheckedChange={(checked) =>
+                    patch(index, { reasoning: checked === true })
+                  }
+                />
+              </div>
+              <div className="flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`展开模型 ${index + 1}`}
+                  onClick={() => toggleOpen(model.clientKey)}
+                >
+                  <ChevronRight
+                    className={`h-3 w-3 transition-transform ${openKeys.has(model.clientKey) ? 'rotate-90' : ''}`}
+                  />
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => onChange(models.filter((_, i) => i !== index))}
+                aria-label={`删除模型 ${index + 1}`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => onChange(models.filter((_, i) => i !== index))}
-              aria-label={`删除模型 ${index + 1}`}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
+            {openKeys.has(model.clientKey) && (
+              <div className="border-muted-foreground/30 col-span-full space-y-2 border-l py-2 pl-3">
+                <div className="space-y-1.5">
+                  <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
+                    输入类型
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex cursor-not-allowed items-center gap-1.5 text-xs opacity-70">
+                      <Checkbox
+                        checked
+                        disabled
+                        aria-label={`输入-文本 ${index + 1}`}
+                      />
+                      文本
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                      <Checkbox
+                        checked={model.input?.includes('image') ?? true}
+                        aria-label={`输入-图片 ${index + 1}`}
+                        onCheckedChange={(checked) =>
+                          patch(index, {
+                            input:
+                              checked === true ? ['text', 'image'] : ['text'],
+                          })
+                        }
+                      />
+                      图片
+                    </label>
+                  </div>
+                  {/* D3: 文本恒在；未声明(UNKNOWN)按有效行为(放行)显示为勾上，切换才产生显式声明。 */}
+                </div>
+                {formatInputLimits(model.inputLimits) !== undefined && (
+                  <div className="space-y-1.5">
+                    <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
+                      输入限制
+                    </div>
+                    <p
+                      className="text-muted-foreground font-mono text-xs"
+                      aria-label="输入限制"
+                    >
+                      {formatInputLimits(model.inputLimits)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </Fragment>
         );
       })}
 
@@ -278,6 +396,8 @@ export function ModelTable({
                 name: '',
                 code,
                 reasoning: match?.reasoning ?? false,
+                input: match?.input,
+                inputLimits: match?.inputLimits,
               } satisfies DraftModel;
             });
             onChange([...models, ...added]);

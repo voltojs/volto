@@ -89,6 +89,12 @@ export interface CatalogProviderModel {
   reasoning?: NonNullable<Model['reasoning']>;
   /** Input modalities, same three-state contract as `Model['input']`. */
   input?: ModelInputValue;
+  /**
+   * Read-only directory limits resolved alongside `input` by `GET /providers`
+   * (absent when the gateway cannot resolve the model) — display seed only,
+   * never written back by the settings forms.
+   */
+  inputLimits?: ModelInputLimits;
 }
 
 /** One catalog-provider model entry, as sent in a create/update request body. */

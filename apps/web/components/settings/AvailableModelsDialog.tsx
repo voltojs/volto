@@ -13,11 +13,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import type { ModelInputLimits, ModelInputValue } from '@/lib/config-api';
 
 export interface AvailableModelOption {
   code: string;
   name: string;
   reasoning?: boolean;
+  input?: ModelInputValue;
+  inputLimits?: ModelInputLimits;
 }
 
 /**
