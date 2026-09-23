@@ -5,6 +5,7 @@ import {
   fauxText,
   fauxThinking,
   fauxToolCall,
+  normalizeContext,
   type AssistantMessageEvent,
 } from "@earendil-works/pi-ai";
 
@@ -32,8 +33,10 @@ describe("pi-ai surface pinning", () => {
     };
 
     // Drive the faux provider directly (no `createModels()`/`setProvider` needed)
-    // to keep this test scoped to the raw pi-ai surface.
-    const stream = faux.provider.streamSimple(model, context);
+    // to keep this test scoped to the raw pi-ai surface. Provider-level
+    // streamSimple takes a normalized TranscriptContext (branded; only
+    // normalizeContext() produces it) since pi-ai 0.86.
+    const stream = faux.provider.streamSimple(model, normalizeContext(context));
 
     const events: AssistantMessageEvent[] = [];
     for await (const event of stream) {

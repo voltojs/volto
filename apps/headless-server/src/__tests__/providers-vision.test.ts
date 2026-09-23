@@ -51,7 +51,7 @@ async function findModel(code: string): Promise<WireModel | undefined> {
 describe("GET /providers vision capability", () => {
   it("publishes a catalog model's declared image support", async () => {
     // Known catalog facts, same pair collection.test.ts pins: gpt-4o is
-    // ["text","image"], deepseek-v4-flash is ["text"].
+    // ["text","image"], deepseek-v4-pro is ["text"].
     await createProvider({
       name: "vision catalog",
       kind: "catalog",
@@ -64,11 +64,11 @@ describe("GET /providers vision capability", () => {
       kind: "catalog",
       piProvider: "deepseek",
       apiKey: "sk-test",
-      models: [{ code: "deepseek-v4-flash" }],
+      models: [{ code: "deepseek-v4-pro" }],
     });
 
     expect((await findModel("gpt-4o"))?.vision).toBe(true);
-    expect((await findModel("deepseek-v4-flash"))?.vision).toBe(false);
+    expect((await findModel("deepseek-v4-pro"))?.vision).toBe(false);
   });
 
   it("omits the key for a hand-declared model whose support is unknown", async () => {

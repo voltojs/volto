@@ -4,6 +4,7 @@ import {
   fauxProvider,
   fauxThinking,
   fauxToolCall,
+  normalizeContext,
 } from "@earendil-works/pi-ai";
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { ModelEvent } from "@volto/core";
@@ -64,7 +65,7 @@ describe("normalizeStream", () => {
     ]);
 
     const context = { messages: [{ id: "m2", role: "user" as const, content: "hi", timestamp: Date.now() }] };
-    const stream = faux.provider.streamSimple(fauxModel, context);
+    const stream = faux.provider.streamSimple(fauxModel, normalizeContext(context));
 
     const events = await collect(normalizeStream(stream, model));
     const types = events.map((e) => e.type);
@@ -120,7 +121,7 @@ describe("normalizeStream", () => {
     ]);
 
     const context = { messages: [{ id: "m3", role: "user" as const, content: "hi", timestamp: Date.now() }] };
-    const stream = faux.provider.streamSimple(fauxModel, context);
+    const stream = faux.provider.streamSimple(fauxModel, normalizeContext(context));
 
     const events = await collect(normalizeStream(stream, model));
 
@@ -147,7 +148,7 @@ describe("normalizeStream", () => {
 
     const context = { messages: [{ id: "m4", role: "user" as const, content: "hi", timestamp: Date.now() }] };
     controller.abort();
-    const stream = faux.provider.streamSimple(fauxModel, context, { signal: controller.signal });
+    const stream = faux.provider.streamSimple(fauxModel, normalizeContext(context), { signal: controller.signal });
 
     const events = await collect(normalizeStream(stream, model));
     const errorEvent = events.find((e) => e.type === "error");

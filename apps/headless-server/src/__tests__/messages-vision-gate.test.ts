@@ -90,9 +90,9 @@ async function postWithAttachment(
 
 describe("POST /messages vision gate", () => {
   it("refuses attachments for a model that declares no image input", async () => {
-    // deepseek-v4-flash is ["text"] in pi-ai's catalog — a known fact, not a
+    // deepseek-v4-pro is ["text"] in pi-ai's catalog — a known fact, not a
     // guess (collection.test.ts pins the same pair).
-    const binding = await bindCatalogModel("deepseek", "deepseek-v4-flash");
+    const binding = await bindCatalogModel("deepseek", "deepseek-v4-pro");
     const attachmentId = await uploadImage();
     await server.openEvents(server.sessionId);
 

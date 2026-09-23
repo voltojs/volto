@@ -3,6 +3,8 @@ import type {
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
   ImageContent as PiImageContent,
+  JsonObject as PiJsonObject,
+  JsonValue as PiJsonValue,
   Message as PiMessage,
   Model as PiModel,
   TextContent as PiTextContent,
@@ -227,7 +229,7 @@ function mapAssistantContentBlock(
         type: "toolCall",
         id: block.id,
         name: block.name,
-        arguments: block.input,
+        arguments: toPiToolArguments(block.input),
       };
       if (thoughtSignature !== undefined) {
         toolCall.thoughtSignature = thoughtSignature;
@@ -240,6 +242,51 @@ function mapAssistantContentBlock(
       // core's model; skip defensively rather than throwing, so a
       // malformed upstream state doesn't break the whole request.
       return undefined;
+  }
+}
+
+// ──────────────────────────────────────────────
+// tool arguments
+// ──────────────────────────────────────────────
+
+/**
+ * Validate a tool_use input as JSON before handing it to pi-ai, whose
+ * `ToolCall.arguments` is `JsonObject` while core's `ToolUseContent.input`
+ * is the wider `Record<string, unknown>`.
+ *
+ * The data in practice is JSON (provider tool-call parsing, zod-validated
+ * tool output), so this rejects only states that could never survive wire
+ * serialization anyway — throwing names the offending path instead of
+ * letting `JSON.stringify` silently drop a `function`/`undefined` field and
+ * ship a tool call the model never authorized.
+ */
+function toPiToolArguments(input: Record<string, unknown>): PiJsonObject {
+  const out: PiJsonObject = {};
+  for (const [key, value] of Object.entries(input)) {
+    out[key] = toPiJsonValue(value, key);
+  }
+  return out;
+}
+
+function toPiJsonValue(value: unknown, path: string): PiJsonValue {
+  if (value === null) return null;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return value;
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw new Error(`pi-ai: tool argument "${path}" is ${String(value)}, which JSON cannot represent`);
+      }
+      return value;
+    case "object": {
+      if (Array.isArray(value)) {
+        return value.map((item, index) => toPiJsonValue(item, `${path}[${index}]`));
+      }
+      return toPiToolArguments(value as Record<string, unknown>);
+    }
+    default:
+      throw new Error(`pi-ai: tool argument "${path}" has type ${typeof value}, which JSON cannot represent`);
   }
 }
 
