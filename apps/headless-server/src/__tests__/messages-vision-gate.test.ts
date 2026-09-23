@@ -1,12 +1,12 @@
 /**
- * Server-side backstop for spec §7's `vision: false` gate.
+ * Server-side backstop for the text-only input gate (spec §7).
  *
  * The composer hides its attachment entry for a text-only model, but UI
  * gating is not a boundary: a client that posts attachments anyway must be
  * refused here rather than having the images travel to a provider that
  * cannot read them.
  *
- * Only an explicit `false` gates. UNKNOWN still goes through — see §7 on why
+ * Only an explicit `["text"]` refuses; UNKNOWN passes — see §7 on why
  * a silently vanished image path costs more than a provider 400.
  */
 
@@ -38,6 +38,8 @@ function authJson(): Record<string, string> {
 async function bindCatalogModel(
   piProvider: string,
   code: string,
+  /** Extra per-model stored fields (e.g. `reasoning`, `input`). */
+  modelExtras: Record<string, unknown> = {},
 ): Promise<{ providerId: string; modelId: string }> {
   const res = await fetch(`${server.url}/providers`, {
     method: "POST",
@@ -47,7 +49,7 @@ async function bindCatalogModel(
       kind: "catalog",
       piProvider,
       apiKey: "sk-test",
-      models: [{ code }],
+      models: [{ code, ...modelExtras }],
     }),
   });
   expect(res.status).toBe(201);
@@ -88,7 +90,7 @@ async function postWithAttachment(
   return { status: res.status, body: (await res.json()) as { error?: string } };
 }
 
-describe("POST /messages vision gate", () => {
+describe("POST /messages text-only input gate", () => {
   it("refuses attachments for a model that declares no image input", async () => {
     // deepseek-v4-pro is ["text"] in pi-ai's catalog — a known fact, not a
     // guess (collection.test.ts pins the same pair).
@@ -104,6 +106,26 @@ describe("POST /messages vision gate", () => {
     expect(server.turnCount()).toBe(0);
   });
 
+  it("refuses attachments for an unknown catalog code whose stored input is text-only", async () => {
+    // deepseek-fantasy is NOT in pi-ai's catalog — the store validates the
+    // `input` value's shape, never its membership. `reasoning: true` makes
+    // synthesis register the code, and the stored `input: ["text"]` must
+    // reach describeModelInfo through the synthesized model, so the
+    // backstop refuses instead of letting UNKNOWN wave the images through.
+    const binding = await bindCatalogModel("deepseek", "deepseek-fantasy", {
+      reasoning: true,
+      input: ["text"],
+    });
+    const attachmentId = await uploadImage();
+    await server.openEvents(server.sessionId);
+
+    const { status, body } = await postWithAttachment(binding, attachmentId);
+
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/image/i);
+    expect(server.turnCount()).toBe(0);
+  });
+
   it("accepts attachments for a model that declares image input", async () => {
     const binding = await bindCatalogModel("openai", "gpt-4o");
     const attachmentId = await uploadImage();
@@ -115,7 +137,7 @@ describe("POST /messages vision gate", () => {
   });
 
   it("accepts attachments when image support is unknown", async () => {
-    // The helper's own hand-declared provider never declares vision.
+    // The helper's own hand-declared provider never declares input.
     const attachmentId = await uploadImage();
     await server.openEvents(server.sessionId);
 

@@ -281,7 +281,10 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               //
               // The stored boolean override is stripped here and replaced by
               // the resolved capability object — never both on the wire.
-              const { reasoning: _storedFlag, ...rest } = model;
+              // Same single-source rule for `input`: the wire key must
+              // originate only from inputKey(info.input), never the stored
+              // record riding along in `rest`.
+              const { reasoning: _storedFlag, input: _storedInput, ...rest } = model;
               return {
                 ...rest,
                 ...(info.reasoning ? { reasoning: info.reasoning } : {}),
@@ -289,6 +292,9 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
                 ...inputLimitsKey(info.inputLimits),
               };
             } catch {
+              // describeModel failed, so `info` never existed: keep the
+              // stored `input` here — a declaration is never lost on the
+              // fallback (it is the only source left).
               const { reasoning: _storedFlag, ...rest } = model;
               return rest;
             }
@@ -349,13 +355,20 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           const { reasoning: _reasoningFlag, ...rest } = m;
           try {
             const info = await port.describeModel!(m.code);
+            // Single source for `input` too: on this path `info` reliably
+            // carries the stored declaration (buildModel registers it in
+            // inputDeclarations), so the wire key comes only from
+            // inputKey(info.input), not from `rest` as well.
+            const { input: _storedInput, ...withoutInput } = rest;
             return {
-              ...rest,
+              ...withoutInput,
               ...(info.reasoning ? { reasoning: info.reasoning } : {}),
               ...inputKey(info.input),
               ...inputLimitsKey(info.inputLimits),
             };
           } catch {
+            // describeModel failed: keep the stored `input` on the fallback
+            // so a declaration is never lost (it is the only source left).
             return rest;
           }
         }),
@@ -681,7 +694,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           }
         }
 
-        // Server-side backstop for the composer's vision gate: a model that
+        // Server-side backstop for the composer's input-modality gate: a model that
         // declares no image input must refuse the images here, before the
         // ack, rather than let them travel to a provider that cannot read
         // them. UI gating alone is not a boundary. Same reasoning-effort

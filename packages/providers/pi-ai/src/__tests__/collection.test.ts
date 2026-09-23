@@ -514,6 +514,32 @@ describe("describeModelInfo.input", () => {
     expect(info.inputLimits).toBeUndefined();
   });
 
+  it("materializes an unknown catalog code from an input override alone and honors it", () => {
+    // No reasoning override: a stored input declaration alone must both
+    // synthesize the model (or the code would vanish from the collection)
+    // and land on Model.input + describeModelInfo, so wire behavior
+    // (transformMessages stripping) and the capability answer agree.
+    const models = buildModels([
+      {
+        kind: "catalog",
+        id: "v",
+        piProvider: "deepseek",
+        modelCodes: ["deepseek-fantasy", "deepseek-flash"],
+        inputOverrides: { "deepseek-fantasy": ["text"] },
+      },
+    ]);
+
+    const synthesized = models.getModel("deepseek", "deepseek-fantasy");
+    expect(synthesized).toBeDefined();
+
+    const info = describeModelInfo(models, "deepseek", "deepseek-fantasy");
+    expect(info.input).toEqual(["text"]);
+    expect(synthesized?.input).toEqual(["text"]);
+    // inputLimits stays a neutralized directory fact (D5) regardless of the
+    // input override — the template's limits are not this code's facts.
+    expect(info.inputLimits).toBeUndefined();
+  });
+
   it("passes the catalog's inputLimits through untouched", () => {
     const models = buildModels([catalogConfig()]); // modelCodes: ["deepseek-flash"]
     const info = describeModelInfo(models, "deepseek", "deepseek-flash");
