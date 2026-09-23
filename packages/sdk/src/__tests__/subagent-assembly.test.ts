@@ -337,4 +337,80 @@ describe("typed sub-agent dispatch wiring", () => {
     expect(subToolNames).toContain("echo");
     expect(subToolNames).not.toContain("write_note");
   });
+  it("refuses a child write attempt at runtime under the narrowed policy (acceptance: denial signature)", async () => {
+    // Roadmap 1.4 acceptance 2: "child permissions may only narrow — a
+    // write under the narrowed policy is refused; assert the refusal
+    // signature (AGENTS.md §2.1)". Assembly-level narrowing and
+    // visible-set pruning are pinned elsewhere; this exercises the runtime
+    // layer those tests never touch: the scripted child model IGNORES its
+    // visible set and calls write_note anyway, and the refusal must come
+    // back as an isError tool result carrying a signature — and be present
+    // in the child's NEXT model request, i.e. on the model-visible path,
+    // not just in a pure function or an event.
+    //
+    // Config note: the roadmap phrases it as spec danger-full-access under
+    // a read-only parent, but a read-only PARENT cannot dispatch at all —
+    // task is WRITE_LOW and the read-only ceiling prunes it (fail-closed,
+    // documented in plan-visibility.test.ts). The enforceable equivalent
+    // pins the same invariant from the child's side: parent workspace-write
+    // (can dispatch), child spec read-only (narrowed), child write attempt
+    // refused at runtime.
+    const { port, requests } = recordingModelPort([
+      toolCallScript(
+        "c1",
+        "task",
+        JSON.stringify({ message: "write the note", subagent_type: "risky" }),
+      ),
+      // Child attempt 1: call the pruned write tool anyway.
+      toolCallScript("c2", "write_note", JSON.stringify({ text: "pwned" })),
+      // Child attempt 2: after the refusal landed in its context.
+      textScript("could not write, stopping"),
+      textScript("parent done"),
+    ]);
+
+    const agent = createAgent({
+      modelPort: port,
+      tools: [createNamedTool(echoDef), createNamedTool(writeDef)],
+      capabilities: new Set(["test:echo", "test:write"]),
+      enableTaskTool: true,
+      permissionConfig: { sandbox: "workspace-write", approval: "never" },
+      agentSpecs: [
+        agentEntry({
+          name: "risky",
+          tools: ["echo", "write_note"],
+          capabilities: ["test:echo", "test:write"],
+          policy: { sandbox: "read-only", approval: "never" },
+        }),
+      ],
+    });
+
+    await agent.run("write something");
+
+    expect(requests.length).toBeGreaterThanOrEqual(3);
+    // Gate level: the narrowed ceiling pruned the write tool from the child
+    // request (spec whitelist and capabilities both name it — only the
+    // ceiling can be responsible).
+    const childAttempt = requests[1]!;
+    const visible = childAttempt.tools.map((t) => t.name);
+    expect(visible).toContain("echo");
+    expect(visible).not.toContain("write_note");
+
+    // Runtime level: the scripted call still lands — routeToolCall must
+    // refuse it, and the refusal must be an isError result carrying a
+    // signature (AGENTS.md §2.1: assert the refusal itself, never silence).
+    const childAfter = requests[2]!;
+    const toolBlocks = childAfter.messages
+      .filter((m) => m.role === "tool")
+      .flatMap((m) =>
+        typeof m.content === "string" ? [] : (m.content as unknown as Array<Record<string, unknown>>),
+      );
+    const refusal = toolBlocks.find((b) => JSON.stringify(b).includes('"c2"'));
+    expect(refusal, "child never saw a tool_result for the refused call").toBeDefined();
+    expect(refusal!["isError"]).toBe(true);
+    const refusalText = JSON.stringify(refusal!["content"]);
+    expect(refusalText).toContain("write_note");
+    expect(refusalText).toMatch(/Unknown tool|not available|refused by the permission policy/);
+  });
 });
+
+
