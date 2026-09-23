@@ -4,6 +4,7 @@
 export { defineTool as defineFileTool } from "@volto/tools-common";
 export type { Tool as FileTool, ToolHandler } from "@volto/tools-common";
 export { createReadFileTool } from "./read-file.js";
+export type { PdfLikeParser, ReadFileToolOptions } from "./read-file.js";
 export { createEditFileTool, computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./edit-file.js";
 export { createWriteFileTool } from "./write-file.js";
 export { createApplyPatchTool } from "./apply-patch.js";

@@ -20,8 +20,18 @@ export interface DocumentParseResult {
   metadata?: Record<string, unknown>;
 }
 
+/** Options controlling how a document is parsed. */
+export interface DocumentParseOptions {
+  /**
+   * 1-based page numbers to return. Honored by paginated formats (PDF);
+   * formats without pages (docx/xlsx/plain text) ignore it — the tool layer
+   * decides whether that is acceptable for the format in play.
+   */
+  pages?: number[];
+}
+
 /** DocumentParserAdapter — abstract interface for file format parsing */
 export interface DocumentParserAdapter {
   /** Parse a file at the given path and return structured content */
-  parse(filePath: string): Promise<DocumentParseResult>;
+  parse(filePath: string, opts?: DocumentParseOptions): Promise<DocumentParseResult>;
 }

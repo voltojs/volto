@@ -6,5 +6,5 @@
  * when not provided, the tool is automatically excluded from the visible set.
  */
 
-export type { DocumentParserAdapter, DocumentParseResult } from "./document-parser.js";
+export type { DocumentParserAdapter, DocumentParseOptions, DocumentParseResult } from "./document-parser.js";
 export { createReadDocumentTool, DOCUMENT_TOOL_NAMES } from "./read-document.js";

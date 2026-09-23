@@ -144,7 +144,7 @@ import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
 import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@volto/tools-data";
 import type { DatabaseAdapter } from "@volto/tools-data";
 import { createReadDocumentTool } from "@volto/tools-document";
-import type { DocumentParserAdapter } from "@volto/tools-document";
+import type { DocumentParserAdapter, DocumentParseOptions } from "@volto/tools-document";
 import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
 import { createSkillTool } from "@volto/tool-skill";
 import {
@@ -197,10 +197,12 @@ import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
 function createLazyNodeDocumentParser(): DocumentParserAdapter {
   let pending: Promise<DocumentParserAdapter> | undefined;
   return {
-    async parse(filePath: string) {
+    async parse(filePath: string, opts?: DocumentParseOptions) {
       pending ??= createNodeDocumentParser();
       const parser = await pending;
-      return parser.parse(filePath);
+      // Forward opts — dropping it here silently loses `pages` (the lazy
+      // adapter sits between every tool and the real parser).
+      return parser.parse(filePath, opts);
     },
   };
 }
@@ -1131,6 +1133,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createReadFileTool(opts.fs, {
         attachments: attachmentStore,
         visionSupported: opts.modelVision,
+        // `.pdf` dispatch: without a parser read_file refuses the file
+        // (isError) instead of dumping utf-8 mojibake. The same default-on
+        // parser read_document gets — real sessions always have one.
+        documentParser,
       }),
       createEditFileTool(opts.fs),
       createWriteFileTool(opts.fs),
@@ -1574,6 +1580,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         fs: opts.fs,
         attachments: attachmentStore,
         visionSupported: opts.modelVision,
+        documentParser,
       })
     : undefined;
   const shellExecutor = effectiveShell
@@ -2843,6 +2850,10 @@ function createSubAgentExecutor(
           fs: opts.fs,
           attachments: attachmentStore,
           visionSupported: opts.modelVision,
+          // Same default-on parser the parent wires: the sub path is a
+          // top-level factory and cannot see createAgent's local const, so
+          // resolve it again here (lazy — no construction cost until used).
+          documentParser: opts.documentParser ?? createLazyNodeDocumentParser(),
         })
       : undefined;
     const subShellExecutor = shellOverride

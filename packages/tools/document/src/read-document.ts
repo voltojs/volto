@@ -4,7 +4,7 @@
 
 import type { AttachmentStore, FileSystem } from "@volto/core";
 import { z } from "zod";
-import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint } from "@volto/tools-common";
+import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint, parsePageSpec } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
 import type { DocumentParserAdapter } from "./document-parser.js";
 
@@ -13,6 +13,13 @@ const MAX_TEXT_LENGTH = 100_000;
 
 const readDocumentSchema = z.object({
   path: z.string().describe("Absolute or relative path to the document file."),
+  pages: z
+    .string()
+    .optional()
+    .describe(
+      "1-based pages to return for paginated formats (PDF), e.g. \"2\" or \"1,3-5\". " +
+        "Omit to read the whole document.",
+    ),
 });
 
 export interface ReadDocumentToolOptions {
@@ -46,6 +53,7 @@ export function createReadDocumentTool(
     description:
       "Read and parse a document file (PDF, DOCX, XLSX, or image). " +
       "Returns the text content, or the image itself when the model supports vision. " +
+      "For long PDFs pass `pages` (e.g. \"2\" or \"1,3-5\") to read selected pages instead of the whole document. " +
       "Use this instead of read_file for non-code document files.",
     schema: readDocumentSchema,
     requires: [CAP_DOCUMENT],
@@ -53,8 +61,21 @@ export function createReadDocumentTool(
     // A document's `path` is a filesystem path too: the Runner resolves it the
     // same way it resolves read_file's, so path rules apply here as well.
     pathInputs: ["path"],
-    run: async ({ path: filePath }) => {
+    run: async ({ path: filePath, pages }) => {
       try {
+        let selectedPages: number[] | undefined;
+        if (pages !== undefined) {
+          const parsed = parsePageSpec(pages);
+          if (parsed === null) {
+            return {
+              modelContent:
+                `Invalid pages spec "${pages}". ` +
+                `Use 1-based pages and inclusive ranges, e.g. "2" or "1,3-5".`,
+              isError: true,
+            };
+          }
+          selectedPages = parsed;
+        }
         // Force the same workspace-boundary check read_file uses. stat() is
         // the cheapest FileSystem method that routes through the port's
         // path resolver; an escape throws the denial before the parser (raw
@@ -62,7 +83,15 @@ export function createReadDocumentTool(
         if (opts?.fs) {
           await opts.fs.stat(filePath);
         }
-        const result = await parser.parse(filePath);
+        // The parser opens with raw fs: hand it the ABSOLUTE path the port
+        // resolves (FileStat.path is root-relative; a workspace-relative
+        // model path would be opened against the gateway's cwd → ENOENT).
+        const parserPath =
+          opts?.fs?.resolvePath ? await opts.fs.resolvePath(filePath) : filePath;
+        const result = await parser.parse(
+          parserPath,
+          selectedPages !== undefined ? { pages: selectedPages } : undefined,
+        );
 
         if (result.contentType === "text") {
           let text = result.text ?? "";
@@ -80,6 +109,7 @@ export function createReadDocumentTool(
               contentType: "text",
               textLength: (result.text ?? "").length,
               truncated,
+              ...(selectedPages !== undefined ? { selectedPages } : {}),
               ...result.metadata,
             },
           };

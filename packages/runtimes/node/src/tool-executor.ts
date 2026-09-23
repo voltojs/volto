@@ -1,6 +1,6 @@
 import type { PendingToolCall, ToolResult, FileSystem, AttachmentStore } from "@volto/core";
 import { evaluateEditGate, evaluateOverwriteGate } from "@volto/core";
-import type { FileTool } from "@volto/tools-fs";
+import type { FileTool, PdfLikeParser } from "@volto/tools-fs";
 import {
   createReadFileTool,
   createEditFileTool,
@@ -25,6 +25,14 @@ export interface CreateFsToolExecutorOptions {
    * (do not gate); only explicit `false` rejects image reads.
    */
   visionSupported?: boolean;
+  /**
+   * Document parser forwarded to read_file for `.pdf` dispatch. The
+   * executor builds its own tool instances (read-before-edit gating lives
+   * here), so every option the VISIBLE definition gets must be threaded
+   * here too — otherwise the model sees a PDF-capable read_file while
+   * execution answers "no document parser is wired".
+   */
+  documentParser?: PdfLikeParser;
 }
 
 /**
@@ -43,6 +51,7 @@ export function createFsToolExecutor(options: CreateFsToolExecutorOptions): Tool
     createReadFileTool(options.fs, {
       attachments: options.attachments,
       visionSupported: options.visionSupported,
+      documentParser: options.documentParser,
     }),
     createEditFileTool(options.fs),
     createWriteFileTool(options.fs),

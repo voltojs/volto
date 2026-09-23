@@ -325,6 +325,15 @@ export function createSandboxedFileSystem(
       await assertReadable(target);
       return fs.stat(target);
     },
+    // Same read policy as stat()/read(): denied-read checks run first, then
+    // the inner port resolves the absolute path (with its own root
+    // boundary). Raw-fs consumers (document parser) call this before
+    // opening the file themselves.
+    async resolvePath(target: string): Promise<string> {
+      await assertReadable(target);
+      if (fs.resolvePath) return fs.resolvePath(target);
+      return toCandidate(target);
+    },
     async list(dir: string) {
       await assertReadable(dir);
       return fs.list(dir);

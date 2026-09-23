@@ -226,6 +226,16 @@ export interface FileSystem {
   list(dir: string): Promise<FileListResult>;
   glob(pattern: string): Promise<FileGlobResult>;
   grep(query: string, opts?: { path?: string; glob?: string; limit?: number }): Promise<FileGrepResult>;
+  /**
+   * Resolve a model-given path to the ABSOLUTE host path it names,
+   * enforcing the workspace boundary (throws on escape). Optional: needed
+   * by consumers that leave the port and hit raw fs — the document parser
+   * opens files with its own library and cannot resolve workspace-relative
+   * paths itself. `FileStat.path` deliberately stays root-relative and is
+   * NOT a substitute. Implementations that only ever see absolute paths
+   * may omit it; callers fall back to the model-given path.
+   */
+  resolvePath?(path: string): Promise<string>;
 }
 
 // ──────────────────────────────────────────────

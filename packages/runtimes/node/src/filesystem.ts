@@ -116,6 +116,12 @@ export function createNodeFileSystem(options: NodeFileSystemOptions): FileSystem
       };
     },
 
+    // The sanctioned escape hatch for raw-fs consumers (document parser):
+    // absolute path + the same boundary denial every other method applies.
+    async resolvePath(target): Promise<string> {
+      return resolveWithinRoot(target);
+    },
+
     async list(dir): Promise<FileListResult> {
       const resolved = resolveWithinRoot(dir);
       const entries = await fs.readdir(resolved, { withFileTypes: true });

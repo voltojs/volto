@@ -10,6 +10,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   DocumentParserAdapter,
+  DocumentParseOptions,
   DocumentParseResult,
 } from "@volto/tools-document";
 import { readImageDimensions } from "./image-dimensions.js";
@@ -37,7 +38,11 @@ const MIME_MAP: Record<string, string> = {
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]);
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv"]);
 
-async function parsePdf(filePath: string, maxTextLength: number): Promise<DocumentParseResult> {
+async function parsePdf(
+  filePath: string,
+  maxTextLength: number,
+  pages?: number[],
+): Promise<DocumentParseResult> {
   let PDFParse: typeof import("pdf-parse").PDFParse;
   try {
     ({ PDFParse } = await import("pdf-parse"));
@@ -47,7 +52,9 @@ async function parsePdf(filePath: string, maxTextLength: number): Promise<Docume
 
   const buffer = await fs.readFile(filePath);
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  const textResult = await parser.getText();
+  // `partial` (pdf-parse ≥2.x ParseParameters) parses ONLY the listed pages,
+  // preserving their order — the documented page-selection mechanism.
+  const textResult = await parser.getText(pages !== undefined ? { partial: pages } : undefined);
   await parser.destroy();
   let text = textResult.text ?? "";
   if (text.length > maxTextLength) {
@@ -57,7 +64,7 @@ async function parsePdf(filePath: string, maxTextLength: number): Promise<Docume
     contentType: "text",
     text,
     mimeType: "application/pdf",
-    metadata: { pages: textResult.total },
+    metadata: { pages: textResult.total, ...(pages !== undefined ? { selectedPages: pages } : {}) },
   };
 }
 
@@ -122,13 +129,13 @@ export async function createNodeDocumentParser(
   const maxTextLength = opts?.maxTextLength ?? 500_000;
 
   return {
-    async parse(filePath: string): Promise<DocumentParseResult> {
+    async parse(filePath: string, opts?: DocumentParseOptions): Promise<DocumentParseResult> {
       const ext = path.extname(filePath).toLowerCase();
       const mime = MIME_MAP[ext];
 
-      // PDF
+      // PDF (only paginated format — other formats ignore opts.pages)
       if (ext === ".pdf") {
-        return parsePdf(filePath, maxTextLength);
+        return parsePdf(filePath, maxTextLength, opts?.pages);
       }
 
       // DOCX

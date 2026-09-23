@@ -81,6 +81,39 @@ describe("createReadDocumentTool", () => {
   });
 });
 
+describe("read_document pages", () => {
+  it("passes the parsed page selection to the parser", async () => {
+    const seen: Array<{ pages?: number[] } | undefined> = [];
+    const parser: DocumentParserAdapter = {
+      async parse(_filePath, opts) {
+        seen.push(opts);
+        return { contentType: "text", text: "-- page 4 of 9 --\nFOURTH", mimeType: "application/pdf", metadata: { pages: 9 } };
+      },
+    };
+    const tool = createReadDocumentTool(parser);
+    const result = await tool.handler({ path: "/doc.pdf", pages: "4" });
+    expect(result.isError).toBeFalsy();
+    expect(seen).toEqual([{ pages: [4] }]);
+    expect(result.modelContent).toContain("FOURTH");
+    expect(result.displayMetadata?.selectedPages).toEqual([4]);
+  });
+
+  it("rejects a malformed page spec without calling the parser", async () => {
+    let called = 0;
+    const parser: DocumentParserAdapter = {
+      async parse() {
+        called += 1;
+        return { contentType: "text", text: "x", mimeType: "application/pdf" };
+      },
+    };
+    const tool = createReadDocumentTool(parser);
+    const result = await tool.handler({ path: "/doc.pdf", pages: "2-x" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent as string).toMatch(/pages/i);
+    expect(called).toBe(0);
+  });
+});
+
 describe("DOCUMENT_TOOL_NAMES", () => {
   it("includes read_document", () => {
     expect(DOCUMENT_TOOL_NAMES.has("read_document")).toBe(true);
