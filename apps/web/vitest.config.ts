@@ -24,5 +24,12 @@ export default defineProject({
     include: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.test.tsx'],
     environmentMatchGlobs: [['**/__tests__/**/*.test.tsx', 'jsdom']],
     setupFiles: ['./vitest.setup.ts'],
+    // The budget exists to catch a hang, not to assert latency. The
+    // whole-repo gate runs ~68 test tasks plus tsc and eslint concurrently on
+    // far fewer cores, starving workers by more than 10x — provider-form tests
+    // pass 609/609 in isolation yet blew the 5s default under a full
+    // `turbo run typecheck lint test`. Mirrors the SDK's 30s budget
+    // (packages/sdk/vitest.config.ts).
+    testTimeout: 30_000,
   },
 });
