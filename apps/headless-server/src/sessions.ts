@@ -383,6 +383,9 @@ interface Session {
   connection: Connection | null;
   buffer: sse.SSEMessage[];
   running: boolean;
+  /** Workflow-mode fingerprint captured from the outgoing agent at rebuild
+   *  time and seeded into the next instance (spec 2026-09-25 §3.1-0). */
+  announcedWorkflowMode?: string;
   /**
    * Cancels the turn currently streaming on this session, if any. Set for the
    * lifetime of `runTurn`'s `for await` and cleared when the turn settles, so
@@ -940,6 +943,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // session and background processes have to be reclaimed here — nothing
     // else holds a reference to them afterwards.
     const outgoing = session.agent;
+    // Carry the workflow-mode fingerprint across the rebuild (spec §3.1-0):
+    // the mode switch that triggered this rebuild is exactly the transition
+    // whose exit note dies if the flag resets to undefined. Best-effort — a
+    // never-run agent has no state to read, leaving the seed absent (cold
+    // re-announce, state-descriptive: safe).
+    if (outgoing) {
+      try {
+        session.announcedWorkflowMode = outgoing.getState()._announcedWorkflowMode;
+      } catch {
+        // Never-run agent — keep whatever we had (usually undefined).
+      }
+    }
     session.agent = await buildAgent({
       ...wiring,
       // Explicit override of the spread so the default-on decision is visible here.
@@ -994,6 +1009,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(seeded.length > 0 ? { initialMessages: seeded } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
+      ...(session.announcedWorkflowMode !== undefined
+        ? { initialAnnouncedWorkflowMode: session.announcedWorkflowMode }
+        : {}),
       ...(initialStep !== undefined ? { initialStep } : {}),
       ...(chatStore
         ? {

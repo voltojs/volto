@@ -174,6 +174,12 @@ export interface WiringOptions {
    */
   initialTurn?: number;
   /**
+   * Seed for the workflow-mode fingerprint (spec 2026-09-25 §3.1-0),
+   * captured from the outgoing agent by sessions.rebuild(). Forwarded
+   * verbatim to createAgent()'s `initialAnnouncedWorkflowMode`.
+   */
+  initialAnnouncedWorkflowMode?: string;
+  /**
    * Highest step number already persisted for that last turn — forwarded
    * verbatim to createAgent()'s `initialStep` so the cross-process resume
    * Runner continues the paused turn's step sequence instead of restarting
@@ -505,6 +511,9 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.attachmentStore ? { attachmentStore: opts.attachmentStore } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
+    ...(opts.initialAnnouncedWorkflowMode !== undefined
+      ? { initialAnnouncedWorkflowMode: opts.initialAnnouncedWorkflowMode }
+      : {}),
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
     // Pass through only a real config object. `false` (explicit disable)
     // and the session registry's default-on resolution never reach here as

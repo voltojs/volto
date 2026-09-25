@@ -560,3 +560,35 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: error"))).toBe(true);
   });
 });
+
+describe("workflow fingerprint threading", () => {
+  it("seeds the outgoing agent's fingerprint into the rebuilt agent", async () => {
+    const builds: Array<Record<string, unknown>> = [];
+    const factory = (opts: Record<string, unknown>) => {
+      builds.push(opts);
+      return {
+        async *stream() {
+          yield { type: "text_delta", data: { text: "hi" } };
+        },
+        getState: () =>
+          ({
+            messages: [{ id: "m1", role: "assistant", content: "x" }],
+            _announcedWorkflowMode: "plan",
+          }) as never,
+      };
+    };
+    const { registry } = makeRegistry(factory as never);
+    const base = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
+
+    await registry.runTurn("s1", "one", base);
+    // First build: nothing to seed yet.
+    expect(builds[0]?.["initialAnnouncedWorkflowMode"]).toBeUndefined();
+
+    // A config change forces a rebuild; the outgoing instance's fingerprint
+    // must ride along — the mode switch that triggered this rebuild is
+    // exactly the transition whose exit note dies without it (spec §3.1-0).
+    await registry.runTurn("s1", "two", { ...base, modelId: "m2" });
+    expect(builds.length).toBe(2);
+    expect(builds[1]?.["initialAnnouncedWorkflowMode"]).toBe("plan");
+  });
+});
