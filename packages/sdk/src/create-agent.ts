@@ -453,6 +453,19 @@ export interface CreateAgentOptions {
   initialMessages?: Message[];
 
   /**
+   * Workflow-mode announcement for the reducer (spec 2026-09-25). Passed
+   * through verbatim — the SDK owns no mode vocabulary or text.
+   */
+  workflowReminder?: { key?: string; announce: string };
+  /**
+   * Rebuild seeding for the workflow fingerprint: the previous instance's
+   * `_announcedWorkflowMode` (initialMessages / initialTurn family). Mode
+   * switches go through rebuild; without this the exit note never fires
+   * (spec §3.1-0).
+   */
+  initialAnnouncedWorkflowMode?: string;
+
+  /**
    * Seeds the internal turn counter so a rebuilt agent instance continues
    * numbering instead of restarting at 1. This is the ordinal of the LAST
    * turn already present in the durable transcript (chatStore) — the next
@@ -1552,6 +1565,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
     id: idPort,
+    ...(opts.workflowReminder ? { workflowReminder: opts.workflowReminder } : {}),
     // Stamps BackgroundTask.startedAt via the reducer's ctx.clock — same
     // injected Clock the Runner uses, so replay stays deterministic.
     ...(opts.clock !== undefined ? { clock: opts.clock } : {}),
@@ -1852,6 +1866,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(seedMessages.length > 0 ? { messages: [...seedMessages] } : {}),
+      ...(opts.initialAnnouncedWorkflowMode !== undefined
+        ? { _announcedWorkflowMode: opts.initialAnnouncedWorkflowMode }
+        : {}),
     };
     const initState = createInitialState(
       Object.keys(initStateOverrides).length > 0 ? initStateOverrides : undefined,
