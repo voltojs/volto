@@ -49,6 +49,14 @@ export interface StepContext {
    */
   permissionConfig?: PermissionConfig;
   /**
+   * Workflow-mode announcement channel (spec 2026-09-25). Pure data: the
+   * reducer compares `key` against `state._announcedWorkflowMode` and, on a
+   * change, injects `announce` as a tail system-reminder — never a static
+   * prefix layer, so enter/exit cost zero prompt-cache invalidation. The host
+   * owns the key vocabulary and the text (state-descriptive wording only).
+   */
+  workflowReminder?: { key?: string; announce: string };
+  /**
    * Optional id source; when set, messages appended to state.messages get
    * id: ctx.id.next(). Absent → messages keep their construction-time id.
    */
@@ -432,6 +440,34 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       }
     }
 
+    // Announce workflow-mode changes exactly like the permission boundary
+    // above: tail, user-role, never the static prefix (prompt caches match
+    // on a prefix — see the comment above). The fingerprint lives in
+    // AgentState so hosts can seed it across rebuilds; mode switches go
+    // through rebuild, and the exit transition dies without the seed.
+    let announcedWorkflow = state._announcedWorkflowMode;
+    if (ctx.workflowReminder && ctx.workflowReminder.key !== announcedWorkflow) {
+      const workflowText = ctx.workflowReminder.announce;
+      announcements.push(
+        stamp(
+          {
+            id: "",
+            role: "user" as const,
+            content: `<system-reminder>\n${workflowText}\n</system-reminder>`,
+          },
+          ctx,
+        ),
+      );
+      emittedReminders.push({
+        type: "emit",
+        event: {
+          type: "context_reminder",
+          data: { kind: "workflow_mode", text: workflowText },
+        },
+      });
+      announcedWorkflow = ctx.workflowReminder.key;
+    }
+
     const newState: ReducerState = {
       ...state,
       messages: [...state.messages, ...announcements, stamp(userMsg, ctx)],
@@ -439,6 +475,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       iterationCount: 0,
       _announcedPermission: announced,
       _announcedPermissionConfig: announcedConfig,
+      _announcedWorkflowMode: announcedWorkflow,
     };
     const effects: Effect[] = [
       buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),

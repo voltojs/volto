@@ -266,4 +266,13 @@ export interface AgentState {
    * Survives turns and checkpoint/resume; cleared by resetTurnForNextInput.
    */
   backgroundTasks?: BackgroundTask[];
+  /**
+   * Fingerprint of the workflow-mode reminder last announced to the model
+   * (opaque host key; undefined = base / no workflow mode). Deliberately in
+   * AgentState — not the ReducerState extension — so hosts seed it through
+   * createInitialState() when rebuilding across a mode switch: without the
+   * seed, the exit key `undefined` collides with a fresh flag and the exit
+   * note never fires (spec 2026-09-25 §3.1-0).
+   */
+  _announcedWorkflowMode?: string;
 }

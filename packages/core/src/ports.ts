@@ -421,6 +421,7 @@ export type TurnEndReason = "done" | "error" | "cancelled" | "budget_exceeded";
 /** The closed set of dynamic mid-conversation injections this session can audit. */
 export type ContextReminderKind =
   | "permission_boundary"
+  | "workflow_mode"
   | "self_correction"
   | "retrieval"
   | "todo_list"
