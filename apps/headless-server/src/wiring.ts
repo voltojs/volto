@@ -90,10 +90,12 @@ export interface WiringOptions {
    */
   sandboxMode?: SandboxMode;
   /**
-   * The session's permission preset. Drives the plan-mode workflow layer:
-   * `plan` injects PLAN_MODE_LAYER as a system context layer (the /plan
-   * entry shows only the user's own text in the chat). Other modes don't
-   * get the layer; absent = no layer (legacy callers / tests).
+   * The session's permission preset. Drives the plan-mode announcement:
+   * `plan` sets workflowReminder's key so the reducer injects
+   * PLAN_WORKFLOW_TEXT as a tail system-reminder (spec 2026-09-25); other
+   * modes carry the exit text, consumed only by a plan → base transition.
+   * The chat shows only what the user typed — the workflow never rides
+   * user-visible message text, and never a static system layer.
    */
   permissionMode?: UiPermissionMode;
   /** HITL approval gate. Omit to fall back to the SDK's auto-allow gate. */
@@ -333,21 +335,26 @@ export function buildSandboxConfigs(
 }
 
 /**
- * Plan-mode workflow layer (方案 A) — the /plan entry no longer ships the
- * flow instructions as user-visible message text: the chat shows only what
- * the user typed, and the workflow rides this static system layer. Keyed on
- * the plan permissionMode (not the read-only sandbox — the two presets share
- * a PermissionConfig on purpose), rebuilt with the session, so entering /
- * leaving plan mode changes the system prefix exactly at a turn boundary.
+ * Plan-mode workflow announcement (spec 2026-09-25, §4). State-descriptive
+ * wording on purpose: the fingerprint can be lost on cold restart, and a
+ * re-announce must read true when it happens. Injected as a TAIL
+ * system-reminder keyed on the workflow fingerprint — never a static layer,
+ * so entering/leaving plan mode never invalidates the prompt prefix.
  */
-const PLAN_MODE_LAYER = [
-  "你已进入计划模式（plan）。此模式下的工作流程：",
-  "1. 工作区只读：用 read_file / glob / grep / bash 只读命令调研；",
-  "2. 有不明确之处用 ask_user 向用户提问对齐（可给选项，支持多选与自由输入）；",
-  "3. 形成完整实施计划并用 save_plan 保存（分步任务、涉及文件、风险点）；再次保存会覆盖当前计划；",
-  "4. 保存后简短总结计划要点，等待用户批准。不要尝试修改工作区文件——用户批准后才会切回可写模式执行。",
-  "用户发来的消息是计划目标，或对已保存计划的调整意见。",
+const PLAN_WORKFLOW_TEXT = [
+  "You are in plan mode (plan). The workflow in this mode:",
+  "1. The workspace is read-only: investigate with read_file / glob / grep and read-only bash commands;",
+  "2. Ask the user clarifying questions with ask_user where anything is unclear (options, multi-select, and free text are supported);",
+  "3. Build a complete implementation plan and save it with save_plan (step-by-step tasks, files involved, risks); saving again overwrites the current plan;",
+  "4. After saving, briefly summarize the plan and wait for the user's approval. Do not modify workspace files — the session switches back to a writable mode only after the user approves.",
+  "Messages from the user are the planning goal, or adjustments to the saved plan.",
 ].join("\n");
+
+/** Exit note: retracted the moment the session leaves plan mode (spec §4). */
+const PLAN_EXIT_TEXT =
+  "Plan mode has ended. The read-only planning workflow above no longer applies: " +
+  "the workspace may be written again according to the permission boundary in force. " +
+  "If a plan was saved, it remains available in the plan panel.";
 
 export async function createWiredAgent(opts: WiringOptions = {}) {
   const cwd = opts.cwd ?? process.cwd();
@@ -421,9 +428,6 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
     const loaded = await collectInstructionFiles(cwd, discoveredDirs);
     const layers = renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
-    if (opts.permissionMode === "plan") {
-      layers.push({ id: "plan-mode", text: PLAN_MODE_LAYER });
-    }
     return layers;
   }
 
@@ -514,6 +518,13 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.initialAnnouncedWorkflowMode !== undefined
       ? { initialAnnouncedWorkflowMode: opts.initialAnnouncedWorkflowMode }
       : {}),
+    // Workflow-mode announcement (spec 2026-09-25): the reducer injects the
+    // text at the tail on fingerprint change. The exit text rides even when
+    // not in plan — it is only consumed by a plan → base transition.
+    workflowReminder:
+      opts.permissionMode === "plan"
+        ? { key: "plan", announce: PLAN_WORKFLOW_TEXT }
+        : { key: undefined, announce: PLAN_EXIT_TEXT },
     ...(opts.initialStep !== undefined ? { initialStep: opts.initialStep } : {}),
     // Pass through only a real config object. `false` (explicit disable)
     // and the session registry's default-on resolution never reach here as

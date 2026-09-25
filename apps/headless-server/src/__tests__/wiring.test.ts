@@ -761,29 +761,48 @@ describe("createWiredAgent — the persistent bash session inherits the sandbox 
 });
 
 // ──────────────────────────────────────────────
-// Plan-mode workflow layer (方案 A): /plan 不再把流程说明当作用户消息发出
-// ——聊天里只展示用户输入的原文，流程说明作为 plan 态专属的静态 system 层
-// 注入（随 rebuild 生效，turn 边界变化）。read-only 档不注入：该层按
-// permissionMode（plan）键控，而非 sandbox（read-only）。
+// Plan-mode workflow reminder (spec 2026-09-25): the workflow instructions
+// ride a TAIL user-role system-reminder keyed on the workflow fingerprint —
+// never a static system layer. That placement is the cache property: the
+// static prefix (systemPrompt + instruction layers) stays byte-identical
+// across enter/exit, so mode switches cost zero prompt-prefix invalidation.
 // ──────────────────────────────────────────────
-describe("createWiredAgent plan-mode workflow layer", () => {
-  it("injects the plan workflow layer when permissionMode is plan", async () => {
+describe("createWiredAgent plan-mode workflow reminder", () => {
+  it("injects the workflow text as a tail user reminder, never in the system prefix", async () => {
     const { modelPort, requests } = captureModelPort();
     const agent = await createWiredAgent({
       modelPort,
       cwd: tempProjectDir,
       permissionMode: "plan",
     });
-    await agent.run("为整理工作区文件制定计划");
+    await agent.run("make a plan");
 
-    const systems = requests[0]!.messages.filter((m) => m.role === "system");
-    const joined = systems.map((m) => (m as { content: string }).content).join("\n");
-    expect(joined).toContain("计划模式");
-    expect(joined).toContain("ask_user");
-    expect(joined).toContain("save_plan");
+    const messages = requests[0]!.messages;
+    const systemText = messages
+      .filter((m) => m.role === "system")
+      .map((m) => String((m as { content: unknown }).content))
+      .join("\n");
+    // Layer deleted: the prefix must not carry the workflow text (this IS
+    // the zero-invalidation property, asserted where it lives). The Chinese
+    // assertion is what makes this RED against the legacy layer.
+    expect(systemText).not.toContain("You are in plan mode");
+    expect(systemText).not.toContain("计划模式");
+
+    const idxText = messages.findIndex(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("You are in plan mode"),
+    );
+    const idxUser = messages.findIndex(
+      (m) => m.role === "user" && m.content === "make a plan",
+    );
+    expect(idxText).toBeGreaterThanOrEqual(0);
+    expect(idxText).toBeLessThan(idxUser);
+    expect(String(messages[idxText]!.content)).toContain("<system-reminder>");
+    // Ask/save_plan vocabulary still reaches the model via the text.
+    expect(String(messages[idxText]!.content)).toContain("ask_user");
+    expect(String(messages[idxText]!.content)).toContain("save_plan");
   });
 
-  it("does not inject the layer for other permission modes", async () => {
+  it("never injects the workflow text for other permission modes", async () => {
     const { modelPort, requests } = captureModelPort();
     const agent = await createWiredAgent({
       modelPort,
@@ -791,9 +810,46 @@ describe("createWiredAgent plan-mode workflow layer", () => {
       permissionMode: "read-only",
     });
     await agent.run("go");
+    expect(JSON.stringify(requests[0]!.messages)).not.toContain("You are in plan mode");
+  });
 
-    const systems = requests[0]!.messages.filter((m) => m.role === "system");
-    const joined = systems.map((m) => (m as { content: string }).content).join("\n");
-    expect(joined).not.toContain("计划模式");
+  it("emits the exit note after plan → read-only rebuild carrying the fingerprint", async () => {
+    // Plan session: the enter note lands and the fingerprint ends at "plan".
+    const plan = captureModelPort();
+    const planAgent = await createWiredAgent({
+      modelPort: plan.modelPort,
+      cwd: tempProjectDir,
+      permissionMode: "plan",
+    });
+    await planAgent.run("make a plan");
+    const seeded = planAgent.getState()._announcedWorkflowMode;
+    expect(seeded).toBe("plan");
+
+    // Rebuild as read-only with the seed threaded — exactly what
+    // sessions.rebuild does (Task 3). Without the seed this test fails:
+    // fresh flag undefined === base key undefined → no exit note.
+    const after = captureModelPort();
+    const nextAgent = await createWiredAgent({
+      modelPort: after.modelPort,
+      cwd: tempProjectDir,
+      permissionMode: "read-only",
+      initialAnnouncedWorkflowMode: seeded,
+    });
+    await nextAgent.run("go ahead");
+
+    const messages = after.requests[0]!.messages;
+    const exit = messages.find(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("Plan mode has ended"),
+    );
+    expect(exit, "exit note missing — fingerprint not threaded or exit text wrong").toBeDefined();
+    expect(String(exit!.content)).toContain("<system-reminder>");
+    expect(
+      messages.some((m) => typeof m.content === "string" && m.content.includes("You are in plan mode")),
+    ).toBe(false);
+    const systemText = messages
+      .filter((m) => m.role === "system")
+      .map((m) => String((m as { content: unknown }).content))
+      .join("\n");
+    expect(systemText).not.toContain("Plan mode has ended");
   });
 });
