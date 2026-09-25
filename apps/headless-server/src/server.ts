@@ -35,6 +35,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos } from "@volto/core";
+import type { ModelInputLimits, ModelInputValue } from "@volto/core";
 import {
   readConversation,
   readTrajectory,
@@ -194,13 +195,17 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 /**
- * Project `ResolvedModelInfo.vision` onto the wire, preserving its three
- * states: `true` / `false` verbatim, UNKNOWN as the absence of the key.
- * Collapsing absent to `false` here would gate the composer off for every
- * gateway that cannot describe its models — the failure mode spec §7 rejects.
+ * Project `ResolvedModelInfo.input` onto the wire, preserving its
+ * three-state: absent = UNKNOWN and must stay absent on the wire so the
+ * composer can tell "text-only" from "the gateway never said".
  */
-function visionKey(vision: boolean | undefined): { vision?: boolean } {
-  return vision === undefined ? {} : { vision };
+function inputKey(input: ModelInputValue | undefined): { input?: ModelInputValue } {
+  return input === undefined ? {} : { input };
+}
+
+/** Same three-state projection for the read-only directory facts. */
+function inputLimitsKey(limits: ModelInputLimits | undefined): { inputLimits?: ModelInputLimits } {
+  return limits === undefined ? {} : { inputLimits: limits };
 }
 
 /**
@@ -239,6 +244,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               m.reasoning === undefined ? [] : [[m.code, m.reasoning] as const],
             ),
           ),
+          inputOverrides: Object.fromEntries(
+            provider.models.flatMap((m) =>
+              m.input === undefined ? [] : [[m.code, m.input] as const],
+            ),
+          ),
         };
         // Building the ModelPort can itself throw (e.g. an unknown
         // piProvider — collection.ts's buildCatalogProvider). Isolate that
@@ -271,13 +281,20 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               //
               // The stored boolean override is stripped here and replaced by
               // the resolved capability object — never both on the wire.
-              const { reasoning: _storedFlag, ...rest } = model;
+              // Same single-source rule for `input`: the wire key must
+              // originate only from inputKey(info.input), never the stored
+              // record riding along in `rest`.
+              const { reasoning: _storedFlag, input: _storedInput, ...rest } = model;
               return {
                 ...rest,
                 ...(info.reasoning ? { reasoning: info.reasoning } : {}),
-                ...visionKey(info.vision),
+                ...inputKey(info.input),
+                ...inputLimitsKey(info.inputLimits),
               };
             } catch {
+              // describeModel failed, so `info` never existed: keep the
+              // stored `input` here — a declaration is never lost on the
+              // fallback (it is the only source left).
               const { reasoning: _storedFlag, ...rest } = model;
               return rest;
             }
@@ -313,6 +330,10 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           contextWindow: m.contextWindow,
           maxOutputTokens: m.maxOutputTokens,
           reasoning: m.reasoning,
+          // Forward the stored declaration (mirrors sessions.buildProviderConfig
+          // custom branch) so `info` and `rest` below derive input from one
+          // source instead of the wire key surviving only via `...rest`.
+          ...(m.input === undefined ? {} : { input: m.input }),
         })),
       };
       let port;
@@ -334,12 +355,20 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           const { reasoning: _reasoningFlag, ...rest } = m;
           try {
             const info = await port.describeModel!(m.code);
+            // Single source for `input` too: on this path `info` reliably
+            // carries the stored declaration (buildModel registers it in
+            // inputDeclarations), so the wire key comes only from
+            // inputKey(info.input), not from `rest` as well.
+            const { input: _storedInput, ...withoutInput } = rest;
             return {
-              ...rest,
+              ...withoutInput,
               ...(info.reasoning ? { reasoning: info.reasoning } : {}),
-              ...visionKey(info.vision),
+              ...inputKey(info.input),
+              ...inputLimitsKey(info.inputLimits),
             };
           } catch {
+            // describeModel failed: keep the stored `input` on the fallback
+            // so a declaration is never lost (it is the only source left).
             return rest;
           }
         }),
@@ -665,11 +694,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           }
         }
 
-        // Server-side backstop for the composer's vision gate: a model that
+        // Server-side backstop for the composer's input-modality gate: a model that
         // declares no image input must refuse the images here, before the
         // ack, rather than let them travel to a provider that cannot read
         // them. UI gating alone is not a boundary. Same reasoning-effort
-        // shape above: only an explicit `vision: false` refuses; UNKNOWN
+        // shape above: only an explicit text-only input refuses; UNKNOWN
         // goes through (spec §7).
         if (imageBlocks.length > 0) {
           try {

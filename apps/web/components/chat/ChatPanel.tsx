@@ -467,7 +467,7 @@ export function ChatPanel() {
   );
 
   // 欢迎屏没有会话可读：按「当前选中的模型」（而非会话绑定模型）判定
-  // vision 能力。同为 hook，必须在 welcome 分支的 early return 之前调用。
+  // 输入模态。同为 hook，必须在 welcome 分支的 early return 之前调用。
   const welcomeModel = useConfigStore((s) =>
     s.findModel(effectiveProviderId, effectiveModelId),
   );
@@ -627,9 +627,9 @@ export function ChatPanel() {
                     sessionId={draftSessionId}
                     ensureSessionId={ensureDraftSession}
                     projectId={pendingProjectId}
-                    // 欢迎屏还没有会话可读：按当前选中的模型判定 vision，
-                    // 与会话内分支的 currentModel?.vision 三态语义一致。
-                    visionSupported={welcomeModel?.vision}
+                    // 欢迎屏还没有会话可读：按当前选中的模型判定输入模态，
+                    // 与会话内分支的 currentModel?.input 三态语义一致。
+                    imageInput={welcomeModel?.input}
                     onInputAction={handleInputAction}
                     disabled={
                       isGenerating ||
@@ -748,8 +748,8 @@ export function ChatPanel() {
                 projectId={currentProject?.id ?? null}
                 // Three-state passthrough: undefined (the gateway never
                 // declared) keeps the attachment entry; only an explicit
-                // false disables it and says why.
-                visionSupported={currentModel?.vision}
+                // text-only list disables it and says why.
+                imageInput={currentModel?.input}
                 onInputAction={handleInputAction}
                 disabled={
                   isGenerating || missingBinding || pendingApprovals.length > 0

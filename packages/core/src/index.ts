@@ -62,6 +62,8 @@ export type {
   ReasoningEffortInfo,
   ModelReasoningInfo,
   ResolvedModelInfo,
+  ModelInputValue,
+  ModelInputLimits,
 } from "./ports.js";
 
 // Types — Ports

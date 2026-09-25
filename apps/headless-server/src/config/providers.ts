@@ -8,6 +8,7 @@
  */
 
 import * as crypto from "node:crypto";
+import type { ModelInputValue } from "@volto/core";
 import { createCipher } from "./crypto.js";
 import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
 import { readJsonFile, writeJsonFileAtomic } from "./io.js";
@@ -22,6 +23,8 @@ export interface Model {
   maxOutputTokens?: number;
   /** Whether this model supports reasoning/thinking; optional, defaults to false downstream. */
   reasoning?: boolean;
+  /** Declared input modalities; absent = UNKNOWN (spec §6). */
+  input?: ModelInputValue;
 }
 
 /**
@@ -42,6 +45,11 @@ export interface CatalogModel {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning?: boolean;
+  /**
+   * Per-model override of pi-ai's catalog `input` modalities. Absent =
+   * follow the catalog. Valid: ["text"] / ["text","image"] (spec D1).
+   */
+  input?: ModelInputValue;
 }
 
 /**
@@ -112,6 +120,8 @@ export type ProviderInput =
         contextWindow?: number;
         maxOutputTokens?: number;
         reasoning?: boolean;
+        /** Declared input modalities; absent = UNKNOWN (spec §6). */
+        input?: ModelInputValue;
       }>;
     };
 
@@ -195,6 +205,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
       ) {
         throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
       }
+      const normalizedInput = normalizeInput(m.input);
       return {
         id: m.id || crypto.randomUUID(),
         name: m.name,
@@ -202,8 +213,24 @@ export function createProviderStore(dir: string = getConfigDir()) {
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
         ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
+        ...(normalizedInput === undefined ? {} : { input: normalizedInput }),
       };
     });
+  }
+
+  /**
+   * The only two legal modality lists (D3: text is always present, so
+   * `input: []` and single-modality ["image"] cannot occur).
+   */
+  function normalizeInput(input: ModelInputValue | undefined): ModelInputValue | undefined {
+    if (input === undefined) return undefined;
+    const legal =
+      (input.length === 1 && input[0] === "text") ||
+      (input.length === 2 && input[0] === "text" && input[1] === "image");
+    if (!legal) {
+      throw new Error(`input must be ["text"] or ["text","image"] (got ${JSON.stringify(input)})`);
+    }
+    return input;
   }
 
   /**
@@ -227,12 +254,14 @@ export function createProviderStore(dir: string = getConfigDir()) {
       ) {
         throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
       }
+      const normalizedInput = normalizeInput(m.input);
       return {
         code: m.code,
         ...(m.name === undefined || m.name === "" ? {} : { name: m.name }),
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
         ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
+        ...(normalizedInput === undefined ? {} : { input: normalizedInput }),
       };
     });
   }
@@ -370,6 +399,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           maxOutputTokens?: number;
           /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
           reasoning?: boolean;
+          input?: ModelInputValue;
         }
       | {
           kind: "custom";
@@ -378,6 +408,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           code: string;
           maxOutputTokens?: number;
           reasoning?: boolean;
+          input?: ModelInputValue;
         }
       | null
     > {
@@ -401,6 +432,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           code: model.code,
           ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
           ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+          ...(model.input === undefined ? {} : { input: model.input }),
         };
       }
 
@@ -414,6 +446,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         code: model.code,
         ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
         ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+        ...(model.input === undefined ? {} : { input: model.input }),
       };
     },
   };

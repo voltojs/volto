@@ -23,20 +23,19 @@ describe("anthropicFamilyVision", () => {
 describe("createAnthropicModelPort.describeModel", () => {
   const port = createAnthropicModelPort({ apiKey: "k" });
 
-  it("publishes family-derived vision for a known model", async () => {
-    const info = await port.describeModel!("claude-sonnet-4-20250514");
-    expect(info.model).toBe("claude-sonnet-4-20250514");
-    expect(info.vision).toBe(true);
+  it("publishes family-derived input for a known model", async () => {
+    const info = await port.describeModel!("claude-3-5-sonnet-latest");
+    expect(info.input).toEqual(["text", "image"]);
   });
 
-  it("lets an explicit options.vision override the family heuristic", async () => {
-    const forced = createAnthropicModelPort({ apiKey: "k", vision: false });
-    const info = await forced.describeModel!("claude-sonnet-4-20250514");
-    expect(info.vision).toBe(false);
+  it("lets an explicit options.input override the family heuristic", async () => {
+    const forced = createAnthropicModelPort({ apiKey: "k", input: ["text"] });
+    const info = await forced.describeModel!("claude-3-5-sonnet-latest");
+    expect(info.input).toEqual(["text"]);
   });
 
-  it("leaves vision absent for an unknown model id", async () => {
-    const info = await port.describeModel!("acme-claude-clone");
-    expect(info.vision).toBeUndefined();
+  it("leaves input absent for an unknown model id", async () => {
+    const info = await port.describeModel!("mystery-model");
+    expect(info.input).toBeUndefined();
   });
 });

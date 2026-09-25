@@ -1,20 +1,22 @@
 /**
- * `GET /providers` must publish each model's image-input capability.
+ * `GET /providers` must publish each model's input modalities.
  *
  * Without it the web app cannot honour spec §7's gating rule: the composer's
- * `visionSupported` prop has no source, so a model the catalog declares
+ * `imageInput` prop has no source, so a model the catalog declares
  * text-only still shows an attachment entry that can only fail.
  *
- * Three-state on the wire: `true` / `false` are published verbatim, UNKNOWN
- * is the absence of the key — never `false`.
+ * Three-state on the wire: `["text"]` / `["text","image"]` are published
+ * verbatim, UNKNOWN is the absence of the key — never `["text"]`.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ModelInputLimits, ModelInputValue } from "@volto/core";
 import { startTestServer, type TestServer } from "./helpers.js";
 
 interface WireModel {
   code: string;
-  vision?: boolean;
+  input?: ModelInputValue;
+  inputLimits?: ModelInputLimits;
 }
 
 let server: TestServer;
@@ -48,7 +50,7 @@ async function findModel(code: string): Promise<WireModel | undefined> {
   return providers.flatMap((p) => p.models).find((m) => m.code === code);
 }
 
-describe("GET /providers vision capability", () => {
+describe("GET /providers input modalities", () => {
   it("publishes a catalog model's declared image support", async () => {
     // Known catalog facts, same pair collection.test.ts pins: gpt-4o is
     // ["text","image"], deepseek-v4-pro is ["text"].
@@ -64,11 +66,14 @@ describe("GET /providers vision capability", () => {
       kind: "catalog",
       piProvider: "deepseek",
       apiKey: "sk-test",
-      models: [{ code: "deepseek-v4-pro" }],
+      models: [{ code: "deepseek-v4-pro" }, { code: "deepseek-flash" }],
     });
 
-    expect((await findModel("gpt-4o"))?.vision).toBe(true);
-    expect((await findModel("deepseek-v4-pro"))?.vision).toBe(false);
+    expect((await findModel("gpt-4o"))?.input).toEqual(["text", "image"]);
+    expect((await findModel("deepseek-v4-pro"))?.input).toEqual(["text"]);
+    expect(
+      (await findModel("deepseek-flash"))?.inputLimits?.images?.resize?.maxWidth,
+    ).toBe(2000);
   });
 
   it("omits the key for a hand-declared model whose support is unknown", async () => {
@@ -82,6 +87,7 @@ describe("GET /providers vision capability", () => {
 
     const model = await findModel("mystery");
     expect(model).toBeDefined();
-    expect(model).not.toHaveProperty("vision");
+    expect(model).not.toHaveProperty("input");
+    expect(model).not.toHaveProperty("inputLimits");
   });
 });

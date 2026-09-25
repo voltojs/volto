@@ -86,6 +86,38 @@ export interface ModelReasoningInfo {
 }
 
 /**
+ * Input modalities a model accepts. Structural mirror of pi-ai's
+ * `Model['input']` (@earendil-works/pi-ai@0.87.1 `types.d.ts`); core is
+ * zero-dependency, so the shape is copied rather than imported.
+ */
+export type ModelInputValue = readonly ("text" | "image")[];
+
+/**
+ * Input limits a provider imposes. Field-for-field mirror of pi-ai's
+ * `ModelInputLimits` (@earendil-works/pi-ai@0.87.1 `types.d.ts`), so the
+ * pi-ai provider adapter can assign pi-ai's own value without a cast.
+ * Directory fact, read-only — there is no override (spec §1.3 / D5).
+ */
+export interface ModelInputLimits {
+  /** Maximum serialized provider request size in bytes. */
+  maxRequestBytes?: number;
+  images?: {
+    /** Cache-safe resize profile applied before a new image enters conversation history. */
+    resize?: {
+      maxWidth?: number;
+      maxHeight?: number;
+      /** Maximum base64-encoded payload size in bytes. */
+      maxBytes?: number;
+      jpegQuality?: number;
+    };
+    /** Maximum images accepted in one provider message. */
+    maxPerMessage?: number;
+    /** Maximum images accepted across one provider request. */
+    maxPerRequest?: number;
+  };
+}
+
+/**
  * Model metadata resolved by its owning adapter. An absent `reasoning` field
  * means the capability is unavailable — adapters must not synthesize an
  * off-only list, since "off" that translates to omitting the parameter is
@@ -96,12 +128,15 @@ export interface ResolvedModelInfo {
   contextWindow?: number;
   reasoning?: ModelReasoningInfo;
   /**
-   * Image input support. Unlike `reasoning`, absence here means UNKNOWN,
-   * not unavailable: gateways that cannot describe their models must not
-   * silently lose the capability, because a vanished tool is harder to
-   * diagnose than a 400. Only an explicit `false` gates tools out.
+   * Input modalities, tri-state: absent = UNKNOWN (never gated); present
+   * without "image" = text-only (gates). Absence means UNKNOWN, not
+   * unavailable: gateways that cannot describe their models must not
+   * silently lose the image path, because a vanished tool is harder to
+   * diagnose than a 400. Only an explicit text-only list gates tools out.
    */
-  vision?: boolean;
+  input?: ModelInputValue;
+  /** Provider input limits (directory fact, read-only). Absent for custom/synthesized models. */
+  inputLimits?: ModelInputLimits;
 }
 
 export interface ModelEventDone {

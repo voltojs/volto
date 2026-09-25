@@ -85,9 +85,9 @@ export function providerModels(
         ...(contextWindow === undefined ? {} : { contextWindow }),
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
         ...(m.reasoning ? { reasoning: m.reasoning } : {}),
-        // Three-state: absent stays absent, so the composer can tell "no
-        // image input" from "the gateway never said".
-        ...(m.vision === undefined ? {} : { vision: m.vision }),
+        // Three-state: absent stays absent, so the composer can tell
+        // "text-only" from "the gateway never said".
+        ...(m.input === undefined ? {} : { input: m.input }),
       };
     });
     const slot = byCatalog ?? new WeakMap<object, Model[]>();

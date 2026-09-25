@@ -43,4 +43,15 @@ describe("listCatalogProviders", () => {
       }
     }
   });
+
+  it("carries pi-ai's input modalities and inputLimits verbatim", () => {
+    const providers = listCatalogProviders();
+    const deepseek = providers.find((p) => p.id === "deepseek");
+    expect(deepseek).toBeDefined();
+
+    const flash = deepseek!.models.find((m) => m.code === "deepseek-flash");
+    expect(flash).toBeDefined();
+    expect(flash!.input).toEqual(["text", "image"]);
+    expect(flash!.inputLimits?.images?.resize?.maxWidth).toBe(2000);
+  });
 });

@@ -157,6 +157,7 @@ function CatalogAddForm({
               ? {}
               : { maxOutputTokens: m.maxOutputTokens }),
             reasoning: m.reasoning,
+            ...(m.input === undefined ? {} : { input: m.input }),
           })),
       });
       onDone();
@@ -333,6 +334,7 @@ function CatalogProviderCard({
           // Explicit boolean: the checkbox is the user's declared intent for
           // this model, stored as an override of pi-ai's catalog flag.
           reasoning: m.reasoning,
+          ...(m.input === undefined ? {} : { input: m.input }),
         })),
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       });

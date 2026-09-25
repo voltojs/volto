@@ -11,7 +11,12 @@ import {
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import type { ModelReasoningInfo, ReasoningEffortId, ResolvedModelInfo } from "@volto/core";
+import type {
+  ModelInputValue,
+  ModelReasoningInfo,
+  ReasoningEffortId,
+  ResolvedModelInfo,
+} from "@volto/core";
 
 /**
  * One configured pi-ai provider. Either a reference into pi-ai's built-in
@@ -45,6 +50,12 @@ export type PiAiProviderConfig =
        * A model absent from this map keeps the catalog's own value.
        */
       reasoningOverrides?: Record<string, boolean>;
+      /**
+       * Per-model user override of pi-ai's catalog `input` modalities.
+       * Absent = follow the catalog. Valid values: ["text"] / ["text","image"]
+       * (the store validates before this layer).
+       */
+      inputOverrides?: Record<string, ModelInputValue>;
     }
   | {
       kind: "custom";
@@ -59,12 +70,12 @@ export type PiAiProviderConfig =
         maxOutputTokens?: number;
         reasoning?: boolean;
         /**
-         * Image-input support for a hand-declared gateway model. Absent
-         * means UNKNOWN, and UNKNOWN still sends images: a vanished image
-         * path is harder to diagnose than a provider 400. Only an explicit
-         * `false` gates them off.
+         * Input modalities for a hand-declared gateway model, tri-state
+         * (spec §7 / D2): absent means UNKNOWN, and UNKNOWN still sends
+         * images — a vanished image path is harder to diagnose than a
+         * provider 400. Only an explicit `["text"]` gates them off.
          */
-        vision?: boolean;
+        input?: ModelInputValue;
       }>;
     };
 
@@ -102,18 +113,17 @@ type CustomModelEntry = Extract<PiAiProviderConfig, { kind: "custom" }>["models"
 type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
 
 /**
- * Vision knowledge that `Model.input` alone cannot express.
+ * Input knowledge that `Model.input` alone cannot express.
  *
- * pi-ai reads `model.input` on the wire path to decide whether to actually
- * attach images, and that flag is binary — it cannot express "the config
- * never said". A hand-declared model with no `vision` flag therefore ships
- * image-capable (spec §7: UNKNOWN is not `false`), which makes its `input`
- * indistinguishable from a catalog model the provider itself declared
- * vision-capable. Catalog models are authoritative from `input`; custom and
- * synthesized models are registered here so `describeModelInfo` can leave
- * `vision` absent when the config never said.
+ * pi-ai reads `Model.input` on the wire path to decide whether to actually
+ * attach images, and that value is binary-per-value — it cannot express
+ * "the config never said". A hand-declared model with no `input` therefore
+ * ships image-capable (spec §7: UNKNOWN is not text-only). Catalog models
+ * are authoritative from their (possibly overridden) `Model.input`; custom
+ * and synthesized models are registered here so `describeModelInfo` can
+ * leave `input` absent when the config never said.
  */
-const visionDeclarations = new WeakMap<object, boolean | undefined>();
+const inputDeclarations = new WeakMap<object, ModelInputValue | undefined>();
 
 /**
  * Build the pi-ai `Model` for one hand-declared config entry. `reasoning`
@@ -140,17 +150,18 @@ function buildModel(providerId: string, providerBaseUrl: string, entry: CustomMo
     provider: providerId,
     baseUrl: normalizeBaseUrl(providerBaseUrl),
     reasoning: entry.reasoning ?? false,
-    // Three-state, per spec §7: only an explicit `false` keeps a model
-    // text-only. An undeclared model stays image-capable on the wire —
-    // treating UNKNOWN as unsupported would silently disable images for
-    // every gateway that cannot describe its own models, and a vanished
-    // image path is harder to diagnose than the 400 we accept instead.
-    input: entry.vision === false ? ["text"] : ["text", "image"],
+    // Three-state, per spec §7 / D3: an undeclared custom model stays
+    // image-capable on the wire — treating UNKNOWN as text-only would
+    // silently disable images for every gateway that cannot describe its
+    // own models. The declaration truth lives in inputDeclarations below.
+    // Spread copies: core's ModelInputValue is readonly, pi-ai's Model.input
+    // is mutable — same elements, fresh array.
+    input: [...(entry.input ?? ["text", "image"])],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: entry.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
   };
-  visionDeclarations.set(model, entry.vision);
+  inputDeclarations.set(model, entry.input);
   return model;
 }
 
@@ -231,8 +242,15 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
 /**
  * One catalog model entry the user enabled whose code is not in this build's
  * pi-ai catalog (a newly released model, or a typo). Synthesized only when
- * the user also declared `reasoning: true` — otherwise the code simply is
- * not in the Models collection, same as before.
+ * the user also declared `reasoning: true` or a per-model `input` override —
+ * otherwise the code simply is not in the Models collection, same as before.
+ *
+ * `inputOverride`, when present, is the user's stored input declaration: it
+ * lands on the synthesized `Model.input` (so pi-ai's transformMessages honors
+ * it on the wire) AND in `inputDeclarations` (so `describeModelInfo` answers
+ * it). Absent, both stay as they were before this parameter existed: the
+ * declaration map records `undefined` (UNKNOWN) and the template/stub's own
+ * `input` stands on the wire.
  *
  * Template choice:
  * - First reasoning-capable catalog model → inherit its thinkingLevelMap
@@ -247,6 +265,7 @@ function synthesizeUnknownCatalogModel(
   code: string,
   piProvider: string,
   baseURL: string | undefined,
+  inputOverride: ModelInputValue | undefined,
 ): Model<Api> {
   const catalogModels = source.getModels();
   const reasoningTemplate = catalogModels.find((m) => m.reasoning);
@@ -263,10 +282,22 @@ function synthesizeUnknownCatalogModel(
       // access in getSupportedThinkingLevels.
       ...(reasoningTemplate ? {} : { thinkingLevelMap: undefined }),
       ...(baseURL ? { baseUrl: baseURL } : {}),
+      // Same reasoning as inputDeclarations below: the template's
+      // inputLimits are directory facts about the TEMPLATE, not about a
+      // code the catalog does not know. Clear them so describeModelInfo's
+      // `!== undefined` gate reports absence (spec §4.1 / D5: "absent for
+      // custom/synthesized models") instead of fabricating a known fact.
+      inputLimits: undefined,
+      // User declaration wins; spread copy (core's ModelInputValue is
+      // readonly, pi-ai's Model.input is mutable). Without an override the
+      // template's inherited `input` stands on the wire while the
+      // declaration below keeps describeModelInfo at UNKNOWN.
+      ...(inputOverride !== undefined ? { input: [...inputOverride] } : {}),
     } as Model<Api>;
-    // Inherited `input` is structural, not a statement about this unknown
-    // code — leave vision UNKNOWN rather than trusting the template.
-    visionDeclarations.set(synthesized, undefined);
+    // Inherited `input` alone is structural, not a statement about this
+    // unknown code — leave input UNKNOWN rather than trusting the template,
+    // unless the user explicitly declared one (which must stick everywhere).
+    inputDeclarations.set(synthesized, inputOverride);
     return synthesized;
   }
 
@@ -278,12 +309,15 @@ function synthesizeUnknownCatalogModel(
     provider: piProvider,
     baseUrl: baseURL ?? source.baseUrl ?? "https://api.openai.com",
     reasoning: true,
-    input: ["text"],
+    // Same override semantics as the structural branch above: a stored
+    // declaration replaces the stub default, absence keeps UNKNOWN via the
+    // declaration map while the wire value stays the stub's `["text"]`.
+    input: inputOverride !== undefined ? [...inputOverride] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MAX_TOKENS,
   } satisfies Model<"openai-completions"> as Model<Api>;
-  visionDeclarations.set(stub, undefined);
+  inputDeclarations.set(stub, inputOverride);
   return stub;
 }
 
@@ -299,37 +333,56 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
 
   const models = catalogModels
     .filter((model) => selected.has(model.id))
-    .map((model) => ({
-      ...model,
-      // Explicit, so it no longer depends on detectCompat's "unknown provider
-      // is a standard OpenAI endpoint" default — see supportsDeveloperRole.
-      // Only the two OpenAI dialects read this key; the anthropic-messages
-      // and bedrock compat shapes do not declare it, so leave theirs alone.
-      ...(model.api === "openai-completions" || model.api === "openai-responses"
-        ? {
-            compat: {
-              ...model.compat,
-              supportsDeveloperRole: supportsDeveloperRole(config.piProvider, model.id),
-            },
-          }
-        : {}),
-      // User override wins over the catalog's own flag. Setting `reasoning:
-      // true` on a catalog model that declares none still yields the default
-      // thinking-level set via getSupportedThinkingLevels (see buildModel).
-      ...(config.reasoningOverrides?.[model.id] !== undefined
-        ? { reasoning: config.reasoningOverrides[model.id] }
-        : {}),
-      ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
-    }));
+    .map((model) => {
+      // Local so `!== undefined` narrows the possibly-undefined indexed
+      // read (noUncheckedIndexedAccess does not narrow element access).
+      const inputOverride = config.inputOverrides?.[model.id];
+      return {
+        ...model,
+        // Explicit, so it no longer depends on detectCompat's "unknown provider
+        // is a standard OpenAI endpoint" default — see supportsDeveloperRole.
+        // Only the two OpenAI dialects read this key; the anthropic-messages
+        // and bedrock compat shapes do not declare it, so leave theirs alone.
+        ...(model.api === "openai-completions" || model.api === "openai-responses"
+          ? {
+              compat: {
+                ...model.compat,
+                supportsDeveloperRole: supportsDeveloperRole(config.piProvider, model.id),
+              },
+            }
+          : {}),
+        // User override wins over the catalog's own flag. Setting `reasoning:
+        // true` on a catalog model that declares none still yields the default
+        // thinking-level set via getSupportedThinkingLevels (see buildModel).
+        ...(config.reasoningOverrides?.[model.id] !== undefined
+          ? { reasoning: config.reasoningOverrides[model.id] }
+          : {}),
+        // Same override semantics as reasoning: absent keeps the catalog's
+        // own modalities. Landing on `Model.input` also drives pi-ai's
+        // transformMessages image stripping, so the declaration sticks on
+        // the wire, not just in describeModelInfo. Spread copies: core's
+        // ModelInputValue is readonly, pi-ai's Model.input is mutable.
+        ...(inputOverride !== undefined ? { input: [...inputOverride] } : {}),
+        ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
+      };
+    });
 
-  // Enabled codes the catalog does not know: synthesize a reasoning-capable
-  // entry so describeModel / effort validation keep working instead of
-  // dropping the user's declared intent on the floor.
+  // Enabled codes the catalog does not know: synthesize an entry when the
+  // user declared anything about it (forced reasoning OR a stored input
+  // override) so describeModel / effort validation / the input backstop keep
+  // working instead of dropping the user's declared intent on the floor.
   for (const code of config.modelCodes) {
     if (knownIds.has(code)) continue;
-    if (config.reasoningOverrides?.[code] !== true) continue;
+    const inputOverride = config.inputOverrides?.[code];
+    if (config.reasoningOverrides?.[code] !== true && inputOverride === undefined) continue;
     models.push(
-      synthesizeUnknownCatalogModel(source, code, config.piProvider, config.baseURL),
+      synthesizeUnknownCatalogModel(
+        source,
+        code,
+        config.piProvider,
+        config.baseURL,
+        inputOverride,
+      ),
     );
   }
 
@@ -428,9 +481,9 @@ function displayName(level: string): string {
  * synthesized off-only list (an off-only control would be byte-identical to
  * omitting the option entirely).
  *
- * `vision` is a tri-state: catalog models publish the catalog's own
- * `input` modalities (true or false are both known); custom and synthesized
- * models publish only an explicit config declaration — absence stays UNKNOWN.
+ * `input` is a tri-state: catalog models publish the catalog's own
+ * `input` modalities (a fact either way); custom and synthesized models
+ * publish only an explicit config declaration — absence stays UNKNOWN.
  */
 export function describeModelInfo(models: Models, providerId: string, code: string): ResolvedModelInfo {
   const model = models.getModel(providerId, code);
@@ -456,16 +509,18 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     }
   }
 
-  if (visionDeclarations.has(model)) {
-    const declared = visionDeclarations.get(model);
-    if (declared !== undefined) {
-      info.vision = declared;
-    }
-    // declared === undefined → UNKNOWN: leave the field absent.
-  } else {
-    // Catalog (or test-injected) model: `input` is the provider's own
-    // modality list, so both true and false are facts rather than guesses.
-    info.vision = model.input.includes("image");
+  // Tri-state input (spec D2): custom/synthesized models answer from
+  // inputDeclarations (absent = UNKNOWN → field omitted); catalog and
+  // test-injected models answer from their own Model.input, a fact.
+  const input = inputDeclarations.has(model)
+    ? inputDeclarations.get(model)
+    : model.input;
+  if (input !== undefined) {
+    info.input = input;
+  }
+  // Directory fact, read-only (D5): custom/synthesized models have none.
+  if (model.inputLimits !== undefined) {
+    info.inputLimits = model.inputLimits;
   }
 
   return info;

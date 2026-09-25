@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule } from "@volto/core";
+import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -104,6 +104,8 @@ type ResolvedCredentials =
       maxOutputTokens?: number;
       /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
       reasoning?: boolean;
+      /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
+      input?: ModelInputValue;
     }
   | {
       kind: "custom";
@@ -112,6 +114,8 @@ type ResolvedCredentials =
       code: string;
       maxOutputTokens?: number;
       reasoning?: boolean;
+      /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
+      input?: ModelInputValue;
     };
 
 /**
@@ -178,6 +182,9 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         ...(credentials.reasoning !== undefined
           ? { reasoningOverrides: { [credentials.code]: credentials.reasoning } }
           : {}),
+        ...(credentials.input !== undefined
+          ? { inputOverrides: { [credentials.code]: credentials.input } }
+          : {}),
       }
     : {
         kind: "custom",
@@ -185,7 +192,13 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // Mirrors provider-openai's own default when no baseURL is resolved.
         baseURL: credentials.baseURL ?? "https://api.openai.com",
         apiKey: credentials.apiKey ?? undefined,
-        models: [{ code: credentials.code, reasoning: credentials.reasoning }],
+        models: [
+          {
+            code: credentials.code,
+            reasoning: credentials.reasoning,
+            ...(credentials.input === undefined ? {} : { input: credentials.input }),
+          },
+        ],
       };
 }
 
@@ -217,11 +230,11 @@ async function assertSupportedReasoningEffort(
 
 /**
  * Validates that a turn carrying images runs against a model that can read
- * them, throwing when the model declares `vision: false`.
+ * them, throwing when the model declares a text-only input list.
  *
  * The composer already hides its attachment entry for such a model, but UI
  * gating is not a boundary — a direct API call must be refused too. Only an
- * explicit `false` gates: UNKNOWN (an absent flag, e.g. a gateway that
+ * explicit `["text"]` gates: UNKNOWN (an absent list, e.g. a gateway that
  * cannot describe its models) goes through and degrades to whatever the
  * provider answers, per spec §7.
  */
@@ -232,7 +245,7 @@ async function assertImageInputSupported(
   const providerConfig = buildProviderConfig(providerId, credentials);
   const port = createPiAiModelPort({ providers: [providerConfig], defaultProviderId: providerConfig.id });
   const info = await port.describeModel!(credentials.code);
-  if (info.vision === false) {
+  if (info.input !== undefined && !info.input.includes("image")) {
     throw new Error(
       `Model "${credentials.code}" does not support image input; remove the attachments or switch models`,
     );
@@ -1337,7 +1350,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
      */
     resolveConfig,
     /**
-     * Throws when the turn's bound model declares `vision: false`. Exposed
+     * Throws when the turn's bound model declares text-only input. Exposed
      * so `POST /messages` can refuse attachments with a real HTTP 400 before
      * acking the turn.
      *

@@ -21,6 +21,24 @@ export interface ReasoningEffort {
   description?: string;
 }
 
+/** Input modalities a model accepts (wire shape of core's ModelInputValue). */
+export type ModelInputValue = ('text' | 'image')[];
+
+/** Provider input limits, read-only directory fact (wire shape of core's ModelInputLimits). */
+export interface ModelInputLimits {
+  maxRequestBytes?: number;
+  images?: {
+    resize?: {
+      maxWidth?: number;
+      maxHeight?: number;
+      maxBytes?: number;
+      jpegQuality?: number;
+    };
+    maxPerMessage?: number;
+    maxPerRequest?: number;
+  };
+}
+
 export interface Model {
   id: string;
   name: string;
@@ -39,11 +57,12 @@ export interface Model {
     defaultEffort?: string;
   };
   /**
-   * Image-input support, three-state. Absent means UNKNOWN (a gateway that
-   * cannot describe its models), which must behave like `true` here: only an
-   * explicit `false` gates the composer's attachment entry off.
+   * Input modalities, three-state. Absent means UNKNOWN (a gateway that
+   * cannot describe its models), which must behave like image-capable
+   * here: only an explicit `["text"]` gates the composer's attachment
+   * entry off (spec D2 — vision retired into this single source).
    */
-  vision?: boolean;
+  input?: ModelInputValue;
 }
 
 /**
@@ -68,8 +87,14 @@ export interface CatalogProviderModel {
    * suppressed by a stored per-model override (see `CatalogModelInput.reasoning`).
    */
   reasoning?: NonNullable<Model['reasoning']>;
-  /** Image-input support, same three-state contract as `Model['vision']`. */
-  vision?: boolean;
+  /** Input modalities, same three-state contract as `Model['input']`. */
+  input?: ModelInputValue;
+  /**
+   * Read-only directory limits resolved alongside `input` by `GET /providers`
+   * (absent when the gateway cannot resolve the model) — display seed only,
+   * never written back by the settings forms.
+   */
+  inputLimits?: ModelInputLimits;
 }
 
 /** One catalog-provider model entry, as sent in a create/update request body. */
@@ -84,6 +109,8 @@ export interface CatalogModelInput {
    * pi-ai when it declares them). Always sent by the settings form.
    */
   reasoning?: boolean;
+  /** Per-model input override/declaration; omitted = follow catalog / UNKNOWN. */
+  input?: ModelInputValue;
 }
 
 /**
@@ -123,6 +150,8 @@ export interface CustomModelInput {
   maxOutputTokens?: number;
   /** Whether this model supports reasoning/thinking. */
   reasoning?: boolean;
+  /** Per-model input override/declaration; omitted = follow catalog / UNKNOWN. */
+  input?: ModelInputValue;
 }
 
 export type ProviderInput =
@@ -214,6 +243,8 @@ export interface CatalogModel {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning?: boolean;
+  input?: ModelInputValue;
+  inputLimits?: ModelInputLimits;
 }
 
 export interface CatalogProvider {

@@ -684,9 +684,10 @@ export interface CreateAgentOptions {
   attachmentStore?: AttachmentStore;
 
   /**
-   * Model image-input support, matching `ResolvedModelInfo.vision`'s
-   * tri-state. Pass the value from `modelPort.describeModel(model)?.vision`
-   * when the port can describe its models.
+   * Model image-input support, tri-state. Pass the value derived from
+   * `modelPort.describeModel(model)?.input` (present without "image" → false,
+   * ["text","image"] → true, absent → undefined) when the port can describe
+   * its models.
    *
    * - absent (`undefined`): unknown — image tools are not gated and
    *   `CAP_MODEL_VISION` is not granted.

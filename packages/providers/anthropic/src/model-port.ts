@@ -5,7 +5,7 @@
  * normalizes the SSE response into core ModelEvents.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ToolResultBlock, ResolvedModelInfo } from "@volto/core";
+import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ModelInputValue, ToolResultBlock, ResolvedModelInfo } from "@volto/core";
 import { normalizeStream, type RawAnthropicEvent } from "./stream-normalize.js";
 
 export interface AnthropicModelPortOptions {
@@ -16,11 +16,11 @@ export interface AnthropicModelPortOptions {
   /** Default model if not specified in request */
   defaultModel?: string;
   /**
-   * Image-input override for every model this port serves. Absent lets
-   * {@link anthropicFamilyVision} decide from the model id; that helper
-   * itself returns undefined for unrecognized ids rather than guessing.
+   * Input-modalities override for every model this port serves. Absent lets
+   * {@link anthropicFamilyVision} decide from well-known Anthropic model ids;
+   * unrecognized ids stay UNKNOWN rather than guessing text-only.
    */
-  vision?: boolean;
+  input?: ModelInputValue;
 }
 
 /**
@@ -32,6 +32,12 @@ export function anthropicFamilyVision(model: string): boolean | undefined {
   if (/^claude-instant|^claude-2/.test(model)) return false;
   if (/^claude-3|^claude-(?:sonnet|opus|haiku|fable)-\d/.test(model)) return true;
   return undefined;
+}
+
+/** bool→input at the projection boundary; keeps the family helpers boolean-shaped. */
+function toInput(vision: boolean | undefined): ModelInputValue | undefined {
+  if (vision === undefined) return undefined;
+  return vision ? ["text", "image"] : ["text"];
 }
 
 export function createAnthropicModelPort(opts: AnthropicModelPortOptions): ModelPort {
@@ -88,9 +94,9 @@ export function createAnthropicModelPort(opts: AnthropicModelPortOptions): Model
     },
     describeModel: async (model: string): Promise<ResolvedModelInfo> => {
       const info: ResolvedModelInfo = { model };
-      const vision = opts.vision ?? anthropicFamilyVision(model);
-      if (vision !== undefined) {
-        info.vision = vision;
+      const input = opts.input ?? toInput(anthropicFamilyVision(model));
+      if (input !== undefined) {
+        info.input = input;
       }
       return info;
     },
