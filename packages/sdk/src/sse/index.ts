@@ -57,6 +57,8 @@ export type {
   ConversationMessage,
   ConversationBlock,
   ConversationToolCall,
+  TurnUsage,
+  RouteSource,
   TrajectoryView,
   TrajectoryRow,
   TodoItem,

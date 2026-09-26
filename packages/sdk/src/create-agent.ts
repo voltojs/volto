@@ -504,6 +504,13 @@ export interface CreateAgentOptions {
   /** Model name override (sent to the provider) */
   model?: string;
 
+  /**
+   * 宿主路由的 provider 配置 id（如 "deepseek-official"），写进每条
+   * assistant_message 的 source，供每轮用量卡片展示「提供方」。SDK 不理解
+   * 它的取值，也不参与路由；不传则 source 里没有该键（spec 2026-09-26 §3.3）。
+   */
+  providerId?: string;
+
   /** Max tokens per model call */
   maxTokens?: number;
 
@@ -1559,6 +1566,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const stepContext: StepContext = {
     tools: toolDefs,
     model: resolve(opts.model, "model"),
+    ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
     maxTokens: resolve(opts.maxTokens, "maxTokens"),
     temperature: resolve(opts.temperature, "temperature"),
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
@@ -2913,6 +2921,7 @@ function createSubAgentExecutor(
     const subStepContext: StepContext = {
       tools: subToolDefs,
       model: childSpec?.model ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
+      ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
       maxTokens:
         childSpec?.maxTokens ?? resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
       temperature:
