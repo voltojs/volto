@@ -99,8 +99,8 @@ export type ChatEntry =
  *   streaming — no permanent caret — while keeping the streamed text, and its
  *   error surfaces as a notice right after the text (or in the bubble's place
  *   when nothing streamed at all).
- * - A closed empty assistant bubble with no recorded error has nothing to
- *   show and is dropped rather than rendered blank.
+ * - A closed empty assistant bubble with no recorded error and no round usage
+ *   has nothing to show and is dropped rather than rendered blank.
  * - Turn-level errors (local send failures, protocol error events) have no
  *   message of their own — they surface as a trailing error notice rather
  *   than being swallowed. A turn whose step already surfaced its error skips
@@ -132,7 +132,10 @@ export function composeChatEntries(
         // are deliberately left in the chat-store buffer, so it does not
         // vanish), but the message is no longer presented as streaming, and
         // the failure surfaces as an error notice in the bubble's place.
-        const hasContent = message.blocks.length > 0 || message.content !== '';
+        const hasContent =
+          message.blocks.length > 0 ||
+          message.content !== '' ||
+          message.turnUsage !== undefined;
         if (hasContent) {
           entries.push({
             kind: 'message',
@@ -152,6 +155,9 @@ export function composeChatEntries(
       const emptyClosed =
         message.blocks.length === 0 &&
         message.content === '' &&
+        // The round's usage is attached to this one message, so swallowing the
+        // bubble would drop the whole round's chip (spec §6).
+        message.turnUsage === undefined &&
         message.isStreaming !== true;
       if (emptyClosed) continue;
     }

@@ -71,7 +71,8 @@ describe("providerId pass-through", () => {
 
     await agent.run("delegate this");
 
-    // 子会话 id 由 idPort 派生为 `${parent}-sub-N`，一次派发即 s1-sub-1。
+    // 子会话 id 由默认 Id port 以 `${parent}-sub-` 为前缀派生：这里是
+    // `s1-sub-` 拼上 Id 生成的 id 前缀，不是裸计数器。断言只依赖该前缀。
     const childAssistant = written.find(
       (w) => w.sessionId.startsWith("s1-sub-") && w.event.type === "assistant_message",
     );

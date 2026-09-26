@@ -145,6 +145,8 @@ describe("toConversationView turn usage", () => {
 
   it("attaches nothing when no call in the round reported usage", () => {
     const view = toConversationView(buildTurnRecords(log(turnLog(1, [{ step: 1 }, { step: 2 }]))));
+    // 先钉消息条数：否则下面的 every(...) 在空数组上会空过。
+    expect(view.messages.map((m) => m.role)).toEqual(["user", "assistant", "assistant"]);
     expect(view.messages.every((m) => m.turnUsage === undefined)).toBe(true);
   });
 

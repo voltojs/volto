@@ -172,9 +172,102 @@ describe('composeChatEntries', () => {
     ]);
   });
 
+  it('keeps an errored empty bubble that carries usage, next to its error notice', () => {
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        userInput: [],
+        steps: [
+          {
+            step: 1,
+            startedAt: 120,
+            headerHash: 'h1',
+            toolCalls: [],
+            retries: [],
+            error: { message: 'provider down', retriable: true },
+          },
+        ],
+      },
+    ];
+    const withUsage: ConversationMessage = {
+      ...emptyAssistant('1:1'),
+      turnUsage: {
+        inputTokens: 5,
+        outputTokens: 6,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 11,
+        missingUsageCalls: 0,
+      },
+    };
+
+    const entries = composeChatEntries([withUsage], records);
+    // The bubble survives (the chip lives on it) while the failure still shows.
+    expect(entries).toEqual([
+      { kind: 'message', message: { ...withUsage, isStreaming: false } },
+      { kind: 'error', key: '1:1:error', text: 'provider down', time: 200 },
+    ]);
+  });
+
   it('drops closed empty assistant bubbles that never errored', () => {
     const entries = composeChatEntries([emptyAssistant('1:1')], []);
     expect(entries).toEqual([]);
+  });
+
+  // Mirror of runner.ts's synthesized `model_done` when a stream produced only
+  // usage events: the round's last assistant message has empty content yet
+  // carries the usage, and spec §6 still requires the footer (time + chip).
+  const emptyRoundLog = (usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  }): TranscriptEventInput[] => [
+    { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+    { time: 110, type: 'user_message', data: { content: 'go' }, turn: 1 },
+    {
+      time: 120,
+      type: 'model_call_start',
+      data: { headerHash: 'h1' },
+      turn: 1,
+      step: 1,
+    },
+    {
+      time: 130,
+      type: 'assistant_message',
+      data: {
+        content: [],
+        stopReason: 'end_turn',
+        ...(usage !== undefined ? { usage } : {}),
+        durationMs: 5,
+      },
+      turn: 1,
+      step: 1,
+    },
+    { time: 140, type: 'turn_end', data: { turn: 1, reason: 'done' }, turn: 1 },
+  ];
+
+  it('keeps the round chip when the last assistant bubble is empty but carries usage', () => {
+    const { view, records } = projectConversation(
+      emptyRoundLog({ inputTokens: 11, outputTokens: 22 }),
+      [],
+    );
+    const entries = composeChatEntries(view.messages, records);
+    const assistant = entries.find(
+      (e): e is { kind: 'message'; message: ConversationMessage } =>
+        e.kind === 'message' && e.message.role === 'assistant',
+    );
+
+    expect(assistant?.message.content).toBe('');
+    expect(assistant?.message.turnUsage?.totalTokens).toBe(33);
+  });
+
+  it('still drops the same empty closed bubble when it carries no usage', () => {
+    const { view, records } = projectConversation(emptyRoundLog(), []);
+    const entries = composeChatEntries(view.messages, records);
+
+    expect(
+      entries.some((e) => e.kind === 'message' && e.message.role === 'assistant'),
+    ).toBe(false);
   });
 
   it('keeps an empty assistant bubble while it is still streaming', () => {
