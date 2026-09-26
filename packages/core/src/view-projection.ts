@@ -19,6 +19,7 @@ import type {
   TurnEndReason,
 } from "./ports.js";
 import { extractBlockText } from "./text-extract.js";
+import { totalUsageTokens } from "./pricing.js";
 
 // ──────────────────────────────────────────────
 // Intermediate layer
@@ -31,6 +32,36 @@ export interface UserInputRecord {
   time: number;
 }
 
+/** 一次模型调用的路由来源：宿主的 provider 配置 id + 模型 id。 */
+export interface RouteSource {
+  providerId?: string;
+  modelId: string;
+}
+
+/**
+ * 一轮对话的 token 账目：该轮每次模型调用的累加（spec 2026-09-26 D1）。
+ * 只挂在该轮最后一条 assistant 消息上。
+ */
+export interface TurnUsage {
+  /** 未缓存 prompt tokens（adapter 已归一化，见 openai/stream-normalize.ts）。 */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /**
+   * inputTokens + outputTokens + cacheRead + cacheWrite，与 provider 自己报的
+   * total 同口径（复用 pricing 的 totalUsageTokens，避免第二份公式）。
+   */
+  totalTokens: number;
+  /** 该轮最后一次携带 source 的调用；整轮都没 source 时该键不存在。 */
+  source?: RouteSource;
+  /**
+   * 该轮未上报 usage 的模型调用次数——它们的 token 不在上面的和里。
+   * UI 用它出一行脚注，而不是把缺测当 0（D5）。
+   */
+  missingUsageCalls: number;
+}
+
 export interface AssistantRecord {
   content: ContentBlock[];
   reasoning?: string;
@@ -39,6 +70,8 @@ export interface AssistantRecord {
   ttftMs?: number;
   durationMs: number;
   interrupted?: true;
+  /** 产生这条消息的路由（assistant_message.source）。 */
+  source?: RouteSource;
 }
 
 export interface PartialAssistant {
@@ -288,6 +321,7 @@ export function buildTurnRecords(
           ...(reasoningText ? { reasoning: reasoningText } : {}),
           ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
           ...(data.usage !== undefined ? { usage: data.usage } : {}),
+          ...(data.source !== undefined ? { source: data.source } : {}),
           ...(data.ttftMs !== undefined ? { ttftMs: data.ttftMs } : {}),
           durationMs: data.durationMs,
           ...(data.interrupted !== undefined ? { interrupted: data.interrupted } : {}),
@@ -515,6 +549,11 @@ export interface ConversationMessage {
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  /**
+   * 仅出现在该轮的**最后一条** assistant 消息上，且仅当该轮至少一次调用
+   * 上报了 usage；整轮无上报 → 该字段不存在（不编造 0 tok）。
+   */
+  turnUsage?: TurnUsage;
 }
 
 export interface ConversationView {
@@ -533,6 +572,56 @@ function textOf(content: string | ContentBlock[]): string {
 function toolResultText(content: string | ToolResultBlock[]): string {
   if (typeof content === "string") return content;
   return content.map(extractBlockText).join("\n");
+}
+
+/**
+ * 把一轮的全部模型调用汇总成 TurnUsage（spec 2026-09-26 §3.2）。
+ *
+ * 一次调用都没上报 → undefined：UI 必须什么都不显示，而不是一个编造的
+ * `0 tok`（D5）。没上报的调用计入 missingUsageCalls，而不是按 0 累加——
+ * 卡片据此声明缺口。source 取该轮最后一次携带它的调用（通常是产出最终
+ * 答复的那次）。
+ */
+function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+  let reported = 0;
+  let missingUsageCalls = 0;
+  let source: RouteSource | undefined;
+
+  for (const step of turn.steps) {
+    const assistant = step.assistant;
+    if (assistant?.source !== undefined) source = assistant.source;
+    const usage = assistant?.usage;
+    if (usage === undefined) {
+      missingUsageCalls += 1;
+      continue;
+    }
+    reported += 1;
+    inputTokens += usage.inputTokens;
+    outputTokens += usage.outputTokens;
+    cacheReadTokens += usage.cacheReadTokens ?? 0;
+    cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+  }
+
+  if (reported === 0) return undefined;
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens: totalUsageTokens({
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    }),
+    ...(source !== undefined ? { source } : {}),
+    missingUsageCalls,
+  };
 }
 
 /**
@@ -579,6 +668,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
   const messages: ConversationMessage[] = [];
 
   for (const turn of records) {
+    const turnStart = messages.length;
     const direct = turn.userInput.filter((u) => u.origin === "direct");
     const queued = turn.userInput.filter((u) => u.origin === "queued");
 
@@ -693,6 +783,19 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
       emitStep(step);
     }
     for (const leftover of pending) emitUser(leftover.input, leftover.id);
+
+    // 本轮账目属于"这一轮"，不属于某一次模型调用：挂到该轮最后一条
+    // assistant 消息上，让 UI 在这轮最终回复下方渲染（spec §3.2）。流式期间
+    // 也照样挂——是否显示由渲染器的 isStreaming 门控决定，投影不做展示决策。
+    const turnUsage = summariseTurnUsage(turn);
+    if (turnUsage !== undefined) {
+      for (let i = messages.length - 1; i >= turnStart; i--) {
+        const candidate = messages[i]!;
+        if (candidate.role !== "assistant") continue;
+        messages[i] = { ...candidate, turnUsage };
+        break;
+      }
+    }
   }
 
   return { messages };

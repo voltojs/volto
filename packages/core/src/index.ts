@@ -169,6 +169,7 @@ export type {
   ToolCallRecord,
   UserInputRecord,
   RetryRecord,
+  RouteSource,
 } from "./view-projection.js";
 
 // View projection — turn records → chat feed for the web UI
@@ -178,6 +179,7 @@ export type {
   ConversationMessage,
   ConversationBlock,
   ConversationToolCall,
+  TurnUsage,
 } from "./view-projection.js";
 
 // View projection — streaming partials + trajectory audit ledger
