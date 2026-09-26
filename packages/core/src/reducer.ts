@@ -32,6 +32,13 @@ export interface StepResult {
 export interface StepContext {
   tools: ToolDefinition[];
   model?: string;
+  /**
+   * 宿主路由的 provider 配置 id（如 "deepseek-official"），**仅作溯源**：
+   * reducer 把它写进 assistant_message.source，供 UI 展示「提供方」。
+   * 适配器不得用它判定消息是否来自当前模型（见 providers/pi-ai/context.ts 的
+   * isForeignSource —— 那里只比 modelId）。不设则 source 里没有该键。
+   */
+  providerId?: string;
   maxTokens?: number;
   temperature?: number;
   /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
@@ -585,7 +592,14 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         role: "assistant",
         content: assistantContent,
         stopReason: input.stopReason,
-        ...(ctx.model !== undefined ? { source: { modelId: ctx.model } } : {}),
+        ...(ctx.model !== undefined
+          ? {
+              source: {
+                ...(ctx.providerId !== undefined ? { providerId: ctx.providerId } : {}),
+                modelId: ctx.model,
+              },
+            }
+          : {}),
         ...(input.meta !== undefined ? { modelMeta: input.meta } : {}),
       },
       ctx,

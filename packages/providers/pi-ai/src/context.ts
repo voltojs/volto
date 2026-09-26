@@ -148,10 +148,12 @@ function mapAssistantMessage(
   // or messages assembled before this field existed) is not a mismatch — it
   // falls back to the envelope's own check alone.
   //
-  // `source.providerId` is intentionally not compared: the Runner only knows
-  // `stepContext.model`, so the kernel never populates `providerId` today.
-  // Cross-provider routing is a later phase; comparing an always-undefined
-  // field would just make every message look foreign.
+  // `source.providerId` is deliberately not compared. It is provenance for
+  // display (the host's provider-config id, e.g. "deepseek-official"), not a
+  // routing predicate: pi-ai's own `model.provider` is a different vocabulary
+  // ("deepseek"), so comparing them would mark every replay foreign and
+  // silently strip signed thinking/tool-call blocks. modelId remains the
+  // only field this decision reads.
   const isForeignSource = message.source !== undefined && message.source.modelId !== model;
   const envelope = isForeignSource ? undefined : readReplayEnvelope(message.modelMeta, model);
 

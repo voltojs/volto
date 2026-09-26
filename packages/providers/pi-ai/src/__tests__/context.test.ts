@@ -184,6 +184,34 @@ describe("toPiContext", () => {
     expect(msg.content).toEqual([{ type: "text", text: "answer", textSignature: "text-sig" }]);
   });
 
+  it("does not treat a differing source.providerId as foreign replay", () => {
+    // providerId 是溯源字段（spec 2026-09-26 D3）：volto 的 provider 配置 id
+    // 与 pi-ai 目录的 model.provider 不是同一套词汇，拿它判定外部性会把每条
+    // 历史消息判成 foreign、静默丢掉签名 thinking 块。签名必须留下。
+    const modelMeta = toReplayEnvelope(
+      { content: [{ type: "text", text: "answer" }] } as AssistantMessage,
+      modelId,
+    );
+    modelMeta.blocks[0] = { type: "text", textSignature: "text-sig" };
+
+    const req = baseRequest({
+      messages: [
+        {
+          id: "m9b",
+          role: "assistant",
+          content: [{ type: "text", text: "answer" }],
+          modelMeta,
+          source: { providerId: "some-other-provider", modelId },
+        },
+      ],
+    });
+
+    const ctx = toPiContext(req, model);
+    const msg = ctx.messages[0] as AssistantMessage;
+
+    expect(msg.content).toEqual([{ type: "text", text: "answer", textSignature: "text-sig" }]);
+  });
+
   it("degrades gracefully when modelMeta is absent entirely", () => {
     const req = baseRequest({
       messages: [
