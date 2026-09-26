@@ -98,6 +98,26 @@ describe("toConversationView turn usage", () => {
     });
   });
 
+  it("keeps a trailing source-bearing call even when it reported no usage", () => {
+    const view = toConversationView(
+      buildTurnRecords(
+        log(
+          turnLog(1, [
+            { step: 1, usage: { inputTokens: 10, outputTokens: 1 }, source: { providerId: "provider-a", modelId: "a" } },
+            // 最后一次调用只留下路由、没有用量——model_error / 流式收尾的常见形态。
+            // 取「最后一个 source 非 undefined 的调用」与「该 step 有没有 usage」无关
+            // （spec §3.2 全局约束）：source 仍取它，而不是退回上一次有 usage 的调用。
+            { step: 2, source: { providerId: "provider-b", modelId: "b" } },
+          ]),
+        ),
+      ),
+    );
+    const usage = view.messages.at(-1)!.turnUsage!;
+    expect(usage.source).toEqual({ providerId: "provider-b", modelId: "b" });
+    // 该调用没上报用量 → 计入缺失，而不是因此拿不到它的 source。
+    expect(usage.missingUsageCalls).toBe(1);
+  });
+
   it("counts calls that reported no usage instead of summing them as zero", () => {
     const view = toConversationView(
       buildTurnRecords(
