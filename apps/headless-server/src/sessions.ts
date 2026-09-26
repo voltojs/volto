@@ -968,6 +968,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(credentials
         ? {
             model: credentials.code,
+            // Route provenance for the turn-usage card (spec 2026-09-26): the
+            // session's own provider config id, not a default — the same value
+            // `buildProviderConfig` below routes the port with.
+            ...(config.providerId !== undefined ? { providerId: config.providerId } : {}),
             // `wiring.modelPort`, if the caller supplied one (e.g. tests via
             // `agentFactory`), still wins: `createWiredAgent` only falls back
             // to building a port from `providerConfig` when no explicit

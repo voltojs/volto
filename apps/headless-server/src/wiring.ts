@@ -59,6 +59,12 @@ export interface WiringOptions {
   modelPort?: ModelPort;
   model?: string;
   /**
+   * 宿主路由的 provider 配置 id，转发给 createAgent() 的同名选项：reducer 把它
+   * 写进 assistant_message.source，每轮用量卡片据此显示「提供方」。只作溯源，
+   * 不参与任何路由/可见性判定（spec 2026-09-26 §3.4）。
+   */
+  providerId?: string;
+  /**
    * Credentials for the default OpenAI-compatible port. Nothing is read from
    * the environment: a turn's provider binding comes from the provider store,
    * and any other caller passes what it wants explicitly. Ignored when
@@ -474,6 +480,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   return createAgent({
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
+    ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
     // Anchors the persistent bash session's initial cwd at the project —
     // without it the session spawns at the gateway process cwd, which is
     // neither the workspace nor a writable root.

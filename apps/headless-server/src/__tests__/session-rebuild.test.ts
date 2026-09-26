@@ -594,3 +594,25 @@ describe("workflow fingerprint threading", () => {
     expect(builds[1]?.["initialAnnouncedWorkflowMode"]).toBe("plan");
   });
 });
+
+describe("provider route provenance threading", () => {
+  it("hands the session's provider id to every agent build, including rebuilds", async () => {
+    const { builds, factory } = makeFactory();
+    const { registry } = makeRegistry(factory);
+    const base = {
+      projectId: "p1",
+      providerId: "deepseek-official",
+      modelId: "m1",
+      permissionMode: "ask" as const,
+    };
+
+    await registry.runTurn("s1", "one", base);
+    expect(builds[0]?.["providerId"]).toBe("deepseek-official");
+
+    // 配置变化触发 rebuild：新实例必须带着同一条路由（用量卡片的「提供方」
+    // 来自 transcript，而 transcript 的 source 只在这一层决定）。
+    await registry.runTurn("s1", "two", { ...base, modelId: "m2" });
+    expect(builds.length).toBe(2);
+    expect(builds[1]?.["providerId"]).toBe("deepseek-official");
+  });
+});

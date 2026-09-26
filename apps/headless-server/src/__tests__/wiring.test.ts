@@ -853,3 +853,23 @@ describe("createWiredAgent plan-mode workflow reminder", () => {
     expect(systemText).not.toContain("Plan mode has ended");
   });
 });
+
+describe("createWiredAgent provider provenance", () => {
+  it("forwards providerId so the transcript can name the route", async () => {
+    const { modelPort } = captureModelPort();
+    const agent = await createWiredAgent({
+      modelPort,
+      cwd: tempProjectDir,
+      model: "deepseek-flash",
+      providerId: "deepseek-official",
+    });
+
+    await agent.run("hi");
+
+    const assistant = agent.getState().messages.filter((m) => m.role === "assistant");
+    expect(assistant.at(-1)!.source).toEqual({
+      providerId: "deepseek-official",
+      modelId: "deepseek-flash",
+    });
+  });
+});
