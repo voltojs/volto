@@ -582,7 +582,9 @@ describe("workflow fingerprint threading", () => {
 
     await registry.runTurn("s1", "one", base);
     // First build: nothing to seed yet.
-    expect(builds[0]?.["initialAnnouncedWorkflowMode"]).toBeUndefined();
+    // Object.hasOwn, not toBeUndefined: the guarantee is the option is ABSENT
+    // on the first build (conditional spread), not merely undefined.
+    expect(Object.hasOwn(builds[0]!, "initialAnnouncedWorkflowMode")).toBe(false);
 
     // A config change forces a rebuild; the outgoing instance's fingerprint
     // must ride along — the mode switch that triggered this rebuild is

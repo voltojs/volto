@@ -3,17 +3,12 @@
  * options reach the reducer untouched, and the fingerprint seed suppresses
  * a re-announce on a fresh instance.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
 import { createMockModelPort, textScript } from "@volto/core";
 import type { ModelPort, ModelRequest } from "@volto/core";
 
 const ENTER = "You are in plan mode (plan). wf-sdk-text";
-
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  while (cleanups.length > 0) cleanups.pop()!();
-});
 
 function capturingPort(): { port: ModelPort; requests: ModelRequest[] } {
   const requests: ModelRequest[] = [];

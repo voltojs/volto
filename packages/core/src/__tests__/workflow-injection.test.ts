@@ -68,6 +68,13 @@ describe("workflow-mode reminder injection", () => {
     const ready = { ...first.state, status: "idle" as const };
     const second = sendUser(ready, "two", ctx("plan"));
     expect(reminderTexts(second.state.messages).filter((t) => t.includes(ENTER))).toHaveLength(1);
+    // §9-3's other half: unchanged key emits no context_reminder event either.
+    expect(second.effects).not.toContainEqual(
+      expect.objectContaining({
+        type: "emit",
+        event: expect.objectContaining({ type: "context_reminder" }),
+      }),
+    );
   });
 
   it("SEED SUPPRESSION: same key on a seeded instance injects nothing (spec §9-6)", () => {
