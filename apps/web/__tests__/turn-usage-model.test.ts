@@ -37,6 +37,20 @@ describe('turn usage formatting', () => {
     expect(promptTokens(GOLD)).toBe(23_852_184);
   });
 
+  it('keeps cache writes in the denominator, so a half-cached prompt reads 50.0%', () => {
+    // GOLD 的 cacheWriteTokens 是 0，删掉 promptTokens 里的 + cacheWriteTokens 也不会变红；
+    // 这条用例把 cacheWrite 单独撑起来：分母 1000+1000=2000，命中率 1000/2000=50.0%。
+    // 一旦丢掉 cacheWrite 项，分母退化成 1000，命中率会被抬成 100.0%。
+    const halfCached: TurnUsage = {
+      ...GOLD,
+      inputTokens: 0,
+      cacheReadTokens: 1_000,
+      cacheWriteTokens: 1_000,
+    };
+    expect(promptTokens(halfCached)).toBe(2_000);
+    expect(formatCacheHitRate(cacheHitRate(halfCached))).toBe('50.0%');
+  });
+
   it('has no hit rate to show when the prompt is empty, and says so', () => {
     const zeroPrompt: TurnUsage = {
       ...GOLD,
