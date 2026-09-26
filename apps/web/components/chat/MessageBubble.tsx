@@ -10,6 +10,7 @@ import { StreamRenderer } from './StreamRenderer';
 import { Markdown } from './Markdown';
 import { SubagentCard } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
+import { TurnUsageChip } from './TurnUsageChip';
 import {
   Collapsible,
   CollapsibleContent,
@@ -181,31 +182,39 @@ export function MessageBubble({
         </div>
       )}
 
-      {!message.isStreaming && message.content && (
-        <div className="mt-1 flex items-center gap-2">
-          <span className="text-muted-foreground/70 font-mono text-[10px]">
-            {timeFormatter.format(message.timestamp)}
-          </span>
-          <button
-            type="button"
-            onClick={() => void copy()}
-            className={cn(
-              'text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px]',
-              'opacity-0 transition-opacity group-hover:opacity-100',
+      {/* 页脚在两种情况下都要出现：有正文（可复制），或这一轮有用量可展示。
+          纯工具调用结尾的轮次以前整块消失，用量 chip 正好补上这个盲区。 */}
+      {!message.isStreaming &&
+        (message.content !== '' || message.turnUsage !== undefined) && (
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-muted-foreground/70 font-mono text-[10px]">
+              {timeFormatter.format(message.timestamp)}
+            </span>
+            {message.content !== '' && (
+              <button
+                type="button"
+                onClick={() => void copy()}
+                className={cn(
+                  'text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px]',
+                  'opacity-0 transition-opacity group-hover:opacity-100',
+                )}
+              >
+                {copied ? (
+                  <>
+                    <Check className="text-success h-3 w-3" /> 已复制
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3 w-3" /> 复制
+                  </>
+                )}
+              </button>
             )}
-          >
-            {copied ? (
-              <>
-                <Check className="text-success h-3 w-3" /> 已复制
-              </>
-            ) : (
-              <>
-                <Copy className="h-3 w-3" /> 复制
-              </>
+            {message.turnUsage !== undefined && (
+              <TurnUsageChip usage={message.turnUsage} />
             )}
-          </button>
-        </div>
-      )}
+          </div>
+        )}
     </div>
   );
 }

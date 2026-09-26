@@ -152,4 +152,27 @@ describe('SubagentTab', () => {
     fireEvent.click(await screen.findByText('go', { selector: 'span' }));
     expect(useTrajectoryDrawerStore.getState().row).toMatchObject({ id: 'a1', summary: 'go' });
   });
+
+  it('renders the round usage chip inside a sub-agent conversation too', async () => {
+    const assistantWithUsage: TranscriptEventInput = {
+      time: 2,
+      type: 'assistant_message',
+      data: {
+        content: [{ type: 'text', text: 'child done' }],
+        usage: { inputTokens: 10, outputTokens: 2 },
+        source: { providerId: 'deepseek-official', modelId: 'deepseek-flash' },
+        durationMs: 5,
+      },
+      turn: 1,
+      step: 1,
+    };
+    useChatStore.setState({
+      subagents: { 's-sub-usage': { events: [userGo, assistantWithUsage], deltas: [], status: 'done' } },
+    });
+    fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-usage', events: [] });
+
+    render(<SubagentTab tab={tab('s-sub-usage')} />);
+
+    expect(await screen.findByText('用量 12 tok')).toBeInTheDocument();
+  });
 });
