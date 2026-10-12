@@ -25,6 +25,21 @@ export interface DatabaseAdapter {
   exec(sql: string, params?: unknown[]): Promise<{ changes: number }>;
 }
 
+/**
+ * DatabaseOpener — opens handles for a model-given database path.
+ *
+ * The opener owns the workspace boundary: it resolves the requested path,
+ * rejects anything outside the workspace, and decides whether the handle is
+ * read-only. Callers pass the model-given path verbatim and must not
+ * pre-validate it themselves.
+ */
+export interface DatabaseOpener {
+  /** Open (or reuse) a handle for `path`. Rejects when the path escapes the workspace or the database cannot be opened. */
+  open(path: string, opts: { readonly: boolean }): Promise<DatabaseAdapter>;
+  /** Close every handle this opener opened. Safe to call more than once. */
+  closeAll(): Promise<void>;
+}
+
 // ──────────────────────────────────────────────
 // HTTP query tool
 // ──────────────────────────────────────────────
