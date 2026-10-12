@@ -9,9 +9,15 @@ import { createSandboxedShell, createSandboxSessionSpawner, probeBinary } from "
 import { createNodeShell } from "../shell.js";
 import { createPersistentSession, type PersistentSession } from "../persistent-session.js";
 
-/** Snapshot of seatbelt profile files currently in tmpdir. */
+/**
+ * Snapshot of seatbelt profile files written by THIS process. Profiles are
+ * named `volto-sandbox-<pid>-<n>.sb`, so the pid scope keeps the snapshot from
+ * seeing profiles written by other test files running in parallel workers.
+ */
 function listSandboxProfiles(): string[] {
-  return fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith("volto-sandbox-"));
+  return fs
+    .readdirSync(os.tmpdir())
+    .filter((f) => f.startsWith(`volto-sandbox-${process.pid}-`) && f.endsWith(".sb"));
 }
 
 /** A non-internal IPv4 address of this host, or undefined if none is configured. */
