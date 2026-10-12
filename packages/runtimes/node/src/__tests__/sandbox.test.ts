@@ -596,12 +596,57 @@ describe("buildBwrapArgs", () => {
   it("read-only mode: no --bind writable mounts", () => {
     const args = buildBwrapArgs({
       mode: "read-only",
+      // A read-only session is handed the same writableRoots as the
+      // workspace-write tier (gateway wiring supplies them unconditionally);
+      // the mode, not the presence of the field, decides whether they bind.
+      writableRoots: ["/workspace", "/tmp"],
       network: { enabled: false },
     });
     // Only --ro-bind for /, no --bind writable roots
     const bindCount = args.filter((a) => a === "--bind").length;
     expect(bindCount).toBe(0);
     expect(args).toContain("--unshare-net");
+  });
+
+  it("read-only mode: writableRoots and readOnlyOverlays are both ignored", () => {
+    const args = buildBwrapArgs({
+      mode: "read-only",
+      writableRoots: ["/w", "/tmp"],
+      readOnlyOverlays: [".git"],
+      network: { enabled: false },
+    });
+    // Base read-only mount survives: --ro-bind / /
+    expect(args).toContain("--ro-bind");
+    expect(args[args.indexOf("--ro-bind") + 1]).toBe("/");
+    expect(args[args.indexOf("--ro-bind") + 2]).toBe("/");
+    // No writable bind for any supplied root.
+    expect(args).not.toContain("--bind");
+    expect(args).not.toContain("/w");
+    expect(args).not.toContain("/tmp");
+    // No overlay mount either: the overlay expands against writableRoots, and
+    // read-only mode has none, so nothing must be masked read-only here.
+    const roBindCount = args.filter((a) => a === "--ro-bind").length;
+    expect(roBindCount).toBe(1);
+    expect(args).not.toContain("/w/.git");
+  });
+
+  it("workspace-write mode: writableRoots and readOnlyOverlays still bind", () => {
+    const args = buildBwrapArgs({
+      mode: "workspace-write",
+      writableRoots: ["/w"],
+      readOnlyOverlays: [".git"],
+      network: { enabled: false },
+    });
+    // The fix must not pass by dropping all binding: workspace-write still
+    // emits the writable identity mount ...
+    expect(args).toContain("--bind");
+    const bindIdx = args.indexOf("--bind");
+    expect(args[bindIdx + 1]).toBe("/w");
+    expect(args[bindIdx + 2]).toBe("/w");
+    // ... and the expanded read-only overlay that overrides it.
+    const overlayIdx = args.indexOf("--ro-bind", args.indexOf("--ro-bind") + 1);
+    expect(args[overlayIdx + 1]).toBe("/w/.git");
+    expect(args[overlayIdx + 2]).toBe("/w/.git");
   });
 
   it("network enabled: no --unshare-net", () => {

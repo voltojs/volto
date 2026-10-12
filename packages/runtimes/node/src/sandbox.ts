@@ -1648,6 +1648,12 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  *   --unshare-net                           (when network disabled)
  *   --die-with-parent                       (auto-cleanup orphaned sandboxed processes)
  *
+ * `read-only` mode emits neither the `--bind` roots nor the overlay
+ * `--ro-bind` lines: `writableRoots` / `readOnlyOverlays` are
+ * workspace-write-tier fields, exactly as in buildSeatbeltProfile. The base
+ * `--ro-bind / /` stays, so the filesystem is still fully readable and
+ * nowhere writable.
+ *
  * All mount options use identity mounts (src == dest) — the process sees
  * the same absolute paths inside the namespace as outside, but write
  * permissions are restricted by mount flags.
@@ -1662,8 +1668,14 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  * per-connection token.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {
-  const writableRoots = config.writableRoots ?? [];
-  const rawOverlays = config.readOnlyOverlays ?? [];
+  // Same rule as buildSeatbeltProfile: `writableRoots` and `readOnlyOverlays`
+  // are workspace-write-tier fields (see SandboxConfig's own doc comment).
+  // Callers hand a read-only session the same roots as a workspace-write one,
+  // so the MODE must decide whether they bind — otherwise a read-only session
+  // gets a writable identity mount of the whole workspace and tmp.
+  const isReadOnly = config.mode === "read-only";
+  const writableRoots = isReadOnly ? [] : (config.writableRoots ?? []);
+  const rawOverlays = isReadOnly ? [] : (config.readOnlyOverlays ?? []);
   const readOnlyOverlays = expandOverlays(rawOverlays, writableRoots);
   const networkEnabled = config.network?.enabled ?? false;
 
