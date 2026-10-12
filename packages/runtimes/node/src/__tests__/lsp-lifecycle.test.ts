@@ -291,6 +291,32 @@ describe("LSP crash recovery", () => {
     expect(readFixtureLog().filter((m) => m.method === "initialize")).toHaveLength(2);
   });
 
+  it("F-115 a crash landing after the request timed out settles once and stays coherent", async () => {
+    // Review focus 5: a server exit and a request timeout can both happen for
+    // the same request. `die-late` never answers and exits ~500ms later, while
+    // the request timeout is 100ms, so the timeout is what the caller sees and
+    // the exit arrives on a connection with nothing pending.
+    const mgr = mkManager({ mode: "die-late", requestTimeoutMs: 100 });
+    const client = await mgr.forFile(file);
+    const pid = readPids()[0]!;
+
+    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
+    // The child is still running at that point: the exit really is late.
+    expect(() => process.kill(pid, 0)).not.toThrow();
+
+    // The delayed exit must be absorbed by the exit handler without a second
+    // settle or an uncaught exception (either would fail this test).
+    await sleep(1_000);
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH/);
+
+    // ...and the manager must have noticed: the next call starts a fresh
+    // server instead of writing into a dead pipe.
+    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(
+      /exited unexpectedly|did not respond/,
+    );
+    expect(readPids()).toHaveLength(2);
+  });
+
   it("F-115 a restarted server is re-synced with didOpen, never a stale didChange", async () => {
     const mgr = mkManager({ mode: "die-once" });
     const client = await mgr.forFile(file);
