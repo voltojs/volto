@@ -91,6 +91,23 @@ function parseServer(language: string, value: unknown): LspServerSpec {
 }
 
 /**
+ * Deep-copy a server spec.
+ *
+ * `args` (and `initializationParams`) are arrays/objects a caller may mutate,
+ * so a shallow spread would leave them shared with the module-level default
+ * and one session's edit would corrupt every later session.
+ */
+function cloneSpec(spec: LspServerSpec): LspServerSpec {
+  return {
+    ...spec,
+    ...(spec.args === undefined ? {} : { args: [...spec.args] }),
+    ...(spec.initializationParams === undefined
+      ? {}
+      : { initializationParams: structuredClone(spec.initializationParams) }),
+  };
+}
+
+/**
  * Load the language → server table from `<configDir>/lsp.json`.
  *
  * Returns a fresh copy of the built-in default when the file is absent, and a
@@ -105,10 +122,11 @@ export async function loadLspServers(
     raw = await fs.readFile(file, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      // A copy per call: the default table is module state, and a caller that
-      // mutated its entry would corrupt every later session in this process.
+      // A deep copy per call: the default table is module state, and a caller
+      // that mutated its entry (or the `args` array) would corrupt every later
+      // session in this process.
       return Object.fromEntries(
-        Object.entries(BUILT_IN_SERVERS).map(([language, spec]) => [language, { ...spec }]),
+        Object.entries(BUILT_IN_SERVERS).map(([language, spec]) => [language, cloneSpec(spec)]),
       );
     }
     throw new LspConfigError(

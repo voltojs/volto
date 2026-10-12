@@ -27,6 +27,17 @@ describe("loadLspServers", () => {
     });
   });
 
+  it("returns a deep copy of the built-in default, so one caller cannot corrupt the next", async () => {
+    const first = await loadLspServers(dir);
+    first.typescript!.args!.push("--mutated");
+    first.typescript!.command = "mutated";
+    // The module-level default must be untouched: `args` is an array, so a
+    // shallow copy would have shared it with every later session.
+    expect(await loadLspServers(dir)).toEqual({
+      typescript: { command: "typescript-language-server", args: ["--stdio"] },
+    });
+  });
+
   it("F-123 rejects malformed JSON instead of starting without the configured servers", async () => {
     await writeConfig("{ not json");
     await expect(loadLspServers(dir)).rejects.toThrow(/lsp\.json/);
