@@ -1,7 +1,7 @@
 import { it, expect } from "vitest";
 const itDarwin = process.platform === "darwin" ? it : it.skip;   // Explicit skip off-platform; never pass abroad.
 const itLinux = process.platform === "linux" ? it : it.skip;
-import { createSandboxedProcessSpawner, probeBinary, type SandboxedProcess } from "../sandbox.js";
+import { createSandboxedProcessSpawner, probeBinary, type SandboxBackend, type SandboxedProcess } from "../sandbox.js";
 import { tmpdir } from "node:os"; import { join } from "node:path"; import { mkdtempSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 // ── Local helpers (not part of the production surface) ──
@@ -10,6 +10,17 @@ import { tmpdir } from "node:os"; import { join } from "node:path"; import { mkd
 // real-bwrap denial case skips there, so a missing runner can never pass as a
 // denial. Reuse the exported probe rather than re-implementing `which`.
 const hasBwrap = probeBinary("bwrap");
+
+// The read-only smoke case below needs a backend that can actually confine
+// THIS host: seatbelt on darwin, bwrap on linux. Where neither runner exists
+// there is nothing to smoke — the case is reported as skipped rather than
+// passing on the strength of an unconfined fallback.
+const readOnlyBackend: SandboxBackend | undefined =
+  process.platform === "darwin" && probeBinary("sandbox-exec")
+    ? "seatbelt"
+    : process.platform === "linux" && hasBwrap
+      ? "bubblewrap"
+      : undefined;
 
 /** Poll until `pred()` holds, or fail the test after `timeoutMs`. */
 async function until(pred: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -202,6 +213,63 @@ itLinux("F-101 bwrap denies a write outside the writable roots, asserting that b
     await reap(p, result, profilesBefore);
   }
 });
+
+itLinux("F-101 bwrap read-only mode denies a write into a configured writableRoot, asserting that backend's dialect", async () => {
+  // The sibling case above proves "outside the roots is denied" in
+  // workspace-write. THIS case is the one the read-only fix targets: the
+  // gateway hands a read-only session the same `writableRoots` it hands a
+  // workspace-write one, and the mode — not the field — must decide. Before
+  // the fix bwrap emitted `--bind <dir> <dir>` here and this write succeeded.
+  // No bwrap means no bwrap dialect to assert — skip rather than pass on the
+  // absence of output.
+  if (!hasBwrap) return;
+  const dir = mkdtempSync(join(tmpdir(), "volto-proc-ro-"));
+  const target = join(dir, "should-not-exist.txt");
+  const profilesBefore = sandboxProfiles();
+  const spawnUnder = createSandboxedProcessSpawner({
+    mode: "read-only",
+    backend: "bubblewrap",       // the dialect asserted below is bwrap's own
+    writableRoots: [dir],
+  })!;
+  const p = spawnUnder({ command: "/bin/sh", args: ["-c", `echo x > ${target}`], cwd: dir });
+  const result = await collect(p);
+  try {
+    expect(result.code).not.toBe(0);
+    // bwrap's denial dialect — never "the output was empty".
+    expect(result.stderr).toContain("Read-only file system");
+    expect(existsSync(target)).toBe(false);
+  } finally {
+    await reap(p, result, profilesBefore);
+  }
+});
+
+it.skipIf(readOnlyBackend === undefined)(
+  "read-only: a confined child still starts, answers over the pipes, and exits cleanly",
+  async () => {
+    // Cross-platform smoke for the path this fix touches: a read-only session
+    // must still be able to RUN a child (the LSP language server), not merely
+    // be denied writes. Runs here under seatbelt on darwin; on a host with no
+    // usable backend it is reported as skipped, never passed.
+    const dir = mkdtempSync(join(tmpdir(), "volto-proc-ro-smoke-"));
+    const spawnUnder = createSandboxedProcessSpawner({
+      mode: "read-only",
+      backend: readOnlyBackend,
+      // Supplied on purpose: the same roots the gateway gives a read-only
+      // session. They must not become writable, and must not break startup.
+      writableRoots: [dir],
+    });
+    expect(spawnUnder).toBeTypeOf("function");
+    const p = spawnUnder!({ command: "/bin/sh", args: ["-c", "cat"], cwd: dir });
+    // Enforcement is a runtime fact, not a config claim.
+    expect(p.enforcement).toBe("full");
+    expect(p.pid).toBeTypeOf("number");
+    // Answers over both pipes: stdin in, the same bytes out on stdout.
+    p.stdin.end("ro-pipe-ok\n");
+    const result = await collect(p);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("ro-pipe-ok");
+  },
+);
 
 itDarwin("F-101 kill() reaps the inner process, not just the sandbox-exec wrapper", async () => {
   // `sandbox-exec` does not exec-replace itself when the wrapped command

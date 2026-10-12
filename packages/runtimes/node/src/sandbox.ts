@@ -1650,9 +1650,10 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  *
  * `read-only` mode emits neither the `--bind` roots nor the overlay
  * `--ro-bind` lines: `writableRoots` / `readOnlyOverlays` are
- * workspace-write-tier fields, exactly as in buildSeatbeltProfile. The base
- * `--ro-bind / /` stays, so the filesystem is still fully readable and
- * nowhere writable.
+ * workspace-write-tier fields, exactly as in buildSeatbeltProfile. Same
+ * framing as that function: no writable roots, only essential system writes —
+ * here the `--dev /dev` devtmpfs. `deniedReadPaths` still `--tmpfs`-mask their
+ * paths, so "read-only" bounds writes, not reads.
  *
  * All mount options use identity mounts (src == dest) — the process sees
  * the same absolute paths inside the namespace as outside, but write
