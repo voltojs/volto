@@ -10,4 +10,8 @@ export {
   createLspDiagnosticsTool,
   createLspHoverTool,
   LSP_TOOL_NAMES,
+  LSP_ERROR_CODES,
+  LSP_ERROR_TEXT,
+  formatLspError,
 } from "./lsp-tools.js";
+export type { LspToolErrorCode } from "./lsp-tools.js";

@@ -1,30 +1,124 @@
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
-import type { LspClient } from "./lsp-client.js";
+import type { LspClient, LspClientProvider, LspDiagnostic } from "./lsp-client.js";
 import { CAP_LSP_QUERY } from "./lsp-client.js";
+import { fileToUri, uriToFile } from "./lsp-uri.js";
+
+/**
+ * The tool layer sits on top of a `LspClientProvider`, so everything the
+ * `lsp_*` tools say about failures has to be phrased in terms of a server that
+ * is unreachable or unconfigured. These are the codes the Node manager emits
+ * (`packages/runtimes/node/src/lsp.ts`); the union is mirrored here rather than
+ * imported so `tools-code` stays free of runtime dependencies.
+ */
+export const LSP_ERROR_CODES = [
+  "LSP_SERVER_MISSING",
+  "LSP_PATH_OUTSIDE_WORKSPACE",
+  "LSP_LANGUAGE_UNCONFIGURED",
+  "LSP_UNAVAILABLE",
+] as const;
+
+export type LspToolErrorCode = (typeof LSP_ERROR_CODES)[number];
+
+/**
+ * Layer-provided guidance per manager code. The manager's message names what
+ * went wrong; these lines say what to do about it.
+ */
+export const LSP_ERROR_TEXT: Record<LspToolErrorCode, string> = {
+  LSP_SERVER_MISSING:
+    "The language server is not installed, so no request could be answered. " +
+    "Install it (for TypeScript: npm install -g typescript-language-server typescript), " +
+    'make sure the directory containing it is on PATH, and declare it in lsp.json as {"servers": {"typescript": {"command": "typescript-language-server", "args": ["--stdio"]}}}.',
+  LSP_LANGUAGE_UNCONFIGURED:
+    "No language server is configured for this file's language, so no request was sent. " +
+    'Add an entry for it to lsp.json, for example {"servers": {"python": {"command": "pyright-langserver", "args": ["--stdio"]}}}, where the key is the language id and "command" is the server executable.',
+  LSP_PATH_OUTSIDE_WORKSPACE:
+    "The file has to be inside the workspace root: the language server only opens documents it can reach from there.",
+  LSP_UNAVAILABLE:
+    "The language server is unavailable for this session — it failed to start, was shut down, or died repeatedly. Retry in a new session if it should be healthy.",
+};
+
+/** Narrow an unknown thrown value to one of the manager's stable codes. */
+function errorCodeOf(error: unknown): LspToolErrorCode | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code: unknown = (error as { code?: unknown }).code;
+  return typeof code === "string" && (LSP_ERROR_CODES as readonly string[]).includes(code)
+    ? (code as LspToolErrorCode)
+    : undefined;
+}
+
+/**
+ * Render a manager rejection as `CODE: message — guidance`, or as a plain
+ * message when the failure is not one of the manager's codes.
+ */
+export function formatLspError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = errorCodeOf(error);
+  if (code === undefined) return message;
+  return `${code}: ${message} — ${LSP_ERROR_TEXT[code]}`;
+}
+
+/**
+ * The tools' one boundary: resolve the file, ask for a client, run the request
+ * against the document's canonical URI, and normalize every failure — provider
+ * lookup included — into an `isError` result. A throw here would kill the turn.
+ */
+async function withLspClient(
+  provider: LspClientProvider,
+  toolName: string,
+  file: string,
+  fn: (client: LspClient, fileUri: string) => Promise<{ modelContent: string; displayMetadata?: Record<string, unknown> }>,
+): Promise<{ modelContent: string; isError?: boolean; displayMetadata?: Record<string, unknown> }> {
+  try {
+    const client = await provider.forFile(file);
+    return await fn(client, fileToUri(file));
+  } catch (error) {
+    return { modelContent: `${toolName} failed: ${formatLspError(error)}`, isError: true };
+  }
+}
+
+// ──────────────────────────────────────────────
+// Shared input shape
+// ──────────────────────────────────────────────
+
+/**
+ * Positions are 1-based: line 1, character 1 is the first character of the
+ * first line, which is how editors and `read_file` report them. They are
+ * converted to the protocol's 0-based values immediately before the call.
+ */
+const positionSchema = {
+  line: z.number().int().min(1).describe("1-based line number."),
+  character: z.number().int().min(1).describe("1-based column number."),
+};
+
+/**
+ * Absolute on purpose: the request URI is built from this value, and a
+ * relative path has no workspace root to be resolved against inside the tool.
+ * `LspClientProvider` resolves what it is given; the tools cannot.
+ */
+const fileSchema = z.string().describe("Absolute path of the file to query inside the workspace.");
 
 // ──────────────────────────────────────────────
 // lsp_definition — jump to definition
 // ──────────────────────────────────────────────
 
 const definitionSchema = z.object({
-  file: z.string().describe("Absolute file path."),
-  line: z.number().int().min(0).describe("0-based line number."),
-  character: z.number().int().min(0).describe("0-based column number."),
+  file: fileSchema,
+  ...positionSchema,
 });
 
-export function createLspDefinitionTool(client: LspClient): Tool {
+export function createLspDefinitionTool(provider: LspClientProvider): Tool {
   return defineTool({
     name: "lsp_definition",
     description: "Jump to the definition of a symbol at a given position. Returns structured location(s) with file path and range.",
     schema: definitionSchema,
     requires: [CAP_LSP_QUERY],
     riskTier: "READ_ONLY",
-    run: async ({ file, line, character }) => {
-      try {
-        const uri = fileToUri(file);
-        const locations = await client.definition(uri, line, character);
+    pathInputs: ["file"],
+    run: async ({ file, line, character }) =>
+      withLspClient(provider, "lsp_definition", file, async (client, uri) => {
+        const locations = await client.definition(uri, line - 1, character - 1);
         if (locations.length === 0) {
           return { modelContent: `No definition found at ${file}:${line}:${character}.` };
         }
@@ -33,13 +127,10 @@ export function createLspDefinitionTool(client: LspClient): Tool {
           range: loc.range,
         }));
         return {
-          modelContent: `Found ${results.length} definition(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line}:${r.range.start.character}`).join("\n")}`,
+          modelContent: `Found ${results.length} definition(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line + 1}:${r.range.start.character + 1}`).join("\n")}`,
           displayMetadata: { locations: results },
         };
-      } catch (err) {
-        return { modelContent: `lsp_definition failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-    },
+      }),
   });
 }
 
@@ -48,22 +139,21 @@ export function createLspDefinitionTool(client: LspClient): Tool {
 // ──────────────────────────────────────────────
 
 const referencesSchema = z.object({
-  file: z.string().describe("Absolute file path."),
-  line: z.number().int().min(0).describe("0-based line number."),
-  character: z.number().int().min(0).describe("0-based column number."),
+  file: fileSchema,
+  ...positionSchema,
 });
 
-export function createLspReferencesTool(client: LspClient): Tool {
+export function createLspReferencesTool(provider: LspClientProvider): Tool {
   return defineTool({
     name: "lsp_references",
     description: "Find all references to a symbol at a given position. Returns structured list of file + range locations.",
     schema: referencesSchema,
     requires: [CAP_LSP_QUERY],
     riskTier: "READ_ONLY",
-    run: async ({ file, line, character }) => {
-      try {
-        const uri = fileToUri(file);
-        const refs = await client.references(uri, line, character);
+    pathInputs: ["file"],
+    run: async ({ file, line, character }) =>
+      withLspClient(provider, "lsp_references", file, async (client, uri) => {
+        const refs = await client.references(uri, line - 1, character - 1);
         if (refs.length === 0) {
           return { modelContent: `No references found for symbol at ${file}:${line}:${character}.` };
         }
@@ -72,13 +162,10 @@ export function createLspReferencesTool(client: LspClient): Tool {
           range: ref.range,
         }));
         return {
-          modelContent: `Found ${results.length} reference(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line}:${r.range.start.character}`).join("\n")}`,
+          modelContent: `Found ${results.length} reference(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line + 1}:${r.range.start.character + 1}`).join("\n")}`,
           displayMetadata: { references: results },
         };
-      } catch (err) {
-        return { modelContent: `lsp_references failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-    },
+      }),
   });
 }
 
@@ -87,39 +174,37 @@ export function createLspReferencesTool(client: LspClient): Tool {
 // ──────────────────────────────────────────────
 
 const renameSchema = z.object({
-  file: z.string().describe("Absolute file path."),
-  line: z.number().int().min(0).describe("0-based line number."),
-  character: z.number().int().min(0).describe("0-based column number."),
+  file: fileSchema,
+  ...positionSchema,
   newName: z.string().describe("New name for the symbol."),
 });
 
-export function createLspRenameTool(client: LspClient): Tool {
+export function createLspRenameTool(provider: LspClientProvider): Tool {
   return defineTool({
     name: "lsp_rename",
     description: "Rename a symbol and get all locations that need updating. Returns a map of file → affected ranges. Does NOT write changes — use edit_file to apply.",
     schema: renameSchema,
     requires: [CAP_LSP_QUERY],
-    riskTier: "WRITE_HIGH",
-    run: async ({ file, line, character, newName }) => {
-      try {
-        const uri = fileToUri(file);
-        const changes = await client.rename(uri, line, character, newName);
+    // Read-only on purpose: this call computes and returns a preview; nothing is
+    // written until the model applies the edits itself with edit_file.
+    riskTier: "READ_ONLY",
+    pathInputs: ["file"],
+    run: async ({ file, line, character, newName }) =>
+      withLspClient(provider, "lsp_rename", file, async (client, uri) => {
+        const changes = await client.rename(uri, line - 1, character - 1, newName);
         const fileCount = Object.keys(changes).length;
         const totalEdits = Object.values(changes).reduce((sum, edits) => sum + edits.length, 0);
         if (fileCount === 0) {
           return { modelContent: `No renames needed at ${file}:${line}:${character}. Symbol may not exist or name is the same.` };
         }
         const summary = Object.entries(changes)
-          .map(([f, edits]) => `  ${uriToFile(f)}: ${edits.length} edit(s)`)
+          .map(([target, edits]) => `  ${uriToFile(target)}: ${edits.length} edit(s)`)
           .join("\n");
         return {
           modelContent: `Rename "${newName}": ${totalEdits} edit(s) across ${fileCount} file(s):\n${summary}`,
           displayMetadata: { changes, newName },
         };
-      } catch (err) {
-        return { modelContent: `lsp_rename failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-    },
+      }),
   });
 }
 
@@ -128,38 +213,68 @@ export function createLspRenameTool(client: LspClient): Tool {
 // ──────────────────────────────────────────────
 
 const diagnosticsSchema = z.object({
-  file: z.string().describe("Absolute file path."),
+  file: fileSchema,
 });
 
-export function createLspDiagnosticsTool(client: LspClient): Tool {
+/** How many diagnostics are spelled out before the list is summarized. */
+const MAX_RENDERED_DIAGNOSTICS = 20;
+
+/**
+ * The four states a diagnostics answer can be in, keyed by the report's
+ * `source` rather than by `diagnostics.length`.
+ *
+ * A bare empty array cannot distinguish "the server answered and the file is
+ * clean" from "the server has not reported on this file yet" — rendering both
+ * as "no diagnostics" presents a still-indexing server as a clean bill of
+ * health. `source` is the only field that carries that difference.
+ */
+function renderDiagnostics(file: string, report: { diagnostics: LspDiagnostic[]; source: "pull" | "push" | "none" }): string {
+  const { diagnostics, source } = report;
+
+  if (diagnostics.length === 0) {
+    if (source === "none") {
+      return `${file}: the language server has not reported diagnostics for this file yet, so this is not a clean bill of health — it may still be indexing. Ask again in a moment.`;
+    }
+    // "pull": asked and answered with an empty list. "push": the server
+    // reported (or last reported) this file and had nothing to say.
+    return `${file}: no problems reported by the language server (${source} diagnostics).`;
+  }
+
+  const count = (severity: LspDiagnostic["severity"]): number =>
+    diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
+  const shown = diagnostics.slice(0, MAX_RENDERED_DIAGNOSTICS);
+  const body = shown
+    .map((diagnostic) => `  [${diagnostic.severity}] ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`)
+    .join("\n");
+  const truncated =
+    diagnostics.length > shown.length ? `\n  ... and ${diagnostics.length - shown.length} more` : "";
+
+  return (
+    `${file}: ${count("error")} error(s), ${count("warning")} warning(s), ${diagnostics.length} total ` +
+    `(${source}):\n${body}${truncated}`
+  );
+}
+
+export function createLspDiagnosticsTool(provider: LspClientProvider): Tool {
   return defineTool({
     name: "lsp_diagnostics",
-    description: "Get diagnostics (errors, warnings) for a file from the language server.",
+    description: "Get diagnostics (errors, warnings) for a file from the language server. An empty result only means 'clean' when the server has actually reported on the file; the text says which case it is.",
     schema: diagnosticsSchema,
     requires: [CAP_LSP_QUERY],
     riskTier: "READ_ONLY",
-    run: async ({ file }) => {
-      try {
-        const uri = fileToUri(file);
+    pathInputs: ["file"],
+    run: async ({ file }) =>
+      withLspClient(provider, "lsp_diagnostics", file, async (client, uri) => {
         const report = await client.diagnostics(uri);
-        const diags = report.diagnostics;
-        if (diags.length === 0) {
-          return { modelContent: `No diagnostics for ${file}.` };
-        }
-        const errors = diags.filter((d) => d.severity === "error").length;
-        const warnings = diags.filter((d) => d.severity === "warning").length;
-        const summary = diags.slice(0, 20).map((d) =>
-          `  [${d.severity}] ${d.range.start.line}:${d.range.start.character}: ${d.message}`,
-        ).join("\n");
-        const truncated = diags.length > 20 ? `\n  ... and ${diags.length - 20} more` : "";
         return {
-          modelContent: `${file}: ${errors} error(s), ${warnings} warning(s), ${diags.length} total:\n${summary}${truncated}`,
-          displayMetadata: { diagnostics: diags, file },
+          modelContent: renderDiagnostics(file, report),
+          displayMetadata: {
+            file,
+            source: report.source,
+            diagnostics: report.diagnostics,
+          },
         };
-      } catch (err) {
-        return { modelContent: `lsp_diagnostics failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-    },
+      }),
   });
 }
 
@@ -168,22 +283,21 @@ export function createLspDiagnosticsTool(client: LspClient): Tool {
 // ──────────────────────────────────────────────
 
 const hoverSchema = z.object({
-  file: z.string().describe("Absolute file path."),
-  line: z.number().int().min(0).describe("0-based line number."),
-  character: z.number().int().min(0).describe("0-based column number."),
+  file: fileSchema,
+  ...positionSchema,
 });
 
-export function createLspHoverTool(client: LspClient): Tool {
+export function createLspHoverTool(provider: LspClientProvider): Tool {
   return defineTool({
     name: "lsp_hover",
     description: "Get hover information (type signature, documentation) at a given position.",
     schema: hoverSchema,
     requires: [CAP_LSP_QUERY],
     riskTier: "READ_ONLY",
-    run: async ({ file, line, character }) => {
-      try {
-        const uri = fileToUri(file);
-        const hover = await client.hover(uri, line, character);
+    pathInputs: ["file"],
+    run: async ({ file, line, character }) =>
+      withLspClient(provider, "lsp_hover", file, async (client, uri) => {
+        const hover = await client.hover(uri, line - 1, character - 1);
         if (!hover) {
           return { modelContent: `No hover information at ${file}:${line}:${character}.` };
         }
@@ -191,23 +305,8 @@ export function createLspHoverTool(client: LspClient): Tool {
           modelContent: hover.contents,
           displayMetadata: { file, line, character },
         };
-      } catch (err) {
-        return { modelContent: `lsp_hover failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-    },
+      }),
   });
-}
-
-// ──────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────
-
-function fileToUri(file: string): string {
-  return file.startsWith("file://") ? file : `file://${file}`;
-}
-
-function uriToFile(uri: string): string {
-  return uri.startsWith("file://") ? uri.slice(7) : uri;
 }
 
 export const LSP_TOOL_NAMES: ReadonlySet<string> = new Set([
