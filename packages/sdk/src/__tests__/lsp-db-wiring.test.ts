@@ -147,6 +147,9 @@ describe("F-122 SDK lsp / db options", () => {
     ]) {
       expect(tools).not.toContain(name);
     }
+    // Positive baseline: the absence checks above must not be able to pass on
+    // a collapsed (empty) tool list.
+    expect(tools).toContain("read_document");
   });
 
   it("dispose reaps the LSP manager and the database opener exactly once", async () => {
@@ -162,6 +165,55 @@ describe("F-122 SDK lsp / db options", () => {
     await agent.dispose();
 
     expect(lspDispose).toHaveBeenCalledTimes(1);
+    expect(closeAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second dispose does not re-reap the manager or the opener", async () => {
+    const provider = stubProvider();
+    const opener = stubOpener();
+    const lspDispose = vi.spyOn(provider, "dispose");
+    const closeAll = vi.spyOn(opener, "closeAll");
+
+    const agent = await makeAgent({
+      lsp: provider,
+      db: { opener, allowWrite: true },
+    });
+    await agent.dispose();
+    await agent.dispose();
+
+    expect(lspDispose).toHaveBeenCalledTimes(1);
+    expect(closeAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("a synchronous throw from lsp.dispose still leaves every other reclamation run", async () => {
+    // Deliberately not async: a misbehaving provider (or an `as any` double)
+    // throws before returning a promise. Reclamation must be isolated per
+    // thunk, so the opener is still closed and the failure is still reported.
+    const throwingProvider = {
+      async forFile() {
+        return stubClient();
+      },
+      dispose(): Promise<void> {
+        throw new Error("lsp dispose blew up");
+      },
+    };
+    const opener = stubOpener();
+    const closeAll = vi.spyOn(opener, "closeAll");
+
+    const agent = await makeAgent({
+      lsp: throwingProvider,
+      db: { opener, allowWrite: true },
+    });
+    // The failure is reported, not swallowed: one AggregateError carrying every
+    // failed reclamation, so a second failure is never dropped on the floor.
+    const error: unknown = await agent.dispose().then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    );
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toHaveLength(1);
+    expect(String((error as AggregateError).errors[0])).toContain("lsp dispose blew up");
+
     expect(closeAll).toHaveBeenCalledTimes(1);
   });
 

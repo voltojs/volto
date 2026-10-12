@@ -108,8 +108,14 @@ export const HTTP_TOOL_NAMES: ReadonlySet<string> = new Set(["http_query"]);
 // Database tools
 // ──────────────────────────────────────────────
 
-const CAP_DB_READ = "db:read";
-const CAP_DB_WRITE = "db:write";
+/**
+ * Capability strings the db tools require. Exported so the host wiring that
+ * grants them (the SDK) imports the same values instead of repeating the
+ * literals: a mismatch would silently drop the tools from the visible set with
+ * no compile error.
+ */
+export const CAP_DB_READ = "db:read";
+export const CAP_DB_WRITE = "db:write";
 const MAX_ROWS = 500;
 
 const dbQuerySchema = z.object({

@@ -143,7 +143,7 @@ import {
 } from "@volto/tools-vcs";
 import { createAskUserTool } from "@volto/tools-ask";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
-import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@volto/tools-data";
+import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@volto/tools-data";
 import type { DatabaseOpener } from "@volto/tools-data";
 import { createReadDocumentTool } from "@volto/tools-document";
 import type { DocumentParserAdapter, DocumentParseOptions } from "@volto/tools-document";
@@ -374,13 +374,6 @@ export function createBackgroundRegistry(): BackgroundRegistry {
 
 /** Default timeout for a single command inside the persistent bash session. */
 const SHELL_SESSION_DEFAULT_TIMEOUT_MS = 30_000;
-
-// Database capabilities. The strings are the contract between the grants made
-// here and the `requires` declared by `createDbQueryTool` / `createDbExecTool`
-// (which deliberately keeps them module-private), so they live next to the
-// wiring that has to match them.
-const CAP_DB_READ = "db:read";
-const CAP_DB_WRITE = "db:write";
 
 /**
  * Env-var name patterns stripped from the bare (no sandboxConfig) persistent
@@ -2260,23 +2253,47 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async dispose(): Promise<void> {
       if (agentDisposed) return;
       agentDisposed = true;
-      // Kill the session before background processes so a stuck session
-      // command cannot keep the agent's stdio pipes alive past teardown.
+      // The session kill is started first — killing a stuck session command
+      // releases the agent's stdio pipes — and the remaining reclamation
+      // (background processes, the LSP manager, the database opener) runs
+      // concurrently with it: they are independent resources, so nothing is
+      // gained by serializing them. `closeAll()` is only safe once no `open()`
+      // is still in flight, which holds here because dispose runs at rest
+      // (hosts must not call it mid-turn).
       const session = shellSession;
       shellSession = undefined;
       const sessionKill = session?.kill();
-      // Session-scoped adapters are reaped by the agent that lent them out:
-      // the LSP manager kills its language-server children and the database
-      // opener closes its sqlite handles. Both are independent of the shell
-      // teardown, so they run concurrently with it. `closeAll()` is only safe
-      // once no `open()` is still in flight, which holds here because dispose
-      // runs at rest (hosts must not call it mid-turn).
-      await Promise.all([
-        sessionKill,
-        effectiveShell?.disposeProcesses?.(),
-        opts.lsp?.dispose(),
-        opts.db?.opener.closeAll(),
-      ]);
+      // Each reclamation is wrapped in its own thunk so one failure cannot
+      // skip the others — including a *synchronous* throw from a provider that
+      // does not really return a promise, which would otherwise abort the
+      // argument list before `closeAll()` was ever called. `allSettled` then
+      // keeps the second and later failures from being silently dropped.
+      const reclamations: Array<() => Promise<void>> = [
+        async () => {
+          await sessionKill;
+        },
+        async () => {
+          await effectiveShell?.disposeProcesses?.();
+        },
+        async () => {
+          await opts.lsp?.dispose();
+        },
+        async () => {
+          await opts.db?.opener.closeAll();
+        },
+      ];
+      const results = await Promise.allSettled(reclamations.map((reap) => reap()));
+      const failures = results
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => r.reason as unknown);
+      if (failures.length > 0) {
+        // Loud on purpose: a leaked language-server child or sqlite handle is a
+        // real defect, and swallowing it would hide exactly that.
+        throw new AggregateError(
+          failures,
+          `agent dispose failed to reap ${failures.length} of ${reclamations.length} resources`,
+        );
+      }
     },
   };
 

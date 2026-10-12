@@ -316,6 +316,9 @@ describe("TC-009: LSP 工具缺 adapter 时能力门控摘除", () => {
     for (const lspTool of LSP_TOOL_NAMES) {
       expect(names).not.toContain(lspTool);
     }
+    // Positive baseline: the absence assertions must not be satisfiable by an
+    // empty visible set.
+    expect(names).toContain("read_document");
 
     // 验证 LSP 工具名集合存在（定义层面）
     expect(LSP_TOOL_NAMES.size).toBe(5);
