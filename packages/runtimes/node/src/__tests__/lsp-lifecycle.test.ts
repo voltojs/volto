@@ -121,6 +121,21 @@ async function waitForLog(count: number): Promise<FixtureMessage[]> {
   }
 }
 
+/** Wait until the OS no longer knows `pid` (the fixture died on its own). */
+async function waitUntilGone(pid: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw err;
+    }
+    if (Date.now() > deadline) throw new Error(`process ${pid} is still alive after ${timeoutMs}ms`);
+    await sleep(10);
+  }
+}
+
 beforeEach(() => {
   managers = [];
   // The workspace and the fixture's own log/pid live in OS temp dirs: nothing
@@ -291,6 +306,38 @@ describe("LSP crash recovery", () => {
     expect(log[6]!.params?.textDocument?.version).toBe(1);
   });
 
+  it("F-115 a server that dies with no request in flight is restarted and re-synced", async () => {
+    // Ruling 3's case: the process goes away while nothing is pending, so the
+    // manager only discovers it when the next call needs a connection. That
+    // restart path (not the replay one) is where a stale document map would let
+    // the replacement answer for a document it never received.
+    const mgr = mkManager({ mode: "die-once-on-open" });
+    const client = await mgr.forFile(file);
+
+    // `forFile` sent didOpen; the fixture then exited on its own.
+    const pid = readPids()[0]!;
+    await waitUntilGone(pid);
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH/);
+
+    await expect(client.hover(uri(file), 0, 0)).resolves.toMatchObject({
+      contents: expect.stringContaining("fixture hover"),
+    });
+
+    const log = await waitForLog(7);
+    expect(log.map((m) => m.method)).toEqual([
+      "initialize",
+      "initialized",
+      "textDocument/didOpen",
+      "initialize",
+      "initialized",
+      "textDocument/didOpen",
+      "textDocument/hover",
+    ]);
+    expect(log[2]!.params?.textDocument?.version).toBe(1);
+    expect(log[5]!.params?.textDocument?.version).toBe(1);
+    expect(readPids()).toHaveLength(2);
+  });
+
   it("F-115 consumes its one restart on a server that keeps crashing, then fast-fails", async () => {
     const mgr = mkManager({ mode: "die-on-request" });
     const client = await mgr.forFile(file);
@@ -337,5 +384,14 @@ describe("LSP request timeout", () => {
     // third call still gets a fresh server to time out against.
     await expect(client.hover(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
     expect(readPids()).toHaveLength(3);
+
+    // Every replacement was told about the document from scratch: a new process
+    // must not inherit the document map recorded for the one that was reaped.
+    const log = await waitForLog(12);
+    const didOpen = log.filter((m) => m.method === "textDocument/didOpen");
+    expect(didOpen).toHaveLength(3);
+    for (const message of didOpen) {
+      expect(message.params?.textDocument?.version).toBe(1);
+    }
   });
 });

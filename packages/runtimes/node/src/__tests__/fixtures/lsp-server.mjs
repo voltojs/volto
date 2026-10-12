@@ -58,6 +58,12 @@
  *                  that replays the request, and that the replacement is
  *                  re-synced from scratch (fresh `didOpen`) instead of
  *                  inheriting the dead process's document versions.
+ * - `die-once-on-open` — exit(1) the first time `textDocument/didOpen` arrives
+ *                  (marker file), then behave normally: the server dies with NO
+ *                  request in flight, so the manager only notices on the next
+ *                  call. A test can prove that this restart re-syncs the
+ *                  document from scratch (no stale `didOpen` versions are
+ *                  inherited) instead of relying on the replay path.
  *
  * Diagnostic `severity` is the numeric LSP spelling (1 = Error … 4 = Hint),
  * because that is what a real server puts on the wire; normalizing it into the
@@ -121,15 +127,13 @@ function diagnosticItems(uri) {
 }
 
 /**
- * Whether this process should die on the request it is about to answer.
+ * True until the `die-once` marker file exists, then false forever.
  *
- * `die-on-request` dies every time. `die-once` dies only until the marker file
- * exists, so the process the manager starts after the crash behaves like a
- * healthy server — which is what makes the "restart once" path observable.
+ * The marker is what makes "the server died" a one-off event across processes:
+ * the process the manager starts next behaves like a healthy server, which is
+ * what makes the restart paths observable.
  */
-function shouldDie() {
-  if (mode === "die-on-request") return true;
-  if (mode !== "die-once") return false;
+function takeDieOnceMarker() {
   const marker = process.env.LSP_FIXTURE_DIE_ONCE;
   if (!marker) return true;
   try {
@@ -139,6 +143,18 @@ function shouldDie() {
     writeFileSync(marker, String(process.pid));
     return true;
   }
+}
+
+/**
+ * Whether this process should die on the request it is about to answer.
+ *
+ * `die-on-request` dies every time; `die-once` dies only until the marker file
+ * exists.
+ */
+function shouldDie() {
+  if (mode === "die-on-request") return true;
+  if (mode !== "die-once") return false;
+  return takeDieOnceMarker();
 }
 
 function handleRequest(msg) {
@@ -291,6 +307,11 @@ function publishDiagnostics(uri) {
  */
 function handleNotification(msg) {
   const uri = msg.params?.textDocument?.uri;
+  // Dies with no request in flight, so the manager only finds out when the next
+  // call needs the server — the "restart must re-sync" case.
+  if (mode === "die-once-on-open" && msg.method === "textDocument/didOpen" && takeDieOnceMarker()) {
+    process.exit(1);
+  }
   const publishes = mode.startsWith("diagnostics-") && mode !== "diagnostics-none";
   if (uri && publishes && msg.method === "textDocument/didOpen") {
     publishDiagnostics(uri);
