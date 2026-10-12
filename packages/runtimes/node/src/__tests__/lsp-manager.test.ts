@@ -9,27 +9,33 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { uriToFile } from "@volto/tools-code";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createNodeLspManager } from "../lsp.js";
 import type { LspManager, LspManagerOptions } from "../lsp.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, "fixtures", "lsp-server.mjs");
-// HERE is <repo>/packages/runtimes/node/src/__tests__; the repo root is four
-// levels up from the package's `src` (i.e. five from HERE).
+// HERE is <repo>/packages/runtimes/node/src/__tests__, so the repo root is five
+// levels up. The manager's containment checks are only meaningful against the
+// real workspace root.
 const repoRoot = resolve(HERE, "../../../../..");
 
-const file = join(repoRoot, "packages/runtimes/node/src/lsp.ts");
-const relativeInside = "packages/runtimes/node/src/lsp.ts";
+const relativeInside = "packages/runtimes/node/src/__tests__/.lsp-scratch/doc.ts";
+/** A tracker-free file inside the workspace that these tests may rewrite. */
+const WORKSPACE_SCRATCH = join(HERE, ".lsp-scratch");
+const file = join(WORKSPACE_SCRATCH, "doc.ts");
+/** Space + non-ASCII in one path, to pin the canonical-URI round trip. */
+const spacedFile = join(WORKSPACE_SCRATCH, "spaced dir", "中文 doc.ts");
 const uri = (p: string): string => `file://${p}`;
 
 interface FixtureMessage {
   method?: string;
-  params?: { textDocument?: { version?: number } };
+  params?: { textDocument?: { uri?: string; version?: number } };
   [key: string]: unknown;
 }
 
@@ -100,13 +106,19 @@ async function waitForLog(count: number): Promise<FixtureMessage[]> {
   }
 }
 
-/** Replace a file's contents, restoring it in `afterEach` if needed. */
+/** Replace a workspace-owned scratch document's contents. */
 function writeFile(path: string, text: string): void {
   writeFileSync(path, text, "utf-8");
 }
 
 beforeEach(() => {
   managers = [];
+  // The fixture's own log/pid go to an OS temp dir; the document under test
+  // must live INSIDE the workspace, because that is the boundary under test.
+  // Nothing tracked is ever written: the whole scratch tree is removed below.
+  rmSync(WORKSPACE_SCRATCH, { recursive: true, force: true });
+  mkdirSync(join(WORKSPACE_SCRATCH, "spaced dir"), { recursive: true });
+
   scratchDir = mkdtempSync(join(tmpdir(), "volto-lsp-fixture-"));
   logPath = join(scratchDir, "fixture.log");
   savedLog = process.env["LSP_FIXTURE_LOG"];
@@ -127,37 +139,34 @@ afterEach(async () => {
   if (savedPid === undefined) delete process.env["LSP_FIXTURE_PIDFILE"];
   else process.env["LSP_FIXTURE_PIDFILE"] = savedPid;
   rmSync(scratchDir, { recursive: true, force: true });
+  rmSync(WORKSPACE_SCRATCH, { recursive: true, force: true });
 });
 
 describe("LSP manager document sync", () => {
   it("F-107 任何请求之前必发 didOpen，改盘后 didChange 且 version 递增", async () => {
-    const original = readFileSync(file, "utf-8");
-    try {
-      writeFile(file, "// lint fixture v1\n");
-      const mgr = mkManager();
-      const client = await mgr.forFile(file);
-      await client.definition(uri(file), 0, 0);
+    writeFile(file, "// scratch v1\n");
+    const mgr = mkManager();
+    const client = await mgr.forFile(file);
+    await client.definition(uri(file), 0, 0);
 
-      writeFile(file, "// lint fixture v2\n");
-      await client.definition(uri(file), 0, 0);
+    writeFile(file, "// scratch v2\n");
+    await client.definition(uri(file), 0, 0);
 
-      const log = await waitForLog(6);
-      expect(log.map((m) => m.method)).toEqual([
-        "initialize",
-        "initialized",
-        "textDocument/didOpen",
-        "textDocument/definition",
-        "textDocument/didChange",
-        "textDocument/definition",
-      ]);
-      expect(log[2]!.params?.textDocument?.version).toBe(1);
-      expect(log[4]!.params?.textDocument?.version).toBe(2);
-    } finally {
-      writeFile(file, original);
-    }
+    const log = await waitForLog(6);
+    expect(log.map((m) => m.method)).toEqual([
+      "initialize",
+      "initialized",
+      "textDocument/didOpen",
+      "textDocument/definition",
+      "textDocument/didChange",
+      "textDocument/definition",
+    ]);
+    expect(log[2]!.params?.textDocument?.version).toBe(1);
+    expect(log[4]!.params?.textDocument?.version).toBe(2);
   });
 
   it("F-107 并发请求只发一次 didOpen，且按 id 正确配对", async () => {
+    writeFile(file, "// scratch concurrent\n");
     const mgr = mkManager();
     const client = await mgr.forFile(file);
     const [a, b] = await Promise.all([
@@ -176,16 +185,67 @@ describe("LSP manager document sync", () => {
 
 describe("LSP manager path containment", () => {
   it("F-106 相对路径归一；越界抛 LSP_PATH_OUTSIDE_WORKSPACE", async () => {
+    writeFile(file, "// scratch containment\n");
     const mgr = mkManager();
     await expect(mgr.forFile("../../etc/passwd")).rejects.toMatchObject({
       code: "LSP_PATH_OUTSIDE_WORKSPACE",
     });
     await expect(mgr.forFile(relativeInside)).resolves.toBeDefined();
   });
+
+  it("F-106 越界的 request URI 被拒，不会绕过 forFile 的校验", async () => {
+    writeFile(file, "// scratch uri containment\n");
+    const mgr = mkManager();
+    const client = await mgr.forFile(file);
+    // The client's own `uri` argument must not be a hole in the boundary.
+    await expect(client.definition(uri("/etc/passwd"), 0, 0)).rejects.toMatchObject({
+      code: "LSP_PATH_OUTSIDE_WORKSPACE",
+    });
+    await expect(client.definition("https://example.com/a.ts", 0, 0)).rejects.toMatchObject({
+      code: "LSP_PATH_OUTSIDE_WORKSPACE",
+    });
+  });
+
+  it("F-106 含空格与非 ASCII 的 URI：按规范 URI didOpen 并取回真实结果", async () => {
+    writeFile(spacedFile, "// scratch spaced\n");
+    const mgr = mkManager();
+    const client = await mgr.forFile(spacedFile);
+
+    // A naive `file://${path}` (what lsp-tools.ts builds today) is NOT the
+    // canonical URI; the manager must both accept it and speak the canonical
+    // form on the wire.
+    const result = await client.definition(uri(spacedFile), 0, 0);
+
+    const log = await waitForLog(4);
+    const canonicalUri =
+      "file://" +
+      join(WORKSPACE_SCRATCH, "spaced dir", "中文 doc.ts")
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+    const didOpen = log.find((m) => m.method === "textDocument/didOpen");
+    expect(didOpen?.params?.textDocument?.uri).toBe(canonicalUri);
+    const definition = log.find((m) => m.method === "textDocument/definition");
+    expect(definition?.params?.textDocument?.uri).toBe(canonicalUri);
+
+    // ...and a real result comes back, so the document was really opened.
+    expect(result).toHaveLength(1);
+    expect(uriToFile(result[0]!.uri)).toBe(spacedFile);
+  });
+
+  it("F-106 与客户端绑定语言不同的 URI 被拒，而不是静默返回空", async () => {
+    writeFile(file, "// scratch language\n");
+    const mgr = mkManager();
+    const client = await mgr.forFile(file);
+    await expect(client.definition(uri(join(WORKSPACE_SCRATCH, "other.py")), 0, 0)).rejects.toMatchObject({
+      code: "LSP_LANGUAGE_UNCONFIGURED",
+    });
+  });
 });
 
 describe("LSP manager failure normalization", () => {
   it("F-108 服务器缺失 → LSP_SERVER_MISSING，且无未捕获异常", async () => {
+    writeFile(file, "// scratch missing server\n");
     const mgr = mkManager({
       servers: { typescript: { command: "/nonexistent/volto-lsp" } },
     });
@@ -203,6 +263,7 @@ describe("LSP manager failure normalization", () => {
       { available: true, path: process.execPath },
     ];
     let calls = 0;
+    writeFile(file, "// scratch probe retry\n");
     const mgr = mkManager({ probe: () => answers[Math.min(calls++, answers.length - 1)]! });
 
     await expect(mgr.forFile(file)).rejects.toMatchObject({ code: "LSP_SERVER_MISSING" });
@@ -214,6 +275,7 @@ describe("LSP manager failure normalization", () => {
   });
 
   it("F-109 不回包的服务器 → 超时 isError，turn 不挂死", async () => {
+    writeFile(file, "// scratch silent\n");
     const mgr = mkManager({
       servers: { typescript: { command: process.execPath, args: [FIXTURE, "silent"] } },
       requestTimeoutMs: 300,
@@ -234,6 +296,7 @@ describe("LSP manager failure normalization", () => {
   });
 
   it("F-109 initialize 本身也有超时，不会永远挂住", async () => {
+    writeFile(file, "// scratch silent init\n");
     const mgr = mkManager({
       // Answers nothing at all, so the handshake itself is what times out.
       servers: { typescript: { command: process.execPath, args: [FIXTURE, "silent-init"] } },

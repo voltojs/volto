@@ -23,6 +23,11 @@ Thumbs.db
 # Test coverage
 coverage/
 
+# Transient LSP-manager test document. It has to live inside the workspace
+# (containment is the boundary under test) and is removed before and after
+# every run; ignored so a crashed run cannot leave an untracked dir behind.
+packages/runtimes/node/src/__tests__/.lsp-scratch/
+
 # Logs
 *.log
 npm-debug.log*

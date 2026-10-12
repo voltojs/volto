@@ -18,7 +18,7 @@ import { accessSync, constants, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { Clock, FileSystem } from "@volto/core";
-import { fileToUri } from "@volto/tools-code";
+import { fileToUri, uriToFile } from "@volto/tools-code";
 import type {
   LspClient,
   LspClientProvider,
@@ -319,8 +319,11 @@ class LspServerConnection {
       const pending = this.pending.get(id);
       if (pending === undefined) return; // already settled (timeout/exit) — never twice
       this.pending.delete(id);
-      const error = message["error"] as { message?: string } | undefined;
-      if (error !== undefined) {
+      // `null` is a legal `error` member for a tolerant server, and this runs
+      // inside the stdout 'data' callback — a TypeError here is an uncaught
+      // host exception, not a rejected request.
+      const error = message["error"] as { message?: string } | null | undefined;
+      if (error !== undefined && error !== null) {
         pending.reject(
           new LspManagerError(
             "LSP_UNAVAILABLE",
@@ -547,45 +550,75 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   /** Resolve → check language → ensure server → sync document → return both. */
   async function prepare(
     file: string,
+    boundLanguageId?: string,
   ): Promise<{ connection: LspServerConnection; uri: string; languageId: string }> {
     if (disposed) {
       throw new LspManagerError("LSP_UNAVAILABLE", "the LSP manager has been disposed");
     }
     const filePath = await resolveInsideWorkspace(file);
     const languageId = languageFor(filePath);
+    // A client is bound to one language's server. A URI for a different
+    // language must say so rather than be answered by the wrong server (an
+    // empty result would read as "no definition here", which is a lie).
+    if (boundLanguageId !== undefined && languageId !== boundLanguageId) {
+      throw new LspManagerError(
+        "LSP_LANGUAGE_UNCONFIGURED",
+        `"${file}" belongs to language "${languageId}", but this client is bound to "${boundLanguageId}"`,
+      );
+    }
     const connection = await ensureConnection(languageId);
     const uri = fileToUri(filePath);
     await syncDocument(languageId, connection, filePath, uri);
     return { connection, uri, languageId };
   }
 
-  /** A client bound to one document: the tool layer speaks in URIs. */
-  function makeClient(boundFile: string): LspClient {
+  /**
+   * A client bound to one document's language.
+   *
+   * The `uri` parameter stays meaningful — it names the document to ask about —
+   * but it is never trusted: it is converted back to a path, re-checked against
+   * the workspace and against the bound language, and the document it names is
+   * opened/refreshed before the request. Otherwise a caller could reach outside
+   * the workspace, or query a document the server never received.
+   */
+  function makeClient(boundFile: string, boundLanguageId: string): LspClient {
     const request = async (
+      uri: string,
       method: string,
-      buildParams: (uri: string) => Record<string, unknown>,
+      buildParams: (canonicalUri: string) => Record<string, unknown>,
     ): Promise<unknown> => {
-      const { connection, uri } = await prepare(boundFile);
-      return connection.request(method, buildParams(uri));
+      // A non-`file:` URI or a malformed one must reject like any other bad
+      // path, not surface a TypeError from the URI helper.
+      let filePath: string;
+      try {
+        filePath = uriToFile(uri);
+      } catch {
+        throw new LspManagerError(
+          "LSP_PATH_OUTSIDE_WORKSPACE",
+          `"${uri}" is not a file:// URI inside the workspace root`,
+        );
+      }
+      const { connection, uri: canonicalUri } = await prepare(filePath, boundLanguageId);
+      return connection.request(method, buildParams(canonicalUri));
     };
 
     return {
       definition: (uri, line, character) =>
-        request("textDocument/definition", () => ({
-          textDocument: { uri },
+        request(uri, "textDocument/definition", (u) => ({
+          textDocument: { uri: u },
           position: { line, character },
         })).then((result) => normalizeLocations(result)),
 
       references: (uri, line, character) =>
-        request("textDocument/references", () => ({
-          textDocument: { uri },
+        request(uri, "textDocument/references", (u) => ({
+          textDocument: { uri: u },
           position: { line, character },
           context: { includeDeclaration: true },
         })).then((result) => normalizeReferences(result)),
 
       rename: (uri, line, character, newName) =>
-        request("textDocument/rename", () => ({
-          textDocument: { uri },
+        request(uri, "textDocument/rename", (u) => ({
+          textDocument: { uri: u },
           position: { line, character },
           newName,
         })).then((result) => normalizeRename(result)),
@@ -597,8 +630,8 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       },
 
       hover: (uri, line, character) =>
-        request("textDocument/hover", () => ({
-          textDocument: { uri },
+        request(uri, "textDocument/hover", (u) => ({
+          textDocument: { uri: u },
           position: { line, character },
         })).then((result) => normalizeHover(result)),
     };
@@ -606,8 +639,8 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
 
   return {
     async forFile(file: string): Promise<LspClient> {
-      await prepare(file);
-      return makeClient(file);
+      const { languageId } = await prepare(file);
+      return makeClient(file, languageId);
     },
 
     async dispose(): Promise<void> {

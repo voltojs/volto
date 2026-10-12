@@ -15,7 +15,11 @@ describe("fileToUri", () => {
   });
 
   it("refuses a relative path instead of guessing a root", () => {
-    expect(() => fileToUri("src/a.ts")).toThrow(/absolute path/);
+    expect(() => fileToUri("src/a.ts")).toThrow(/absolute POSIX path/);
+  });
+
+  it("refuses a Windows path rather than emitting a malformed URI", () => {
+    expect(() => fileToUri("C:\\dir\\file.ts")).toThrow(/absolute POSIX path/);
   });
 });
 

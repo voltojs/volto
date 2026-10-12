@@ -1412,6 +1412,22 @@ function spawnSandboxedProcess(
   // hands back a child without them (e.g. an already-failed spawn).
   const stdin = child.stdin ?? new Writable({ write(_c, _e, cb) { cb(); } });
 
+  // A write to a child that has closed its stdin emits an asynchronous 'error'
+  // on the stream (EPIPE), which a try/catch around `write()` cannot see and
+  // which is an uncaught exception in the host process when nothing listens.
+  // Long-lived consumers (a language server that exits mid-request) hit this
+  // routinely, so the primitive owns it and reports it through onError.
+  // @types/node declares `Socket.on("error", ...)`; ChildProcess's stdin is a
+  // Socket at runtime but typed as Writable here, hence the cast.
+  const reportStdinError = (err: Error): void => {
+    if (errorCbs.length === 0) {
+      if (pendingError === undefined) pendingError = err;
+      return;
+    }
+    for (const cb of errorCbs) cb(err);
+  };
+  (stdin as unknown as NodeJS.EventEmitter).on("error", reportStdinError);
+
   return {
     pid: child.pid,
     enforcement: opts.enforcement,

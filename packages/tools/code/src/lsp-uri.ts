@@ -7,35 +7,26 @@
  * `uriToFile(fileToUri(p)) === p` for any absolute POSIX path.
  *
  * Node-free on purpose: this package's tool contract must stay portable, and
- * the encoding can be expressed exactly with `encodeURIComponent` plus the few
- * URI delimiters that must NOT be escaped inside a path segment.
+ * the encoding can be expressed exactly with `encodeURIComponent`.
  */
 
-/** Characters that are valid in a URI path and must survive encoding. */
-const PATH_SEGMENT_SAFE = /[!'()*\-._~:@$&+,;=/]/g;
-
 /**
- * Encode one path segment for the path component of a `file://` URI.
- * `encodeURIComponent` leaves `!'()*` unescaped; they are legal path
- * characters, so keeping them is safe as well as shorter.
- */
-function encodeSegment(segment: string): string {
-  return encodeURIComponent(segment).replace(PATH_SEGMENT_SAFE, (c) => c);
-}
-
-/**
- * Convert an absolute filesystem path to a `file://` URI.
+ * Convert an absolute POSIX path to a `file://` URI.
  *
- * Windows separators are normalized to `/` so a single implementation is
- * correct on every platform (drive letters become `file:///C:/...`).
+ * Every path segment is percent-encoded — including the characters
+ * `encodeURIComponent` would leave alone (`!'()*`) — and the separators are
+ * then restored. The result is canonical: `/tmp/中 a.ts` becomes
+ * `file:///tmp/%E4%B8%AD%20a.ts`.
+ *
+ * A Windows path (`C:\dir\file.ts`) has no leading `/` and is rejected rather
+ * than silently emitted as a malformed URI; add an explicit drive-letter
+ * branch here if Windows support is ever needed.
  */
 export function fileToUri(filePath: string): string {
   if (!filePath.startsWith("/")) {
-    throw new TypeError(`fileToUri requires an absolute path, received "${filePath}"`);
+    throw new TypeError(`fileToUri requires an absolute POSIX path, received "${filePath}"`);
   }
-  const normalized = filePath.replace(/\\/g, "/");
-  const encoded = normalized.split("/").map(encodeSegment).join("/");
-  return `file://${encoded}`;
+  return `file://${filePath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /** Percent-decode a URI component, preferring strict decoding over a literal. */
@@ -53,7 +44,8 @@ function decodeComponent(value: string): string {
  * Authority (e.g. `localhost`) and query/fragment parts are dropped: an LSP
  * location URI names a document, and the host authority is not part of the
  * path. Percent-encoded octets are decoded, so `file:///tmp/%E4%B8%AD/a%20b.ts`
- * becomes `/tmp/中/a b.ts` rather than its encoded spelling.
+ * becomes `/tmp/中/a b.ts` rather than its encoded spelling. A non-`file:`
+ * scheme is rejected rather than decoded into a nonsense path.
  */
 export function uriToFile(uri: string): string {
   let rest = uri;
