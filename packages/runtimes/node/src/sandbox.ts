@@ -43,7 +43,15 @@ export type SandboxBackend = "seatbelt" | "bubblewrap" | "none";
 export interface SandboxNetworkConfig {
   /** Whether network is enabled. Default: false (blocked) */
   enabled?: boolean;
-  /** When non-empty, only these hosts are allowed through a local proxy */
+  /**
+   * When non-empty, only these hosts are allowed through a local proxy.
+   *
+   * NOT enforced by `createSandboxedProcessSpawner`: that spawner builds no
+   * egress proxy, and the seatbelt/bwrap network rule is on/off only, so a
+   * non-empty list would be silently ignored. It refuses at construction
+   * instead — use `createSandboxedShell` / `createSandboxSessionSpawner` for
+   * filtered egress, or drop `allowedHosts` to allow egress explicitly.
+   */
   allowedHosts?: string[];
 }
 
@@ -111,6 +119,17 @@ export interface SandboxConfig {
    * Either way `sandboxEnforcement` reports `none`, which is the field a
    * caller should branch on rather than inferring confinement from the mode.
    * To run without isolation deliberately, use `danger-full-access`.
+   *
+   * The opt-out is implemented differently per spawner, deliberately:
+   *
+   * - `createSandboxedShell` (exec/launch) and `createSandboxSessionSpawner`:
+   *   `false` in the no-backend branch warns once and then runs the command
+   *   UNCONFINED — a test/e2e affordance for platforms without any backend.
+   * - `createSandboxedProcessSpawner`: `false` in the no-backend branch
+   *   returns `undefined`. That spawner's callers hold a long-lived child and
+   *   have no confined fallback to degrade to, so an absent spawner is the
+   *   only honest answer; it does NOT grant an unconfined process under a
+   *   confining mode.
    */
   failIfUnavailable?: boolean;
   /**
@@ -1174,16 +1193,20 @@ export function createSandboxedProcessSpawner(
 
   const failIfUnavailable = config.failIfUnavailable ?? true;
 
-  // No backend for this platform. Default is refuse; the opt-out returns
-  // `undefined` — never an unconfined process under a mode promising
-  // confinement. Same discipline as createSandboxSessionSpawner.
+  // No backend for this platform. Unlike createSandboxSessionSpawner — which
+  // warns once and runs a bare, UNCONFINED `bash -s` when the caller opts out
+  // — this spawner deliberately refuses: its callers hold a long-lived child
+  // and have no confined fallback, so `failIfUnavailable: false` makes it
+  // return `undefined` rather than hand back an unconfined process under a
+  // mode that promises confinement.
   if (backend === "none") {
     if (failIfUnavailable) {
       throw new Error(
         `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
         `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
         `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
-        `failIfUnavailable: false to accept an unconfined process under this mode.`,
+        `failIfUnavailable: false to make this spawner return undefined — it does not ` +
+        `grant an unconfined process under this mode.`,
       );
     }
     return undefined;
@@ -1195,6 +1218,22 @@ export function createSandboxedProcessSpawner(
   const resolved = resolveSessionSandboxConfig(config);
   const strippedNamesR = resolved.strippedEnvVars ?? [];
   const strippedPatternsR = resolved.strippedEnvPatterns ?? [];
+
+  // A host whitelist cannot be honoured here: this spawner builds no egress
+  // proxy, and both backends' network rule is on/off only (`(allow network*)`
+  // / `--unshare-net`), so a non-empty `allowedHosts` would be silently
+  // ignored while `SandboxNetworkConfig.allowedHosts` promises filtering.
+  // Refuse rather than pretend. The fs-side config the LSP manager passes
+  // carries no `network` block, so this never fires on that path.
+  if (config.network?.enabled === true && (config.network.allowedHosts?.length ?? 0) > 0) {
+    throw new Error(
+      `[sandbox] createSandboxedProcessSpawner cannot enforce a host whitelist ` +
+      `(${config.network.allowedHosts?.length ?? 0} allowedHosts configured): this spawner builds no ` +
+      `egress proxy and the sandbox backend's network rule is on/off only. Use ` +
+      `createSandboxedShell or createSandboxSessionSpawner for filtered egress, or drop ` +
+      `allowedHosts to allow egress explicitly.`,
+    );
+  }
 
   if (backend === "seatbelt") {
     const seatbeltBinary = resolved.seatbeltBinary ?? "sandbox-exec";
@@ -1228,7 +1267,9 @@ export function createSandboxedProcessSpawner(
       const profilePath = join(tmpdir(), `volto-proc-sandbox-${profileId}.sb`);
       // A write failure (unwritable tmpdir, an undeletable file at that
       // path) is this child's failure, not the host's: it is reported
-      // through onError below, never thrown at the caller.
+      // through onError below, never thrown at the caller. No confined child
+      // exists, so enforcement is "none" — claiming "full" here would assert
+      // confinement for a process that was never started.
       let profileError: Error | undefined;
       try {
         writeFileSync(profilePath, profileContent, "utf-8");
@@ -1236,7 +1277,7 @@ export function createSandboxedProcessSpawner(
         profileError = err instanceof Error ? err : new Error(String(err));
       }
       if (profileError !== undefined) {
-        return unavailableProcess(profileError, { enforcement: "full" });
+        return unavailableProcess(profileError, { enforcement: "none" });
       }
       // `-f` takes a profile FILE path; `-p` takes an inline profile string —
       // see the defect documented on createSandboxedShell's exec() path.
@@ -1317,7 +1358,10 @@ function spawnSandboxedProcess(
     });
   } catch (err) {
     // A synchronous spawn throw is delivered through onError, never re-thrown
-    // into the host process.
+    // into the host process. No child exists, so drop whatever resource the
+    // caller attached — otherwise a seatbelt profile file is left behind
+    // (same cleanup discipline as the sibling createSandboxSessionSpawner).
+    opts.cleanup?.();
     const error = err instanceof Error ? err : new Error(String(err));
     return unavailableProcess(error, opts);
   }

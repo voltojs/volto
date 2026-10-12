@@ -1,24 +1,15 @@
 import { it, expect } from "vitest";
-const itDarwin = process.platform === "darwin" ? it : it.skip;   // 平台不匹配显式 skip，不得异地假绿
+const itDarwin = process.platform === "darwin" ? it : it.skip;   // Explicit skip off-platform; never pass abroad.
 const itLinux = process.platform === "linux" ? it : it.skip;
-import { createSandboxedProcessSpawner, type SandboxedProcess } from "../sandbox.js";
+import { createSandboxedProcessSpawner, probeBinary, type SandboxedProcess } from "../sandbox.js";
 import { tmpdir } from "node:os"; import { join } from "node:path"; import { mkdtempSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 
 // ── Local helpers (not part of the production surface) ──
 
 // A host without bwrap is an infrastructure gap, not a denial to assert: the
-// bwrap denial case below skips explicitly there (same pattern as
-// sandbox.test.ts) instead of passing on the absence of output.
-const hasBwrap = (() => {
-  try {
-    execFileSync("which", ["bwrap"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-const itLinuxBwrap = process.platform === "linux" && hasBwrap ? it : it.skip;
+// real-bwrap denial case skips there, so a missing runner can never pass as a
+// denial. Reuse the exported probe rather than re-implementing `which`.
+const hasBwrap = probeBinary("bwrap");
 
 /** Poll until `pred()` holds, or fail the test after `timeoutMs`. */
 async function until(pred: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -37,7 +28,23 @@ interface Collected {
   stderr: string;
 }
 
-/** Wait for the process to exit, collecting both output streams verbatim. */
+/** Resolve once `stream` has reported every chunk (and a terminal event). */
+function streamEnded(stream: NodeJS.ReadableStream): Promise<void> {
+  return new Promise((resolve) => {
+    stream.on("end", resolve);
+    stream.on("close", resolve);
+    stream.on("error", resolve);
+  });
+}
+
+/**
+ * Wait for the child to exit AND for both output streams to reach end-of-data,
+ * collecting everything verbatim.
+ *
+ * Resolving on `exit` alone is not enough: Node may emit the exit event before
+ * stdio has drained, which would truncate the very stderr the denial
+ * assertions read. Flowing mode turns on `end` for these listeners.
+ */
 function collect(p: SandboxedProcess): Promise<Collected> {
   return new Promise((resolve, reject) => {
     let out = "";
@@ -45,7 +52,15 @@ function collect(p: SandboxedProcess): Promise<Collected> {
     p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
     p.stderr.on("data", (c: Buffer) => { err += c.toString(); });
     p.onError((e) => reject(e));
-    p.onExit((code, signal) => resolve({ pid: p.pid, code, signal, stdout: out, stderr: err }));
+    void Promise.all([
+      streamEnded(p.stdout),
+      streamEnded(p.stderr),
+      new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
+        p.onExit((code, signal) => res({ code, signal }));
+      }),
+    ]).then(([, , exit]) => {
+      resolve({ pid: p.pid, code: exit.code, signal: exit.signal, stdout: out, stderr: err });
+    });
   });
 }
 
@@ -91,10 +106,10 @@ async function reap(p: SandboxedProcess, collected: Collected, before: Set<strin
   await untilNoNewProfiles(before);
 }
 
-it("F-105 双向管道往返可用", async () => {
+it("F-105 pipes work in both directions", async () => {
   const spawnUnder = createSandboxedProcessSpawner({ mode: "danger-full-access" })!;
-  const p = spawnUnder({ command: process.execPath, args: ["-e", 'process.stdin.pipe(process.stdout)'], cwd: process.cwd() });
-  let out = ""; p.stdout.on("data", (c) => { out += c.toString(); });
+  const p = spawnUnder({ command: process.execPath, args: ["-e", "process.stdin.pipe(process.stdout)"], cwd: process.cwd() });
+  let out = ""; p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
   const exit = new Promise<void>((resolve) => p.onExit(() => resolve()));
   p.stdin.write("ping\n");
   await until(() => out.includes("ping"));
@@ -102,16 +117,43 @@ it("F-105 双向管道往返可用", async () => {
   await exit;
 });
 
-it("F-102 无后端且 failIfUnavailable 时构建期抛错", () => {
-  // 用 backend: "none" 强制走到无后端分支，断言错误消息含 "Refusing to run unconfined"
+it("F-102 refuses at construction when no backend exists and failIfUnavailable holds", () => {
+  // backend: "none" forces the no-backend branch; the message must say refuse.
   expect(() => createSandboxedProcessSpawner({ mode: "workspace-write", backend: "none" })).toThrow(/Refusing to run unconfined/);
+  // The opt-out must not read as "you get an unconfined process" — this
+  // spawner returns undefined instead, and the text has to say so.
+  expect(() => createSandboxedProcessSpawner({ mode: "workspace-write", backend: "none" }))
+    .toThrow(/return undefined/);
 });
 
-it("F-102 failIfUnavailable:false 返回 undefined 而不是无沙箱直通", () => {
+it("F-102 failIfUnavailable:false returns undefined rather than an unconfined passthrough", () => {
   expect(createSandboxedProcessSpawner({ mode: "workspace-write", backend: "none", failIfUnavailable: false })).toBeUndefined();
 });
 
-itDarwin("F-101 seatbelt 下工作区外写被拒，且断言该后端方言", async () => {
+it("F-102 refuses a host whitelist it cannot enforce", () => {
+  // No egress proxy and the backend's network rule is on/off only, so a
+  // non-empty allowedHosts would be silently ignored. Refuse instead. The
+  // rejection does not depend on a backend being present.
+  expect(() => createSandboxedProcessSpawner({
+    mode: "workspace-write",
+    backend: "seatbelt",
+    network: { enabled: true, allowedHosts: ["example.com"] },
+  })).toThrow(/host whitelist/);
+});
+
+it("F-102 accepts enabled egress with an empty or absent host whitelist", () => {
+  // Nothing to enforce: egress is on/off, and both forms say "allow egress".
+  expect(createSandboxedProcessSpawner({
+    mode: "danger-full-access",
+    network: { enabled: true, allowedHosts: [] },
+  })).toBeTypeOf("function");
+  expect(createSandboxedProcessSpawner({
+    mode: "danger-full-access",
+    network: { enabled: true },
+  })).toBeTypeOf("function");
+});
+
+itDarwin("F-101 seatbelt denies a write outside the writable roots, asserting that backend's dialect", async () => {
   const dir = mkdtempSync(join(tmpdir(), "volto-proc-"));
   const target = "/Users/Shared/volto-proc-should-not-exist.txt";
   const profilesBefore = sandboxProfiles();
@@ -120,16 +162,18 @@ itDarwin("F-101 seatbelt 下工作区外写被拒，且断言该后端方言", a
   const result = await collect(p);
   try {
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain("Operation not permitted");   // Seatbelt 方言，不是"输出为空"
+    // Seatbelt's denial dialect — never "the output was empty".
+    expect(result.stderr).toContain("Operation not permitted");
     expect(existsSync(target)).toBe(false);
   } finally {
     await reap(p, result, profilesBefore);
   }
 });
 
-// A host without bwrap has no bwrap dialect to assert, so the Linux case skips
-// explicitly there rather than passing on the absence of output.
-itLinuxBwrap("F-101 bwrap 下工作区外写被拒，且断言该后端方言", async () => {
+itLinux("F-101 bwrap denies a write outside the writable roots, asserting that backend's dialect", async () => {
+  // No bwrap means no bwrap dialect to assert — skip rather than pass on the
+  // absence of output.
+  if (!hasBwrap) return;
   const dir = mkdtempSync(join(tmpdir(), "volto-proc-"));
   // A temp dir outside the single writable root: it exists, so the denial can
   // only come from the read-only bind, not from a missing parent.
@@ -141,14 +185,15 @@ itLinuxBwrap("F-101 bwrap 下工作区外写被拒，且断言该后端方言", 
   const result = await collect(p);
   try {
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain("Read-only file system");   // bwrap 方言，不是"输出为空"
+    // bwrap's denial dialect — never "the output was empty".
+    expect(result.stderr).toContain("Read-only file system");
     expect(existsSync(target)).toBe(false);
   } finally {
     await reap(p, result, profilesBefore);
   }
 });
 
-itDarwin("F-101 kill() 回收内层进程，而不只是 sandbox-exec 包装进程", async () => {
+itDarwin("F-101 kill() reaps the inner process, not just the sandbox-exec wrapper", async () => {
   // `sandbox-exec` does not exec-replace itself when the wrapped command
   // forks: `sh -c 'a && b'` leaves the node process as a GRANDCHILD with its
   // own pid. Signalling only the wrapper pid leaves it running, so this is
@@ -189,7 +234,7 @@ itDarwin("F-101 kill() 回收内层进程，而不只是 sandbox-exec 包装进�
   }
 });
 
-it("F-103 enforcement 是运行时事实", async () => {
+it("F-103 enforcement is a runtime fact", async () => {
   const passthrough = createSandboxedProcessSpawner({ mode: "danger-full-access" })!;
   const p = passthrough({ command: process.execPath, args: ["-e", ""], cwd: process.cwd() });
   const exit = new Promise<Collected>((resolve) => p.onExit((code, signal) => resolve({ pid: p.pid, code, signal, stdout: "", stderr: "" })));
@@ -199,7 +244,7 @@ it("F-103 enforcement 是运行时事实", async () => {
   await reap(p, await exit, new Set());
 });
 
-it("F-103 子进程启动失败经 onError 上报，不冒泡成未捕获异常", async () => {
+it("F-103 a child that fails to start surfaces through onError, never as an uncaught exception", async () => {
   const spawnUnder = createSandboxedProcessSpawner({ mode: "danger-full-access" })!;
   // spawn() for a non-existent binary emits 'error' asynchronously; an
   // unconsumed 'error' event on a ChildProcess is an uncaught exception in the
@@ -213,10 +258,10 @@ it("F-103 子进程启动失败经 onError 上报，不冒泡成未捕获异常"
   expect(await outcome).toBe("error");
 });
 
-itLinux("F-102 选中 bwrap 后端但 runner 缺失时构建期抛错", () => {  // bwrap is Linux-only. An injected name that PATH cannot resolve forces the
-  // "backend selected, runner missing" branch — the same branch a Linux host
-  // without bubblewrap hits — and it must refuse at construction, never
-  // quietly hand back a spawner.
+it("F-102 a selected backend whose runner binary is missing refuses at construction", () => {
+  // The injected name cannot resolve on PATH, so this exercises the "backend
+  // selected, runner missing" branch without needing a real bwrap — it must
+  // refuse at construction, never quietly hand back a spawner.
   expect(() => createSandboxedProcessSpawner({
     mode: "workspace-write",
     backend: "bubblewrap",
@@ -224,9 +269,13 @@ itLinux("F-102 选中 bwrap 后端但 runner 缺失时构建期抛错", () => { 
   })).toThrow(/bwrap/);
 });
 
-it("F-104 env 剥离在子进程内生效", async () => {
+it("F-104 env stripping takes effect inside the child", async () => {
   process.env.VOLTO_TEST_SECRET = "leak-me";
-  const spawnUnder = createSandboxedProcessSpawner({ mode: "danger-full-access", strippedEnvVars: ["VOLTO_TEST_SECRET"] })!;
-  const p = spawnUnder({ command: process.execPath, args: ["-e", "process.stdout.write(process.env.VOLTO_TEST_SECRET ?? 'GONE')"], cwd: process.cwd() });
-  expect(await stdout(p)).toBe("GONE");
+  try {
+    const spawnUnder = createSandboxedProcessSpawner({ mode: "danger-full-access", strippedEnvVars: ["VOLTO_TEST_SECRET"] })!;
+    const p = spawnUnder({ command: process.execPath, args: ["-e", "process.stdout.write(process.env.VOLTO_TEST_SECRET ?? 'GONE')"], cwd: process.cwd() });
+    expect(await stdout(p)).toBe("GONE");
+  } finally {
+    delete process.env.VOLTO_TEST_SECRET;   // never leak the fixture into sibling tests
+  }
 });
