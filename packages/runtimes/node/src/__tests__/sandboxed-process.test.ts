@@ -191,10 +191,10 @@ itDarwin("F-101 seatbelt denies a write outside the writable roots, asserting th
   }
 });
 
-itLinux("F-101 bwrap denies a write outside the writable roots, asserting that backend's dialect", async () => {
-  // No bwrap means no bwrap dialect to assert — skip rather than pass on the
-  // absence of output.
-  if (!hasBwrap) return;
+itLinux("F-101 bwrap denies a write outside the writable roots, asserting that backend's dialect", async (ctx) => {
+  // No bwrap means no bwrap dialect to assert — report the case as skipped
+  // with a reason rather than as a pass that asserted nothing.
+  if (!hasBwrap) ctx.skip("bwrap not installed");
   const dir = mkdtempSync(join(tmpdir(), "volto-proc-"));
   // A temp dir outside the single writable root: it exists, so the denial can
   // only come from the read-only bind, not from a missing parent.
@@ -214,15 +214,15 @@ itLinux("F-101 bwrap denies a write outside the writable roots, asserting that b
   }
 });
 
-itLinux("F-101 bwrap read-only mode denies a write into a configured writableRoot, asserting that backend's dialect", async () => {
+itLinux("F-101 bwrap read-only mode denies a write into a configured writableRoot, asserting that backend's dialect", async (ctx) => {
   // The sibling case above proves "outside the roots is denied" in
   // workspace-write. THIS case is the one the read-only fix targets: the
   // gateway hands a read-only session the same `writableRoots` it hands a
   // workspace-write one, and the mode — not the field — must decide. Before
   // the fix bwrap emitted `--bind <dir> <dir>` here and this write succeeded.
-  // No bwrap means no bwrap dialect to assert — skip rather than pass on the
-  // absence of output.
-  if (!hasBwrap) return;
+  // No bwrap means no bwrap dialect to assert — report the case as skipped
+  // with a reason rather than as a pass that asserted nothing.
+  if (!hasBwrap) ctx.skip("bwrap not installed");
   const dir = mkdtempSync(join(tmpdir(), "volto-proc-ro-"));
   const target = join(dir, "should-not-exist.txt");
   const profilesBefore = sandboxProfiles();
