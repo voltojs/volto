@@ -493,13 +493,16 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   function withFileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const previous = locks.get(key) ?? Promise.resolve();
     const run = previous.then(fn, fn);
-    locks.set(
-      key,
-      run.then(
-        () => undefined,
-        () => undefined,
-      ),
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
     );
+    locks.set(key, settled);
+    // Drop the entry once it is the tail, or a session that touches many files
+    // keeps one resolved promise per file forever.
+    void settled.then(() => {
+      if (locks.get(key) === settled) locks.delete(key);
+    });
     return run;
   }
 
