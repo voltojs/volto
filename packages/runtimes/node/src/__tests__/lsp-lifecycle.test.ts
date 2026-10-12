@@ -16,6 +16,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { FileSystem } from "@volto/core";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createNodeLspManager } from "../lsp.js";
 import type { LspManager, LspManagerOptions } from "../lsp.js";
@@ -360,6 +361,86 @@ describe("LSP crash recovery", () => {
     await sleep(200); // a negative assertion needs a settle window
     expect(readPids()).toHaveLength(2);
     expect(readFixtureLog().filter((m) => m.method === "initialize")).toHaveLength(2);
+  });
+
+  it("F-115 a stale teardown never wipes the replacement's document state", async () => {
+    // The document map used to be keyed by language alone. A teardown of the
+    // DEAD connection then deleted the state the REPLACEMENT had already
+    // synced: flow A below is parked inside its document sync on the first
+    // connection while flow B's crash restart installs and syncs the
+    // replacement, and when A's request then fails on the dead connection its
+    // teardown must close and clear only that dead connection's documents.
+    const slowFile = join(workspaceRoot, "slow.ts");
+    const fastFile = join(workspaceRoot, "fast.ts");
+    writeFileSync(slowFile, "// slow\n", "utf-8");
+    writeFileSync(fastFile, "// fast\n", "utf-8");
+
+    // Park one read, so the interleaving is deterministic rather than a timing
+    // race: flow A sits in `syncDocument` until the test releases it.
+    let parkSlowRead = false;
+    let signalParked: () => void = () => undefined;
+    const parked = new Promise<void>((resolve) => {
+      signalParked = resolve;
+    });
+    let releaseSlowRead: (() => void) | undefined;
+    const gatedFs: FileSystem = {
+      ...realFs,
+      read: (target, offset, limit): ReturnType<FileSystem["read"]> => {
+        if (parkSlowRead && target.endsWith("slow.ts")) {
+          parkSlowRead = false;
+          return new Promise((resolve, reject) => {
+            releaseSlowRead = () => {
+              void realFs.read(target, offset, limit).then(resolve, reject);
+            };
+            signalParked();
+          });
+        }
+        return realFs.read(target, offset, limit);
+      },
+    };
+
+    const mgr = mkManager({ mode: "die-once", fs: gatedFs });
+    const client = await mgr.forFile(slowFile);
+    const firstPid = readPids()[0]!;
+    expect(readPids()).toHaveLength(1);
+
+    parkSlowRead = true;
+    const flowA = client.definition(uri(slowFile), 0, 0);
+    flowA.catch(() => undefined);
+    await parked;
+
+    // Flow B is what kills the first connection (`die-once`): the manager
+    // replaces it, re-syncs `fastFile` on the replacement and answers.
+    await expect(client.definition(uri(fastFile), 0, 0)).resolves.toHaveLength(1);
+    expect(readPids()).toHaveLength(2);
+    expect(() => process.kill(firstPid, 0)).toThrow(/ESRCH/);
+
+    // Now let flow A finish against the connection that already died.
+    releaseSlowRead!();
+    await expect(flowA).resolves.toHaveLength(1);
+
+    // Asking about `fastFile` again must not re-send didOpen: the replacement
+    // still has that document open.
+    await expect(client.hover(uri(fastFile), 0, 0)).resolves.toMatchObject({
+      contents: expect.stringContaining("fixture hover"),
+    });
+
+    const messages = readFixtureLog();
+    const replacementStart = messages.findIndex(
+      (message, index) => index > 0 && message.method === "initialize",
+    );
+    expect(replacementStart).toBeGreaterThan(0);
+    const replacement = messages.slice(replacementStart);
+    const didOpenFast = replacement.filter(
+      (message) =>
+        message.method === "textDocument/didOpen" &&
+        (message.params?.textDocument?.uri ?? "").endsWith("fast.ts"),
+    );
+    // Exactly one: a second didOpen would mean the replacement's document
+    // state was wiped by the stale teardown (an LSP protocol violation).
+    expect(didOpenFast).toHaveLength(1);
+    // And no didClose was sent for a document while its server was alive.
+    expect(messages.filter((m) => m.method === "textDocument/didClose")).toHaveLength(0);
   });
 });
 
