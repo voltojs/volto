@@ -29,7 +29,23 @@
  *                  a per-request timeout exists for).
  * - `silent-init` — answer nothing at all, not even `initialize` (proves the
  *                  handshake has its own timeout).
- *                  Later tasks add `die-on-request` and diagnostics modes.
+ * - `diagnostics-pull` — advertise `diagnosticProvider` in `initialize`, answer
+ *                  `textDocument/diagnostic` with a full report AND publish
+ *                  `textDocument/publishDiagnostics` on `didOpen` (a real
+ *                  server may support both). The pull path must win; if the
+ *                  manager fell back to push here, the assertion would see
+ *                  `source: "push"` and fail.
+ * - `diagnostics-push` — advertise no `diagnosticProvider`; publish
+ *                  `textDocument/publishDiagnostics` for a document right after
+ *                  its `didOpen`. A clean document is therefore "reported and
+ *                  empty", which is a different fact from "not reported yet".
+ * - `diagnostics-none` — advertise nothing and never publish: the "no source
+ *                  has spoken yet" state.
+ *                  Later tasks add `die-on-request`.
+ *
+ * Diagnostic `severity` is the numeric LSP spelling (1 = Error … 4 = Hint),
+ * because that is what a real server puts on the wire; normalizing it into the
+ * contract's string union is the manager's job.
  */
 
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -62,6 +78,28 @@ function docText(uri) {
   }
 }
 
+/**
+ * The diagnostic items this server reports for a document.
+ *
+ * Marker-driven so one mode can produce both "reported with findings" and
+ * "reported and empty" without a second mode: the assertion that matters is
+ * that an empty report is still a report.
+ */
+function diagnosticItems(uri) {
+  if (!docText(uri).includes("VOLTO_FIXTURE_DIAGNOSTIC")) return [];
+  return [
+    {
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 5 },
+      },
+      severity: 1, // LSP DiagnosticSeverity.Error — a number on the wire
+      message: "fixture diagnostic",
+      source: "volto-fixture",
+    },
+  ];
+}
+
 function handleRequest(msg) {
   const { id, method, params = {} } = msg;
 
@@ -76,6 +114,11 @@ function handleRequest(msg) {
           referencesProvider: true,
           renameProvider: true,
           hoverProvider: true,
+          // Push-only and no-diagnostics servers must NOT advertise this: the
+          // manager branches on its presence to choose pull over push.
+          ...(mode === "diagnostics-pull"
+            ? { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } }
+            : {}),
         },
         serverInfo: { name: "volto-lsp-fixture", version: "0.0.1" },
       },
@@ -139,6 +182,15 @@ function handleRequest(msg) {
         },
       });
       return;
+    case "textDocument/diagnostic":
+      // A full report: the manager never sends a previousResultId, so a
+      // conforming server has nothing to answer "unchanged" about.
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: { kind: "full", items: diagnosticItems(uri) },
+      });
+      return;
     case "textDocument/hover":
       send({
         jsonrpc: "2.0",
@@ -158,6 +210,30 @@ function handleRequest(msg) {
         error: { code: -32601, message: `method not found: ${method}` },
       });
   }
+}
+
+/**
+ * Server-initiated notifications (messages without an id).
+ *
+ * Both diagnostics modes publish right after `didOpen` — that is when a real
+ * server has the document and can compute its first report. Doing it in the
+ * pull mode too is deliberate: the manager must prefer pull when the server
+ * advertises `diagnosticProvider`, and a push-only fallback would look
+ * identical if this mode never pushed.
+ */
+function handleNotification(msg) {
+  if (msg.method === "textDocument/didOpen" && mode.startsWith("diagnostics-") && mode !== "diagnostics-none") {
+    const uri = msg.params?.textDocument?.uri;
+    if (uri) {
+      send({
+        jsonrpc: "2.0",
+        method: "textDocument/publishDiagnostics",
+        params: { uri, diagnostics: diagnosticItems(uri) },
+      });
+    }
+    return;
+  }
+  if (msg.method === "exit") process.exit(0);
 }
 
 /**
@@ -201,8 +277,8 @@ function drain() {
     if (msg.id !== undefined && msg.id !== null) {
       if (mode === "silent" && msg.method !== "initialize") continue;
       handleRequest(msg);
-    } else if (msg.method === "exit") {
-      process.exit(0);
+    } else {
+      handleNotification(msg);
     }
   }
 }

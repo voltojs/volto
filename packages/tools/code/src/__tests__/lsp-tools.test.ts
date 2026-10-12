@@ -23,7 +23,7 @@ function createMockLspClient(overrides?: {
     async definition() { return overrides?.definition ?? []; },
     async references() { return overrides?.references ?? []; },
     async rename() { return overrides?.rename ?? {}; },
-    async diagnostics() { return overrides?.diagnostics ?? []; },
+    async diagnostics() { return { diagnostics: overrides?.diagnostics ?? [], source: "push" as const }; },
     async hover() { return overrides?.hover ?? null; },
   };
 }
@@ -65,7 +65,7 @@ describe("lsp_definition", () => {
       async definition() { throw new Error("lsp crashed"); },
       async references() { return []; },
       async rename() { return {}; },
-      async diagnostics() { return []; },
+      async diagnostics() { return { diagnostics: [], source: "push" as const }; },
       async hover() { return null; },
     };
     const tool = createLspDefinitionTool(client);

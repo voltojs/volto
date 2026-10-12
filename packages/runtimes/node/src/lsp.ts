@@ -22,6 +22,8 @@ import { fileToUri, uriToFile } from "@volto/tools-code";
 import type {
   LspClient,
   LspClientProvider,
+  LspDiagnostic,
+  LspDiagnosticReport,
   LspHover,
   LspLocation,
   LspReference,
@@ -196,6 +198,22 @@ class LspServerConnection {
   private nextId = 1;
   private dead: Error | undefined;
   private disposed = false;
+  /**
+   * Whether the server advertised a `diagnosticProvider` in its `initialize`
+   * result. Only then does `textDocument/diagnostic` exist; otherwise the
+   * server's own `textDocument/publishDiagnostics` notifications are the only
+   * diagnostics there will ever be.
+   */
+  private pullDiagnosticsSupported = false;
+  /**
+   * Latest `textDocument/publishDiagnostics` per document URI.
+   *
+   * Per connection, not per manager: a restart must not inherit the previous
+   * process's reports, and a dead process must not leave any behind. An entry
+   * present with an empty array means "reported and clean" — a different fact
+   * from "absent", which is why the map, not a bare array, is the cache.
+   */
+  private readonly publishedDiagnostics = new Map<string, LspDiagnostic[]>();
 
   constructor(proc: SandboxedProcess, requestTimeoutMs: number) {
     this.proc = proc;
@@ -226,12 +244,46 @@ class LspServerConnection {
   /** Reject every in-flight request exactly once; later arrivals see `dead`. */
   private failAll(error: Error): void {
     if (this.dead === undefined) this.dead = error;
+    // The process is gone, so its reports are gone with it: serving them after
+    // an exit (or after a restart reuses this object) would report the dead
+    // server's last word as if it were current.
+    this.publishedDiagnostics.clear();
     for (const pending of this.pending.values()) pending.reject(this.dead);
     this.pending.clear();
   }
 
   get alive(): boolean {
     return this.dead === undefined && !this.disposed;
+  }
+
+  /** Record the `initialize` result's `diagnosticProvider` presence. */
+  markPullDiagnosticsSupported(): void {
+    this.pullDiagnosticsSupported = true;
+  }
+
+  get supportsPullDiagnostics(): boolean {
+    return this.pullDiagnosticsSupported;
+  }
+
+  /** The cached report for `uri`, or `undefined` when nothing was published. */
+  publishedFor(uri: string): LspDiagnostic[] | undefined {
+    return this.publishedDiagnostics.get(uri);
+  }
+
+  /**
+   * Tell the server a document is no longer open, and drop its cached report.
+   *
+   * A closed document has no diagnostics to report, so keeping the cache entry
+   * would answer a later `diagnostics()` with a stale report for a document the
+   * server no longer holds.
+   */
+  closeDocument(uri: string): void {
+    this.publishedDiagnostics.delete(uri);
+    try {
+      this.notify("textDocument/didClose", { textDocument: { uri } });
+    } catch {
+      // The server is already gone; there is nobody left to notify.
+    }
   }
 
   private write(message: unknown): void {
@@ -333,6 +385,23 @@ class LspServerConnection {
         return;
       }
       pending.resolve(message["result"]);
+      return;
+    }
+    // A server-initiated notification (no id). Push diagnostics arrive this
+    // way and are the only thing this manager subscribes to.
+    if (id === undefined || id === null) {
+      if (message["method"] === "textDocument/publishDiagnostics") {
+        const params = message["params"] as
+          | { uri?: unknown; diagnostics?: unknown }
+          | undefined;
+        const uri = params?.uri;
+        if (typeof uri === "string" && Array.isArray(params?.diagnostics)) {
+          this.publishedDiagnostics.set(
+            uri,
+            (params.diagnostics as unknown[]).map(normalizeDiagnostic),
+          );
+        }
+      }
       return;
     }
     // A server-initiated request (string id, no pending entry) is answered
@@ -459,17 +528,34 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       workspaceFolders: [{ uri: fileToUri(workspaceRoot), name: "workspace" }],
       capabilities: {
         // Full sync: the manager sends the whole document on every change.
-        textDocument: { synchronization: { didSave: false, dynamicRegistration: false } },
+        textDocument: {
+          synchronization: { didSave: false, dynamicRegistration: false },
+          // Both halves of the diagnostics contract are declared: pull support
+          // so a pull-capable server may answer textDocument/diagnostic, and
+          // push support so it may send publishDiagnostics without guessing.
+          diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
+          publishDiagnostics: { relatedInformation: true, versionSupport: true },
+        },
         workspace: { workspaceFolders: true },
       },
       ...(spec.initializationParams ?? {}),
     };
 
+    let initializeResult: unknown;
     try {
-      await connection.request("initialize", initParams, initializationTimeoutMs);
+      initializeResult = await connection.request("initialize", initParams, initializationTimeoutMs);
     } catch (err) {
       connection.close();
       throw err;
+    }
+    // Pull diagnostics exist only when the server says so; there is no
+    // "push capability" to check, so absence here simply leaves the push cache
+    // as the only source.
+    const diagnosticProvider = (
+      initializeResult as { capabilities?: { diagnosticProvider?: unknown } } | null | undefined
+    )?.capabilities?.diagnosticProvider;
+    if (diagnosticProvider !== undefined && diagnosticProvider !== null) {
+      connection.markPullDiagnosticsSupported();
     }
     connection.notify("initialized", {});
 
@@ -582,11 +668,16 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
    * the workspace, or query a document the server never received.
    */
   function makeClient(boundFile: string, boundLanguageId: string): LspClient {
-    const request = async (
+    /**
+     * Resolve the caller's URI through exactly the same boundary as
+     * `forFile`, then hand the canonical URI and a live connection to `fn`.
+     * Every method goes through here, so no method can be a hole in the
+     * containment checks.
+     */
+    const withConnection = async <T>(
       uri: string,
-      method: string,
-      buildParams: (canonicalUri: string) => Record<string, unknown>,
-    ): Promise<unknown> => {
+      fn: (connection: LspServerConnection, canonicalUri: string) => Promise<T>,
+    ): Promise<T> => {
       // A non-`file:` URI or a malformed one must reject like any other bad
       // path, not surface a TypeError from the URI helper.
       let filePath: string;
@@ -599,8 +690,17 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
         );
       }
       const { connection, uri: canonicalUri } = await prepare(filePath, boundLanguageId);
-      return connection.request(method, buildParams(canonicalUri));
+      return fn(connection, canonicalUri);
     };
+
+    const request = (
+      uri: string,
+      method: string,
+      buildParams: (canonicalUri: string) => Record<string, unknown>,
+    ): Promise<unknown> =>
+      withConnection(uri, (connection, canonicalUri) =>
+        connection.request(method, buildParams(canonicalUri)),
+      );
 
     return {
       definition: (uri, line, character) =>
@@ -623,11 +723,20 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
           newName,
         })).then((result) => normalizeRename(result)),
 
-      // Task 3 turns this into a report carrying a source; the signature is
-      // frozen until then (controller ruling 3).
-      async diagnostics(_uri: string): Promise<never[]> {
-        return [];
-      },
+      diagnostics: (uri) =>
+        withConnection(uri, async (connection, canonicalUri): Promise<LspDiagnosticReport> => {
+          if (connection.supportsPullDiagnostics) {
+            const result = await connection.request("textDocument/diagnostic", {
+              textDocument: { uri: canonicalUri },
+            });
+            // Requested without a previousResultId, so the answer is a full
+            // report; an empty `items` is still an answer from the server.
+            return { diagnostics: normalizeDiagnostics(result), source: "pull" };
+          }
+          const published = connection.publishedFor(canonicalUri);
+          if (published === undefined) return { diagnostics: [], source: "none" };
+          return { diagnostics: published, source: "push" };
+        }),
 
       hover: (uri, line, character) =>
         request(uri, "textDocument/hover", (u) => ({
@@ -646,7 +755,16 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      for (const connection of connections.values()) connection.close();
+      for (const [languageId, connection] of connections) {
+        // Close the documents this manager opened before killing the process:
+        // that is the `didClose` half of the push-cache rule (the other half is
+        // `failAll` on exit), and it keeps the last thing the server hears a
+        // coherent session.
+        for (const uri of documents.get(languageId)?.keys() ?? []) {
+          connection.closeDocument(uri);
+        }
+        connection.close();
+      }
       // A start that was still in flight when dispose() landed would otherwise
       // leak its child: close it as soon as it resolves.
       for (const attempt of starting.values()) {
@@ -718,4 +836,58 @@ function normalizeHover(result: unknown): LspHover | null {
     if (typeof value === "string") return { contents: value };
   }
   return null;
+}
+
+/** LSP `DiagnosticSeverity` numbers → the contract's word for each. */
+const SEVERITY_BY_NUMBER: Record<number, LspDiagnostic["severity"]> = {
+  1: "error",
+  2: "warning",
+  3: "information",
+  4: "hint",
+};
+
+const SEVERITIES = new Set<string>(["error", "warning", "information", "hint"]);
+
+/**
+ * Normalize one wire diagnostic into the contract's shape.
+ *
+ * LSP puts `severity` on the wire as a number (1..4). Passing that through
+ * would type-check nowhere and — worse — make every `severity === "error"`
+ * filter downstream count zero, so a file full of type errors would be
+ * reported as clean. A missing or unknown severity becomes `"error"`, which is
+ * the client's documented discretion and the safe reading for a tool whose job
+ * is to surface problems.
+ */
+function normalizeDiagnostic(item: unknown): LspDiagnostic {
+  const wire = (item ?? {}) as Record<string, unknown>;
+  const severity = wire["severity"];
+  const word =
+    typeof severity === "number"
+      ? SEVERITY_BY_NUMBER[severity]
+      : typeof severity === "string" && SEVERITIES.has(severity)
+        ? (severity as LspDiagnostic["severity"])
+        : undefined;
+  return {
+    range: (wire["range"] as LspDiagnostic["range"] | undefined) ?? {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 0 },
+    },
+    severity: word ?? "error",
+    message: typeof wire["message"] === "string" ? wire["message"] : "",
+    ...(typeof wire["source"] === "string" ? { source: wire["source"] } : {}),
+  };
+}
+
+/**
+ * Normalize a `textDocument/diagnostic` result into `LspDiagnostic[]`.
+ *
+ * `items` is the only member this manager asks for: it never sends a
+ * `previousResultId`, so a conforming server always answers with a full
+ * report and never `{ kind: "unchanged" }`.
+ */
+function normalizeDiagnostics(result: unknown): LspDiagnostic[] {
+  if (result === null || result === undefined || typeof result !== "object") return [];
+  const items = (result as { items?: unknown }).items;
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => normalizeDiagnostic(item));
 }

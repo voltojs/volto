@@ -29,6 +29,26 @@ export interface LspHover {
   contents: string;
 }
 
+/**
+ * Diagnostics for one document, plus where they came from.
+ *
+ * `source` exists because an empty `diagnostics` array is ambiguous: a server
+ * that reported "no problems" (`"push"`, or `"pull"` with no items) is a
+ * different fact from a server that has not reported anything yet (`"none"`).
+ * Rendering both as "no diagnostics" hides a server that is still indexing
+ * behind a clean bill of health.
+ *
+ * - `"pull"` — asked and answered via `textDocument/diagnostic` (an empty
+ *   answer is still an answer).
+ * - `"push"` — taken from the server's `textDocument/publishDiagnostics`
+ *   cache (an empty array means "reported and clean").
+ * - `"none"` — nothing has been reported for this document.
+ */
+export interface LspDiagnosticReport {
+  diagnostics: LspDiagnostic[];
+  source: "pull" | "push" | "none";
+}
+
 /** Reference to a symbol */
 export interface LspReference {
   uri: string;
@@ -45,8 +65,8 @@ export interface LspClient {
   references(uri: string, line: number, character: number): Promise<LspReference[]>;
   /** Rename a symbol at a position */
   rename(uri: string, line: number, character: number, newName: string): Promise<Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } } }>>>;
-  /** Get diagnostics for a file */
-  diagnostics(uri: string): Promise<LspDiagnostic[]>;
+  /** Get diagnostics for a file, saying whether they were pulled, pushed or absent */
+  diagnostics(uri: string): Promise<LspDiagnosticReport>;
   /** Get hover information at a position */
   hover(uri: string, line: number, character: number): Promise<LspHover | null>;
 }

@@ -141,7 +141,8 @@ export function createLspDiagnosticsTool(client: LspClient): Tool {
     run: async ({ file }) => {
       try {
         const uri = fileToUri(file);
-        const diags = await client.diagnostics(uri);
+        const report = await client.diagnostics(uri);
+        const diags = report.diagnostics;
         if (diags.length === 0) {
           return { modelContent: `No diagnostics for ${file}.` };
         }

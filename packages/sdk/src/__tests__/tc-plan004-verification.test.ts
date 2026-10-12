@@ -267,7 +267,7 @@ describe("TC-008: LSP 工具返回结构化结果", () => {
       async definition() { return [{ uri: "file:///src/foo.ts", range: { start: { line: 10, character: 5 }, end: { line: 10, character: 10 } } }]; },
       async references() { return []; },
       async rename() { return {}; },
-      async diagnostics() { return []; },
+      async diagnostics() { return { diagnostics: [], source: "push" as const }; },
       async hover() { return null; },
     };
 
