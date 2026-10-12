@@ -39,19 +39,29 @@ function streamEnded(stream: NodeJS.ReadableStream): Promise<void> {
 
 /**
  * Wait for the child to exit AND for both output streams to reach end-of-data,
- * collecting everything verbatim.
+ * collecting everything verbatim — or reject as soon as `onError` fires.
  *
  * Resolving on `exit` alone is not enough: Node may emit the exit event before
  * stdio has drained, which would truncate the very stderr the denial
- * assertions read. Flowing mode turns on `end` for these listeners.
+ * assertions read. Rejecting on `onError` is equally required: an
+ * `unavailableProcess` (profile-write failure, synchronous spawn throw) reports
+ * its failure there and NEVER emits an exit, so waiting for exit alone would
+ * sit out the timeout instead of failing on the error. Flowing mode turns on
+ * `end` for these listeners.
  */
 function collect(p: SandboxedProcess): Promise<Collected> {
   return new Promise((resolve, reject) => {
     let out = "";
     let err = "";
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
     p.stdout.on("data", (c: Buffer) => { out += c.toString(); });
     p.stderr.on("data", (c: Buffer) => { err += c.toString(); });
-    p.onError((e) => reject(e));
+    p.onError((e) => settle(() => reject(e)));
     void Promise.all([
       streamEnded(p.stdout),
       streamEnded(p.stderr),
@@ -59,7 +69,7 @@ function collect(p: SandboxedProcess): Promise<Collected> {
         p.onExit((code, signal) => res({ code, signal }));
       }),
     ]).then(([, , exit]) => {
-      resolve({ pid: p.pid, code: exit.code, signal: exit.signal, stdout: out, stderr: err });
+      settle(() => resolve({ pid: p.pid, code: exit.code, signal: exit.signal, stdout: out, stderr: err }));
     });
   });
 }
@@ -256,6 +266,19 @@ it("F-103 a child that fails to start surfaces through onError, never as an unca
   });
   await new Promise((r) => setTimeout(r, 300));
   expect(await outcome).toBe("error");
+});
+
+it("F-103 collect() rejects on a spawn failure instead of waiting for an exit that never comes", async () => {
+  // A failed spawn reports through onError and never emits `exit`. The shared
+  // collect() helper must fail on that error rather than sit out its timeout:
+  // the denial assertions downstream read its stderr, so a false "no output"
+  // result is the failure mode to avoid. The 4s guard makes a regression show
+  // up as a clear assertion failure rather than a whole-suite timeout.
+  const spawnUnder = createSandboxedProcessSpawner({ mode: "danger-full-access" })!;
+  const p = spawnUnder({ command: "volto-definitely-not-a-real-binary", args: [], cwd: process.cwd() });
+  const guard = new Promise<never>((_, rej) =>
+    setTimeout(() => rej(new Error("collect() did not settle within 4s")), 4_000));
+  await expect(Promise.race([collect(p), guard])).rejects.toThrow(/ENOENT/);
 });
 
 it("F-102 a selected backend whose runner binary is missing refuses at construction", () => {

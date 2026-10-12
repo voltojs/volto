@@ -1166,11 +1166,21 @@ export interface SandboxedProcessSpec {
  * - seatbelt → `sandbox-exec -f <profile> <command> <args...>`
  * - bubblewrap → `bwrap <args> -- <command> <args...>`
  *
- * Returns `undefined` when a confining backend was selected but its runner
- * binary is missing and the caller opted out of the throw — same discipline as
- * `createSandboxSessionSpawner`: a spawner that cannot confine is absent, never
- * an unconfined passthrough. Throws at construction when `failIfUnavailable`
- * (the default) and no usable backend is present.
+ * Refusal behaviour. A confining mode never yields an unconfined process:
+ *
+ * - No backend for this platform (`backend: "none"`): construction throws when
+ *   `failIfUnavailable` is unset or true, and returns `undefined` when it is
+ *   explicitly `false` — the caller gets no spawner at all.
+ * - Backend selected but its runner binary is missing: construction throws
+ *   when `failIfUnavailable` is unset or true, and returns `undefined` when it
+ *   is explicitly `false`. A half-present backend is never downgraded to an
+ *   unconfined passthrough.
+ * - `network.enabled` with a non-empty `allowedHosts`: construction throws,
+ *   because this spawner builds no egress proxy and cannot enforce a host
+ *   whitelist.
+ *
+ * `SandboxConfig.failIfUnavailable` records how this differs from the
+ * shell/session spawners, which run unconfined under the same opt-out.
  *
  * Every child-process failure is delivered through `onError` / `onExit`; a
  * `spawn` 'error' event (ENOENT, EACCES) is captured for callbacks registered
