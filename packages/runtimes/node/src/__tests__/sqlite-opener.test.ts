@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNodeFileSystem } from "../filesystem.js";
@@ -20,10 +20,18 @@ const itDarwin = process.platform === "darwin" ? it : it.skip;
 
 describe("createSqliteDatabaseOpener", () => {
   let root: string;
+  let outside: string;
   let opener: ReturnType<typeof createSqliteDatabaseOpener>;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "volto-sqlite-"));
+    // Canonicalize the temp parent first: `os.tmpdir()` is itself a symlink on
+    // macOS, so a raw `mkdtempSync` root would be non-canonical while
+    // `realResolveRoot` canonicalizes it — making every check reject for that
+    // unrelated mismatch and hiding whether the realpath step does anything.
+    // With a canonical root the lexical check alone would accept the symlink
+    // escape below, so only `realResolve` can catch it.
+    const canonicalTmp = realpathSync(tmpdir());
+    root = mkdtempSync(join(canonicalTmp, "volto-sqlite-"));
     mkdirSync(join(root, "data"));
     createFixtureDatabase(join(root, "data", "app.db"));
     // A database file that really cannot be written: its directory forbids
@@ -32,6 +40,14 @@ describe("createSqliteDatabaseOpener", () => {
     createFixtureDatabase(join(root, "data", "readonly.db"));
     chmodSync(join(root, "data", "readonly.db"), 0o444);
 
+    // A valid database outside the workspace, reachable from inside it via
+    // `data/link`. Only the realpath step can see this escape: the injected
+    // FileSystem's `resolvePath` is purely lexical, so `data/link/secret.db`
+    // looks like an inside path to it.
+    outside = mkdtempSync(join(canonicalTmp, "volto-sqlite-outside-"));
+    createFixtureDatabase(join(outside, "secret.db"));
+    symlinkSync(outside, join(root, "data", "link"));
+
     const fs = createNodeFileSystem({ root });
     opener = createSqliteDatabaseOpener({ fs, workspaceRoot: root });
   });
@@ -39,10 +55,24 @@ describe("createSqliteDatabaseOpener", () => {
   afterEach(async () => {
     await opener.closeAll();
     rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   });
 
   it("F-116 越界路径被拒（fail-closed）", async () => {
     await expect(opener.open("../../etc/volto.db", { readonly: true })).rejects.toThrow(
+      /outside the workspace/,
+    );
+  });
+
+  it("F-116 指向工作区外的符号链接被 realpath 步拒绝", async () => {
+    // The outside database is valid, so if containment stopped before the
+    // realpath step the open would *succeed* — this case fails for the right
+    // reason only.
+    expect(existsSync(join(root, "data", "link", "secret.db"))).toBe(true);
+    await expect(opener.open("data/link/secret.db", { readonly: true })).rejects.toThrow(
+      /outside the workspace/,
+    );
+    await expect(opener.open("data/link/secret.db", { readonly: false })).rejects.toThrow(
       /outside the workspace/,
     );
   });
