@@ -82,9 +82,13 @@ export interface LspManagerOptions {
    */
   clock: Clock;
   /**
-   * Idle reclaim budget before a server is shut down. Reserved for Task 4 —
-   * accepted and exported as `DEFAULT_IDLE_TIMEOUT_MS` here so the option
-   * surface is settled, but no reclaim runs yet.
+   * Idle budget after which a server is shut down and its process reaped.
+   *
+   * Reclaim is driven by `clock` and an explicit sweep, never by sleeping:
+   * production runs an unref'd interval that calls `sweepIdle()`, while tests
+   * advance an injected clock and call `sweepIdle(now)` directly. A server
+   * with an in-flight request is never reclaimed. `0` disables idle reclaim.
+   * Default: `DEFAULT_IDLE_TIMEOUT_MS`.
    */
   idleTimeoutMs?: number;
   /** Timeout for a document request (definition/hover/...). Default: 15s. */
@@ -115,11 +119,31 @@ export interface LspManagerOptions {
 
 export interface LspManager extends LspClientProvider {
   forFile(file: string): Promise<LspClient>;
+  /**
+   * Reclaim every server that has been idle for at least `idleTimeoutMs`.
+   *
+   * Exposed because reclaim is time-based rather than event-based: the caller
+   * (production's unref'd interval, or a test with a manual clock) decides when
+   * "now" is. `nowMs` defaults to the injected clock's `now()`.
+   */
+  sweepIdle(nowMs?: number): Promise<void>;
   dispose(): Promise<void>;
 }
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 600_000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
+/** How long a shutdown waits for a child to exit before escalating to SIGKILL. */
+const REAP_GRACE_MS = 1_000;
+
+/**
+ * Consecutive unexpected exits after which a language is marked `unavailable`.
+ *
+ * One restart is allowed (the fresh start the next call performs); a second
+ * death in a row means that restart also failed, and the session stops
+ * spawning children that only die.
+ */
+const CRASHES_BEFORE_UNAVAILABLE = 2;
 
 /** Extension → language id. Only languages with a known server mapping. */
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
@@ -198,6 +222,11 @@ class LspServerConnection {
   private nextId = 1;
   private dead: Error | undefined;
   private disposed = false;
+  /** Set by the exit handler; `waitForExit` resolves off `exitPromise`. */
+  private exited = false;
+  private readonly exitPromise: Promise<void>;
+  /** Assigned synchronously by the `exitPromise` executor below. */
+  private resolveExit!: () => void;
   /**
    * Whether the server advertised a `diagnosticProvider` in its `initialize`
    * result. Only then does `textDocument/diagnostic` exist; otherwise the
@@ -215,9 +244,21 @@ class LspServerConnection {
    */
   private readonly publishedDiagnostics = new Map<string, LspDiagnostic[]>();
 
-  constructor(proc: SandboxedProcess, requestTimeoutMs: number) {
+  constructor(
+    proc: SandboxedProcess,
+    requestTimeoutMs: number,
+    /**
+     * Called when the child goes away without the manager asking it to. A
+     * deliberate shutdown (dispose, idle reclaim) never reaches this: it is
+     * the manager's own doing, not a crash to count.
+     */
+    private readonly onUnexpectedExit?: () => void,
+  ) {
     this.proc = proc;
     this.requestTimeoutMs = requestTimeoutMs;
+    this.exitPromise = new Promise<void>((resolveExit) => {
+      this.resolveExit = resolveExit;
+    });
     proc.stdout.on("data", (chunk: Buffer | string) => {
       this.consume(typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk);
     });
@@ -227,17 +268,19 @@ class LspServerConnection {
       );
     });
     proc.onExit((code, signal) => {
+      this.exited = true;
+      this.resolveExit();
       // During dispose the exit is expected; a caller must be able to tell the
       // two apart, so the messages differ (and "exited unexpectedly" is what
       // the restart/lifecycle tests assert on).
-      this.failAll(
-        this.disposed
-          ? new LspManagerError("LSP_UNAVAILABLE", "language server was shut down")
-          : new LspManagerError(
-              "LSP_UNAVAILABLE",
-              `language server exited unexpectedly (code=${String(code)}, signal=${String(signal)})`,
-            ),
-      );
+      const error = this.disposed
+        ? new LspManagerError("LSP_UNAVAILABLE", "language server was shut down")
+        : new LspManagerError(
+            "LSP_UNAVAILABLE",
+            `language server exited unexpectedly (code=${String(code)}, signal=${String(signal)})`,
+          );
+      if (!this.disposed) this.onUnexpectedExit?.();
+      this.failAll(error);
     });
   }
 
@@ -254,6 +297,11 @@ class LspServerConnection {
 
   get alive(): boolean {
     return this.dead === undefined && !this.disposed;
+  }
+
+  /** True while a request has been written and has not settled yet. */
+  get hasInFlightRequests(): boolean {
+    return this.pending.size > 0;
   }
 
   /** Record the `initialize` result's `diagnosticProvider` presence. */
@@ -445,6 +493,48 @@ class LspServerConnection {
       // Already dead — nothing to reap.
     }
   }
+
+  /**
+   * Wait for the child to exit, or report that it did not within `timeoutMs`.
+   *
+   * Never holds the host open by itself: the timer is unref'd, and the actual
+   * signal is that the process is gone.
+   */
+  private async waitForExit(timeoutMs: number): Promise<boolean> {
+    if (this.exited) return true;
+    return await new Promise<boolean>((done) => {
+      let settled = false;
+      const finish = (exited: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        done(exited);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      timer.unref();
+      void this.exitPromise.then(() => finish(true));
+    });
+  }
+
+  /**
+   * Shut the server down and wait until its process is actually gone.
+   *
+   * `close()` only sends the signal, which is not the same guarantee: after a
+   * signal is delivered the child may still be alive for a few milliseconds,
+   * so anything that must leave no orphan (`dispose`, idle reclaim) awaits
+   * this instead. A child that ignores SIGTERM is escalated to SIGKILL rather
+   * than awaited forever.
+   */
+  async reap(graceMs = REAP_GRACE_MS): Promise<void> {
+    this.close();
+    if (await this.waitForExit(graceMs)) return;
+    try {
+      this.proc.kill("SIGKILL");
+    } catch {
+      // Exited between the timeout and the escalation — nothing left to kill.
+    }
+    await this.waitForExit(graceMs);
+  }
 }
 
 /** Per-document sync bookkeeping for one connection. */
@@ -458,15 +548,59 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   const requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const initializationTimeoutMs =
     opts.initializationTimeoutMs ?? Math.max(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+  const idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const probe = opts.probe ?? ((command: string) => defaultProbe(command, workspaceRoot));
 
   const spawnUnder = createSandboxedProcessSpawner(opts.sandbox ?? { mode: "danger-full-access" });
   const connections = new Map<string, LspServerConnection>();
   const starting = new Map<string, Promise<LspServerConnection>>();
+  /**
+   * Children spawned but not yet through their `initialize` handshake.
+   *
+   * They are not in `connections` yet (no caller may use one), but they are
+   * still children this manager owns: `dispose()` reaps them at once rather
+   * than waiting out a handshake that may never answer.
+   */
+  const booting = new Set<LspServerConnection>();
   const documents = new Map<string, Map<string, DocumentState>>();
   /** Per-file serialization: concurrent callers must not both send didOpen. */
   const locks = new Map<string, Promise<void>>();
+  /** When each language's server last did something, on the injected clock. */
+  const lastUsedAt = new Map<string, number>();
+  /** Consecutive unexpected exits per language, broken by a successful request. */
+  const crashStreak = new Map<string, number>();
+  /** Languages whose server crashed twice in a row: no further spawns. */
+  const unavailable = new Set<string>();
   let disposed = false;
+
+  /** Record that `languageId`'s server just did something. */
+  function touch(languageId: string): void {
+    lastUsedAt.set(languageId, opts.clock.now());
+  }
+
+  /**
+   * Count one unexpected exit for `languageId`.
+   *
+   * One death gets a restart (the next call lazily starts a fresh server); a
+   * second consecutive death means that restart died too, so the session stops
+   * spawning children that only crash. A request that comes back resets the
+   * streak — health, not mere existence, is what clears it.
+   */
+  function noteUnexpectedExit(languageId: string): void {
+    const streak = (crashStreak.get(languageId) ?? 0) + 1;
+    crashStreak.set(languageId, streak);
+    if (streak >= CRASHES_BEFORE_UNAVAILABLE) unavailable.add(languageId);
+  }
+
+  /** Refuse calls for a language the session has given up on. */
+  function assertAvailable(languageId: string): void {
+    if (!unavailable.has(languageId)) return;
+    throw new LspManagerError(
+      "LSP_UNAVAILABLE",
+      `the language server for "${languageId}" is unavailable after repeated unexpected exits; ` +
+        `the session will not start it again`,
+    );
+  }
 
   async function resolveInsideWorkspace(file: string): Promise<string> {
     // The session FileSystem is the authority on what the workspace contains.
@@ -512,6 +646,12 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   }
 
   async function startConnection(languageId: string): Promise<LspServerConnection> {
+    if (disposed) {
+      // This can be reached when dispose() lands while an earlier await in
+      // `prepare` (path resolution) was still outstanding: a disposed manager
+      // must not spawn anything.
+      throw new LspManagerError("LSP_UNAVAILABLE", "the LSP manager has been disposed");
+    }
     const spec = opts.servers[languageId];
     if (spec === undefined) {
       throw new LspManagerError(
@@ -519,6 +659,13 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
         `no language server configured for language "${languageId}"`,
       );
     }
+
+    // A fresh process starts with no documents open, so the previous process's
+    // document map (and its didOpen versions) must be dropped BEFORE the new
+    // connection can be used. Reusing it would emit `didChange` with version 2,
+    // 3, ... to a server that never received `didOpen` — the document would
+    // never be open, and every request would answer about nothing.
+    documents.set(languageId, new Map());
 
     const probed = probe(spec.command);
     if (!probed.available) {
@@ -539,49 +686,71 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       args: spec.args,
       cwd: workspaceRoot,
     });
-    const connection = new LspServerConnection(proc, requestTimeoutMs);
+    const connection = new LspServerConnection(proc, requestTimeoutMs, () => {
+      noteUnexpectedExit(languageId);
+    });
 
-    const initParams: Record<string, unknown> = {
-      processId: process.pid,
-      clientInfo: { name: "volto", version: "0.0.1" },
-      rootUri: fileToUri(workspaceRoot),
-      workspaceFolders: [{ uri: fileToUri(workspaceRoot), name: "workspace" }],
-      capabilities: {
-        // Full sync: the manager sends the whole document on every change.
-        textDocument: {
-          synchronization: { didSave: false, dynamicRegistration: false },
-          // Both halves of the diagnostics contract are declared: pull support
-          // so a pull-capable server may answer textDocument/diagnostic, and
-          // push support so it may send publishDiagnostics without guessing.
-          diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
-          publishDiagnostics: { relatedInformation: true, versionSupport: true },
-        },
-        workspace: { workspaceFolders: true },
-      },
-      ...(spec.initializationParams ?? {}),
-    };
-
-    let initializeResult: unknown;
+    // From here the child exists and belongs to this manager. It leaves
+    // `booting` in the same synchronous step that publishes it into
+    // `connections`, so `dispose()` can always find it in one set or the other.
+    booting.add(connection);
     try {
-      initializeResult = await connection.request("initialize", initParams, initializationTimeoutMs);
-    } catch (err) {
-      connection.close();
-      throw err;
-    }
-    // Pull diagnostics exist only when the server says so; there is no
-    // "push capability" to check, so absence here simply leaves the push cache
-    // as the only source.
-    const diagnosticProvider = (
-      initializeResult as { capabilities?: { diagnosticProvider?: unknown } } | null | undefined
-    )?.capabilities?.diagnosticProvider;
-    if (diagnosticProvider !== undefined && diagnosticProvider !== null) {
-      connection.markPullDiagnosticsSupported();
-    }
-    connection.notify("initialized", {});
+      const initParams: Record<string, unknown> = {
+        processId: process.pid,
+        clientInfo: { name: "volto", version: "0.0.1" },
+        rootUri: fileToUri(workspaceRoot),
+        workspaceFolders: [{ uri: fileToUri(workspaceRoot), name: "workspace" }],
+        capabilities: {
+          // Full sync: the manager sends the whole document on every change.
+          textDocument: {
+            synchronization: { didSave: false, dynamicRegistration: false },
+            // Both halves of the diagnostics contract are declared: pull support
+            // so a pull-capable server may answer textDocument/diagnostic, and
+            // push support so it may send publishDiagnostics without guessing.
+            diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
+            publishDiagnostics: { relatedInformation: true, versionSupport: true },
+          },
+          workspace: { workspaceFolders: true },
+        },
+        ...(spec.initializationParams ?? {}),
+      };
 
-    connections.set(languageId, connection);
-    documents.set(languageId, new Map());
-    return connection;
+      let initializeResult: unknown;
+      try {
+        initializeResult = await connection.request(
+          "initialize",
+          initParams,
+          initializationTimeoutMs,
+        );
+      } catch (err) {
+        // A failed handshake must not leave the child behind, so wait for it to
+        // actually exit rather than only signalling it.
+        await connection.reap();
+        throw err;
+      }
+      // `dispose()` may have landed while the handshake was in flight; the
+      // manager owns that child now, so it must be reaped here or leaked.
+      if (disposed) {
+        await connection.reap();
+        throw new LspManagerError("LSP_UNAVAILABLE", "the LSP manager has been disposed");
+      }
+      // Pull diagnostics exist only when the server says so; there is no
+      // "push capability" to check, so absence here simply leaves the push cache
+      // as the only source.
+      const diagnosticProvider = (
+        initializeResult as { capabilities?: { diagnosticProvider?: unknown } } | null | undefined
+      )?.capabilities?.diagnosticProvider;
+      if (diagnosticProvider !== undefined && diagnosticProvider !== null) {
+        connection.markPullDiagnosticsSupported();
+      }
+      connection.notify("initialized", {});
+
+      connections.set(languageId, connection);
+      touch(languageId);
+      return connection;
+    } finally {
+      booting.delete(connection);
+    }
   }
 
   /** One start attempt per language, shared by every concurrent caller. */
@@ -677,9 +846,11 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
         `"${file}" belongs to language "${languageId}", but this client is bound to "${boundLanguageId}"`,
       );
     }
+    assertAvailable(languageId);
     const connection = await ensureConnection(languageId);
     const uri = fileToUri(filePath);
     await syncDocument(languageId, connection, filePath, uri);
+    touch(languageId);
     return { connection, uri, languageId };
   }
 
@@ -714,8 +885,21 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
           `"${uri}" is not a file:// URI inside the workspace root`,
         );
       }
-      const { connection, uri: canonicalUri } = await prepare(filePath, boundLanguageId);
-      return fn(connection, canonicalUri);
+      const { connection, uri: canonicalUri, languageId } = await prepare(
+        filePath,
+        boundLanguageId,
+      );
+      try {
+        const result = await fn(connection, canonicalUri);
+        // An answer is proof the server works, so the crash streak is broken: a
+        // death hours later starts counting from one again.
+        crashStreak.delete(languageId);
+        return result;
+      } finally {
+        // Requests count as activity, so a server is not "idle" the instant a
+        // long request finishes.
+        touch(languageId);
+      }
     };
 
     const request = (
@@ -771,6 +955,62 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     };
   }
 
+  /**
+   * Shut one language's server down and reap it.
+   *
+   * `didClose` first: the server hears a coherent end to the session it was
+   * told about (and its push cache goes with the document), then the process,
+   * then the bookkeeping. Everything after the kill is done only once the
+   * child is actually gone.
+   */
+  async function dropConnection(
+    languageId: string,
+    connection: LspServerConnection,
+  ): Promise<void> {
+    for (const uri of documents.get(languageId)?.keys() ?? []) {
+      connection.closeDocument(uri);
+    }
+    if (connections.get(languageId) === connection) connections.delete(languageId);
+    documents.delete(languageId);
+    lastUsedAt.delete(languageId);
+    await connection.reap();
+  }
+
+  /**
+   * Reclaim every server that has been idle for at least `idleTimeoutMs`.
+   *
+   * Time comes from the injected clock (`nowMs` defaults to `clock.now()`), so
+   * a test advances a manual clock and calls this directly instead of waiting
+   * on a real timer. A server with an in-flight request is skipped: killing it
+   * would reject a caller's request for a reason the caller had no part in.
+   */
+  async function sweepIdle(nowMs: number = opts.clock.now()): Promise<void> {
+    if (disposed || idleTimeoutMs <= 0) return;
+    for (const [languageId, connection] of [...connections]) {
+      if (!connection.alive || connection.hasInFlightRequests) continue;
+      // An unknown timestamp means "just started"; never reclaim on a guess.
+      const lastUsed = lastUsedAt.get(languageId) ?? nowMs;
+      if (nowMs - lastUsed < idleTimeoutMs) continue;
+      await dropConnection(languageId, connection);
+    }
+  }
+
+  // Production drives the sweep from a timer, because nothing else would ever
+  // notice that an idle server is still holding memory and a file watcher.
+  // Tests never reach this: they call `sweepIdle` with the injected clock's
+  // time. The timer must not keep the host process alive on its own.
+  const sweepTimer =
+    idleTimeoutMs > 0
+      ? setInterval(
+          () => {
+            void sweepIdle().catch(() => undefined);
+          },
+          // Half the budget keeps the reclaim lag under ~1.5x the budget.
+          Math.max(1_000, Math.floor(idleTimeoutMs / 2)),
+        )
+      : undefined;
+  sweepTimer?.unref();
+
   return {
     async forFile(file: string): Promise<LspClient> {
       const { languageId } = await prepare(file);
@@ -780,28 +1020,53 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      for (const [languageId, connection] of connections) {
+      if (sweepTimer !== undefined) clearInterval(sweepTimer);
+
+      const live = [...connections.entries()];
+      // Children still in their handshake are reaped here directly: waiting for
+      // the handshake to resolve would mean waiting out its timeout.
+      const bootingNow = [...booting];
+      // A start that was still in flight when dispose() landed would otherwise
+      // leak its child; `startConnection` reaps it itself once it notices the
+      // manager is disposed, and this awaits that reap.
+      const inflight = [...starting.values()];
+      // The documents must be closed while their map is still readable.
+      const openDocuments = new Map(documents);
+      connections.clear();
+      documents.clear();
+      locks.clear();
+      lastUsedAt.clear();
+      crashStreak.clear();
+      unavailable.clear();
+
+      const closing: Promise<void>[] = [];
+      for (const [languageId, connection] of live) {
         // Close the documents this manager opened before killing the process:
         // that is the `didClose` half of the push-cache rule (the other half is
         // `failAll` on exit), and it keeps the last thing the server hears a
         // coherent session.
-        for (const uri of documents.get(languageId)?.keys() ?? []) {
+        for (const uri of openDocuments.get(languageId)?.keys() ?? []) {
           connection.closeDocument(uri);
         }
-        connection.close();
+        closing.push(connection.reap());
       }
-      // A start that was still in flight when dispose() landed would otherwise
-      // leak its child: close it as soon as it resolves.
-      for (const attempt of starting.values()) {
-        void attempt.then(
-          (connection) => connection.close(),
-          () => undefined,
+      for (const connection of bootingNow) {
+        closing.push(connection.reap());
+      }
+      for (const attempt of inflight) {
+        closing.push(
+          attempt.then(
+            (connection) => connection.reap(),
+            () => undefined,
+          ),
         );
       }
-      connections.clear();
-      documents.clear();
-      locks.clear();
+      // The promise resolves only once every child is really gone: a caller
+      // that disposes (the SDK on session end) must not leave orphans behind.
+      await Promise.all(closing);
     },
+
+    sweepIdle,
   };
 }
 

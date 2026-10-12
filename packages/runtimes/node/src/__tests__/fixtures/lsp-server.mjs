@@ -9,7 +9,11 @@
  * Environment:
  * - `LSP_FIXTURE_MODE`    behaviour selector (see MODES below)
  * - `LSP_FIXTURE_LOG`     path to append one JSON line per received message
- * - `LSP_FIXTURE_PIDFILE` path to write this process's pid to
+ * - `LSP_FIXTURE_PIDFILE` path to append this process's pid to (one line per
+ *                         spawn: a restarted server leaves a second line, so a
+ *                         test can tell "restarted once" from "never died")
+ * - `LSP_FIXTURE_DIE_ONCE` marker path for `die-once` (created by the first
+ *                         process that dies; absence means "not died yet")
  *
  * The behaviour selector may also be passed as the first argument — callers
  * that spawn the fixture by command line find that clearer than mutating the
@@ -43,7 +47,16 @@
  *                  a different fact from "not reported yet".
  * - `diagnostics-none` — advertise nothing and never publish: the "no source
  *                  has spoken yet" state.
- *                  Later tasks add `die-on-request`.
+ * - `die-on-request` — complete the `initialize` handshake, then exit(1) as
+ *                  soon as `textDocument/definition` arrives. The in-flight
+ *                  request is never answered: this is what a language server
+ *                  crashing mid-session looks like from the manager's side.
+ * - `die-once`   — like `die-on-request`, but only the FIRST process that sees
+ *                  a definition request exits; a marker file records that, so
+ *                  the process the manager starts next answers normally. A test
+ *                  can therefore prove that a restarted server is re-synced
+ *                  from scratch (fresh `didOpen`) instead of inheriting the
+ *                  dead process's document versions.
  *
  * Diagnostic `severity` is the numeric LSP spelling (1 = Error … 4 = Hint),
  * because that is what a real server puts on the wire; normalizing it into the
@@ -56,7 +69,7 @@ const mode = process.argv[2] ?? process.env.LSP_FIXTURE_MODE ?? "ok";
 const logPath = process.env.LSP_FIXTURE_LOG;
 const pidPath = process.env.LSP_FIXTURE_PIDFILE;
 
-if (pidPath) writeFileSync(pidPath, String(process.pid));
+if (pidPath) appendFileSync(pidPath, String(process.pid) + "\n");
 
 function log(message) {
   if (logPath) appendFileSync(logPath, JSON.stringify(message) + "\n");
@@ -106,6 +119,27 @@ function diagnosticItems(uri) {
   ];
 }
 
+/**
+ * Whether this process should die on the request it is about to answer.
+ *
+ * `die-on-request` dies every time. `die-once` dies only until the marker file
+ * exists, so the process the manager starts after the crash behaves like a
+ * healthy server — which is what makes the "restart once" path observable.
+ */
+function shouldDie() {
+  if (mode === "die-on-request") return true;
+  if (mode !== "die-once") return false;
+  const marker = process.env.LSP_FIXTURE_DIE_ONCE;
+  if (!marker) return true;
+  try {
+    readFileSync(marker);
+    return false;
+  } catch {
+    writeFileSync(marker, String(process.pid));
+    return true;
+  }
+}
+
 function handleRequest(msg) {
   const { id, method, params = {} } = msg;
 
@@ -142,6 +176,9 @@ function handleRequest(msg) {
 
   switch (method) {
     case "textDocument/definition":
+      // Exit WITHOUT answering, so the request is in flight when the process
+      // disappears — the only way to exercise "reject in-flight requests".
+      if (shouldDie()) process.exit(1);
       send({
         jsonrpc: "2.0",
         id,
