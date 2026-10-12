@@ -24,6 +24,7 @@ import type {
   LspClientProvider,
   LspDiagnostic,
   LspDiagnosticReport,
+  LspDocumentReference,
   LspHover,
   LspLocation,
   LspReference,
@@ -889,32 +890,35 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   /**
    * A client bound to one document's language.
    *
-   * The `uri` parameter stays meaningful — it names the document to ask about —
-   * but it is never trusted: it is converted back to a path, re-checked against
-   * the workspace and against the bound language, and the document it names is
-   * opened/refreshed before the request. Otherwise a caller could reach outside
-   * the workspace, or query a document the server never received.
+   * The document reference stays meaningful — it names the document to ask
+   * about — but it is never trusted: it is converted back to a path, re-checked
+   * against the workspace and against the bound language, and the document it
+   * names is opened/refreshed before the request. Otherwise a caller could
+   * reach outside the workspace, or query a document the server never received.
    */
   function makeClient(boundFile: string, boundLanguageId: string): LspClient {
     /**
-     * Resolve the caller's URI through exactly the same boundary as
-     * `forFile`, then hand the canonical URI and a live connection to `fn`.
+     * Resolve the caller's document reference through exactly the same boundary
+     * as `forFile`, then hand the canonical URI and a live connection to `fn`.
      * Every method goes through here, so no method can be a hole in the
      * containment checks.
      */
     const withConnection = async <T>(
-      uri: string,
+      document: LspDocumentReference,
       fn: (connection: LspServerConnection, canonicalUri: string) => Promise<T>,
     ): Promise<T> => {
-      // A non-`file:` URI or a malformed one must reject like any other bad
-      // path, not surface a TypeError from the URI helper.
+      // The reference may be a `file:` URI or a filesystem path (absolute, or
+      // relative to the workspace root). `uriToFile` returns a bare path
+      // unchanged, so a non-`file:` scheme is the only thing it rejects — and
+      // that must reject like any other bad path rather than surface a
+      // TypeError. Containment is still decided below, by `resolveInsideWorkspace`.
       let filePath: string;
       try {
-        filePath = uriToFile(uri);
+        filePath = uriToFile(document);
       } catch {
         throw new LspManagerError(
           "LSP_PATH_OUTSIDE_WORKSPACE",
-          `"${uri}" is not a file:// URI inside the workspace root`,
+          `"${document}" is not a file:// URI or a path inside the workspace root`,
         );
       }
       // The connection this attempt was using (recorded before its document is
@@ -970,37 +974,37 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     };
 
     const request = (
-      uri: string,
+      document: LspDocumentReference,
       method: string,
       buildParams: (canonicalUri: string) => Record<string, unknown>,
     ): Promise<unknown> =>
-      withConnection(uri, (connection, canonicalUri) =>
+      withConnection(document, (connection, canonicalUri) =>
         connection.request(method, buildParams(canonicalUri)),
       );
 
     return {
-      definition: (uri, line, character) =>
-        request(uri, "textDocument/definition", (u) => ({
+      definition: (document, line, character) =>
+        request(document, "textDocument/definition", (u) => ({
           textDocument: { uri: u },
           position: { line, character },
         })).then((result) => normalizeLocations(result)),
 
-      references: (uri, line, character) =>
-        request(uri, "textDocument/references", (u) => ({
+      references: (document, line, character) =>
+        request(document, "textDocument/references", (u) => ({
           textDocument: { uri: u },
           position: { line, character },
           context: { includeDeclaration: true },
         })).then((result) => normalizeReferences(result)),
 
-      rename: (uri, line, character, newName) =>
-        request(uri, "textDocument/rename", (u) => ({
+      rename: (document, line, character, newName) =>
+        request(document, "textDocument/rename", (u) => ({
           textDocument: { uri: u },
           position: { line, character },
           newName,
         })).then((result) => normalizeRename(result)),
 
-      diagnostics: (uri) =>
-        withConnection(uri, async (connection, canonicalUri): Promise<LspDiagnosticReport> => {
+      diagnostics: (document) =>
+        withConnection(document, async (connection, canonicalUri): Promise<LspDiagnosticReport> => {
           if (connection.supportsPullDiagnostics) {
             const result = await connection.request("textDocument/diagnostic", {
               textDocument: { uri: canonicalUri },
@@ -1014,8 +1018,8 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
           return { diagnostics: published, source: "push" };
         }),
 
-      hover: (uri, line, character) =>
-        request(uri, "textDocument/hover", (u) => ({
+      hover: (document, line, character) =>
+        request(document, "textDocument/hover", (u) => ({
           textDocument: { uri: u },
           position: { line, character },
         })).then((result) => normalizeHover(result)),

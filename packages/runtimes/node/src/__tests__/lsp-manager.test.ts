@@ -197,13 +197,56 @@ describe("LSP manager path containment", () => {
     writeFile(file, "// scratch uri containment\n");
     const mgr = mkManager();
     const client = await mgr.forFile(file);
-    // The client's own `uri` argument must not be a hole in the boundary.
+    // The client's own document reference must not be a hole in the boundary.
     await expect(client.definition(uri("/etc/passwd"), 0, 0)).rejects.toMatchObject({
       code: "LSP_PATH_OUTSIDE_WORKSPACE",
     });
     await expect(client.definition("https://example.com/a.ts", 0, 0)).rejects.toMatchObject({
       code: "LSP_PATH_OUTSIDE_WORKSPACE",
     });
+    // A path spelling that escapes is rejected exactly like its URI spelling:
+    // accepting paths must not accept an escape.
+    await expect(client.definition("../../etc/passwd", 0, 0)).rejects.toMatchObject({
+      code: "LSP_PATH_OUTSIDE_WORKSPACE",
+    });
+  });
+
+  it("F-120 a relative document reference resolves and reaches the wire as the canonical URI", async () => {
+    writeFile(file, "// scratch relative reference\n");
+    const mgr = mkManager();
+    // Bound through the relative path, then asked about through it as well: a
+    // caller that only holds a path must not have to build a `file:` URI.
+    const client = await mgr.forFile(relativeInside);
+    const result = await client.definition(relativeInside, 0, 0);
+
+    const log = await waitForLog(4);
+    const canonicalUri = "file://" + file.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    const didOpen = log.find((m) => m.method === "textDocument/didOpen");
+    expect(didOpen?.params?.textDocument?.uri).toBe(canonicalUri);
+    const definition = log.find((m) => m.method === "textDocument/definition");
+    expect(definition?.params?.textDocument?.uri).toBe(canonicalUri);
+    expect(result).toHaveLength(1);
+    expect(uriToFile(result[0]!.uri)).toBe(file);
+  });
+
+  it("F-120 a path with spaces and non-ASCII characters is accepted as the reference", async () => {
+    writeFile(spacedFile, "// scratch spaced path\n");
+    const mgr = mkManager();
+    const client = await mgr.forFile(spacedFile);
+
+    // The path form (unencoded) must reach the wire as the canonical URI.
+    const result = await client.definition(spacedFile, 0, 0);
+
+    const log = await waitForLog(4);
+    const canonicalUri =
+      "file://" +
+      join(WORKSPACE_SCRATCH, "spaced dir", "中文 doc.ts")
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+    const didOpen = log.find((m) => m.method === "textDocument/didOpen");
+    expect(didOpen?.params?.textDocument?.uri).toBe(canonicalUri);
+    expect(uriToFile(result[0]!.uri)).toBe(spacedFile);
   });
 
   it("F-106 含空格与非 ASCII 的 URI：按规范 URI didOpen 并取回真实结果", async () => {
@@ -211,9 +254,8 @@ describe("LSP manager path containment", () => {
     const mgr = mkManager();
     const client = await mgr.forFile(spacedFile);
 
-    // A naive `file://${path}` (what lsp-tools.ts builds today) is NOT the
-    // canonical URI; the manager must both accept it and speak the canonical
-    // form on the wire.
+    // A naive `file://${path}` is NOT the canonical URI; the manager must both
+    // accept it and speak the canonical form on the wire.
     const result = await client.definition(uri(spacedFile), 0, 0);
 
     const log = await waitForLog(4);

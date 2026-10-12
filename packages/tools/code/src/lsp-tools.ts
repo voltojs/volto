@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
-import type { LspClient, LspClientProvider, LspDiagnostic } from "./lsp-client.js";
+import type { LspClient, LspClientProvider, LspDiagnostic, LspDocumentReference } from "./lsp-client.js";
 import { CAP_LSP_QUERY } from "./lsp-client.js";
-import { fileToUri, uriToFile } from "./lsp-uri.js";
+import { uriToFile } from "./lsp-uri.js";
 
 /**
  * The tool layer sits on top of a `LspClientProvider`, so everything the
@@ -61,18 +61,23 @@ export function formatLspError(error: unknown): string {
 
 /**
  * The tools' one boundary: resolve the file, ask for a client, run the request
- * against the document's canonical URI, and normalize every failure — provider
- * lookup included — into an `isError` result. A throw here would kill the turn.
+ * against that same file as the document reference, and normalize every failure
+ * — provider lookup included — into an `isError` result. A throw here would
+ * kill the turn.
+ *
+ * The reference is passed through **verbatim**: document identity (canonical
+ * URI, workspace containment, document sync) belongs to the manager, and a
+ * relative path has no workspace root to be resolved against in here.
  */
 async function withLspClient(
   provider: LspClientProvider,
   toolName: string,
   file: string,
-  fn: (client: LspClient, fileUri: string) => Promise<{ modelContent: string; displayMetadata?: Record<string, unknown> }>,
+  fn: (client: LspClient, document: LspDocumentReference) => Promise<{ modelContent: string; displayMetadata?: Record<string, unknown> }>,
 ): Promise<{ modelContent: string; isError?: boolean; displayMetadata?: Record<string, unknown> }> {
   try {
     const client = await provider.forFile(file);
-    return await fn(client, fileToUri(file));
+    return await fn(client, file);
   } catch (error) {
     return { modelContent: `${toolName} failed: ${formatLspError(error)}`, isError: true };
   }
@@ -93,11 +98,13 @@ const positionSchema = {
 };
 
 /**
- * Absolute on purpose: the request URI is built from this value, and a
- * relative path has no workspace root to be resolved against inside the tool.
- * `LspClientProvider` resolves what it is given; the tools cannot.
+ * The tools pass this through untouched. A relative path is resolved against
+ * the workspace root by the provider (which owns the boundary), so the model
+ * can name a file the way `read_file` and `edit_file` accept it.
  */
-const fileSchema = z.string().describe("Absolute path of the file to query inside the workspace.");
+const fileSchema = z
+  .string()
+  .describe("File to query: an absolute path, or a path relative to the workspace root.");
 
 // ──────────────────────────────────────────────
 // lsp_definition — jump to definition
@@ -117,8 +124,8 @@ export function createLspDefinitionTool(provider: LspClientProvider): Tool {
     riskTier: "READ_ONLY",
     pathInputs: ["file"],
     run: async ({ file, line, character }) =>
-      withLspClient(provider, "lsp_definition", file, async (client, uri) => {
-        const locations = await client.definition(uri, line - 1, character - 1);
+      withLspClient(provider, "lsp_definition", file, async (client, document) => {
+        const locations = await client.definition(document, line - 1, character - 1);
         if (locations.length === 0) {
           return { modelContent: `No definition found at ${file}:${line}:${character}.` };
         }
@@ -152,8 +159,8 @@ export function createLspReferencesTool(provider: LspClientProvider): Tool {
     riskTier: "READ_ONLY",
     pathInputs: ["file"],
     run: async ({ file, line, character }) =>
-      withLspClient(provider, "lsp_references", file, async (client, uri) => {
-        const refs = await client.references(uri, line - 1, character - 1);
+      withLspClient(provider, "lsp_references", file, async (client, document) => {
+        const refs = await client.references(document, line - 1, character - 1);
         if (refs.length === 0) {
           return { modelContent: `No references found for symbol at ${file}:${line}:${character}.` };
         }
@@ -190,8 +197,8 @@ export function createLspRenameTool(provider: LspClientProvider): Tool {
     riskTier: "READ_ONLY",
     pathInputs: ["file"],
     run: async ({ file, line, character, newName }) =>
-      withLspClient(provider, "lsp_rename", file, async (client, uri) => {
-        const changes = await client.rename(uri, line - 1, character - 1, newName);
+      withLspClient(provider, "lsp_rename", file, async (client, document) => {
+        const changes = await client.rename(document, line - 1, character - 1, newName);
         const fileCount = Object.keys(changes).length;
         const totalEdits = Object.values(changes).reduce((sum, edits) => sum + edits.length, 0);
         if (fileCount === 0) {
@@ -264,8 +271,8 @@ export function createLspDiagnosticsTool(provider: LspClientProvider): Tool {
     riskTier: "READ_ONLY",
     pathInputs: ["file"],
     run: async ({ file }) =>
-      withLspClient(provider, "lsp_diagnostics", file, async (client, uri) => {
-        const report = await client.diagnostics(uri);
+      withLspClient(provider, "lsp_diagnostics", file, async (client, document) => {
+        const report = await client.diagnostics(document);
         return {
           modelContent: renderDiagnostics(file, report),
           displayMetadata: {
@@ -296,8 +303,8 @@ export function createLspHoverTool(provider: LspClientProvider): Tool {
     riskTier: "READ_ONLY",
     pathInputs: ["file"],
     run: async ({ file, line, character }) =>
-      withLspClient(provider, "lsp_hover", file, async (client, uri) => {
-        const hover = await client.hover(uri, line - 1, character - 1);
+      withLspClient(provider, "lsp_hover", file, async (client, document) => {
+        const hover = await client.hover(document, line - 1, character - 1);
         if (!hover) {
           return { modelContent: `No hover information at ${file}:${line}:${character}.` };
         }

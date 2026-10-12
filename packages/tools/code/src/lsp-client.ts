@@ -58,17 +58,32 @@ export interface LspReference {
   };
 }
 
+/**
+ * A reference to a document, in either spelling a caller may have:
+ *
+ * - a `file:` URI (`file:///repo/src/a.ts`), or
+ * - a filesystem path, absolute (`/repo/src/a.ts`) or relative to the workspace
+ *   root (`src/a.ts`).
+ *
+ * The implementation owns document identity — it resolves the reference
+ * through the same workspace boundary as `LspClientProvider.forFile`, derives
+ * the canonical URI, and syncs that document before the request. Callers that
+ * only hold a path (the `lsp_*` tools, which cannot compute a workspace root)
+ * can therefore pass one through unchanged.
+ */
+export type LspDocumentReference = string;
+
 export interface LspClient {
-  /** Get definition location(s) for a symbol at a position */
-  definition(uri: string, line: number, character: number): Promise<LspLocation[]>;
-  /** Find all references to a symbol at a position */
-  references(uri: string, line: number, character: number): Promise<LspReference[]>;
-  /** Rename a symbol at a position */
-  rename(uri: string, line: number, character: number, newName: string): Promise<Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } } }>>>;
-  /** Get diagnostics for a file, saying whether they were pulled, pushed or absent */
-  diagnostics(uri: string): Promise<LspDiagnosticReport>;
-  /** Get hover information at a position */
-  hover(uri: string, line: number, character: number): Promise<LspHover | null>;
+  /** Get definition location(s) for a symbol at a document reference and position */
+  definition(document: LspDocumentReference, line: number, character: number): Promise<LspLocation[]>;
+  /** Find all references to a symbol at a document reference and position */
+  references(document: LspDocumentReference, line: number, character: number): Promise<LspReference[]>;
+  /** Rename a symbol at a document reference and position */
+  rename(document: LspDocumentReference, line: number, character: number, newName: string): Promise<Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } } }>>>;
+  /** Get diagnostics for a document, saying whether they were pulled, pushed or absent */
+  diagnostics(document: LspDocumentReference): Promise<LspDiagnosticReport>;
+  /** Get hover information at a document reference and position */
+  hover(document: LspDocumentReference, line: number, character: number): Promise<LspHover | null>;
 }
 
 /**

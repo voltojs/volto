@@ -21,7 +21,8 @@ import {
  */
 interface RecordedCall {
   method: string;
-  uri?: string;
+  /** The document reference the tool handed to the client, verbatim. */
+  document?: string;
   line?: number;
   character?: number;
   newName?: string;
@@ -56,24 +57,24 @@ function fakeClient(responses: Responses = {}, publish: PushConfig = { source: "
   return {
     calls,
     publish,
-    async definition(uri, line, character) {
-      calls.push({ method: "definition", uri, line, character });
+    async definition(document, line, character) {
+      calls.push({ method: "definition", document, line, character });
       return responses.definition ?? [];
     },
-    async references(uri, line, character) {
-      calls.push({ method: "references", uri, line, character });
+    async references(document, line, character) {
+      calls.push({ method: "references", document, line, character });
       return responses.references ?? [];
     },
-    async rename(uri, line, character, newName) {
-      calls.push({ method: "rename", uri, line, character, newName });
+    async rename(document, line, character, newName) {
+      calls.push({ method: "rename", document, line, character, newName });
       return responses.rename ?? {};
     },
-    async diagnostics(uri): Promise<LspDiagnosticReport> {
-      calls.push({ method: "diagnostics", uri });
+    async diagnostics(document): Promise<LspDiagnosticReport> {
+      calls.push({ method: "diagnostics", document });
       return { diagnostics: publish.diagnostics ?? [], source: publish.source };
     },
-    async hover(uri, line, character) {
-      calls.push({ method: "hover", uri, line, character });
+    async hover(document, line, character) {
+      calls.push({ method: "hover", document, line, character });
       return responses.hover ?? null;
     },
   };
@@ -166,13 +167,23 @@ describe("lsp_definition", () => {
     expect(result.modelContent).toContain("lsp crashed");
   });
 
-  it("F-120 passes the resolved path to the provider and the canonical URI to the client", async () => {
+  it("F-120 passes the path through to the provider and the client unchanged", async () => {
     const visits: string[] = [];
     const client = fakeClient();
     await createLspDefinitionTool(providerStub(client, visits)).handler({ file: FILE, line: 1, character: 1 });
 
     expect(visits).toEqual([FILE]);
-    expect(client.calls[0]?.uri).toBe("file:///repo/src/a.ts");
+    // The tool constructs no URI at all: document identity is the provider's.
+    expect(client.calls[0]?.document).toBe(FILE);
+  });
+
+  it("F-120 passes a workspace-relative path through unchanged", async () => {
+    const visits: string[] = [];
+    const client = fakeClient();
+    await createLspDefinitionTool(providerStub(client, visits)).handler({ file: "src/a.ts", line: 1, character: 1 });
+
+    expect(visits).toEqual(["src/a.ts"]);
+    expect(client.calls[0]?.document).toBe("src/a.ts");
   });
 
   it("F-120 converts 1-based line and character to 0-based before the call", async () => {
@@ -239,7 +250,7 @@ describe("lsp_rename", () => {
     await createLspRenameTool(providerStub(client)).handler({ file: FILE, line: 4, character: 2, newName: "renamed" });
     expect(client.calls[0]).toMatchObject({
       method: "rename",
-      uri: "file:///repo/src/a.ts",
+      document: FILE,
       line: 3,
       character: 1,
       newName: "renamed",
@@ -284,14 +295,16 @@ describe("F-120 schema: 1-based inputs and declared path inputs", () => {
 });
 
 describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () => {
-  it("builds the canonical URI for a path with spaces and non-ASCII characters", async () => {
+  it("passes a path with spaces and non-ASCII characters through verbatim", async () => {
     const client = fakeClient();
     await createLspDefinitionTool(providerStub(client)).handler({
       file: "/repo/中文/a b.ts",
       line: 1,
       character: 1,
     });
-    expect(client.calls[0]?.uri).toBe("file:///repo/%E4%B8%AD%E6%96%87/a%20b.ts");
+    // No percent-encoding is the tool's job: the manager derives the canonical
+    // URI from this path and syncs that document.
+    expect(client.calls[0]?.document).toBe("/repo/中文/a b.ts");
   });
 
   it("decodes an encoded definition location back to a disk path", async () => {
@@ -302,16 +315,34 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
     expect(res.modelContent).toContain("/tmp/中文/a b.ts");
   });
 
-  it("rejects a relative path with an actionable message instead of a malformed URI", async () => {
-    const client = fakeClient();
-    const res = await createLspDefinitionTool(providerStub(client)).handler({ file: "src/a.ts", line: 1, character: 1 });
-    expect(res.isError).toBe(true);
-    expect(res.modelContent).toContain("absolute");
-    expect(client.calls).toHaveLength(0);
+  it("decodes encoded references and rename targets too", async () => {
+    const references = createLspReferencesTool(
+      providerStub(fakeClient({ references: [{ uri: "file:///tmp/%E4%B8%AD%E6%96%87/r.ts", range: zeroRange }] })),
+    );
+    expect((await references.handler({ file: FILE, line: 1, character: 1 })).modelContent).toContain("/tmp/中文/r.ts");
+
+    const rename = createLspRenameTool(
+      providerStub(fakeClient({ rename: { "file:///tmp/%E4%B8%AD%E6%96%87/n.ts": [{ range: zeroRange }] } })),
+    );
+    expect((await rename.handler({ file: FILE, line: 1, character: 1, newName: "x" })).modelContent).toContain(
+      "/tmp/中文/n.ts",
+    );
   });
 });
 
 describe("F-112/LSP error mapping", () => {
+  it("an escaping path is an actionable isError and no request is sent", async () => {
+    const client = fakeClient();
+    const res = await createLspDefinitionTool(
+      failingProvider("LSP_PATH_OUTSIDE_WORKSPACE", '"../../etc/passwd" resolves outside the workspace root /repo'),
+    ).handler({ file: "../../etc/passwd", line: 1, character: 1 });
+
+    expect(res.isError).toBe(true);
+    expect(res.modelContent).toContain("LSP_PATH_OUTSIDE_WORKSPACE");
+    expect(res.modelContent).toContain("workspace");
+    expect(client.calls).toHaveLength(0);
+  });
+
   it("renders manager errors as isError results, never throwing", async () => {
     const res = await createLspHoverTool(failingProvider("LSP_UNAVAILABLE", "language server died")).handler({
       file: FILE,
