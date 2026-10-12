@@ -14,6 +14,12 @@ describe("fileToUri", () => {
     expect(fileToUri("/tmp/中文/a.ts")).toBe("file:///tmp/%E4%B8%AD%E6%96%87/a.ts");
   });
 
+  it("leaves the characters encodeURIComponent treats as unreserved literal", () => {
+    // `encodeURIComponent` escapes neither `!'()*` nor `-_.~`, and that is all
+    // this helper claims: the segments keep them exactly as written.
+    expect(fileToUri("/tmp/a!b'c(d)e*f.ts")).toBe("file:///tmp/a!b'c(d)e*f.ts");
+  });
+
   it("refuses a relative path instead of guessing a root", () => {
     expect(() => fileToUri("src/a.ts")).toThrow(/absolute POSIX path/);
   });
@@ -50,6 +56,7 @@ describe("round trip", () => {
     "/tmp/中文/文件.ts",
     "/tmp/100%25done/x.ts",
     "/tmp/plus+and'quote/a.ts",
+    "/tmp/a!b'c(d)e*f.ts",
     "/Users/leo.zheng/Documents/github workspace/volto/packages/core/src/index.ts",
   ];
 

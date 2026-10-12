@@ -13,10 +13,11 @@
 /**
  * Convert an absolute POSIX path to a `file://` URI.
  *
- * Every path segment is percent-encoded — including the characters
- * `encodeURIComponent` would leave alone (`!'()*`) — and the separators are
- * then restored. The result is canonical: `/tmp/中 a.ts` becomes
- * `file:///tmp/%E4%B8%AD%20a.ts`.
+ * Each path segment is encoded with `encodeURIComponent`, and the `/`
+ * separators are restored afterwards. That escapes spaces and non-ASCII, while
+ * the characters `encodeURIComponent` treats as unreserved (`-_.!~*'()`) stay
+ * literal — they are legal in a path segment. The result is a valid `file://`
+ * URI: `/tmp/中 a.ts` becomes `file:///tmp/%E4%B8%AD%20a.ts`.
  *
  * A Windows path (`C:\dir\file.ts`) has no leading `/` and is rejected rather
  * than silently emitted as a malformed URI; add an explicit drive-letter
