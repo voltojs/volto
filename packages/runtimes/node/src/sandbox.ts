@@ -1175,9 +1175,11 @@ export interface SandboxedProcessSpec {
  *   when `failIfUnavailable` is unset or true, and returns `undefined` when it
  *   is explicitly `false`. A half-present backend is never downgraded to an
  *   unconfined passthrough.
- * - `network.enabled` with a non-empty `allowedHosts`: construction throws,
- *   because this spawner builds no egress proxy and cannot enforce a host
- *   whitelist.
+ * - `network.enabled` with a non-empty `allowedHosts`, **with a usable backend**
+ *   (the `backend === "none"` branch above refuses first, so on a backend-less
+ *   platform construction throws the no-backend error instead): construction
+ *   throws, because this spawner builds no egress proxy and cannot enforce a
+ *   host whitelist.
  *
  * `SandboxConfig.failIfUnavailable` records how this differs from the
  * shell/session spawners, which run unconfined under the same opt-out.
