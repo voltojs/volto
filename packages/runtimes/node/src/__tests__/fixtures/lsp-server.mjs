@@ -54,14 +54,10 @@
  * - `die-once`   — like `die-on-request`, but only the FIRST process that sees
  *                  a definition request exits; a marker file records that, so
  *                  the process the manager starts next answers normally. A test
- *                  can therefore prove that a restarted server is re-synced
- *                  from scratch (fresh `didOpen`) instead of inheriting the
- *                  dead process's document versions.
- * - `die-late`   — never answer a definition request, then exit(1) after
- *                  `DIE_LATE_DELAY_MS`. Deliberately much slower than a test's
- *                  request timeout, so the exit lands on a connection that has
- *                  no pending request left: the exit-vs-timeout race that must
- *                  not settle anything twice.
+ *                  can therefore prove that a crash is repaired by one restart
+ *                  that replays the request, and that the replacement is
+ *                  re-synced from scratch (fresh `didOpen`) instead of
+ *                  inheriting the dead process's document versions.
  *
  * Diagnostic `severity` is the numeric LSP spelling (1 = Error … 4 = Hint),
  * because that is what a real server puts on the wire; normalizing it into the
@@ -145,13 +141,6 @@ function shouldDie() {
   }
 }
 
-/**
- * How long a `die-late` server waits before exiting once it has been asked for
- * a definition. Far longer than the request timeout a test sets, so the timeout
- * is what the caller sees and the exit arrives with nothing pending.
- */
-const DIE_LATE_DELAY_MS = 500;
-
 function handleRequest(msg) {
   const { id, method, params = {} } = msg;
 
@@ -190,10 +179,6 @@ function handleRequest(msg) {
     case "textDocument/definition":
       // Exit WITHOUT answering, so the request is in flight when the process
       // disappears — the only way to exercise "reject in-flight requests".
-      if (mode === "die-late") {
-        setTimeout(() => process.exit(1), DIE_LATE_DELAY_MS);
-        return;
-      }
       if (shouldDie()) process.exit(1);
       send({
         jsonrpc: "2.0",

@@ -265,66 +265,13 @@ describe("LSP dispose", () => {
 });
 
 describe("LSP crash recovery", () => {
-  it("F-115 replaces a crashed server once, then marks the language unavailable", async () => {
-    const mgr = mkManager({ mode: "die-on-request" });
-    const client = await mgr.forFile(file);
-
-    // 1. The child exits while the request is in flight, so the request is
-    //    rejected instead of hanging or "succeeding" with nothing.
-    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/exited unexpectedly/);
-    const crashed = readPids();
-    expect(crashed).toHaveLength(1);
-    expect(() => process.kill(crashed[0]!, 0)).toThrow(/ESRCH/);
-
-    // 2. The next call starts a fresh server (the automatic restart, at most
-    //    one per call). It dies the same way, which marks the language
-    //    unavailable for the rest of the session.
-    await expect(client.definition(uri(file), 0, 0)).rejects.toMatchObject({
-      code: "LSP_UNAVAILABLE",
-    });
-    expect(readPids()).toHaveLength(2);
-
-    // 3. From here on the call fails fast: no third child is ever started.
-    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/unavailable/);
-    await sleep(200); // a negative assertion needs a settle window
-    expect(readPids()).toHaveLength(2);
-    expect(readFixtureLog().filter((m) => m.method === "initialize")).toHaveLength(2);
-  });
-
-  it("F-115 a crash landing after the request timed out settles once and stays coherent", async () => {
-    // Review focus 5: a server exit and a request timeout can both happen for
-    // the same request. `die-late` never answers and exits ~500ms later, while
-    // the request timeout is 100ms, so the timeout is what the caller sees and
-    // the exit arrives on a connection with nothing pending.
-    const mgr = mkManager({ mode: "die-late", requestTimeoutMs: 100 });
-    const client = await mgr.forFile(file);
-    const pid = readPids()[0]!;
-
-    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
-    // The child is still running at that point: the exit really is late.
-    expect(() => process.kill(pid, 0)).not.toThrow();
-
-    // The delayed exit must be absorbed by the exit handler without a second
-    // settle or an uncaught exception (either would fail this test).
-    await sleep(1_000);
-    expect(() => process.kill(pid, 0)).toThrow(/ESRCH/);
-
-    // ...and the manager must have noticed: the next call starts a fresh
-    // server instead of writing into a dead pipe.
-    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(
-      /exited unexpectedly|did not respond/,
-    );
-    expect(readPids()).toHaveLength(2);
-  });
-
-  it("F-115 a restarted server is re-synced with didOpen, never a stale didChange", async () => {
+  it("F-115 replays the crashed request once on a fresh, re-synced server", async () => {
     const mgr = mkManager({ mode: "die-once" });
     const client = await mgr.forFile(file);
 
-    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/exited unexpectedly/);
-    // The restart works (the fixture only dies once), so the server must now
-    // hold the document: version 1 via didOpen. A reused document map would
-    // emit didChange with version 2 for a process that never saw didOpen.
+    // The first attempt kills the server; the manager replaces it and replays
+    // the request that never received an answer, so the CALLER sees success
+    // instead of losing a turn to a transient crash.
     await expect(client.definition(uri(file), 0, 0)).resolves.toHaveLength(1);
 
     const log = await waitForLog(8);
@@ -338,7 +285,57 @@ describe("LSP crash recovery", () => {
       "textDocument/didOpen",
       "textDocument/definition",
     ]);
+    // Both processes were told about the document from scratch: the replacement
+    // must not inherit didOpen versions recorded for the process that died.
     expect(log[2]!.params?.textDocument?.version).toBe(1);
     expect(log[6]!.params?.textDocument?.version).toBe(1);
+  });
+
+  it("F-115 consumes its one restart on a server that keeps crashing, then fast-fails", async () => {
+    const mgr = mkManager({ mode: "die-on-request" });
+    const client = await mgr.forFile(file);
+
+    // The call meets the crash, restarts once and replays; the replacement dies
+    // the same way, so this call fails with the death (not with a hang) and the
+    // language is marked unavailable for the session.
+    await expect(client.definition(uri(file), 0, 0)).rejects.toMatchObject({
+      code: "LSP_UNAVAILABLE",
+      message: expect.stringContaining("exited unexpectedly"),
+    });
+    const spawned = readPids();
+    expect(spawned).toHaveLength(2);
+    for (const pid of spawned) {
+      expect(() => process.kill(pid, 0)).toThrow(/ESRCH/);
+    }
+
+    // From here on the call fails fast: no third child is ever started.
+    await expect(client.definition(uri(file), 0, 0)).rejects.toThrow(/unavailable/);
+    await sleep(200); // a negative assertion needs a settle window
+    expect(readPids()).toHaveLength(2);
+    expect(readFixtureLog().filter((m) => m.method === "initialize")).toHaveLength(2);
+  });
+});
+
+describe("LSP request timeout", () => {
+  it("F-109 reaps the wedged server, never replays the timed-out request, and keeps recovering", async () => {
+    const mgr = mkManager({ mode: "silent", requestTimeoutMs: 200 });
+    const client = await mgr.forFile(file);
+
+    // `silent` never exits on its own, so a gone pid can only be the manager's
+    // doing — and it is already gone when the rejection reaches the caller.
+    await expect(client.hover(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
+    const first = readPids();
+    expect(first).toHaveLength(1);
+    expect(() => process.kill(first[0]!, 0)).toThrow(/ESRCH/);
+
+    // The timed-out request is NOT replayed (its answer may exist, only too
+    // late): exactly one new server serves this new call.
+    await expect(client.hover(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
+    expect(readPids()).toHaveLength(2);
+
+    // A timeout is not a crash, so it must not count towards `unavailable`: a
+    // third call still gets a fresh server to time out against.
+    await expect(client.hover(uri(file), 0, 0)).rejects.toThrow(/did not respond/);
+    expect(readPids()).toHaveLength(3);
   });
 });

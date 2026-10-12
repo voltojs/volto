@@ -304,6 +304,17 @@ class LspServerConnection {
     return this.pending.size > 0;
   }
 
+  /**
+   * The error that ended this connection, or `undefined` while it is alive.
+   *
+   * Identity matters to the manager: a failure that is exactly this object is a
+   * request that died with its process and never received an answer (so it may
+   * be replayed), whereas a timeout has its own error and must not be.
+   */
+  get deathError(): Error | undefined {
+    return this.dead;
+  }
+
   /** Record the `initialize` result's `diagnosticProvider` presence. */
   markPullDiagnosticsSupported(): void {
     this.pullDiagnosticsSupported = true;
@@ -381,14 +392,26 @@ class LspServerConnection {
       };
 
       const timer = setTimeout(() => {
-        onSettled(() =>
-          rejectRequest(
-            new LspManagerError(
-              "LSP_UNAVAILABLE",
-              `language server did not respond to ${method} within ${timeoutMs}ms`,
+        onSettled(() => {
+          // A server that did not answer within its budget is unhealthy, so the
+          // connection is shut down and reaped instead of being left wedged: the
+          // next caller then starts a fresh server rather than queueing behind a
+          // process that already failed once. The rejection waits for the child
+          // to be gone, so "it failed" and "the process is gone" are the same
+          // fact to the caller.
+          //
+          // The timed-out request itself is never replayed: it may well have
+          // been answered, only too late, and re-sending it could duplicate a
+          // side effect (a rename) that nobody asked for.
+          void this.reap().then(() =>
+            rejectRequest(
+              new LspManagerError(
+                "LSP_UNAVAILABLE",
+                `language server did not respond to ${method} within ${timeoutMs}ms`,
+              ),
             ),
-          ),
-        );
+          );
+        });
       }, timeoutMs);
 
       this.pending.set(id, {
@@ -827,10 +850,18 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     });
   }
 
-  /** Resolve → check language → ensure server → sync document → return both. */
+  /**
+   * Resolve → check language → ensure server → sync document → return both.
+   *
+   * `onPrepared` is handed the connection BEFORE its document is synced, so a
+   * caller that needs to know which connection it was using can still attribute
+   * a death that happens during the sync (a fresh server is started only after
+   * `ensureConnection` returned this one alive).
+   */
   async function prepare(
     file: string,
     boundLanguageId?: string,
+    onPrepared?: (connection: LspServerConnection, languageId: string) => void,
   ): Promise<{ connection: LspServerConnection; uri: string; languageId: string }> {
     if (disposed) {
       throw new LspManagerError("LSP_UNAVAILABLE", "the LSP manager has been disposed");
@@ -848,6 +879,7 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     }
     assertAvailable(languageId);
     const connection = await ensureConnection(languageId);
+    onPrepared?.(connection, languageId);
     const uri = fileToUri(filePath);
     await syncDocument(languageId, connection, filePath, uri);
     touch(languageId);
@@ -885,20 +917,55 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
           `"${uri}" is not a file:// URI inside the workspace root`,
         );
       }
-      const { connection, uri: canonicalUri, languageId } = await prepare(
-        filePath,
-        boundLanguageId,
-      );
+      // The connection this attempt was using (recorded before its document is
+      // synced, so a death during the sync is attributed too) and its language.
+      let used: LspServerConnection | undefined;
+      let usedLanguageId = "";
+
+      const attempt = async (): Promise<T> => {
+        const prepared = await prepare(filePath, boundLanguageId, (connection, languageId) => {
+          used = connection;
+          usedLanguageId = languageId;
+        });
+        try {
+          const result = await fn(prepared.connection, prepared.uri);
+          // An answer is proof the server works, so the crash streak is broken:
+          // a death hours later starts counting from one again.
+          crashStreak.delete(prepared.languageId);
+          return result;
+        } finally {
+          // Requests count as activity, so a server is not "idle" the instant a
+          // long request finishes.
+          touch(prepared.languageId);
+        }
+      };
+
       try {
-        const result = await fn(connection, canonicalUri);
-        // An answer is proof the server works, so the crash streak is broken: a
-        // death hours later starts counting from one again.
-        crashStreak.delete(languageId);
-        return result;
-      } finally {
-        // Requests count as activity, so a server is not "idle" the instant a
-        // long request finishes.
-        touch(languageId);
+        return await attempt();
+      } catch (error) {
+        // Only a connection that went away before this request was answered is
+        // worth replaying. A timeout settles with its own error (and has
+        // already reaped the server), a probe/spawn failure never had a usable
+        // connection, and a disposed manager must not start anything.
+        if (disposed || used === undefined || error !== used.deathError) throw error;
+
+        // One automatic restart per call: drop the dead connection (and the
+        // document map it recorded, so the replacement is re-synced from
+        // scratch) and replay the request that never received an answer. This
+        // is the whole point of the rule — a transient crash must not cost the
+        // caller a turn.
+        const dead = used;
+        await dropConnection(usedLanguageId, dead);
+        try {
+          return await attempt();
+        } catch (replayError) {
+          // The replacement died too: one crash gets a retry, a crash loop does
+          // not. Later calls for this language fail fast without spawning.
+          if (!disposed && used !== undefined && replayError === used.deathError) {
+            unavailable.add(usedLanguageId);
+          }
+          throw replayError;
+        }
       }
     };
 
