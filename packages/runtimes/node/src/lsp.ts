@@ -244,6 +244,16 @@ class LspServerConnection {
    * from "absent", which is why the map, not a bare array, is the cache.
    */
   private readonly publishedDiagnostics = new Map<string, LspDiagnostic[]>();
+  /**
+   * Documents this connection has been told about (didOpen/didChange state).
+   *
+   * Per connection, not per manager: a replacement process starts with no
+   * documents open, and the teardown of a dead connection must never be able
+   * to close, clear or overwrite the replacement's state. Scoping the map to
+   * its own connection is what makes a stale teardown harmless — the version
+   * sequence of a document therefore also cannot leak across processes.
+   */
+  private readonly documents = new Map<string, DocumentState>();
 
   constructor(
     proc: SandboxedProcess,
@@ -335,6 +345,21 @@ class LspServerConnection {
   publishedFor(uri: string): LspDiagnostic[] | undefined {
     const cached = this.publishedDiagnostics.get(uri);
     return cached === undefined ? undefined : [...cached];
+  }
+
+  /** The synced state of `uri` on THIS connection, or `undefined` if unsynced. */
+  documentState(uri: string): DocumentState | undefined {
+    return this.documents.get(uri);
+  }
+
+  /** Record the state this connection was just told about for `uri`. */
+  setDocumentState(uri: string, state: DocumentState): void {
+    this.documents.set(uri, state);
+  }
+
+  /** The URIs this connection has been told about, for a coherent didClose sweep. */
+  openDocumentUris(): string[] {
+    return [...this.documents.keys()];
   }
 
   /**
@@ -586,7 +611,6 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
    * than waiting out a handshake that may never answer.
    */
   const booting = new Set<LspServerConnection>();
-  const documents = new Map<string, Map<string, DocumentState>>();
   /** Per-file serialization: concurrent callers must not both send didOpen. */
   const locks = new Map<string, Promise<void>>();
   /** When each language's server last did something, on the injected clock. */
@@ -684,12 +708,10 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       );
     }
 
-    // A fresh process starts with no documents open, so the previous process's
-    // document map (and its didOpen versions) must be dropped BEFORE the new
-    // connection can be used. Reusing it would emit `didChange` with version 2,
-    // 3, ... to a server that never received `didOpen` — the document would
-    // never be open, and every request would answer about nothing.
-    documents.set(languageId, new Map());
+    // A fresh process starts with no documents open: its document state lives
+    // on the connection itself, so a replacement can never inherit the
+    // previous process's didOpen/didChange versions (which would emit version
+    // 2, 3, ... to a server that never received version 1).
 
     const probed = probe(spec.command);
     if (!probed.available) {
@@ -822,13 +844,11 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
   ): Promise<void> {
     await withFileLock(uri, async () => {
       const text = await readText(opts.fs, filePath);
-      const docs = documents.get(languageId) ?? new Map<string, DocumentState>();
-      documents.set(languageId, docs);
-      const current = docs.get(uri);
+      const current = connection.documentState(uri);
 
       if (current === undefined) {
         const state: DocumentState = { version: 1, text };
-        docs.set(uri, state);
+        connection.setDocumentState(uri, state);
         connection.notify("textDocument/didOpen", {
           textDocument: { uri, languageId, version: state.version, text },
         });
@@ -838,7 +858,7 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
 
       // A version is per document and strictly increasing, as full sync requires.
       const state: DocumentState = { version: current.version + 1, text };
-      docs.set(uri, state);
+      connection.setDocumentState(uri, state);
       // The cached push report describes the version that just went away.
       // Drop it BEFORE the notification leaves, so a `diagnostics()` call that
       // overlaps the server's re-analysis answers "none" instead of serving the
@@ -1038,11 +1058,13 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
     languageId: string,
     connection: LspServerConnection,
   ): Promise<void> {
-    for (const uri of documents.get(languageId)?.keys() ?? []) {
+    // Only THIS connection's documents are closed and cleared. The map is
+    // scoped to it, so a teardown that lands after a replacement was already
+    // synced cannot wipe the replacement's state or emit its didClose.
+    for (const uri of connection.openDocumentUris()) {
       connection.closeDocument(uri);
     }
     if (connections.get(languageId) === connection) connections.delete(languageId);
-    documents.delete(languageId);
     lastUsedAt.delete(languageId);
     await connection.reap();
   }
@@ -1093,7 +1115,7 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       disposed = true;
       if (sweepTimer !== undefined) clearInterval(sweepTimer);
 
-      const live = [...connections.entries()];
+      const live = [...connections.values()];
       // Children still in their handshake are reaped here directly: waiting for
       // the handshake to resolve would mean waiting out its timeout.
       const bootingNow = [...booting];
@@ -1101,22 +1123,20 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       // leak its child; `startConnection` reaps it itself once it notices the
       // manager is disposed, and this awaits that reap.
       const inflight = [...starting.values()];
-      // The documents must be closed while their map is still readable.
-      const openDocuments = new Map(documents);
       connections.clear();
-      documents.clear();
       locks.clear();
       lastUsedAt.clear();
       crashStreak.clear();
       unavailable.clear();
 
       const closing: Promise<void>[] = [];
-      for (const [languageId, connection] of live) {
+      for (const connection of live) {
         // Close the documents this manager opened before killing the process:
         // that is the `didClose` half of the push-cache rule (the other half is
         // `failAll` on exit), and it keeps the last thing the server hears a
-        // coherent session.
-        for (const uri of openDocuments.get(languageId)?.keys() ?? []) {
+        // coherent session. Each connection's own list is used, so no
+        // connection is ever told to close another process's documents.
+        for (const uri of connection.openDocumentUris()) {
           connection.closeDocument(uri);
         }
         closing.push(connection.reap());
