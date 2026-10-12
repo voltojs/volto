@@ -130,7 +130,9 @@ import {
   createLspRenameTool,
   createLspDiagnosticsTool,
   createLspHoverTool,
+  CAP_LSP_QUERY,
 } from "@volto/tools-code";
+import type { LspClientProvider } from "@volto/tools-code";
 import {
   createGitStatusTool,
   createGitDiffTool,
@@ -142,7 +144,7 @@ import {
 import { createAskUserTool } from "@volto/tools-ask";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
 import { createHttpQueryTool, createDbQueryTool, createDbExecTool } from "@volto/tools-data";
-import type { DatabaseAdapter } from "@volto/tools-data";
+import type { DatabaseOpener } from "@volto/tools-data";
 import { createReadDocumentTool } from "@volto/tools-document";
 import type { DocumentParserAdapter, DocumentParseOptions } from "@volto/tools-document";
 import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
@@ -372,6 +374,13 @@ export function createBackgroundRegistry(): BackgroundRegistry {
 
 /** Default timeout for a single command inside the persistent bash session. */
 const SHELL_SESSION_DEFAULT_TIMEOUT_MS = 30_000;
+
+// Database capabilities. The strings are the contract between the grants made
+// here and the `requires` declared by `createDbQueryTool` / `createDbExecTool`
+// (which deliberately keeps them module-private), so they live next to the
+// wiring that has to match them.
+const CAP_DB_READ = "db:read";
+const CAP_DB_WRITE = "db:write";
 
 /**
  * Env-var name patterns stripped from the bare (no sandboxConfig) persistent
@@ -682,14 +691,37 @@ export interface CreateAgentOptions {
    */
   egressPolicy?: EgressPolicy;
 
-  /** LSP client adapter — when provided, LSP code intelligence tools are auto-created */
-  lspClient?: import("@volto/tools-code").LspClient;
+  /**
+   * LSP manager — when provided, the five `lsp_*` code-intelligence tools are
+   * auto-created and `lsp:query` is granted.
+   *
+   * The SDK consumes the contract type only (`LspClientProvider`), never a
+   * runtime class: the host wires `createNodeLspManager(...)`, and the manager
+   * additionally owns the subprocess lifetime, so it must also expose
+   * `dispose()`. `createAgent` calls it on `agent.dispose()` — the manager is
+   * session-scoped and must not outlive the agent that lent it out.
+   */
+  lsp?: LspClientProvider & { dispose(): Promise<void> };
 
   /** Browser adapter — when provided, browser/computer-use tools are auto-created */
   browserAdapter?: BrowserAdapter;
 
-  /** Database adapter — when provided, db_query / db_exec tools are auto-created */
-  dbAdapter?: DatabaseAdapter;
+  /**
+   * Database opener — when provided, `db_query` is auto-created and
+   * `db:read` is granted.
+   *
+   * `allowWrite` is the host's decision (Task 9 derives it from the session's
+   * sandbox mode: `sandboxMode !== "read-only"`). Only an explicit `true`
+   * grants `db:write` and materializes `db_exec`; with `false` the tool is not
+   * in the visible set at all, so the model is never offered a write it would
+   * only be refused for using. The opener itself owns the workspace boundary
+   * and the read-only engine semantics — the SDK only decides visibility.
+   *
+   * `closeAll()` is called on `agent.dispose()`, after every `open()` the
+   * session issued has settled (the agent's turns are done by then), so no
+   * handle is reaped out from under an in-flight request.
+   */
+  db?: { opener: DatabaseOpener; allowWrite: boolean };
 
   /** Document parser adapter — when provided, overrides the default node parser */
   documentParser?: DocumentParserAdapter;
@@ -1052,11 +1084,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   })();
 
   let shellSession: PersistentSession | undefined;
-  let shellAgentDisposed = false;
+  let agentDisposed = false;
 
   function getSession(): BashSessionLike | undefined {
     // After dispose the agent is torn down — never resurrect a session.
-    if (shellAgentDisposed) return undefined;
+    if (agentDisposed) return undefined;
     if (!sessionSpawner) return undefined;
     if (!shellSession) {
       shellSession = createPersistentSession({
@@ -1116,15 +1148,21 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (network) {
     capabilities.add("network:fetch");
   }
-  if (opts.lspClient) {
-    capabilities.add("lsp:query");
+  if (opts.lsp) {
+    capabilities.add(CAP_LSP_QUERY);
   }
   if (opts.browserAdapter) {
     capabilities.add("browser:control");
   }
-  if (opts.dbAdapter) {
-    capabilities.add("db:query");
-    capabilities.add("db:exec");
+  if (opts.db) {
+    // Read is unconditional once an opener exists; write only when the host
+    // explicitly allows it. Splitting the grant (rather than granting both and
+    // refusing at call time) is what keeps `db_exec` out of the visible set
+    // entirely under a read-only session.
+    capabilities.add(CAP_DB_READ);
+    if (opts.db.allowWrite === true) {
+      capabilities.add(CAP_DB_WRITE);
+    }
   }
   // read_document always ships now — grant the capability unconditionally.
   capabilities.add("document:parse");
@@ -1187,13 +1225,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     adapterTools.push(createWebFetchTool(network), createWebSearchTool(network));
     adapterTools.push(createHttpQueryTool(network));
   }
-  if (opts.lspClient) {
+  if (opts.lsp) {
     adapterTools.push(
-      createLspDefinitionTool(opts.lspClient),
-      createLspReferencesTool(opts.lspClient),
-      createLspRenameTool(opts.lspClient),
-      createLspDiagnosticsTool(opts.lspClient),
-      createLspHoverTool(opts.lspClient),
+      createLspDefinitionTool(opts.lsp),
+      createLspReferencesTool(opts.lsp),
+      createLspRenameTool(opts.lsp),
+      createLspDiagnosticsTool(opts.lsp),
+      createLspHoverTool(opts.lsp),
     );
   }
   if (opts.browserAdapter) {
@@ -1205,11 +1243,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       createBrowserGetPageTextTool(opts.browserAdapter),
     );
   }
-  if (opts.dbAdapter) {
-    adapterTools.push(
-      createDbQueryTool(opts.dbAdapter),
-      createDbExecTool(opts.dbAdapter),
-    );
+  if (opts.db) {
+    adapterTools.push(createDbQueryTool(opts.db.opener));
+    // Only an explicit allowWrite materializes the write tool. Registering it
+    // and letting the `db:write` gate hide it would be equivalent for the
+    // visible set, but keeping it unregistered means a configuration mistake
+    // cannot surface a write tool through some other path.
+    if (opts.db.allowWrite === true) {
+      adapterTools.push(createDbExecTool(opts.db.opener));
+    }
   }
   // read_document always ships — the default lazy node parser degrades
   // per format (missing library → that call's isError) instead of hiding
@@ -2216,14 +2258,25 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     tools: allTools,
 
     async dispose(): Promise<void> {
-      if (shellAgentDisposed) return;
-      shellAgentDisposed = true;
+      if (agentDisposed) return;
+      agentDisposed = true;
       // Kill the session before background processes so a stuck session
       // command cannot keep the agent's stdio pipes alive past teardown.
       const session = shellSession;
       shellSession = undefined;
-      await session?.kill();
-      await effectiveShell?.disposeProcesses?.();
+      const sessionKill = session?.kill();
+      // Session-scoped adapters are reaped by the agent that lent them out:
+      // the LSP manager kills its language-server children and the database
+      // opener closes its sqlite handles. Both are independent of the shell
+      // teardown, so they run concurrently with it. `closeAll()` is only safe
+      // once no `open()` is still in flight, which holds here because dispose
+      // runs at rest (hosts must not call it mid-turn).
+      await Promise.all([
+        sessionKill,
+        effectiveShell?.disposeProcesses?.(),
+        opts.lsp?.dispose(),
+        opts.db?.opener.closeAll(),
+      ]);
     },
   };
 

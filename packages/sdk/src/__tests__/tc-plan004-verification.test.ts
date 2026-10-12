@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createMockModelPort, textScript, toolCallScript, filterVisibleTools, filterByScope } from "@volto/core";
-import type { ToolDefinition, ToolResult, ToolSource } from "@volto/core";
+import type { ModelPort, ModelRequest, ToolDefinition, ToolResult, ToolSource } from "@volto/core";
 import type { LspClient } from "@volto/tools-code";
 import { createAgent } from "@volto/sdk";
 import { createAskUserTool } from "@volto/tools-ask";
@@ -270,14 +270,18 @@ describe("TC-008: LSP 工具返回结构化结果", () => {
       async diagnostics() { return { diagnostics: [], source: "push" as const }; },
       async hover() { return null; },
     };
+    // The tool layer consumes an LspClientProvider (workspace boundary and
+    // document sync belong to the manager), so the double answers for the
+    // requested file with the same client.
+    const provider = { async forFile() { return mockClient; } };
 
     // Step 1-2: 创建工具并调用
-    const tool = createLspDefinitionTool(mockClient);
+    const tool = createLspDefinitionTool(provider);
     const result = await tool.handler({ file: "/src/foo.ts", line: 5, character: 3 });
 
     // Step 3: 包含位置信息
-    expect(result.modelContent).toContain("1 definition");
-    expect(result.modelContent).toContain("/src/foo.ts:10:5");
+    expect(result.modelContent).toContain("1 definition(s)");
+    expect(result.modelContent).toContain("/src/foo.ts:11:6");
 
     // Step 4: displayMetadata 有结构化数据
     expect(result.displayMetadata).toBeDefined();
@@ -290,15 +294,28 @@ describe("TC-008: LSP 工具返回结构化结果", () => {
 // ═══════════════════════════════════════════════
 
 describe("TC-009: LSP 工具缺 adapter 时能力门控摘除", () => {
-  it("不传 lspClient 时 capabilities 无 lsp:query，LSP 工具不可见", async () => {
-    const mockModel = createMockModelPort([textScript("done")]);
+  it("不传 lsp 时 capabilities 无 lsp:query，LSP 工具不可见", async () => {
+    // The real ModelRequest tool list is the evidence, not the capability
+    // shape: with no `lsp` option the grant is absent, so the five `lsp_*`
+    // tools must not reach the model at all.
+    const captured: ModelRequest[] = [];
+    const mockModel: ModelPort = {
+      async *stream(req) {
+        captured.push(req);
+        yield* textScript("done");
+      },
+    };
 
-    // Step 1: createAgent without lspClient
+    // Step 1: createAgent without lsp
     const agent = createAgent({ modelPort: mockModel });
 
-    // Step 2-3: 通过 ports 检查（简化验证：无 lspClient 时无 lsp:query 能力）
+    // Step 2-3: the tools the model actually saw
     const state = await agent.run("hi");
     expect(state.status).toBe("done");
+    const names = captured[0]!.tools.map((t) => t.name);
+    for (const lspTool of LSP_TOOL_NAMES) {
+      expect(names).not.toContain(lspTool);
+    }
 
     // 验证 LSP 工具名集合存在（定义层面）
     expect(LSP_TOOL_NAMES.size).toBe(5);
