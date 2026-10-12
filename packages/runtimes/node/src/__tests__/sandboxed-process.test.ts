@@ -54,19 +54,18 @@ async function stdout(p: SandboxedProcess): Promise<string> {
   return (await collect(p)).stdout;
 }
 
-/** Profile files the seatbelt spawner writes for confined children. */
+/** Profile files the seatbelt process spawner writes for confined children. */
 function sandboxProfiles(): Set<string> {
-  try { return new Set(readdirSync(tmpdir()).filter((f) => f.startsWith("volto-sandbox-"))); }
+  try { return new Set(readdirSync(tmpdir()).filter((f) => f.startsWith("volto-proc-sandbox-"))); }
   catch { return new Set(); }
 }
 
 /**
- * Wait until no NEW `volto-sandbox-*.sb` profile file is left in tmpdir.
+ * Wait until no NEW `volto-proc-sandbox-*.sb` profile file is left in tmpdir.
  *
  * The spawner unlinks its profile from the child's `exit` handler, which runs
  * asynchronously — a test that stopped at "the output arrived" would leave a
- * file behind and leak it into whatever test file this worker runs next (the
- * session suite counts profiles in the same tmpdir and fails on strays).
+ * file behind for the rest of this worker's run.
  */
 async function untilNoNewProfiles(before: Set<string>): Promise<void> {
   await until(() => {

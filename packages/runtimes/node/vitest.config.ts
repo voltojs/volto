@@ -13,12 +13,5 @@ export default defineConfig({
     // condition-based; this only stops the harness from cutting them short.
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    // Serialize test FILES as well. Several suites here assert on the shared
-    // os.tmpdir() — sandbox-session.test.ts counts `volto-sandbox-*.sb` files
-    // to prove a killed session unlinks its seatbelt profile, and any other
-    // file that starts a confined process writes one into the same directory.
-    // Run in parallel, those assertions observe each other's profiles and fail
-    // on timing rather than on behaviour.
-    fileParallelism: false,
   },
 });

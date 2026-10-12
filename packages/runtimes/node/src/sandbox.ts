@@ -1218,8 +1218,14 @@ export function createSandboxedProcessSpawner(
       // A fresh profile file per spawn, written at spawn time and unlinked
       // when the child exits — a spawner that is never used leaves nothing
       // behind, and a profile cannot be reused for the wrong cwd/roots.
+      //
+      // The `volto-proc-sandbox-` prefix is deliberately distinct from the
+      // session spawner's `volto-sandbox-`: sandbox-session.test.ts proves a
+      // killed session unlinks its profile by counting `volto-sandbox-*` in
+      // the shared os.tmpdir(), so a second writer under that prefix makes
+      // that assertion observe this spawner's files instead.
       const profileId = `${process.pid}-${++profileCounter}`;
-      const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
+      const profilePath = join(tmpdir(), `volto-proc-sandbox-${profileId}.sb`);
       // A write failure (unwritable tmpdir, an undeletable file at that
       // path) is this child's failure, not the host's: it is reported
       // through onError below, never thrown at the caller.
