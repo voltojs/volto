@@ -10,7 +10,7 @@ import {
   toolCallScript,
 } from "@volto/core";
 import type { ContentBlock, ModelEvent, ModelPort, ModelRequest } from "@volto/core";
-import { createSandboxedProcessSpawner, probeBinary } from "@volto/runtime-node";
+import { probeBinary } from "@volto/runtime-node";
 import {
   buildSandboxConfigs,
   createWiredAgent,
@@ -44,22 +44,6 @@ const LSP_FIXTURE = fileURLToPath(
 
 /** Repo root, for the real-language-server smoke test. */
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
-
-/**
- * Whether this platform can actually build a confining session. The gateway
- * refuses such a build when no sandbox backend exists (spec §6), so the
- * confining-mode cases are explicitly skipped where that refusal is correct
- * rather than rewritten into a weaker assertion.
- */
-const confinementAvailable = (() => {
-  try {
-    const lspConfig = buildSandboxConfigs("read-only", process.cwd()).lspConfig;
-    return lspConfig !== null && createSandboxedProcessSpawner(lspConfig) !== undefined;
-  } catch {
-    return false;
-  }
-})();
-const itConfined = confinementAvailable ? it : it.skip;
 
 let tempConfigDir: string;
 let tempProjectDir: string;
@@ -166,7 +150,10 @@ describe("F-123 real session tool visibility through the gateway wiring", () => 
     expect(tools).toContain("db_exec");
   });
 
-  itConfined("plan and read-only sessions never see db_exec", async () => {
+  it("plan and read-only sessions never see db_exec", async () => {
+    // Pure SDK capability gating: no sandbox backend is involved, so this must
+    // never be gated on one (a host without a confining backend would silently
+    // skip the acceptance core's capability half).
     await writeLspConfig({ servers: {} });
 
     const planned = await sessionToolNames("plan");
