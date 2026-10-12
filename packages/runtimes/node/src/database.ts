@@ -13,8 +13,19 @@
  *   - `journal_mode` is never set. It is sticky in the database header, and
  *     turning WAL on from a read-only handle would leave `-wal` / `-shm`
  *     files behind — a read-only query must not write anything.
- *   - `ATTACH` / `DETACH` are refused outright: `query_only` does not stop
- *     `ATTACH` from opening another file and escaping containment.
+ *   - `ATTACH` / `DETACH`, `VACUUM INTO` and `load_extension` are refused
+ *     outright, keyword-level and fail-closed: `query_only` stops none of them.
+ *     Probed on a read-only handle, `ATTACH` still runs and `VACUUM INTO`
+ *     creates a 0-byte file at the outside path before failing; on a
+ *     read-write handle that same statement writes a full 8192-byte database
+ *     there. A plain `VACUUM` stays allowed — it only rewrites the open
+ *     database.
+ *
+ * ASSUMPTION this boundary rests on: the set refused above is the entirety of
+ * SQLite's statement surface that can touch a file other than the opened
+ * database. A future SQLite release adding another such shape is therefore a
+ * documented risk to revisit here, not something the classifier silently
+ * permits.
  *
  * better-sqlite3 must be installed by the host application:
  *   pnpm add better-sqlite3  (or npm install better-sqlite3)
@@ -43,11 +54,29 @@ export interface SqliteDatabaseOpenerOptions {
 }
 
 /**
- * SQL statements that open or close another database file. `PRAGMA
- * query_only` does not cover `ATTACH`, so containment has to refuse it.
+ * The file-touching SQL surface this boundary refuses, keyword-level and
+ * fail-closed, after literals/comments are stripped:
+ *
+ *   - `ATTACH` / `DETACH` — open or close another database file.
+ *   - `VACUUM INTO` — writes a whole copy of the database to a named path.
+ *     A plain `VACUUM` is allowed: it only rewrites the already-open file.
+ *   - `load_extension` — SQL-level extension loading can pull in native code.
+ *     better-sqlite3 does not enable extension loading by default (probed:
+ *     `SELECT load_extension(...)` fails with "not authorized"), but it is
+ *     refused anyway so the refusal does not depend on that default.
+ *
+ * ASSUMPTION, stated so it is a documented risk rather than a silently open
+ * door: this set — `ATTACH`, `DETACH`, `VACUUM INTO`, `load_extension` — is
+ * the entirety of SQLite's statement surface that can touch a file other than
+ * the opened database. `query_only` covers none of them (probed: ATTACH and
+ * `VACUUM INTO` both still run on a read-only handle), so this classifier is
+ * the whole defense and a future SQLite addition to that surface would need a
+ * matching entry here.
  */
 const ATTACH_RE = /\bATTACH\b/i;
 const DETACH_RE = /\bDETACH\b/i;
+const VACUUM_INTO_RE = /\bVACUUM\s+\w+\s+INTO\b|\bVACUUM\s+INTO\b/i;
+const LOAD_EXTENSION_RE = /\bload_extension\b/i;
 
 const MISSING_DRIVER_MESSAGE =
   "better-sqlite3 is required for SQLite adapter. Install with: pnpm add better-sqlite3";
@@ -69,19 +98,27 @@ export function createSqliteDatabaseOpener(opts: SqliteDatabaseOpenerOptions): D
   const handles = new Set<SqliteDatabase>();
   /** Serializes concurrent opens of the same key so only one handle exists. */
   const opening = new Map<string, Promise<DatabaseAdapter>>();
+
   async function resolveWithinWorkspace(requested: string): Promise<string> {
     const root = await realResolveRoot(workspaceRoot);
 
-    // The injected filesystem owns the first containment check; when it
-    // refuses a path its message names the boundary without the phrase the
-    // callers/tests match on, so restate it here.
+    // The injected filesystem owns the first containment check. It can also
+    // fail for reasons that are NOT containment (a denied credential
+    // directory, a permission error), and those must reach the caller as
+    // themselves — a sandbox denial relabelled as a workspace rule is a lie.
+    // So on failure, re-check containment independently: only when the
+    // requested path really does resolve outside the root do we restate it
+    // with the message callers match on; otherwise the original error stands.
     let absolute: string;
     try {
       absolute = fs.resolvePath ? await fs.resolvePath(requested) : requested;
     } catch (err) {
-      throw new DatabasePathError(
-        `Cannot open database "${requested}": outside the workspace (${err instanceof Error ? err.message : String(err)})`,
-      );
+      if (await isOutsideWorkspace(requested, root)) {
+        throw new DatabasePathError(
+          `Cannot open database "${requested}": outside the workspace (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      throw err;
     }
 
     // `realResolve`, not `fs.realpath`: the root was canonicalized by
@@ -96,6 +133,22 @@ export function createSqliteDatabaseOpener(opts: SqliteDatabaseOpenerOptions): D
       );
     }
     return target;
+  }
+
+  /** Whether `requested` really resolves outside `root`, checked without the injected fs. */
+  async function isOutsideWorkspace(requested: string, root: string): Promise<boolean> {
+    try {
+      // Relative model paths name something under the workspace root; without
+      // this they would be resolved against `process.cwd()` and every
+      // relative path would look like an escape.
+      const candidate = path.isAbsolute(requested) ? requested : path.resolve(root, requested);
+      return !isWithin(root, await realResolve(candidate));
+    } catch {
+      // The path cannot be resolved at all (a symlink cycle, a candidate the
+      // OS refuses to inspect): that is not proof of escape, so leave the
+      // original error untouched.
+      return false;
+    }
   }
 
   async function openHandle(file: string, readonly: boolean): Promise<DatabaseAdapter> {
@@ -116,13 +169,13 @@ export function createSqliteDatabaseOpener(opts: SqliteDatabaseOpenerOptions): D
 
     const adapter: DatabaseAdapter = {
       async query(sql, params): Promise<SqlRow[]> {
-        assertNoAttachOrDetach(sql);
+        assertStatementAllowed(sql);
         const stmt = db.prepare(sql);
         const rows = (params ? stmt.all(...params) : stmt.all()) as Record<string, unknown>[];
         return rows;
       },
       async exec(sql, params): Promise<{ changes: number }> {
-        assertNoAttachOrDetach(sql);
+        assertStatementAllowed(sql);
         const stmt = db.prepare(sql);
         const result = params ? stmt.run(...params) : stmt.run();
         return { changes: result.changes };
@@ -134,7 +187,7 @@ export function createSqliteDatabaseOpener(opts: SqliteDatabaseOpenerOptions): D
     return adapter;
   }
 
-  function assertNoAttachOrDetach(sql: string): void {
+  function assertStatementAllowed(sql: string): void {
     // Match on the code, not on string literals / comments: `SELECT 'please
     // attach the log'` is a legitimate query, and `-- DETACH` is not one.
     const code = stripLiteralsAndComments(sql);
@@ -145,6 +198,16 @@ export function createSqliteDatabaseOpener(opts: SqliteDatabaseOpenerOptions): D
     }
     if (DETACH_RE.test(code)) {
       throw new Error("DETACH is not permitted.");
+    }
+    if (VACUUM_INTO_RE.test(code)) {
+      throw new Error(
+        "VACUUM INTO is not permitted: it would write a database file outside the workspace boundary.",
+      );
+    }
+    if (LOAD_EXTENSION_RE.test(code)) {
+      throw new Error(
+        "load_extension is not permitted: loading a SQL extension can pull native code into the process.",
+      );
     }
   }
 
