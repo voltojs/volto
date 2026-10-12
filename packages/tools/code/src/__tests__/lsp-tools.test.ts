@@ -245,7 +245,7 @@ describe("lsp_rename", () => {
     expect(tool.definition.riskTier).toBe("READ_ONLY");
   });
 
-  it("F-120 sends the 0-based position, the new name and the canonical URI", async () => {
+  it("F-120 sends the 0-based position, the new name and the path unchanged", async () => {
     const client = fakeClient();
     await createLspRenameTool(providerStub(client)).handler({ file: FILE, line: 4, character: 2, newName: "renamed" });
     expect(client.calls[0]).toMatchObject({
@@ -315,6 +315,53 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
     expect(res.modelContent).toContain("/tmp/中文/a b.ts");
   });
 
+  it("renders a foreign-scheme location verbatim instead of failing the whole call", async () => {
+    const client = fakeClient({
+      definition: [
+        { uri: "file:///repo/src/a.ts", range: { start: { line: 9, character: 4 }, end: { line: 9, character: 9 } } },
+        // A language server is free to answer with a non-`file:` scheme; one
+        // undecodable location must not discard the decodable ones.
+        { uri: "jdt://contents/java.base/java.lang/String.class", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+      ],
+    });
+    const res = await createLspDefinitionTool(providerStub(client)).handler({ file: FILE, line: 1, character: 1 });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.modelContent).toContain("Found 2 definition(s)");
+    expect(res.modelContent).toContain("/repo/src/a.ts:10:5");
+    expect(res.modelContent).toContain("jdt://contents/java.base/java.lang/String.class:1:1");
+  });
+
+  it("keeps a reference whose URI is a file: spelling without a leading slash", async () => {
+    const client = fakeClient({
+      references: [
+        { uri: "file://repo/src/a.ts", range: zeroRange },
+        { uri: "jdt://ref/foreign.class", range: zeroRange },
+      ],
+    });
+    const res = await createLspReferencesTool(providerStub(client)).handler({ file: FILE, line: 1, character: 1 });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.modelContent).toContain("Found 2 reference(s)");
+    expect(res.modelContent).toContain("/repo/src/a.ts:1:1");
+    expect(res.modelContent).toContain("jdt://ref/foreign.class");
+  });
+
+  it("renders a rename target with a foreign scheme verbatim and still counts it", async () => {
+    const client = fakeClient({
+      rename: {
+        "file:///repo/src/a.ts": [{ range: zeroRange }],
+        "jdt://rename/foreign.class": [{ range: zeroRange }],
+      },
+    });
+    const res = await createLspRenameTool(providerStub(client)).handler({ file: FILE, line: 1, character: 1, newName: "x" });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.modelContent).toContain("across 2 file(s)");
+    expect(res.modelContent).toContain("/repo/src/a.ts: 1 edit(s)");
+    expect(res.modelContent).toContain("jdt://rename/foreign.class: 1 edit(s)");
+  });
+
   it("decodes encoded references and rename targets too", async () => {
     const references = createLspReferencesTool(
       providerStub(fakeClient({ references: [{ uri: "file:///tmp/%E4%B8%AD%E6%96%87/r.ts", range: zeroRange }] })),
@@ -361,7 +408,8 @@ describe("F-112/LSP error mapping", () => {
     expect(res.isError).toBe(true);
     expect(res.modelContent).toContain("LSP_SERVER_MISSING");
     expect(res.modelContent).toContain("npm install -g typescript-language-server typescript");
-    expect(res.modelContent).toContain("lsp.json");
+    // Spec §4.6: the loader reads this path, not a workspace `lsp.json`.
+    expect(res.modelContent).toContain("~/.volto/lsp.json");
   });
 
   it("quotes LSP_LANGUAGE_UNCONFIGURED with a copy-pasteable config snippet", async () => {
@@ -373,7 +421,7 @@ describe("F-112/LSP error mapping", () => {
     expect(res.modelContent).toContain("LSP_LANGUAGE_UNCONFIGURED");
     expect(res.modelContent).toContain('"python":');
     expect(res.modelContent).toContain('"args"');
-    expect(res.modelContent).toContain("lsp.json");
+    expect(res.modelContent).toContain("~/.volto/lsp.json");
   });
 
   it("quotes LSP_PATH_OUTSIDE_WORKSPACE with the workspace boundary rule", async () => {
@@ -433,13 +481,15 @@ describe("lsp_diagnostics", () => {
     expect(result.displayMetadata).toMatchObject({ source: "push", file: FILE });
   });
 
-  it("F-112 tells 'reported empty' apart from 'nothing reported yet'", async () => {
+  it("F-112 renders 'reported and empty' with the spec's parseable counts, not prose", async () => {
     const client = fakeClient({}, { source: "push", diagnostics: [] });
     const tool = createLspDiagnosticsTool(providerStub(client));
 
     const reported = await tool.handler({ file: FILE });
     expect(reported.isError).toBeFalsy();
-    expect(text(reported.modelContent).toLowerCase()).toContain("no problems");
+    // Spec §5.2 fixes this literal form for the reported-and-empty state.
+    expect(text(reported.modelContent)).toContain("0 error(s), 0 warning(s)");
+    expect(text(reported.modelContent)).toContain("0 total");
     expect(text(reported.modelContent).toLowerCase()).not.toContain("indexing");
 
     // Mutate the object the stub already holds; reassigning the property would
@@ -452,12 +502,14 @@ describe("lsp_diagnostics", () => {
     expect(unreported.modelContent).not.toBe(reported.modelContent);
   });
 
-  it("F-112 says the same for a pulled empty report as for a pushed one, without the indexing caveat", async () => {
+  it("F-112 renders a pulled empty report with the same counts and no indexing caveat", async () => {
     const client = fakeClient({}, { source: "pull", diagnostics: [] });
     const result = await createLspDiagnosticsTool(providerStub(client)).handler({ file: FILE });
 
     expect(result.isError).toBeFalsy();
-    expect(text(result.modelContent).toLowerCase()).toContain("no problems");
+    expect(text(result.modelContent)).toContain("0 error(s), 0 warning(s)");
+    expect(text(result.modelContent)).toContain("0 total");
+    expect(text(result.modelContent)).toContain("pull");
     expect(text(result.modelContent).toLowerCase()).not.toContain("indexing");
     expect(result.displayMetadata).toMatchObject({ source: "pull" });
   });

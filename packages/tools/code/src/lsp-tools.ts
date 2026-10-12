@@ -29,10 +29,10 @@ export const LSP_ERROR_TEXT: Record<LspToolErrorCode, string> = {
   LSP_SERVER_MISSING:
     "The language server is not installed, so no request could be answered. " +
     "Install it (for TypeScript: npm install -g typescript-language-server typescript), " +
-    'make sure the directory containing it is on PATH, and declare it in lsp.json as {"servers": {"typescript": {"command": "typescript-language-server", "args": ["--stdio"]}}}.',
+    'make sure the directory containing it is on PATH, and declare it in ~/.volto/lsp.json as {"servers": {"typescript": {"command": "typescript-language-server", "args": ["--stdio"]}}}.',
   LSP_LANGUAGE_UNCONFIGURED:
     "No language server is configured for this file's language, so no request was sent. " +
-    'Add an entry for it to lsp.json, for example {"servers": {"python": {"command": "pyright-langserver", "args": ["--stdio"]}}}, where the key is the language id and "command" is the server executable.',
+    'Add an entry for it to ~/.volto/lsp.json, for example {"servers": {"python": {"command": "pyright-langserver", "args": ["--stdio"]}}}, where the key is the language id and "command" is the server executable.',
   LSP_PATH_OUTSIDE_WORKSPACE:
     "The file has to be inside the workspace root: the language server only opens documents it can reach from there.",
   LSP_UNAVAILABLE:
@@ -107,6 +107,37 @@ const fileSchema = z
   .describe("File to query: an absolute path, or a path relative to the workspace root.");
 
 // ──────────────────────────────────────────────
+// Result rendering
+// ──────────────────────────────────────────────
+
+/**
+ * A location's file for display.
+ *
+ * A location URI is not always a `file:` one (`jdt://`, `rust-analyzer://`
+ * and virtual documents all exist), and `uriToFile` rejects those. One
+ * undecodable location must not cost the caller the whole answer, so the raw
+ * URI is rendered instead of throwing. A `file:` URI that merely lacks a
+ * leading slash is normalized before decoding, because `fileToUri` always
+ * emits `file:///…` and JSON-RPC servers are free to trim that third slash.
+ */
+function locationFile(uri: string): string {
+  const withThirdSlash = /^file:\/\//i.test(uri) ? `file:///${uri.slice("file://".length).replace(/^\/+/, "")}` : uri;
+  try {
+    return uriToFile(withThirdSlash);
+  } catch {
+    // Not a disk path at all — `jdt://`, `rust-analyzer://` and friends have no
+    // filesystem spelling, so rendering the URI verbatim beats failing the
+    // whole call over one location.
+    return uri;
+  }
+}
+
+/** Render one `file:line:character` entry, 1-based to match `read_file`. */
+function renderLocation(uri: string, range: { start: { line: number; character: number } }): string {
+  return `  ${locationFile(uri)}:${range.start.line + 1}:${range.start.character + 1}`;
+}
+
+// ──────────────────────────────────────────────
 // lsp_definition — jump to definition
 // ──────────────────────────────────────────────
 
@@ -130,11 +161,11 @@ export function createLspDefinitionTool(provider: LspClientProvider): Tool {
           return { modelContent: `No definition found at ${file}:${line}:${character}.` };
         }
         const results = locations.map((loc) => ({
-          file: uriToFile(loc.uri),
+          uri: loc.uri,
           range: loc.range,
         }));
         return {
-          modelContent: `Found ${results.length} definition(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line + 1}:${r.range.start.character + 1}`).join("\n")}`,
+          modelContent: `Found ${results.length} definition(s):\n${results.map((r) => renderLocation(r.uri, r.range)).join("\n")}`,
           displayMetadata: { locations: results },
         };
       }),
@@ -165,11 +196,11 @@ export function createLspReferencesTool(provider: LspClientProvider): Tool {
           return { modelContent: `No references found for symbol at ${file}:${line}:${character}.` };
         }
         const results = refs.map((ref) => ({
-          file: uriToFile(ref.uri),
+          uri: ref.uri,
           range: ref.range,
         }));
         return {
-          modelContent: `Found ${results.length} reference(s):\n${results.map((r) => `  ${r.file}:${r.range.start.line + 1}:${r.range.start.character + 1}`).join("\n")}`,
+          modelContent: `Found ${results.length} reference(s):\n${results.map((r) => renderLocation(r.uri, r.range)).join("\n")}`,
           displayMetadata: { references: results },
         };
       }),
@@ -205,7 +236,7 @@ export function createLspRenameTool(provider: LspClientProvider): Tool {
           return { modelContent: `No renames needed at ${file}:${line}:${character}. Symbol may not exist or name is the same.` };
         }
         const summary = Object.entries(changes)
-          .map(([target, edits]) => `  ${uriToFile(target)}: ${edits.length} edit(s)`)
+          .map(([target, edits]) => `  ${locationFile(target)}: ${edits.length} edit(s)`)
           .join("\n");
         return {
           modelContent: `Rename "${newName}": ${totalEdits} edit(s) across ${fileCount} file(s):\n${summary}`,
@@ -233,32 +264,30 @@ const MAX_RENDERED_DIAGNOSTICS = 20;
  * A bare empty array cannot distinguish "the server answered and the file is
  * clean" from "the server has not reported on this file yet" — rendering both
  * as "no diagnostics" presents a still-indexing server as a clean bill of
- * health. `source` is the only field that carries that difference.
+ * health. `source` is the only field that carries that difference, and the
+ * clean state keeps the spec's parseable `0 error(s), 0 warning(s)` form.
  */
 function renderDiagnostics(file: string, report: { diagnostics: LspDiagnostic[]; source: "pull" | "push" | "none" }): string {
   const { diagnostics, source } = report;
 
-  if (diagnostics.length === 0) {
-    if (source === "none") {
-      return `${file}: the language server has not reported diagnostics for this file yet, so this is not a clean bill of health — it may still be indexing. Ask again in a moment.`;
-    }
-    // "pull": asked and answered with an empty list. "push": the server
-    // reported (or last reported) this file and had nothing to say.
-    return `${file}: no problems reported by the language server (${source} diagnostics).`;
+  if (diagnostics.length === 0 && source === "none") {
+    return `${file}: the language server has not reported diagnostics for this file yet, so this is not a clean bill of health — it may still be indexing. Ask again in a moment.`;
   }
 
   const count = (severity: LspDiagnostic["severity"]): number =>
     diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
   const shown = diagnostics.slice(0, MAX_RENDERED_DIAGNOSTICS);
+  const truncated =
+    diagnostics.length > shown.length ? `\n  ... and ${diagnostics.length - shown.length} more` : "";
   const body = shown
     .map((diagnostic) => `  [${diagnostic.severity}] ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}: ${diagnostic.message}`)
     .join("\n");
-  const truncated =
-    diagnostics.length > shown.length ? `\n  ... and ${diagnostics.length - shown.length} more` : "";
 
+  // Also the "reported and empty" state (`pull` answered empty, or the `push`
+  // cache holds an empty report) — the counts say so without prose.
   return (
     `${file}: ${count("error")} error(s), ${count("warning")} warning(s), ${diagnostics.length} total ` +
-    `(${source}):\n${body}${truncated}`
+    `(${source}):${body === "" ? "" : `\n${body}`}${truncated}`
   );
 }
 
