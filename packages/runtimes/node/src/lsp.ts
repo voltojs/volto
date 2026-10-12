@@ -265,9 +265,29 @@ class LspServerConnection {
     return this.pullDiagnosticsSupported;
   }
 
-  /** The cached report for `uri`, or `undefined` when nothing was published. */
+  /**
+   * The cached report for `uri`, or `undefined` when nothing was published.
+   *
+   * A copy, not the stored array: `diagnostics()` hands this to a caller that
+   * may sort or splice it, and that must not be able to corrupt what later
+   * calls read back out of the cache.
+   */
   publishedFor(uri: string): LspDiagnostic[] | undefined {
-    return this.publishedDiagnostics.get(uri);
+    const cached = this.publishedDiagnostics.get(uri);
+    return cached === undefined ? undefined : [...cached];
+  }
+
+  /**
+   * Drop the cached report for `uri`, without telling the server anything.
+   *
+   * Used when the document changes under the cache: the stored array describes
+   * the previous version, and serving it as a current pushed report is exactly
+   * the stale-answer false green this contract exists to remove. Until the
+   * server publishes again, the honest answer is `"none"` — which an absent
+   * entry expresses, where an empty array would wrongly claim "reported clean".
+   */
+  forgetPublished(uri: string): void {
+    this.publishedDiagnostics.delete(uri);
   }
 
   /**
@@ -278,7 +298,7 @@ class LspServerConnection {
    * server no longer holds.
    */
   closeDocument(uri: string): void {
-    this.publishedDiagnostics.delete(uri);
+    this.forgetPublished(uri);
     try {
       this.notify("textDocument/didClose", { textDocument: { uri } });
     } catch {
@@ -626,6 +646,11 @@ export function createNodeLspManager(opts: LspManagerOptions): LspManager {
       // A version is per document and strictly increasing, as full sync requires.
       const state: DocumentState = { version: current.version + 1, text };
       docs.set(uri, state);
+      // The cached push report describes the version that just went away.
+      // Drop it BEFORE the notification leaves, so a `diagnostics()` call that
+      // overlaps the server's re-analysis answers "none" instead of serving the
+      // previous version's errors (or its previous "clean") as current.
+      connection.forgetPublished(uri);
       connection.notify("textDocument/didChange", {
         textDocument: { uri, version: state.version },
         contentChanges: [{ text }],

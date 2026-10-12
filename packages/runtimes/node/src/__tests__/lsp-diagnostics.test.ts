@@ -121,12 +121,12 @@ afterEach(async () => {
 });
 
 describe("LSP diagnostics four states", () => {
-  it("F-110 pull 优先", async () => {
+  it("F-110 prefers pull when the server advertises diagnosticProvider", async () => {
     const client = await mkManager({ mode: "diagnostics-pull" }).forFile(file);
     expect(await client.diagnostics(uri(file))).toMatchObject({ source: "pull" });
   });
 
-  it("F-110 pull 结果按诊断契约归一（数字 severity → 字符串）", async () => {
+  it("F-110 normalizes a pulled report to the diagnostic contract (numeric severity, real content)", async () => {
     writeFileSync(file, "// VOLTO_FIXTURE_DIAGNOSTIC\n", "utf-8");
     const client = await mkManager({ mode: "diagnostics-pull" }).forFile(file);
 
@@ -140,14 +140,14 @@ describe("LSP diagnostics four states", () => {
     });
   });
 
-  it("F-111 pull 不可用时回落到 push 缓存", async () => {
+  it("F-111 falls back to the push cache when pull is unavailable", async () => {
     const client = await mkManager({ mode: "diagnostics-push" }).forFile(file);
     await client.diagnostics(uri(file)); // triggers didOpen; the fixture publishes
     await untilSource(client, uri(file), "push");
     expect(await client.diagnostics(uri(file))).toMatchObject({ source: "push" });
   });
 
-  it("F-111 push 模式上报的真实诊断进入缓存", async () => {
+  it("F-111 caches the diagnostics a push server actually reported", async () => {
     writeFileSync(file, "// VOLTO_FIXTURE_DIAGNOSTIC\n", "utf-8");
     const client = await mkManager({ mode: "diagnostics-push" }).forFile(file);
     await client.diagnostics(uri(file));
@@ -161,13 +161,51 @@ describe("LSP diagnostics four states", () => {
     });
   });
 
-  it("F-112 尚未上报与零诊断必须是不同的报告", async () => {
-    const client = await mkManager({ mode: "diagnostics-none" }).forFile(file);
-    expect(await client.diagnostics(uri(file))).toMatchObject({ source: "none", diagnostics: [] });
-    // 与"服务器上报了空的诊断数组"区分：source 不同
+  it("F-111 a document change never serves the previous version's pushed report", async () => {
+    // Version one is broken, so the push cache holds that version's error.
+    writeFileSync(file, "// VOLTO_FIXTURE_DIAGNOSTIC:one\n", "utf-8");
+    const client = await mkManager({ mode: "diagnostics-push" }).forFile(file);
+    await client.diagnostics(uri(file));
+    const before = await untilSource(client, uri(file), "push");
+    expect(before.diagnostics).toHaveLength(1);
+    expect(before.diagnostics[0]).toMatchObject({ message: "fixture diagnostic one" });
+
+    // Version two is broken differently. The fixture re-publishes only 200ms
+    // after the didChange, so the report returned while that re-analysis is in
+    // flight must not be version one's error.
+    writeFileSync(file, "// VOLTO_FIXTURE_DIAGNOSTIC:two\n", "utf-8");
+    const during = await client.diagnostics(uri(file));
+    expect(during.diagnostics).toHaveLength(0); // never the stale error
+    expect(["none", "push"]).toContain(during.source);
+
+    // ...and the re-publish does land, carrying the NEW version's diagnostic.
+    const after = await untilSource(client, uri(file), "push");
+    expect(after.diagnostics).toHaveLength(1);
+    expect(after.diagnostics[0]).toMatchObject({ message: "fixture diagnostic two" });
   });
 
-  it("F-112 服务器上报了空数组（push）不与尚未上报（none）混同", async () => {
+  it("F-111 the returned report cannot corrupt the cache it came from", async () => {
+    writeFileSync(file, "// VOLTO_FIXTURE_DIAGNOSTIC\n", "utf-8");
+    const client = await mkManager({ mode: "diagnostics-push" }).forFile(file);
+    await client.diagnostics(uri(file));
+    const first = await untilSource(client, uri(file), "push");
+    expect(first.diagnostics).toHaveLength(1);
+
+    // A caller is free to reorder or truncate the array it was handed...
+    first.diagnostics.splice(0, first.diagnostics.length);
+
+    // ...and the next call must still read the server's report back out.
+    const second = await untilSource(client, uri(file), "push");
+    expect(second.diagnostics).toHaveLength(1);
+  });
+
+  it("F-112 not-yet-reported and zero-diagnostics are different reports", async () => {
+    const client = await mkManager({ mode: "diagnostics-none" }).forFile(file);
+    expect(await client.diagnostics(uri(file))).toMatchObject({ source: "none", diagnostics: [] });
+    // Distinguished from "the server reported an empty array" by source alone.
+  });
+
+  it("F-112 an empty pushed array is not confused with nothing reported", async () => {
     const pushed = await mkManager({ mode: "diagnostics-push" }).forFile(file);
     await pushed.diagnostics(uri(file));
 

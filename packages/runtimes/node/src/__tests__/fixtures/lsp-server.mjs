@@ -37,8 +37,10 @@
  *                  `source: "push"` and fail.
  * - `diagnostics-push` — advertise no `diagnosticProvider`; publish
  *                  `textDocument/publishDiagnostics` for a document right after
- *                  its `didOpen`. A clean document is therefore "reported and
- *                  empty", which is a different fact from "not reported yet".
+ *                  its `didOpen`, and again `REPUBLISH_DELAY_MS` after a
+ *                  `didChange` (a real push server re-analyses on change). A
+ *                  clean document is therefore "reported and empty", which is
+ *                  a different fact from "not reported yet".
  * - `diagnostics-none` — advertise nothing and never publish: the "no source
  *                  has spoken yet" state.
  *                  Later tasks add `die-on-request`.
@@ -83,10 +85,14 @@ function docText(uri) {
  *
  * Marker-driven so one mode can produce both "reported with findings" and
  * "reported and empty" without a second mode: the assertion that matters is
- * that an empty report is still a report.
+ * that an empty report is still a report. The optional `:<variant>` suffix is
+ * echoed into the message so a test can tell two versions' reports apart and
+ * prove a re-publish replaced, rather than repeated, the previous one.
  */
 function diagnosticItems(uri) {
-  if (!docText(uri).includes("VOLTO_FIXTURE_DIAGNOSTIC")) return [];
+  const text = docText(uri);
+  if (!text.includes("VOLTO_FIXTURE_DIAGNOSTIC")) return [];
+  const variant = /VOLTO_FIXTURE_DIAGNOSTIC:(\w+)/.exec(text)?.[1];
   return [
     {
       range: {
@@ -94,7 +100,7 @@ function diagnosticItems(uri) {
         end: { line: 0, character: 5 },
       },
       severity: 1, // LSP DiagnosticSeverity.Error — a number on the wire
-      message: "fixture diagnostic",
+      message: variant ? `fixture diagnostic ${variant}` : "fixture diagnostic",
       source: "volto-fixture",
     },
   ];
@@ -213,6 +219,26 @@ function handleRequest(msg) {
 }
 
 /**
+ * How long this server takes to re-publish after a `didChange`.
+ *
+ * Deliberately non-zero: while the re-analysis is in flight there is no current
+ * report, and the manager must say so rather than keep serving the report it
+ * cached for the version that just went away. A zero delay would let a
+ * non-invalidating manager look correct whenever the publish happened to win
+ * the race.
+ */
+const REPUBLISH_DELAY_MS = 200;
+
+/** Send one `textDocument/publishDiagnostics` for the document's current text. */
+function publishDiagnostics(uri) {
+  send({
+    jsonrpc: "2.0",
+    method: "textDocument/publishDiagnostics",
+    params: { uri, diagnostics: diagnosticItems(uri) },
+  });
+}
+
+/**
  * Server-initiated notifications (messages without an id).
  *
  * Both diagnostics modes publish right after `didOpen` — that is when a real
@@ -220,17 +246,20 @@ function handleRequest(msg) {
  * pull mode too is deliberate: the manager must prefer pull when the server
  * advertises `diagnosticProvider`, and a push-only fallback would look
  * identical if this mode never pushed.
+ *
+ * The push mode also re-publishes after `didChange`, `REPUBLISH_DELAY_MS`
+ * later: a real push server re-analyses on change, and the gap in between is
+ * where a stale cache would be handed out as a current answer.
  */
 function handleNotification(msg) {
-  if (msg.method === "textDocument/didOpen" && mode.startsWith("diagnostics-") && mode !== "diagnostics-none") {
-    const uri = msg.params?.textDocument?.uri;
-    if (uri) {
-      send({
-        jsonrpc: "2.0",
-        method: "textDocument/publishDiagnostics",
-        params: { uri, diagnostics: diagnosticItems(uri) },
-      });
-    }
+  const uri = msg.params?.textDocument?.uri;
+  const publishes = mode.startsWith("diagnostics-") && mode !== "diagnostics-none";
+  if (uri && publishes && msg.method === "textDocument/didOpen") {
+    publishDiagnostics(uri);
+    return;
+  }
+  if (uri && mode === "diagnostics-push" && msg.method === "textDocument/didChange") {
+    setTimeout(() => publishDiagnostics(uri), REPUBLISH_DELAY_MS);
     return;
   }
   if (msg.method === "exit") process.exit(0);
