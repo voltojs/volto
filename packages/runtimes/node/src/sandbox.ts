@@ -1417,11 +1417,18 @@ function spawnSandboxedProcess(
   // which is an uncaught exception in the host process when nothing listens.
   // Long-lived consumers (a language server that exits mid-request) hit this
   // routinely, so the primitive owns it and reports it through onError.
+  //
+  // First failure wins: the spawn 'error' (ENOENT/EACCES) is the informative
+  // one, and a later EPIPE is a consequence of the same dead child. Reporting
+  // both would hand a consumer two different reasons for one failure.
   // @types/node declares `Socket.on("error", ...)`; ChildProcess's stdin is a
   // Socket at runtime but typed as Writable here, hence the cast.
+  let reported = false;
   const reportStdinError = (err: Error): void => {
+    if (reported || pendingError !== undefined) return;
+    reported = true;
     if (errorCbs.length === 0) {
-      if (pendingError === undefined) pendingError = err;
+      pendingError = err;
       return;
     }
     for (const cb of errorCbs) cb(err);
