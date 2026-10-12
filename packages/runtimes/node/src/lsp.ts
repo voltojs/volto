@@ -274,8 +274,17 @@ class LspServerConnection {
       this.consume(typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk);
     });
     proc.onError((err) => {
+      // One handler covers both a spawn failure (ENOENT/EACCES, before any
+      // handshake) and an error on a child that was already running (e.g. a
+      // broken pipe mid-request), so the message must not claim "failed to
+      // start". It names the remedy either way: the process is gone, and the
+      // next call starts a fresh one.
       this.failAll(
-        new LspManagerError("LSP_UNAVAILABLE", `language server failed to start: ${err.message}`),
+        new LspManagerError(
+          "LSP_UNAVAILABLE",
+          `the language server process reported an error and is no longer usable: ${err.message}; ` +
+            `check that its command exists and is executable, then retry — a retry starts a fresh process`,
+        ),
       );
     });
     proc.onExit((code, signal) => {
