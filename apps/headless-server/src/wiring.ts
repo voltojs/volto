@@ -5,17 +5,20 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { createAgent, scanAgentSources, type AgentSpec } from "@volto/sdk";
+import { createAgent, defaultClock, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
+import { loadLspServers } from "./config/lsp.js";
 import { loadPermissionRules, mergePermissionRules } from "./config/permissions.js";
 import type { UiPermissionMode } from "./permission-modes.js";
 import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
+  createNodeLspManager,
   createSandboxedFileSystem,
+  createSqliteDatabaseOpener,
   createFileAuditSink,
 } from "@volto/runtime-node";
 import type { SandboxConfig } from "@volto/runtime-node";
@@ -221,6 +224,16 @@ export interface WiringOptions {
 export interface SandboxConfigs {
   fsConfig: SandboxConfig | null;
   shellConfig: SandboxConfig | null;
+  /**
+   * Sandbox for a spawned language-server child. A distinct third config
+   * because the LSP child is neither the shell nor the in-process fs: it must
+   * not inherit the gateway's provider credentials (env stripping), and it
+   * must NOT get the shell's `network: { enabled: true }` — a language server
+   * has no business reaching the network, and the process spawner's own
+   * default (deny) is exactly what the LSP manager wants. Derived from the fs
+   * side, so it keeps `deniedReadPaths` (the credential dir).
+   */
+  lspConfig: SandboxConfig | null;
 }
 
 /**
@@ -337,6 +350,12 @@ export function buildSandboxConfigs(
           strippedEnvPatterns: [...SECRET_ENV_PATTERNS],
         }
       : null,
+    // Same env stripping as the shell side — a language-server binary is
+    // third-party code, and a one-line `echo $OPENAI_API_KEY` inside it would
+    // walk around the credential-dir read fence just as easily — but built
+    // from `base`, which carries no `network` block, so the process spawner's
+    // default of denying egress stays in force.
+    lspConfig: base ? { ...base, strippedEnvPatterns: [...SECRET_ENV_PATTERNS] } : null,
   };
 }
 
@@ -381,7 +400,11 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // an async context pass its realpath (getConfigDirRealPath), otherwise the
   // lexical form goes in and the adapters resolve it themselves.
   const configDirRealPath = opts.configDirRealPath ?? getConfigDir();
-  const { fsConfig: sandboxConfig, shellConfig: shellSandboxConfig } = buildSandboxConfigs(
+  const {
+    fsConfig: sandboxConfig,
+    shellConfig: shellSandboxConfig,
+    lspConfig: lspSandboxConfig,
+  } = buildSandboxConfigs(
     opts.sandboxMode,
     cwd,
     [configDirRealPath],
@@ -461,6 +484,16 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // Same reload discipline and same fail-closed stance as the egress policy.
   const permissionRules = await loadPermissionRules(getConfigDir());
 
+  // Language → server table from ~/.volto/lsp.json. Re-read on every session
+  // build (an edit reaches new sessions without a restart) and fail-closed on
+  // a malformed document or entry: a user who wrote one expects it enforced.
+  // An absent file means the built-in TypeScript default (spec D2); an explicit
+  // empty `servers` map yields an empty table, which is NOT a build failure —
+  // the tools stay wired and every call answers with the configuration
+  // guidance. The manager is constructed either way, because wiring the tools
+  // is what makes a missing configuration visible instead of silent.
+  const lspServers = await loadLspServers(getConfigDir());
+
   // Audit trail for approval decisions, high-risk executions, and
   // command-prefix rule hits (rule_allow). The SDK defaults to a no-op sink,
   // which silently discards every entry — and the shell prefix rules
@@ -476,6 +509,29 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     homeDir: os.homedir(),
     ...(opts.pluginAgents ? { pluginSpecs: opts.pluginAgents } : {}),
   });
+
+  // Session-scoped LSP manager: one lazy language-server child per language,
+  // spawned under the fs-side sandbox config (env stripped, egress denied) and
+  // reaped by createAgent on agent.dispose(). Bound to the session's own `fs`
+  // so the workspace containment check and the document reads agree with every
+  // other file tool, and to `cwd` as the root the model's relative paths
+  // resolve against. Without a sandbox mode the manager's own default applies,
+  // matching the other adapters' undecorated legacy path.
+  const lsp = createNodeLspManager({
+    workspaceRoot: cwd,
+    fs,
+    servers: lspServers,
+    clock: defaultClock,
+    ...(lspSandboxConfig ? { sandbox: lspSandboxConfig } : {}),
+  });
+
+  // SQLite opener behind db_query / db_exec, rooted at the session workspace.
+  // `allowWrite` is the host's decision from the session's boundary: a
+  // plan/read-only session must never even register db_exec (the SDK grants
+  // db:write only for an explicit true), so the model is never offered a write
+  // the sandbox would only refuse. The opener imports better-sqlite3 lazily on
+  // the first open, so a host without the optional driver still builds.
+  const db = createSqliteDatabaseOpener({ fs, workspaceRoot: cwd });
 
   return createAgent({
     modelPort,
@@ -499,6 +555,8 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     auditSink,
     network,
     sessionStore,
+    lsp,
+    db: { opener: db, allowWrite: opts.sandboxMode !== "read-only" },
     // Plan-mode artifact storage (save_plan tool). Rooted at the config dir
     // via createPlanStore's own default — same store every rebuilt agent
     // instance hands the SDK, so one session's plan survives rebuilds.
