@@ -48,6 +48,7 @@ import type {
   PlanStore,
   FileWatcher,
   FileWatchEvent,
+  TokenUsage,
 } from "@volto/core";
 import {
   createDefaultPermissionConfig,
@@ -93,13 +94,15 @@ import type { AgentSpec } from "./agent-spec.js";
  * dispatch wraps the same executor: the promise is registered with the
  * BackgroundRegistry instead of awaited inline.
  */
-type SyncSubAgentRequest = { message: string; subagentType?: string };
+type SyncSubAgentRequest = { message: string; subagentType?: string; model?: string };
 /**
  * The child's answer plus the transcript session it wrote, so a caller can
  * hand the UI something to drill into. Absent session id means the dispatch
- * had no parent session to hang a child session off of.
+ * had no parent session to hang a child session off of. `usage` is the
+ * child's token accounting for the whole run, accumulated from its event
+ * stream; absent when no sink was available to tap.
  */
-type SyncSubAgentOutcome = { text: string; sessionId?: string };
+type SyncSubAgentOutcome = { text: string; sessionId?: string; usage?: TokenUsage };
 type SyncSubAgentExecutor = (req: SyncSubAgentRequest) => Promise<SyncSubAgentOutcome>;
 import {
   createReadFileTool,
@@ -300,8 +303,12 @@ function bestEffortAppend(
 // Background registry
 // ──────────────────────────────────────────────
 
-/** Result of collecting a background task: either its text or a normalized error. */
-export type BackgroundCollectResult = { text: string } | { error: string };
+/** Result of collecting a background task: either its full outcome or a
+ * normalized error. The success side carries the same optional envelope
+ * inputs as a sync dispatch — absent keys are omitted, never null. */
+export type BackgroundCollectResult =
+  | { text: string; childSessionId?: string; usage?: TokenUsage }
+  | { error: string };
 
 /**
  * Holds promises for detached sub-agents. Deliberately separate from
@@ -312,7 +319,7 @@ export type BackgroundCollectResult = { text: string } | { error: string };
  * a detached task must never take the parent loop down with it.
  */
 export interface BackgroundRegistry {
-  register(taskId: string, promise: Promise<string>): void;
+  register(taskId: string, promise: Promise<SyncSubAgentOutcome>): void;
   collect(taskId: string): Promise<BackgroundCollectResult>;
   /** Ids registered but not yet collected. */
   pending(): string[];
@@ -335,9 +342,15 @@ export function createBackgroundRegistry(): BackgroundRegistry {
   return {
     register(taskId, promise) {
       // Normalize once at registration so an early rejection never becomes an
-      // unhandled rejection while the task is still running detached.
+      // unhandled rejection while the task is still running detached. The
+      // success side keeps the full outcome: text plus the optional envelope
+      // inputs (child session id, accumulated usage), omitted when absent.
       const normalized = promise.then<BackgroundCollectResult, BackgroundCollectResult>(
-        (text) => ({ text }),
+        (outcome) => ({
+          text: outcome.text,
+          ...(outcome.sessionId !== undefined ? { childSessionId: outcome.sessionId } : {}),
+          ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
+        }),
         (err: unknown) => ({
           error: err instanceof Error ? err.message : String(err),
         }),
@@ -1439,15 +1452,21 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // hand the registry to each Runner for turn-boundary draining.
     const registry = createBackgroundRegistry();
     backgroundRegistry = registry;
-    const dispatch: SubAgentDispatch = async ({ message, subagentType, background }) => {
+    const dispatch: SubAgentDispatch = async ({ message, subagentType, background, model }) => {
       if (background) {
         const taskId = idPort.next();
         // Fire the executor detached; the registry normalizes a rejection so
         // an uncollected failure can never surface as an unhandled rejection
-        // or take the parent loop down.
+        // or take the parent loop down. The full outcome (text + child
+        // session id + usage) is stored so task_output can assemble the same
+        // envelope a sync dispatch produces.
         registry.register(
           taskId,
-          executor({ message, subagentType }).then((outcome) => outcome.text),
+          executor({
+            message,
+            ...(subagentType !== undefined ? { subagentType } : {}),
+            ...(model !== undefined ? { model } : {}),
+          }),
         );
         // Record the task in serializable state so a checkpoint/resume can
         // discover it. Mid-turn feed is safe: the background_task_started
@@ -1461,11 +1480,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       }
       // A synchronous dispatch still gets its own id: "sync" collided across
       // every dispatch in a session, so a UI could not tell two apart.
-      const outcome = await executor({ message, subagentType });
+      const outcome = await executor({
+        message,
+        ...(subagentType !== undefined ? { subagentType } : {}),
+        ...(model !== undefined ? { model } : {}),
+      });
       return {
         taskId: idPort.next(),
         text: outcome.text,
         ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
+        ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
       };
     };
     allCustomTools.push(
@@ -2699,6 +2723,7 @@ function createSubAgentExecutor(
   return async ({
     message,
     subagentType,
+    model,
   }: SyncSubAgentRequest): Promise<SyncSubAgentOutcome> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
     const turn = getCurrentTurn();
@@ -2830,11 +2855,13 @@ function createSubAgentExecutor(
         const outcome = await nestedExecutor({
           message: req.message,
           ...(req.subagentType !== undefined ? { subagentType: req.subagentType } : {}),
+          ...(req.model !== undefined ? { model: req.model } : {}),
         });
         return {
           taskId: idPort.next(),
           text: outcome.text,
           ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
+          ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
         };
       };
       childTools = [
@@ -2990,7 +3017,11 @@ function createSubAgentExecutor(
       resolveConfigValue(opts.responseFormat, opts.config?.config, "responseFormat");
     const subStepContext: StepContext = {
       tools: subToolDefs,
-      model: childSpec?.model ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
+      // Model resolution chain (design §4.4): the per-dispatch input
+      // outranks the typed definition, which outranks the parent's model.
+      // The chain touches only subStepContext.model — tools, capabilities
+      // and permissionConfig stay on their own axes.
+      model: model ?? childSpec?.model ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
       ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
       maxTokens:
         childSpec?.maxTokens ?? resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
@@ -3013,6 +3044,37 @@ function createSubAgentExecutor(
       ? tagEventSink(currentSink, depth, agentLabel, childSessionId)
       : undefined;
 
+    // Usage tap (design §4.5): a per-dispatch accumulator over the child's
+    // forwarded assistant_message events — the event stream is the single
+    // source of truth (reducer messages carry no usage), summed across every
+    // model call of the run, each bucket added separately. Cache buckets are
+    // included only once reported, so the envelope never invents a zero. No
+    // sink to wrap → no tap → the outcome carries no usage at all.
+    let usageTotal: TokenUsage | undefined;
+    const usageTapSink: EventSink | undefined = taggedSink
+      ? {
+          emit(event) {
+            if (event.type === "assistant_message") {
+              const usage = event.data["usage"] as TokenUsage | undefined;
+              if (usage) {
+                const prev = usageTotal;
+                usageTotal = {
+                  inputTokens: (prev?.inputTokens ?? 0) + (usage.inputTokens ?? 0),
+                  outputTokens: (prev?.outputTokens ?? 0) + (usage.outputTokens ?? 0),
+                  ...(prev?.cacheReadTokens !== undefined || usage.cacheReadTokens !== undefined
+                    ? { cacheReadTokens: (prev?.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0) }
+                    : {}),
+                  ...(prev?.cacheWriteTokens !== undefined || usage.cacheWriteTokens !== undefined
+                    ? { cacheWriteTokens: (prev?.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0) }
+                    : {}),
+                };
+              }
+            }
+            taggedSink.emit(event);
+          },
+        }
+      : undefined;
+
     const subRunner = createRunner({
       modelPort: opts.modelPort,
       stepContext: subStepContext,
@@ -3030,7 +3092,7 @@ function createSubAgentExecutor(
       // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
       // never silently executed in the child.
       approvalGate: createSubAgentApprovalGate(),
-      eventSink: taggedSink,
+      eventSink: usageTapSink ?? taggedSink,
       sessionStore: createDefaultSessionStore(),
       compaction: compactionConfig,
       sessionId: `sub-${idPort.next()}`,
@@ -3091,7 +3153,11 @@ function createSubAgentExecutor(
 
       const lastMsg = finalState.messages[finalState.messages.length - 1];
       const text = lastMsg && lastMsg.role === "assistant" ? extractPlainText(lastMsg) : "";
-      return { text, ...(childSessionId !== undefined ? { sessionId: childSessionId } : {}) };
+      return {
+        text,
+        ...(childSessionId !== undefined ? { sessionId: childSessionId } : {}),
+        ...(usageTotal !== undefined ? { usage: usageTotal } : {}),
+      };
     } catch (err) {
       finishSubAgent(true);
       throw err;

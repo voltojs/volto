@@ -4,13 +4,13 @@ import { createBackgroundRegistry } from "../create-agent.js";
 describe("background registry", () => {
   it("collects a finished task's result", async () => {
     const reg = createBackgroundRegistry();
-    reg.register("t1", Promise.resolve("the answer"));
+    reg.register("t1", Promise.resolve({ text: "the answer" }));
     await expect(reg.collect("t1")).resolves.toEqual({ text: "the answer" });
   });
 
   it("is idempotent: collecting twice returns the same result", async () => {
     const reg = createBackgroundRegistry();
-    reg.register("t1", Promise.resolve("once"));
+    reg.register("t1", Promise.resolve({ text: "once" }));
     const a = await reg.collect("t1");
     const b = await reg.collect("t1");
     expect(b).toEqual(a);
@@ -30,10 +30,27 @@ describe("background registry", () => {
 
   it("lists ids that have not been collected yet", async () => {
     const reg = createBackgroundRegistry();
-    reg.register("t1", Promise.resolve("a"));
-    reg.register("t2", Promise.resolve("b"));
+    reg.register("t1", Promise.resolve({ text: "a" }));
+    reg.register("t2", Promise.resolve({ text: "b" }));
     await reg.collect("t1");
     expect(reg.pending()).toEqual(["t2"]);
+  });
+
+  it("keeps the full outcome: child session id and usage ride the collect result", async () => {
+    const reg = createBackgroundRegistry();
+    reg.register(
+      "t1",
+      Promise.resolve({
+        text: "done",
+        sessionId: "sess-sub-9",
+        usage: { inputTokens: 4, outputTokens: 2 },
+      }),
+    );
+    await expect(reg.collect("t1")).resolves.toEqual({
+      text: "done",
+      childSessionId: "sess-sub-9",
+      usage: { inputTokens: 4, outputTokens: 2 },
+    });
   });
 });
 
