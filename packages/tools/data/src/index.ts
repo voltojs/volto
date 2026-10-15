@@ -2,7 +2,9 @@
  * @volto/tools-data — structured data tools: HTTP query + database
  *
  * http_query wraps the existing Network port with structured output.
- * db_query / db_exec provide SQL access via a DatabaseAdapter.
+ * db_query / db_exec provide SQL access to a model-given database path. The
+ * path is resolved and opened by a DatabaseOpener; the tools never touch the
+ * filesystem or the workspace boundary themselves.
  */
 
 import type { Network } from "@volto/core";
@@ -23,6 +25,21 @@ export interface DatabaseAdapter {
   query(sql: string, params?: unknown[]): Promise<SqlRow[]>;
   /** Execute a write/DDL statement and return affected row count */
   exec(sql: string, params?: unknown[]): Promise<{ changes: number }>;
+}
+
+/**
+ * DatabaseOpener — opens handles for a model-given database path.
+ *
+ * The opener owns the workspace boundary: it resolves the requested path,
+ * rejects anything outside the workspace, and decides whether the handle is
+ * read-only. Callers pass the model-given path verbatim and must not
+ * pre-validate it themselves.
+ */
+export interface DatabaseOpener {
+  /** Open (or reuse) a handle for `path`. Rejects when the path escapes the workspace or the database cannot be opened. */
+  open(path: string, opts: { readonly: boolean }): Promise<DatabaseAdapter>;
+  /** Close every handle this opener opened. Safe to call more than once. */
+  closeAll(): Promise<void>;
 }
 
 // ──────────────────────────────────────────────
@@ -91,20 +108,25 @@ export const HTTP_TOOL_NAMES: ReadonlySet<string> = new Set(["http_query"]);
 // Database tools
 // ──────────────────────────────────────────────
 
-const CAP_DB_READ = "db:query";
-const CAP_DB_WRITE = "db:exec";
+/**
+ * Capability strings the db tools require. Exported so the host wiring that
+ * grants them (the SDK) imports the same values instead of repeating the
+ * literals: a mismatch would silently drop the tools from the visible set with
+ * no compile error.
+ */
+export const CAP_DB_READ = "db:read";
+export const CAP_DB_WRITE = "db:write";
 const MAX_ROWS = 500;
 
-/** Destructive SQL verbs that must not appear in db_query */
-const DESTRUCTIVE_SQL_VERBS = /\b(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE)\b/i;
-
 const dbQuerySchema = z.object({
+  path: z.string().describe("Workspace-relative or absolute path to the SQLite database file."),
   sql: z.string().describe("A read-only SQL SELECT query."),
   params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
     .describe("Optional positional parameters for the SQL query."),
 });
 
 const dbExecSchema = z.object({
+  path: z.string().describe("Workspace-relative or absolute path to the SQLite database file."),
   sql: z.string().describe("A SQL statement (INSERT, UPDATE, DELETE, DDL)."),
   params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
     .describe("Optional positional parameters for the SQL statement."),
@@ -112,25 +134,26 @@ const dbExecSchema = z.object({
 
 /**
  * Create a db_query tool — executes read-only SQL and returns structured rows.
+ *
+ * The read-only guarantee is engine-level: the handle is opened with
+ * `{ readonly: true }`, so a writing statement is refused by the database
+ * itself. There is deliberately no verb regex here — a pre-screen would look
+ * like a boundary while being bypassable.
  */
-export function createDbQueryTool(db: DatabaseAdapter): Tool {
+export function createDbQueryTool(opener: DatabaseOpener): Tool {
   return defineTool({
     name: "db_query",
     description:
-      "Execute a read-only SQL query and return the result rows. " +
-      "Only SELECT queries are allowed. Returns column names and up to 500 rows.",
+      "Execute a read-only SQL query against the SQLite database at `path` and return the result rows. " +
+      "The database is opened read-only, so statements that write are refused by the engine. " +
+      "Returns column names and up to 500 rows.",
     schema: dbQuerySchema,
     requires: [CAP_DB_READ],
     riskTier: "READ_ONLY",
-    run: async ({ sql, params }) => {
-      // Enforce SELECT-only at runtime (description is not a security boundary)
-      if (DESTRUCTIVE_SQL_VERBS.test(sql)) {
-        return {
-          modelContent: "db_query only allows SELECT queries. Destructive statements (DELETE, UPDATE, DROP, etc.) are not permitted. Use db_exec for write operations.",
-          isError: true,
-        };
-      }
+    pathInputs: ["path"],
+    run: async ({ path, sql, params }) => {
       try {
+        const db = await opener.open(path, { readonly: true });
         const rows = await db.query(sql, params);
         const truncated = rows.length > MAX_ROWS;
         const displayRows = truncated ? rows.slice(0, MAX_ROWS) : rows;
@@ -161,17 +184,19 @@ export function createDbQueryTool(db: DatabaseAdapter): Tool {
 /**
  * Create a db_exec tool — executes write/DDL statements.
  */
-export function createDbExecTool(db: DatabaseAdapter): Tool {
+export function createDbExecTool(opener: DatabaseOpener): Tool {
   return defineTool({
     name: "db_exec",
     description:
-      "Execute a SQL write statement (INSERT, UPDATE, DELETE, or DDL). " +
+      "Execute a SQL write statement (INSERT, UPDATE, DELETE, or DDL) against the SQLite database at `path`. " +
       "Returns the number of affected rows. Requires user approval.",
     schema: dbExecSchema,
     requires: [CAP_DB_WRITE],
     riskTier: "WRITE_HIGH",
-    run: async ({ sql, params }) => {
+    pathInputs: ["path"],
+    run: async ({ path, sql, params }) => {
       try {
+        const db = await opener.open(path, { readonly: false });
         const { changes } = await db.exec(sql, params);
         return {
           modelContent: `Statement executed successfully. ${changes} row${changes === 1 ? "" : "s"} affected.`,

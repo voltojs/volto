@@ -19,9 +19,10 @@
 import type { Shell, ShellExecOptions, ShellEvent, ShellLaunchOptions } from "@volto/core";
 import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
 import type { SandboxMode } from "@volto/core";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { Readable, Writable } from "node:stream";
 import { tmpdir } from "node:os";
 import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
@@ -42,7 +43,15 @@ export type SandboxBackend = "seatbelt" | "bubblewrap" | "none";
 export interface SandboxNetworkConfig {
   /** Whether network is enabled. Default: false (blocked) */
   enabled?: boolean;
-  /** When non-empty, only these hosts are allowed through a local proxy */
+  /**
+   * When non-empty, only these hosts are allowed through a local proxy.
+   *
+   * NOT enforced by `createSandboxedProcessSpawner`: that spawner builds no
+   * egress proxy, and the seatbelt/bwrap network rule is on/off only, so a
+   * non-empty list would be silently ignored. It refuses at construction
+   * instead — use `createSandboxedShell` / `createSandboxSessionSpawner` for
+   * filtered egress, or drop `allowedHosts` to allow egress explicitly.
+   */
   allowedHosts?: string[];
 }
 
@@ -110,6 +119,17 @@ export interface SandboxConfig {
    * Either way `sandboxEnforcement` reports `none`, which is the field a
    * caller should branch on rather than inferring confinement from the mode.
    * To run without isolation deliberately, use `danger-full-access`.
+   *
+   * The opt-out is implemented differently per spawner, deliberately:
+   *
+   * - `createSandboxedShell` (exec/launch) and `createSandboxSessionSpawner`:
+   *   `false` in the no-backend branch warns once and then runs the command
+   *   UNCONFINED — a test/e2e affordance for platforms without any backend.
+   * - `createSandboxedProcessSpawner`: `false` in the no-backend branch
+   *   returns `undefined`. That spawner's callers hold a long-lived child and
+   *   have no confined fallback to degrade to, so an absent spawner is the
+   *   only honest answer; it does NOT grant an unconfined process under a
+   *   confining mode.
    */
   failIfUnavailable?: boolean;
   /**
@@ -1109,6 +1129,358 @@ export function createSandboxSessionSpawner(
 }
 
 // ──────────────────────────────────────────────
+// Sandboxed process primitive (LSP/db wiring, Task 1)
+// ──────────────────────────────────────────────
+
+/**
+ * A long-lived non-shell child living under the sandbox, with pipes.
+ *
+ * Unlike `createSandboxedShell`, nothing here goes through `/bin/bash`: the
+ * caller's `command` and `args` are passed to the sandbox runner as argv, so
+ * a language server (or any other program) speaks its own protocol over the
+ * three pipes with no shell quoting in between.
+ */
+export interface SandboxedProcess {
+  readonly pid?: number;
+  readonly enforcement: SandboxEnforcement;
+  readonly stdin: NodeJS.WritableStream;
+  readonly stdout: NodeJS.ReadableStream;
+  readonly stderr: NodeJS.ReadableStream;
+  onExit(cb: (code: number | null, signal: NodeJS.Signals | null) => void): void;
+  onError(cb: (err: Error) => void): void;
+  kill(signal?: NodeJS.Signals): void;
+}
+
+/** Spec for one sandboxed child process. */
+export interface SandboxedProcessSpec {
+  command: string;
+  args?: string[];
+  cwd: string;
+}
+
+/**
+ * Build a spawner that runs an arbitrary command inside the session sandbox.
+ *
+ * - `danger-full-access` → passthrough with `enforcement: "none"` (it confines
+ *   nothing by definition, and saying otherwise would be a false claim).
+ * - seatbelt → `sandbox-exec -f <profile> <command> <args...>`
+ * - bubblewrap → `bwrap <args> -- <command> <args...>`
+ *
+ * Refusal behaviour. A confining mode never yields an unconfined process:
+ *
+ * - No backend for this platform (`backend: "none"`): construction throws when
+ *   `failIfUnavailable` is unset or true, and returns `undefined` when it is
+ *   explicitly `false` — the caller gets no spawner at all.
+ * - Backend selected but its runner binary is missing: construction throws
+ *   when `failIfUnavailable` is unset or true, and returns `undefined` when it
+ *   is explicitly `false`. A half-present backend is never downgraded to an
+ *   unconfined passthrough.
+ * - `network.enabled` with a non-empty `allowedHosts`, **with a usable backend**
+ *   (the `backend === "none"` branch above refuses first, so on a backend-less
+ *   platform construction throws the no-backend error instead): construction
+ *   throws, because this spawner builds no egress proxy and cannot enforce a
+ *   host whitelist.
+ *
+ * `SandboxConfig.failIfUnavailable` records how this differs from the
+ * shell/session spawners, which run unconfined under the same opt-out.
+ *
+ * Every child-process failure is delivered through `onError` / `onExit`; a
+ * `spawn` 'error' event (ENOENT, EACCES) is captured for callbacks registered
+ * after construction instead of being re-thrown as an uncaught exception.
+ */
+export function createSandboxedProcessSpawner(
+  config: SandboxConfig,
+): ((spec: SandboxedProcessSpec) => SandboxedProcess) | undefined {
+  const backend = config.backend ?? detectBackend();
+  const strippedNames = config.strippedEnvVars ?? [];
+  const strippedPatterns = config.strippedEnvPatterns ?? [];
+
+  // ── danger-full-access: no isolation by definition ──
+  if (config.mode === "danger-full-access") {
+    return (spec) => spawnSandboxedProcess(
+      { command: spec.command, args: spec.args ?? [], cwd: spec.cwd },
+      { enforce: false, enforcement: "none", env: buildStrippedEnv(strippedNames, strippedPatterns) },
+    );
+  }
+
+  const failIfUnavailable = config.failIfUnavailable ?? true;
+
+  // No backend for this platform. Unlike createSandboxSessionSpawner — which
+  // warns once and runs a bare, UNCONFINED `bash -s` when the caller opts out
+  // — this spawner deliberately refuses: its callers hold a long-lived child
+  // and have no confined fallback, so `failIfUnavailable: false` makes it
+  // return `undefined` rather than hand back an unconfined process under a
+  // mode that promises confinement.
+  if (backend === "none") {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] No sandbox backend available on this platform (${process.platform}), ` +
+        `and mode "${config.mode}" promises confinement. Refusing to run unconfined. ` +
+        `Use mode "danger-full-access" to run without isolation deliberately, or set ` +
+        `failIfUnavailable: false to make this spawner return undefined — it does not ` +
+        `grant an unconfined process under this mode.`,
+      );
+    }
+    return undefined;
+  }
+
+  // Same realpath discipline as createSandboxedShell / createSandboxSessionSpawner:
+  // seatbelt and bwrap match REAL paths, and on macOS both `/tmp` and
+  // `os.tmpdir()` are symlinks.
+  const resolved = resolveSessionSandboxConfig(config);
+  const strippedNamesR = resolved.strippedEnvVars ?? [];
+  const strippedPatternsR = resolved.strippedEnvPatterns ?? [];
+
+  // A host whitelist cannot be honoured here: this spawner builds no egress
+  // proxy, and both backends' network rule is on/off only (`(allow network*)`
+  // / `--unshare-net`), so a non-empty `allowedHosts` would be silently
+  // ignored while `SandboxNetworkConfig.allowedHosts` promises filtering.
+  // Refuse rather than pretend. The fs-side config the LSP manager passes
+  // carries no `network` block, so this never fires on that path.
+  if (config.network?.enabled === true && (config.network.allowedHosts?.length ?? 0) > 0) {
+    throw new Error(
+      `[sandbox] createSandboxedProcessSpawner cannot enforce a host whitelist ` +
+      `(${config.network.allowedHosts?.length ?? 0} allowedHosts configured): this spawner builds no ` +
+      `egress proxy and the sandbox backend's network rule is on/off only. Use ` +
+      `createSandboxedShell or createSandboxSessionSpawner for filtered egress, or drop ` +
+      `allowedHosts to allow egress explicitly.`,
+    );
+  }
+
+  if (backend === "seatbelt") {
+    const seatbeltBinary = resolved.seatbeltBinary ?? "sandbox-exec";
+    if (!runnerBinaryAvailable(seatbeltBinary)) {
+      if (failIfUnavailable) {
+        throw new Error(
+          `[sandbox] ${seatbeltBinary} binary not found on PATH and failIfUnavailable is true. ` +
+          "Install sandbox-exec, or use mode \"danger-full-access\" to run without isolation " +
+          "deliberately. Setting failIfUnavailable: false only makes this spawner return " +
+          "undefined — it does not grant an unconfined process.",
+        );
+      }
+      // Honest "cannot confine": no spawner at all.
+      return undefined;
+    }
+
+    const profileContent = buildSeatbeltProfile(resolved);
+    // Enforcement is a RUNTIME fact: the runner is present, so the profile
+    // governs every file effect this config asks for.
+    return (spec) => {
+      // A fresh profile file per spawn, written at spawn time and unlinked
+      // when the child exits — a spawner that is never used leaves nothing
+      // behind, and a profile cannot be reused for the wrong cwd/roots.
+      //
+      // The `volto-proc-sandbox-` prefix is deliberately distinct from the
+      // session spawner's `volto-sandbox-`: sandbox-session.test.ts proves a
+      // killed session unlinks its profile by counting `volto-sandbox-*` in
+      // the shared os.tmpdir(), so a second writer under that prefix makes
+      // that assertion observe this spawner's files instead.
+      const profileId = `${process.pid}-${++profileCounter}`;
+      const profilePath = join(tmpdir(), `volto-proc-sandbox-${profileId}.sb`);
+      // A write failure (unwritable tmpdir, an undeletable file at that
+      // path) is this child's failure, not the host's: it is reported
+      // through onError below, never thrown at the caller. No confined child
+      // exists, so enforcement is "none" — claiming "full" here would assert
+      // confinement for a process that was never started.
+      let profileError: Error | undefined;
+      try {
+        writeFileSync(profilePath, profileContent, "utf-8");
+      } catch (err) {
+        profileError = err instanceof Error ? err : new Error(String(err));
+      }
+      if (profileError !== undefined) {
+        return unavailableProcess(profileError, { enforcement: "none" });
+      }
+      // `-f` takes a profile FILE path; `-p` takes an inline profile string —
+      // see the defect documented on createSandboxedShell's exec() path.
+      // argv is passed through unsplit, so the command needs no shell quoting.
+      return spawnSandboxedProcess(
+        {
+          command: seatbeltBinary,
+          args: ["-f", profilePath, spec.command, ...(spec.args ?? [])],
+          cwd: spec.cwd,
+        },
+        {
+          enforce: true,
+          enforcement: "full",
+          env: buildStrippedEnv(strippedNamesR, strippedPatternsR),
+          cleanup: () => { try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ } },
+        },
+      );
+    };
+  }
+
+  // ── bubblewrap ──
+  const bwrapBinary = resolved.bwrapBinary ?? "bwrap";
+  if (!runnerBinaryAvailable(bwrapBinary)) {
+    if (failIfUnavailable) {
+      throw new Error(
+        `[sandbox] ${bwrapBinary} (bubblewrap) binary not found on PATH and failIfUnavailable is true. ` +
+        "Install bubblewrap (apt install bubblewrap), or use mode \"danger-full-access\" to run " +
+        "without isolation deliberately. Setting failIfUnavailable: false only makes this spawner " +
+        "return undefined — it does not grant an unconfined process.",
+      );
+    }
+    return undefined;
+  }
+
+  const bwrapArgs = buildBwrapArgs(resolved);
+  return (spec) => spawnSandboxedProcess(
+    {
+      command: bwrapBinary,
+      args: [...bwrapArgs, "--", spec.command, ...(spec.args ?? [])],
+      cwd: spec.cwd,
+    },
+    { enforce: true, enforcement: "full", env: buildStrippedEnv(strippedNamesR, strippedPatternsR) },
+  );
+}
+
+/**
+ * Spawn one child and wrap it in the `SandboxedProcess` contract.
+ *
+ * `detached: true` makes the child the leader of its own process group. That is
+ * what makes `kill()` able to reap the INNER process: under seatbelt the direct
+ * child is `sandbox-exec`, and signalling only it would leave the wrapped
+ * command running. `process.kill(-pid)` signals the whole group instead.
+ */
+function spawnSandboxedProcess(
+  spec: { command: string; args: string[]; cwd: string },
+  opts: {
+    /** Whether `spec` names a sandbox runner (i.e. the child leads a group to reap). */
+    enforce: boolean;
+    enforcement: SandboxEnforcement;
+    env: Record<string, string>;
+    cleanup?: () => void;
+  },
+): SandboxedProcess {
+  const errorCbs: ((err: Error) => void)[] = [];
+  const exitCbs: ((code: number | null, signal: NodeJS.Signals | null) => void)[] = [];
+  let pendingError: Error | undefined;
+  let exited = false;
+  let child: ChildProcess;
+
+  try {
+    child = spawn(spec.command, spec.args, {
+      cwd: spec.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: opts.env,
+      // Own process group, so kill() can signal the whole group — the inner
+      // process of a seatbelt/bwrap wrapper is not the direct child.
+      detached: opts.enforce,
+    });
+  } catch (err) {
+    // A synchronous spawn throw is delivered through onError, never re-thrown
+    // into the host process. No child exists, so drop whatever resource the
+    // caller attached — otherwise a seatbelt profile file is left behind
+    // (same cleanup discipline as the sibling createSandboxSessionSpawner).
+    opts.cleanup?.();
+    const error = err instanceof Error ? err : new Error(String(err));
+    return unavailableProcess(error, opts);
+  }
+
+  // Register the 'error' listener before anything else: an unhandled 'error'
+  // event on a ChildProcess is an uncaught exception in the host process, and
+  // ENOENT for a missing binary is emitted asynchronously.
+  child.on("error", (err: Error) => {
+    opts.cleanup?.();
+    if (errorCbs.length === 0) {
+      pendingError = err;
+      return;
+    }
+    for (const cb of errorCbs) cb(err);
+  });
+  child.on("exit", (code, signal) => {
+    exited = true;
+    opts.cleanup?.();
+    for (const cb of exitCbs) cb(code, signal);
+  });
+
+  function kill(signal: NodeJS.Signals = "SIGTERM"): void {
+    if (exited) return;
+    const pid = child.pid;
+    if (pid !== undefined && opts.enforce) {
+      try {
+        // Negative pid = the child's whole process group. The wrapper is the
+        // group leader, so this reaps the inner process it launched.
+        if (process.kill(-pid, signal)) return;
+      } catch {
+        // Group already gone (ESRCH) or unsignalable — fall back below.
+      }
+    }
+    try { child.kill(signal); } catch { /* already dead — nothing to reap */ }
+  }
+
+  // Pipes are guaranteed by stdio above, but stay honest if a platform ever
+  // hands back a child without them (e.g. an already-failed spawn).
+  const stdin = child.stdin ?? new Writable({ write(_c, _e, cb) { cb(); } });
+
+  // A write to a child that has closed its stdin emits an asynchronous 'error'
+  // on the stream (EPIPE), which a try/catch around `write()` cannot see and
+  // which is an uncaught exception in the host process when nothing listens.
+  // Long-lived consumers (a language server that exits mid-request) hit this
+  // routinely, so the primitive owns it and reports it through onError.
+  //
+  // First failure wins: the spawn 'error' (ENOENT/EACCES) is the informative
+  // one, and a later EPIPE is a consequence of the same dead child. Reporting
+  // both would hand a consumer two different reasons for one failure.
+  // @types/node declares `Socket.on("error", ...)`; ChildProcess's stdin is a
+  // Socket at runtime but typed as Writable here, hence the cast.
+  let reported = false;
+  const reportStdinError = (err: Error): void => {
+    if (reported || pendingError !== undefined) return;
+    reported = true;
+    if (errorCbs.length === 0) {
+      pendingError = err;
+      return;
+    }
+    for (const cb of errorCbs) cb(err);
+  };
+  (stdin as unknown as NodeJS.EventEmitter).on("error", reportStdinError);
+
+  return {
+    pid: child.pid,
+    enforcement: opts.enforcement,
+    stdin,
+    stdout: child.stdout ?? new Readable({ read() { /* no output to read */ } }),
+    stderr: child.stderr ?? new Readable({ read() { /* no output to read */ } }),
+    onExit(cb) {
+      if (exited) return; // a listener cannot be called twice, and the exit is past
+      exitCbs.push(cb);
+    },
+    onError(cb) {
+      errorCbs.push(cb);
+      if (pendingError !== undefined) {
+        const err = pendingError;
+        pendingError = undefined;
+        cb(err);
+      }
+    },
+    kill,
+  };
+}
+
+/**
+ * A `SandboxedProcess` whose child never started: every operation is a no-op
+ * and the reason is delivered to `onError` whenever it is registered.
+ */
+function unavailableProcess(error: Error, opts: { enforcement: SandboxEnforcement }): SandboxedProcess {
+  let delivered = false;
+  return {
+    enforcement: opts.enforcement,
+    stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
+    stdout: new Readable({ read() { /* no child, no output */ } }),
+    stderr: new Readable({ read() { /* no child, no output */ } }),
+    onExit() { /* never spawns, so it never exits */ },
+    onError(cb) {
+      if (delivered) return;
+      delivered = true;
+      cb(error);
+    },
+    kill() { /* nothing was started */ },
+  };
+}
+
+// ──────────────────────────────────────────────
 // Seatbelt profile builder (shared — Plan 009 §4.2)
 // ──────────────────────────────────────────────
 
@@ -1278,6 +1650,13 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  *   --unshare-net                           (when network disabled)
  *   --die-with-parent                       (auto-cleanup orphaned sandboxed processes)
  *
+ * `read-only` mode emits neither the `--bind` roots nor the overlay
+ * `--ro-bind` lines: `writableRoots` / `readOnlyOverlays` are
+ * workspace-write-tier fields, exactly as in buildSeatbeltProfile. Same
+ * framing as that function: no writable roots, only essential system writes —
+ * here the `--dev /dev` devtmpfs. `deniedReadPaths` still `--tmpfs`-mask their
+ * paths, so "read-only" bounds writes, not reads.
+ *
  * All mount options use identity mounts (src == dest) — the process sees
  * the same absolute paths inside the namespace as outside, but write
  * permissions are restricted by mount flags.
@@ -1292,8 +1671,14 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  * per-connection token.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {
-  const writableRoots = config.writableRoots ?? [];
-  const rawOverlays = config.readOnlyOverlays ?? [];
+  // Same rule as buildSeatbeltProfile: `writableRoots` and `readOnlyOverlays`
+  // are workspace-write-tier fields (see SandboxConfig's own doc comment).
+  // Callers hand a read-only session the same roots as a workspace-write one,
+  // so the MODE must decide whether they bind — otherwise a read-only session
+  // gets a writable identity mount of the whole workspace and tmp.
+  const isReadOnly = config.mode === "read-only";
+  const writableRoots = isReadOnly ? [] : (config.writableRoots ?? []);
+  const rawOverlays = isReadOnly ? [] : (config.readOnlyOverlays ?? []);
   const readOnlyOverlays = expandOverlays(rawOverlays, writableRoots);
   const networkEnabled = config.network?.enabled ?? false;
 

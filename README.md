@@ -2,7 +2,7 @@
 
 纯函数内核的通用 coding agent。核心（`@volto/core`）是零依赖、零副作用的状态机——`step(state, input) → { state, effects[] }`，时间 / 随机 / ID 全部经 port 注入；真正的副作用由薄解释器（Runner）在 core 之外执行。工具、模型供应商、运行时（沙箱 / Shell / 文件系统）、存储、宿主（网关 / Web UI / 桌面端）全部可插拔。
 
-能力现状：多供应商模型接入（pi-ai 目录 + OpenAI 兼容）、持久 shell 会话与后台进程管理、子代理（声明式 AgentSpec + 工具集收窄）、图片链路（附件上传 / 视觉输入 / `read_file` 识图）、MCP（stdio）、会话持久化与审计轨迹（trajectory）、Web UI 与 Electron 桌面端。
+能力现状：多供应商模型接入（pi-ai 目录 + OpenAI 兼容）、持久 shell 会话与后台进程管理、子代理（声明式 AgentSpec + 工具集收窄）、图片链路（附件上传 / 视觉输入 / `read_file` 识图）、代码智能（LSP：定义 / 引用 / hover / 重命名预览 / 诊断）与 sqlite 查询（`db_query`，宿主授予写时另有 `db_exec`）、MCP（stdio）、会话持久化与审计轨迹（trajectory）、Web UI 与 Electron 桌面端。
 
 ## 快速开始
 
@@ -103,6 +103,24 @@ pnpm dev
 - **保存失败。** 写盘失败（只读目录、磁盘满、文件损坏等）时，本次调用仍按"允许一次"执行——不会因为记账失败而拒掉工具调用。卡片显示错误信息。
 - **不重复写入。** 相同规则已存在或有更宽规则覆盖时，不重复写入，回执说明原因。
 - **如何删除。** 直接编辑 `~/.volto/permissions.json`，删除对应规则条目即可。规则与手写的完全等价——一键保存只是"替你手写"，边界、上限、天花板夹紧与手写完全相同。
+
+## 代码智能（LSP）与 sqlite：边界与不覆盖
+
+网关为每个会话装配语言服务器（供 `lsp_definition` / `lsp_references` / `lsp_hover` / `lsp_rename` / `lsp_diagnostics`）与 sqlite opener（供 `db_query`，宿主授予写时另有 `db_exec`）。**"拦住了什么"与"没拦什么"同样重要**，以下是明确的不覆盖项：
+
+- **LSP 子进程受会话沙箱约束，且默认封网。** 它用与会话同档的 `SandboxConfig` 启动：凭据目录 `~/.volto` 在 `deniedReadPaths` 里，并额外应用 `strippedEnvPatterns`，因此名字形如 `*API_KEY*` / `*TOKEN*` / `*SECRET*` 的 provider 凭据不会进入该进程；LSP 配置**不开 `network`**（Seatbelt `(deny network*)` / bwrap `--unshare-net`），语言服务器本来也不需要网络。`danger-full-access` 档不隔离，与 shell / 文件工具一致。
+- **但沙箱允许读全盘（除 `deniedReadPaths`）。** 所以 `lsp_hover` 与诊断在原理上可能把**工作区外**文件的内容带回模型上下文。这是"读边界"的已知形态，**不是**工作区围栏——要真正限制读范围需要额外的读侧策略，本版本没有。
+- **只读档下语言服务器写不了自己的缓存**（索引、`node_modules/.cache` 一类）。超大仓因此可能变慢。这是隔离的代价，不是缺陷。
+- **在途 LSP 请求不可取消。** 工具 handler 收不到 `abortSignal`，最长等待由请求超时（默认 15 秒）界定；超时会**回收该连接**（kill 子进程），下一次调用重新起一个服务器，因此一次超时不会永久污染后续调用。
+- **`typescript-language-server` 是网关的运行时依赖。** 未安装（或不在 `PATH`）时五个 `lsp_*` 仍**留在可见集**，调用返回 `LSP_SERVER_MISSING` 与可执行的安装指引（`npm install -g typescript-language-server typescript`），不是静默消失。
+- **非 TS/JS 语言没有内置默认。** 内置映射只覆盖 `.ts/.tsx/.mts/.cts` 与 `.js/.jsx/.mjs/.cjs`；其他语言需要 `~/.volto/lsp.json`（与 `egress.json` / `permissions.json` 同纪律：每次会话构建重读，**非法即拒绝构建**）。语言未配置时调用返回可复制的配置片段，而不是构建失败：
+
+  ```json
+  { "servers": { "python": { "command": "pyright-langserver", "args": ["--stdio"] } } }
+  ```
+- **sqlite 边界有三层**（sqlite 是**进程内**句柄，沙箱管不到它）：① 库文件路径经 realpath 校验，必须落在工作区内，越界 fail-closed；② `db_query` 用**只读句柄**（`readonly` + `PRAGMA query_only = ON`），写语句由 SQLite 引擎自己拒绝，不是靠正则预筛；③ opener 显式拒绝 `ATTACH` / `DETACH` / `VACUUM INTO` / `load_extension`——这几条 `query_only` 一条也拦不住，而它们都能绕过工作区包含性去打开任意文件。
+- **`db_exec` 只在宿主授予写时存在。** 能力串是 `db:read` / `db:write`：宿主按会话档位决定 `allowWrite`（`plan` / `read-only` 档为假），为假时 SDK **根本不注册** `db_exec`——模型看不到它，而不是"看得见但必然被拒"。为真时它仍是 `WRITE_HIGH`，只读 ceiling 会再摘一次（双保险）。
+- **`better-sqlite3` 是原生模块。** 宿主未安装时首次打开会以 `isError` 返回安装命令（`pnpm add better-sqlite3`），不在构建期崩溃，也不是静默降级。
 
 ## 文档
 

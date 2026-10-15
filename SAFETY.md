@@ -52,7 +52,11 @@ volto 是实验性软件，未经过安全审计，不应用于生产环境。
 alias / `PATH` / `cwd` 不受约束）。保存失败时本次调用仍按"允许一次"执行，不会因为
 记账失败而拒掉工具调用。要撤销，编辑文件删除对应条目即可。
 
-**唯一被专门保护的读取目标是 volto 自己的凭据目录**（`~/.volto`，shell 与文件系统两侧都拒绝）。理由是闭环提权：沙箱内的进程若能读到 `auth-secret`，就能伪造网关的认证 cookie，接管本该约束它的控制平面。同理，名字形如 `*API_KEY*` / `*TOKEN*` / `*SECRET*` / `*PASSWORD*` / `*CREDENTIAL*` 的环境变量会在进入沙箱子进程前被剥离。
+**唯一被专门保护的读取目标是 volto 自己的凭据目录**（`~/.volto`，shell、文件系统与 LSP 子进程三侧都拒绝，LSP 侧见下段）。理由是闭环提权：沙箱内的进程若能读到 `auth-secret`，就能伪造网关的认证 cookie，接管本该约束它的控制平面。同理，名字形如 `*API_KEY*` / `*TOKEN*` / `*SECRET*` / `*PASSWORD*` / `*CREDENTIAL*` 的环境变量会在进入沙箱子进程前被剥离。
+
+**语言服务器（LSP）子进程用与会话同档的 `SandboxConfig` 启动，读边界与 shell / 文件工具一样宽（同样只排除 `deniedReadPaths`），但配置并非照抄那一份。** 它**不开 `network`**（Seatbelt `(deny network*)` / bwrap `--unshare-net`）、另加 `strippedEnvPatterns`，凭据目录 `~/.volto` 就在 `deniedReadPaths` 里，`*API_KEY*` / `*TOKEN*` / `*SECRET*` 一类变量在进入子进程前被剥离——语言服务器不需要网络，封掉它零成本。但沙箱只界定**可写范围与少数拒绝读路径**：除 `deniedReadPaths` 外的全盘仍可读，因此 `lsp_hover` 与诊断在原理上能把工作区外文件的内容带回模型上下文（"读边界"的已知形态）。另外三条已知限度：只读档下语言服务器写不了自己的缓存（超大仓变慢，是隔离的代价）；在途 LSP 请求**不可取消**，最长等待由请求超时界定，超时会 kill 该子进程、下次调用重起一个；非 TS/JS 语言**没有内置默认**，需要 `~/.volto/lsp.json`，未配置时返回可复制的配置片段而不是构建失败。语言服务器本身是**第三方二进制**，按"沙箱内的不可信子进程"对待——受限档下它拿不到网络与 provider 凭据（`danger-full-access` 档不隔离，与 shell / 文件工具一致：那时它继承宿主进程的网络与环境，含 provider 凭据），但读得到它能读的一切。
+
+**sqlite 句柄不受沙箱管辖，边界来自三层明确规则。** sqlite 是网关**进程内**的连接，沙箱（只管子进程的文件效果）对它无效，因此约束写在 opener 里：① 库文件路径经 realpath 校验并必须落在工作区内，越界 fail-closed；② `db_query` 用只读句柄（`readonly` + `PRAGMA query_only = ON`），写语句由 SQLite 引擎拒绝而非正则预筛；③ 显式拒绝 `ATTACH` / `DETACH` / `VACUUM INTO` / `load_extension`——`query_only` 对这四条无效，而每一条都能绕过工作区包含性去打开任意文件。写能力按档位拆分：`db:write` 只在宿主判定会话非只读（`plan` / `read-only` 档为假）时授予，为假时 `db_exec` **根本不注册**（模型看不到），为真时仍是 `WRITE_HIGH` 并受只读 ceiling 再摘一次。`better-sqlite3` 是原生模块，未安装时首次打开返回带安装命令的 `isError`。
 
 **宿主自己的凭据不在保护范围内。** `~/.ssh`、`~/.aws`、`~/.kube` 等目录对沙箱内的命令仍然可读。`SSH_AUTH_SOCK` 也被有意保留——剥离它会让 `git push` 无法工作，而这正是 `workspace-write` 应当允许的操作。在「防模型犯错」的威胁模型下这是合理的取舍；如果你的威胁模型不同，请见上一节。
 
