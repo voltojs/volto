@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { matchActionCommand, matchPlanCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
 import { drillPath, type MentionEntry } from '@/lib/mention-data';
 import { usePendingAttachments } from '@/hooks/use-attachments';
-import { isSupportedAttachmentFile } from '@/lib/attachments-api';
+import { isAttachmentAllowedForModel } from '@/lib/attachments-api';
 import { SlashPanel } from './SlashPanel';
 import { FileMentionPanel } from './FileMentionPanel';
 import { AttachmentChips } from './AttachmentChips';
@@ -82,9 +82,12 @@ export interface InputBarProps {
    */
   ensureSessionId?: () => string;
   /**
-   * 当前模型的输入模态（三态）：`["text"]` 关闭附件入口并显示原因行，
-   * `undefined`/含 `"image"` 保持开启——缺失能力记录不得静默挡住本可用
-   * 的图片路径（spec §7 / D2，原 visionSupported 的语义平移）。
+   * The current model's input modality (tri-state): `["text"]` shows the
+   * reason line and filters out image FILES only — text / PDF / JSON
+   * attachments stay available because they work with every model
+   * (spec D5); `undefined` / containing `"image"` keeps everything.
+   * A missing capability record must never silently block a usable path
+   * (spec §7 / D2, the former visionSupported semantics).
    */
   imageInput?: ModelInputValue;
 }
@@ -107,14 +110,20 @@ export function InputBar({
 }: InputBarProps) {
   const [isEmpty, setIsEmpty] = useState(true);
 
-  // 附件条目：有会话直接可用；欢迎屏（无会话）配合 ensureSessionId 同样
-  // 可用——选中的图先挂在 hook 的 'local' 状态，草稿会话 id 出现后自动上传。
-  // hook 仍需无条件调用（rules of hooks），空串只是占位，add 不会在该状态下触发。
-  // 三态判定收进组件：只有「明确声明了 input 且不含 image」才关门。
+  // Attachments are entry-gated only by session availability: a welcome
+  // screen (no session yet) pairs with ensureSessionId the same way — picks
+  // sit in the hook's 'local' state and upload once the draft id arrives.
+  // The hook must be called unconditionally (rules of hooks); the empty
+  // string is just a placeholder — add never fires in that state.
+  // The image capability (spec D5) does NOT close the entry: text / PDF /
+  // JSON attachments are available to every model, so a model declaring
+  // text-only input only has its image FILES filtered out (see
+  // takeAttachmentFiles below); the reason line keeps telling the user why
+  // images are refused.
   const imageBlocked =
     imageInput !== undefined && !imageInput.includes('image');
   const attachmentsEnabled =
-    (Boolean(sessionId) || Boolean(ensureSessionId)) && !imageBlocked;
+    Boolean(sessionId) || Boolean(ensureSessionId);
   const {
     items: pendingItems,
     add: addAttachment,
@@ -130,6 +139,7 @@ export function InputBar({
   const retryAttachmentRef = useRef(retryAttachment);
   const clearAttachmentsRef = useRef(clearAttachments);
   const attachmentsEnabledRef = useRef(attachmentsEnabled);
+  const imageBlockedRef = useRef(imageBlocked);
   const sessionIdRef = useRef(sessionId);
   const ensureSessionIdRef = useRef(ensureSessionId);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -149,15 +159,22 @@ export function InputBar({
   const addFilesRef = useRef(addFiles);
 
   /**
-   * Keep only files inside the gateway whitelist (spec D1 client copy:
-   * images, text/*, application/pdf, application/json — see
-   * isSupportedAttachmentFile in lib/attachments-api.ts); everything else
-   * (text drags, mention pastes) passes through untouched.
+   * Keep only files this composer may attach (both checks in
+   * lib/attachments-api.ts): inside the gateway whitelist (spec D1 client
+   * copy: images, text/*, application/pdf, application/json) and allowed by
+   * the current model's image capability (spec D5 — a text-only model gets
+   * image/* filtered out, never the whole entry closed). Everything else
+   * (text drags, mention pastes) passes through untouched. The imageBlocked
+   * state is read through a ref so this stays a stable callback shared by
+   * all three entries.
    */
   const takeAttachmentFiles = useCallback((fileList: FileList | null | undefined): File[] => {
     if (!fileList) return [];
-    return Array.from(fileList).filter((f) => isSupportedAttachmentFile(f));
+    return Array.from(fileList).filter((f) =>
+      isAttachmentAllowedForModel(f, imageBlockedRef.current),
+    );
   }, []);
+  const takeAttachmentFilesRef = useRef(takeAttachmentFiles);
 
   // 编辑器实例只创建一次，回调经 ref 读取最新 props，闭包不过期。
   // react-hooks v7 的 refs 规则禁止在 render 期写 ref，镜像挪进无依赖
@@ -409,9 +426,11 @@ export function InputBar({
     retryAttachmentRef.current = retryAttachment;
     clearAttachmentsRef.current = clearAttachments;
     attachmentsEnabledRef.current = attachmentsEnabled;
+    imageBlockedRef.current = imageBlocked;
     sessionIdRef.current = sessionId;
     ensureSessionIdRef.current = ensureSessionId;
     addFilesRef.current = addFiles;
+    takeAttachmentFilesRef.current = takeAttachmentFiles;
   });
 
   const editor = useEditor({
@@ -457,14 +476,13 @@ export function InputBar({
         return false;
       },
       // Paste entry: take over only when the clipboard really carries
-      // whitelisted files (spec D1 client copy). Returning false lets
-      // prosemirror keep its default paste — text pastes, mention triggers
-      // and the slash panel are all unaffected.
+      // files this composer may attach (whitelist + image capability, both
+      // via takeAttachmentFiles). Returning false lets prosemirror keep its
+      // default paste — text pastes, mention triggers and the slash panel
+      // are all unaffected.
       handlePaste: (_view, event) => {
         if (!attachmentsEnabledRef.current) return false;
-        const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
-          isSupportedAttachmentFile(f),
-        );
+        const files = takeAttachmentFilesRef.current(event.clipboardData?.files);
         if (files.length === 0) return false;
         event.preventDefault();
         addFilesRef.current(files);
@@ -566,7 +584,9 @@ export function InputBar({
               </Button>
             </>
           )}
-          {!attachmentsEnabled && imageBlocked && (
+          {/* Reason line (spec D5): the entry stays open for text/PDF, but
+              the user is told why image files are refused. */}
+          {imageBlocked && (
             <span className="text-muted-foreground text-xs">当前模型不支持图片输入</span>
           )}
           {toolbar}

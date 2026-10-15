@@ -149,12 +149,16 @@ describe('ChatPanel input-modality gating', () => {
     vi.clearAllMocks();
   });
 
-  it('hides the attachment entry and explains why when the model declares no image input', () => {
+  // Intent rewritten (Task 3b, spec D5): a text-only model no longer hides
+  // the entry — text/PDF attachments are available to EVERY model, so the
+  // entry stays and only image FILES are filtered out (the filtering itself
+  // is pinned in input-bar-attachments.test.tsx). The reason line stays.
+  it('keeps the attachment entry and explains why images are refused when the model declares no image input', () => {
     seedStores(providerWith(['text']));
 
     render(<ChatPanel />);
 
-    expect(screen.queryByLabelText('添加图片')).toBeNull();
+    expect(screen.queryByLabelText('添加图片')).not.toBeNull();
     expect(screen.getByText('当前模型不支持图片输入')).toBeTruthy();
   });
 

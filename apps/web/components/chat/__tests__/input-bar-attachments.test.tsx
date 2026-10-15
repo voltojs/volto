@@ -145,25 +145,41 @@ describe('InputBar attachments', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('disables every entry when the model declares text-only input', async () => {
+  // Intent rewritten (Task 3b, spec D5): text/PDF attachments are available
+  // to EVERY model, so a text-only model no longer closes the whole entry —
+  // only image files are filtered out. The reason line stays visible.
+  it('keeps the attachment entry open but filters images when the model declares text-only input', async () => {
     stubUpload();
     setup({ imageInput: ['text'] });
-    // 原因必须可见，而不是静默消失。
+    // The reason line stays visible, not silently dropped.
     expect(screen.getByText('当前模型不支持图片输入')).toBeInTheDocument();
-    // 文件选择入口整体不渲染（不存在可点的 paperclip / input）。
-    expect(screen.queryByTestId('attachment-file-input')).not.toBeInTheDocument();
-    // 拖拽落点仍在（卡片本身），但 drop 不得产生 chip。
+    // The entry stays open (spec D5: text/PDF are available to every model).
+    expect(screen.getByTestId('attachment-file-input')).toBeInTheDocument();
+    // Images are still refused at every entry: drop…
     const dropZone = screen.getByTestId('composer-drop-zone');
     fireEvent.drop(dropZone, {
       dataTransfer: { files: [pngFile()], items: [], types: ['Files'] },
     });
-    // 粘贴同样不接管。
+    // …paste…
     fireEvent.paste(screen.getByTestId('input-editor'), {
       clipboardData: { files: [pngFile()], items: [], types: ['Files'], getData: () => '' },
     });
-    // 给异步 add 一个不可能发生的机会：稍等后仍无 chip。
+    // …and the picker.
+    const input = screen.getByTestId('attachment-file-input') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [pngFile()], configurable: true });
+    fireEvent.change(input);
+    // Give the async add a chance to misfire before asserting absence.
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('attachment-chip')).not.toBeInTheDocument();
+
+    // A whitelisted text file still passes through the picker (spec D5).
+    Object.defineProperty(input, 'files', {
+      value: [new File(['hello'], 'notes.txt', { type: 'text/plain' })],
+      configurable: true,
+    });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByTestId('attachment-chip')).toBeInTheDocument());
+    expect(screen.getByTestId('attachment-chip')).toHaveTextContent('notes.txt');
   });
 });
 

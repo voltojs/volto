@@ -133,15 +133,22 @@ describe('historical image rendering', () => {
 });
 
 describe('input-modality gating in the composer', () => {
-  it('disables the attachment entries when the model has no vision support', () => {
+  // Intent rewritten (Task 3b, spec D5): the composer no longer renders the
+  // entry away for text-only models — text/PDF attachments are available to
+  // every model, so the entry stays and only image FILES are filtered out
+  // (the filtering itself is pinned in input-bar-attachments.test.tsx). The
+  // reason line must still explain the refusal.
+  it('keeps the attachment entry but explains why when the model has no vision support', () => {
     render(
       <InputBar sessionId="s1" onSend={vi.fn()} imageInput={['text']} />,
     );
-    // Task 8 的实现选择是「入口整体不渲染」——比 disabled 更强的门控。
+    // The entry stays open (spec D5): text / PDF attachments work with
+    // every model.
     expect(
-      screen.queryByTestId('attachment-file-input'),
-    ).not.toBeInTheDocument();
-    // 关掉能力却不说原因，用户只会以为功能坏了。
+      screen.getByTestId('attachment-file-input'),
+    ).toBeInTheDocument();
+    // Refusing a capability without saying why would leave users thinking
+    // the feature broke.
     expect(
       screen.getByText(/不支持图片|does not support image/i),
     ).toBeInTheDocument();

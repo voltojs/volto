@@ -1,3 +1,5 @@
+import { SERVER_URL } from './agent-config';
+
 /**
  * Client for the gateway's attachment endpoints (`POST /attachments`).
  * Files (images, text, PDF) are staged server-side first (AttachmentStore
@@ -28,7 +30,19 @@ export function isSupportedAttachmentFile(file: File): boolean {
   );
 }
 
-import { SERVER_URL } from './agent-config';
+/**
+ * Whether the current model may receive this file (spec D5:
+ * docs/superpowers/specs/2026-10-15-non-image-attachments-design.md).
+ * Text / PDF / JSON attachments are available to EVERY model — the image
+ * capability (the server's `assertImageInput`, mirrored by the composer's
+ * `imageBlocked` state) gates image FILES only, never the whole attachment
+ * entry. While a model declares no image input, only `image/*` files are
+ * filtered out; the whitelist itself is unchanged.
+ */
+export function isAttachmentAllowedForModel(file: File, imageBlocked: boolean): boolean {
+  if (imageBlocked && file.type.startsWith('image/')) return false;
+  return isSupportedAttachmentFile(file);
+}
 
 /** Metadata the server returns after storing an image. */
 export interface UploadedAttachment {
