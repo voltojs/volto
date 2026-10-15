@@ -35,7 +35,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos } from "@volto/core";
-import type { ModelInputLimits, ModelInputValue } from "@volto/core";
+import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@volto/core";
 import {
   readConversation,
   readTrajectory,
@@ -49,7 +49,7 @@ import {
   type ChatSessionMeta,
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
-import { createWiredAgent, type WiringOptions } from "./wiring.js";
+import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
@@ -97,6 +97,11 @@ import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
 import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
+import {
+  convertAttachments,
+  type AttachmentParsePdf,
+  type FoundAttachment,
+} from "./attachments/convert.js";
 import {
   AgentsHttpError,
   createAgentDefinition,
@@ -453,6 +458,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const attachmentRoot = path.join(getConfigDir(), "attachments");
   const attachmentStoreFor = createAttachmentStoreCache(attachmentRoot);
   const attachmentRoutes = createAttachmentRoutes({ storeFor: attachmentStoreFor });
+  // parsePdf for the attachment converter, constructed LAZILY (memoized on
+  // first use) and only awaited when a message actually carries a non-image
+  // attachment. The factory resolves to undefined when the document parser
+  // or its optional pdf-parse dependency is unavailable — PDF attachments
+  // then degrade to explanatory blocks instead of failing the request.
+  let attachmentParsePdfCache: Promise<AttachmentParsePdf | undefined> | undefined;
+  function attachmentParsePdf(): Promise<AttachmentParsePdf | undefined> {
+    attachmentParsePdfCache ??= createAttachmentParsePdf();
+    return attachmentParsePdfCache;
+  }
   // The plan-mode artifact store the /sessions/:id/plan routes read and
   // reclaim on. Rooted at the config dir via createPlanStore's own default —
   // the very root wiring.ts hands every agent instance, so a plan the
@@ -622,17 +637,28 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           return;
         }
 
-        // Resolve attachments to image blocks BEFORE the 202 ack. This
+        // Resolve attachments to content blocks BEFORE the 202 ack. This
         // endpoint acks first and streams later, so a missing id discovered
         // after the ack would surface as an unexplained SSE error instead of
         // a rejected request. Every id must exist in THIS session's store —
         // the same store the /attachments routes write to.
+        //
+        // Kind split (spec 2026-10-15 non-image attachments §4.4): image/*
+        // keeps the ref-block path below untouched — bytes stay in the store
+        // and the Runner resolves them later. Every other attachment is
+        // converted INLINE into a text block by convertAttachments. Blocks
+        // land in the message in the order the caller listed the ids,
+        // image and inline blocks interleaved.
         const imageBlocks: Array<{
           type: "image";
           source: { type: "ref"; id: string; mediaType: string };
           width?: number;
           height?: number;
         }> = [];
+        /** One slot per attachment id, in caller order; inline slots are filled after conversion. */
+        const orderedBlocks: Array<ContentBlock | undefined> = [];
+        const inlineEntries: FoundAttachment[] = [];
+        const inlineSlots: number[] = [];
         if (body.attachments !== undefined) {
           if (!Array.isArray(body.attachments) || body.attachments.some((a) => typeof a !== "string")) {
             jsonResponse(res, 400, { error: "attachments must be an array of attachment ids" });
@@ -646,6 +672,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
                 jsonResponse(res, 400, { error: `Unknown attachment id: ${id}` });
                 return;
               }
+              if (!found.mimeType.startsWith("image/")) {
+                inlineSlots.push(orderedBlocks.length);
+                inlineEntries.push(found);
+                orderedBlocks.push(undefined);
+                continue;
+              }
               // Ref-only: the bytes stay in the store, the Runner resolves
               // them later. Dimensions come from the store's ingest-time
               // metadata — absent only when the bytes were not recognized
@@ -656,9 +688,25 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
                 ...(found.width === undefined ? {} : { width: found.width }),
                 ...(found.height === undefined ? {} : { height: found.height }),
               });
+              orderedBlocks.push(imageBlocks[imageBlocks.length - 1]!);
             }
           }
         }
+
+        // Inline conversion happens BEFORE the 202 ack for the same reason
+        // the id resolution does: it must never surface as a mid-stream
+        // error. convertAttachments itself never throws — a failed
+        // attachment degrades to its own explanatory block (spec §6).
+        if (inlineEntries.length > 0) {
+          const parsePdf = await attachmentParsePdf();
+          const inlineBlocks = await convertAttachments(inlineEntries, { parsePdf });
+          for (const [index, slot] of inlineSlots.entries()) {
+            orderedBlocks[slot] = inlineBlocks[index];
+          }
+        }
+        const attachmentBlocks = orderedBlocks.filter(
+          (block): block is ContentBlock => block !== undefined,
+        );
 
         if (!registry.hasConnection(sessionId)) {
           jsonResponse(res, 409, {
@@ -710,14 +758,14 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           }
         }
 
-        // No attachments → keep the plain string. Wrapping every message in a
-        // one-element block array would needlessly shift snapshot and
-        // projection shapes for the common case.
+        // No attachment blocks → keep the plain string. Wrapping every
+        // message in a one-element block array would needlessly shift
+        // snapshot and projection shapes for the common case.
         const turnInput =
-          imageBlocks.length > 0
+          attachmentBlocks.length > 0
             ? {
                 type: "user_message" as const,
-                content: [{ type: "text" as const, text: body.message }, ...imageBlocks],
+                content: [{ type: "text" as const, text: body.message }, ...attachmentBlocks],
               }
             : body.message;
 

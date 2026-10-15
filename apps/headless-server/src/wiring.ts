@@ -5,6 +5,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createAgent, defaultClock, scanAgentSources, type AgentSpec } from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
@@ -20,8 +21,10 @@ import {
   createSandboxedFileSystem,
   createSqliteDatabaseOpener,
   createFileAuditSink,
+  createNodeDocumentParser,
 } from "@volto/runtime-node";
 import type { SandboxConfig } from "@volto/runtime-node";
+import type { AttachmentParsePdf } from "./attachments/convert.js";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import {
   dedupeInstructions,
@@ -598,4 +601,53 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
       ? { compaction: opts.compaction }
       : {}),
   });
+}
+
+/**
+ * Builds the `parsePdf` dependency of the attachment converter (spec
+ * 2026-10-15 non-image attachments §4.3): the existing node document
+ * parser (pdf-parse behind an optional peer dependency) adapted to the
+ * converter's bytes-in / { text, pages }-out seam.
+ *
+ * Callers construct this LAZILY (memoized on first use) and must tolerate
+ * `undefined`: `createNodeDocumentParser` is async and its pdf-parse
+ * import is dynamic, so a host without the optional dependency resolves
+ * to `undefined` here and PDF attachments degrade to explanatory blocks —
+ * assembly never crashes over a missing parser.
+ *
+ * Each parse writes the bytes into a randomly named temp dir under
+ * `os.tmpdir()` and removes the whole dir in `finally` (spec §7.2). The
+ * `pages` returned is the document's TOTAL page count even when a
+ * `maxPages` limit only parsed the first N — the converter needs the
+ * total to mark a truncation.
+ */
+export async function createAttachmentParsePdf(): Promise<AttachmentParsePdf | undefined> {
+  try {
+    const parser = await createNodeDocumentParser();
+    return async (bytes, opts) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "volto-attachment-pdf-"));
+      try {
+        const filePath = path.join(dir, "attachment.pdf");
+        await writeFile(filePath, bytes);
+        // The adapter takes 1-based page NUMBERS; a `maxPages` of N selects
+        // pages 1..N via its partial selection, which skips out-of-range
+        // pages instead of failing.
+        const result = await parser.parse(
+          filePath,
+          opts?.maxPages !== undefined
+            ? { pages: Array.from({ length: opts.maxPages }, (_, i) => i + 1) }
+            : undefined,
+        );
+        const pages = result.metadata?.["pages"];
+        return {
+          text: result.text ?? "",
+          pages: typeof pages === "number" ? pages : 0,
+        };
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    };
+  } catch {
+    return undefined;
+  }
 }
