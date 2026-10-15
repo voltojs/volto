@@ -37,7 +37,12 @@ describe("createAgent — toolVisibility", () => {
     expect(state.status).toBe("done");
   });
 
-  it("backward compat: no toolVisibility = no trimming", async () => {
+  it("default (no toolVisibility) still runs the agent with no configuration", async () => {
+    // Renamed from "backward compat: no toolVisibility = no trimming": T3
+    // toolset governance removed the unbounded default — the visible set is
+    // now capped at 20 with the synthesized floor table (pinned in
+    // tool-visibility-default.test.ts). What this pin keeps is the original
+    // intent: no configuration is needed for the agent to run.
     const names = Array.from({ length: 30 }, (_, i) => `tool_${i}`);
     const agent = makeAgentWithTools(names);
     const state = await agent.run("hi");

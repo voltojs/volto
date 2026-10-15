@@ -88,6 +88,8 @@ import type { SubAgentDispatch, AgentTypeSummary } from "@volto/tools-agent";
 import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@volto/tools-agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
+import { buildDefaultToolVisibility } from "./tool-scope-default.js";
+import type { ToolVisibility } from "./tool-scope-default.js";
 
 /**
  * Sync sub-agent request handed to the per-dispatch executor. Background
@@ -891,9 +893,12 @@ export interface CreateAgentOptions {
 
   /**
    * Tool visibility trimming — after capability gating, trim the visible tool
-   * set by scope group and/or hard limit (default: ~20). Applied at turn
+   * set by scope group and/or hard limit. Applied at turn
    * boundaries so static prefix caching remains stable.
-   * If omitted, no trimming beyond capability gating is applied.
+   * If omitted, the built-in default applies: the synthesized five-tier scope
+   * (floor table) with limit 20. An explicit value wholesale-replaces the
+   * default (never merged); `limit: Infinity` is the explicit escape hatch
+   * that opts out of the cap entirely.
    */
   toolVisibility?: {
     /** Scope-based group filtering config */
@@ -1588,9 +1593,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
     toolDefs.push(...sourceDefs);
 
-    // Apply scope/limit trimming after merging source tools
-    if (toolDefs.length > visibilityLimit || visibilityScope) {
-      const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);
+    // Apply scope/limit trimming after merging source tools — same
+    // resolution rule as the initial trim (resolveVisibility below), so the
+    // refreshed list stays governed instead of falling back to no trimming.
+    const refreshedVisibility = resolveVisibility(toolDefs);
+    if (toolDefs.length > refreshedVisibility.limit || refreshedVisibility.scope) {
+      const trimmed = filterByScope(toolDefs, refreshedVisibility.scope, refreshedVisibility.limit);
       toolDefs.length = 0;
       toolDefs.push(...trimmed);
     }
@@ -1599,13 +1607,38 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const allTools = [...allCustomTools, ...adapterTools];
   const toolDefs: ToolDefinition[] = [...allTools.map((t) => t.definition)];
 
-  // Apply scope/limit trimming to initial tool set
-  // When toolVisibility is not provided, default to no limit (Infinity)
-  // to preserve backward compatibility with pre-M10 behavior.
+  // Tool visibility resolution (T3 toolset governance) — shared by both
+  // trimming call sites: the initial assembly here and the ToolSource
+  // refresh above.
+  // Host override (D5): an explicit toolVisibility wholesale-replaces the
+  // built-in default — scope defaults to null and limit to 20, never merged
+  // with the built-in table. The resolved values are literal and identical
+  // at every call site. `Infinity` is no longer produced on any default
+  // path; it survives only as an explicit host override (the escape hatch
+  // for stress tests / debugging).
+  // No override: the built-in default applies — a synthesized five-tier
+  // scope (floor 14 + tier table) with limit 20, so the visible set is
+  // governed instead of unbounded. The scope is re-synthesized from the
+  // CURRENT assembled list at each trim point: tools discovered by a
+  // ToolSource refresh must land in the rest tier and merely compete for
+  // the cap, never fall off the whitelist and be dropped wholesale
+  // (spec 2026-10-15-toolset-governance-design.md, D3/D4 synthesis rule 3).
   const resolvedVisibility = resolve(opts.toolVisibility, "toolVisibility") as
-    { scope?: ToolScopeConfig; limit?: number } | undefined;
-  const visibilityLimit = resolvedVisibility?.limit ?? (resolvedVisibility ? 20 : Infinity);
-  const visibilityScope = resolvedVisibility?.scope ?? null;
+    ToolVisibility | undefined;
+  function resolveVisibility(defs: readonly ToolDefinition[]): {
+    scope: ToolScopeConfig | null;
+    limit: number;
+  } {
+    if (resolvedVisibility) {
+      return { scope: resolvedVisibility.scope ?? null, limit: resolvedVisibility.limit ?? 20 };
+    }
+    return buildDefaultToolVisibility(defs, {
+      hasLsp: opts.lsp !== undefined,
+      hasDb: opts.db !== undefined,
+      hasBrowser: opts.browserAdapter !== undefined,
+    });
+  }
+  const { scope: visibilityScope, limit: visibilityLimit } = resolveVisibility(toolDefs);
   if (toolDefs.length > visibilityLimit || visibilityScope) {
     const trimmed = filterByScope(toolDefs, visibilityScope, visibilityLimit);
     toolDefs.length = 0;
