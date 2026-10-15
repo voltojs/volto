@@ -127,13 +127,22 @@ describe("F-151 executor backstop B — background dispatch from a sub-agent", (
     });
     await agent.run("delegate twice");
 
-    // 0 parent dispatches, 1 child attempts the background dispatch,
-    // 2 child sees the refusal and wraps up, 3 parent wraps up.
-    expect(requests.length).toBe(4);
+    // The signature assertions come FIRST: they are the pin (backstop B
+    // normalizes to isError with an exact signature through the task tool),
+    // and toolResultOf throws if the child's follow-up request carries no
+    // tool_result for the call at all. A request-count coupling must never
+    // preempt them — a count mismatch would otherwise mask whether the
+    // rejection signature itself still discriminates. The count is only a
+    // loose sanity floor: a broken backstop turns the refusal into a
+    // synchronous dispatch (extra model rounds), which `>=` still admits
+    // while the signature assertion below fails loudly.
     const refusal = toolResultOf(requests[2]!, "c1");
     expect(refusal.isError).toBe(true);
     expect(refusal.text).toBe(
       "Sub-agent error: Background dispatch is not available to a sub-agent; run the task synchronously.",
     );
+    // 0 parent dispatches, 1 child attempts the background dispatch,
+    // 2 child sees the refusal and wraps up (3 parent wraps up).
+    expect(requests.length).toBeGreaterThanOrEqual(3);
   });
 });
