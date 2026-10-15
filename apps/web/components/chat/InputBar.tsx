@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { matchActionCommand, matchPlanCommand, type CommandItem, type InputAction } from '@/lib/input-commands';
 import { drillPath, type MentionEntry } from '@/lib/mention-data';
 import { usePendingAttachments } from '@/hooks/use-attachments';
+import { isSupportedAttachmentFile } from '@/lib/attachments-api';
 import { SlashPanel } from './SlashPanel';
 import { FileMentionPanel } from './FileMentionPanel';
 import { AttachmentChips } from './AttachmentChips';
@@ -134,9 +135,11 @@ export function InputBar({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   /**
-   * 统一的图片入列口（粘贴 / 拖拽 / 文件选择共用）：欢迎屏首次 attach 时先
-   * 经 ensureSessionId 建好草稿会话（宿主只创建不切换视图），随后的 re-render
-   * 把 sessionId 传进 hook，'local' 条目由 hook 的 effect 自动上传。
+   * Unified attach entry (shared by paste / drop / file picker): the first
+   * attach on the welcome screen creates the draft session through
+   * ensureSessionId (the host only creates, never switches views); the
+   * subsequent re-render passes the sessionId into the hook and the hook's
+   * effect uploads the 'local' items automatically.
    */
   const addFiles = useCallback((files: File[]): void => {
     if (files.length === 0) return;
@@ -145,10 +148,15 @@ export function InputBar({
   }, []);
   const addFilesRef = useRef(addFiles);
 
-  /** 只接受图片文件；其余（文本拖拽、mention 粘贴）原样放行。 */
-  const takeImageFiles = useCallback((fileList: FileList | null | undefined): File[] => {
+  /**
+   * Keep only files inside the gateway whitelist (spec D1 client copy:
+   * images, text/*, application/pdf, application/json — see
+   * isSupportedAttachmentFile in lib/attachments-api.ts); everything else
+   * (text drags, mention pastes) passes through untouched.
+   */
+  const takeAttachmentFiles = useCallback((fileList: FileList | null | undefined): File[] => {
     if (!fileList) return [];
-    return Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+    return Array.from(fileList).filter((f) => isSupportedAttachmentFile(f));
   }, []);
 
   // 编辑器实例只创建一次，回调经 ref 读取最新 props，闭包不过期。
@@ -448,16 +456,18 @@ export function InputBar({
         }
         return false;
       },
-      // 粘贴入口：仅当剪贴板真的带了图片文件时接管。返回 false 让 prosemirror
-      // 继续默认粘贴——文本粘贴、mention 触发、slash 面板都不受影响。
+      // Paste entry: take over only when the clipboard really carries
+      // whitelisted files (spec D1 client copy). Returning false lets
+      // prosemirror keep its default paste — text pastes, mention triggers
+      // and the slash panel are all unaffected.
       handlePaste: (_view, event) => {
         if (!attachmentsEnabledRef.current) return false;
-        const images = Array.from(event.clipboardData?.files ?? []).filter((f) =>
-          f.type.startsWith('image/'),
+        const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
+          isSupportedAttachmentFile(f),
         );
-        if (images.length === 0) return false;
+        if (files.length === 0) return false;
         event.preventDefault();
-        addFilesRef.current(images);
+        addFilesRef.current(files);
         return true;
       },
     },
@@ -499,10 +509,10 @@ export function InputBar({
   };
   const handleDrop = (e: DragEvent) => {
     if (!attachmentsEnabled) return;
-    const images = takeImageFiles(e.dataTransfer?.files);
-    if (images.length === 0) return;
+    const files = takeAttachmentFiles(e.dataTransfer?.files);
+    if (files.length === 0) return;
     e.preventDefault();
-    addFiles(images);
+    addFiles(files);
   };
 
   const hasUploading = pendingItems.some((item) => item.status === 'uploading');
@@ -528,19 +538,20 @@ export function InputBar({
         <div className="flex items-center gap-1 px-2.5 pb-2.5">
           {attachmentsEnabled && (
             <>
-              {/* 隐藏的 file input：由左侧 paperclip 按钮触发，accept 限图片。 */}
+              {/* Hidden file input: triggered by the paperclip button; accept
+                  mirrors the gateway upload whitelist (spec D6). */}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,text/*,application/pdf,application/json"
                 multiple
                 data-testid="attachment-file-input"
                 className="hidden"
                 onChange={(e) => {
-                  const images = takeImageFiles(e.target.files);
-                  // 清空 value：同一文件被再次选中时 change 仍会触发。
+                  const files = takeAttachmentFiles(e.target.files);
+                  // Reset the value so picking the same file again fires change.
                   e.target.value = '';
-                  addFiles(images);
+                  addFiles(files);
                 }}
               />
               <Button

@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { uploadAttachment } from '@/lib/attachments-api';
+import { isSupportedAttachmentFile, uploadAttachment } from '@/lib/attachments-api';
 
 /**
  * 'local' = 已选入但还没有会话可上传（欢迎屏：会话在首次发送时才创建）。
@@ -23,7 +23,7 @@ export interface PendingAttachmentItem {
   status: PendingAttachmentStatus;
   /** Server attachment id; present once status is 'ready'. */
   id?: string;
-  /** Object URL for local thumbnail preview; revoked on remove/clear. */
+  /** Object URL for the local thumbnail (images only); '' for non-image files (spec D6: no thumbnail), revoked on remove/clear. */
   previewUrl: string;
   name?: string;
   mimeType?: string;
@@ -59,7 +59,7 @@ export function usePendingAttachments(sessionId: string) {
     const files = filesRef.current;
     return () => {
       for (const item of itemsRef.current) {
-        URL.revokeObjectURL(item.previewUrl);
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
       }
       files.clear();
     };
@@ -72,7 +72,7 @@ export function usePendingAttachments(sessionId: string) {
    */
   const resetAll = useCallback((): void => {
     for (const item of itemsRef.current) {
-      URL.revokeObjectURL(item.previewUrl);
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     }
     filesRef.current.clear();
     setItems([]);
@@ -146,13 +146,17 @@ export function usePendingAttachments(sessionId: string) {
 
   const add = useCallback(
     async (file: File): Promise<void> => {
-      // Reject non-images before any network work — the server would 400
-      // anyway, and an optimistic chip for an impossible upload is noise.
-      if (!isImageFile(file)) return;
+      // Reject files outside the gateway whitelist before any network work
+      // (spec D1 client copy: text/*, application/pdf, application/json plus
+      // images) — the server would 400 anyway, and an optimistic chip for an
+      // impossible upload is noise.
+      if (!isSupportedAttachmentFile(file)) return;
 
       const localId = nextLocalId();
       filesRef.current.set(localId, file);
-      const previewUrl = URL.createObjectURL(file);
+      // Thumbnails exist for images only; non-image files carry no object
+      // URL, so the chip renders filename + file icon instead (spec D6).
+      const previewUrl = isImageFile(file) ? URL.createObjectURL(file) : '';
       // 无会话（欢迎屏）先以 'local' 入列，绝不拿空 sessionId 发请求。
       const initialStatus: PendingAttachmentStatus = sessionId
         ? 'uploading'
@@ -179,7 +183,7 @@ export function usePendingAttachments(sessionId: string) {
 
   const remove = useCallback((localId: string): void => {
     const target = itemsRef.current.find((item) => item.localId === localId);
-    if (target) URL.revokeObjectURL(target.previewUrl);
+    if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
     filesRef.current.delete(localId);
     setItems((prev) => prev.filter((item) => item.localId !== localId));
   }, []);

@@ -1,9 +1,32 @@
 /**
  * Client for the gateway's attachment endpoints (`POST /attachments`).
- * Images are staged server-side first (AttachmentStore returns an id), then
- * that id travels with `POST /messages` — base64 never enters conversation
- * state. Same SERVER_URL + credentials convention as sessions-api.ts.
+ * Files (images, text, PDF) are staged server-side first (AttachmentStore
+ * returns an id), then that id travels with `POST /messages` — base64 never
+ * enters conversation state. Same SERVER_URL + credentials convention as
+ * sessions-api.ts.
  */
+
+/**
+ * Client-side copy of the gateway's upload whitelist (spec D1:
+ * docs/superpowers/specs/2026-10-15-non-image-attachments-design.md).
+ * The real boundary is server-side — `POST /attachments` 400s anything
+ * outside this table — so this copy only keeps impossible picks from ever
+ * reaching the network (spec §9.3: the client filter is UX, not the
+ * boundary). It mirrors `classifyUpload` in
+ * apps/headless-server/src/attachments/routes.ts: `text/*` by prefix rule,
+ * `application/pdf` and `application/json` by exact match. The `image/`
+ * prefix stays broader than the server's image enumeration — a mismatch
+ * fails closed at the gateway, never open here.
+ */
+export function isSupportedAttachmentFile(file: File): boolean {
+  const type = file.type;
+  return (
+    type.startsWith('image/') ||
+    type.startsWith('text/') ||
+    type === 'application/pdf' ||
+    type === 'application/json'
+  );
+}
 
 import { SERVER_URL } from './agent-config';
 
@@ -61,9 +84,12 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 /**
- * Upload one image file to the gateway. Throws `AttachmentUploadError` on
- * any non-ok response so the pending-attachment hook can keep the failed
- * item visible and offer a retry.
+ * Upload one whitelisted file to the gateway, carrying its filename so the
+ * server can store it in the attachment meta (spec D4 — the stored name is
+ * the single source of truth for the inline header line and the UI chip).
+ * Throws `AttachmentUploadError` on any non-ok response so the
+ * pending-attachment hook can keep the failed item visible and offer a
+ * retry.
  */
 export async function uploadAttachment(
   sessionId: string,
@@ -78,6 +104,7 @@ export async function uploadAttachment(
       sessionId,
       data,
       mimeType: file.type,
+      name: file.name,
     }),
   });
   if (!response.ok) {

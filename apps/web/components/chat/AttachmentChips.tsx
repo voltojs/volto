@@ -3,13 +3,15 @@
 /**
  * Pending-attachment chips shown above the composer.
  *
- * Each chip is one optimistic upload from usePendingAttachments: a local
- * thumbnail, an optional filename, a remove button, and — when the upload
- * failed — a retry affordance. Removing a chip never touches the editor's
- * text; the two states are independent.
+ * Each chip is one optimistic upload from usePendingAttachments: images get
+ * a local thumbnail, non-image files (text / PDF, spec D6) get a file icon
+ * plus the filename — never a thumbnail. Every chip carries an optional
+ * filename, a remove button, and — when the upload failed — a retry
+ * affordance. Removing a chip never touches the editor's text; the two
+ * states are independent.
  */
 
-import { X, RotateCw, ImageOff } from 'lucide-react';
+import { X, RotateCw, FileText } from 'lucide-react';
 import type { PendingAttachmentItem } from '@/hooks/use-attachments';
 
 export interface AttachmentChipsProps {
@@ -36,7 +38,8 @@ export function AttachmentChips({ items, onRemove, onRetry }: AttachmentChipsPro
               className="h-8 w-8 rounded object-cover"
             />
           ) : (
-            <ImageOff className="text-muted-foreground h-8 w-8 p-1.5" />
+            // Non-image item (spec D6): filename + file icon, no thumbnail.
+            <FileText className="text-muted-foreground h-8 w-8 p-1.5" />
           )}
           {item.name && (
             <span className="max-w-32 truncate text-xs">{item.name}</span>

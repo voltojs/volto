@@ -234,3 +234,109 @@ describe('InputBar attachments — welcome screen (no session yet)', () => {
     );
   });
 });
+
+// Non-image attachments (spec D6): the picker admits the gateway whitelist
+// (text/*, application/pdf, application/json), non-image chips show the
+// filename without a thumbnail, and the upload payload carries the file
+// name (spec D4 wire field). Zip and other binaries stay rejected.
+describe('InputBar attachments — non-image whitelist (spec D6)', () => {
+  function textFile(name = 'notes.txt', type = 'text/plain') {
+    return new File(['hello inline'], name, { type });
+  }
+  function pdfFile(name = 'report.pdf') {
+    return new File([Uint8Array.from([0x25, 0x50, 0x44, 0x46])], name, {
+      type: 'application/pdf',
+    });
+  }
+  function zipFile(name = 'archive.zip') {
+    return new File([Uint8Array.from([0x50, 0x4b, 0x03, 0x04])], name, {
+      type: 'application/zip',
+    });
+  }
+
+  it('widens the file input accept attribute to the gateway whitelist', () => {
+    stubUpload();
+    setup();
+    expect(screen.getByTestId('attachment-file-input')).toHaveAttribute(
+      'accept',
+      'image/*,text/*,application/pdf,application/json',
+    );
+  });
+
+  it('uploads a pasted text file with its name and shows a filename chip without a thumbnail', async () => {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ id: 'att-txt', mimeType: 'text/plain', size: 12 }),
+          { status: 201 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const { editorEl } = setup();
+    fireEvent.paste(editorEl(), {
+      clipboardData: { files: [textFile()], items: [], types: ['Files'], getData: () => '' },
+    });
+    await waitFor(() => expect(screen.getByTestId('attachment-chip')).toBeInTheDocument());
+    const chip = screen.getByTestId('attachment-chip');
+    // Filename visible, no <img> thumbnail for a non-image item (spec D6).
+    expect(chip).toHaveTextContent('notes.txt');
+    expect(chip.querySelector('img')).toBeNull();
+    await waitFor(() => expect(chip).toHaveAttribute('data-status', 'ready'));
+
+    // The upload payload carries the wire `name` field (spec D4/D6).
+    const body = JSON.parse((fetchSpy.mock.calls[0]?.[1]?.body ?? '') as string) as {
+      sessionId: string;
+      mimeType: string;
+      name: string;
+    };
+    expect(body).toMatchObject({
+      sessionId: 's1',
+      mimeType: 'text/plain',
+      name: 'notes.txt',
+    });
+  });
+
+  it('accepts a dropped PDF without a thumbnail', async () => {
+    stubUpload();
+    setup();
+    fireEvent.drop(screen.getByTestId('composer-drop-zone'), {
+      dataTransfer: { files: [pdfFile()], items: [], types: ['Files'] },
+    });
+    await waitFor(() => expect(screen.getByTestId('attachment-chip')).toBeInTheDocument());
+    const chip = screen.getByTestId('attachment-chip');
+    expect(chip).toHaveTextContent('report.pdf');
+    expect(chip.querySelector('img')).toBeNull();
+  });
+
+  it('accepts a JSON file chosen through the button', async () => {
+    stubUpload();
+    setup();
+    const input = screen.getByTestId('attachment-file-input') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: [textFile('config.json', 'application/json')],
+      configurable: true,
+    });
+    fireEvent.change(input);
+    await waitFor(() => expect(screen.getByTestId('attachment-chip')).toBeInTheDocument());
+    expect(screen.getByTestId('attachment-chip')).toHaveTextContent('config.json');
+  });
+
+  it('rejects a zip file at every entry point (no chip, no request)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    setup();
+    fireEvent.paste(screen.getByTestId('input-editor'), {
+      clipboardData: { files: [zipFile()], items: [], types: ['Files'], getData: () => '' },
+    });
+    fireEvent.drop(screen.getByTestId('composer-drop-zone'), {
+      dataTransfer: { files: [zipFile()], items: [], types: ['Files'] },
+    });
+    const input = screen.getByTestId('attachment-file-input') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [zipFile()], configurable: true });
+    fireEvent.change(input);
+    // Give the async add path a chance to misfire before asserting absence.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId('attachment-chip')).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
