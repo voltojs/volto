@@ -1,4 +1,4 @@
-import type { ToolResult } from "@volto/core";
+import type { TokenUsage, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
@@ -6,16 +6,25 @@ import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 /**
  * Structured result returned by a sub-agent dispatch.
  *
- * Token usage is deliberately absent: the child's usage already reaches the
- * host on the event stream tagged with its `agentDepth` and session id, and a
- * second copy here would be one more place to drift out of sync.
+ * `usage` is the child's token accounting for the whole run, accumulated from
+ * its event stream. It rides the model-facing envelope because the parent
+ * model — not just the host — needs cost visibility to decide whether another
+ * dispatch is worth it; the host still receives the same numbers on the event
+ * stream, so billing has a single source of truth.
  */
 export interface SubAgentResult {
   taskId: string;
   /** Present when dispatched synchronously. */
   text?: string;
-  /** Child transcript session id, so the UI can drill into it. */
+  /**
+   * Child transcript session id. It rides the model-facing envelope so the
+   * parent can reference the child's result when aggregating and ask the host
+   * to drill into that transcript; the UI keeps its direct path through
+   * `displayMetadata.sessionId`.
+   */
   sessionId?: string;
+  /** Present when usage events were captured for the child run. */
+  usage?: TokenUsage;
 }
 
 /**
@@ -26,12 +35,40 @@ export type SubAgentDispatch = (req: {
   message: string;
   subagentType?: string;
   background?: boolean;
+  /** Per-dispatch model override; takes precedence over the agent definition's model. */
+  model?: string;
 }) => Promise<SubAgentResult>;
 
 /** One available sub-agent definition, rendered into the tool description. */
 export interface AgentTypeSummary {
   name: string;
   description?: string;
+}
+
+const NO_OUTPUT = "(Sub-agent completed with no output)";
+
+/**
+ * Assemble the model-facing content of a successful dispatch: the body as the
+ * first text block, then a bare JSON envelope as the second. Optional keys
+ * are omitted when absent — never written as null — so consumers can tell
+ * "unknown" from "empty". Failures never go through this helper; they stay a
+ * single plain-text `isError` result.
+ */
+export function buildResultBlocks(
+  text: string | undefined,
+  meta: { childSessionId?: string; usage?: TokenUsage },
+): NonNullable<ToolResult["modelContent"]> {
+  const envelope = {
+    ...(meta.childSessionId !== undefined
+      ? { childSessionId: meta.childSessionId }
+      : {}),
+    status: "completed" as const,
+    ...(meta.usage !== undefined ? { usage: meta.usage } : {}),
+  };
+  return [
+    { type: "text", text: text || NO_OUTPUT },
+    { type: "text", text: JSON.stringify(envelope) },
+  ];
 }
 
 const taskSchema = z.object({
@@ -43,6 +80,10 @@ const taskSchema = z.object({
   ),
   run_in_background: z.boolean().optional().describe(
     "Return a task id immediately instead of waiting for the result.",
+  ),
+  model: z.string().optional().describe(
+    "Model for this dispatch only; overrides the agent definition's model. " +
+    "Omit to use the definition's model (or the parent's).",
   ),
 });
 
@@ -92,6 +133,7 @@ export function createTaskTool(
           message: input.message,
           subagentType: input.subagent_type,
           background: input.run_in_background,
+          model: input.model,
         });
 
         if (input.run_in_background) {
@@ -106,10 +148,10 @@ export function createTaskTool(
         }
 
         return {
-          modelContent: result.text || "(Sub-agent completed with no output)",
-          // sessionId rides the display layer only: it is the child's
-          // transcript id for the UI to drill into, and means nothing to
-          // the model.
+          modelContent: buildResultBlocks(result.text, {
+            childSessionId: result.sessionId,
+            usage: result.usage,
+          }),
           displayMetadata: {
             taskId: result.taskId,
             background: false,

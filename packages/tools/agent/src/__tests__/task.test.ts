@@ -26,11 +26,14 @@ describe("createTaskTool", () => {
 
     const result = await tool.handler({ message: "do something" });
 
-    expect(result.modelContent).toBe("Result for: do something");
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({ type: "text", text: "Result for: do something" });
+    expect(JSON.parse(blocks[1]!.text)).toEqual({ status: "completed" });
     expect(result.isError).toBeUndefined();
   });
 
-  it("passes the child session id through to displayMetadata", async () => {
+  it("passes the child session id through to displayMetadata and the envelope", async () => {
     const tool = createTaskTool(async () => ({
       taskId: "t1",
       text: "done",
@@ -39,14 +42,19 @@ describe("createTaskTool", () => {
 
     const result = await tool.handler({ message: "go" });
 
-    // The UI drills into the child transcript with this; the model never
-    // sees it (display layer only).
+    // The model now legitimately holds the child session id: it references
+    // the child's result when aggregating and can ask the host to drill into
+    // that transcript. The UI keeps its direct path via displayMetadata.
     expect(result.displayMetadata).toEqual({
       taskId: "t1",
       background: false,
       sessionId: "sess-1-sub-9",
     });
-    expect(result.modelContent).not.toContain("sess-1-sub-9");
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(JSON.parse(blocks[1]!.text)).toEqual({
+      childSessionId: "sess-1-sub-9",
+      status: "completed",
+    });
   });
 
   it("omits sessionId when the dispatch reports none", async () => {
@@ -74,8 +82,66 @@ describe("createTaskTool", () => {
 
     const result = await tool.handler({ message: "empty" });
 
-    expect(result.modelContent).toContain("no output");
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks[0]).toEqual({
+      type: "text",
+      text: "(Sub-agent completed with no output)",
+    });
     expect(result.isError).toBeUndefined();
+  });
+
+  it("F-142 sync success returns two text blocks: body then a JSON envelope", async () => {
+    const tool = createTaskTool(async () => ({
+      taskId: "t1", text: "done", sessionId: "sess-sub-1",
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 800 },
+    }));
+    const result = await tool.handler({ message: "go" });
+    expect(result.isError).toBeUndefined();
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({ type: "text", text: "done" });
+    expect(JSON.parse(blocks[1]!.text)).toEqual({
+      childSessionId: "sess-sub-1",
+      status: "completed",
+      usage: { inputTokens: 1200, outputTokens: 340, cacheReadTokens: 800 },
+    });
+    expect(result.displayMetadata).toEqual({ taskId: "t1", background: false, sessionId: "sess-sub-1" });
+  });
+
+  it("F-142 omits optional envelope keys instead of writing null", async () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "done" }));
+    const result = await tool.handler({ message: "go" });
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks).toHaveLength(2);
+    const env = JSON.parse(blocks[1]!.text) as Record<string, unknown>;
+    expect(env).toEqual({ status: "completed" });
+    expect("childSessionId" in env).toBe(false);
+    expect("usage" in env).toBe(false);
+  });
+
+  it("F-143 a dispatch failure stays a single plain-text isError result, never an envelope", async () => {
+    const tool = createTaskTool(async () => { throw new Error("sub-agent crashed"); });
+    const result = await tool.handler({ message: "go" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent).toBe("Sub-agent error: sub-agent crashed");
+  });
+
+  it("F-141 passes the model override through to dispatch", async () => {
+    const seen: Array<{ model?: string }> = [];
+    const tool = createTaskTool(async (req) => {
+      seen.push({ model: req.model });
+      return { taskId: "t1", text: "ok" };
+    });
+    await tool.handler({ message: "go", model: "haiku" });
+    expect(seen).toEqual([{ model: "haiku" }]);
+  });
+
+  it("F-141 the model field appears in the tool schema", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "ok" }));
+    const props = tool.definition.inputSchema.properties as Record<string, unknown>;
+    expect(Object.keys(props)).toEqual(
+      expect.arrayContaining(["message", "subagent_type", "run_in_background", "model"]),
+    );
   });
 
   it("should reject invalid input", async () => {

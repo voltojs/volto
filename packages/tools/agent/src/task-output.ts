@@ -1,16 +1,21 @@
-import type { ToolResult } from "@volto/core";
+import type { TokenUsage, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
+import { buildResultBlocks } from "./task.js";
 
 /**
  * Collect the result of a previously dispatched background sub-agent task.
- * Returns either the finished text or an error description (unknown id,
- * still running, failed, …).
+ * Returns the finished text plus the same optional envelope inputs as a sync
+ * dispatch (child session id, accumulated usage), or an error description
+ * (unknown id, still running, failed, …). Optional keys are omitted when
+ * absent — never null.
  */
 export type SubAgentOutputCollector = (
   taskId: string,
-) => Promise<{ text: string } | { error: string }>;
+) => Promise<
+  { text: string; childSessionId?: string; usage?: TokenUsage } | { error: string }
+>;
 
 const taskOutputSchema = z.object({
   task_id: z
@@ -40,7 +45,10 @@ export function createTaskOutputTool(collect: SubAgentOutputCollector) {
           };
         }
         return {
-          modelContent: result.text,
+          modelContent: buildResultBlocks(result.text, {
+            childSessionId: result.childSessionId,
+            usage: result.usage,
+          }),
           displayMetadata: { taskId: input.task_id },
         };
       } catch (err: unknown) {

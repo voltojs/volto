@@ -10,7 +10,7 @@ describe("task tool contract", () => {
   it("accepts subagent_type and run_in_background", () => {
     const tool = createTaskTool(async () => ({ taskId: "t1", text: "ok" }), { types });
     const props = tool.definition.inputSchema.properties ?? {};
-    expect(Object.keys(props)).toEqual(expect.arrayContaining(["message", "subagent_type", "run_in_background"]));
+    expect(Object.keys(props)).toEqual(expect.arrayContaining(["message", "subagent_type", "run_in_background", "model"]));
   });
 
   it("lists available types in the description", () => {
@@ -46,7 +46,9 @@ describe("task tool contract", () => {
   it("returns the text when dispatched synchronously", async () => {
     const tool = createTaskTool(async () => ({ taskId: "t1", text: "the answer" }), { types });
     const result = await tool.handler({ message: "go" });
-    expect(result.modelContent as string).toContain("the answer");
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks[0]).toEqual({ type: "text", text: "the answer" });
+    expect(JSON.parse(blocks[1]!.text)).toEqual({ status: "completed" });
   });
 });
 
@@ -54,7 +56,32 @@ describe("task_output", () => {
   it("returns the collected result", async () => {
     const tool = createTaskOutputTool(async () => ({ text: "done" }));
     const result = await tool.handler({ task_id: "t1" });
-    expect(result.modelContent as string).toContain("done");
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks[0]).toEqual({ type: "text", text: "done" });
+  });
+
+  it("F-144 task_output success returns the same envelope shape as sync task", async () => {
+    const tool = createTaskOutputTool(async () => ({
+      text: "bg result", childSessionId: "sess-sub-2",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    }));
+    const result = await tool.handler({ task_id: "t9" });
+    const blocks = result.modelContent as Array<{ type: string; text: string }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({ type: "text", text: "bg result" });
+    expect(JSON.parse(blocks[1]!.text)).toEqual({
+      childSessionId: "sess-sub-2",
+      status: "completed",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+    expect(result.displayMetadata).toEqual({ taskId: "t9" });
+  });
+
+  it("F-144 task_output error stays plain-text isError", async () => {
+    const tool = createTaskOutputTool(async () => ({ error: "unknown task: nope" }));
+    const result = await tool.handler({ task_id: "nope" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent).toBe("unknown task: nope");
   });
 
   it("reports an unknown task id as an error, not an empty result", async () => {
