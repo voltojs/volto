@@ -46,7 +46,7 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
   const dirFor = (sessionId: string) => path.join(root, sessionId);
 
   return {
-    async put(data: string, mimeType: string): Promise<StoredAttachment> {
+    async put(data: string, mimeType: string, putOpts?: { name?: string }): Promise<StoredAttachment> {
       const dir = dirFor(opts.sessionId);
       await fs.mkdir(dir, { recursive: true });
       const bytes = Buffer.from(data, "base64");
@@ -57,6 +57,10 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
         mimeType,
         size: bytes.byteLength,
         ...(dims ?? {}),
+        // The name is the client's original filename: model-visible only,
+        // stored as a sidecar field, never part of the address (id alone).
+        // Absent putOpts.name must leave the key out, not store an empty one.
+        ...(putOpts?.name !== undefined ? { name: putOpts.name } : {}),
       };
       await fs.writeFile(path.join(dir, id), bytes);
       await fs.writeFile(path.join(dir, id + SIDECAR), JSON.stringify(meta), "utf8");

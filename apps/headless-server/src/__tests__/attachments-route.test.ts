@@ -95,6 +95,65 @@ describe("/attachments", () => {
     }
   });
 
+  it("F-171 accepts text/*, application/json and application/pdf; rejects zip", async () => {
+    const { url, token, sessionId, close } = await startTestServer();
+    try {
+      const post = (mimeType: string, extra?: Record<string, unknown>) =>
+        fetch(`${url}/attachments`, {
+          method: "POST",
+          headers: auth(token),
+          body: JSON.stringify({ sessionId, data: "aGk=", mimeType, ...extra }),
+        });
+
+      // A non-empty name lands in the returned meta verbatim (spec D4).
+      const named = await post("text/plain", { name: "a.txt" });
+      expect(named.status).toBe(201);
+      expect(await named.json()).toMatchObject({ mimeType: "text/plain", name: "a.txt" });
+
+      // An omitted name stays absent — the field is optional end to end.
+      const unnamed = await post("text/plain");
+      expect(unnamed.status).toBe(201);
+      expect("name" in ((await unnamed.json()) as object)).toBe(false);
+
+      for (const mimeType of ["text/markdown", "application/json", "application/pdf"]) {
+        const res = await post(mimeType);
+        expect(res.status, `${mimeType} should upload`).toBe(201);
+      }
+
+      // Binaries have no conversion path; zip is the D1 rejection case.
+      const zip = await post("application/zip");
+      expect(zip.status).toBe(400);
+      expect(await zip.json()).toMatchObject({ error: "Unsupported mimeType: application/zip" });
+    } finally {
+      await close();
+    }
+  });
+
+  it("F-171 enforces per-kind size limits", async () => {
+    const { url, token, sessionId, close } = await startTestServer();
+    try {
+      const post = (data: string, mimeType: string) =>
+        fetch(`${url}/attachments`, {
+          method: "POST",
+          headers: auth(token),
+          body: JSON.stringify({ sessionId, data, mimeType }),
+        });
+
+      // These bodies sit just under ATTACHMENT_BODY_LIMIT, so a 413 here is
+      // the per-kind base64 cap rejecting — not the raw body reader.
+      // Text/json cap at 2 MiB: one base64 char over -> 413.
+      expect((await post("A".repeat(2 * 1024 * 1024 + 1), "text/plain")).status).toBe(413);
+      // PDF shares the image cap of 5 MiB: one base64 char over -> 413.
+      expect((await post("A".repeat(5 * 1024 * 1024 + 1), "application/pdf")).status).toBe(413);
+      // Image regression: the existing 5 MiB cap keeps its current behavior.
+      expect((await post("A".repeat(5 * 1024 * 1024 + 1), "image/png")).status).toBe(413);
+      // Under the cap, text still uploads — the 413 is a size rule, not a ban.
+      expect((await post("aGk=", "text/plain")).status).toBe(201);
+    } finally {
+      await close();
+    }
+  });
+
   it("requires authentication on both verbs", async () => {
     const { url, close } = await startTestServer();
     try {

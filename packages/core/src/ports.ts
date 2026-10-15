@@ -859,6 +859,12 @@ export interface StoredAttachment {
   /** Present when the bytes were recognized as an image. */
   width?: number;
   height?: number;
+  /**
+   * Original filename as reported by the client at upload; model-visible.
+   * Untrusted input: it may surface in prompt text and UI, but never takes
+   * part in addressing — stores key bytes by `id` alone.
+   */
+  name?: string;
 }
 
 /**
@@ -866,8 +872,12 @@ export interface StoredAttachment {
  * Keeps AgentState small: snapshots carry ids, never bytes.
  */
 export interface AttachmentStore {
-  /** Store bytes and return the reference. `data` is base64. */
-  put(data: string, mimeType: string): Promise<StoredAttachment>;
+  /**
+   * Store bytes and return the reference. `data` is base64.
+   * `opts.name` is the client's original filename: model-visible only,
+   * never used for addressing. Omitting it keeps the meta free of `name`.
+   */
+  put(data: string, mimeType: string, opts?: { name?: string }): Promise<StoredAttachment>;
   /**
    * Fetch the bytes as base64 alongside the metadata recorded at ingest.
    * Returns undefined when the id is unknown.

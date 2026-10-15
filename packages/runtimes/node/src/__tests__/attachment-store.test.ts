@@ -51,6 +51,20 @@ describe("node AttachmentStore", () => {
     expect(got?.mimeType).toBe("image/png");
   });
 
+  it("F-172 round-trips an optional name through the sidecar", async () => {
+    const store = await tmpStore();
+    const meta = await store.put("aGk=", "text/plain", { name: "notes.txt" });
+    expect(meta.name).toBe("notes.txt");
+    const back = await store.get(meta.id);
+    expect(back?.name).toBe("notes.txt");
+  });
+
+  it("F-172 an omitted name stays absent (backward compatible)", async () => {
+    const store = await tmpStore();
+    const meta = await store.put("aGk=", "text/plain");
+    expect("name" in meta).toBe(false);
+  });
+
   it("returns undefined for an unknown id instead of throwing", async () => {
     const store = await tmpStore();
     await expect(store.get("no-such-id")).resolves.toBeUndefined();

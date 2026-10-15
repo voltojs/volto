@@ -1,7 +1,7 @@
 /**
  * Attachment upload/download routes for the web UI.
  *
- * POST /attachments  — store an image, return its metadata
+ * POST /attachments  — store an image/text/PDF attachment, return its metadata
  * GET  /attachments/:id?sessionId= — serve the bytes back
  *
  * The AttachmentStore is session-scoped: a store instance is created (or
@@ -15,13 +15,53 @@ import { MAX_IMAGE_BASE64 } from "@volto/tools-common";
 import type { StoreFor } from "./store.js";
 
 /** Image MIME types accepted on upload. */
-const ALLOWED_MIME_TYPES = new Set([
+const IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
   "image/jpg",
   "image/gif",
   "image/webp",
 ]);
+
+/**
+ * Prefix rule for textual uploads (spec D1): markdown, csv, html and the
+ * rest of text/* are accepted as a class — an enumeration would always lag
+ * behind real-world subtype declarations.
+ */
+const TEXT_MIME_PREFIX = "text/";
+
+/** Upload kind, which selects the base64 size cap (spec D3). */
+type UploadKind = "image" | "text" | "pdf";
+
+/**
+ * Exact-match non-image MIME types accepted on upload (spec D1).
+ * application/json is semantically textual but does not live under the
+ * text/ prefix; application/pdf is named explicitly because the roadmap
+ * calls for PDF-in-context.
+ */
+const EXACT_MIME_KINDS: Record<string, UploadKind> = {
+  "application/json": "text",
+  "application/pdf": "pdf",
+};
+
+/**
+ * Classify an upload MIME type. Returns undefined for anything outside the
+ * whitelist — binaries (zip, docx, video…) have no conversion path, so
+ * accepting them would be a fake pass.
+ */
+function classifyUpload(mimeType: string): UploadKind | undefined {
+  if (IMAGE_MIME_TYPES.has(mimeType)) return "image";
+  if (mimeType.startsWith(TEXT_MIME_PREFIX)) return "text";
+  return EXACT_MIME_KINDS[mimeType];
+}
+
+/** Base64 length caps by kind (spec D3): text/json 2 MiB, PDF and images 5 MiB. */
+const MAX_BASE64_BY_KIND: Record<UploadKind, number> = {
+  image: MAX_IMAGE_BASE64,
+  text: 2 * 1024 * 1024,
+  // PDF deliberately shares the image cap.
+  pdf: MAX_IMAGE_BASE64,
+};
 
 /**
  * Body-size limit for the attachments route. The global MAX_BODY_BYTES (1 MB)
@@ -92,6 +132,7 @@ export function createAttachmentRoutes(deps: AttachmentRouteDeps) {
           sessionId?: string;
           data?: string;
           mimeType?: string;
+          name?: string;
         };
 
         if (
@@ -104,18 +145,27 @@ export function createAttachmentRoutes(deps: AttachmentRouteDeps) {
           return true;
         }
 
-        if (!ALLOWED_MIME_TYPES.has(body.mimeType)) {
+        const kind = classifyUpload(body.mimeType);
+        if (!kind) {
           jsonResponse(res, 400, { error: `Unsupported mimeType: ${body.mimeType}` });
           return true;
         }
 
-        if (body.data.length > MAX_IMAGE_BASE64) {
-          jsonResponse(res, 413, { error: "Image exceeds the maximum allowed size" });
+        if (body.data.length > MAX_BASE64_BY_KIND[kind]) {
+          jsonResponse(res, 413, {
+            error:
+              kind === "image"
+                ? "Image exceeds the maximum allowed size"
+                : "Attachment exceeds the maximum allowed size",
+          });
           return true;
         }
 
         const store = storeFor(body.sessionId);
-        const meta = await store.put(body.data, body.mimeType);
+        // The name is untrusted client input, model-visible only: record it
+        // verbatim when it is a non-empty string, otherwise omit it entirely.
+        const name = typeof body.name === "string" && body.name !== "" ? body.name : undefined;
+        const meta = await store.put(body.data, body.mimeType, name !== undefined ? { name } : undefined);
         jsonResponse(res, 201, meta);
       } catch (err: unknown) {
         if (err instanceof BodyTooLarge) {
