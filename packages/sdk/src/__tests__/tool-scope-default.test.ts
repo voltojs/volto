@@ -7,8 +7,8 @@ const FLOOR = [
   "read_file","write_file","edit_file","multi_edit","apply_patch","ls","glob","grep",
   "bash","bash_output","kill_shell","git_status","git_diff","git_commit",
 ];
-const BASIC = ["task","task_output","todo_write","save_plan"];
-const INFO  = ["web_search","web_fetch","read_document","http_query","skill"];
+const BASIC = ["task","task_output","todo_write","ask_user","skill"];
+const INFO  = ["web_search","web_fetch","read_document","http_query","save_plan"];
 const LSP   = ["lsp_definition","lsp_hover","lsp_references","lsp_rename","lsp_diagnostics"];
 const DB    = ["db_query","db_exec"];
 const BROWSER = ["browser_navigate","browser_click","browser_type","browser_get_page_text","browser_screenshot"];
@@ -42,7 +42,7 @@ it("F-161 maps every actual tool into an on-table group; unknown names fall to r
 
 it("F-161 the floor 14 survive a >20 trim and lead the output", () => {
   const presence = { hasLsp: false, hasDb: false, hasBrowser: false };
-  const defs = allDefs();                      // 14 + 4 + 5 + 6 = 29 > 20
+  const defs = allDefs();                      // 14 + 5 + 5 + 6 = 30 > 20
   const { scope, limit } = buildDefaultToolVisibility(defs, presence);
   expect(limit).toBe(20);
   const trimmed = filterByScope(defs, scope, limit);
@@ -62,12 +62,12 @@ it("F-162 mode groups join the table only when assembled; absent keeps presence-
 });
 
 it("F-162 with mode tools present, they take the discretionary slots after floor+basic", () => {
-  const defs = [...FLOOR, ...BASIC, ...LSP, ...INFO, ...UNKNOWN].map(def);   // 14+4+5+5+6 = 34
+  const defs = [...FLOOR, ...BASIC, ...LSP, ...INFO, ...UNKNOWN].map(def);   // 14+5+5+5+6 = 35
   const { scope, limit } = buildDefaultToolVisibility(defs, { hasLsp: true, hasDb: false, hasBrowser: false });
   const names = filterByScope(defs, scope, limit).map((t) => t.name);
   expect(names).toHaveLength(20);
-  expect(names.slice(14, 18).sort()).toEqual([...BASIC].sort());             // tier 2 owns 15-18
-  expect(names.slice(18).every((n) => n.startsWith("lsp_"))).toBe(true);     // tier 3 owns the last 2
+  expect(names.slice(14, 19).sort()).toEqual([...BASIC].sort());             // tier 2 owns 15-19
+  expect(names.slice(19).every((n) => n.startsWith("lsp_"))).toBe(true);      // tier 3 owns the last 1
   expect(names.some((n) => INFO.includes(n) || UNKNOWN.includes(n))).toBe(false);
 });
 

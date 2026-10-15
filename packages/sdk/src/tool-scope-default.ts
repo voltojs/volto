@@ -43,7 +43,7 @@ const FLOOR_GROUPS: ReadonlyArray<readonly [group: string, members: readonly str
 ];
 
 // Tier 2: session basics, priority 50.
-const BASIC_TOOLS = ["task", "task_output", "todo_write", "save_plan"];
+const BASIC_TOOLS = ["task", "task_output", "todo_write", "ask_user", "skill"];
 
 // Tier 3: mode groups, priority 40 — only on the table when assembled.
 const LSP_TOOLS = [
@@ -63,7 +63,7 @@ const BROWSER_TOOLS = [
 ];
 
 // Tier 4: information tools, priority 20.
-const INFO_TOOLS = ["web_search", "web_fetch", "read_document", "http_query", "skill"];
+const INFO_TOOLS = ["web_search", "web_fetch", "read_document", "http_query", "save_plan"];
 
 // Tier 5 (rest): priority 0, the fallback for every tool not listed above.
 

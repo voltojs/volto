@@ -76,6 +76,11 @@ describe("createAgent — default tool visibility (T3 governance)", () => {
     const tools = await captureVisibleTools();
     expect(tools).toHaveLength(20);
     for (const f of FLOOR) expect(tools, `floor lost: ${f}`).toContain(f);
+    // Spec D4 v1.1: ask_user / skill joined the guaranteed basic tier — the
+    // always-shipping ones must survive the default trim outright, not
+    // compete for discretionary slots (trimming ask_user would silently
+    // disable asking the human).
+    for (const g of ALWAYS_SHIPPING) expect(tools, `guaranteed lost: ${g}`).toContain(g);
     // The rest tier competes for the discretionary slots in raw list order —
     // unknown names participate instead of being wiped out wholesale.
     const unknownSeen = UNKNOWN.filter((n) => tools.includes(n));
