@@ -113,3 +113,7 @@ export * as sse from "./sse/index.js";
 
 // Transcript read facade
 export { readConversation, readTrajectory } from "./transcript-reader.js";
+
+// T3 toolset governance: default tool visibility synthesizer
+export { buildDefaultToolVisibility } from "./tool-scope-default.js";
+export type { AssemblyPresence, ToolVisibility } from "./tool-scope-default.js";

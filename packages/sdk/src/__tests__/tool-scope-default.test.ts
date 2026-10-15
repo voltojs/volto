@@ -1,0 +1,85 @@
+import { it, expect } from "vitest";
+import { filterByScope } from "@volto/core";
+import type { ToolDefinition } from "@volto/core";
+import { buildDefaultToolVisibility } from "../tool-scope-default.js";
+
+const FLOOR = [
+  "read_file","write_file","edit_file","multi_edit","apply_patch","ls","glob","grep",
+  "bash","bash_output","kill_shell","git_status","git_diff","git_commit",
+];
+const BASIC = ["task","task_output","todo_write","save_plan"];
+const INFO  = ["web_search","web_fetch","read_document","http_query","skill"];
+const LSP   = ["lsp_definition","lsp_hover","lsp_references","lsp_rename","lsp_diagnostics"];
+const DB    = ["db_query","db_exec"];
+const BROWSER = ["browser_navigate","browser_click","browser_type","browser_get_page_text","browser_screenshot"];
+const UNKNOWN = ["future_tool","mcp__srv__echo","plugin_thing","watch_files","build","git_push"];
+
+function def(name: string): ToolDefinition {
+  return { name, description: "", inputSchema: { type: "object" }, requires: [], riskTier: "READ_ONLY" };
+}
+const allDefs = () => [...FLOOR, ...BASIC, ...INFO, ...UNKNOWN].map(def);
+
+it("F-161 maps every actual tool into an on-table group; unknown names fall to rest", () => {
+  const presence = { hasLsp: false, hasDb: false, hasBrowser: false };
+  const { scope } = buildDefaultToolVisibility(allDefs(), presence);
+  expect(scope.toolGroups).toBeDefined();
+  for (const d of allDefs()) {
+    const g = scope.toolGroups![d.name];
+    expect(g, `unmapped: ${d.name}`).toBeDefined();
+    expect(Object.keys(scope.groups)).toContain(g!);   // never a dropped whitelist entry
+  }
+  for (const n of UNKNOWN) expect(scope.toolGroups![n]).toBe("rest");
+  expect(scope.toolGroups!["read_file"]).toBe("fs");
+  expect(scope.toolGroups!["bash"]).toBe("shell");
+  expect(scope.toolGroups!["git_status"]).toBe("git");
+  expect(scope.toolGroups!["task"]).toBe("basic");
+  expect(scope.toolGroups!["web_search"]).toBe("info");
+  expect(scope.groups["fs"]).toEqual({ priority: 100, enabled: true });
+  expect(scope.groups["basic"]).toEqual({ priority: 50, enabled: true });
+  expect(scope.groups["info"]).toEqual({ priority: 20, enabled: true });
+  expect(scope.groups["rest"]).toEqual({ priority: 0, enabled: true });
+});
+
+it("F-161 the floor 14 survive a >20 trim and lead the output", () => {
+  const presence = { hasLsp: false, hasDb: false, hasBrowser: false };
+  const defs = allDefs();                      // 14 + 4 + 5 + 6 = 29 > 20
+  const { scope, limit } = buildDefaultToolVisibility(defs, presence);
+  expect(limit).toBe(20);
+  const trimmed = filterByScope(defs, scope, limit);
+  expect(trimmed).toHaveLength(20);
+  const names = trimmed.map((t) => t.name);
+  for (const f of FLOOR) expect(names, `floor lost: ${f}`).toContain(f);
+  // first 14 are exactly the floor (order = original within the tier)
+  expect(new Set(names.slice(0, 14))).toEqual(new Set(FLOOR));
+});
+
+it("F-162 mode groups join the table only when assembled; absent keeps presence-false tables lsp-free", () => {
+  const on = buildDefaultToolVisibility(allDefs(), { hasLsp: true, hasDb: false, hasBrowser: false });
+  expect(on.scope.groups["lsp"]).toEqual({ priority: 40, enabled: true });
+  expect(on.scope.groups["db"]).toBeUndefined();
+  const off = buildDefaultToolVisibility(allDefs(), { hasLsp: false, hasDb: false, hasBrowser: false });
+  expect(off.scope.groups["lsp"]).toBeUndefined();
+});
+
+it("F-162 with mode tools present, they take the discretionary slots after floor+basic", () => {
+  const defs = [...FLOOR, ...BASIC, ...LSP, ...INFO, ...UNKNOWN].map(def);   // 14+4+5+5+6 = 34
+  const { scope, limit } = buildDefaultToolVisibility(defs, { hasLsp: true, hasDb: false, hasBrowser: false });
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  expect(names).toHaveLength(20);
+  expect(names.slice(14, 18).sort()).toEqual([...BASIC].sort());             // tier 2 owns 15-18
+  expect(names.slice(18).every((n) => n.startsWith("lsp_"))).toBe(true);     // tier 3 owns the last 2
+  expect(names.some((n) => INFO.includes(n) || UNKNOWN.includes(n))).toBe(false);
+});
+
+it("F-162 db and browser groups join the table only when assembled", () => {
+  const defs = [...FLOOR, ...BASIC, ...DB, ...BROWSER, ...INFO, ...UNKNOWN].map(def);
+  const db = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: true, hasBrowser: false });
+  expect(db.scope.groups["db"]).toEqual({ priority: 40, enabled: true });
+  expect(db.scope.groups["browser"]).toBeUndefined();
+  const browser = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: false, hasBrowser: true });
+  expect(browser.scope.groups["browser"]).toEqual({ priority: 40, enabled: true });
+  expect(browser.scope.groups["db"]).toBeUndefined();
+  // a presence-false mode name never leaves the table: it falls to rest instead
+  expect(db.scope.toolGroups!["browser_navigate"]).toBe("rest");
+  expect(browser.scope.toolGroups!["db_query"]).toBe("rest");
+});
