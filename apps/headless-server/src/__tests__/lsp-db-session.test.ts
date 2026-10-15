@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -32,7 +32,25 @@ import {
  * LSP case points the configured `command` at the runtime package's LSP fixture
  * — a real child process over real stdio pipes — so the suite never depends on
  * a machine-installed language server.
+ *
+ * F-168 (toolset governance): since the SDK default now trims the visible set
+ * to 20 with a floor table, these cases pin WIRING/ASSEMBLY intent — all five
+ * lsp_* tools and db_query offered, no governance assertions — so every
+ * session built in this file opts out of the cap explicitly via the D5 escape
+ * hatch (`toolVisibility: { limit: Infinity }`). The gateway's WiringOptions
+ * has no toolVisibility passthrough (production code is out of scope here),
+ * so the escape hatch is injected at the agent-construction seam by wrapping
+ * the real createAgent. Governance semantics themselves are pinned by
+ * toolset-governance-session.test.ts.
  */
+vi.mock("@volto/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@volto/sdk")>();
+  return {
+    ...actual,
+    createAgent: (opts: Parameters<typeof actual.createAgent>[0]) =>
+      actual.createAgent({ ...opts, toolVisibility: { limit: Infinity } }),
+  };
+});
 
 /** The Task 2 fixture, spawned as the configured language server. */
 const LSP_FIXTURE = fileURLToPath(
