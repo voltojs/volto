@@ -223,6 +223,65 @@ describe("Runner", () => {
       });
     });
 
+    // F-034 (roadmap): preToolUse deny normalization is pinned VERBATIM —
+    // header (tool name + hook reason) and the "Do not route around the
+    // refusal" paragraph. The spec (2026-10-17 hooks-host-surface D4)
+    // requires this copy to stay byte-identical; a toContain on fragments
+    // would let a reworded paragraph through.
+    it("F-034: preToolUse deny feeds back the denial text verbatim with isError", async () => {
+      const mockModel = createMockModelPort([
+        toolCallScript("call_1", "read_file", '{"path":"a.ts"}'),
+        textScript("Understood, stopping this line of work."),
+      ]);
+
+      // If the deny short-circuit ever regressed, this executor would run —
+      // its content must never surface.
+      const toolExecutor = createMockToolExecutor({
+        read_file: { modelContent: "SHOULD NEVER EXECUTE" },
+      });
+
+      const hooks: Hook[] = [
+        {
+          name: "freeze-hook",
+          lifecycle: "preToolUse",
+          handler: () => ({ action: "deny", reason: "no reads during freeze" }),
+        },
+      ];
+
+      const runner = createRunner({
+        modelPort: mockModel,
+        stepContext: ctx,
+        toolExecutor,
+        availableCapabilities: capabilities,
+        hooks,
+      });
+
+      const finalState = await runner.run({ type: "user_message", content: "Read a.ts" });
+
+      expect(finalState.status).toBe("done");
+      const toolMessage = finalState.messages.find((m) => m.role === "tool");
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage!.content[0]).toEqual({
+        type: "tool_result",
+        toolUseId: "call_1",
+        content: [
+          {
+            type: "text",
+            text:
+              'Tool "read_file" was denied by a preToolUse hook: no reads during freeze\n\n' +
+              "A hook is a rule this deployment installed deliberately, not a " +
+              "failure of the tool. Do not route around the refusal: do not reach " +
+              "the refused effect through another tool, and in particular do not " +
+              "use `bash` to run an equivalent command. Stop this line of work " +
+              "and report what was refused and the reason given.",
+          },
+        ],
+        isError: true,
+      });
+      // The executor never ran — the deny is the tool's whole result.
+      expect(JSON.stringify(finalState.messages)).not.toContain("SHOULD NEVER EXECUTE");
+    });
+
     it("should feed tool error results back to the model", async () => {
       const mockModel = createMockModelPort([
         toolCallScript("call_1", "read_file", '{"path":"missing.ts"}'),
