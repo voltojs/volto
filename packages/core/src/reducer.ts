@@ -44,6 +44,13 @@ export interface StepContext {
   temperature?: number;
   /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
   maxLoopCount?: number;
+  /**
+   * Loop intervention budget per turn (spec 2026-10-16 D2). Default 2,
+   * resolved at the decision site as `ctx.maxLoopInterventions ?? 2`;
+   * `0` disables the intervention tier so the first >=K detection
+   * hard-terminates the turn (today's behavior). Orthogonal to maxLoopCount.
+   */
+  maxLoopInterventions?: number;
   /** Structured / JSON output mode (passed through to ModelPort.stream) */
   responseFormat?: { type: "json"; schema?: JSONSchema };
   /** Optional context layers to inject as system messages */
@@ -137,6 +144,8 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     pinnedMessageIds: [],
     selfCorrectionCount: 0,
     maxSelfCorrections: undefined,
+    loopInterventionCount: 0,
+    loopRemindedCount: 0,
     _accumulatedText: "",
     _accumulatedReasoning: "",
     _accumulatedToolCalls: [],
@@ -168,6 +177,8 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     tokensUsed: 0,
     toolCallCount: 0,
     selfCorrectionCount: 0,
+    loopInterventionCount: 0,
+    loopRemindedCount: 0,
     queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedReasoning: "",
@@ -228,6 +239,69 @@ export function step(
               kind: "self_correction",
               text: input.repairPrompt,
               displayMetadata: { consumesBudget: input.consumesBudget, correctionCount },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  // Unified loop ladder injection handlers — structurally isomorphic to the
+  // self_correct handler above (append user message + context_reminder emit,
+  // accepted in any status except done). Division of labor (spec 2026-10-16
+  // D2): the RUNNER reads the ladder state (loopRemindedCount /
+  // loopInterventionCount) and feeds these inputs AFTER the batch's
+  // tool_results — the REDUCER only appends and books, never decides tiers.
+  // loop_reminder consumes nothing and touches NO counter: the reminder dedup
+  // field (loopRemindedCount) is written exclusively by the model_done
+  // ladder branch, never by a handler.
+  if (input.type === "loop_reminder" && state.status !== "done") {
+    const repairMsg = stamp({ id: "", role: "user" as const, content: input.repairPrompt }, ctx);
+    return {
+      state: {
+        ...state,
+        messages: [...state.messages, repairMsg],
+      },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "context_reminder",
+            data: {
+              kind: "loop_reminder",
+              text: input.repairPrompt,
+              displayMetadata: {
+                consumesBudget: input.consumesBudget,
+                remindedCount: state.loopRemindedCount,
+              },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  if (input.type === "loop_intervention" && state.status !== "done") {
+    const repairMsg = stamp({ id: "", role: "user" as const, content: input.repairPrompt }, ctx);
+    const interventionCount = state.loopInterventionCount + 1;
+    return {
+      state: {
+        ...state,
+        messages: [...state.messages, repairMsg],
+        loopInterventionCount: interventionCount,
+      },
+      effects: [
+        {
+          type: "emit",
+          event: {
+            type: "context_reminder",
+            data: {
+              kind: "loop_intervention",
+              text: input.repairPrompt,
+              displayMetadata: {
+                consumesBudget: input.consumesBudget,
+                interventionCount,
+              },
             },
           },
         },
@@ -707,25 +781,75 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
         };
       }
 
-      // Loop / oscillation detection: check if these new tool calls
-      // repeat a sequence of K identical failed calls.
+      // Control-flow state for the tool_use path: the ladder below may book a
+      // reminder mark into it; every other path passes through byte-identical
+      // to before (the common return builds pendingTools + status).
+      let execState: ReducerState = baseWithToolCount;
+
+      // Loop detection → three-tier ladder (spec 2026-10-16 D2 / D4).
+      //
+      // Division of labor — THIS branch books, the RUNNER (Task 3) fires:
+      //  - Hard termination only when an error chain reaches K and the
+      //    intervention budget is exhausted (done+error byte-identical to the
+      //    pre-ladder path).
+      //  - Reminder-tier dedup bookkeeping in state.loopRemindedCount
+      //    (monotonic; the Runner reads it to decide whether a count tier
+      //    already has its once-only reminder).
+      //  - Nothing is injected here: every other case falls through to the
+      //    normal executing_tools return, and the Runner feeds
+      //    loop_reminder / loop_intervention AFTER the batch's tool_results
+      //    (same delayed-injection pattern as self_correct). Intervention
+      //    budget accounting (+1) lives in the loop_intervention handler.
+      //
+      // detectLoop only reports counts >= its threshold, so the K-1 tier is
+      // invisible to a K-threshold probe: probe K first (byte-identical
+      // detection and counts vs. the pre-ladder path, including the K+1 cap
+      // on deep chains → the termination message stays byte-identical), and
+      // when nothing reached K, probe K-1 for the reminder tier. The probe is
+      // gated by `k >= 3`: K=2 has no reminder tier (spec §9.2) — the guard
+      // keeps count == K-1 == 1 from ever marking.
       if (ctx.maxLoopCount !== undefined && ctx.maxLoopCount >= 2) {
-        const loopResult = detectLoop(state.messages, assistantMsg, toolCalls, ctx.maxLoopCount);
+        const k = ctx.maxLoopCount;
+        let loopResult = detectLoop(state.messages, assistantMsg, toolCalls, k);
+        if (!loopResult.detected && k >= 3) {
+          loopResult = detectLoop(state.messages, assistantMsg, toolCalls, k - 1);
+        }
         if (loopResult.detected) {
-          const loopError = `Loop detected: tool "${loopResult.toolName}" has been called ${loopResult.consecutiveCount} times with identical input and returned errors`;
-          return {
-            state: { ...baseWithToolCount, pendingTools: [], status: "done" },
-            effects: [
-              emitEffect,
-              { type: "emit", event: { type: "error", data: { error: loopError } } },
-              { type: "done" },
-            ],
-          };
+          const consecutiveCount = loopResult.consecutiveCount;
+          if (loopResult.kind === "error-loop" && consecutiveCount >= k) {
+            // Intervention tier (>= K). Budget exhausted → hard termination
+            // (the pre-ladder done+error path, byte-identical). Budget
+            // remains → proceed with NO state change here: the Runner feeds
+            // loop_intervention and its handler books the +1.
+            const maxLoopInterventions = ctx.maxLoopInterventions ?? 2;
+            if (state.loopInterventionCount >= maxLoopInterventions) {
+              const loopError = `Loop detected: tool "${loopResult.toolName}" has been called ${consecutiveCount} times with identical input and returned errors`;
+              return {
+                state: { ...baseWithToolCount, pendingTools: [], status: "done" },
+                effects: [
+                  emitEffect,
+                  { type: "emit", event: { type: "error", data: { error: loopError } } },
+                  { type: "done" },
+                ],
+              };
+            }
+          } else if (
+            state.loopRemindedCount < consecutiveCount &&
+            ((loopResult.kind === "repeat" && consecutiveCount >= k) ||
+              (loopResult.kind === "error-loop" && k >= 3 && consecutiveCount === k - 1))
+          ) {
+            // Reminder tier: repeat chains (F-027 — never intervened, never
+            // terminated) reaching K, or the error chain at exactly K-1. The
+            // `loopRemindedCount < consecutiveCount` guard makes each count
+            // tier once-only and keeps the field monotonic. Control flow
+            // unchanged — the batch executes as usual.
+            execState = { ...execState, loopRemindedCount: consecutiveCount };
+          }
         }
       }
 
       return {
-        state: { ...baseWithToolCount, pendingTools: toolCalls, status: "executing_tools" },
+        state: { ...execState, pendingTools: toolCalls, status: "executing_tools" },
         effects: [
           emitEffect,
           ...toolCalls.map<Effect>((tc) => ({

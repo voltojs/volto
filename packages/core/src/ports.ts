@@ -445,6 +445,8 @@ export type ContextReminderKind =
   | "permission_boundary"
   | "workflow_mode"
   | "self_correction"
+  | "loop_reminder"
+  | "loop_intervention"
   | "retrieval"
   | "todo_list"
   | "background_task";

@@ -314,8 +314,12 @@ describe("loop texts — verbatim formats (spec 2 D3)", () => {
 // ──────────────────────────────────────────────
 
 describe("Phase 5 — reducer loop detection integration", () => {
-  it("terminates the turn when K consecutive identical failures occur", () => {
-    // K=3: need 2 prior failed pairs + 1 new call = 3 consecutive
+  it("terminates the turn only when the intervention budget is exhausted (hard fallback)", () => {
+    // K=3: need 2 prior failed pairs + 1 new call = 3 consecutive.
+    // T8 ladder: a >=K detection with budget left passes through — this test
+    // now covers ONLY the exhaustion path (spec 2 D2): with the default
+    // budget of 2 already consumed by two loop_intervention rounds, the same
+    // detection hard-terminates with the byte-identical pre-ladder message.
     const priorMessages = buildLoopMessages(3, "bash", { command: "echo hi" }); // generates 2 pairs
     const loopCtx: StepContext = { ...ctx, maxLoopCount: 3 };
 
@@ -323,6 +327,17 @@ describe("Phase 5 — reducer loop detection integration", () => {
     // Start with idle → user_message → model_done(tool_use with 1 matching tool call)
     const inputs: AgentInput[] = [
       { type: "user_message", content: "Run echo" },
+      // Budget already consumed (fed by the Runner after two prior rounds).
+      {
+        type: "loop_intervention",
+        repairPrompt: "[LOOP INTERVENTION] round 1",
+        consumesBudget: true,
+      },
+      {
+        type: "loop_intervention",
+        repairPrompt: "[LOOP INTERVENTION] round 2",
+        consumesBudget: true,
+      },
       // Model accumulates loop messages + the current loop
       // First, manually inject the prior loop messages via a model chunk sequence:
       // (We'll use the reducer's ability to accumulate tool calls)
@@ -354,11 +369,14 @@ describe("Phase 5 — reducer loop detection integration", () => {
     // Should be done with loop detection error
     expect(final.status).toBe("done");
     expect(final.pendingTools).toEqual([]);
+    expect(final.loopInterventionCount).toBe(2);
     const errorEffect = trace[trace.length - 1]!.effects.find(
       (e) => e.type === "emit" && e.event.type === "error",
     );
     expect(errorEffect).toBeDefined();
-    expect((errorEffect as EmitEffect).event.data.error).toContain("Loop detected");
+    expect((errorEffect as EmitEffect).event.data.error).toBe(
+      'Loop detected: tool "bash" has been called 3 times with identical input and returned errors',
+    );
   });
 
   it("does NOT trigger when fewer than K consecutive failures", () => {
@@ -476,3 +494,362 @@ describe("Phase 5 — replay determinism with loop", () => {
     expect(final1.effects).toEqual(final2.effects);
   });
 });
+
+// ──────────────────────────────────────────────
+// T8 Task 2 — reducer three-tier loop ladder (spec 2 D2)
+// ──────────────────────────────────────────────
+
+/** Feed inputs through step(), collecting (state, effects) after each input. */
+function runSeq(
+  inputs: AgentInput[],
+  initialState: ReducerState,
+  stepCtx: StepContext,
+): Array<{ state: ReducerState; effects: Effect[] }> {
+  const trace: Array<{ state: ReducerState; effects: Effect[] }> = [];
+  let state = initialState;
+  for (const input of inputs) {
+    const result = step(state, input, stepCtx);
+    trace.push({ state: result.state, effects: result.effects });
+    state = result.state;
+  }
+  return trace;
+}
+
+/** Streaming tool_use delta for `bash` with a stable call id. */
+function bashChunk(callId: string, command = "echo hi"): AgentInput {
+  return {
+    type: "model_chunk",
+    chunk: {
+      type: "tool_use_delta",
+      toolCallId: callId,
+      toolCallName: "bash",
+      argumentsDelta: JSON.stringify({ command }),
+    },
+  };
+}
+
+/** tool_result feed for a `bash` call. */
+function bashResult(callId: string, isError: boolean): AgentInput {
+  return {
+    type: "tool_result",
+    toolCallId: callId,
+    toolName: "bash",
+    result: { modelContent: isError ? "error" : "success", isError },
+  };
+}
+
+/** model_chunk + model_done as one model round. */
+function modelRound(callId: string, command = "echo hi"): AgentInput[] {
+  return [bashChunk(callId, command), { type: "model_done", stopReason: "tool_use" }];
+}
+
+function hasDone(effects: Effect[]): boolean {
+  return effects.some((e) => e.type === "done");
+}
+
+function errorEvent(effects: Effect[]): EmitEffect | undefined {
+  return effects.find((e): e is EmitEffect => e.type === "emit" && e.event.type === "error");
+}
+
+function reminderEvent(effects: Effect[]): EmitEffect | undefined {
+  return effects.find(
+    (e): e is EmitEffect => e.type === "emit" && e.event.type === "context_reminder",
+  );
+}
+
+describe("T8 Task 2 — reducer three-tier loop ladder (spec 2 D2)", () => {
+  it("(a) soft tier: K-1 error chain books loopRemindedCount; control flow unchanged", () => {
+    // K=3: 1 prior failing pair + 1 new call = 2 == K-1.
+    const priorMessages = buildLoopMessages(2, "bash", { command: "echo hi" });
+    const trace = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState({ messages: priorMessages }),
+      ctx,
+    );
+    const final = trace[trace.length - 1]!;
+    // Reminder tier must NOT change control flow — the batch executes as usual.
+    expect(final.state.status).toBe("executing_tools");
+    expect(final.state.pendingTools).toHaveLength(1);
+    expect(hasDone(final.effects)).toBe(false);
+    expect(errorEvent(final.effects)).toBeUndefined();
+    // Bookkeeping: dedup field marked at the K-1 count; no budget consumed.
+    expect(final.state.loopRemindedCount).toBe(2);
+    expect(final.state.loopInterventionCount).toBe(0);
+    expect(final.state.selfCorrectionCount).toBe(0);
+  });
+
+  it("(a) loop_reminder input appends the prompt + emits kind loop_reminder, touching no counter", () => {
+    let state = createInitialState({
+      loopRemindedCount: 1,
+      loopInterventionCount: 1,
+      selfCorrectionCount: 1,
+    });
+    state = step(state, { type: "user_message", content: "hi" }, ctx).state;
+
+    const r = step(
+      state,
+      { type: "loop_reminder", repairPrompt: "[LOOP REMINDER] bash", consumesBudget: false },
+      ctx,
+    );
+
+    const lastMsg = r.state.messages[r.state.messages.length - 1]!;
+    expect(lastMsg.role).toBe("user");
+    expect((lastMsg as { content: unknown }).content).toBe("[LOOP REMINDER] bash");
+    // The dedup field belongs to the model_done branch — never to the handler.
+    expect(r.state.loopRemindedCount).toBe(1);
+    expect(r.state.loopInterventionCount).toBe(1);
+    expect(r.state.selfCorrectionCount).toBe(1);
+
+    const evt = reminderEvent(r.effects);
+    expect(evt).toBeDefined();
+    expect(evt!.event.data.kind).toBe("loop_reminder");
+    expect(evt!.event.data.text).toBe("[LOOP REMINDER] bash");
+    expect((evt!.event.data.displayMetadata as { consumesBudget: boolean }).consumesBudget).toBe(
+      false,
+    );
+  });
+
+  it("(b) intervention tier: >=K with budget passes through unchanged; loop_intervention books +1", () => {
+    // K=3: 2 prior failing pairs + 1 new call = 3 == K.
+    const priorMessages = buildLoopMessages(3, "bash", { command: "echo hi" });
+    const trace = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState({ messages: priorMessages }),
+      ctx,
+    );
+    const final = trace[trace.length - 1]!;
+    expect(final.state.status).toBe("executing_tools");
+    expect(final.state.pendingTools).toHaveLength(1);
+    expect(hasDone(final.effects)).toBe(false);
+    expect(errorEvent(final.effects)).toBeUndefined();
+    // The model_done branch books nothing at the intervention tier — the
+    // handler does, once the Runner feeds the input post-batch.
+    expect(final.state.loopInterventionCount).toBe(0);
+    expect(final.state.loopRemindedCount).toBe(0);
+
+    const r = step(
+      final.state,
+      { type: "loop_intervention", repairPrompt: "[LOOP INTERVENTION] bash", consumesBudget: true },
+      ctx,
+    );
+    expect(r.state.loopInterventionCount).toBe(1);
+    expect(r.state.selfCorrectionCount).toBe(0);
+    const lastMsg = r.state.messages[r.state.messages.length - 1]!;
+    expect(lastMsg.role).toBe("user");
+    expect((lastMsg as { content: unknown }).content).toBe("[LOOP INTERVENTION] bash");
+
+    const evt = reminderEvent(r.effects);
+    expect(evt).toBeDefined();
+    expect(evt!.event.data.kind).toBe("loop_intervention");
+    expect(evt!.event.data.text).toBe("[LOOP INTERVENTION] bash");
+    expect(
+      (evt!.event.data.displayMetadata as { interventionCount: number }).interventionCount,
+    ).toBe(1);
+  });
+
+  it("(c) exhaustion fallback: two interventions, then a third >=K detection -> done+error, byte-identical message", () => {
+    const trace = fullLadderTrace();
+    // Rounds 1 and 2: budget remains -> the turn keeps executing.
+    expect(trace[2]!.state.status).toBe("executing_tools");
+    expect(trace[6]!.state.status).toBe("executing_tools");
+    expect(trace[4]!.state.loopInterventionCount).toBe(1);
+    expect(trace[8]!.state.loopInterventionCount).toBe(2);
+
+    // Round 3: budget exhausted -> hard termination, byte-identical message.
+    const final = trace[trace.length - 1]!;
+    expect(final.state.status).toBe("done");
+    expect(final.state.pendingTools).toEqual([]);
+    expect(final.state.loopInterventionCount).toBe(2);
+    expect(hasDone(final.effects)).toBe(true);
+    const err = errorEvent(final.effects);
+    expect(err).toBeDefined();
+    expect(err!.event.data.error).toBe(
+      'Loop detected: tool "bash" has been called 4 times with identical input and returned errors',
+    );
+  });
+
+  it("(d) maxLoopInterventions: 0 disables the intervention tier -> first >=K detection hard-terminates (today's behavior)", () => {
+    const priorMessages = buildLoopMessages(3, "bash", { command: "echo hi" });
+    const zeroCtx: StepContext = { ...ctx, maxLoopInterventions: 0 };
+    const trace = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState({ messages: priorMessages }),
+      zeroCtx,
+    );
+    const final = trace[trace.length - 1]!;
+    expect(final.state.status).toBe("done");
+    expect(final.state.pendingTools).toEqual([]);
+    expect(hasDone(final.effects)).toBe(true);
+    const err = errorEvent(final.effects);
+    expect(err).toBeDefined();
+    expect(err!.event.data.error).toBe(
+      'Loop detected: tool "bash" has been called 3 times with identical input and returned errors',
+    );
+  });
+
+  it("(e) K=2 has NO reminder tier: count 1 (== K-1) never marks; count 2 goes straight to the intervention tier", () => {
+    const k2: StepContext = { ...ctx, maxLoopCount: 2 };
+
+    // Count 1 == K-1 must NOT fire: the k >= 3 guard keeps the K-1 probe off.
+    const first = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState(),
+      k2,
+    );
+    const firstFinal = first[first.length - 1]!;
+    expect(firstFinal.state.status).toBe("executing_tools");
+    expect(firstFinal.state.loopRemindedCount).toBe(0);
+    expect(firstFinal.state.loopInterventionCount).toBe(0);
+
+    // Count 2 == K: intervention tier directly, still no reminder mark.
+    const priorMessages = buildLoopMessages(2, "bash", { command: "echo hi" }); // 1 failing pair
+    const second = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState({ messages: priorMessages }),
+      k2,
+    );
+    const secondFinal = second[second.length - 1]!;
+    expect(secondFinal.state.status).toBe("executing_tools");
+    expect(secondFinal.state.pendingTools).toHaveLength(1);
+    expect(secondFinal.state.loopRemindedCount).toBe(0); // no reminder tier at K=2
+    expect(secondFinal.state.loopInterventionCount).toBe(0);
+    expect(hasDone(secondFinal.effects)).toBe(false);
+    expect(errorEvent(secondFinal.effects)).toBeUndefined();
+  });
+
+  it("(f) budget isolation: self_correct and loop_intervention each track only their own counter", () => {
+    let state = createInitialState();
+    state = step(state, { type: "user_message", content: "hi" }, ctx).state;
+
+    const kinds: unknown[] = [];
+    const feed = (input: AgentInput) => {
+      const r = step(state, input, ctx);
+      state = r.state;
+      kinds.push(reminderEvent(r.effects)?.event.data.kind);
+    };
+
+    feed({ type: "self_correct", repairPrompt: "s1", consumesBudget: true });
+    feed({ type: "loop_intervention", repairPrompt: "i1", consumesBudget: true });
+    feed({ type: "self_correct", repairPrompt: "s2", consumesBudget: true });
+    feed({ type: "loop_intervention", repairPrompt: "i2", consumesBudget: true });
+    feed({ type: "loop_reminder", repairPrompt: "r1", consumesBudget: false });
+
+    expect(state.selfCorrectionCount).toBe(2); // only self_correct bumped it
+    expect(state.loopInterventionCount).toBe(2); // only loop_intervention bumped it
+    expect(state.loopRemindedCount).toBe(0); // no handler writes the dedup field
+    expect(kinds).toEqual([
+      "self_correction",
+      "loop_intervention",
+      "self_correction",
+      "loop_intervention",
+      "loop_reminder",
+    ]);
+
+    // Same guard as self_correct: in done status the input falls through to the
+    // done-state error path — message list and counters untouched.
+    const doneState: ReducerState = { ...state, status: "done" };
+    const r = step(
+      doneState,
+      { type: "loop_intervention", repairPrompt: "i3", consumesBudget: true },
+      ctx,
+    );
+    expect(r.state.messages).toHaveLength(state.messages.length);
+    expect(r.state.loopInterventionCount).toBe(2);
+    expect(errorEvent(r.effects)).toBeDefined();
+  });
+
+  it("(g) same-tier dedup: loopRemindedCount is monotonic — a later lower-count detection never re-marks it", () => {
+    // Round 1: repeat chain reaches K=3 -> reminder mark at count 3.
+    // Rounds 2-3: an unrelated error chain reaches only K-1 = 2 — the guard
+    // (loopRemindedCount < count) must keep the field at 3, never lower it.
+    const priorMessages = buildResultMessages(2, "bash", { command: "echo hi" }, false);
+    const inputs: AgentInput[] = [
+      { type: "user_message", content: "Run echo" },
+      ...modelRound("rep-1"),
+      bashResult("rep-1", false),
+      ...modelRound("other", "echo bye"),
+      bashResult("other", true),
+      ...modelRound("err-1", "echo bye"),
+    ];
+    const trace = runSeq(inputs, createInitialState({ messages: priorMessages }), ctx);
+
+    expect(trace[2]!.state.status).toBe("executing_tools");
+    expect(trace[2]!.state.loopRemindedCount).toBe(3); // repeat tier marked
+    const final = trace[trace.length - 1]!;
+    expect(final.state.status).toBe("executing_tools");
+    expect(final.state.loopRemindedCount).toBe(3); // monotonic: still 3, not lowered to K-1 = 2
+    expect(final.state.loopInterventionCount).toBe(0);
+    expect(hasDone(final.effects)).toBe(false);
+    expect(errorEvent(final.effects)).toBeUndefined();
+  });
+
+  it("(g) same-tier dedup: a K-1 detection when loopRemindedCount already equals the count does not re-mark", () => {
+    const priorMessages = buildLoopMessages(2, "bash", { command: "echo hi" }); // 1 failing pair
+    const seeded = createInitialState({ messages: priorMessages, loopRemindedCount: 2 });
+    const trace = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      seeded,
+      ctx,
+    );
+    const final = trace[trace.length - 1]!;
+    expect(final.state.loopRemindedCount).toBe(2);
+    expect(final.state.status).toBe("executing_tools");
+    expect(hasDone(final.effects)).toBe(false);
+  });
+
+  it("(h) maxLoopCount undefined: ladder fully off — zero change (counters stay 0)", () => {
+    const priorMessages = buildLoopMessages(5, "bash", { command: "echo hi" }); // 4 failing pairs
+    const noLoopCtx: StepContext = { ...ctx, maxLoopCount: undefined };
+    const trace = runSeq(
+      [{ type: "user_message", content: "Run echo" }, ...modelRound("loop-new")],
+      createInitialState({ messages: priorMessages }),
+      noLoopCtx,
+    );
+    const final = trace[trace.length - 1]!;
+    expect(final.state.status).toBe("executing_tools");
+    expect(final.state.pendingTools).toHaveLength(1);
+    expect(final.state.loopRemindedCount).toBe(0);
+    expect(final.state.loopInterventionCount).toBe(0);
+    expect(hasDone(final.effects)).toBe(false);
+    expect(errorEvent(final.effects)).toBeUndefined();
+  });
+
+  it("replay: the full ladder sequence reproduces identical (state, effects)", () => {
+    expect(fullLadderTrace()).toEqual(fullLadderTrace());
+  });
+});
+
+/**
+ * Full ladder: K=3, budget default 2 — soft/passthrough detection round 1,
+ * intervention round 2, hard termination round 3.
+ *
+ * Step index map: 0 user, 1 chunk1, 2 done1, 3 result1, 4 intervention1,
+ * 5 chunk2, 6 done2, 7 result2, 8 intervention2, 9 chunk3, 10 done3.
+ */
+function fullLadderTrace(): Array<{ state: ReducerState; effects: Effect[] }> {
+  const priorMessages = buildLoopMessages(3, "bash", { command: "echo hi" }); // 2 failing pairs
+  let state: ReducerState = createInitialState({ messages: priorMessages });
+  const trace: Array<{ state: ReducerState; effects: Effect[] }> = [];
+  const push = (input: AgentInput) => {
+    const r = step(state, input, ctx);
+    trace.push({ state: r.state, effects: r.effects });
+    state = r.state;
+  };
+
+  push({ type: "user_message", content: "Run echo" });
+  for (let round = 1; round <= 3; round++) {
+    const callId = `loop-${round}`;
+    push(bashChunk(callId));
+    push({ type: "model_done", stopReason: "tool_use" });
+    if (state.status === "done") break;
+    push(bashResult(callId, true));
+    if (round < 3) {
+      push({
+        type: "loop_intervention",
+        repairPrompt: `[LOOP INTERVENTION] round ${round}`,
+        consumesBudget: true,
+      });
+    }
+  }
+  return trace;
+}

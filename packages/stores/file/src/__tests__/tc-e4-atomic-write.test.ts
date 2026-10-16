@@ -23,6 +23,8 @@ const emptyState: AgentState = {
   maxLoopCount: undefined,
   selfCorrectionCount: 0,
   maxSelfCorrections: undefined,
+  loopInterventionCount: 0,
+  loopRemindedCount: 0,
 };
 
 let tempDir: string;

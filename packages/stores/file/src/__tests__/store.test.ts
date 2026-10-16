@@ -41,6 +41,8 @@ describe("FileStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
       createdAt: Date.now(),
     });
@@ -106,6 +108,8 @@ describe("FileStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
       createdAt: Date.now(),
     });

@@ -32,6 +32,8 @@ export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
 export const REMINDER_KIND_LABELS: Record<ContextReminderKind, string> = {
   permission_boundary: '权限边界',
   self_correction: '自我纠正',
+  loop_reminder: '循环提醒',
+  loop_intervention: '循环干预',
   retrieval: '检索片段',
   todo_list: '任务清单',
   background_task: '后台任务',

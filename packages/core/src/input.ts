@@ -125,6 +125,36 @@ export interface SelfCorrectInput {
   consumesBudget: boolean;
 }
 
+/**
+ * Loop soft-reminder injection — fed by the Runner when the ladder's reminder
+ * tier fires (error chain at K-1 with K >= 3, or repeat chain at K; spec
+ * 2026-10-16 D2/D4). Shape-isomorphic to SelfCorrectInput; the reducer
+ * appends the prompt as a `user` message and emits `context_reminder` with
+ * kind `loop_reminder`.
+ *
+ * Reminders are a cheap signal: `consumesBudget` is the literal `false` and
+ * no counter is touched (the `loopRemindedCount` dedup field is written
+ * exclusively by the model_done ladder branch, never by this handler).
+ */
+export interface LoopReminderInput {
+  type: "loop_reminder";
+  repairPrompt: string;
+  consumesBudget: false;
+}
+
+/**
+ * Loop intervention injection — fed by the Runner when an error chain
+ * reaches K and the intervention budget remains (spec 2026-10-16 D2).
+ * Same shape as SelfCorrectInput, but budgets are fully separate: this
+ * input bumps `loopInterventionCount`, never `selfCorrectionCount`
+ * (spec D1 — two budgets, two event kinds, two texts).
+ */
+export interface LoopInterventionInput {
+  type: "loop_intervention";
+  repairPrompt: string;
+  consumesBudget: true;
+}
+
 /** Runner requests HITL approval for a pending tool call (ask tier) */
 export interface RequestApprovalInput {
   type: "request_approval";
@@ -233,6 +263,8 @@ export type AgentInput =
   | CancelInput
   | BudgetExceededInput
   | SelfCorrectInput
+  | LoopReminderInput
+  | LoopInterventionInput
   | ToolResultsPrunedInput
   | CompactionAppliedInput
   | BackgroundTaskStartedInput

@@ -86,6 +86,8 @@ function makeInitial(messages: Message[], overrides: Partial<ReducerState> = {})
     maxLoopCount: undefined,
     selfCorrectionCount: 0,
     maxSelfCorrections: undefined,
+    loopInterventionCount: 0,
+    loopRemindedCount: 0,
     ...overrides,
   };
 }
@@ -140,6 +142,8 @@ describe("Runner — compaction wiring", () => {
       maxLoopCount: undefined,
       selfCorrectionCount: 0,
       maxSelfCorrections: undefined,
+      loopInterventionCount: 0,
+      loopRemindedCount: 0,
     };
 
     const spy = createSpyModelPort([
@@ -238,6 +242,8 @@ describe("Runner — compaction wiring", () => {
       maxLoopCount: undefined,
       selfCorrectionCount: 0,
       maxSelfCorrections: undefined,
+      loopInterventionCount: 0,
+      loopRemindedCount: 0,
     };
 
     const spy = createSpyModelPort([

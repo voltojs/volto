@@ -28,6 +28,8 @@ function makeSnapshot(id: string, overrides?: Partial<AgentState>): SessionSnaps
       maxLoopCount: undefined,
       selfCorrectionCount: 0,
       maxSelfCorrections: undefined,
+      loopInterventionCount: 0,
+      loopRemindedCount: 0,
       ...overrides,
     },
     createdAt: 1000000000000, // fixed timestamp for deterministic tests

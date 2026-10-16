@@ -42,6 +42,8 @@ describe("SQLiteStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
       createdAt: 1000,
     });
@@ -77,6 +79,8 @@ describe("SQLiteStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
       createdAt: 2000,
     });

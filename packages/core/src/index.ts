@@ -39,6 +39,8 @@ export type {
   CancelInput,
   BudgetExceededInput,
   SelfCorrectInput,
+  LoopReminderInput,
+  LoopInterventionInput,
   ToolResultsPrunedInput,
   CompactionAppliedInput,
   BackgroundTaskStartedInput,

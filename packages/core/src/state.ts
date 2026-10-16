@@ -270,6 +270,23 @@ export interface AgentState {
   /** Max self-corrections per turn. Undefined = no limit (0 effectively disables self-correction). */
   maxSelfCorrections: number | undefined;
   /**
+   * Loop interventions consumed this turn (spec 2026-10-16 D2).
+   * Bumped ONLY by the `loop_intervention` input — never by `self_correct`
+   * and never by the reminder tier. When it reaches `maxLoopInterventions`
+   * (StepContext, default 2), the next >=K detection hard-terminates the
+   * turn with the byte-identical done+error path. Reset each turn like
+   * `selfCorrectionCount`.
+   */
+  loopInterventionCount: number;
+  /**
+   * Highest consecutive loop count a soft reminder has been booked for this
+   * turn — the reminder tier's dedup field (monotonic, never lowered;
+   * spec 2026-10-16 D2). Written exclusively by the model_done ladder
+   * branch; the Runner reads it to decide whether to inject `loop_reminder`
+   * so the same count tier is never reminded twice. Reset each turn.
+   */
+  loopRemindedCount: number;
+  /**
    * Standing todo list for this agent session.
    * - `undefined`: never written
    * - `[]`: explicitly cleared

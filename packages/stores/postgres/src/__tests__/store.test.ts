@@ -76,6 +76,8 @@ describe.runIf(canConnect)("PostgresStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
       createdAt: 5000,
     };
@@ -114,6 +116,8 @@ describe.runIf(canConnect)("PostgresStore specifics", () => {
         maxLoopCount: undefined,
         selfCorrectionCount: 0,
         maxSelfCorrections: undefined,
+        loopInterventionCount: 0,
+        loopRemindedCount: 0,
       },
     };
 
