@@ -40,7 +40,9 @@ export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext
   const modelId = model.id;
   const systemPrompt = req.messages
     .filter((m): m is Extract<Message, { role: "system" }> => m.role === "system")
-    .map((m) => m.content)
+    // String-typed in core, but a block array can arrive at runtime (see
+    // projectSystemContent) — project instead of joining "[object Object]".
+    .map((m) => projectSystemContent(m.content))
     .join("\n\n");
 
   // Built once per call (not rescanned per tool-result block): maps a
@@ -70,6 +72,43 @@ export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext
     context.tools = req.tools.map(mapToolDefinition);
   }
   return context;
+}
+
+/**
+ * Project a system message's content to the plain string pi-ai's
+ * `Context.systemPrompt` accepts — there is no system-image surface. Core
+ * state can carry a BLOCK-ARRAY system message (the compaction
+ * image-preservation summary lands one behind a documented cast, spec
+ * 2026-10-16 D5); without this projection the block array joins into
+ * "[object Object]" garbage. With it the model sees the summary and the
+ * preserved-image marker, and image blocks degrade to the same
+ * `[image: WxH mediaType]` placeholder core's extractBlockText renders.
+ */
+function projectSystemContent(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content.map(systemBlockText).join("\n");
+}
+
+/** One system block's text projection — mirrors core's extractBlockText. */
+function systemBlockText(block: ContentBlock): string {
+  switch (block.type) {
+    case "text":
+    case "structured":
+      return block.text;
+    case "image": {
+      const dims =
+        block.width !== undefined && block.height !== undefined
+          ? `${block.width}x${block.height} `
+          : "";
+      return `[image: ${dims}${block.source.mediaType}]`;
+    }
+    case "tool_use":
+      return `[tool: ${block.name}]`;
+    case "tool_result":
+      return block.content.map(systemBlockText).join("\n");
+    case "reasoning":
+      return "";
+  }
 }
 
 // ──────────────────────────────────────────────

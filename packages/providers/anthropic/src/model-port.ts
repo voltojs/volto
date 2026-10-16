@@ -107,6 +107,44 @@ export function createAnthropicModelPort(opts: AnthropicModelPortOptions): Model
 // Request body builder
 // ──────────────────────────────────────────────
 
+/**
+ * Project a system message's content to the plain string Anthropic's
+ * top-level `system` field accepts. Core state can carry a BLOCK-ARRAY
+ * system message — the compaction image-preservation summary lands one
+ * behind a documented cast (spec 2026-10-16 D5) — and system prompts are
+ * text-only on this provider's wire (there is no native system-image).
+ * Without this projection the block array stringifies to
+ * "[object Object]" garbage; with it the model sees the summary and the
+ * preserved-image marker, and image blocks degrade to the same
+ * `[image: WxH mediaType]` placeholder core's extractBlockText renders.
+ */
+function projectSystemContent(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content.map(systemBlockText).join("\n");
+}
+
+/** One system block's text projection — mirrors core's extractBlockText. */
+function systemBlockText(block: ContentBlock): string {
+  switch (block.type) {
+    case "text":
+    case "structured":
+      return block.text;
+    case "image": {
+      const dims =
+        block.width !== undefined && block.height !== undefined
+          ? `${block.width}x${block.height} `
+          : "";
+      return `[image: ${dims}${block.source.mediaType}]`;
+    }
+    case "tool_use":
+      return `[tool: ${block.name}]`;
+    case "tool_result":
+      return block.content.map(systemBlockText).join("\n");
+    case "reasoning":
+      return "";
+  }
+}
+
 function buildRequestBody(req: ModelRequest, model: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -120,7 +158,9 @@ function buildRequestBody(req: ModelRequest, model: string): Record<string, unkn
 
   for (const msg of req.messages) {
     if (msg.role === "system") {
-      systemParts.push(msg.content);
+      // String-typed in core, but a block array can arrive at runtime (see
+      // projectSystemContent) — project instead of shipping garbage.
+      systemParts.push(projectSystemContent(msg.content));
     } else {
       otherMessages.push(msg);
     }

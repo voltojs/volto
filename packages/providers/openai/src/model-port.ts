@@ -11,6 +11,7 @@ import type {
   ModelEvent,
   ModelRequest,
   Message,
+  ContentBlock,
   ModelInputValue,
   ToolResultMessage,
   ToolResultBlock,
@@ -206,6 +207,44 @@ function splitToolBatch(msg: ToolResultMessage): { toolMessages: unknown[]; carr
 }
 
 /**
+ * Project a system message's content to the plain string Chat Completions
+ * accepts for the system role. Core state can carry a BLOCK-ARRAY system
+ * message — the compaction image-preservation summary lands one behind a
+ * documented cast (spec 2026-10-16 D5) — and system messages are text-only
+ * on this wire (`image_url` parts are accepted in user messages only).
+ * Without this projection core's raw block shapes ship as invalid content
+ * parts; with it the model sees the summary and the preserved-image marker,
+ * and image blocks degrade to the same `[image: WxH mediaType]` placeholder
+ * core's extractBlockText renders.
+ */
+function projectSystemContent(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content.map(systemBlockText).join("\n");
+}
+
+/** One system block's text projection — mirrors core's extractBlockText. */
+function systemBlockText(block: ContentBlock): string {
+  switch (block.type) {
+    case "text":
+    case "structured":
+      return block.text;
+    case "image": {
+      const dims =
+        block.width !== undefined && block.height !== undefined
+          ? `${block.width}x${block.height} `
+          : "";
+      return `[image: ${dims}${block.source.mediaType}]`;
+    }
+    case "tool_use":
+      return `[tool: ${block.name}]`;
+    case "tool_result":
+      return block.content.map(systemBlockText).join("\n");
+    case "reasoning":
+      return "";
+  }
+}
+
+/**
  * Map core messages to the OpenAI Chat Completions message array.
  * Exported for tests; buildRequestBody wraps it with model/stream options.
  */
@@ -213,7 +252,9 @@ export function toOpenAiMessages(messages: Message[]): unknown[] {
   const out: unknown[] = [];
   for (const msg of messages) {
     if (msg.role === "system") {
-      out.push({ role: "system", content: msg.content });
+      // String-typed in core, but a block array can arrive at runtime (see
+      // projectSystemContent) — project instead of shipping invalid parts.
+      out.push({ role: "system", content: projectSystemContent(msg.content) });
       continue;
     }
     if (msg.role === "user") {
