@@ -771,27 +771,51 @@ export function createRunner(opts: RunnerOptions): Runner {
   }
 
   /**
+   * T10 Task 3 — notification hook (spec 2026-10-17, D3 / F-033): observe-
+   * only point on runner system events — `budget_warning` before a
+   * budget_exceeded feed, `approval_requested` before an approval ask
+   * reaches the gate.
+   *
+   * OBSERVE-ONLY: the pipeline is awaited and then its outcome is IGNORED
+   * entirely — anti-hijack by design (spec D3). A hook can watch system
+   * events but can never alter, delay-forever (timeout is Task 2's fail-
+   * closed layer), or swallow them. Do not "fix" this by consuming the
+   * outcome.
+   */
+  async function runNotificationHook(
+    kind: "budget_warning" | "approval_requested",
+  ): Promise<void> {
+    await runHookPipeline(opts.hooks ?? [], "notification", {
+      sessionId: opts.sessionId,
+      notification: { kind },
+    });
+  }
+
+  /**
    * Check wallclock and cost budget limits at the Runner level.
    * Feeds a budget_exceeded input if limits are breached.
    * Returns true if a budget_exceeded was fed (caller should break/return).
    */
-  function checkBudgetLimits(): boolean {
+  async function checkBudgetLimits(): Promise<boolean> {
     if (state.status === "done" || state.status === "idle") return false;
 
     if (turnStartTime > 0 && state.maxWallclockMs !== undefined) {
       const elapsed = Date.now() - turnStartTime;
       if (elapsed > state.maxWallclockMs) {
+        await runNotificationHook("budget_warning");
         forwardEmit(feed({ type: "budget_exceeded", reason: "Wallclock limit exceeded" }));
         return true;
       }
     }
 
     if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
+      await runNotificationHook("budget_warning");
       forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
       return true;
     }
 
     if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+      await runNotificationHook("budget_warning");
       forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
       return true;
     }
@@ -1098,6 +1122,29 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     const decision = decideCompaction(messages, decideOpts);
     if (!decision.shouldCompact || !decision.summaryPrompt) return passthrough(messages);
+
+    // T10 Task 3 — preCompact hook (spec 2026-10-17, D3 / F-032): fires
+    // after the compaction decision, BEFORE any write-back (the prune feed
+    // below) or the summarization model call. A deny skips this compaction
+    // entirely: passthrough returns the caller's ORIGINAL messages array —
+    // same reference, byte-identical — and the UI is told via a
+    // `preCompact_skipped` event (raw EventSink emit, same observability-only
+    // shape as `usage_unavailable`: outside the reducer vocabulary by
+    // design). The turn itself is unaffected and continues normally.
+    const preCompactOutcome = await runHookPipeline(opts.hooks ?? [], "preCompact", {
+      sessionId: opts.sessionId,
+      compactInfo: {
+        compressibleCount: decision.compressibleMessages.length,
+        currentTokens: decision.currentTokens,
+      },
+    });
+    if (preCompactOutcome.action === "deny") {
+      opts.eventSink?.emit({
+        type: "preCompact_skipped",
+        data: { reason: preCompactOutcome.reason },
+      });
+      return passthrough(messages);
+    }
 
     // Prune oversized tool results. `pruned.length > 0` means at least one
     // block was rewritten. The pruned message array itself is not used
@@ -1449,11 +1496,13 @@ export function createRunner(opts: RunnerOptions): Runner {
           }
           // Check cost budget immediately after accumulation
           if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
+            await runNotificationHook("budget_warning");
             forwardEmit(feed({ type: "budget_exceeded", reason: "Cost budget exceeded" }));
             return;
           }
           // Check raw token budget
           if (state.maxTokensPerTurn !== undefined && cumulativeTokens > state.maxTokensPerTurn) {
+            await runNotificationHook("budget_warning");
             forwardEmit(feed({ type: "budget_exceeded", reason: "Token budget exceeded" }));
             return;
           }
@@ -1814,7 +1863,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       const status = getStatus();
 
       // Budget check: wallclock / cost exceeded → feed budget_exceeded
-      if (status !== "done" && status !== "idle" && checkBudgetLimits()) continue;
+      if (status !== "done" && status !== "idle" && (await checkBudgetLimits())) continue;
 
       // Short-circuit: if cancellation fired, transition to cancelling before
       // dispatching any new model call or tool execution. Avoids initiating a
@@ -1834,7 +1883,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         // updated during streaming but status may already be "done",
         // skipping the top-of-loop budget check.
         if (getStatus() !== "done" && getStatus() !== "idle") {
-          if (checkBudgetLimits()) continue;
+          if (await checkBudgetLimits()) continue;
         }
         continue;
       }
@@ -1957,6 +2006,9 @@ export function createRunner(opts: RunnerOptions): Runner {
         for (const toolCall of approvalQueue) {
           if (cancelled || getStatus() !== "executing_tools") break;
 
+          // T10 Task 3: the approval request is about to reach the gate —
+          // observe-only notification point (see runNotificationHook).
+          await runNotificationHook("approval_requested");
           const effects = feed({ type: "request_approval", toolCallId: toolCall.id });
           forwardEmit(effects);
           await interpretEffects(effects);
@@ -2003,6 +2055,33 @@ export function createRunner(opts: RunnerOptions): Runner {
           // in pendingTools order for deterministic replay.
           for (const { toolCall, result } of results) {
             if (cancelled) break;
+
+            // T10 Task 3 — subagentStop hook (spec 2026-10-17, D3 / F-033):
+            // fires at the point a task tool result returns to the parent
+            // session — right before the result is fed back. The sync
+            // subagent dispatch carries the child session id in
+            // displayMetadata.sessionId (the tools/agent `task` contract);
+            // background dispatches and early rejections never do, so they
+            // correctly do not fire here (a background child stops later,
+            // at the turn-boundary drain).
+            //
+            // OBSERVE-ONLY: the pipeline is awaited and then its outcome is
+            // IGNORED entirely — anti-hijack by design (spec D3). A hook can
+            // watch subagent completions but can never alter, deny, or
+            // swallow the result that reaches the model. Do not "fix" this
+            // by consuming the outcome.
+            if (
+              toolCall.name === "task" &&
+              result.displayMetadata?.["sessionId"] !== undefined
+            ) {
+              await runHookPipeline(opts.hooks ?? [], "subagentStop", {
+                sessionId: opts.sessionId,
+                subagentInfo: {
+                  childSessionId: result.displayMetadata["sessionId"] as string,
+                  status: result.isError === true ? "error" : "completed",
+                },
+              });
+            }
 
             const pendingEvents = result.displayMetadata?.pendingEvents as
               | Array<{ type: string; data: Record<string, unknown> }>
@@ -2282,6 +2361,53 @@ export function createRunner(opts: RunnerOptions): Runner {
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
         });
+
+        // T10 Task 3 — userPromptSubmit hook (spec 2026-10-17, D3 / F-031):
+        // runs BEFORE the user_message feed opens the turn (the idle →
+        // calling_model transition). A deny rejects the prompt outright: the
+        // turn never starts, no model call is made, and the rejection text —
+        // the verbatim spec §4.2 template — lands in the message history as
+        // the user-visible outcome. Same early-exit shape as the budget path
+        // (message + done, never calling_model). The reducer's idle handler
+        // only knows how to OPEN a turn, so the deny closes it here in the
+        // shell: message appended with an Id-port stamp (same stamping rule
+        // as the reducer's own appends) and status set to done. The finally
+        // block below still closes the bracket (turn_end), flushes the
+        // recorder, and runs session:end.
+        if (initialInput.type === "user_message") {
+          const promptText =
+            typeof initialInput.content === "string"
+              ? initialInput.content
+              : initialInput.content
+                  .filter(
+                    (b): b is Extract<ContentBlock, { type: "text" | "structured" }> =>
+                      b.type === "text" || b.type === "structured",
+                  )
+                  .map((b) => b.text)
+                  .join(" ");
+          const promptOutcome = await runHookPipeline(opts.hooks ?? [], "userPromptSubmit", {
+            sessionId: opts.sessionId,
+            prompt: promptText,
+          });
+          if (promptOutcome.action === "deny") {
+            const rejectionText = `[prompt rejected by hook: ${promptOutcome.reason}]`;
+            state = {
+              ...state,
+              messages: [
+                ...state.messages,
+                {
+                  id: stepContext.id?.next() ?? "",
+                  role: "user",
+                  content: rejectionText,
+                },
+              ],
+              status: "done",
+            };
+            recorder.record("turn_start", { turn: opts.turn ?? 0 });
+            recorder.record("user_message", { content: rejectionText });
+            return state;
+          }
+        }
 
         recorder.record("turn_start", { turn: opts.turn ?? 0 });
         if (initialInput.type === "user_message") {
