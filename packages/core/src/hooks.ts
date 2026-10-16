@@ -22,7 +22,15 @@ export type HookLifecycle =
   | "turn:start"
   | "turn:end"
   | "preToolUse"
-  | "postToolUse";
+  | "postToolUse"
+  /** Before the model call on a user prompt; a deny rejects the prompt without starting the turn */
+  | "userPromptSubmit"
+  /** After compaction is decided but before the summary call; a deny skips this compaction */
+  | "preCompact"
+  /** Observe-only when a subagent result returns to the parent — the outcome is ignored (anti-hijack) */
+  | "subagentStop"
+  /** Observe-only on system events (budget_warning / approval_requested) — the outcome is ignored */
+  | "notification";
 
 /**
  * Context passed to hook handlers — what the hook can observe / act on.
@@ -41,6 +49,27 @@ export interface HookContext {
   };
   /** Tool result (postToolUse only) */
   toolResult?: ToolResult;
+  /** The submitted user prompt (userPromptSubmit only) */
+  prompt?: string;
+  /** What is about to be compacted (preCompact only) */
+  compactInfo?: {
+    /** Number of messages eligible for compaction */
+    compressibleCount: number;
+    /** Estimated current token count of the conversation */
+    currentTokens: number;
+  };
+  /** Returned subagent result (subagentStop only — observe-only) */
+  subagentInfo?: {
+    /** Session ID of the child subagent */
+    childSessionId: string;
+    /** Completion status of the subagent */
+    status: string;
+  };
+  /** System event details (notification only — observe-only) */
+  notification?: {
+    /** Which system event fired */
+    kind: "budget_warning" | "approval_requested";
+  };
 }
 
 /** Patch to apply to tool input or result */
