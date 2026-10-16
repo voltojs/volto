@@ -21,16 +21,12 @@ import { buildPermissionConfig, sandboxModeFor } from "../permission-modes.js";
  * (spec 2026-10-16 D1 path 2) must put those bytes to the store under a
  * deterministic id. A small `compaction.maxTokens` trips compaction on the
  * next turn; the scripted port answers the summarization call, then the
- * main call must carry the block-array summary message whose preserved
+ * main call must carry the preserved images on the D5 v1.2 carrier: a
+ * dedicated USER-role message right after the plain-string summary, whose
  * image refs `resolveImageRefs` has resolved back to base64 — the F-024
- * wire witness at the provider-bound request seam.
- *
- * Note on the provider seam: system-role messages are text-only on the wire
- * for every provider (anthropic / openai / pi-ai), so the image BYTES here
- * are witnessed at the ModelRequest boundary; each provider projects the
- * system block array to an honest string (marker + placeholder text) in its
- * own package tests. The reducer placing preserved images in a system-role
- * summary is Task 3's reported design finding, not this test's subject.
+ * wire witness at the provider-bound request seam. All three providers
+ * natively support user-role block-array images, so these bytes reach the
+ * model's wire.
  */
 
 /** 1×1 PNG — the smallest fixture, stolen from attachments-model-request. */
@@ -71,8 +67,8 @@ afterEach(async () => {
 /**
  * Inline base64 image block — the compaction offload's D1 path 2. Core's
  * ImageContent is ref-only in types; the block-array runtime fact arrives
- * behind the same documented cast the reducer uses (see reducer.ts D5
- * comment), so this test constructs it the same way.
+ * behind the same documented cast the runner uses (see runner.ts wire-shape
+ * boundary), so this test constructs it the same way.
  */
 const INLINE_IMAGE_BLOCK = {
   type: "image",
@@ -115,12 +111,33 @@ function scriptedSessionPort(): { modelPort: ModelPort; requests: ModelRequest[]
   return { modelPort, requests };
 }
 
-/** The block-array system summary message a request carries (throws when absent). */
-function summaryBlocks(request: ModelRequest): ContentBlock[] {
+/** The compaction summary message a request carries (D5 v1.2: a plain string). */
+function summaryMessage(request: ModelRequest): Extract<ModelRequest["messages"][number], { role: "system" }> {
   for (const m of request.messages) {
-    if (m.role === "system" && Array.isArray(m.content)) return m.content;
+    if (
+      m.role === "system" &&
+      typeof m.content === "string" &&
+      m.content.startsWith("[Earlier conversation summary]")
+    ) {
+      return m;
+    }
   }
-  throw new Error("no block-array system summary message in request");
+  throw new Error("no string summary message in request");
+}
+
+/** The preserved-images carrier (D5 v1.2): marker-led user-role block array. */
+function imagesCarrierBlocks(request: ModelRequest): ContentBlock[] {
+  for (const m of request.messages) {
+    if (m.role !== "user" || !Array.isArray(m.content)) continue;
+    const first = m.content[0];
+    if (
+      first?.type === "text" &&
+      first.text.startsWith("[image preserved from compressed conversation:")
+    ) {
+      return m.content;
+    }
+  }
+  throw new Error("no preserved-images carrier message in request");
 }
 
 /** A large but mundane telemetry dump — no file paths, so nothing is "key". */
@@ -130,7 +147,7 @@ function bigTelemetryText(): string {
 
 describe("F-213 real session — images survive compaction (roadmap F-024)", () => {
   it(
-    "F-213 the post-compaction request carries the marker verbatim and the resolved image bytes; the offloaded bytes land on disk",
+    "F-213 the post-compaction request carries the markers and resolved image bytes on the user-role carrier; the offloaded bytes land on disk",
     { timeout: 60_000 },
     async () => {
       // Real store, real disk — the same node store the /attachments routes
@@ -192,17 +209,27 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
       expect(summaryReq.messages[0]?.id).toBe("compaction-summary-prompt");
       expect(summaryReq.tools).toHaveLength(0);
 
-      // (a) The summary surface carries the marker text VERBATIM — one line
-      // per preserved image, right before its image block.
-      const blocks = summaryBlocks(requests[2]!);
+      // (a) The summary is the plain system string (D5 v1.2), and the
+      // preserved images ride a dedicated USER-role message that comes
+      // after the summary in the request — both marker lines verbatim.
+      // (Assembly hoists system messages to the prefix, so the reducer's
+      // insertAt+1 adjacency is pinned in core's unit tests; here the
+      // ordering claim is "carrier after summary".)
+      const post = requests[2]!;
+      const summary = summaryMessage(post);
+      expect(summary.content.startsWith("[Earlier conversation summary]\n")).toBe(true);
+      const blocks = imagesCarrierBlocks(post);
+      const summaryIdx = post.messages.findIndex((m) => m.id === summary.id);
+      const carrierIdx = post.messages.findIndex((m) => m.content === blocks);
+      expect(carrierIdx).toBeGreaterThan(summaryIdx);
+      expect(post.messages[carrierIdx]?.role).toBe("user");
       const texts = blocks
         .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
         .map((b) => b.text);
-      expect(texts[0]!.startsWith("[Earlier conversation summary]\n")).toBe(true);
       expect(texts.filter((t) => t === MARKER)).toHaveLength(2);
 
-      // (b) The wire witness: both preserved refs resolved back to base64 —
-      // resolveImageRefs ran over the system summary's block array.
+      // (b) The wire witness: both preserved refs resolved back to base64 on
+      // the carrier — resolveImageRefs ran over the user-role block array.
       const images = blocks.filter(
         (b): b is Extract<ContentBlock, { type: "image" }> => b.type === "image",
       );
@@ -224,11 +251,18 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
       // upload ref rides its original id; the inline image was offloaded
       // under a deterministic (sanitized) id and its bytes are readable back
       // from the store directory.
-      const summaryMsg = (finalMessages as Array<{ role: string; content: unknown }>).find(
-        (m) => m.role === "system" && Array.isArray(m.content),
+      const finalList = finalMessages as Array<{ role: string; content: unknown }>;
+      const finalCarrier = finalList.find(
+        (m) =>
+          m.role === "user" &&
+          Array.isArray(m.content) &&
+          (m.content as ContentBlock[])[0]?.type === "text" &&
+          ((m.content as ContentBlock[])[0] as { text: string }).text.startsWith(
+            "[image preserved from compressed conversation:",
+          ),
       );
-      expect(summaryMsg).toBeDefined();
-      const refIds = (summaryMsg!.content as ContentBlock[])
+      expect(finalCarrier).toBeDefined();
+      const refIds = (finalCarrier!.content as ContentBlock[])
         .filter((b): b is Extract<ContentBlock, { type: "image" }> => b.type === "image")
         .map((b) => (b.source as { type: string; id: string }).id);
       expect(refIds).toHaveLength(2);
