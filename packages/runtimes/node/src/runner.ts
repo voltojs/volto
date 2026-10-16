@@ -86,25 +86,31 @@ export type ToolExecutor = (call: PendingToolCall, ctx: ToolExecutorContext) => 
 
 /**
  * Flatten tool-result content to the plain text that string-only consumers
- * (validators) still expect. Only text blocks are joined — validators
- * inspect textual output, not image refs.
+ * (validators) still expect. Only text-bearing blocks are joined —
+ * validators inspect textual output, not image refs. Structured blocks
+ * contribute their REQUIRED text projection.
  */
 function toolResultText(content: string | ToolResultBlock[]): string {
   if (typeof content === "string") return content;
-  return content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+  return content
+    .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
+    .join("\n");
 }
 
 /**
  * Annotate untrusted tool output. Block arrays keep their shape so image
- * refs survive; only text blocks carry the isolation banner.
+ * refs survive; text and structured blocks carry the isolation banner on
+ * their text (structured kind/data ride along untouched).
  */
 function annotateUntrustedContent(
   content: string | ToolResultBlock[],
 ): string | ToolResultBlock[] {
   if (typeof content === "string") return annotateUntrusted(content);
-  return content.map((b) =>
-    b.type === "text" ? { ...b, text: annotateUntrusted(b.text) } : b,
-  );
+  return content.map((b) => {
+    if (b.type === "text") return { ...b, text: annotateUntrusted(b.text) };
+    if (b.type === "structured") return { ...b, text: annotateUntrusted(b.text) };
+    return b;
+  });
 }
 
 /**
@@ -2218,7 +2224,10 @@ function extractLastUserMessage(messages: Message[]): string {
       return typeof msg.content === "string"
         ? msg.content
         : msg.content
-            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .filter(
+              (b): b is Extract<ContentBlock, { type: "text" | "structured" }> =>
+                b.type === "text" || b.type === "structured",
+            )
             .map((b) => b.text)
             .join(" ");
     }
