@@ -143,7 +143,8 @@ export function planImageOffload(
 
 /**
  * The per-image marker line placed before each preserved ref block in the
- * summary message (D5). Verbatim format — keep it byte-identical:
+ * user-role carrier message right after the summary (D5 v1.2). Verbatim
+ * format — keep it byte-identical:
  * `[image preserved from compressed conversation: WxH mediaType]`
  * (dims segment omitted unless both dimensions are known).
  */
