@@ -79,6 +79,13 @@ export interface CompactionConfig {
   toolResultMaxChars?: number;
   /** maxTokens cap for the summarization model call (default: 4096) */
   summaryMaxTokens?: number;
+  /**
+   * Maximum number of recent images (refs) preserved on the summary message
+   * after compaction (spec D3). Default 4 at the Runner; 0 or negative
+   * disables the feature (all images degrade to placeholders — today's
+   * behavior).
+   */
+  preserveImageCount?: number;
 }
 
 // ──────────────────────────────────────────────

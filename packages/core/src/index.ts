@@ -245,6 +245,10 @@ export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-pru
 export { decideSpill, renderSpillReference } from "./tool-result-spill.js";
 export type { SpillDecisionOptions, SpillDecision, SpillReferenceInput } from "./tool-result-spill.js";
 
+// Compaction image offload — pure plan decision + preserved-marker rendering
+export { planImageOffload, renderImagePreservedMarker } from "./compaction-image-offload.js";
+export type { OffloadCandidate, ImageOffloadPlan } from "./compaction-image-offload.js";
+
 // PermissionPolicy — pure permission decision logic
 export { evaluatePermission, resolvePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules, hasCommandRules } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule, ResolvedToolInput, PermissionResolution } from "./permission-policy.js";

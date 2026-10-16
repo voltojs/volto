@@ -898,8 +898,15 @@ export interface AttachmentStore {
    * Store bytes and return the reference. `data` is base64.
    * `opts.name` is the client's original filename: model-visible only,
    * never used for addressing. Omitting it keeps the meta free of `name`.
+   * `opts.id` overrides addressing: a valid id overwrites any previous
+   * attachment under that id (deterministic replay/rerun) and MUST be a
+   * valid path segment. Omitting it keeps the uuid fallback unchanged.
    */
-  put(data: string, mimeType: string, opts?: { name?: string }): Promise<StoredAttachment>;
+  put(
+    data: string,
+    mimeType: string,
+    opts?: { name?: string; id?: string },
+  ): Promise<StoredAttachment>;
   /**
    * Fetch the bytes as base64 alongside the metadata recorded at ingest.
    * Returns undefined when the id is unknown.
