@@ -273,7 +273,7 @@ export { computeUsageCost, totalUsageTokens } from "./pricing.js";
 export type { PricingEntry, PricingTable, UsageCounts } from "./pricing.js";
 
 // Loop detector — oscillation detection (pure function)
-export { detectLoop } from "./loop-detector.js";
+export { detectLoop, renderLoopReminder, renderLoopIntervention } from "./loop-detector.js";
 export type { LoopDetectionResult } from "./loop-detector.js";
 
 // Error taxonomy — pure classification for retry decisions
