@@ -238,6 +238,10 @@ export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingT
 export { pruneOversizedToolResults } from "./tool-result-prune.js";
 export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-prune.js";
 
+// Tool-result spill — pure decision + model-facing reference rendering
+export { decideSpill, renderSpillReference } from "./tool-result-spill.js";
+export type { SpillDecisionOptions, SpillDecision, SpillReferenceInput } from "./tool-result-spill.js";
+
 // PermissionPolicy — pure permission decision logic
 export { evaluatePermission, resolvePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules, hasCommandRules } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule, ResolvedToolInput, PermissionResolution } from "./permission-policy.js";
