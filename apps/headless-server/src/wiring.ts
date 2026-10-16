@@ -93,6 +93,12 @@ export interface WiringOptions {
    * `maxTokens`. Omit to let the provider apply its own default.
    */
   maxTokens?: number;
+  /**
+   * Loop-detection threshold (K) forwarded verbatim to createAgent()'s
+   * `maxLoopCount` — the same passthrough shape as `maxTokens`. Omit to
+   * leave the whole loop ladder off (detection is disabled without it).
+   */
+  maxLoopCount?: number;
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
   /**
@@ -570,6 +576,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     skillRegistry,
     commands: BUILT_IN_COMMANDS,
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+    ...(opts.maxLoopCount !== undefined ? { maxLoopCount: opts.maxLoopCount } : {}),
     ...(opts.permissionConfig
       ? { permissionConfig: mergePermissionRules(opts.permissionConfig, permissionRules) }
       : {}),
