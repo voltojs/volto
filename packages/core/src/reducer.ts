@@ -280,57 +280,60 @@ export function step(
     const replaced = new Set(input.replacedIds);
     const kept = state.messages.filter((m) => !replaced.has(m.id));
     const firstIdx = state.messages.findIndex((m) => replaced.has(m.id));
-    // Preserved images (spec 2026-10-16 D5): when the input carries image
-    // ref blocks, the summary message content becomes a block array —
-    // [text summary, then (marker, image) per preserved image] — so the
-    // model sees "what this image is" directly before the image itself.
-    // Absent or empty: the plain-string summary, byte-identical to before
-    // the feature existed (zero regression surface).
+    // Preserved images (spec 2026-10-16 D5, v1.2): image ref blocks ride a
+    // dedicated USER-role message inserted right after the summary — system
+    // content is text-only on every provider's wire, so images inside the
+    // summary message never reach the model (Task 3's wire witness). Markers
+    // verbatim, one immediately before each image block.
     const preservedImages = (input.preservedImages ?? []).filter(
       (b): b is Extract<ContentBlock, { type: "image" }> =>
         b.type === "image" && b.source.type === "ref",
     );
-    // D5: with preserved images the summary content is a BLOCK ARRAY
-    // [text, (marker, image)…]; without them it stays the exact plain
-    // string this handler has always produced (zero regression surface).
-    const summaryMsg: Message =
+    // D5 v1.2: the summary is ALWAYS the plain string this handler has
+    // always produced. The v1.0 block-array summary path is gone.
+    const summaryMsg: Message = {
+      id: input.summaryId,
+      role: "system",
+      content: `[Earlier conversation summary]\n${input.summaryText}`,
+    };
+    const imagesMsg: Message | undefined =
       preservedImages.length === 0
-        ? {
-            id: input.summaryId,
-            role: "system",
-            content: `[Earlier conversation summary]\n${input.summaryText}`,
-          }
-        : ({
-            id: input.summaryId,
-            role: "system",
-            content: [
-              { type: "text", text: `[Earlier conversation summary]\n${input.summaryText}` },
-              ...preservedImages.flatMap<ContentBlock>((image) => [
-                {
-                  type: "text",
-                  text: renderImagePreservedMarker({
-                    ...(image.width !== undefined ? { width: image.width } : {}),
-                    ...(image.height !== undefined ? { height: image.height } : {}),
-                    mediaType: image.source.mediaType,
-                  }),
-                },
-                image,
-              ]),
-            ],
-            // SystemMessage.content is typed string-only (providers today
-            // serialize system content as text). Core state carries the
-            // block-array runtime fact at this boundary — the same cast
-            // pattern as inline base64 image sources — and the wire face is
-            // verified by Task 3's e2e (plan Review Focus 5).
-          } as unknown as Message);
+        ? undefined
+        : {
+            id: `${input.summaryId}-images`,
+            role: "user",
+            content: preservedImages.flatMap<ContentBlock>((image) => [
+              {
+                type: "text",
+                text: renderImagePreservedMarker({
+                  ...(image.width !== undefined ? { width: image.width } : {}),
+                  ...(image.height !== undefined ? { height: image.height } : {}),
+                  mediaType: image.source.mediaType,
+                }),
+              },
+              image,
+            ]),
+          };
     // Insert at the earliest replaced position among the KEPT order: count
-    // non-replaced messages before the first replaced index.
+    // non-replaced messages before the first replaced index. The images
+    // carrier sits immediately after the summary (insertAt + 1).
     const insertAt =
       firstIdx === -1
         ? 0
         : state.messages.slice(0, firstIdx).filter((m) => !replaced.has(m.id)).length;
-    const messages = [...kept.slice(0, insertAt), summaryMsg, ...kept.slice(insertAt)];
-    const pinnedMessageIds = (state.pinnedMessageIds ?? []).filter((id) => !replaced.has(id));
+    const messages = [
+      ...kept.slice(0, insertAt),
+      summaryMsg,
+      ...(imagesMsg !== undefined ? [imagesMsg] : []),
+      ...kept.slice(insertAt),
+    ];
+    // Defensive: the summary id and its images carrier are fresh ids, but a
+    // stale pin must never survive on either (same dropped-id discipline as
+    // the replaced set).
+    const freshIds = new Set([input.summaryId, `${input.summaryId}-images`]);
+    const pinnedMessageIds = (state.pinnedMessageIds ?? []).filter(
+      (id) => !replaced.has(id) && !freshIds.has(id),
+    );
     return {
       state: { ...state, messages, pinnedMessageIds },
       effects: [

@@ -83,7 +83,7 @@ describe("compaction_applied — preservedImages (F-212)", () => {
     ];
   }
 
-  it("builds a block-array summary: text, then a verbatim marker before each preserved image", () => {
+  it("delivers preserved images in a dedicated user message right after the string summary (D5 v1.2)", () => {
     const { state, effects } = step(
       base(span()),
       {
@@ -96,35 +96,37 @@ describe("compaction_applied — preservedImages (F-212)", () => {
       ctx,
     );
 
-    // Insert position, pins and emit semantics are unchanged.
-    expect(state.messages.map((m) => m.id)).toEqual(["sys", "sum-1", "c"]);
+    // Insert position, pins and emit semantics are unchanged; the images
+    // carrier sits immediately after the summary (insertAt + 1).
+    expect(state.messages.map((m) => m.id)).toEqual(["sys", "sum-1", "sum-1-images", "c"]);
+
+    // D5 v1.2: the summary is ALWAYS the plain string.
     const sum = state.messages.find((m) => m.id === "sum-1")!;
     expect(sum.role).toBe("system");
+    expect(sum.content).toBe("[Earlier conversation summary]\ncheckpoint");
 
-    const blocks = sum.content as ContentBlock[];
+    // The carrier: user role, marker verbatim immediately before each image.
+    const imagesMsg = state.messages.find((m) => m.id === "sum-1-images")!;
+    expect(imagesMsg.role).toBe("user");
+    const blocks = imagesMsg.content as ContentBlock[];
     expect(Array.isArray(blocks)).toBe(true);
-    expect(blocks).toHaveLength(5);
+    expect(blocks).toHaveLength(4);
     expect(blocks[0]).toEqual({
-      type: "text",
-      text: "[Earlier conversation summary]\ncheckpoint",
-    });
-    // Markers verbatim per spec D5, each immediately before its image block.
-    expect(blocks[1]).toEqual({
       type: "text",
       text: "[image preserved from compressed conversation: 800x600 image/png]",
     });
-    expect(blocks[2]).toEqual(img1 as unknown as ContentBlock);
-    expect(blocks[3]).toEqual({
+    expect(blocks[1]).toEqual(img1 as unknown as ContentBlock);
+    expect(blocks[2]).toEqual({
       type: "text",
       text: "[image preserved from compressed conversation: image/jpeg]",
     });
-    expect(blocks[4]).toEqual(img2 as unknown as ContentBlock);
+    expect(blocks[3]).toEqual(img2 as unknown as ContentBlock);
 
     const emit = effects.find((e) => e.type === "emit" && e.event?.type === "compaction");
     expect(emit).toBeDefined();
   });
 
-  it("keeps the summary a byte-identical plain string when preservedImages is absent", () => {
+  it("keeps the summary a byte-identical plain string and adds no images message when preservedImages is absent", () => {
     const { state } = step(
       base(span()),
       {
@@ -135,12 +137,13 @@ describe("compaction_applied — preservedImages (F-212)", () => {
       },
       ctx,
     );
+    expect(state.messages.map((m) => m.id)).toEqual(["sys", "sum-1", "c"]);
     const sum = state.messages.find((m) => m.id === "sum-1")!;
     // Review Focus 1: pin the EXACT string, not a containment check.
     expect(sum.content).toBe("[Earlier conversation summary]\ncheckpoint");
   });
 
-  it("falls back to the byte-identical string path when preservedImages is an empty array", () => {
+  it("keeps the byte-identical string path and adds no images message when preservedImages is an empty array", () => {
     const { state } = step(
       base(span()),
       {
@@ -152,8 +155,24 @@ describe("compaction_applied — preservedImages (F-212)", () => {
       },
       ctx,
     );
+    expect(state.messages.map((m) => m.id)).toEqual(["sys", "sum-1", "c"]);
     const sum = state.messages.find((m) => m.id === "sum-1")!;
     expect(sum.content).toBe("[Earlier conversation summary]\ncheckpoint");
+  });
+
+  it("drops stale pins on the summary id and its images carrier (defensive)", () => {
+    const { state } = step(
+      { ...base(span()), pinnedMessageIds: ["sum-1", "sum-1-images", "ghost"] },
+      {
+        type: "compaction_applied",
+        summaryId: "sum-1",
+        summaryText: "checkpoint",
+        replacedIds: ["a", "b"],
+        preservedImages: [img1] as ContentBlock[],
+      },
+      ctx,
+    );
+    expect(state.pinnedMessageIds).toEqual(["ghost"]);
   });
 });
 

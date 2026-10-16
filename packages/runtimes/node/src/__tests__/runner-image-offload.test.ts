@@ -135,15 +135,23 @@ function imageMsg(id: string, blocks: ContentBlock[]): Message {
   return { id, role: "user", content: blocks } as Message;
 }
 
-/** The compaction summary message, by its verbatim leading text. */
+/** The compaction summary message (D5 v1.2: always a plain string). */
 function findSummary(messages: Message[]): Message | undefined {
+  return messages.find(
+    (m) =>
+      typeof m.content === "string" && m.content.startsWith("[Earlier conversation summary]"),
+  );
+}
+
+/** The preserved-images carrier (D5 v1.2): user-role, marker-led block array. */
+function findImagesMessage(messages: Message[]): Message | undefined {
   return messages.find((m) => {
-    if (typeof m.content === "string") return m.content.startsWith("[Earlier conversation summary]");
-    if (Array.isArray(m.content)) {
-      const first = m.content[0];
-      return first?.type === "text" && first.text.startsWith("[Earlier conversation summary]");
-    }
-    return false;
+    if (m.role !== "user" || !Array.isArray(m.content)) return false;
+    const first = m.content[0];
+    return (
+      first?.type === "text" &&
+      first.text.startsWith("[image preserved from compressed conversation:")
+    );
   });
 }
 
@@ -173,7 +181,7 @@ async function runOffloadScenario(opts: {
 }
 
 describe("Runner — compaction image offload", () => {
-  it("offloads inline base64 images under deterministic ids and carries the ref into the summary", async () => {
+  it("offloads inline base64 images under deterministic ids and carries the ref into the images message", async () => {
     const store = fakeAttachmentStore();
     const { final, attempts, spy } = await runOffloadScenario({
       messages: [SYS, imageMsg("img-1", [inlineImage("QUJD", { width: 1, height: 1 })]), ...textHistory(18)],
@@ -186,21 +194,24 @@ describe("Runner — compaction image offload", () => {
       { data: "QUJD", mimeType: "image/png", opts: { id: "img-1-t0" } },
     ]);
 
+    // D5 v1.2: the summary is always a plain string …
     const summary = findSummary(final.messages);
     expect(summary).toBeDefined();
-    expect(Array.isArray(summary!.content)).toBe(true);
-    const blocks = summary!.content as ContentBlock[];
-    expect(blocks).toHaveLength(3);
+    expect(summary!.content).toBe("[Earlier conversation summary]\nSUMMARY-TEXT");
+
+    // … and the preserved image rides the dedicated user message right
+    // after the summary, marker verbatim immediately before it.
+    const imagesMsg = findImagesMessage(final.messages)!;
+    const summaryIdx = final.messages.findIndex((m) => m.id === summary!.id);
+    expect(final.messages[summaryIdx + 1]?.id).toBe(imagesMsg.id);
+    expect(imagesMsg.role).toBe("user");
+    const blocks = imagesMsg.content as ContentBlock[];
+    expect(blocks).toHaveLength(2);
     expect(blocks[0]).toEqual({
-      type: "text",
-      text: "[Earlier conversation summary]\nSUMMARY-TEXT",
-    });
-    // Marker verbatim (spec D5), immediately before its image block.
-    expect(blocks[1]).toEqual({
       type: "text",
       text: "[image preserved from compressed conversation: 1x1 image/png]",
     });
-    expect(blocks[2]).toMatchObject({
+    expect(blocks[1]).toMatchObject({
       type: "image",
       source: { type: "ref", id: "img-1-t0", mediaType: "image/png" },
       width: 1,
@@ -212,15 +223,14 @@ describe("Runner — compaction image offload", () => {
     expect(final.status).toBe("done");
 
     // The next model request resolves the preserved ref back to base64 bytes.
-    const mainSummary = findSummary(spy.calls[1]!.messages)!;
-    const mainBlocks = mainSummary.content as ContentBlock[];
-    expect(mainBlocks[2]).toMatchObject({
+    const reqBlocks = findImagesMessage(spy.calls[1]!.messages)!.content as ContentBlock[];
+    expect(reqBlocks[1]).toMatchObject({
       type: "image",
       source: { type: "base64", data: "QUJD", mediaType: "image/png" },
     });
   });
 
-  it("performs no puts for a ref-only span and the existing ref rides the summary", async () => {
+  it("performs no puts for a ref-only span and the existing ref rides the images message", async () => {
     const store = fakeAttachmentStore({ seed: { "att-1": { data: "QUJD", mimeType: "image/png" } } });
     const { final, attempts } = await runOffloadScenario({
       messages: [SYS, imageMsg("img-1", [refImage("att-1", { width: 2, height: 3 })]), ...textHistory(18)],
@@ -229,14 +239,13 @@ describe("Runner — compaction image offload", () => {
 
     expect(attempts).toEqual([]);
 
-    const summary = findSummary(final.messages)!;
-    const blocks = summary.content as ContentBlock[];
-    expect(blocks).toHaveLength(3);
-    expect(blocks[1]).toEqual({
+    const blocks = findImagesMessage(final.messages)!.content as ContentBlock[];
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({
       type: "text",
       text: "[image preserved from compressed conversation: 2x3 image/png]",
     });
-    expect(blocks[2]).toMatchObject({
+    expect(blocks[1]).toMatchObject({
       type: "image",
       source: { type: "ref", id: "att-1", mediaType: "image/png" },
     });
@@ -284,9 +293,13 @@ describe("Runner — compaction image offload", () => {
     ]);
     expect(run2.attempts).toEqual(run1.attempts);
 
-    // The summary messages (including ref ids) are byte-identical too.
+    // The summary string and the images carrier (including ref ids) are
+    // byte-identical too.
     expect(findSummary(run2.final.messages)?.content).toEqual(
       findSummary(run1.final.messages)?.content,
+    );
+    expect(findImagesMessage(run2.final.messages)?.content).toEqual(
+      findImagesMessage(run1.final.messages)?.content,
     );
   });
 
@@ -312,7 +325,7 @@ describe("Runner — compaction image offload", () => {
     // Nested (r0-1) and top-level (t1) must not collide.
     expect(attempts.map((a) => a.opts?.id)).toEqual(["img-1-r0-1", "img-1-t1"]);
 
-    const blocks = findSummary(final.messages)!.content as ContentBlock[];
+    const blocks = findImagesMessage(final.messages)!.content as ContentBlock[];
     const refIds = blocks
       .filter((b): b is Extract<ContentBlock, { type: "image" }> => b.type === "image")
       .map((b) => (b.source as { id: string }).id);
@@ -360,13 +373,13 @@ describe("Runner — compaction image offload", () => {
     expect(attempts.map((a) => a.opts?.id)).toEqual(["img-1-t1", "img-1-t2"]);
 
     const summary = findSummary(final.messages)!;
-    // The dropped oldest image degrades into the summary TEXT.
-    expect(typeof summary.content).toBe("object");
-    expect((summary.content as ContentBlock[])[0]).toEqual({
-      type: "text",
-      text: "[Earlier conversation summary]\n[image: image/png]\nSUMMARY-TEXT",
-    });
-    const refIds = (summary.content as ContentBlock[])
+    // The dropped oldest image degrades into the summary TEXT (the summary
+    // itself stays the plain string).
+    expect(typeof summary.content).toBe("string");
+    expect(summary.content).toBe(
+      "[Earlier conversation summary]\n[image: image/png]\nSUMMARY-TEXT",
+    );
+    const refIds = (findImagesMessage(final.messages)!.content as ContentBlock[])
       .filter((b) => b.type === "image")
       .map((b) => (b as { source: { id: string } }).source.id);
     expect(refIds).toEqual(["img-1-t1", "img-1-t2"]);
@@ -406,12 +419,18 @@ describe("Runner — compaction image offload", () => {
     });
     await runner.run({ type: "user_message", content: "now" });
 
-    const blocks = findSummary(runner.getState().messages)!.content as ContentBlock[];
+    const final = runner.getState();
+    // The inline image degrades into the summary TEXT (plain string) …
+    expect(findSummary(final.messages)!.content).toBe(
+      "[Earlier conversation summary]\n[image: 1x1 image/png]\nSUMMARY-TEXT",
+    );
+    // … while the existing ref rides the images message.
+    const blocks = findImagesMessage(final.messages)!.content as ContentBlock[];
     expect(blocks[0]).toEqual({
       type: "text",
-      text: "[Earlier conversation summary]\n[image: 1x1 image/png]\nSUMMARY-TEXT",
+      text: "[image preserved from compressed conversation: image/png]",
     });
-    expect(blocks[2]).toMatchObject({
+    expect(blocks[1]).toMatchObject({
       type: "image",
       source: { type: "ref", id: "att-1", mediaType: "image/png" },
     });

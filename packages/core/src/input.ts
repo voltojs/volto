@@ -159,19 +159,23 @@ export interface ToolResultsPrunedInput {
  *
  * Replaces the span of messages named by `replacedIds` with a single
  * system-role summary message carrying `summaryId` / `summaryText`, at the
- * earliest position among the replaced span. Pins that pointed at replaced
- * messages are dropped; unknown ids are ignored.
+ * earliest position among the replaced span — followed, when preserved
+ * images ride along, by one dedicated user-role images message (see
+ * `preservedImages` below). Pins that pointed at replaced messages are
+ * dropped; unknown ids are ignored.
  *
  * `summaryId` is supplied by the caller — the Runner stamps it via the `Id`
  * port on `StepContext` before feeding this input. The reducer never
  * invents or hardcodes the summary id.
  *
- * `preservedImages` (spec 2026-10-16-compaction-image-offload, D5) carries
- * the image ref blocks that survive the compaction: when present and
- * non-empty the summary message content becomes a block array
- * `[text, marker, image, marker, image, …]`; when absent or empty the
- * summary content stays the plain string `"[Earlier conversation summary]\n…"`
- * byte-identical to before the feature existed.
+ * `preservedImages` (spec 2026-10-16-compaction-image-offload, D5 v1.2)
+ * carries the image ref blocks that survive the compaction: when present
+ * and non-empty they ride a dedicated USER-role message inserted right
+ * after the summary — content `[marker, image, marker, image, …]`, markers
+ * verbatim, one before each image. The summary message itself is ALWAYS the
+ * plain string `"[Earlier conversation summary]\n…"`: system content is
+ * text-only on every provider's wire, so v1.0's block-array summary never
+ * reached the model and is gone.
  */
 export interface CompactionAppliedInput {
   type: "compaction_applied";
