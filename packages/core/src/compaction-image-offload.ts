@@ -19,6 +19,14 @@ export interface OffloadCandidate {
   /** Index of the image block within its containing array (message content
    *  or the enclosing tool_result's content). */
   blockIndex: number;
+  /**
+   * Container-path suffix for deterministic id derivation. `blockIndex` is
+   * container-local, so a tool_result image and a top-level image in the
+   * same message can share an index; the suffix carries the nesting so the
+   * derived ids never collide: `t<blockIndex>` for top-level blocks,
+   * `r<outerBlockIndex>-<innerBlockIndex>` for tool_result-nested ones.
+   */
+  idSuffix: string;
   source:
     | { type: "base64"; data: string; mediaType: string }
     | { type: "ref"; id: string; mediaType: string };
@@ -47,10 +55,13 @@ export interface ImageOffloadPlan {
 }
 
 /** Collect every image block reachable from a content array, in order,
- *  recursing into tool_result content exactly like extractBlockText. */
+ *  recursing into tool_result content exactly like extractBlockText.
+ *  `path` prefixes idSuffixes: "t" for the top-level array, "r<outer>-"
+ *  inside a tool_result, so nested and top-level indices never collide. */
 function collectImages(
   blocks: readonly (ContentBlock | ToolResultBlock)[],
   messageId: string,
+  path: string,
   out: OffloadCandidate[],
 ): void {
   for (const [index, block] of blocks.entries()) {
@@ -58,12 +69,13 @@ function collectImages(
       out.push({
         messageId,
         blockIndex: index,
+        idSuffix: `${path}${index}`,
         source: block.source as OffloadCandidate["source"],
         ...(block.width !== undefined ? { width: block.width } : {}),
         ...(block.height !== undefined ? { height: block.height } : {}),
       });
     } else if (block.type === "tool_result") {
-      collectImages(block.content, messageId, out);
+      collectImages(block.content, messageId, `r${index}-`, out);
     }
   }
 }
@@ -96,7 +108,7 @@ export function planImageOffload(
   const candidates: OffloadCandidate[] = [];
   for (const msg of replaced) {
     if (Array.isArray(msg.content)) {
-      collectImages(msg.content, msg.id, candidates);
+      collectImages(msg.content, msg.id, "t", candidates);
     }
   }
 

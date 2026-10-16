@@ -46,11 +46,23 @@ export function createNodeAttachmentStore(opts: NodeAttachmentStoreOptions): Att
   const dirFor = (sessionId: string) => path.join(root, sessionId);
 
   return {
-    async put(data: string, mimeType: string, putOpts?: { name?: string }): Promise<StoredAttachment> {
+    async put(data: string, mimeType: string, putOpts?: { name?: string; id?: string }): Promise<StoredAttachment> {
       const dir = dirFor(opts.sessionId);
       await fs.mkdir(dir, { recursive: true });
       const bytes = Buffer.from(data, "base64");
-      const id = crypto.randomUUID();
+      // Explicit id (T7/D4): the compaction offload derives a deterministic
+      // id so re-running the same input sequence overwrites the same slot
+      // instead of minting a fresh uuid. An invalid segment is REJECTED —
+      // silently falling back would hide a derivation bug and break the
+      // replay guarantee the caller asked for.
+      if (putOpts?.id !== undefined) {
+        if (!isValidSegment(putOpts.id)) {
+          throw new Error(
+            `Invalid attachment id: ${JSON.stringify(putOpts.id)} — must be a valid path segment`,
+          );
+        }
+      }
+      const id = putOpts?.id ?? crypto.randomUUID();
       const dims = readImageDimensions(bytes);
       const meta: StoredAttachment = {
         id,

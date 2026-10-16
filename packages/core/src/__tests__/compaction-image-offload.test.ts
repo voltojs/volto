@@ -46,6 +46,7 @@ describe("planImageOffload — dual-path split (F-023)", () => {
     expect(plan.toOffload[0]).toMatchObject({
       messageId: "m1",
       blockIndex: 1,
+      idSuffix: "t1",
       source: { type: "base64", data: "AAAA", mediaType: "image/png" },
     });
     expect(plan.preserved).toHaveLength(2);
@@ -93,6 +94,29 @@ describe("planImageOffload — dual-path split (F-023)", () => {
       ["m1", 1],
       ["m2", 0],
     ]);
+  });
+
+  it("gives top-level and nested candidates distinct idSuffixes even at the same container-local index", () => {
+    // Adjudicated amendment (Task 2 brief): blockIndex is container-local, so
+    // a nested tool_result image and a top-level image in the same message can
+    // collide in deterministic id derivation. idSuffix carries the container
+    // path: `t<blockIndex>` top-level, `r<outer>-<inner>` nested.
+    const msg: Message = {
+      id: "m1",
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: "t1",
+          content: [{ type: "text", text: "r" }, b64Image("NESTED")],
+        } as unknown as ContentBlock,
+        b64Image("TOP"),
+      ],
+    };
+    const plan = planImageOffload([msg], { maxImages: 10 });
+
+    expect(plan.toOffload.map((c) => c.idSuffix)).toEqual(["r0-1", "t1"]);
+    expect(new Set(plan.toOffload.map((c) => c.idSuffix)).size).toBe(2);
   });
 });
 

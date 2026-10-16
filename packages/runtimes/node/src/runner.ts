@@ -59,8 +59,11 @@ import {
   totalUsageTokens,
   decideSpill,
   renderSpillReference,
+  planImageOffload,
+  extractBlockText,
 } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
+import type { OffloadCandidate } from "@volto/core";
 import type { Hook } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
 import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
@@ -194,6 +197,27 @@ export async function resolveImageRefs(
       return { ...msg, content } as Message;
     }),
   );
+}
+
+/**
+ * Collapse a raw string into a single storage-path segment: any character
+ * outside the safe set becomes "-", and dot runs are collapsed so a
+ * messageId containing ".." can never produce a traversal segment (the
+ * store's isValidSegment would reject it and the image would degrade).
+ */
+function sanitizeSegment(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9._-]/g, "-").replace(/\.{2,}/g, ".");
+}
+
+/**
+ * Deterministic AttachmentStore id for an offload candidate (spec D4):
+ * the message id plus the container-local idSuffix, sanitized to one
+ * segment. Same replaced span ⇒ same id sequence across reruns/replays —
+ * a re-compaction overwrites the same slot instead of minting a new uuid.
+ */
+export function deriveDeterministicId(candidate: OffloadCandidate): string {
+  const cleaned = sanitizeSegment(`${candidate.messageId}-${candidate.idSuffix}`);
+  return cleaned === "" ? `img-${candidate.idSuffix}` : cleaned;
 }
 
 /**
@@ -857,6 +881,95 @@ export function createRunner(opts: RunnerOptions): Runner {
   }
 
   /**
+   * T7 image offload phase of the compaction write-back (spec 2026-10-16,
+   * D1–D5). Pure planning comes from core (`planImageOffload`); this shell
+   * performs the I/O: every surviving inline base64 candidate is `put` into
+   * the AttachmentStore under a deterministic id and replaced by its ref;
+   * existing refs ride along untouched (no store access needed).
+   *
+   * Fail-soft (spec §6): a throwing put — or a missing store — degrades
+   * THAT image to today's placeholder text inside the summary text and
+   * emits `attachment_unavailable`; the compaction itself always completes.
+   * Cap-dropped placeholders (plan.droppedPlaceholders) join the summary
+   * text the same way.
+   *
+   * Guard: `preserveImageCount <= 0` (spec D3 opt-out; default 4) skips the
+   * phase entirely — no plan call, no puts, today's plain-string summary.
+   *
+   * Returns the (possibly prefixed) summary text plus the final ref blocks —
+   * `undefined` when nothing survived, so the reducer keeps its byte-
+   * identical string path.
+   */
+  async function offloadPreservedImages(
+    replaced: Message[],
+    summaryText: string,
+  ): Promise<{ summaryText: string; preservedImages?: ContentBlock[] }> {
+    const maxImages = opts.compaction?.preserveImageCount ?? 4;
+    if (maxImages <= 0) return { summaryText };
+
+    const plan = planImageOffload(replaced, { maxImages });
+    if (plan.preserved.length === 0) {
+      return { summaryText };
+    }
+
+    // plan.preserved lists kept candidates in span order; its base64-derived
+    // blocks carry the placeholder id "pending" and pair 1:1, in order, with
+    // plan.toOffload (both are the kept candidates split by source type).
+    const degraded: string[] = [];
+    if (plan.droppedPlaceholders) degraded.push(plan.droppedPlaceholders);
+    const preserved: ContentBlock[] = [];
+    let offloadCursor = 0;
+    for (const block of plan.preserved) {
+      if (block.type !== "image" || block.source.type !== "ref" || block.source.id !== "pending") {
+        preserved.push(block);
+        continue;
+      }
+      const candidate = plan.toOffload[offloadCursor++];
+      if (!candidate || candidate.source.type !== "base64") {
+        preserved.push(block);
+        continue;
+      }
+      const degrade = (): void => {
+        degraded.push(extractBlockText(block));
+      };
+      if (!opts.attachmentStore) {
+        // No store configured: skip the offload (inline bytes have nowhere
+        // to go) but keep existing refs — they need no store access here.
+        degrade();
+        continue;
+      }
+      const derivedId = deriveDeterministicId(candidate);
+      try {
+        const stored = await opts.attachmentStore.put(
+          candidate.source.data,
+          candidate.source.mediaType,
+          { id: derivedId },
+        );
+        preserved.push({
+          type: "image",
+          source: { type: "ref", id: stored.id, mediaType: candidate.source.mediaType },
+          ...(candidate.width !== undefined ? { width: candidate.width } : {}),
+          ...(candidate.height !== undefined ? { height: candidate.height } : {}),
+        });
+      } catch {
+        // Fail-soft: warn, degrade to placeholder text, keep the summary
+        // flowing — never abort the compaction.
+        (opts.eventSink ?? { emit: () => {} }).emit({
+          type: "attachment_unavailable",
+          data: { id: derivedId },
+        });
+        degrade();
+      }
+    }
+
+    const finalSummaryText = [...degraded, summaryText].join("\n");
+    return {
+      summaryText: finalSummaryText,
+      ...(preserved.length > 0 ? { preservedImages: preserved } : {}),
+    };
+  }
+
+  /**
    * Apply context compaction before a model call.
    * If the message history exceeds the token threshold, issues a summarization
    * call to the model and replaces compressible messages with the summary.
@@ -953,6 +1066,15 @@ export function createRunner(opts: RunnerOptions): Runner {
       // or recent-kept) falls through to the pruned surface below.
       const replacedIds = redecision.replacedIds ?? redecision.compressibleMessages.map((m) => m.id);
       if (replacedIds.length > 0) {
+        // T7 image offload (spec 2026-10-16, D1–D5): plan purely, put the
+        // inline base64 bytes under deterministic ids, feed the resolved
+        // ref blocks via preservedImages. Runs AFTER the summary call
+        // succeeded — a failed summarization never touches the store.
+        // Guard: preserveImageCount <= 0 (default 4) skips the whole phase
+        // and feeds exactly what today's code feeds (D3: 0 = opt-out).
+        const { summaryText: finalSummaryText, preservedImages } =
+          await offloadPreservedImages(redecision.compressibleMessages, summaryText);
+
         // summaryId from the Id port (StepContext.id). The hardcoded
         // "compaction-summary" constant is gone — I2 requires the Id port
         // so replayed sessions get deterministic, unique summary ids.
@@ -960,8 +1082,9 @@ export function createRunner(opts: RunnerOptions): Runner {
         forwardEmit(feed({
           type: "compaction_applied",
           summaryId,
-          summaryText,
+          summaryText: finalSummaryText,
           replacedIds,
+          ...(preservedImages !== undefined ? { preservedImages } : {}),
         }));
         // Assemble from post-feed state so the request and state agree.
         return { messages: state.messages, replacedCount: replacedIds.length, didWriteBack: true };

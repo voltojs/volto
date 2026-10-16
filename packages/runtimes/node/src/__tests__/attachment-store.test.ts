@@ -65,6 +65,47 @@ describe("node AttachmentStore", () => {
     expect("name" in meta).toBe(false);
   });
 
+  it("F-212 honors an explicit put id: bytes land under the session dir with that id, overwrite included", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-att-"));
+    roots.push(rootDir);
+    const store = createNodeAttachmentStore({ rootDir, sessionId: "s1" });
+
+    const meta = await store.put(PNG_1X1, "image/png", { id: "msg-1-t0", name: "shot.png" });
+    expect(meta.id).toBe("msg-1-t0");
+    expect(meta.name).toBe("shot.png");
+    // The file literally lands under <root>/<session>/<id>.
+    await expect(fs.readFile(path.join(rootDir, "s1", "msg-1-t0"))).resolves.toEqual(
+      Buffer.from(PNG_1X1, "base64"),
+    );
+
+    // Same id again = deterministic overwrite (idempotent re-offload).
+    await store.put("aGk=", "text/plain", { id: "msg-1-t0" });
+    const got = await store.get("msg-1-t0");
+    expect(got?.data).toBe("aGk=");
+    expect(got?.mimeType).toBe("text/plain");
+  });
+
+  it("F-212 rejects an explicit put id that is not a valid path segment — asserting the rejection itself", async () => {
+    const store = await tmpStore();
+    await expect(store.put(PNG_1X1, "image/png", { id: "../escape" })).rejects.toThrow(/path segment/i);
+    await expect(store.put(PNG_1X1, "image/png", { id: "a/b" })).rejects.toThrow(/path segment/i);
+    await expect(store.put(PNG_1X1, "image/png", { id: "a\\b" })).rejects.toThrow(/path segment/i);
+    await expect(store.put(PNG_1X1, "image/png", { id: "" })).rejects.toThrow(/path segment/i);
+    await expect(store.put(PNG_1X1, "image/png", { id: ".." })).rejects.toThrow(/path segment/i);
+  });
+
+  it("F-212 keeps the crypto.randomUUID fallback when no explicit id is given", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-att-"));
+    roots.push(rootDir);
+    const store = createNodeAttachmentStore({ rootDir, sessionId: "s1" });
+
+    const meta = await store.put(PNG_1X1, "image/png");
+    expect(meta.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const files = await fs.readdir(path.join(rootDir, "s1"));
+    expect(files).toContain(meta.id);
+    expect(files).toContain(meta.id + ".json");
+  });
+
   it("returns undefined for an unknown id instead of throwing", async () => {
     const store = await tmpStore();
     await expect(store.get("no-such-id")).resolves.toBeUndefined();
