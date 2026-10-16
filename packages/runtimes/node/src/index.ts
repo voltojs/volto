@@ -61,4 +61,6 @@ export { InMemoryTelemetry } from "./telemetry.js";
 export type { RecordedSpan, RecordedMetric } from "./telemetry.js";
 export { createNodeAttachmentStore } from "./attachment-store.js";
 export type { NodeAttachmentStoreOptions } from "./attachment-store.js";
+export { createNodeSpillStore } from "./spill-store.js";
+export type { NodeSpillStoreOptions } from "./spill-store.js";
 export { readImageDimensions } from "./image-dimensions.js";

@@ -274,6 +274,28 @@ export interface FileSystem {
 }
 
 // ──────────────────────────────────────────────
+// SpillStore — oversized tool-result persistence
+// ──────────────────────────────────────────────
+
+/** Inputs for {@link SpillStore.write}. */
+export interface SpillWriteInput {
+  sessionId: string;
+  toolCallId: string;
+  text: string;
+}
+
+export interface SpillStore {
+  /**
+   * Persist `text` at a deterministic path derived from sessionId +
+   * toolCallId. Returns the WORKSPACE-RELATIVE path for model display
+   * (must be readable by FileSystem.read / read_file). Overwrites on
+   * repeat — idempotent by construction. Throws on I/O failure (caller
+   * degrades, §6).
+   */
+  write(input: SpillWriteInput): Promise<{ relativePath: string }>;
+}
+
+// ──────────────────────────────────────────────
 // Shell — command execution
 // ──────────────────────────────────────────────
 

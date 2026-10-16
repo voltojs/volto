@@ -142,6 +142,8 @@ export type {
   PolicyEngine,
   StoredAttachment,
   AttachmentStore,
+  SpillWriteInput,
+  SpillStore,
   PlanStore,
 } from "./ports.js";
 
