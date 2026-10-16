@@ -37,3 +37,55 @@ describe("createNodeSpillStore", () => {
       .rejects.toThrow(/path segment/i);
   });
 });
+
+// Symlink creation is not supported on Windows; macOS and Linux both support
+// it, so only win32 skips.
+const itUnlessWindows = process.platform === "win32" ? it.skip : it;
+
+describe("createNodeSpillStore symlink containment", () => {
+  itUnlessWindows(
+    "F-182 REJECTS a session dir symlinked outside the spill root (rejection itself)",
+    async () => {
+      // The spill root sits in the model-writable workspace: a pre-planted
+      // `<sessionId>` symlink pointing outside would silently redirect
+      // host-side writes through the link. Only the realpath containment
+      // check sees this — the lexical path looks perfectly valid.
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), "volto-spill-outside-"));
+      try {
+        await fs.mkdir(path.join(root, ".volto", "spill"), { recursive: true });
+        await fs.symlink(outside, path.join(root, ".volto", "spill", "s1"), "dir");
+        const store = createNodeSpillStore({ rootDir: root });
+        await expect(store.write({ sessionId: "s1", toolCallId: "c1", text: "x" }))
+          .rejects.toThrow(/escapes the spill root/i);
+        // Supplementary: nothing landed outside — non-existence of the file,
+        // not "output empty".
+        await expect(fs.access(path.join(outside, "c1.txt"))).rejects.toThrow();
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
+  itUnlessWindows(
+    "F-182 replaces a symlinked spill file instead of writing through it",
+    async () => {
+      // A dangling symlink at the target name would make writeFile create the
+      // file at its outside target; the store must never write through it.
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-spill-outside-"));
+      const outsideFile = path.join(outsideDir, "c1.txt");
+      try {
+        const store = createNodeSpillStore({ rootDir: root });
+        await fs.mkdir(path.join(root, ".volto", "spill", "s1"), { recursive: true });
+        await fs.symlink(outsideFile, path.join(root, ".volto", "spill", "s1", "c1.txt"), "file");
+        const r = await store.write({ sessionId: "s1", toolCallId: "c1", text: "full output" });
+        expect(r.relativePath).toBe(".volto/spill/s1/c1.txt");
+        // The outside target was never created; content landed as a regular file.
+        await expect(fs.access(outsideFile)).rejects.toThrow();
+        const onDisk = await fs.readFile(path.join(root, ".volto", "spill", "s1", "c1.txt"), "utf8");
+        expect(onDisk).toBe("full output");
+      } finally {
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    },
+  );
+});

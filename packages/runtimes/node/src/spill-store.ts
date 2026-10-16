@@ -26,14 +26,49 @@ function assertSegment(field: "sessionId" | "toolCallId", value: string): void {
   }
 }
 
+/** Whether `target` is `root` itself or a path underneath it. */
+function isWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 export function createNodeSpillStore(opts: NodeSpillStoreOptions): SpillStore {
   return {
     async write(input) {
       assertSegment("sessionId", input.sessionId);
       assertSegment("toolCallId", input.toolCallId);
-      const dir = path.join(opts.rootDir, ".volto", "spill", input.sessionId);
-      const filePath = path.join(dir, input.toolCallId + ".txt");
-      await fs.mkdir(dir, { recursive: true });
+      const spillRoot = path.join(opts.rootDir, ".volto", "spill");
+      // Creating the root itself is safe: a fixed literal path under rootDir.
+      // Its realpath is the canonical base every containment check compares
+      // against (the workspace may sit behind a symlinked ancestor, e.g.
+      // os.tmpdir() on macOS).
+      await fs.mkdir(spillRoot, { recursive: true });
+      const realRoot = await fs.realpath(spillRoot);
+
+      // mkdir first, realpath second: realpath of a not-yet-created directory
+      // throws ENOENT. The spill root lives in the model-writable workspace,
+      // so the session dir may be a pre-planted symlink pointing outside it —
+      // resolving it here turns a would-be write-through-the-link into a
+      // rejection before anything is written.
+      const sessionDir = path.join(spillRoot, input.sessionId);
+      await fs.mkdir(sessionDir, { recursive: true });
+      const realSessionDir = await fs.realpath(sessionDir);
+      if (!isWithin(realRoot, realSessionDir)) {
+        throw new Error(
+          `Spill session dir ${JSON.stringify(input.sessionId)} escapes the spill root: ${realSessionDir}`,
+        );
+      }
+
+      const filePath = path.join(sessionDir, input.toolCallId + ".txt");
+      // writeFile follows a symlink at the target name — including a dangling
+      // one, which would create the file at its (possibly outside) target.
+      // The name is volto's own path namespace inside the verified session
+      // dir, so replace any symlink with a fresh regular file instead of
+      // writing through it.
+      const existing = await fs.lstat(filePath).catch(() => undefined);
+      if (existing?.isSymbolicLink()) {
+        await fs.unlink(filePath);
+      }
       // Plain overwrite: writing the same ids again replaces the file, so
       // repeat writes for one tool call are idempotent by construction.
       await fs.writeFile(filePath, input.text, "utf8");
