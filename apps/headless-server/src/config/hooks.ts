@@ -9,13 +9,21 @@
  * who wrote a hook expects it to run. The accepted shape is the Claude
  * Code command-hook subset: `{ "<lifecycle>": [{ "type": "command", "command": "..." }] }`.
  *
- * Note on the compiled handler: command execution (spawn, stdin feed,
- * exit-code semantics, timeout) lands in Task 2 (`runCommandHook`). Until
- * then the compiled handler throws rather than silently continuing — a
- * config hook must never degrade into a no-op.
+ * Exit-code semantics (spec 2026-10-17 D2): `0` = continue (stdout
+ * discarded — it never enters model context, D5); `2` = deny with the
+ * trimmed FIRST stderr line as the reason (empty stderr → a default
+ * no-reason text); any other non-zero exit, spawn failure, or timeout =
+ * fail-closed deny — a user who wrote a hook wants it enforced, so
+ * degrading to continue would be a silent policy hole.
  */
 
-import type { Hook, HookLifecycle } from "@volto/core";
+import { spawn } from "node:child_process";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import type { Hook, HookContext, HookLifecycle, HookOutcome } from "@volto/core";
+
+/** Default per-hook wall-clock budget (spec D5): 10s, then SIGTERM + deny. */
+export const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
 
 /** A single external-command hook entry — the only accepted entry shape. */
 export interface CommandHookSpec {
@@ -100,23 +108,141 @@ export function parseHooksConfig(raw: unknown): Map<HookLifecycle, CommandHookSp
 }
 
 /**
+ * Run one external-command hook (spec D5): spawn with `shell: true` (the
+ * command is the user's own — `~/` expansion through the login shell is
+ * the point, there is no injection surface to argue about), feed the hook
+ * context as JSON on stdin, collect the exit code and stderr, and map them
+ * onto a `HookOutcome` per D2. stdout is drained and discarded — it never
+ * enters model context; only the exit code (and, on an explicit deny, the
+ * first stderr line) decides anything.
+ *
+ * Timeout (default `DEFAULT_HOOK_TIMEOUT_MS`): SIGTERM the child, then
+ * fail-closed deny — one wedged hook must not stall the whole turn.
+ *
+ * Serial execution of multiple hooks on one lifecycle is the pipeline's
+ * job (`runHookPipeline`); this function runs exactly one command.
+ */
+export function runCommandHook(
+  command: string,
+  ctx: HookContext,
+  opts?: { timeoutMs?: number },
+): Promise<HookOutcome> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (outcome: HookOutcome) => {
+      if (settled) return;
+      settled = true;
+      resolve(outcome);
+    };
+    const failClosed = (detail: string) =>
+      settle({ action: "deny", reason: `hook "${command}" failed: ${detail}` });
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, { shell: true });
+    } catch (err) {
+      failClosed(err instanceof Error ? err.message : String(err));
+      return;
+    }
+
+    let stderr = "";
+    child.stderr?.setEncoding("utf-8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    // stdout is discarded by spec (D5) — but it must still be drained, or a
+    // chatty hook could fill the pipe and block on write.
+    child.stdout?.resume();
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      failClosed(`timed out after ${timeoutMs}ms`);
+    }, timeoutMs);
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      failClosed(err.message);
+    });
+
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (settled) return;
+      if (code === 0) {
+        settle({ action: "continue" });
+        return;
+      }
+      if (code === 2) {
+        const firstLine = (stderr.split("\n", 1)[0] ?? "").trim();
+        settle({
+          action: "deny",
+          reason: firstLine.length > 0 ? firstLine : "hook denied without a reason",
+        });
+        return;
+      }
+      // Non-zero (incl. killed by an external signal, code === null) →
+      // fail-closed deny with the exit detail.
+      failClosed(code === null ? `killed by signal ${signal ?? "unknown"}` : `exit ${code}`);
+    });
+
+    // A hook that exits without reading stdin surfaces EPIPE here; the
+    // close handler still decides the outcome, so swallow it.
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(JSON.stringify(ctx));
+  });
+}
+
+/**
+ * Load and compile `<configDir>/hooks.json` for one session build — same
+ * reload discipline as egress.json / permissions.json (an edit reaches new
+ * sessions without a restart).
+ *
+ * Returns `null` for an absent file (no hooks, treated as silence) and
+ * throws `HooksConfigError` for anything present-but-unusable (unreadable,
+ * invalid JSON, rejected shape) — the CALLER decides how to react: wiring
+ * treats a parse failure as fail-open for service availability (spec §6:
+ * warn and build without config hooks), because refusing to load is not
+ * the same as refusing a policy the way egress does.
+ */
+export async function loadHooksConfig(configDir: string): Promise<Hook[] | null> {
+  const file = path.join(configDir, "hooks.json");
+  let raw: string;
+  try {
+    raw = await fs.readFile(file, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new HooksConfigError(
+      `hooks.json exists but could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new HooksConfigError(
+      `hooks.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return buildHooksFromConfig(parseHooksConfig(parsed));
+}
+
+/**
  * Compile parsed specs into core `Hook[]` — name `cfg:<lifecycle>:<index>`,
  * lifecycle-bound, deterministic order (Map insertion order, entry order
- * within a lifecycle).
+ * within a lifecycle). The handler runs the configured command through
+ * `runCommandHook` with the spec's default timeout.
  */
 export function buildHooksFromConfig(specs: Map<HookLifecycle, CommandHookSpec[]>): Hook[] {
   const hooks: Hook[] = [];
   for (const [lifecycle, entries] of specs) {
-    entries.forEach((_spec, index) => {
+    entries.forEach((spec, index) => {
       const name = `cfg:${lifecycle}:${index}`;
       hooks.push({
         name,
         lifecycle,
-        // Task 2 wires runCommandHook here. Until then, fail loudly: a
-        // configured hook must never degrade into a silent no-op.
-        handler: () => {
-          throw new Error(`config hook "${name}" is not wired yet`);
-        },
+        handler: (ctx) =>
+          runCommandHook(spec.command, ctx, { timeoutMs: DEFAULT_HOOK_TIMEOUT_MS }),
       });
     });
   }

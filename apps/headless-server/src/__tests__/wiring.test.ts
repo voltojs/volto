@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
@@ -10,7 +10,7 @@ import {
   SECRET_ENV_PATTERNS,
 } from "../wiring.js";
 import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
+import type { Hook, ModelPort, ModelRequest } from "@volto/core";
 import {
   createNodeFileSystem,
   createNodeShell,
@@ -871,5 +871,102 @@ describe("createWiredAgent provider provenance", () => {
       providerId: "deepseek-official",
       modelId: "deepseek-flash",
     });
+  });
+});
+
+// ──────────────────────────────────────────────
+// T10 Task 2 — hooks.json assembly (spec D1/D5/§6): the config-compiled
+// command hooks are appended AFTER code-typed hooks and reach createAgent;
+// a malformed hooks.json warns at startup but never refuses the build
+// (fail-open for service availability — deliberately unlike egress).
+// Order is asserted behaviorally, not on internal opts: preToolUse runs
+// serially with first-deny short-circuit, so the code hook being called AT
+// ALL while the config hook's deny lands proves code-typed ran first.
+// ──────────────────────────────────────────────
+describe("createWiredAgent hooks.json assembly", () => {
+  it("appends config hooks AFTER code-typed hooks (code hook runs, then config deny lands)", async () => {
+    await fs.writeFile(
+      path.join(tempConfigDir, "hooks.json"),
+      JSON.stringify({
+        preToolUse: [{ type: "command", command: "echo 'config denies' >&2; exit 2" }],
+      }),
+      "utf-8",
+    );
+    const order: string[] = [];
+    const codeHook: Hook = {
+      name: "code-hook",
+      lifecycle: "preToolUse",
+      handler: () => {
+        order.push("code");
+        return { action: "continue" };
+      },
+    };
+    const requests: ModelRequest[] = [];
+    const inner = createMockModelPort([
+      toolCallScript("c1", "bash", JSON.stringify({ command: "echo hi" })),
+      textScript("done"),
+    ]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = await createWiredAgent({
+      modelPort,
+      cwd: tempProjectDir,
+      hooks: [codeHook],
+    });
+    await agent.run("go");
+
+    // Code hook executed (first-deny short-circuit would have skipped it
+    // had config hooks been ordered first)…
+    expect(order).toEqual(["code"]);
+    // …and the config hook's deny is what reached the tool result.
+    const toolResult = JSON.stringify(
+      (requests[1]?.messages ?? []).filter((m) => m.role === "tool"),
+    );
+    expect(toolResult).toContain("denied by a preToolUse hook");
+    expect(toolResult).toContain("config denies");
+  });
+
+  it("a malformed hooks.json logs a startup warning but the agent still builds and runs", async () => {
+    await fs.writeFile(
+      path.join(tempConfigDir, "hooks.json"),
+      JSON.stringify({ preTolUse: [{ type: "command", command: "x" }] }),
+      "utf-8",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { modelPort, requests } = captureModelPort();
+      const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
+      await agent.run("hi");
+
+      expect(requests).toHaveLength(1);
+      const hookWarn = warn.mock.calls.find((args) =>
+        args.some((a) => String(a).includes("hooks.json")),
+      );
+      expect(hookWarn, "expected a startup warning naming hooks.json").toBeDefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("an absent hooks.json means no hooks and no warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { modelPort, requests } = captureModelPort();
+      const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
+      await agent.run("hi");
+
+      expect(requests).toHaveLength(1);
+      const hookWarn = warn.mock.calls.find((args) =>
+        args.some((a) => String(a).includes("hooks.json")),
+      );
+      expect(hookWarn).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

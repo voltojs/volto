@@ -10,6 +10,7 @@ import { createAgent, defaultClock, scanAgentSources, type AgentSpec } from "@vo
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
+import { loadHooksConfig } from "./config/hooks.js";
 import { loadLspServers } from "./config/lsp.js";
 import { loadPermissionRules, mergePermissionRules } from "./config/permissions.js";
 import type { UiPermissionMode } from "./permission-modes.js";
@@ -33,7 +34,7 @@ import {
   type ContextLayer,
   type ContextLayerHints,
 } from "@volto/core";
-import type { AttachmentStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
+import type { AttachmentStore, Hook, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
@@ -227,6 +228,13 @@ export interface WiringOptions {
    * rejects as an unknown `subagent_type`.
    */
   pluginAgents?: AgentSpec[];
+  /**
+   * Code-typed lifecycle hooks (spec 2026-10-17 D1). Merged with the
+   * hooks.json config hooks in createWiredAgent: code-typed hooks come
+   * FIRST (they may `modify`), config command hooks are appended after
+   * (they may only continue/deny).
+   */
+  hooks?: Hook[];
 }
 
 /** The fs- and shell-side sandbox configs built from one sandbox mode. */
@@ -503,6 +511,25 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // is what makes a missing configuration visible instead of silent.
   const lspServers = await loadLspServers(getConfigDir());
 
+  // Config hooks from ~/.volto/hooks.json — re-read on every session build
+  // (same discipline as egress/permissions). Unlike those two, a bad file
+  // is fail-OPEN here on purpose (spec 2026-10-17 §6): egress refuses a
+  // policy, this refuses only a LOAD — a broken hooks.json must not stop
+  // the service from building sessions, so warn and continue without
+  // config hooks. An absent file is silence: no hooks, no warning.
+  let configHooks: Hook[] = [];
+  try {
+    configHooks = (await loadHooksConfig(getConfigDir())) ?? [];
+  } catch (err) {
+    console.warn(
+      "hooks.json could not be loaded; continuing WITHOUT config hooks:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  // Merge order (spec D1): code-typed hooks first (they may modify),
+  // config command hooks appended after (continue/deny only).
+  const allHooks = [...(opts.hooks ?? []), ...configHooks];
+
   // Audit trail for approval decisions, high-risk executions, and
   // command-prefix rule hits (rule_allow). The SDK defaults to a no-op sink,
   // which silently discards every entry — and the shell prefix rules
@@ -575,6 +602,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     resolveContextLayers,
     skillRegistry,
     commands: BUILT_IN_COMMANDS,
+    ...(allHooks.length > 0 ? { hooks: allHooks } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.maxLoopCount !== undefined ? { maxLoopCount: opts.maxLoopCount } : {}),
     ...(opts.permissionConfig
