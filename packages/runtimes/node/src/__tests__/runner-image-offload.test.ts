@@ -319,6 +319,31 @@ describe("Runner — compaction image offload", () => {
     expect(refIds).toEqual(["img-1-r0-1", "img-1-t1"]);
   });
 
+  it("sanitizes a dirty messageId into a valid, deterministic path segment", async () => {
+    // sanitizeSegment is the ONLY defense between a hostile/odd messageId
+    // and the store's segment validation: an unsanitized id would make
+    // every put throw and every image silently degrade. Drive a compaction
+    // whose replaced message id carries "/", ".." and a space.
+    const store = fakeAttachmentStore();
+    const dirty = "msg/../x y";
+    const { attempts } = await runOffloadScenario({
+      messages: [SYS, imageMsg(dirty, [inlineImage("QUJD")]), ...textHistory(18)],
+      store,
+    });
+
+    const id = attempts[0]!.opts?.id;
+    // Pinned literal after the documented transforms: every non
+    // [A-Za-z0-9._-] char becomes "-", then dot runs collapse to a single
+    // "." (".." -> "."), then the idSuffix rides along.
+    expect(id).toBe("msg-.-x-y-t0");
+    // A valid path segment by the store's isValidSegment rules: non-empty,
+    // safe charset only, no separators, no ".." (no throw → no silent
+    // degradation of this image).
+    expect(id).toMatch(/^[A-Za-z0-9._-]+$/);
+    expect(id).not.toContain("..");
+    expect(id).not.toContain("/");
+  });
+
   it("honors the cap: only the last N images are offloaded and preserved, older ones degrade to placeholder text", async () => {
     const store = fakeAttachmentStore();
     const { final, attempts } = await runOffloadScenario({
