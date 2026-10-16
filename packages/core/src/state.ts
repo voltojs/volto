@@ -38,6 +38,24 @@ export interface ImageContent {
   height?: number;
 }
 
+/**
+ * A structured, JSON-safe tool result projection. `kind` is a namespace
+ * string (e.g. "lsp.locations") whose owner defines `data`'s shape. `text`
+ * is the REQUIRED human/model-readable projection: every degradation path
+ * (provider serialization, trimming, pruning) uses it, so consumers never
+ * need to stringify `data` themselves. `data` MUST be JSON-safe — it
+ * round-trips through state, transcript, and checkpoints.
+ */
+export interface StructuredContent {
+  type: "structured";
+  /** Namespace string, e.g. "lsp.locations". Owner defines data's shape. */
+  kind: string;
+  /** Arbitrary JSON-safe payload. Shape defined by `kind`'s owner. */
+  data: unknown;
+  /** REQUIRED text projection — the single degradation/cut exit. */
+  text: string;
+}
+
 /** A tool use block in an assistant message */
 export interface ToolUseContent {
   type: "tool_use";
@@ -51,7 +69,7 @@ export interface ToolUseContent {
  * ContentBlock: a tool result carries text and images, never nested
  * tool_use / tool_result / reasoning blocks.
  */
-export type ToolResultBlock = TextContent | ImageContent;
+export type ToolResultBlock = TextContent | ImageContent | StructuredContent;
 
 export interface ToolResultContent {
   type: "tool_result";
@@ -85,6 +103,7 @@ export interface ReasoningContent {
 export type ContentBlock =
   | TextContent
   | ImageContent
+  | StructuredContent
   | ToolUseContent
   | ToolResultContent
   | ReasoningContent;

@@ -7,6 +7,7 @@ export type {
   AgentStatus,
   TextContent,
   ImageContent,
+  StructuredContent,
   ToolUseContent,
   ToolResultBlock,
   ToolResultContent,

@@ -30,10 +30,13 @@ export function extractMessageText(msg: Message): string {
  * - tool_result → the result content, recursed block by block
  * - reasoning → empty string (not user-facing text)
  * - image → placeholder "[image: WxH mediaType]"
+ * - structured → the REQUIRED text projection
  */
 export function extractBlockText(block: ContentBlock): string {
   switch (block.type) {
     case "text":
+      return block.text;
+    case "structured":
       return block.text;
     case "tool_use":
       return `[tool: ${block.name}]`;
@@ -89,6 +92,7 @@ export function estimateBlockTokens(block: ContentBlock, tokenizer: Tokenizer): 
   switch (block.type) {
     case "text":
     case "reasoning":
+    case "structured":
       return tokenizer.count(block.text) + BLOCK_OVERHEAD;
     case "tool_use":
       return (
