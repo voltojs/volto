@@ -4,7 +4,7 @@
  * Zero I/O, zero side effects, fully deterministic.
  */
 
-import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem, BackgroundTask } from "./state.js";
+import type { AgentState, AssistantMessage, ToolResultMessage, PendingToolCall, ReadFileRecord, Message, UserMessage, TodoItem, BackgroundTask, ContentBlock } from "./state.js";
 import { normalizeToolResultContent } from "./state.js";
 import type { ApprovalDenialReason, Clock, Id, ReasoningEffortId } from "./ports.js";
 import type { AgentInput } from "./input.js";
@@ -13,6 +13,7 @@ import type { ToolDefinition, JSONSchema } from "./tool.js";
 import type { ContextLayer } from "./context-assembler.js";
 import type { PermissionConfig } from "./permission-policy.js";
 import { userDenialMessage } from "./permission-policy.js";
+import { renderImagePreservedMarker } from "./compaction-image-offload.js";
 import { extractFileAccess, recordFileAccess } from "./file-gate.js";
 import { formatTodoListForModel } from "./todo-format.js";
 import { detectLoop } from "./loop-detector.js";
@@ -279,11 +280,49 @@ export function step(
     const replaced = new Set(input.replacedIds);
     const kept = state.messages.filter((m) => !replaced.has(m.id));
     const firstIdx = state.messages.findIndex((m) => replaced.has(m.id));
-    const summaryMsg: Message = {
-      id: input.summaryId,
-      role: "system",
-      content: `[Earlier conversation summary]\n${input.summaryText}`,
-    };
+    // Preserved images (spec 2026-10-16 D5): when the input carries image
+    // ref blocks, the summary message content becomes a block array —
+    // [text summary, then (marker, image) per preserved image] — so the
+    // model sees "what this image is" directly before the image itself.
+    // Absent or empty: the plain-string summary, byte-identical to before
+    // the feature existed (zero regression surface).
+    const preservedImages = (input.preservedImages ?? []).filter(
+      (b): b is Extract<ContentBlock, { type: "image" }> =>
+        b.type === "image" && b.source.type === "ref",
+    );
+    // D5: with preserved images the summary content is a BLOCK ARRAY
+    // [text, (marker, image)…]; without them it stays the exact plain
+    // string this handler has always produced (zero regression surface).
+    const summaryMsg: Message =
+      preservedImages.length === 0
+        ? {
+            id: input.summaryId,
+            role: "system",
+            content: `[Earlier conversation summary]\n${input.summaryText}`,
+          }
+        : ({
+            id: input.summaryId,
+            role: "system",
+            content: [
+              { type: "text", text: `[Earlier conversation summary]\n${input.summaryText}` },
+              ...preservedImages.flatMap<ContentBlock>((image) => [
+                {
+                  type: "text",
+                  text: renderImagePreservedMarker({
+                    ...(image.width !== undefined ? { width: image.width } : {}),
+                    ...(image.height !== undefined ? { height: image.height } : {}),
+                    mediaType: image.source.mediaType,
+                  }),
+                },
+                image,
+              ]),
+            ],
+            // SystemMessage.content is typed string-only (providers today
+            // serialize system content as text). Core state carries the
+            // block-array runtime fact at this boundary — the same cast
+            // pattern as inline base64 image sources — and the wire face is
+            // verified by Task 3's e2e (plan Review Focus 5).
+          } as unknown as Message);
     // Insert at the earliest replaced position among the KEPT order: count
     // non-replaced messages before the first replaced index.
     const insertAt =

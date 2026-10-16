@@ -165,12 +165,22 @@ export interface ToolResultsPrunedInput {
  * `summaryId` is supplied by the caller — the Runner stamps it via the `Id`
  * port on `StepContext` before feeding this input. The reducer never
  * invents or hardcodes the summary id.
+ *
+ * `preservedImages` (spec 2026-10-16-compaction-image-offload, D5) carries
+ * the image ref blocks that survive the compaction: when present and
+ * non-empty the summary message content becomes a block array
+ * `[text, marker, image, marker, image, …]`; when absent or empty the
+ * summary content stays the plain string `"[Earlier conversation summary]\n…"`
+ * byte-identical to before the feature existed.
  */
 export interface CompactionAppliedInput {
   type: "compaction_applied";
   summaryId: string;
   summaryText: string;
   replacedIds: string[];
+  /** Image blocks with `source.type === "ref"` only — the Runner resolves
+   *  inline bytes into refs (AttachmentStore) before feeding this input. */
+  preservedImages?: ContentBlock[];
 }
 
 /**
