@@ -131,7 +131,9 @@ export function estimateContentTokens(
 }
 
 /**
- * Extract only text-type content blocks (discards tool_use, tool_result, image).
+ * Extract only text-bearing content blocks (discards tool_use, tool_result,
+ * image). Structured blocks contribute their REQUIRED text projection,
+ * interleaved in order with text blocks.
  * Used when you specifically need the "pure text" portion of a message
  * (e.g., for display or text-only analysis).
  */
@@ -141,8 +143,8 @@ export function extractPlainText(msg: Message): string {
   }
   if (Array.isArray(msg.content)) {
     return msg.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b.type === "text" ? b.text : ""))
+      .filter((b) => b.type === "text" || b.type === "structured")
+      .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
       .join("");
   }
   return "";

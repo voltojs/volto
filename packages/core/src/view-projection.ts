@@ -563,7 +563,10 @@ export interface ConversationView {
 function textOf(content: string | ContentBlock[]): string {
   if (typeof content === "string") return content;
   return content
-    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .filter(
+      (b): b is Extract<ContentBlock, { type: "text" | "structured" }> =>
+        b.type === "text" || b.type === "structured",
+    )
     .map((b) => b.text)
     .join("");
 }
@@ -636,6 +639,10 @@ function userConversationBlocks(content: string | ContentBlock[]): ConversationB
   for (const block of content) {
     if (block.type === "text") {
       if (block.text) blocks.push({ type: "text", text: block.text });
+    } else if (block.type === "structured") {
+      // A structured block has no dedicated chat shape; its REQUIRED text
+      // projection is the single degradation exit, so render that.
+      if (block.text) blocks.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
       blocks.push({
         type: "image",
@@ -700,6 +707,9 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
         };
         for (const block of assistant.content) {
           if (block.type === "text") {
+            buffer += block.text;
+          } else if (block.type === "structured") {
+            // Structured rides the text buffer via its required projection.
             buffer += block.text;
           } else if (block.type === "tool_use") {
             flush();
