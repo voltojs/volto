@@ -1,11 +1,10 @@
 import type { Shell, ToolResult } from "@volto/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { DEFAULT_TIMEOUTS, defineTool, renderTimeoutSignature } from "@volto/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 import type { BashSessionLike } from "./session-port.js";
 
 const OUTPUT_LIMIT = 100_000;
-const DEFAULT_TIMEOUT_MS = 30_000;
 
 const bashSchema = z.object({
   command: z.string().describe("Shell command to execute"),
@@ -15,7 +14,7 @@ const bashSchema = z.object({
     .int()
     .positive()
     .optional()
-    .describe(`Timeout in milliseconds (default: ${DEFAULT_TIMEOUT_MS})`),
+    .describe(`Timeout in milliseconds (default: ${DEFAULT_TIMEOUTS.tool})`),
   show_full_output: z
     .boolean()
     .optional()
@@ -67,7 +66,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
         run_in_background: runInBackground,
         isolated,
       } = input;
-      const effectiveTimeout = timeout ?? DEFAULT_TIMEOUT_MS;
+      const effectiveTimeout = timeout ?? DEFAULT_TIMEOUTS.tool;
 
       // Background mode: launch via Shell.launch() and return PID immediately
       if (runInBackground && shell.launch) {
@@ -127,8 +126,15 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           const backgroundNote = backgroundUnavailable
             ? "\n\n(background execution is not available under the active sandbox; ran in the persistent session instead)"
             : "";
+          // A session result flagged timedOut IS a timeout, not a plain
+          // failure: classify it as an error and lead with the unified
+          // signature (spec D3/§6). The (exit code: N) tail note is kept.
+          const sessionTimeoutNote = r.timedOut
+            ? `${renderTimeoutSignature("bash", effectiveTimeout)}\n\n`
+            : "";
           return {
-            modelContent: `${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}`,
+            modelContent: `${sessionTimeoutNote}${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}`,
+            ...(r.timedOut ? { isError: true } : {}),
             displayMetadata: {
               exitCode: r.exitCode,
               fromSession: true,
@@ -136,6 +142,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
               truncated,
               totalLength: combined.length,
               ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
+              ...(r.timedOut ? { timedOut: true } : {}),
             },
           };
         } catch (error) {
@@ -158,6 +165,9 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       let totalStdout = 0;
       let totalStderr = 0;
       let exitCode = 0;
+      // Carried ONLY by the shell adapter's own timeout timer (Task 1);
+      // external abort and ordinary exits keep it absent (spec §6).
+      let timedOut = false;
 
       const retain = (kept: string, data: string): string => {
         if (showFullOutput) return kept + data;
@@ -180,6 +190,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
             keptStderr = retain(keptStderr, event.data);
           } else if (event.type === "exit") {
             exitCode = event.code;
+            if (event.timedOut) timedOut = true;
           }
         }
       } catch (error) {
@@ -200,10 +211,18 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       const backgroundNote = backgroundUnavailable
         ? "\n\n(background execution is not available under the active sandbox; ran in the foreground instead)"
         : "";
-      const modelContent = `${content}${exitNote}${truncationNote}${backgroundNote}`;
+      // The exit event carrying timedOut:true IS the timeout fact (spec D3/§6):
+      // classify as an error and lead with the unified signature. N is the
+      // effective per-call timeout (default from DEFAULT_TIMEOUTS.tool). The
+      // (exit code: N) tail note is kept when code !== 0.
+      const timeoutNote = timedOut
+        ? `${renderTimeoutSignature("bash", effectiveTimeout)}\n\n`
+        : "";
+      const modelContent = `${timeoutNote}${content}${exitNote}${truncationNote}${backgroundNote}`;
 
       return {
         modelContent,
+        ...(timedOut ? { isError: true } : {}),
         displayMetadata: {
           exitCode,
           stdoutLength: totalStdout,
@@ -212,6 +231,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           totalLength: totalCombined,
           ...(droppedChars > 0 ? { droppedChars } : {}),
           ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
+          ...(timedOut ? { timedOut: true } : {}),
         },
       };
     },

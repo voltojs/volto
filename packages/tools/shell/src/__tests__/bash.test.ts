@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Shell, ShellEvent } from "@volto/core";
 import { spawn } from "node:child_process";
+import { DEFAULT_TIMEOUTS } from "@volto/tools-common";
 import { createBashTool, CAP_SHELL_EXEC } from "../index.js";
 
 /** Mock shell that actually executes commands via child_process.spawn (concurrent stdout/stderr) */
@@ -358,5 +359,96 @@ describe("bash bounded accumulation (non-session exec)", () => {
     const r = await tool.handler({ command: "small" });
     expect(r.modelContent).toContain("hi");
     expect(r.displayMetadata?.droppedChars).toBeUndefined();
+  });
+});
+
+describe("bash timeout classification (F-232, spec D3/§6)", () => {
+  // (a) exec path: the shell adapter's own timer sets exit.timedOut →
+  // the result must be an error carrying the unified signature, with the
+  // existing (exit code: N) tail note preserved (spec §6 row 1).
+  it("exec path: timedOut exit → isError + unified signature + exit-code tail", async () => {
+    const tool = createBashTool({
+      async *exec() {
+        yield { type: "stdout", data: "partial" };
+        yield { type: "exit", code: 143, timedOut: true };
+      },
+    });
+    const r = await tool.handler({ command: "sleep 60" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toContain("[timeout] bash timed out after 30000ms");
+    // Default N comes from the shared DEFAULT_TIMEOUTS.tool table.
+    expect(r.modelContent).toContain(
+      `[timeout] bash timed out after ${DEFAULT_TIMEOUTS.tool}ms`,
+    );
+    expect(r.modelContent).toContain("(exit code: 143)");
+    expect(r.displayMetadata?.timedOut).toBe(true);
+  });
+
+  // (b) Non-timeout failure stays byte-identical (spec §6 row 2: exit 1 is
+  // still NOT an error — this classification grants no new authority).
+  it("exec path: non-timeout exit 1 stays byte-identical (regression)", async () => {
+    const tool = createBashTool(mockShell("", "error occurred", 1));
+    const r = await tool.handler({ command: "failing-command" });
+    expect(r.isError).toBeUndefined();
+    expect(r.modelContent).toBe("\n[stderr]\nerror occurred\n(exit code: 1)");
+  });
+
+  // (c) per-call timeout override: the signature's N is the effective
+  // per-call timeout, not the default.
+  it("exec path: per-call timeout override renders that N in the signature", async () => {
+    const tool = createBashTool({
+      async *exec() {
+        yield { type: "exit", code: 124, timedOut: true };
+      },
+    });
+    const r = await tool.handler({ command: "sleep 60", timeout: 500 });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toContain("[timeout] bash timed out after 500ms");
+    expect(r.modelContent).toContain("(exit code: 124)");
+  });
+
+  // (d) session path: a BashSessionLike result carrying timedOut gets the
+  // same classification (mock-port level; persistent-session sets the field
+  // on its own timeout path — pinned in runtime-node's tests).
+  it("session path: timedOut result → isError + unified signature", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: 124,
+            timedOut: true,
+            stateResetReason:
+              "Session was rebuilt after a stuck command. Working directory and environment variables were reset to the session defaults.",
+          };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "sleep 60" });
+    expect(r.isError).toBe(true);
+    expect(r.modelContent).toContain("[timeout] bash timed out after 30000ms");
+    expect(r.modelContent).toContain("(exit code: 124)");
+    expect(r.displayMetadata?.timedOut).toBe(true);
+  });
+
+  // (d2) Session results without timedOut keep the existing semantics —
+  // a rebuilt session with exit 124 is still not classified as an error
+  // unless the session says it was a timeout.
+  it("session path: result without timedOut keeps existing classification", async () => {
+    const tool = createBashTool(mockShell(""), {
+      getSession: () => ({
+        async run() {
+          return {
+            stdout: "kept",
+            stderr: "",
+            exitCode: 0,
+          };
+        },
+      }),
+    });
+    const r = await tool.handler({ command: "echo kept" });
+    expect(r.isError).toBeUndefined();
+    expect(r.modelContent).toBe("kept");
   });
 });

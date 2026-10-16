@@ -148,6 +148,29 @@ describe("marker protocol", () => {
     expect(r.stateResetReason).toMatch(/rebuilt/i);
     expect(s.alive).toBe(true);
   });
+
+  // T9 Task 2 (F-232): the session's own timeout path is determinable —
+  // every timeout funnels through interruptAndRebuild — so the result
+  // carries timedOut for the bash tool to classify it as an error.
+  it("marks its own timeout path with timedOut: true", async () => {
+    const s = makeSession({
+      generateNonce: () => "fixednonce",
+      defaultTimeoutMs: 300,
+      gracePeriodMs: 50,
+    });
+    const r = await s.run("read -r");
+    expect(r.timedOut).toBe(true);
+    expect(s.alive).toBe(true);
+  });
+
+  // Wire-shape regression: an ordinary result carries no timedOut key, so
+  // consumers can trust the flag's absence as "not a timeout".
+  it("does not carry timedOut on an ordinary result", async () => {
+    const s = makeSession();
+    const r = await s.run("echo plain-ok");
+    expect(r.exitCode).toBe(0);
+    expect(r).not.toHaveProperty("timedOut");
+  });
 });
 
 describe("session state retention", () => {

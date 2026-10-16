@@ -15,6 +15,13 @@ export interface BashSessionRunResult {
    * model so it knows cd/export/source state was reset.
    */
   stateResetReason?: string;
+  /**
+   * True when the session's own timeout mechanism terminated the command.
+   * The bash tool classifies such results as errors carrying the unified
+   * timeout signature (spec D3 of the timeout-policy design). Optional so
+   * sessions without a determinable timeout path keep the old behavior.
+   */
+  timedOut?: boolean;
 }
 
 export interface BashSessionLike {

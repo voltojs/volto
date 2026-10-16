@@ -10,6 +10,12 @@ export interface SessionCommandResult {
    * timeout. The tool layer MUST surface this to the model.
    */
   stateResetReason?: string;
+  /**
+   * True when this result was produced by the session's own timeout path
+   * (stuck-command recovery). Optional: ordinary results carry no key, so
+   * consumers can trust its absence as "not a timeout".
+   */
+  timedOut?: boolean;
 }
 
 export interface SessionSpawnHandle {
@@ -220,6 +226,8 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
    * timeout → SIGINT → gracePeriodMs → SIGKILL → cleanup → respawn.
    * The rebuilt session starts at options.cwd with a clean environment, so
    * the result carries an explicit stateResetReason the model must see.
+   * Its only caller is runOnce's timeout branch, so every result produced
+   * here is a timeout result and carries timedOut: true.
    */
   async function interruptAndRebuild(reason: string): Promise<SessionCommandResult> {
     const stale = handle;
@@ -244,6 +252,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         stdout: "",
         stderr: reason,
         exitCode: 124,
+        timedOut: true,
         stateResetReason: "session was disposed while recovering from a stuck command",
       };
     }
@@ -257,6 +266,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
       stdout: "",
       stderr: reason,
       exitCode: 124,
+      timedOut: true,
       stateResetReason:
         "Session was rebuilt after a stuck command. " +
         "Working directory and environment variables were reset to the session defaults.",
