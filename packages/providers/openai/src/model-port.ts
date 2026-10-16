@@ -167,10 +167,22 @@ function splitToolBatch(msg: ToolResultMessage): { toolMessages: unknown[]; carr
   const parts: Array<Record<string, unknown>> = [];
 
   for (const tr of msg.content) {
-    const texts = tr.content.filter((b) => b.type === "text").map((b) => b.text);
-    const images = tr.content
-      .map(asWireImage)
-      .filter((img): img is WireImageContent => img !== null);
+    const texts: string[] = [];
+    const images: WireImageContent[] = [];
+    for (const b of tr.content) {
+      if (b.type === "text") {
+        texts.push(b.text);
+      } else if (b.type === "structured") {
+        // Chat Completions tool role accepts string content only — structured
+        // blocks degrade to their text projection here.
+        texts.push(b.text);
+      } else {
+        const image = asWireImage(b);
+        if (image !== null) {
+          images.push(image);
+        }
+      }
+    }
     const note = images.length > 0
       ? `\n[${images.length} image${images.length > 1 ? "s" : ""} returned — see next message]`
       : "";

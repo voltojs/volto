@@ -343,14 +343,18 @@ function mapToolResultMessage(
     if (toolName === undefined) {
       continue;
     }
-    // Map text and image blocks 1:1, preserving order so interleaved
-    // text/image content stays meaningful to the model. An empty content
+    // Map text and structured blocks 1:1 (structured degrades to a text
+    // block with its text projection — pi-ai's tool result content takes
+    // text/image only), preserving order so interleaved content stays
+    // meaningful to the model. An empty content
     // array degrades to a single empty text block (same as before image
     // passthrough), because a toolResult with no content at all is not a
     // shape any provider path expects.
     const content: (PiTextContent | PiImageContent)[] = [];
     for (const b of block.content) {
       if (b.type === "text") {
+        content.push({ type: "text", text: b.text });
+      } else if (b.type === "structured") {
         content.push({ type: "text", text: b.text });
       } else {
         content.push(toPiImageContent(b));

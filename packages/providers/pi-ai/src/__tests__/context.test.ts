@@ -378,3 +378,65 @@ describe("toPiContext", () => {
     expect(() => toPiContext(req, model)).toThrow(/ref|unresolved/i);
   });
 });
+
+// D3 matrix (spec §2): pi-ai tool result content takes text/image blocks, so
+// a structured block degrades to a text block with its text projection —
+// same shape as the Anthropic path, an explicit branch rather than a fall
+// into the image mapper or an unknown-type skip.
+describe("pi-ai structured block degradation", () => {
+  const projection = "a.ts:1:1 definition of foo";
+  const structured = {
+    type: "structured" as const,
+    kind: "lsp.locations",
+    data: { locations: [{ uri: "file:///a.ts", range: { start: { line: 0, character: 0 } } }] },
+    text: projection,
+  };
+
+  function toolResultFor(content: unknown[]): ToolResultMessage {
+    const req = baseRequest({
+      messages: [
+        {
+          id: "m20",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "call_1", name: "lsp_definition", input: {} }],
+        },
+        {
+          id: "m21",
+          role: "tool",
+          content: [{ type: "tool_result", toolUseId: "call_1", content }],
+        },
+      ] as unknown as Message[],
+    });
+    const ctx = toPiContext(req, model);
+    return ctx.messages.find((m): m is ToolResultMessage => m.role === "toolResult")!;
+  }
+
+  it("degrades a structured tool_result block to a text block", () => {
+    const msg = toolResultFor([structured]);
+    expect(msg.content).toEqual([{ type: "text", text: projection }]);
+  });
+
+  it("keeps the structured projection in order among text blocks", () => {
+    const msg = toolResultFor([
+      { type: "text", text: "before" },
+      structured,
+      { type: "text", text: "after" },
+    ]);
+    expect(msg.content).toEqual([
+      { type: "text", text: "before" },
+      { type: "text", text: projection },
+      { type: "text", text: "after" },
+    ]);
+  });
+
+  // Counter-proof: a tool_result whose ONLY block is structured must not fall
+  // into the image-mapper default (which would throw / drop it); the mapped
+  // output must be non-empty and carry the projection.
+  it("does not drop a tool_result whose only block is structured", () => {
+    const msg = toolResultFor([structured]);
+    expect(msg.content.length).toBeGreaterThan(0);
+    const text = (msg.content[0] as { type: string; text?: string }).text ?? "";
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).toContain(projection);
+  });
+});

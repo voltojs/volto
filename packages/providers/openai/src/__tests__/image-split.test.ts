@@ -72,3 +72,50 @@ describe("openai image split", () => {
       .toBe(JSON.stringify(toOpenAiMessages(twoToolResultsWithImages)));
   });
 });
+
+// D3 matrix (spec §2): the Chat Completions tool role accepts string content
+// only, so structured blocks degrade to their text projection and join the
+// string in order — an explicit branch, not a silent fall through the
+// text-only filter.
+describe("openai structured block degradation", () => {
+  const projection = '{"locations":[{"uri":"file:///a.ts"}]}';
+  const structured = {
+    type: "structured" as const,
+    kind: "lsp.locations",
+    data: { locations: [{ uri: "file:///a.ts" }] },
+    text: projection,
+  };
+
+  function toolMessageFor(content: unknown[]): Record<string, unknown> {
+    const messages = [
+      { id: "m1", role: "assistant", content: [] },
+      { id: "m2", role: "tool", content: [{ type: "tool_result", toolUseId: "call-1", content }] },
+    ] as unknown as Message[];
+    const out = toOpenAiMessages(messages) as Array<Record<string, unknown>>;
+    return out.find((m) => m.role === "tool")!;
+  }
+
+  it("joins the structured text projection into the tool message string", () => {
+    const msg = toolMessageFor([structured]);
+    expect(typeof msg.content).toBe("string");
+    expect(msg.content as string).toContain(projection);
+  });
+
+  it("keeps [text, structured, text] in order joined by newlines", () => {
+    const msg = toolMessageFor([
+      { type: "text", text: "before" },
+      structured,
+      { type: "text", text: "after" },
+    ]);
+    expect(msg.content).toBe(`before\n${projection}\nafter`);
+  });
+
+  // Counter-proof: a tool_result whose ONLY block is structured must not fall
+  // into the unknown-type default (an empty string would silently drop it).
+  it("does not drop a tool_result whose only block is structured", () => {
+    const msg = toolMessageFor([structured]);
+    const content = msg.content as string;
+    expect(content.length).toBeGreaterThan(0);
+    expect(content).toContain(projection);
+  });
+});

@@ -207,9 +207,15 @@ function toAnthropicImageBlock(block: ContentBlock): Record<string, unknown> | n
   return null;
 }
 
-/** Map a tool-result content block (text | image) to Anthropic's shape. */
+/** Map a tool-result content block (text | structured | image) to Anthropic's shape. */
 function toAnthropicToolResultBlock(block: ToolResultBlock): Record<string, unknown> {
   if (block.type === "text") {
+    return { type: "text", text: block.text };
+  }
+  if (block.type === "structured") {
+    // Anthropic tool_result content accepts text/image only — degrade the
+    // structured block to a text block carrying its text projection rather
+    // than pretending native structured support or silently dropping it.
     return { type: "text", text: block.text };
   }
   const image = toAnthropicImageBlock(block);
