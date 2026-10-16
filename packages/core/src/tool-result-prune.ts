@@ -52,7 +52,7 @@ function pruneText(text: string, maxChars: number): string {
 function textChars(content: readonly ToolResultBlock[]): number {
   let n = 0;
   for (const b of content) {
-    if (b.type === "text") n += codePointLength(b.text);
+    if (b.type === "text" || b.type === "structured") n += codePointLength(b.text);
   }
   return n;
 }
@@ -62,9 +62,12 @@ function textChars(content: readonly ToolResultBlock[]): number {
  * `role === "tool"` messages. Non-tool messages and in-budget blocks keep
  * their original object references; the returned array is always a new array.
  *
- * Only text blocks answer to the character budget: an image's cost is fixed
- * by its pixel area, so truncating it saves nothing and dropping it would
- * waste the tool call that produced it. Image blocks are preserved as-is.
+ * Only text-bearing blocks answer to the character budget: a text block is
+ * cut head/tail in place; an oversized structured block degrades to an
+ * equivalent plain text block (its cut projection is no longer honest
+ * structured data) and is cut the same way. An image's cost is fixed by its
+ * pixel area, so truncating it saves nothing and dropping it would waste the
+ * tool call that produced it. Image blocks are preserved as-is.
  */
 export function pruneOversizedToolResults(
   messages: Message[],
@@ -78,10 +81,21 @@ export function pruneOversizedToolResults(
       if (block.type !== "tool_result") return block;
       let blockChanged = false;
       const budgeted = block.content.map((b) => {
-        if (b.type !== "text") return b;
-        if (codePointLength(b.text) <= opts.maxChars) return b;
-        blockChanged = true;
-        return { ...b, text: pruneText(b.text, opts.maxChars) };
+        if (b.type === "text") {
+          if (codePointLength(b.text) <= opts.maxChars) return b;
+          blockChanged = true;
+          return { ...b, text: pruneText(b.text, opts.maxChars) };
+        }
+        if (b.type === "structured") {
+          if (codePointLength(b.text) <= opts.maxChars) return b;
+          blockChanged = true;
+          // Post-cut data would be incomplete, so keeping the structured
+          // shell would lie — degrade to an equivalent plain text block
+          // carrying the (cut) projection, then apply the same head/tail
+          // cut as text blocks.
+          return { type: "text" as const, text: pruneText(b.text, opts.maxChars) };
+        }
+        return b;
       });
       if (!blockChanged) return block;
       pruned.push({

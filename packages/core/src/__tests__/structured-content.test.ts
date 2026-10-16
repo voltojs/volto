@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { extractBlockText, extractPlainText } from "../text-extract.js";
 import { buildTurnRecords, toConversationView } from "../view-projection.js";
-import type { ContentBlock, Message, StructuredContent, ToolResultBlock, TranscriptEvent } from "../index.js";
+import { pruneOversizedToolResults } from "../index.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+  StructuredContent,
+  TextContent,
+  ToolResultBlock,
+  TranscriptEvent,
+} from "../index.js";
 
 function structured(text: string): StructuredContent {
   return { type: "structured", kind: "lsp.locations", data: { count: 1 }, text };
@@ -148,5 +157,102 @@ describe("toConversationView — structured blocks in a user message", () => {
   it("includes structured text in the copyable content without any image text", () => {
     const message = view.messages.find((m) => m.role === "user")!;
     expect(message.content).toBe("lookUSER-STRUCTURED");
+  });
+});
+
+// ──────────────────────────────────────────────
+// pruneOversizedToolResults — structured budget + degrade semantics (D4)
+// ──────────────────────────────────────────────
+
+function toolMessage(content: ToolResultBlock[]): Message {
+  return {
+    id: "m-tool",
+    role: "tool",
+    content: [{ type: "tool_result", toolUseId: "t1", content }],
+  };
+}
+
+function resultBlocks(messages: Message[]): ToolResultBlock[] {
+  const msg = messages.find((m) => m.role === "tool");
+  expect(msg).toBeDefined();
+  const block = msg!.role === "tool" ? msg!.content[0] : undefined;
+  expect(block?.type).toBe("tool_result");
+  return block!.type === "tool_result" ? block!.content : [];
+}
+
+const IMAGE: ImageContent = {
+  type: "image",
+  source: { type: "ref", id: "att-1", mediaType: "image/png" },
+  width: 8,
+  height: 8,
+};
+
+describe("pruneOversizedToolResults — structured blocks", () => {
+  it("(a) in-budget structured passes through with the same object reference", () => {
+    const s = structured("in budget");
+    const t: TextContent = { type: "text", text: "also in budget" };
+    const { messages, pruned } = pruneOversizedToolResults([toolMessage([t, s])], {
+      maxChars: 20,
+    });
+    const blocks = resultBlocks(messages);
+    expect(blocks[1]).toBe(s);
+    expect(blocks[0]).toBe(t);
+    expect(pruned).toHaveLength(0);
+  });
+
+  it("(b) over-budget structured degrades to a plain text block, cut like a text block", () => {
+    const body = "structured-body-".repeat(10); // 160 code points
+    const s = structured(body);
+    const { messages, pruned } = pruneOversizedToolResults([toolMessage([s])], {
+      maxChars: 20,
+    });
+    const blocks = resultBlocks(messages);
+    // No structured shell survives the cut: post-cut data would be incomplete.
+    expect(blocks.every((b) => b.type !== "structured")).toBe(true);
+    expect(blocks).toHaveLength(1);
+    // Head/tail cut is byte-identical to what a text block with the same
+    // projection would get.
+    const { messages: textRef } = pruneOversizedToolResults(
+      [toolMessage([{ type: "text", text: body }])],
+      { maxChars: 20 },
+    );
+    expect(blocks).toEqual(resultBlocks(textRef));
+    expect((blocks[0] as TextContent).type).toBe("text");
+    expect((blocks[0] as TextContent).text).toContain("[omitted");
+    // The pruned report counts the structured text projection.
+    expect(pruned).toHaveLength(1);
+    expect(pruned[0]!.toolCallId).toBe("t1");
+    expect(pruned[0]!.charsBefore).toBe(160);
+  });
+
+  it("(c) boundary: exactly at budget untouched, one code point over degrades and cuts", () => {
+    const atBudget = structured("x".repeat(20));
+    const overBudget = structured("x".repeat(21));
+    const { messages: untouched } = pruneOversizedToolResults(
+      [toolMessage([atBudget])],
+      { maxChars: 20 },
+    );
+    expect(resultBlocks(untouched)[0]).toBe(atBudget);
+
+    const { messages: cut } = pruneOversizedToolResults([toolMessage([overBudget])], {
+      maxChars: 20,
+    });
+    const blocks = resultBlocks(cut);
+    expect(blocks.every((b) => b.type !== "structured")).toBe(true);
+    expect((blocks[0] as TextContent).text).toContain("[omitted 5 chars]");
+  });
+
+  it("(d) interleaved [text, structured-over, image]: only the structured degrades, order preserved", () => {
+    const t: TextContent = { type: "text", text: "head text" };
+    const s = structured("S".repeat(100));
+    const { messages } = pruneOversizedToolResults([toolMessage([t, s, IMAGE])], {
+      maxChars: 20,
+    });
+    const blocks = resultBlocks(messages);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toBe(t);
+    expect(blocks[1]!.type).toBe("text");
+    expect(blocks[2]).toBe(IMAGE);
+    expect(blocks.map((b) => b.type)).toEqual(["text", "text", "image"]);
   });
 });
