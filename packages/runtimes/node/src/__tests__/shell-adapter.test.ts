@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createNodeShell } from "../shell.js";
-import type { Shell } from "@volto/core";
+import type { Shell, ShellEvent } from "@volto/core";
 
 /**
  * Poll the process buffer until `needle` shows up. A fixed sleep asserts on
@@ -62,16 +62,59 @@ describe("Node Shell adapter", () => {
     expect(stdout.trim()).toMatch(/\/tmp$/);
   });
 
-  it("respects timeout", async () => {
+  it("respects timeout and marks the exit event timedOut", async () => {
     const shell = createNodeShell();
     const start = Date.now();
-    const events: Array<{ type: string; data?: string; code?: number }> = [];
+    const events: ShellEvent[] = [];
     for await (const event of shell.exec("sleep 10", { timeout: 500 })) {
       events.push(event);
     }
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(3000);
-    expect(events.some((e) => e.type === "exit")).toBe(true);
+    const exitEvent = events.find((e) => e.type === "exit");
+    expect(exitEvent).toBeDefined();
+    // Review Focus 2: a real subprocess killed by the adapter's own timeout
+    // timer must carry the timeout identity (SIGTERM → close code null → 1
+    // is otherwise indistinguishable from an ordinary failure).
+    expect((exitEvent as Extract<ShellEvent, { type: "exit" }>).timedOut).toBe(true);
+  });
+
+  it("does not carry timedOut on an ordinary exit (wire shape unchanged)", async () => {
+    const shell = createNodeShell();
+    const events: ShellEvent[] = [];
+    for await (const event of shell.exec("exit 0")) {
+      events.push(event);
+    }
+    const exitEvent = events.find((e) => e.type === "exit");
+    // Review Focus 1: exact-shape pin — ordinary exits keep the pre-T9 wire
+    // shape byte for byte; no timedOut key may appear.
+    expect(exitEvent).toEqual({ type: "exit", code: 0 });
+  });
+
+  it("does not mark external abortSignal termination as timedOut", async () => {
+    const shell = createNodeShell();
+    const controller = new AbortController();
+    const events: ShellEvent[] = [];
+    const done = (async () => {
+      for await (const event of shell.exec(
+        "node -e \"process.stdout.write('started'); setTimeout(() => {}, 10000)\"",
+        { abortSignal: controller.signal },
+      )) {
+        events.push(event);
+      }
+    })();
+    // Abort mid-stream: once stdout has arrived but the child is still alive.
+    const deadline = Date.now() + 10_000;
+    while (!events.some((e) => e.type === "stdout" && e.data?.includes("started"))) {
+      if (Date.now() > deadline) throw new Error("never saw stdout before abort");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    controller.abort();
+    await done;
+    const exitEvent = events.find((e) => e.type === "exit");
+    // Spec §6: external abort is cancellation, not timeout — no timedOut key.
+    expect(exitEvent).toBeDefined();
+    expect(exitEvent).not.toHaveProperty("timedOut");
   });
 
   it("launch() returns a registry id and starts the process in background", async () => {

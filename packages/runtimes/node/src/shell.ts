@@ -65,9 +65,11 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
       }
 
       // Timeout — SIGTERM then SIGKILL after 2s grace period.
+      let timedOut = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       if (opts?.timeout && opts.timeout > 0) {
         timer = setTimeout(() => {
+          timedOut = true;
           child.kill("SIGTERM");
           setTimeout(() => {
             if (!child.killed) child.kill("SIGKILL");
@@ -98,10 +100,12 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
         });
       }
 
-      // Close event resolves the drain promise.
+      // Close event resolves the drain promise. The `timedOut` key is
+      // carried only when this adapter's own timeout timer fired — external
+      // abortSignal kills and ordinary exits keep the original wire shape.
       child.on("close", (code) => {
         closed = true;
-        enqueue({ type: "exit", code: code ?? 1 });
+        enqueue({ type: "exit", code: code ?? 1, ...(timedOut ? { timedOut: true } : {}) });
       });
 
       try {

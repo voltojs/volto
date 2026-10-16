@@ -312,6 +312,11 @@ export interface ShellEventStderr {
 export interface ShellEventExit {
   type: "exit";
   code: number;
+  /**
+   * Present and true only when the adapter's own timeout timer killed the
+   * process; absent on ordinary exits (backward-compatible wire shape).
+   */
+  timedOut?: boolean;
 }
 
 export type ShellEvent = ShellEventStdout | ShellEventStderr | ShellEventExit;
