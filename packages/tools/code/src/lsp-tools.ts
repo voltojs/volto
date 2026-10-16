@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import type { Tool } from "@volto/tools-common";
+import type { ToolResultBlock } from "@volto/core";
 import type { LspClient, LspClientProvider, LspDiagnostic, LspDocumentReference } from "./lsp-client.js";
 import { CAP_LSP_QUERY } from "./lsp-client.js";
 import { uriToFile } from "./lsp-uri.js";
@@ -73,8 +74,8 @@ async function withLspClient(
   provider: LspClientProvider,
   toolName: string,
   file: string,
-  fn: (client: LspClient, document: LspDocumentReference) => Promise<{ modelContent: string; displayMetadata?: Record<string, unknown> }>,
-): Promise<{ modelContent: string; isError?: boolean; displayMetadata?: Record<string, unknown> }> {
+  fn: (client: LspClient, document: LspDocumentReference) => Promise<{ modelContent: string | ToolResultBlock[]; displayMetadata?: Record<string, unknown> }>,
+): Promise<{ modelContent: string | ToolResultBlock[]; isError?: boolean; displayMetadata?: Record<string, unknown> }> {
   try {
     const client = await provider.forFile(file);
     return await fn(client, file);
@@ -137,6 +138,51 @@ function renderLocation(uri: string, range: { start: { line: number; character: 
   return `  ${locationFile(uri)}:${range.start.line + 1}:${range.start.character + 1}`;
 }
 
+/**
+ * The single place a location list becomes text: `Found N <noun>(s):` plus
+ * one rendered line per location. Both tools render through this function —
+ * the legacy plain-string answer and the structured block's required `text`
+ * projection are the same bytes by construction, so they cannot drift.
+ */
+function renderLocationList(
+  count: number,
+  noun: "definition" | "reference",
+  locations: ReadonlyArray<{ uri: string; range: { start: { line: number; character: number } } }>,
+): string {
+  return `Found ${count} ${noun}(s):\n${locations.map((loc) => renderLocation(loc.uri, loc.range)).join("\n")}`;
+}
+
+/**
+ * The `lsp.locations` data shape (spec §4.2): the server's own range objects,
+ * LSP-native 0-based line/character — deliberately NOT the 1-based rendering
+ * coordinates, so consumers get one coordinate system from the protocol and
+ * one (derived) for display.
+ */
+interface LspLocationsData {
+  locations: Array<{
+    uri: string;
+    range: { start: { line: number; character: number }; end: { line: number; character: number } };
+  }>;
+}
+
+/**
+ * One structured block for a location answer. `data` carries the locations
+ * verbatim; `text` is the byte-identical legacy rendering — the single
+ * degradation exit every provider/trimming path uses.
+ */
+function locationsBlock(
+  count: number,
+  noun: "definition" | "reference",
+  locations: LspLocationsData["locations"],
+): ToolResultBlock {
+  return {
+    type: "structured",
+    kind: "lsp.locations",
+    data: { locations } satisfies LspLocationsData,
+    text: renderLocationList(count, noun, locations),
+  };
+}
+
 // ──────────────────────────────────────────────
 // lsp_definition — jump to definition
 // ──────────────────────────────────────────────
@@ -165,7 +211,7 @@ export function createLspDefinitionTool(provider: LspClientProvider): Tool {
           range: loc.range,
         }));
         return {
-          modelContent: `Found ${results.length} definition(s):\n${results.map((r) => renderLocation(r.uri, r.range)).join("\n")}`,
+          modelContent: [locationsBlock(results.length, "definition", results)],
           displayMetadata: { locations: results },
         };
       }),
@@ -200,7 +246,7 @@ export function createLspReferencesTool(provider: LspClientProvider): Tool {
           range: ref.range,
         }));
         return {
-          modelContent: `Found ${results.length} reference(s):\n${results.map((r) => renderLocation(r.uri, r.range)).join("\n")}`,
+          modelContent: [locationsBlock(results.length, "reference", results)],
           displayMetadata: { references: results },
         };
       }),

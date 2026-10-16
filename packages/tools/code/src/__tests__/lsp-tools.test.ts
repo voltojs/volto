@@ -123,6 +123,29 @@ const zeroRange = {
   end: { line: 0, character: 5 },
 };
 
+/**
+ * F-005: narrow a location tool's success result to its ONE structured block.
+ * Throws loudly on any other shape — a plain string or a multi-block result
+ * must fail here, not pass as "empty".
+ */
+function structuredBlock(modelContent: unknown): {
+  type: "structured";
+  kind: string;
+  data: unknown;
+  text: string;
+} {
+  if (!Array.isArray(modelContent) || modelContent.length !== 1) {
+    throw new TypeError(
+      `expected exactly one result block, received ${JSON.stringify(modelContent)}`,
+    );
+  }
+  const block: unknown = modelContent[0];
+  if (typeof block !== "object" || block === null || (block as { type?: unknown }).type !== "structured") {
+    throw new TypeError(`expected a structured block, received ${JSON.stringify(block)}`);
+  }
+  return block as { type: "structured"; kind: string; data: unknown; text: string };
+}
+
 describe("LSP tool names", () => {
   it("all 5 LSP tools are registered", () => {
     expect(LSP_TOOL_NAMES.size).toBe(5);
@@ -142,8 +165,9 @@ describe("lsp_definition", () => {
     const tool = createLspDefinitionTool(providerStub(client));
     const result = await tool.handler({ file: FILE, line: 6, character: 4 });
     expect(result.isError).toBeFalsy();
-    expect(result.modelContent).toContain("1 definition");
-    expect(result.modelContent).toContain("/src/foo.ts:11:6");
+    const block = structuredBlock(result.modelContent);
+    expect(block.text).toContain("1 definition");
+    expect(block.text).toContain("/src/foo.ts:11:6");
     expect(result.displayMetadata).toBeDefined();
   });
 
@@ -213,7 +237,7 @@ describe("lsp_references", () => {
     const tool = createLspReferencesTool(providerStub(client));
     const result = await tool.handler({ file: FILE, line: 1, character: 1 });
     expect(result.isError).toBeFalsy();
-    expect(result.modelContent).toContain("2 reference");
+    expect(structuredBlock(result.modelContent).text).toContain("2 reference");
     expect(result.displayMetadata).toBeDefined();
   });
 
@@ -221,6 +245,112 @@ describe("lsp_references", () => {
     const client = fakeClient();
     await createLspReferencesTool(providerStub(client)).handler({ file: FILE, line: 3, character: 9 });
     expect(client.calls[0]).toMatchObject({ method: "references", line: 2, character: 8 });
+  });
+});
+
+describe("F-205 structured lsp.locations blocks", () => {
+  /** The two LSP answers: native 0-based ranges, exactly as the server sent them. */
+  const DEFINITION_RESULTS = [
+    { uri: "file:///src/a.ts", range: { start: { line: 10, character: 5 }, end: { line: 10, character: 12 } } },
+    { uri: "file:///src/b.ts", range: { start: { line: 3, character: 2 }, end: { line: 3, character: 9 } } },
+  ];
+
+  /**
+   * The pre-structured rendering, spelled out byte for byte: the old format is
+   * `Found N definition(s):\n` + one `  <path>:<line+1>:<character+1>` per
+   * location. The tool's `text` projection must equal this string exactly —
+   * any drift between the two renderings is what this literal catches.
+   */
+  const OLD_DEFINITION_TEXT =
+    "Found 2 definition(s):\n  /src/a.ts:11:6\n  /src/b.ts:4:3";
+
+  const REFERENCE_RESULTS = [
+    { uri: "file:///src/a.ts", range: { start: { line: 1, character: 0 }, end: { line: 2, character: 0 } } },
+    { uri: "file:///src/b.ts", range: { start: { line: 7, character: 8 }, end: { line: 8, character: 0 } } },
+  ];
+
+  const OLD_REFERENCE_TEXT =
+    "Found 2 reference(s):\n  /src/a.ts:2:1\n  /src/b.ts:8:9";
+
+  it("lsp_definition returns exactly one structured block (kind lsp.locations, LSP-native data)", async () => {
+    const client = fakeClient({ definition: DEFINITION_RESULTS });
+    const result = await createLspDefinitionTool(providerStub(client)).handler({
+      file: FILE,
+      line: 6,
+      character: 4,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const block = structuredBlock(result.modelContent);
+    expect(block.kind).toBe("lsp.locations");
+    // Data carries the server's own 0-based ranges — no second coordinate
+    // system: line 10 stays 10 in data while the text projection renders 11.
+    expect(block.data).toEqual({ locations: DEFINITION_RESULTS });
+  });
+
+  it("lsp_definition text projection is byte-identical to the old string rendering", async () => {
+    const client = fakeClient({ definition: DEFINITION_RESULTS });
+    const result = await createLspDefinitionTool(providerStub(client)).handler({
+      file: FILE,
+      line: 6,
+      character: 4,
+    });
+
+    expect(structuredBlock(result.modelContent).text).toBe(OLD_DEFINITION_TEXT);
+  });
+
+  it("lsp_references returns exactly one structured block (kind lsp.locations, LSP-native data)", async () => {
+    const client = fakeClient({ references: REFERENCE_RESULTS });
+    const result = await createLspReferencesTool(providerStub(client)).handler({
+      file: FILE,
+      line: 2,
+      character: 1,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const block = structuredBlock(result.modelContent);
+    expect(block.kind).toBe("lsp.locations");
+    expect(block.data).toEqual({ locations: REFERENCE_RESULTS });
+  });
+
+  it("lsp_references text projection is byte-identical to the old string rendering", async () => {
+    const client = fakeClient({ references: REFERENCE_RESULTS });
+    const result = await createLspReferencesTool(providerStub(client)).handler({
+      file: FILE,
+      line: 2,
+      character: 1,
+    });
+
+    expect(structuredBlock(result.modelContent).text).toBe(OLD_REFERENCE_TEXT);
+  });
+
+  it("keeps the no-result paths plain strings (structured blocks don't carry absence)", async () => {
+    const definition = await createLspDefinitionTool(
+      providerStub(fakeClient({ definition: [] })),
+    ).handler({ file: FILE, line: 6, character: 4 });
+    expect(typeof definition.modelContent).toBe("string");
+
+    const references = await createLspReferencesTool(
+      providerStub(fakeClient({ references: [] })),
+    ).handler({ file: FILE, line: 6, character: 4 });
+    expect(typeof references.modelContent).toBe("string");
+  });
+
+  it("keeps the error paths plain strings with isError (structured blocks don't carry errors)", async () => {
+    const client: LspClient = {
+      ...fakeClient(),
+      async definition() {
+        throw new Error("lsp crashed");
+      },
+    };
+    const result = await createLspDefinitionTool(providerStub(client)).handler({
+      file: FILE,
+      line: 6,
+      character: 4,
+    });
+    expect(result.isError).toBe(true);
+    expect(typeof result.modelContent).toBe("string");
+    expect(result.modelContent).toContain("lsp crashed");
   });
 });
 
@@ -312,7 +442,7 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
       providerStub(fakeClient({ definition: [{ uri: "file:///tmp/%E4%B8%AD%E6%96%87/a%20b.ts", range: zeroRange }] })),
     );
     const res = await tool.handler({ file: FILE, line: 1, character: 1 });
-    expect(res.modelContent).toContain("/tmp/中文/a b.ts");
+    expect(structuredBlock(res.modelContent).text).toContain("/tmp/中文/a b.ts");
   });
 
   it("renders a foreign-scheme location verbatim instead of failing the whole call", async () => {
@@ -327,9 +457,10 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
     const res = await createLspDefinitionTool(providerStub(client)).handler({ file: FILE, line: 1, character: 1 });
 
     expect(res.isError).toBeFalsy();
-    expect(res.modelContent).toContain("Found 2 definition(s)");
-    expect(res.modelContent).toContain("/repo/src/a.ts:10:5");
-    expect(res.modelContent).toContain("jdt://contents/java.base/java.lang/String.class:1:1");
+    const text = structuredBlock(res.modelContent).text;
+    expect(text).toContain("Found 2 definition(s)");
+    expect(text).toContain("/repo/src/a.ts:10:5");
+    expect(text).toContain("jdt://contents/java.base/java.lang/String.class:1:1");
   });
 
   it("keeps a reference whose URI is a file: spelling without a leading slash", async () => {
@@ -342,9 +473,10 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
     const res = await createLspReferencesTool(providerStub(client)).handler({ file: FILE, line: 1, character: 1 });
 
     expect(res.isError).toBeFalsy();
-    expect(res.modelContent).toContain("Found 2 reference(s)");
-    expect(res.modelContent).toContain("/repo/src/a.ts:1:1");
-    expect(res.modelContent).toContain("jdt://ref/foreign.class");
+    const text = structuredBlock(res.modelContent).text;
+    expect(text).toContain("Found 2 reference(s)");
+    expect(text).toContain("/repo/src/a.ts:1:1");
+    expect(text).toContain("jdt://ref/foreign.class");
   });
 
   it("renders a rename target with a foreign scheme verbatim and still counts it", async () => {
@@ -366,7 +498,8 @@ describe("F-120 URI round trip: percent-encoded and non-ASCII file:// URIs", () 
     const references = createLspReferencesTool(
       providerStub(fakeClient({ references: [{ uri: "file:///tmp/%E4%B8%AD%E6%96%87/r.ts", range: zeroRange }] })),
     );
-    expect((await references.handler({ file: FILE, line: 1, character: 1 })).modelContent).toContain("/tmp/中文/r.ts");
+    const refResult = await references.handler({ file: FILE, line: 1, character: 1 });
+    expect(structuredBlock(refResult.modelContent).text).toContain("/tmp/中文/r.ts");
 
     const rename = createLspRenameTool(
       providerStub(fakeClient({ rename: { "file:///tmp/%E4%B8%AD%E6%96%87/n.ts": [{ range: zeroRange }] } })),
