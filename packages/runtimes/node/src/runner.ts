@@ -61,6 +61,9 @@ import {
   renderSpillReference,
   planImageOffload,
   extractBlockText,
+  detectLoop,
+  renderLoopReminder,
+  renderLoopIntervention,
 } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
@@ -571,6 +574,14 @@ export async function drainBackgroundTasks(opts: {
 // Implementation
 // ──────────────────────────────────────────────
 
+/**
+ * A loop-ladder tier collected at a model_done decision site and fired only
+ * after the batch's tool_results are fed (spec 2026-10-16 D2). The literal
+ * discriminants/flags are part of the input contract — the reducer's
+ * handlers branch on them exactly as written.
+ */
+type PendingLoopInjection = Extract<AgentInput, { type: "loop_reminder" | "loop_intervention" }>;
+
 export function createRunner(opts: RunnerOptions): Runner {
   // Validate: permissionConfig requires approvalGate (otherwise "ask" decisions hang)
   if (opts.permissionConfig && !opts.approvalGate) {
@@ -627,6 +638,12 @@ export function createRunner(opts: RunnerOptions): Runner {
   // turn. Seeded from `initialStep` when the host is resuming a turn whose
   // earlier steps are already in the transcript — see RunnerOptions.initialStep.
   let stepCounter = opts.initialStep ?? 0;
+  // Loop-ladder tier (spec 2026-10-16 D2) collected when a model_done
+  // tool_use is fed — the reducer books the tier (loopRemindedCount /
+  // loopInterventionCount / hard termination), the Runner fires the input.
+  // Exactly one item can be pending per batch: the decision site overwrites
+  // it on every model_done, the post-batch site fires or clears it.
+  let pendingLoopInjection: PendingLoopInjection | null = null;
   // Hash of the last request_header written this turn; a matching hash means
   // the header has not changed and need not be written again.
   let lastHeaderHash: string | null = null;
@@ -676,6 +693,81 @@ export function createRunner(opts: RunnerOptions): Runner {
     const result = step(state, input, stepContext);
     state = result.state;
     return result.effects;
+  }
+
+  /**
+   * Decide which loop-ladder tier (spec 2026-10-16 D2), if any, this batch's
+   * model_done fired. MUST mirror the reducer's model_done ladder
+   * (reducer.ts tool_use branch) byte for byte — same dual-probe inputs
+   * (prior messages + the batch's tool calls), K probe first and the K-1
+   * probe only when nothing reached K and K >= 3 — or injection tiers and
+   * reducer bookkeeping diverge.
+   *
+   * @param priorMessages message history BEFORE the model_done feed (the
+   *   exact `state.messages` the reducer's probe sees)
+   * @param preRemindedCount `state.loopRemindedCount` BEFORE the feed —
+   *   a value increase after the feed means the reducer booked a fresh
+   *   reminder tier for this batch (its once-only `loopRemindedCount <
+   *   consecutiveCount` guard), which is precisely when the Runner fires.
+   *
+   * Called AFTER the model_done feed so the budget gate can read the
+   * resulting state: an exhausted budget hard-terminated the turn inside the
+   * feed (status left executing_tools), so firing optimistically here is safe.
+   */
+  function decideLoopInjection(
+    priorMessages: Message[],
+    preRemindedCount: number,
+  ): PendingLoopInjection | null {
+    // Hard termination (budget exhausted) or a limit stop: nothing to inject.
+    if (state.status !== "executing_tools") return null;
+    const k = stepContext.maxLoopCount;
+    if (k === undefined || k < 2) return null;
+    const newToolCalls = state.pendingTools;
+    const currentAssistantMsg = state.messages[state.messages.length - 1];
+    if (newToolCalls.length === 0 || currentAssistantMsg?.role !== "assistant") return null;
+
+    // Dual-probe mirror of the reducer ladder (byte-identical calls).
+    let loopResult = detectLoop(priorMessages, currentAssistantMsg, newToolCalls, k);
+    if (!loopResult.detected && k >= 3) {
+      loopResult = detectLoop(priorMessages, currentAssistantMsg, newToolCalls, k - 1);
+    }
+    if (!loopResult.detected || loopResult.toolName === undefined) return null;
+    const { toolName, consecutiveCount } = loopResult;
+
+    // Fresh reminder tier booked by the reducer during this very feed:
+    // error chain at exactly K-1 (K >= 3), or a repeat chain reaching K.
+    // The reducer's monotonic guard makes each count tier once-only, so the
+    // before/after comparison is exactly its `loopRemindedCount <
+    // consecutiveCount` condition re-evaluated across the feed.
+    if (state.loopRemindedCount > preRemindedCount) {
+      return {
+        type: "loop_reminder",
+        repairPrompt: renderLoopReminder({
+          toolName,
+          consecutiveCount,
+          kind: loopResult.kind === "repeat" ? "repeat" : "error",
+        }),
+        consumesBudget: false,
+      };
+    }
+
+    // Intervention tier: error chain at/over K with budget remaining. The
+    // gate reads the SAME config the reducer reads (StepContext
+    // .maxLoopInterventions, default 2); exhaustion already hard-terminated
+    // above, so no separate exhaustion re-derivation is needed here. Repeat
+    // chains never reach this branch (kind !== "error-loop") — spec D4.
+    if (
+      loopResult.kind === "error-loop" &&
+      consecutiveCount >= k &&
+      state.loopInterventionCount < (stepContext.maxLoopInterventions ?? 2)
+    ) {
+      return {
+        type: "loop_intervention",
+        repairPrompt: renderLoopIntervention({ toolName, consecutiveCount }),
+        consumesBudget: true,
+      };
+    }
+    return null;
   }
 
   /**
@@ -1119,6 +1211,10 @@ export function createRunner(opts: RunnerOptions): Runner {
    * returns without synthesizing — the main loop will call runModelStream again.
    */
   async function runModelStream(): Promise<void> {
+    // A new model call starts a new batch: a loop tier that never reached
+    // its post-batch fire site must not ride along into a later batch.
+    pendingLoopInjection = null;
+
     // Apply compaction before building the main request
     const messages = await applyCompaction(state.messages);
 
@@ -1394,7 +1490,18 @@ export function createRunner(opts: RunnerOptions): Runner {
             capturedUsage = lastUsage;
             lastUsage = undefined;
           }
-          forwardEmit(feed(input));
+          if (input.type === "model_done" && input.stopReason === "tool_use") {
+            // Loop ladder (spec 2026-10-16 D2): snapshot the exact state the
+            // reducer's model_done ladder probes, then decide the tier from
+            // the RESULTING state — fresh-reminder bookkeeping is observable
+            // only as a before/after delta of loopRemindedCount.
+            const priorMessages = state.messages;
+            const preRemindedCount = state.loopRemindedCount;
+            forwardEmit(feed(input));
+            pendingLoopInjection = decideLoopInjection(priorMessages, preRemindedCount);
+          } else {
+            forwardEmit(feed(input));
+          }
         }
 
         // After processing events, check if we should stop streaming
@@ -1988,6 +2095,24 @@ export function createRunner(opts: RunnerOptions): Runner {
         // Post-batch: if cancelled during parallel execution, transition
         if (cancelled && getStatus() !== "cancelling" && getStatus() !== "done") {
           forwardEmit(feed({ type: "cancel", reason: "abort" }));
+        }
+
+        // Loop-ladder injection (spec 2026-10-16 D2): the tier was collected
+        // at this batch's model_done; fire it only once the batch fully
+        // flushed (status back to calling_model), so EVERY tool_result of the
+        // batch — and every pending self-correct — lands in the canonical
+        // message history before the repair user message (same delayed-
+        // injection ordering rule as pendingSelfCorrects above; at most one
+        // item per batch, deduped by the reducer's monotonic bookkeeping).
+        // A batch still resolving HITL approvals keeps the item for its next
+        // pass; a cancelled or terminated turn drops it.
+        if (pendingLoopInjection !== null) {
+          if (cancelled || getStatus() === "done") {
+            pendingLoopInjection = null;
+          } else if (getStatus() === "calling_model") {
+            forwardEmit(feed(pendingLoopInjection));
+            pendingLoopInjection = null;
+          }
         }
 
         continue;
