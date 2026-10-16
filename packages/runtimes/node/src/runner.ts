@@ -37,6 +37,7 @@ import type {
   AssistantMessage,
   PricingEntry,
   RiskTier,
+  SpillStore,
 } from "@volto/core";
 import {
   step,
@@ -56,6 +57,8 @@ import {
   assembleContext,
   computeUsageCost,
   totalUsageTokens,
+  decideSpill,
+  renderSpillReference,
 } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
 import type { Hook } from "@volto/core";
@@ -185,6 +188,40 @@ export async function resolveImageRefs(
       return { ...msg, content } as Message;
     }),
   );
+}
+
+/**
+ * Oversized tool-result spill configuration (T5).
+ *
+ * When set, the Runner intercepts string tool results AFTER the
+ * postToolUse hook and BEFORE they are fed to the reducer: core decides
+ * purely (`decideSpill`), the injected store persists the full text, and
+ * the model sees only the kept head plus a text reference pointing at the
+ * spill file.
+ *
+ * Defaults: `thresholdChars` 16_000 (code points; at or below it a result
+ * passes through untouched) and `headChars` 2_000 (code points kept
+ * inline). Code-point semantics come from `decideSpill` — never UTF-16
+ * units.
+ *
+ * Exemptions (all pass through untouched, zero store writes):
+ * - `isError: true` results;
+ * - `modelContent` given as a block array (not a string) — image refs
+ *   must survive;
+ * - a missing `spill` / `spill.store` on the Runner — zero behavior
+ *   change.
+ *
+ * Degradation (spec §6): a store `write` that throws never interrupts
+ * the loop — the Runner emits a `spill_failed` EventSink event and
+ * returns the ORIGINAL result untouched.
+ */
+export interface SpillConfig {
+  /** Injected persistence port; `write` throws on I/O failure (caller degrades). */
+  store: SpillStore;
+  /** Code-point count at or below which a result passes through untouched. Default 16_000. */
+  thresholdChars?: number;
+  /** Code points kept inline as the head when spilling. Default 2_000. */
+  headChars?: number;
 }
 
 export interface RunnerOptions {
@@ -339,6 +376,14 @@ export interface RunnerOptions {
    * BackgroundRegistry satisfies this shape structurally.
    */
   backgroundRegistry?: BackgroundTaskCollector;
+  /**
+   * Oversized tool-result spill (T5). See {@link SpillConfig} for the
+   * defaults (thresholdChars 16_000 / headChars 2_000), the exemptions
+   * (isError / block-array content / missing config), and the degradation
+   * contract (failed write → `spill_failed` event, original result
+   * untouched). Omit for zero behavior change.
+   */
+  spill?: SpillConfig;
 }
 
 /**
@@ -1353,6 +1398,61 @@ export function createRunner(opts: RunnerOptions): Runner {
 
   // ── Tool execution ───────────────────────────
 
+  /**
+   * T5 spill interception: runs on the finalResult of a tool call, AFTER
+   * the postToolUse hook and BEFORE stamp returns — i.e. before anything
+   * is fed to the reducer (the untrusted annotation in the feed loop runs
+   * later and wraps the already-spilled text; its order must not change).
+   *
+   * Core decides purely (decideSpill); the injected SpillStore persists;
+   * the model sees keptHead + a text reference. Exempt: isError results,
+   * block-array modelContent, and a missing spill/store (zero behavior
+   * change). A store write that throws degrades (spec §6): spill_failed is
+   * emitted and the ORIGINAL result is returned untouched — the loop is
+   * never interrupted. `sessionId ?? ""` deliberately fails the store's
+   * segment guard so a sessionless Runner degrades the same way.
+   */
+  async function applySpill(toolCallId: string, result: ToolResult): Promise<ToolResult> {
+    const spill = opts.spill;
+    if (!spill?.store) return result;
+    if (result.isError) return result;
+    if (typeof result.modelContent !== "string") return result;
+
+    const text = result.modelContent;
+    const decision = decideSpill(text, {
+      thresholdChars: spill.thresholdChars ?? 16_000,
+      headChars: spill.headChars ?? 2_000,
+    });
+    if (!decision.spill) return result;
+
+    try {
+      const { relativePath } = await spill.store.write({
+        sessionId: opts.sessionId ?? "",
+        toolCallId,
+        text: decision.fullText ?? text,
+      });
+      // Code-point length of the decideSpill INPUT (same semantics as
+      // core's slicing — never UTF-16 units).
+      const totalChars = [...text].length;
+      return {
+        ...result,
+        modelContent:
+          (decision.keptHead ?? "") +
+          renderSpillReference({ relativePath, totalChars }),
+        displayMetadata: {
+          ...(result.displayMetadata ?? {}),
+          spilled: true,
+          spillPath: relativePath,
+          totalChars,
+        },
+      };
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      opts.eventSink?.emit({ type: "spill_failed", data: { toolCallId, error } });
+      return result;
+    }
+  }
+
   async function executeTool(toolCall: PendingToolCall): Promise<ToolResult> {
     // Start the clock as early as possible so durationMs reflects what the
     // user actually waits for (routing, hook pipeline, executor, post hook).
@@ -1430,8 +1530,13 @@ export function createRunner(opts: RunnerOptions): Runner {
         ? { ...result, ...postOutcome.patch.result }
         : result;
 
-      if (toolSpan && finalResult.isError) toolSpan.setAttribute("error", true);
-      return stamp(finalResult);
+      // T5: intercept oversized results here — after the postToolUse
+      // hook's finalResult, before stamp returns (the reducer and the
+      // feed loop's untrusted annotation both see the spilled form).
+      const spilledResult = await applySpill(effectiveCall.id, finalResult);
+
+      if (toolSpan && spilledResult.isError) toolSpan.setAttribute("error", true);
+      return stamp(spilledResult);
     } catch (err: unknown) {
       turnHadError = true;
       if (toolSpan) toolSpan.setAttribute("error", true);

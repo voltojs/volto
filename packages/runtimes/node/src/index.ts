@@ -1,7 +1,7 @@
 export { createRunner, CompactionBusyError, resolveImageRefs } from "./runner.js";
 export { defaultAuditSink } from "./runner.js";
 export { drainBackgroundTasks } from "./runner.js";
-export type { Runner, RunnerOptions, ToolExecutor, AuditEntry, AuditSink, CompactNowResult, WireImageContent, BackgroundTaskCollector } from "./runner.js";
+export type { Runner, RunnerOptions, SpillConfig, ToolExecutor, AuditEntry, AuditSink, CompactNowResult, WireImageContent, BackgroundTaskCollector } from "./runner.js";
 export { createFileAuditSink } from "./file-audit-sink.js";
 export { createNodeFileSystem } from "./filesystem.js";
 export type { NodeFileSystemOptions } from "./filesystem.js";
