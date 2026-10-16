@@ -3,7 +3,7 @@ import { projectMessages, projectMessageEntries } from "../transcript-projection
 import { step, createInitialState } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
 import type { AgentInput } from "../input.js";
-import type { AssistantMessage, Message, ToolResultContent } from "../state.js";
+import type { AssistantMessage, ContentBlock, ImageContent, Message, ToolResultContent } from "../state.js";
 import type { ToolDefinition } from "../tool.js";
 import type { TranscriptEvent, TranscriptEventMap, TranscriptEventType, TokenUsage, Id } from "../index.js";
 
@@ -394,6 +394,69 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
     const sum = finalState.messages.find((m) => m.id === "sum-1")!;
     expect(String(sum.content)).toContain("[Earlier conversation summary]");
     expect(String(sum.content)).toContain("checkpoint");
+  });
+
+  it("12. compaction_applied with preserved images — projection carrier position matches the reducer", () => {
+    // Consistency pin: the projection's carrier rule must match the
+    // reducer's message-id sequence exactly, not just "a carrier appears".
+    // Same aligned-id harness as test 11, now with preservedImages so the
+    // emitted compaction event carries the ref metadata (D5 v1.2).
+    let n = 0;
+    const idPort: Id = { next: () => `proj-${++n}` };
+    const ctxWithId: StepContext = { tools, model: "test-model", id: idPort };
+
+    const img: ImageContent = {
+      type: "image",
+      source: { type: "ref", id: "att-9", mediaType: "image/png" },
+      width: 640,
+      height: 480,
+    };
+
+    const { events, finalState } = driveAndRecord(
+      [
+        { type: "user_message", content: "go" },
+        toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+        { type: "model_done", stopReason: "tool_use" },
+        { type: "tool_result", toolCallId: "c1", toolName: "read_file", result: { modelContent: "file contents" } },
+        { type: "model_chunk", chunk: { type: "text_delta", text: "done" } },
+        { type: "model_done", stopReason: "end_turn" },
+        {
+          type: "compaction_applied",
+          summaryId: "sum-1",
+          summaryText: "checkpoint",
+          // user=proj-1, assistant(tool_use)=proj-2, tool=proj-3, assistant=proj-4.
+          replacedIds: ["proj-2", "proj-3"],
+          preservedImages: [img] as ContentBlock[],
+        },
+      ],
+      ctxWithId,
+    );
+
+    // Reducer: summary at the earliest replaced position, carrier at +1.
+    expect(finalState.messages.map((m) => m.id)).toEqual([
+      "proj-1",
+      "sum-1",
+      "sum-1-images",
+      "proj-4",
+    ]);
+    // Projection: same id sequence — the position rules agree.
+    expect(projectMessages(events).map((m) => m.id)).toEqual([
+      "proj-1",
+      "sum-1",
+      "sum-1-images",
+      "proj-4",
+    ]);
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+
+    // The projected carrier content is byte-identical to the reducer's:
+    // markers rendered from the event's ref metadata, image refs intact.
+    const reducerCarrier = finalState.messages.find((m) => m.id === "sum-1-images")!;
+    const projectedCarrier = projectMessages(events).find((m) => m.id === "sum-1-images")!;
+    expect(projectedCarrier.content).toEqual(reducerCarrier.content);
+    expect(projectedCarrier.content).toEqual([
+      { type: "text", text: "[image preserved from compressed conversation: 640x480 image/png]" },
+      img as unknown as ContentBlock,
+    ]);
   });
 });
 
@@ -811,6 +874,103 @@ describe("projectMessages — compaction write-back", () => {
       { role: "user", content: "hi" },
       { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "end_turn" },
     ]);
+  });
+
+  it("inserts the images carrier right after the summary when the event carries preservedImages", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "old1" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "reply1" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 3, type: "user_message", data: { content: "old2" }, turn: 2 },
+      {
+        time: 4,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "reply2" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 5, type: "user_message", data: { content: "recent" }, turn: 3 },
+      {
+        time: 6,
+        type: "compaction",
+        data: {
+          replacedCount: 2,
+          summaryText: "checkpoint",
+          replacedIds: ["proj-1", "proj-2"],
+          summaryId: "sum-1",
+          // Ref METADATA only — the reducer never puts bytes on the event;
+          // the marker text is re-rendered here from dims + mediaType.
+          preservedImages: [
+            { id: "att-1", mediaType: "image/png", width: 800, height: 600 },
+            { id: "att-2", mediaType: "image/jpeg" },
+          ],
+        },
+        turn: 3,
+      },
+    ]);
+
+    const result = projectMessages(events);
+    // Same position rule as the reducer's compaction_applied handler: the
+    // carrier (`${summaryId}-images`, user role) sits at summary + 1.
+    expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
+      { id: "sum-1", role: "system" },
+      { id: "sum-1-images", role: "user" },
+      { id: "proj-3", role: "user" },
+      { id: "proj-4", role: "assistant" },
+      { id: "proj-5", role: "user" },
+    ]);
+
+    // Carrier content: [marker, image ref] pairs, markers verbatim (same
+    // bytes the reducer would render for these dims / mediaType).
+    const carrier = result.find((m) => m.id === "sum-1-images")!;
+    expect(carrier.content).toEqual([
+      { type: "text", text: "[image preserved from compressed conversation: 800x600 image/png]" },
+      { type: "image", source: { type: "ref", id: "att-1", mediaType: "image/png" }, width: 800, height: 600 },
+      { type: "text", text: "[image preserved from compressed conversation: image/jpeg]" },
+      { type: "image", source: { type: "ref", id: "att-2", mediaType: "image/jpeg" } },
+    ]);
+  });
+
+  it("replays an old compaction event without preservedImages byte-identically (no carrier)", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "old1" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "reply1" }], stopReason: "end_turn", durationMs: 1 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 3, type: "user_message", data: { content: "recent" }, turn: 2 },
+      {
+        time: 4,
+        type: "compaction",
+        data: {
+          replacedCount: 1,
+          summaryText: "checkpoint",
+          replacedIds: ["proj-1"],
+          summaryId: "sum-1",
+          // No preservedImages — a pre-carrier event. The projection must
+          // insert ONLY the summary, exactly as before this feature.
+        },
+        turn: 2,
+      },
+    ]);
+
+    const result = projectMessages(events);
+    expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
+      { id: "sum-1", role: "system" },
+      { id: "proj-2", role: "assistant" },
+      { id: "proj-3", role: "user" },
+    ]);
+    const sum = result.find((m) => m.id === "sum-1")!;
+    expect(sum.content).toBe("[Earlier conversation summary]\ncheckpoint");
+    expect(result.some((m) => m.id === "sum-1-images")).toBe(false);
   });
 });
 

@@ -534,6 +534,19 @@ export interface TranscriptEventMap {
     replacedIds?: string[];
     /** Message id of the written-back summary. Optional so existing replays stay valid. */
     summaryId?: string;
+    /**
+     * Ref metadata for the images preserved on the user-role carrier message
+     * right after the summary (spec 2026-10-16 D5 v1.2). Reference only — the
+     * ref id / mediaType / dims the projection needs to rebuild the carrier;
+     * never image bytes. Optional so existing (older) events replay
+     * unchanged: without it there is no carrier to rebuild.
+     */
+    preservedImages?: Array<{
+      id: string;
+      mediaType: string;
+      width?: number;
+      height?: number;
+    }>;
   };
   /** Durable write-back of oversized tool_result pruning into state.messages. */
   tool_results_pruned: {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { step, createInitialState } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
+import type { Effect } from "../effect.js";
 import type { ContentBlock, ImageContent, Message } from "../state.js";
 import type { Id } from "../ports.js";
 
@@ -173,6 +174,62 @@ describe("compaction_applied — preservedImages (F-212)", () => {
       ctx,
     );
     expect(state.pinnedMessageIds).toEqual(["ghost"]);
+  });
+
+  it("carries preserved image ref metadata (not bytes) on the compaction event", () => {
+    const { effects } = step(
+      base(span()),
+      {
+        type: "compaction_applied",
+        summaryId: "sum-1",
+        summaryText: "checkpoint",
+        replacedIds: ["a", "b"],
+        preservedImages: [img1, img2] as ContentBlock[],
+      },
+      ctx,
+    );
+    const emit = effects.find(
+      (e): e is Extract<Effect, { type: "emit" }> =>
+        e.type === "emit" && e.event.type === "compaction",
+    )!;
+    const data = emit.event.data as {
+      preservedImages?: Array<{ id: string; mediaType: string; width?: number; height?: number }>;
+    };
+    // Durable transcript replay needs the carrier's SHAPE, not its bytes:
+    // ref id / mediaType / dims only, in preservedImages order.
+    expect(data.preservedImages).toEqual([
+      { id: "att-1", mediaType: "image/png", width: 800, height: 600 },
+      { id: "att-2", mediaType: "image/jpeg" },
+    ]);
+    // No image bytes may leak into the durable event.
+    expect(JSON.stringify(data)).not.toContain("base64");
+    expect(JSON.stringify(data)).not.toContain("data:image");
+  });
+
+  it("omits preservedImages from the compaction event when nothing survived", () => {
+    const { effects } = step(
+      base(span()),
+      {
+        type: "compaction_applied",
+        summaryId: "sum-1",
+        summaryText: "checkpoint",
+        replacedIds: ["a", "b"],
+      },
+      ctx,
+    );
+    const emit = effects.find(
+      (e): e is Extract<Effect, { type: "emit" }> =>
+        e.type === "emit" && e.event.type === "compaction",
+    )!;
+    // Backward-compat pin: without images the event is byte-identical to
+    // the pre-carrier shape — no preservedImages key at all.
+    expect("preservedImages" in emit.event.data).toBe(false);
+    expect(Object.keys(emit.event.data).sort()).toEqual([
+      "replacedCount",
+      "replacedIds",
+      "summaryId",
+      "summaryText",
+    ]);
   });
 });
 

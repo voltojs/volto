@@ -31,16 +31,20 @@
  * `replacedIds`/`summaryId` rewrites the projected list the same way the
  * reducer's `compaction_applied` handler rewrites `state.messages` — remove
  * the named messages, insert one system-role summary at the earliest
- * replaced position. Legacy compaction events without ids are skipped, and
- * so is a write-back whose replacedIds match nothing in the projection.
+ * replaced position, and, when the event carries non-empty
+ * `preservedImages` (D5 v1.2), the user-role images carrier right after the
+ * summary (`${summaryId}-images`, markers verbatim before each image ref).
+ * Legacy compaction events without ids are skipped, and so is a write-back
+ * whose replacedIds match nothing in the projection.
  * `tool_results_pruned` stays log-only: the event omits pruned content by
  * design, so the projection has nothing to rewrite with.
  */
 
-import type { Message, ToolResultContent, ToolUseContent } from "./state.js";
+import type { Message, ToolResultContent, ToolUseContent, ContentBlock } from "./state.js";
 import { normalizeToolResultContent } from "./state.js";
 import type { TranscriptEvent, TranscriptEventMap } from "./ports.js";
 import { userDenialMessage } from "./permission-policy.js";
+import { renderImagePreservedMarker } from "./compaction-image-offload.js";
 
 /** A projected message paired with the time of the event that produced it. */
 export interface ProjectedMessage {
@@ -274,9 +278,10 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         if (data.replacedIds === undefined || data.summaryId === undefined) break;
 
         // Same position rule as the reducer's compaction_applied handler
-        // (reducer.ts:254-269): remove the named messages, insert one
-        // system-role summary at the earliest replaced position among the
-        // kept order.
+        // (reducer.ts compaction_applied case): remove the named messages,
+        // insert one system-role summary at the earliest replaced position
+        // among the kept order, and — when the event carries preserved
+        // images — the user-role carrier at summary position + 1.
         const replaced = new Set(data.replacedIds);
         const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
         // No projected id matched replacedIds. Production logs always hit
@@ -293,8 +298,45 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           },
           time: event.time,
         };
+        // D5 v1.2 carrier replay: the event carries ref METADATA only (id /
+        // mediaType / dims — never bytes), so the marker text is re-rendered
+        // here, byte-identical to how the reducer rendered it at write time.
+        // Same id as the reducer's carrier (`${summaryId}-images`) and the
+        // same [marker, image ref] pair order. Events without the field
+        // (older logs) insert no carrier — unchanged replay.
+        const imagesEntry: ProjectedMessage | undefined =
+          data.preservedImages === undefined || data.preservedImages.length === 0
+            ? undefined
+            : {
+                message: {
+                  id: `${data.summaryId}-images`,
+                  role: "user",
+                  content: data.preservedImages.flatMap<ContentBlock>((image) => [
+                    {
+                      type: "text",
+                      text: renderImagePreservedMarker({
+                        ...(image.width !== undefined ? { width: image.width } : {}),
+                        ...(image.height !== undefined ? { height: image.height } : {}),
+                        mediaType: image.mediaType,
+                      }),
+                    },
+                    {
+                      type: "image",
+                      source: { type: "ref", id: image.id, mediaType: image.mediaType },
+                      ...(image.width !== undefined ? { width: image.width } : {}),
+                      ...(image.height !== undefined ? { height: image.height } : {}),
+                    },
+                  ]),
+                },
+                time: event.time,
+              };
         messages.length = 0;
-        messages.push(...kept.slice(0, insertAt), summaryEntry, ...kept.slice(insertAt));
+        messages.push(
+          ...kept.slice(0, insertAt),
+          summaryEntry,
+          ...(imagesEntry !== undefined ? [imagesEntry] : []),
+          ...kept.slice(insertAt),
+        );
         break;
       }
 

@@ -346,6 +346,20 @@ export function step(
               summaryText: input.summaryText,
               replacedIds: input.replacedIds,
               summaryId: input.summaryId,
+              // Durable replay needs the carrier's shape, not its bytes:
+              // ref metadata only (spec 2026-10-16 D5 v1.2). The projection
+              // rebuilds the `${summaryId}-images` user-role carrier from
+              // this list; events without it replay exactly as before.
+              ...(preservedImages.length > 0
+                ? {
+                    preservedImages: preservedImages.map((image) => ({
+                      id: image.source.id,
+                      mediaType: image.source.mediaType,
+                      ...(image.width !== undefined ? { width: image.width } : {}),
+                      ...(image.height !== undefined ? { height: image.height } : {}),
+                    })),
+                  }
+                : {}),
             },
           },
         },

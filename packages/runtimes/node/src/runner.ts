@@ -925,13 +925,17 @@ export function createRunner(opts: RunnerOptions): Runner {
         continue;
       }
       const candidate = plan.toOffload[offloadCursor++];
-      if (!candidate || candidate.source.type !== "base64") {
-        preserved.push(block);
-        continue;
-      }
       const degrade = (): void => {
         degraded.push(extractBlockText(block));
       };
+      if (!candidate || candidate.source.type !== "base64") {
+        // Pairing failure (plan.preserved "pending" block without a matching
+        // base64 candidate): pushing the placeholder-id block would ship a
+        // ref the AttachmentStore cannot resolve. Degrade to the placeholder
+        // text instead — same fail-soft as a missing store / failed put.
+        degrade();
+        continue;
+      }
       if (!opts.attachmentStore) {
         // No store configured: skip the offload (inline bytes have nowhere
         // to go) but keep existing refs — they need no store access here.
