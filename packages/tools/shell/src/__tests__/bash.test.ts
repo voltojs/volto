@@ -329,3 +329,34 @@ describe("bash isolated escape hatch", () => {
     expect(r.displayMetadata?.fromSession).toBe(true);
   });
 });
+
+describe("bash bounded accumulation (non-session exec)", () => {
+  it("F-184 bounds non-session accumulation and discloses dropped chars", async () => {
+    const tool = createBashTool({
+      async *exec() {
+        const chunk = "x".repeat(10_000);
+        for (let i = 0; i < 30; i++) yield { type: "stdout", data: chunk }; // 300k total
+        yield { type: "exit", code: 0 };
+      },
+    });
+    const r = await tool.handler({ command: "big" });
+    // kept text is capped at OUTPUT_LIMIT even though 300k arrived
+    expect(r.modelContent).toContain("output truncated: 300000 chars total");
+    expect(String(r.modelContent).length).toBeLessThanOrEqual(100_000 + 200);
+    expect(r.displayMetadata?.totalLength).toBe(300_000);
+    expect(r.displayMetadata?.droppedChars).toBe(200_000);
+    expect(r.displayMetadata?.truncated).toBe(true);
+  });
+
+  it("F-184 keeps small output byte-identical (regression)", async () => {
+    const tool = createBashTool({
+      async *exec() {
+        yield { type: "stdout", data: "hi" };
+        yield { type: "exit", code: 0 };
+      },
+    });
+    const r = await tool.handler({ command: "small" });
+    expect(r.modelContent).toContain("hi");
+    expect(r.displayMetadata?.droppedChars).toBeUndefined();
+  });
+});

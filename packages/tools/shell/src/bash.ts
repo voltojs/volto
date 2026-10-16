@@ -147,9 +147,23 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
         }
       }
 
-      let stdout = "";
-      let stderr = "";
+      // Bounded accumulation for the non-session exec path: retain at most
+      // OUTPUT_LIMIT chars per stream, keep counting every char the command
+      // actually emitted, and keep consuming events after the cap so the
+      // producer still drains. show_full_output explicitly asks for the whole
+      // text, so that flag opts out of the cap (it is the caller's choice to
+      // hold the full buffer, and no truncation is applied to it either).
+      let keptStdout = "";
+      let keptStderr = "";
+      let totalStdout = 0;
+      let totalStderr = 0;
       let exitCode = 0;
+
+      const retain = (kept: string, data: string): string => {
+        if (showFullOutput) return kept + data;
+        const room = OUTPUT_LIMIT - kept.length;
+        return room > 0 ? kept + data.slice(0, room) : kept;
+      };
 
       try {
         // Timeout is handled by the Shell adapter (SIGTERM + SIGKILL grace period).
@@ -159,9 +173,11 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           timeout: effectiveTimeout,
         })) {
           if (event.type === "stdout") {
-            stdout += event.data;
+            totalStdout += event.data.length;
+            keptStdout = retain(keptStdout, event.data);
           } else if (event.type === "stderr") {
-            stderr += event.data;
+            totalStderr += event.data.length;
+            keptStderr = retain(keptStderr, event.data);
           } else if (event.type === "exit") {
             exitCode = event.code;
           }
@@ -171,11 +187,14 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
         return { modelContent: `bash failed: ${message}`, isError: true };
       }
 
-      const combined = stdout + (stderr ? `\n[stderr]\n${stderr}` : "");
-      const truncated = combined.length > OUTPUT_LIMIT && !showFullOutput;
-      const content = truncated ? combined.slice(0, OUTPUT_LIMIT) : combined;
+      const stderrSeparator = totalStderr > 0 ? "\n[stderr]\n" : "";
+      const totalCombined = totalStdout + (stderrSeparator ? stderrSeparator.length + totalStderr : 0);
+      const keptCombined = keptStdout + stderrSeparator + keptStderr;
+      const truncated = totalCombined > OUTPUT_LIMIT && !showFullOutput;
+      const content = truncated ? keptCombined.slice(0, OUTPUT_LIMIT) : keptCombined;
+      const droppedChars = totalCombined - content.length;
       const truncationNote = truncated
-        ? `\n\n(output truncated: ${combined.length} chars total, showing first ${OUTPUT_LIMIT})`
+        ? `\n\n(output truncated: ${totalCombined} chars total, showing first ${OUTPUT_LIMIT})`
         : "";
       const exitNote = exitCode !== 0 ? `\n(exit code: ${exitCode})` : "";
       const backgroundNote = backgroundUnavailable
@@ -187,10 +206,11 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
         modelContent,
         displayMetadata: {
           exitCode,
-          stdoutLength: stdout.length,
-          stderrLength: stderr.length,
+          stdoutLength: totalStdout,
+          stderrLength: totalStderr,
           truncated,
-          totalLength: combined.length,
+          totalLength: totalCombined,
+          ...(droppedChars > 0 ? { droppedChars } : {}),
           ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
         },
       };
