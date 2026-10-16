@@ -30,6 +30,55 @@ describe("Node Network adapter", () => {
     ).rejects.toThrow("Network fetch failed");
   });
 
+  it("adapter-level timeout surfaces the unified timeout signature verbatim", async () => {
+    // Hanging fetch that rejects only when the adapter's timer aborts.
+    globalThis.fetch = ((_input: unknown, init?: { signal?: AbortSignal | null }) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        });
+      })) as typeof globalThis.fetch;
+
+    const network = createNodeNetwork({ timeout: 20 });
+    expect.assertions(1);
+    try {
+      await network.fetch({ url: "https://example.com/slow" });
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        "[timeout] https://example.com/slow timed out after 20ms",
+      );
+    }
+  });
+
+  it("external abort keeps AbortError identity and carries no timeout signature", async () => {
+    globalThis.fetch = ((_input: unknown, init?: { signal?: AbortSignal | null }) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        });
+      })) as typeof globalThis.fetch;
+
+    const network = createNodeNetwork({ timeout: 30_000 });
+    const controller = new AbortController();
+    const pending = network.fetch({
+      url: "https://example.com/slow",
+      abortSignal: controller.signal,
+    });
+    controller.abort();
+
+    expect.assertions(2);
+    try {
+      await pending;
+    } catch (error) {
+      expect((error as Error).name).toBe("AbortError");
+      expect((error as Error).message).not.toContain("[timeout]");
+    }
+  });
+
   it("sends custom headers and body", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       status: 201,

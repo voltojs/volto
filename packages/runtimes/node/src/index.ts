@@ -18,7 +18,7 @@ export type {
   SessionCommandResult,
   SessionSpawnHandle,
 } from "./persistent-session.js";
-export { createNodeNetwork } from "./network.js";
+export { createNodeNetwork, renderNetworkTimeoutSignature } from "./network.js";
 export type { NodeNetworkOptions } from "./network.js";
 export { createFsToolExecutor } from "./tool-executor.js";
 export type { CreateFsToolExecutorOptions } from "./tool-executor.js";
