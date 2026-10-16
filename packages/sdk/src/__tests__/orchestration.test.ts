@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
-import type { TopologySpec, ModelPort, ModelRequest } from "@volto/core";
-import { createMockModelPort, textDelta, modelDone } from "@volto/core";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { Shell, TopologySpec, ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, textDelta, modelDone, toolCallScript, textScript } from "@volto/core";
 import { createOrchestrator } from "../orchestration.js";
 import type { CreateAgentOptions } from "../create-agent.js";
+import { createBashTool, CAP_SHELL_EXEC } from "@volto/tools-shell";
 
 /**
  * Create a ModelPort that calls a callback with the request's system prompt,
@@ -136,5 +140,63 @@ describe("Orchestrator — supervisor topology", () => {
     });
 
     await expect(orchestrator.run("go")).rejects.toThrow("Unknown topology kind");
+  });
+});
+
+// ── Tool-result spill wiring (T5 fix round 1) ──────
+
+describe("Orchestrator — tool-result spill", () => {
+  it("F-186 a node runner spills an oversized bash result to disk under the agent cwd", async () => {
+    // buildNodeRunner is not exported and TopologyResult carries no
+    // tool_result, so the spill store's write is the only observable seam.
+    // The store is REAL (createNodeSpillStore writes via node:fs, outside any
+    // sandbox), so a temp cwd is safe cross-platform — no platform gate.
+    const stdout = "o".repeat(20_000);
+    const shell: Shell = {
+      async *exec() {
+        yield { type: "stdout", data: stdout };
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const model = createMockModelPort([
+      toolCallScript(
+        "spill-call-1",
+        "bash",
+        JSON.stringify({ command: "spill-o", isolated: true }),
+      ),
+      textScript("done"),
+    ]);
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "volto-orch-spill-"));
+
+    try {
+      const orchestrator = createOrchestrator({
+        topology: {
+          kind: "pipeline",
+          name: "spill-pipeline",
+          nodes: [{ name: "a", systemPrompt: "You are A" }],
+          order: ["a"],
+        },
+        // shell:exec puts bash in the node's visible set (it requires
+        // CAP_SHELL_EXEC); without it the runner filters the tool out.
+        agentOpts: { modelPort: model, model: "test", cwd: root, shell },
+        capabilities: new Set([CAP_SHELL_EXEC]),
+        adapterTools: [createBashTool(shell)],
+      });
+      const result = await orchestrator.run("run it");
+
+      // The run completed cleanly — spill never interrupts the loop.
+      expect(result.output).toBe("done");
+
+      // The full text landed on disk under <cwd>/.volto/spill/<session>/c1.txt.
+      // The session id is node-name + Date.now() + random, so match by glob.
+      const sessionDir = path.join(root, ".volto", "spill");
+      const sessions = await fs.readdir(sessionDir);
+      expect(sessions).toHaveLength(1);
+      const filePath = path.join(sessionDir, sessions[0]!, "spill-call-1.txt");
+      const onDisk = await fs.readFile(filePath, "utf8");
+      expect(onDisk).toBe(stdout);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

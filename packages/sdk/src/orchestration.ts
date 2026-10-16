@@ -25,7 +25,7 @@ import type {
 import type { Tool } from "@volto/tools-common";
 import { createRunner } from "@volto/runtime-node";
 import type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
-import { createAutoAllowGate } from "@volto/runtime-node";
+import { createAutoAllowGate, createNodeSpillStore } from "@volto/runtime-node";
 import { createInitialState, ceilingOf } from "@volto/core";
 import {
   createFsToolExecutor,
@@ -99,6 +99,14 @@ export function createOrchestrator(opts: OrchestratorOptions): {
     const nodeCaps = new Set(capabilities);
     nodeCaps.delete("agent:task");
 
+    // Tool-result spill (T5): same wiring as createAgent's Runners — an
+    // oversized tool result spills to disk and the model keeps only a head
+    // plus a reference. Core defaults; no new config surface. The root is
+    // agentOpts.cwd, the same root the FileSystem port is built from. Built
+    // here rather than hoisted because buildNodeRunner already reads
+    // agentOpts per node, and the store is a stateless view over rootDir.
+    const spillStore = createNodeSpillStore({ rootDir: agentOpts.cwd ?? process.cwd() });
+
     const stepCtx: StepContext = {
       tools: toolDefs,
       model: node.model ?? topology.model ?? agentOpts.model,
@@ -120,6 +128,7 @@ export function createOrchestrator(opts: OrchestratorOptions): {
         : undefined,
       approvalGate: createAutoAllowGate(),
       eventSink,
+      spill: { store: spillStore },
       sessionId: `topo-${topology.name}-${node.name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       initialState: createInitialState({
         messages: [{ id: `topo-${topology.name}-${node.name}`, role: "system", content: node.systemPrompt }] as Message[],
