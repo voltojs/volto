@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { detectLoop } from "../loop-detector.js";
+import { detectLoop, renderLoopReminder, renderLoopIntervention } from "../loop-detector.js";
 import { step, createInitialState } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
 import type { AgentInput } from "../input.js";
@@ -55,6 +55,36 @@ function buildLoopMessages(k: number, toolName: string, input: Record<string, un
       id: "m2",
       role: "tool",
       content: [{ type: "tool_result", toolUseId: `loop-${i}`, content: [{ type: "text", text: "error" }], isError: true }],
+    });
+  }
+  return messages;
+}
+
+/** Build messages representing `pairs` consecutive identical tool calls with the given error state */
+function buildResultMessages(
+  pairs: number,
+  toolName: string,
+  input: Record<string, unknown>,
+  isError: boolean,
+): Message[] {
+  const messages: Message[] = [];
+  for (let i = 0; i < pairs; i++) {
+    messages.push({
+      id: "m1",
+      role: "assistant",
+      content: [{ type: "tool_use", id: `seq-${i}`, name: toolName, input }],
+    });
+    messages.push({
+      id: "m2",
+      role: "tool",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: `seq-${i}`,
+          content: [{ type: "text", text: isError ? "error" : "success" }],
+          isError,
+        },
+      ],
     });
   }
   return messages;
@@ -113,22 +143,11 @@ describe("detectLoop — pure function", () => {
     expect(result.detected).toBe(false);
   });
 
-  it("does NOT detect when prior results are not errors", () => {
-    const messages: Message[] = [
-      {
-        id: "m4",
-        role: "assistant",
-        content: [{ type: "tool_use", id: "ok-1", name: "bash", input: { command: "echo hi" } }],
-      },
-      {
-        id: "m5",
-        role: "tool",
-        content: [{ type: "tool_result", toolUseId: "ok-1", content: [{ type: "text", text: "success" }] }], // NOT error
-      },
-    ];
+  it("does NOT detect below threshold when prior results are not errors (1 success + new call = 2 < k=3)", () => {
+    const messages = buildResultMessages(1, "bash", { command: "echo hi" }, false);
     const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
-    const result = detectLoop(messages, makeAssistantMsg([newCall]), [newCall], 2);
-    expect(result.detected).toBe(false);
+    const result = detectLoop(messages, makeAssistantMsg([newCall]), [newCall], 3);
+    expect(result).toEqual({ detected: false, consecutiveCount: 0 });
   });
 
   it("detects loop with k=2 (minimum)", () => {
@@ -165,6 +184,128 @@ describe("detectLoop — pure function", () => {
     const newCall = { id: "new", name: "bash", input: { command: "echo bye" } };
     const result = detectLoop(messages, makeAssistantMsg([newCall]), [newCall], 3);
     expect(result.detected).toBe(false); // Only 2 consecutive, need 3
+  });
+});
+
+// ──────────────────────────────────────────────
+// T8 — loop kind classification (error-loop vs repeat)
+// ──────────────────────────────────────────────
+
+describe("detectLoop — kind classification (error-loop vs repeat)", () => {
+  it("error-chain regression: identical failing calls >= k -> kind 'error-loop' with byte-identical fields to pre-kind output", () => {
+    const priorMessages = buildLoopMessages(3, "bash", { command: "echo hi" }); // 2 failing pairs
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 3);
+    // toEqual pins the exact shape: every pre-existing field is unchanged from
+    // pre-T8 output (toolName/toolInput/consecutiveCount byte-identical),
+    // `kind` is the sole addition (spec 4.1).
+    expect(result).toEqual({
+      detected: true,
+      kind: "error-loop",
+      toolName: "bash",
+      toolInput: { command: "echo hi" },
+      consecutiveCount: 3,
+    });
+  });
+
+  it("error-chain regression: not-detected result keeps the exact pre-kind shape (no kind/toolName/toolInput)", () => {
+    const priorMessages = buildLoopMessages(2, "bash", { command: "echo hi" }); // 1 failing pair
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 3);
+    expect(result).toEqual({ detected: false, consecutiveCount: 0 });
+  });
+
+  it("repeat chain: identical SUCCEEDING calls >= k -> kind 'repeat'", () => {
+    const priorMessages = buildResultMessages(2, "bash", { command: "echo hi" }, false);
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 3);
+    expect(result).toEqual({
+      detected: true,
+      kind: "repeat",
+      toolName: "bash",
+      toolInput: { command: "echo hi" },
+      consecutiveCount: 3,
+    });
+  });
+
+  it("repeat chain below threshold: 2 identical successes + new call < k=4 -> not detected", () => {
+    const priorMessages = buildResultMessages(2, "bash", { command: "echo hi" }, false);
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 4);
+    expect(result).toEqual({ detected: false, consecutiveCount: 0 });
+  });
+
+  it("mixed chain (Review Focus 4): k-1 successes then a failure -> error chain restarts at the first failure (count = 1 new + 1 trailing error = 2 < k=4, not detected; success count NOT inherited)", () => {
+    // Chronological order: 3 successes, then 1 failure (most recent), then the new failing call.
+    const priorMessages = [
+      ...buildResultMessages(3, "bash", { command: "echo hi" }, false),
+      ...buildResultMessages(1, "bash", { command: "echo hi" }, true),
+    ];
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 4);
+    // Error chain restarts at the trailing failure: 1 (new) + 1 (failure) = 2 < 4.
+    // Repeat chain breaks at the failure: 1 < 4. Neither chain reaches k.
+    expect(result).toEqual({ detected: false, consecutiveCount: 0 });
+  });
+
+  it("mixed chain does NOT merge counts: 2 successes then 2 failures -> error chain counts only trailing failures (1 new + 2 errors = 3 >= k=3, not 5)", () => {
+    const priorMessages = [
+      ...buildResultMessages(2, "bash", { command: "echo hi" }, false),
+      ...buildResultMessages(2, "bash", { command: "echo hi" }, true),
+    ];
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 3);
+    expect(result).toEqual({
+      detected: true,
+      kind: "error-loop",
+      toolName: "bash",
+      toolInput: { command: "echo hi" },
+      // Trailing failures only: 2 prior failures + 1 new call; the 2 successes contribute nothing.
+      consecutiveCount: 3,
+    });
+  });
+
+  it("mixed chain (vice versa): failures then a success -> repeat chain restarts at the first success (count = 1 new + 1 success = 2 < k=4, not detected; failure count NOT inherited)", () => {
+    const priorMessages = [
+      ...buildResultMessages(3, "bash", { command: "echo hi" }, true),
+      ...buildResultMessages(1, "bash", { command: "echo hi" }, false),
+    ];
+    const newCall = { id: "new", name: "bash", input: { command: "echo hi" } };
+    const result = detectLoop(priorMessages, makeAssistantMsg([newCall]), [newCall], 4);
+    expect(result).toEqual({ detected: false, consecutiveCount: 0 });
+  });
+});
+
+// ──────────────────────────────────────────────
+// T8 — verbatim loop texts (spec 2 D3)
+// ──────────────────────────────────────────────
+
+describe("loop texts — verbatim formats (spec 2 D3)", () => {
+  it("renderLoopReminder error variant is byte-exact (marker + fixed closing sentence)", () => {
+    const text = renderLoopReminder({ toolName: "bash", consecutiveCount: 3, kind: "error" });
+    expect(text).toBe(
+      '[LOOP REMINDER] "bash" has been called 3 times in a row with identical input and each attempt failed. This is the last reminder before a forced stop — change the approach now.',
+    );
+    expect(text).toContain("LOOP REMINDER");
+    expect(text).toContain("This is the last reminder before a forced stop — change the approach now.");
+  });
+
+  it("renderLoopReminder repeat variant is byte-exact (marker + fixed closing sentence)", () => {
+    const text = renderLoopReminder({ toolName: "bash", consecutiveCount: 4, kind: "repeat" });
+    expect(text).toBe(
+      '[LOOP REMINDER] "bash" has been called 4 times in a row with identical input. If the repetition is intentional, continue; otherwise vary the input or switch tools.',
+    );
+    expect(text).toContain("LOOP REMINDER");
+    expect(text).toContain("If the repetition is intentional, continue; otherwise vary the input or switch tools.");
+  });
+
+  it("renderLoopIntervention is byte-exact (marker + fixed closing sentence)", () => {
+    const text = renderLoopIntervention({ toolName: "bash", consecutiveCount: 3 });
+    expect(text).toBe(
+      '[LOOP INTERVENTION] The identical call to "bash" has failed 3 times. Do not repeat it: vary the input, choose a different tool, or ask the user for direction. Two more identical failures will force-stop this turn.',
+    );
+    expect(text).toContain("LOOP INTERVENTION");
+    expect(text).toContain("Two more identical failures will force-stop this turn.");
   });
 });
 
