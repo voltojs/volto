@@ -275,15 +275,22 @@ describe("TC-008: LSP 工具返回结构化结果", () => {
     // requested file with the same client.
     const provider = { async forFile() { return mockClient; } };
 
-    // Step 1-2: 创建工具并调用
+    // Step 1-2: create the tool and call it
     const tool = createLspDefinitionTool(provider);
     const result = await tool.handler({ file: "/src/foo.ts", line: 5, character: 3 });
 
-    // Step 3: 包含位置信息
-    expect(result.modelContent).toContain("1 definition(s)");
-    expect(result.modelContent).toContain("/src/foo.ts:11:6");
+    // Step 3: exactly one structured block whose text projection still says
+    // what the old plain string said (the model-side rendering is unchanged).
+    expect(Array.isArray(result.modelContent)).toBe(true);
+    const blocks = result.modelContent as unknown[];
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0] as { type: string; kind?: string; text?: string };
+    expect(block.type).toBe("structured");
+    expect(block.kind).toBe("lsp.locations");
+    expect(block.text).toContain("1 definition(s)");
+    expect(block.text).toContain("/src/foo.ts:11:6");
 
-    // Step 4: displayMetadata 有结构化数据
+    // Step 4: displayMetadata has the structured data
     expect(result.displayMetadata).toBeDefined();
     expect((result.displayMetadata as Record<string, unknown>).locations).toBeDefined();
   });
