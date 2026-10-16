@@ -82,6 +82,7 @@ import {
   type SessionSpawnHandle,
 } from "@volto/runtime-node";
 import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgress } from "@volto/runtime-node";
+import { createNodeSpillStore } from "@volto/runtime-node";
 import type { EgressPolicy } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
 import type { SubAgentDispatch, AgentTypeSummary } from "@volto/tools-agent";
@@ -1722,6 +1723,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Session store ─────────────────────────
   const sessionStore = opts.sessionStore ?? createDefaultSessionStore();
+
+  // ── Tool-result spill store ───────────────
+  // One store per agent instance, rooted at the workspace. Every Runner that
+  // carries a toolExecutor shares it (createNextRunner, resumeRunner,
+  // subRunner), so oversized tool results spill to `.volto/spill/` under the
+  // same root the FileSystem port uses. Threshold/head stay at the core
+  // defaults — SDK wiring is the assembly point, not a new config surface.
+  const spillStore = createNodeSpillStore({ rootDir: opts.cwd ?? process.cwd() });
+
   const chatStore = opts.chatStore ?? defaultChatStore;
   if (opts.chatStore && opts.chatMeta && opts.chatSessionId) {
     bestEffortAppend(chatStore, opts.chatSessionId, [
@@ -1935,6 +1945,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // Turn-boundary drain: lets the Runner collect background tasks the
       // model never picked up via task_output before the turn ends.
       backgroundRegistry,
+      // Oversized tool-result spill (F-019): thresholds/head at core
+      // defaults, so the only wiring decision is "on, rooted at the cwd".
+      spill: { store: spillStore },
       pathRoot: opts.cwd ?? process.cwd(),
     };
 
@@ -2238,6 +2251,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         compaction: compactionConfig,
         sessionId,
         initialState: restoredState,
+        spill: { store: spillStore },
         pathRoot: opts.cwd ?? process.cwd(),
         // Wire the transcript the same way createNextRunner() does — without
         // this, the tool_result and the assistant_message that follow it
@@ -3120,6 +3134,10 @@ function createSubAgentExecutor(
       riskCeiling: childPermissionConfig
         ? ceilingOf(childPermissionConfig.sandbox)
         : undefined,
+      // Same spill root as the parent (the shared cwd), so a sub-agent's
+      // oversized tool results land beside the parent's spills. A fresh store
+      // is fine: createNodeSpillStore is a stateless view over rootDir.
+      spill: { store: createNodeSpillStore({ rootDir: opts.cwd ?? process.cwd() }) },
       pathRoot: opts.cwd ?? process.cwd(),
       // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
       // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
