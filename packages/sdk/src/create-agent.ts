@@ -578,6 +578,9 @@ export interface CreateAgentOptions {
   /** Max consecutive identical failed tool calls before loop intervention (default: no limit) */
   maxLoopCount?: number;
 
+  /** Loop interventions consumed before forced termination (default: 2, 0 = hard termination only) */
+  maxLoopInterventions?: number;
+
   // ── Port overrides (all optional, defaults provided) ──
 
   /** Permission policy — defaults to sensible read/write/ask/deny */
@@ -1663,6 +1666,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     maxTokens: resolve(opts.maxTokens, "maxTokens"),
     temperature: resolve(opts.temperature, "temperature"),
     maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
+    maxLoopInterventions: resolve(opts.maxLoopInterventions, "maxLoopInterventions"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
     id: idPort,

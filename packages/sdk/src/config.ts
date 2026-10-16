@@ -66,6 +66,9 @@ export interface ConfigLayer {
   /** Max consecutive identical failed tool calls */
   maxLoopCount?: number;
 
+  /** Loop interventions consumed before forced termination (default 2, 0 = hard termination only) */
+  maxLoopInterventions?: number;
+
   /** Permission policy */
   permissionConfig?: PermissionConfig;
 
@@ -154,6 +157,7 @@ const LAYER_KEYS = [
   "maxDollarsPerTurn",
   "maxWallclockMs",
   "maxLoopCount",
+  "maxLoopInterventions",
   "permissionConfig",
   "compaction",
   "toolVisibility",
