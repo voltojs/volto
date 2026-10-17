@@ -25,6 +25,16 @@ import type { Hook, HookContext, HookLifecycle, HookOutcome } from "@volto/core"
 /** Default per-hook wall-clock budget (spec D5): 10s, then SIGTERM + deny. */
 export const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
 
+/**
+ * Cap on collected hook stderr (chars). A spamming failing hook must not
+ * be able to blow host memory: collection stops appending once the cap is
+ * reached while the remaining bytes are still counted (and drained — the
+ * data listener stays attached so the pipe never blocks). The deny reason
+ * uses what was collected; the first line lives at the head of the stream
+ * and survives the cap intact.
+ */
+export const STDERR_COLLECTION_CAP = 65_536;
+
 /** A single external-command hook entry — the only accepted entry shape. */
 export interface CommandHookSpec {
   type: "command";
@@ -147,9 +157,24 @@ export function runCommandHook(
     }
 
     let stderr = "";
+    let stderrDroppedChars = 0;
     child.stderr?.setEncoding("utf-8");
     child.stderr?.on("data", (chunk: string) => {
-      stderr += chunk;
+      // Bounded accumulation (mirror of the T5 bash output cap): stop
+      // appending at the cap, keep counting what was dropped. The listener
+      // stays attached either way, so the pipe keeps draining and a
+      // spamming failing hook cannot block or blow host memory.
+      if (stderr.length >= STDERR_COLLECTION_CAP) {
+        stderrDroppedChars += chunk.length;
+        return;
+      }
+      const room = STDERR_COLLECTION_CAP - stderr.length;
+      if (chunk.length <= room) {
+        stderr += chunk;
+      } else {
+        stderr += chunk.slice(0, room);
+        stderrDroppedChars += chunk.length - room;
+      }
     });
     // stdout is discarded by spec (D5) — but it must still be drained, or a
     // chatty hook could fill the pipe and block on write.
@@ -173,6 +198,8 @@ export function runCommandHook(
         return;
       }
       if (code === 2) {
+        // The first line lives at the head of the stream, so the cap never
+        // costs it: the deny reason is derived from the capped buffer.
         const firstLine = (stderr.split("\n", 1)[0] ?? "").trim();
         settle({
           action: "deny",
@@ -181,8 +208,16 @@ export function runCommandHook(
         return;
       }
       // Non-zero (incl. killed by an external signal, code === null) →
-      // fail-closed deny with the exit detail.
-      failClosed(code === null ? `killed by signal ${signal ?? "unknown"}` : `exit ${code}`);
+      // fail-closed deny with the exit detail. Dropped stderr (beyond the
+      // collection cap) is disclosed, mirroring the bash truncation note.
+      const truncationNote =
+        stderrDroppedChars > 0
+          ? ` (stderr truncated: ${stderrDroppedChars} chars dropped)`
+          : "";
+      failClosed(
+        (code === null ? `killed by signal ${signal ?? "unknown"}` : `exit ${code}`) +
+          truncationNote,
+      );
     });
 
     // A hook that exits without reading stdin surfaces EPIPE here; the

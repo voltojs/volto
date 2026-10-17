@@ -245,6 +245,39 @@ describe("runCommandHook", () => {
     const outcome = await runCommandHook("exit 0", ctx);
     expect(outcome).toEqual({ action: "continue" });
   });
+
+  it(
+    "stderr collection is capped at 64 KB: a hook spamming >64KB to stderr completes, the exit-2 deny reason is the FIRST LINE of the CAPPED buffer, and the non-zero-exit path discloses the dropped count",
+    async () => {
+      // 70KB of stderr with a first line, then explicit deny: the reason
+      // must be the first line of the CAPPED (65_536-char) buffer —
+      // collection stopped appending once the cap was reached, so host
+      // memory stayed bounded while the pipe kept draining. The head|tr
+      // pipeline writes BLOCKING (an async process.stderr.write can be cut
+      // short by process.exit, and a single writeSync hits EAGAIN once the
+      // pipe buffer fills), so the full 70KB reaches the parent.
+      const spamFirst =
+        "{ printf 'DENY-ME\\n'; head -c 70000 /dev/zero | tr '\\000' 'x'; } >&2; exit 2";
+      const denied = await runCommandHook(spamFirst, ctx);
+      expect(denied).toEqual({ action: "deny", reason: "DENY-ME" });
+
+      // Same volume, non-zero exit: fail-closed deny plus the truncation
+      // note proving the capped buffer dropped the overflow (counting kept
+      // after collection stopped).
+      const spamExit1 = "head -c 70000 /dev/zero | tr '\\000' 'y' >&2; exit 1";
+      const failed = await runCommandHook(spamExit1, ctx);
+      expect(failed.action).toBe("deny");
+      if (failed.action === "deny") {
+        expect(failed.reason).toContain("failed: exit 1");
+        // 70000 arrived, at most 65_536 were kept → >0 dropped.
+        expect(failed.reason).toMatch(/stderr truncated: \d+ chars dropped/);
+        const dropped = Number(failed.reason.match(/(\d+) chars dropped/)?.[1]);
+        expect(dropped).toBeGreaterThan(0);
+        expect(dropped).toBeLessThanOrEqual(70_000);
+      }
+    },
+    20_000,
+  );
 });
 
 // ──────────────────────────────────────────────
