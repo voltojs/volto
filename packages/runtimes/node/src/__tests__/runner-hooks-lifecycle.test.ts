@@ -14,6 +14,10 @@
  *      observe-only points produce ZERO state change (negative witness —
  *      final state deep-equals the continue-hook scenario); ctx fields
  *      (childSessionId / notification.kind) correct.
+ *  (d) observe-only hook FAILURE surfacing (spec §6): a thrown handler or
+ *      a deny outcome at subagentStop / notification emits a raw
+ *      `hook_error` EventSink event (lifecycle + error) and never denies —
+ *      state deep-equals the continue scenario, turn completes.
  *
  * Timeout-safe wiring (hook timeouts hanging the turn) is pinned in Task 2's
  * runCommandHook tests — not re-tested here.
@@ -481,5 +485,140 @@ describe("T10 Task 3 — subagentStop / notification observe-only points (F-033)
     expect(denied.ctxs.length).toBeGreaterThan(0);
     expect(denied.ctxs[0]!.lifecycle).toBe("notification");
     expect(denied.ctxs[0]!.notification).toEqual({ kind: "approval_requested" });
+  });
+});
+
+// ──────────────────────────────────────────────
+// (d) hook_error surfacing at the observe-only points — spec §6
+//     ("只观察点的 hook 失败 → 记 EventSink hook_error 事件，不 deny").
+// ──────────────────────────────────────────────
+
+describe("T10 final review — observe-only hook failures surface as hook_error (spec §6)", () => {
+  it("subagentStop: THROWN handler → hook_error event with lifecycle + error message; state deep-equals the continue scenario; turn completes", async () => {
+    const runOnce = async (hook: Hook) => {
+      const { sink, events } = captureSink();
+      const runner = createRunner({
+        modelPort: createMockModelPort(taskScript()),
+        stepContext: taskCtx,
+        toolExecutor: taskExecutor,
+        availableCapabilities: new Set(),
+        sessionId: "sess-1",
+        hooks: [hook],
+        eventSink: sink,
+      });
+      const final = await runner.run({ type: "user_message", content: "go" });
+      return { final, events };
+    };
+
+    const throwing: Hook = {
+      name: "broken-observer",
+      lifecycle: "subagentStop",
+      handler: () => {
+        throw new Error("observer exploded");
+      },
+    };
+    const { hook: continueHook } = recordingHook("ok-observer", "subagentStop", {
+      action: "continue",
+    });
+
+    const thrown = await runOnce(throwing);
+    const continued = await runOnce(continueHook);
+
+    // The failure is surfaced as a hook_error event (spec §6)...
+    const err = thrown.events.find((e) => e.type === "hook_error");
+    expect(err, "hook_error event must be emitted").toBeDefined();
+    expect(err!.data).toEqual({ lifecycle: "subagentStop", error: "observer exploded" });
+
+    // ...and it changed NOTHING else: final state deep-equals the continue
+    // scenario (negative witness) and the turn completed normally.
+    expect(thrown.final).toEqual(continued.final);
+    expect(thrown.final.status).toBe("done");
+    // The continue path emits no hook_error.
+    expect(continued.events.find((e) => e.type === "hook_error")).toBeUndefined();
+  });
+
+  it("subagentStop: deny outcome (fail-closed failure signal) → hook_error event with the deny reason; state unchanged", async () => {
+    const runOnce = async (hook: Hook) => {
+      const { sink, events } = captureSink();
+      const runner = createRunner({
+        modelPort: createMockModelPort(taskScript()),
+        stepContext: taskCtx,
+        toolExecutor: taskExecutor,
+        availableCapabilities: new Set(),
+        sessionId: "sess-1",
+        hooks: [hook],
+        eventSink: sink,
+      });
+      const final = await runner.run({ type: "user_message", content: "go" });
+      return { final, events };
+    };
+
+    const denied: Hook = {
+      name: "cfg:subagentStop:0",
+      lifecycle: "subagentStop",
+      // Command hooks resolve (never throw) — a deny here means the hook
+      // failed its observational job (timeout / non-zero exit).
+      handler: () => ({ action: "deny", reason: "hook \"audit\" failed: timed out after 10000ms" }),
+    };
+    const { hook: continueHook } = recordingHook("ok-observer", "subagentStop", {
+      action: "continue",
+    });
+
+    const deniedRun = await runOnce(denied);
+    const continued = await runOnce(continueHook);
+
+    // Deny at an observe-only point = failure signal → hook_error with the
+    // reason verbatim (never a deny).
+    const err = deniedRun.events.find((e) => e.type === "hook_error");
+    expect(err, "hook_error event must be emitted for a deny outcome").toBeDefined();
+    expect(err!.data).toEqual({
+      lifecycle: "subagentStop",
+      error: 'hook "audit" failed: timed out after 10000ms',
+    });
+
+    // State unchanged — the deny did not deny anything.
+    expect(deniedRun.final).toEqual(continued.final);
+    expect(deniedRun.final.status).toBe("done");
+  });
+
+  it("notification: THROWN handler and deny outcome both surface hook_error with the notification lifecycle; state unchanged", async () => {
+    const runOnce = async (handler: Hook["handler"]) => {
+      const { sink, events } = captureSink();
+      const pricing = { "test-model": { inputPer1M: 10, outputPer1M: 30 } };
+      const runner = createRunner({
+        modelPort: createMockModelPort([
+          [usage(100, 100), textDelta("Done"), modelDone("end_turn")],
+        ]),
+        stepContext: ctx,
+        availableCapabilities: new Set(),
+        pricing,
+        initialState: createInitialState({ maxCostDollars: 0.001 }),
+        sessionId: "sess-1",
+        hooks: [{ name: "notify", lifecycle: "notification", handler }],
+        eventSink: sink,
+      });
+      const final = await runner.run({ type: "user_message", content: "go" });
+      return { final, events };
+    };
+
+    const thrown = await runOnce(() => {
+      throw new Error("notify observer died");
+    });
+    const deniedRun = await runOnce(() => ({ action: "deny", reason: "notify failed: exit 1" }));
+    const continued = await runOnce(() => ({ action: "continue" }));
+
+    const thrownErr = thrown.events.find((e) => e.type === "hook_error");
+    expect(thrownErr, "hook_error for the thrown handler").toBeDefined();
+    expect(thrownErr!.data).toEqual({ lifecycle: "notification", error: "notify observer died" });
+
+    const deniedErr = deniedRun.events.find((e) => e.type === "hook_error");
+    expect(deniedErr, "hook_error for the deny outcome").toBeDefined();
+    expect(deniedErr!.data).toEqual({ lifecycle: "notification", error: "notify failed: exit 1" });
+
+    // Neither failure shape changed state — both deep-equal the continue
+    // scenario, and the budget_exceeded turn closed identically.
+    expect(thrown.final).toEqual(continued.final);
+    expect(deniedRun.final).toEqual(continued.final);
+    expect(continued.events.find((e) => e.type === "hook_error")).toBeUndefined();
   });
 });

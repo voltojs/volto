@@ -67,7 +67,7 @@ import {
 } from "@volto/core";
 import type { StepContext, ReducerState } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
-import type { Hook } from "@volto/core";
+import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
 import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
 import { createTranscriptRecorder } from "./transcript-recorder.js";
@@ -785,10 +785,49 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function runNotificationHook(
     kind: "budget_warning" | "approval_requested",
   ): Promise<void> {
-    await runHookPipeline(opts.hooks ?? [], "notification", {
+    await runObserveOnlyHook("notification", {
       sessionId: opts.sessionId,
       notification: { kind },
     });
+  }
+
+  /**
+   * Shared invocation for the two OBSERVE-ONLY hook points
+   * (`subagentStop`, `notification`) — spec 2026-10-17 §6: a failed
+   * observation must not vanish silently (the "illusion of working" the
+   * spec warns against), but an observe-only point has no deny surface, so
+   * failures surface as a raw `hook_error` EventSink event (same
+   * observability-only channel shape as `preCompact_skipped`) and NEVER as
+   * a deny — state is unchanged, the turn continues. Two failure shapes:
+   *  - a THROWN handler error (custom JS hooks; the pipeline propagates
+   *    handler throws) — caught here so one broken observer cannot break
+   *    the turn;
+   *  - a `deny` outcome — command hooks never throw (they resolve
+   *    fail-closed denies on timeout / non-zero exit); at an observe-only
+   *    point a deny means the hook FAILED to do its observational job, so
+   *    it is reported as `hook_error` with the deny reason.
+   */
+  async function runObserveOnlyHook(
+    lifecycle: "subagentStop" | "notification",
+    ctx: Omit<HookContext, "lifecycle">,
+  ): Promise<void> {
+    try {
+      const outcome = await runHookPipeline(opts.hooks ?? [], lifecycle, ctx);
+      if (outcome.action === "deny") {
+        opts.eventSink?.emit({
+          type: "hook_error",
+          data: { lifecycle, error: outcome.reason },
+        });
+      }
+    } catch (err) {
+      opts.eventSink?.emit({
+        type: "hook_error",
+        data: {
+          lifecycle,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
   }
 
   /**
@@ -2069,12 +2108,14 @@ export function createRunner(opts: RunnerOptions): Runner {
             // IGNORED entirely — anti-hijack by design (spec D3). A hook can
             // watch subagent completions but can never alter, deny, or
             // swallow the result that reaches the model. Do not "fix" this
-            // by consuming the outcome.
+            // by consuming the outcome. A FAILED observation (thrown handler
+            // or fail-closed deny) surfaces as a `hook_error` event instead
+            // — see runObserveOnlyHook.
             if (
               toolCall.name === "task" &&
               result.displayMetadata?.["sessionId"] !== undefined
             ) {
-              await runHookPipeline(opts.hooks ?? [], "subagentStop", {
+              await runObserveOnlyHook("subagentStop", {
                 sessionId: opts.sessionId,
                 subagentInfo: {
                   childSessionId: result.displayMetadata["sessionId"] as string,
