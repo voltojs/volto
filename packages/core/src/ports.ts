@@ -758,7 +758,11 @@ export type MemoryScope =
   | { kind: "project"; projectId: string }
   | { kind: "global" };
 
-/** Optional filter for MemoryStore.query. */
+/**
+ * Optional filter for MemoryStore.query. Passing no filter at all returns
+ * every entry (advanced / test use only; RAG and the memory tool must
+ * always pass a filter).
+ */
 export interface MemoryQueryFilter {
   /**
    * When set, return entries scoped to this project PLUS global entries
