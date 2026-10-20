@@ -18,7 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@volto/core": "workspace:*"
+    "@volto/core": "workspace:*",
+    "@volto/memory-common": "workspace:*"
   },
   "devDependencies": {}
 }

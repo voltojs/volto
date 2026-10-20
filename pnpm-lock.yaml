@@ -309,6 +309,9 @@ importers:
       '@volto/core':
         specifier: workspace:*
         version: link:../../core
+      '@volto/memory-common':
+        specifier: workspace:*
+        version: link:../common
 
   packages/providers/anthropic:
     dependencies:
