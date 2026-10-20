@@ -592,6 +592,18 @@ importers:
         specifier: workspace:*
         version: link:../../core
 
+  packages/tools/memory:
+    dependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@volto/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/tools/plan:
     dependencies:
       '@volto/core':
