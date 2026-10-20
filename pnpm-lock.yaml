@@ -433,6 +433,9 @@ importers:
       '@volto/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
+      '@volto/tools-memory':
+        specifier: workspace:*
+        version: link:../tools/memory
       '@volto/tools-plan':
         specifier: workspace:*
         version: link:../tools/plan

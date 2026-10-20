@@ -148,6 +148,7 @@ import {
   createBuildTool,
 } from "@volto/tools-vcs";
 import { createAskUserTool } from "@volto/tools-ask";
+import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@volto/tools-memory";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
 import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@volto/tools-data";
 import type { DatabaseOpener } from "@volto/tools-data";
@@ -840,6 +841,17 @@ export interface CreateAgentOptions {
   /** Text embedding provider. Defaults to throw-if-called. */
   embedder?: Embedder;
 
+  /**
+   * Memory behavior. Feature is enabled only when `memoryStore` is explicitly
+   * provided; the default store stays inert for `agent.ports` use.
+   * - `rag`: auto-retrieval before the turn's first model call (default off).
+   * - `tools`: register the single `memory` tool (default true when enabled).
+   */
+  memory?: {
+    rag?: false | { topK?: number; queryBuilder?: (messages: Message[]) => string };
+    tools?: boolean;
+  };
+
   /** Structured telemetry (OTel-style). Defaults to no-op. */
   telemetry?: Telemetry;
 
@@ -1181,6 +1193,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   // read_document always ships now — grant the capability unconditionally.
   capabilities.add("document:parse");
+  const memoryEnabled = opts.memoryStore !== undefined;
+  const memoryToolsEnabled = memoryEnabled && opts.memory?.tools !== false;
+  if (memoryToolsEnabled) {
+    capabilities.add(CAP_MEMORY_READ);
+    capabilities.add(CAP_MEMORY_WRITE);
+  }
   // Tri-state: only an explicit true grants vision. Absent stays unknown so
   // a gateway that cannot describe its models does not lose pure image
   // producers; mixed tools (read_file / read_document) gate at call time.
@@ -1430,6 +1448,19 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   capabilities.add(CAP_PLAN_WRITE);
   allCustomTools.push(createTodoWriteTool());
 
+  // Explicit memory tool — only when the host provided a store and did not
+  // opt out. The tool is the sole writer (no turn-end auto-summary).
+  if (memoryToolsEnabled && opts.memoryStore) {
+    allCustomTools.push(
+      createMemoryTool({
+        memoryStore: opts.memoryStore,
+        projectId: opts.chatMeta?.projectId ?? undefined,
+        sessionId: opts.chatSessionId,
+        now: () => opts.clock?.now() ?? Date.now(),
+      }),
+    );
+  }
+
   // Registry of detached background tasks for this agent instance.
   // Promises live here, never in AgentState (not serializable). Declared
   // outside the enableTaskTool block so every Runner this agent creates
@@ -1640,6 +1671,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       hasLsp: opts.lsp !== undefined,
       hasDb: opts.db !== undefined,
       hasBrowser: opts.browserAdapter !== undefined,
+      hasMemory: memoryToolsEnabled,
     });
   }
   const { scope: visibilityScope, limit: visibilityLimit } = resolveVisibility(toolDefs);
@@ -1953,6 +1985,19 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // defaults, so the only wiring decision is "on, rooted at the cwd".
       spill: { store: spillStore },
       pathRoot: opts.cwd ?? process.cwd(),
+      ...(memoryEnabled && opts.memory?.rag
+        ? {
+            rag: {
+              memoryStore: opts.memoryStore!,
+              topK: opts.memory.rag.topK ?? 5,
+              ...(opts.memory.rag.queryBuilder !== undefined
+                ? { queryBuilder: opts.memory.rag.queryBuilder }
+                : {}),
+              projectId: opts.chatMeta?.projectId ?? undefined,
+              includeGlobal: true,
+            },
+          }
+        : {}),
     };
 
     if (previousState && previousState.status === "done") {
