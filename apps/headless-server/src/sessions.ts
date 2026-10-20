@@ -766,6 +766,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     return sessions.get(sessionId)?.config?.projectPath ?? null;
   }
 
+  /** Whether this process has a turn in flight for the session. Read-only. */
+  function isRunning(sessionId: string): boolean {
+    return sessions.get(sessionId)?.running === true;
+  }
+
   /**
    * Turn the ids sent by the client into concrete construction inputs.
    *
@@ -1349,6 +1354,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     hasConnection,
     hasSession,
     getSessionProjectPath,
+    isRunning,
     runTurn,
     interrupt,
     decideApproval,

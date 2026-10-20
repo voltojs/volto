@@ -1,0 +1,107 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { createStore } from "@volto/store-jsonl";
+import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
+import { createNodeAttachmentStore } from "@volto/runtime-node";
+import type { PlanStore, TranscriptEventInput } from "@volto/core";
+import { forkSession, ForkError } from "../session-fork.js";
+
+let dir: string;
+let store: JsonlSessionStore;
+let attachmentRoot: string;
+
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "fork-store-"));
+  attachmentRoot = await fs.mkdtemp(path.join(os.tmpdir(), "fork-att-"));
+  store = createStore({ directory: dir });
+});
+
+afterEach(async () => {
+  await fs.rm(dir, { recursive: true, force: true });
+  await fs.rm(attachmentRoot, { recursive: true, force: true });
+});
+
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+async function seed(): Promise<ChatSessionRecord> {
+  const attachmentStore = createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId: "src" });
+  await attachmentStore.put(PNG, "image/png", { id: "img1", name: "shot.png" });
+  const events: TranscriptEventInput[] = [
+    { time: 1, type: "session_meta", data: { title: "Source", projectId: "p1", providerId: null, modelId: null, permissionMode: "ask" } },
+    { time: 2, type: "user_message", data: { content: "first question" }, turn: 1 },
+    { time: 3, type: "assistant_message", data: { content: [{ type: "text", text: "first answer" }], durationMs: 1 }, turn: 1 },
+    { time: 4, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+    { time: 5, type: "user_message", data: { content: [{ type: "text", text: "second" }, { type: "image", source: { type: "ref", id: "img1", mediaType: "image/png" }, width: 1, height: 1 }] }, turn: 2 },
+    { time: 6, type: "assistant_message", data: { content: [{ type: "text", text: "second answer" }], durationMs: 1 }, turn: 2 },
+    { time: 7, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+  ];
+  await store.appendEvents(null, "src", events);
+  const record = await store.readSession("src");
+  expect(record).toBeDefined();
+  return record!;
+}
+
+function planStore(): PlanStore {
+  const plans = new Map<string, string>();
+  plans.set("src", "# Plan");
+  return {
+    async save(id, _p, content) { plans.set(id, content); },
+    async read(id) { return plans.get(id) ?? null; },
+    async deleteBySession(id) { plans.delete(id); },
+  };
+}
+
+function deps(newId: string) {
+  return {
+    chatStore: store,
+    attachmentStoreFor: (sessionId: string) => createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId }),
+    planStore: planStore(),
+    projectPath: null,
+    newId,
+  };
+}
+
+describe("forkSession", () => {
+  it("copies the whole completed history, rewrites meta and copies attachments/plan", async () => {
+    const source = await seed();
+    const result = await forkSession(source, {}, deps("fork-1"));
+    expect(result).toEqual({ id: "fork-1", title: "Source（分支）", parentSessionId: "src" });
+
+    const forked = await store.readSession("fork-1");
+    expect(forked).toBeDefined();
+    expect(forked!.meta.title).toBe("Source（分支）");
+    expect(forked!.meta.parentSessionId).toBe("src");
+    expect(forked!.meta.origin).toBeUndefined();
+    expect(forked!.events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+
+    const attachment = await createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId: "fork-1" }).get("img1");
+    expect(attachment?.name).toBe("shot.png");
+  });
+
+  it("copies only through a completed turn and backs up a mid-turn seq", async () => {
+    const source = await seed();
+    await forkSession(source, { throughTurn: 1 }, deps("fork-turn1"));
+    const turn1 = await store.readSession("fork-turn1");
+    expect(turn1!.events.filter((e) => e.type === "turn_end")).toHaveLength(1);
+
+    await forkSession(source, { throughSeq: 4 }, deps("fork-seq4"));
+    const seq4 = await store.readSession("fork-seq4");
+    expect(seq4!.events.map((e) => e.type)).toEqual([
+      "session_meta", "user_message", "assistant_message", "turn_end",
+    ]);
+  });
+
+  it("rejects a session with no completed turn and mutually exclusive cuts", async () => {
+    await store.appendEvents(null, "empty", [
+      { time: 1, type: "session_meta", data: { title: "Empty", projectId: null, providerId: null, modelId: null, permissionMode: null } },
+      { time: 2, type: "user_message", data: { content: "pending" }, turn: 1 },
+    ]);
+    const source = (await store.readSession("empty"))!;
+    await expect(forkSession(source, {}, deps("fork-empty"))).rejects.toBeInstanceOf(ForkError);
+    await expect(
+      forkSession(source, { throughSeq: 1, throughTurn: 1 }, deps("fork-both")),
+    ).rejects.toBeInstanceOf(ForkError);
+  });
+});

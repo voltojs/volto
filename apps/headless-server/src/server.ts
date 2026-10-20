@@ -30,6 +30,7 @@
  */
 
 import * as http from "node:http";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -55,6 +56,7 @@ import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
+import { forkSession, ForkError } from "./session-fork.js";
 import {
   createProjectStore,
   InvalidPathError,
@@ -1295,10 +1297,37 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       }
     }
 
-    // GET /sessions — lightweight list for the web app's session recovery
+    // GET /sessions — lightweight list for the web app's session recovery.
+    // `?q=` switches to a title + message text search; `projectId` / `limit`
+    // optionally narrow it. Empty q keeps the plain list contract.
     if (req.method === "GET" && url.pathname === "/sessions") {
       try {
+        const q = url.searchParams.get("q")?.trim() ?? "";
         const { records, skipped } = await chatStore.listSessions();
+        if (q !== "") {
+          const projectId = url.searchParams.get("projectId") ?? undefined;
+          const limitRaw = Number(url.searchParams.get("limit") ?? "20");
+          const hits = await chatStore.searchSessions(q, {
+            ...(projectId !== undefined ? { projectId } : {}),
+            limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+          });
+          const byId = new Map(records.map((record) => [record.sessionId, record]));
+          const sessions = hits.flatMap((hit) => {
+            const record = byId.get(hit.sessionId);
+            if (record === undefined) return [];
+            return [{
+              id: record.sessionId,
+              title: record.meta.title ?? "",
+              ...bindingsOf(record.meta),
+              messageCount: projectMessageEntries(record.events).length,
+              createdAt: record.createdAt,
+              updatedAt: record.updatedAt,
+              snippet: hit.snippet,
+            }];
+          });
+          jsonResponse(res, 200, { sessions, unreadableSessions: skipped.length });
+          return;
+        }
         // Sub-agent sessions are an implementation detail of the task tool —
         // surfacing them here would flood the user's session list with rows
         // they never started.
@@ -1452,6 +1481,64 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
+    }
+
+    // POST /sessions/:id/fork — copy a completed turn prefix into a new
+    // session. The source is never modified; attachments and plan follow the
+    // prefix. 400 invalid cut, 404 unknown, 409 source mid-turn.
+    if (req.method === "POST") {
+      const forkMatch = url.pathname.match(/^\/sessions\/([^/]+)\/fork$/);
+      if (forkMatch) {
+        const id = decodeURIComponent(forkMatch[1]!);
+        try {
+          const record = await chatStore.readSession(id);
+          if (!record) {
+            jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+            return;
+          }
+          if (registry.isRunning(id)) {
+            jsonResponse(res, 409, { error: "Cannot fork a session while a turn is running" });
+            return;
+          }
+          const body = (await readBody(req).then((raw) => (raw.trim() === "" ? {} : JSON.parse(raw)))) as {
+            throughSeq?: unknown;
+            throughTurn?: unknown;
+            title?: unknown;
+          };
+          if (typeof body.title !== "undefined" && typeof body.title !== "string") {
+            jsonResponse(res, 400, { error: "title must be a string" });
+            return;
+          }
+          const projectPath =
+            record.meta.projectId === null
+              ? null
+              : ((await resolveProjectPath(projectStore, record.meta.projectId)) ?? null);
+          const newId = randomUUID();
+          const result = await forkSession(
+            record,
+            {
+              ...(typeof body.throughSeq === "number" ? { throughSeq: body.throughSeq } : {}),
+              ...(typeof body.throughTurn === "number" ? { throughTurn: body.throughTurn } : {}),
+              ...(typeof body.title === "string" ? { title: body.title } : {}),
+            },
+            {
+              chatStore,
+              attachmentStoreFor,
+              planStore,
+              projectPath,
+              newId,
+            },
+          );
+          jsonResponse(res, 201, result);
+        } catch (err: unknown) {
+          if (err instanceof ForkError) {
+            jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
     }
 
     // DELETE /sessions/:id — drop the durable transcript. Without this the web

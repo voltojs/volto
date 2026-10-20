@@ -369,3 +369,45 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 export function projectMessages(events: readonly TranscriptEvent[]): Message[] {
   return projectMessageEntries(events).map((entry) => entry.message);
 }
+
+/**
+ * Collect every `image` attachment ref id reachable from a session's events.
+ *
+ * Pure structural walk: user/assistant content, tool_result content, and
+ * compaction carriers all nest image blocks. Base64 images are ignored (they
+ * carry their own bytes); ref images are the ids an attachment store must
+ * copy when forking a session.
+ */
+export function collectAttachmentIds(events: readonly TranscriptEvent[]): string[] {
+  const ids = new Set<string>();
+
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    const record = value as Record<string, unknown>;
+    if (record["type"] === "image") {
+      const source = record["source"];
+      if (typeof source === "object" && source !== null) {
+        const src = source as Record<string, unknown>;
+        if (src["type"] === "ref" && typeof src["id"] === "string") ids.add(src["id"]);
+      }
+      return;
+    }
+    for (const nested of Object.values(record)) visit(nested);
+  };
+
+  for (const event of events) {
+    if (
+      event.type === "user_message" ||
+      event.type === "assistant_message" ||
+      event.type === "tool_result" ||
+      event.type === "compaction"
+    ) {
+      visit(event.data);
+    }
+  }
+  return [...ids];
+}

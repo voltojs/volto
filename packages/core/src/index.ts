@@ -164,7 +164,7 @@ export type {
 export { CAP_MODEL_VISION } from "./tool.js";
 
 // Transcript projection — event log → Message[] for session resume
-export { projectMessages, projectMessageEntries } from "./transcript-projection.js";
+export { projectMessages, projectMessageEntries, collectAttachmentIds } from "./transcript-projection.js";
 export type { ProjectedMessage } from "./transcript-projection.js";
 
 // View projection — event log → turn/step records for the trajectory UI

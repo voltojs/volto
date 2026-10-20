@@ -1110,6 +1110,43 @@ describe("Headless server", () => {
     expect(summary!.messageCount).toBe(2);
   });
 
+  it("POST /sessions/:id/fork creates a visible branch and 404s unknown ids", async () => {
+    const sessionId = "session-fork-source";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi", config);
+
+    const created = await post(`/sessions/${sessionId}/fork`, {});
+    expect(created.status).toBe(201);
+    const forked = created.data as { id: string; title: string; parentSessionId: string };
+    expect(forked.parentSessionId).toBe(sessionId);
+    expect(forked.title).toContain("分支");
+
+    const detail = await getJson(`/sessions/${forked.id}`);
+    expect(detail.status).toBe(200);
+    const listed = await getJson("/sessions");
+    expect((listed.data as { sessions: Array<{ id: string }> }).sessions.map((s) => s.id)).toContain(forked.id);
+
+    const missing = await post("/sessions/does-not-exist/fork", {});
+    expect(missing.status).toBe(404);
+  });
+
+  it("GET /sessions?q= searches title and message text and returns a snippet", async () => {
+    const sessionId = "session-search-after-turn";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi", config);
+
+    const hit = await getJson("/sessions?q=world");
+    expect(hit.status).toBe(200);
+    const body = hit.data as { sessions: Array<{ id: string; snippet?: string }> };
+    const summary = body.sessions.find((s) => s.id === sessionId);
+    expect(summary).toBeDefined();
+    expect(summary!.snippet).toContain("Hello world");
+
+    const miss = await getJson("/sessions?q=definitely-not-present");
+    expect(miss.status).toBe(200);
+    expect((miss.data as { sessions: unknown[] }).sessions).toEqual([]);
+  });
+
   it("GET /sessions excludes sub-agent sessions (meta.origin === \"subagent\")", async () => {
     // Sub-agents write their own session files directly to the same
     // top-level sessions directory the task tool uses — a raw v2 file is
