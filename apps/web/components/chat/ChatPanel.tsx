@@ -26,7 +26,7 @@ import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
-import { fetchPlan, fetchServerSessions, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
+import { exportSessionUrl, fetchPlan, fetchServerSessions, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
 import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
@@ -532,6 +532,14 @@ export function ChatPanel() {
     [currentSessionId, isGenerating, forking],
   );
 
+  const exportAction = useMemo(
+    () =>
+      currentSessionId === null
+        ? undefined
+        : { onExport: () => { window.location.href = exportSessionUrl(currentSessionId); } },
+    [currentSessionId],
+  );
+
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
   // ContextMeter 自行渲染灰态。hook 必须在 welcome 屏的提前 return 之前调用。
   const currentModel = useConfigStore((s) =>
@@ -595,6 +603,7 @@ export function ChatPanel() {
           compactAction={compactAction}
           forkAction={forkAction}
           rewindAction={rewindAction}
+          exportAction={exportAction}
         />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           {currentSession.detailError ? (
@@ -644,6 +653,7 @@ export function ChatPanel() {
           compactAction={compactAction}
           forkAction={forkAction}
           rewindAction={rewindAction}
+          exportAction={exportAction}
         />
         <div className="flex min-h-0 flex-1 flex-row">
           <div className="bg-grain flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-4">
@@ -772,7 +782,7 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader title={headerTitle} paneToggle={paneToggle} forkAction={forkAction} rewindAction={rewindAction} />
+      <ChatHeader title={headerTitle} paneToggle={paneToggle} forkAction={forkAction} rewindAction={rewindAction} exportAction={exportAction} />
       {showOffline && (
         <div
           className={cn(

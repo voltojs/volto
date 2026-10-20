@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { GitBranch, History, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Download, GitBranch, History, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
@@ -42,9 +42,13 @@ interface ChatHeaderProps {
     disabled: boolean;
     onRewind: () => void;
   };
+  /** Download the persisted transcript as Markdown. */
+  exportAction?: {
+    onExport: () => void;
+  };
 }
 
-export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction }: ChatHeaderProps) {
+export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
       <SidebarToggle />
@@ -95,6 +99,23 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
             <TooltipContent>
               {rewindAction.disabled ? '会话生成中，暂不可回退' : '从某一轮重新开始（创建分支）'}
             </TooltipContent>
+          </Tooltip>
+        )}
+        {exportAction && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="导出会话"
+                  onClick={exportAction.onExport}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
+                />
+              }
+            >
+              <Download className="h-4 w-4" />
+            </TooltipTrigger>
+            <TooltipContent>导出为 Markdown</TooltipContent>
           </Tooltip>
         )}
         {compactAction && (

@@ -57,6 +57,7 @@ import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
 import { forkSession, ForkError } from "./session-fork.js";
+import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
 import {
   createProjectStore,
   InvalidPathError,
@@ -1481,6 +1482,47 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
+    }
+
+    // GET /sessions/:id/export — download the persisted transcript as
+    // Markdown (default) or v2 JSONL. Read-only; no temp files.
+    if (req.method === "GET") {
+      const exportMatch = url.pathname.match(/^\/sessions\/([^/]+)\/export$/);
+      if (exportMatch) {
+        const id = decodeURIComponent(exportMatch[1]!);
+        const format = url.searchParams.get("format") ?? "md";
+        if (format !== "md" && format !== "jsonl") {
+          jsonResponse(res, 400, { error: "format must be md or jsonl" });
+          return;
+        }
+        try {
+          const record = await chatStore.readSession(id);
+          if (!record) {
+            jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+            return;
+          }
+          const body =
+            format === "md"
+              ? renderSessionMarkdown(id, record.meta, record.events)
+              : renderSessionJsonl(id, record.events);
+          const base =
+            (record.meta.title ?? "session")
+              .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 80) || "session";
+          const filename = `${base}-${id.slice(0, 8)}.${format}`;
+          res.writeHead(200, {
+            "Content-Type":
+              format === "md" ? "text/markdown; charset=utf-8" : "application/x-ndjson; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Content-Length": Buffer.byteLength(body),
+          });
+          res.end(body);
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
     }
 
     // POST /sessions/:id/fork — copy a completed turn prefix into a new

@@ -139,6 +139,11 @@ export async function forkSession(
   return (await response.json()) as { id: string; title: string; parentSessionId: string };
 }
 
+/** Download URL for a session export (cookie auth travels with the request). */
+export function exportSessionUrl(id: string, format: "md" | "jsonl" = "md"): string {
+  return `${SERVER_URL}/sessions/${encodeURIComponent(id)}/export?format=${format}`;
+}
+
 /** Fetches one session's projected conversation view. Returns null for an unknown id. */
 export async function fetchServerSessionDetail(
   id: string,

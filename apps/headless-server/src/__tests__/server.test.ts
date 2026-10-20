@@ -321,6 +321,25 @@ function getJson(
   });
 }
 
+function getRaw(
+  path: string,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    http.get(new URL(path, baseUrl), { headers: authHeaders(launchToken) }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString(),
+        }),
+      );
+      res.on("error", reject);
+    });
+  });
+}
+
 function del(path: string, token: string = launchToken): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -1110,6 +1129,44 @@ describe("Headless server", () => {
     expect(summary!.messageCount).toBe(2);
   });
 
+  it("GET /sessions/:id/export returns Markdown or JSONL with a download header", async () => {
+    const sessionId = "export-session-raw";
+    const sessionsDir = path.join(process.env["VOLTO_CONFIG_DIR"]!, "sessions", "export-ws");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const event = (seq: number, type: string, data: unknown) => ({
+      version: 3,
+      sessionId,
+      event: { seq, time: 1_700_000_000_000 + seq, type, data },
+    });
+    await fs.writeFile(
+      path.join(sessionsDir, `${sessionId}.jsonl`),
+      [
+        event(0, "session_meta", { title: "Export test", projectId: "p1", providerId: null, modelId: null, permissionMode: null }),
+        event(1, "turn_start", { turn: 1 }),
+        event(2, "user_message", { content: "hello" }),
+        event(3, "assistant_message", { content: [{ type: "text", text: "world" }], durationMs: 1 }),
+        event(4, "turn_end", { turn: 1, reason: "done" }),
+      ].map((row) => JSON.stringify(row)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    const md = await getRaw(`/sessions/${sessionId}/export`);
+    expect(md.status).toBe(200);
+    expect(md.headers["content-type"]).toContain("text/markdown");
+    expect(md.headers["content-disposition"]).toContain("attachment");
+    expect(md.body).toContain("## Turn 1");
+    expect(md.body).toContain("world");
+
+    const jsonl = await getRaw(`/sessions/${sessionId}/export?format=jsonl`);
+    expect(jsonl.status).toBe(200);
+    expect(jsonl.headers["content-type"]).toContain("application/x-ndjson");
+    const first = JSON.parse(jsonl.body.split("\n")[0]!) as { version: number; event: { type: string } };
+    expect(first).toMatchObject({ version: 3, event: { type: "session_meta" } });
+
+    expect((await getRaw(`/sessions/${sessionId}/export?format=pdf`)).status).toBe(400);
+    expect((await getRaw("/sessions/does-not-exist/export")).status).toBe(404);
+  });
+
   it("POST /sessions/:id/fork creates a visible branch and 404s unknown ids", async () => {
     const sessionId = "session-fork-source";
     const config = await createTestProjectAndModel();
@@ -1155,7 +1212,7 @@ describe("Headless server", () => {
     await fs.mkdir(sessionsDir, { recursive: true });
     const subagentSessionId = "subagent-session-1";
     const line = JSON.stringify({
-      version: 2,
+      version: 3,
       sessionId: subagentSessionId,
       event: {
         seq: 0,
