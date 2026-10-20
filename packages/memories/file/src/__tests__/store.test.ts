@@ -102,6 +102,22 @@ describe("createFileMemoryStore", () => {
     expect(empty).toEqual([]);
   });
 
+  it("filters by tier without projectId using global scope only", async () => {
+    const { store, reload } = pair();
+    await store.save(
+      entry("alpha semantic global", { scope: { kind: "global" }, tier: "semantic" }),
+    );
+    await store.save(
+      entry("alpha semantic project", {
+        scope: { kind: "project", projectId: "p1" },
+        tier: "semantic",
+      }),
+    );
+
+    const results = await reload().query("alpha", 10, { tier: "semantic" });
+    expect(results.map((e) => e.text)).toEqual(["alpha semantic global"]);
+  });
+
   it("no filter returns every entry (advanced/test use only)", async () => {
     const { store, reload } = pair();
     await store.save(

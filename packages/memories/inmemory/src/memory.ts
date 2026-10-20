@@ -114,9 +114,12 @@ export function createInMemoryMemoryStore(
       );
     }
     if (filter.includeGlobal === true) return scope.kind === "global";
-    if (filter.includeGlobal === false) return false;
-    // No projectId and no includeGlobal: the filter imposes no scope limit.
-    return true;
+    // A tier-only filter still has no project context: search global only,
+    // never every project (spec §4.1). An empty filter object returns nothing.
+    if (filter.includeGlobal === undefined && filter.tier !== undefined) {
+      return scope.kind === "global";
+    }
+    return false;
   }
 
   /** Resolve the tier used for filtering (public field wins, local fallback). */

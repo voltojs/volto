@@ -116,6 +116,17 @@ describe("createInMemoryMemoryStore", () => {
       expect(results).toEqual([]);
     });
 
+    it("returns [] for an empty filter object while no filter returns all", async () => {
+      const store = createInMemoryMemoryStore();
+      await store.save(
+        entry("alpha one", { scope: { kind: "project", projectId: "p1" } }),
+      );
+      await store.save(entry("alpha global", { scope: { kind: "global" } }));
+
+      expect(await store.query("alpha", 10, {})).toEqual([]);
+      expect(await store.query("alpha", 10)).toHaveLength(2);
+    });
+
     it("returns global only for { includeGlobal: true } without projectId", async () => {
       const store = createInMemoryMemoryStore();
       await store.save(

@@ -321,8 +321,11 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
       return [project, { kind: "global" }];
     }
     if (filter.includeGlobal === true) return [{ kind: "global" }];
-    // includeGlobal: false without projectId (or an empty filter object):
-    // never cross projects, return nothing.
+    // A tier-only filter has no project context: global only, never every
+    // project. includeGlobal:false (or an empty filter object) returns nothing.
+    if (filter.includeGlobal === undefined && filter.tier !== undefined) {
+      return [{ kind: "global" }];
+    }
     return [];
   }
 
