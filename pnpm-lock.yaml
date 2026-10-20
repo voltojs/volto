@@ -111,6 +111,9 @@ importers:
       '@volto/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@volto/memory-file':
+        specifier: workspace:*
+        version: link:../../packages/memories/file
       '@volto/provider-pi-ai':
         specifier: workspace:*
         version: link:../../packages/providers/pi-ai

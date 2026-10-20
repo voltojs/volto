@@ -1,0 +1,112 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
+import type { ModelEvent, ModelPort, ModelRequest } from "@volto/core";
+import { createWiredAgent } from "../wiring.js";
+import { buildPermissionConfig, sandboxModeFor } from "../permission-modes.js";
+
+/**
+ * T11 real-session evidence: session A remembers a fact through the `memory`
+ * tool; a fresh session in the same project retrieves it through the default
+ * RAG injection. Both agents go through createWiredAgent (production wiring)
+ * with a temp config dir, so the shared file store path is exercised.
+ */
+
+const PROJECT_ID = "p1";
+
+let tempConfigDir: string;
+let tempProjectDir: string;
+let tempHomeDir: string;
+let originalConfigDir: string | undefined;
+let originalHome: string | undefined;
+
+beforeEach(async () => {
+  tempConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-memory-config-"));
+  tempProjectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-memory-project-"));
+  tempHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-memory-home-"));
+  originalConfigDir = process.env["VOLTO_CONFIG_DIR"];
+  process.env["VOLTO_CONFIG_DIR"] = tempConfigDir;
+  originalHome = process.env["HOME"];
+  process.env["HOME"] = tempHomeDir;
+});
+
+afterEach(async () => {
+  if (originalConfigDir === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+  else process.env["VOLTO_CONFIG_DIR"] = originalConfigDir;
+  if (originalHome === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = originalHome;
+  await fs.rm(tempConfigDir, { recursive: true, force: true });
+  await fs.rm(tempProjectDir, { recursive: true, force: true });
+  await fs.rm(tempHomeDir, { recursive: true, force: true });
+});
+
+function capture(script: ModelEvent[][]): { modelPort: ModelPort; requests: ModelRequest[] } {
+  const requests: ModelRequest[] = [];
+  const inner = createMockModelPort(script);
+  return {
+    requests,
+    modelPort: {
+      async *stream(req) {
+        requests.push(structuredClone(req));
+        yield* inner.stream(req);
+      },
+    },
+  };
+}
+
+function chatMeta() {
+  return { projectId: PROJECT_ID, providerId: null, modelId: null, permissionMode: "auto" };
+}
+
+async function build(modelPort: ModelPort, chatSessionId: string) {
+  return createWiredAgent({
+    modelPort,
+    cwd: tempProjectDir,
+    permissionMode: "auto",
+    sandboxMode: sandboxModeFor("auto"),
+    permissionConfig: buildPermissionConfig("auto"),
+    chatSessionId,
+    chatMeta: chatMeta(),
+  });
+}
+
+describe("T11 real-session memory", () => {
+  it("remember in session A is retrieved by RAG in a fresh session B of the same project", async () => {
+    const sessionA = capture([
+      toolCallScript(
+        "call-remember",
+        "memory",
+        JSON.stringify({ action: "remember", text: "The project uses pnpm." }),
+      ),
+      textScript("Remembered."),
+    ]);
+    const agentA = await build(sessionA.modelPort, "s1");
+    try {
+      const state = await agentA.run("Remember that this project uses pnpm.");
+      expect(state.status).toBe("done");
+    } finally {
+      await agentA.dispose();
+    }
+
+    const memoryFile = path.join(tempConfigDir, "memory", `${PROJECT_ID}.jsonl`);
+    const raw = await fs.readFile(memoryFile, "utf-8");
+    expect(raw).toContain("The project uses pnpm.");
+
+    const sessionB = capture([textScript("It uses pnpm.")]);
+    const agentB = await build(sessionB.modelPort, "s2");
+    try {
+      const state = await agentB.run("Which package manager does this project use?");
+      expect(state.status).toBe("done");
+    } finally {
+      await agentB.dispose();
+    }
+
+    const request = sessionB.requests[0]!;
+    const serialized = JSON.stringify(request.messages);
+    expect(serialized).toContain("# Retrieved Memory (project-scoped)");
+    expect(serialized).toContain("The project uses pnpm.");
+    expect(request.tools.map((t) => t.name)).toContain("memory");
+  });
+});
