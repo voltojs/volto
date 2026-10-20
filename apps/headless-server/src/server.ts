@@ -1551,6 +1551,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             jsonResponse(res, 400, { error: "title must be a string" });
             return;
           }
+          if (
+            body.throughSeq !== undefined &&
+            (typeof body.throughSeq !== "number" || !Number.isInteger(body.throughSeq))
+          ) {
+            jsonResponse(res, 400, { error: "throughSeq must be an integer" });
+            return;
+          }
+          if (
+            body.throughTurn !== undefined &&
+            (typeof body.throughTurn !== "number" || !Number.isInteger(body.throughTurn))
+          ) {
+            jsonResponse(res, 400, { error: "throughTurn must be an integer" });
+            return;
+          }
           const projectPath =
             record.meta.projectId === null
               ? null

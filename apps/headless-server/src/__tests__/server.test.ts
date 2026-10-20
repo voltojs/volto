@@ -1183,6 +1183,9 @@ describe("Headless server", () => {
     const listed = await getJson("/sessions");
     expect((listed.data as { sessions: Array<{ id: string }> }).sessions.map((s) => s.id)).toContain(forked.id);
 
+    const invalid = await post(`/sessions/${sessionId}/fork`, { throughSeq: "1" });
+    expect(invalid.status).toBe(400);
+
     const missing = await post("/sessions/does-not-exist/fork", {});
     expect(missing.status).toBe(404);
   });
