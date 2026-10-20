@@ -77,6 +77,22 @@ export interface ChatSessionRecord {
   updatedAt: number;
 }
 
+/** Search result for one session. */
+export interface SessionSearchHit {
+  sessionId: string;
+  title: string;
+  projectId: string | null;
+  updatedAt: number;
+  snippet: string;
+  matchedIn: "title" | "message";
+}
+
+export interface SessionSearchOptions {
+  projectId?: string;
+  limit?: number;
+  snippetChars?: number;
+}
+
 export interface JsonlSessionStore {
   /** Appends a batch of events, assigning contiguous seq in array order. Empty batch is a no-op. */
   appendEvents(
@@ -95,6 +111,8 @@ export interface JsonlSessionStore {
   }>;
   /** Deletes a session's file, wherever it lives. A no-op if it does not exist. */
   deleteSession(sessionId: string): Promise<void>;
+  /** Case-insensitive title + user/assistant text search over every session. */
+  searchSessions(query: string, opts?: SessionSearchOptions): Promise<SessionSearchHit[]>;
 }
 
 export interface JsonlStoreOptions {
@@ -128,6 +146,34 @@ function fileNameFor(sessionId: string): string {
  */
 export function encodeWorkspaceName(workspacePath: string): string {
   return workspacePath.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+/** NFKC + lowercase search normalization. */
+function normalizeSearchText(text: string): string {
+  return text.normalize("NFKC").toLowerCase();
+}
+
+/** Extract text blocks (or a plain string) from message content. */
+function eventText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (typeof block !== "object" || block === null) return "";
+      const text = (block as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .filter((text) => text !== "")
+    .join("\n");
+}
+
+/** One-line snippet centered on the first match. */
+function makeSnippet(source: string, index: number, length: number, max: number): string {
+  const start = Math.max(0, index - Math.floor((max - length) / 2));
+  const raw = source.slice(start, start + max).replace(/\s+/g, " ").trim();
+  const prefix = start > 0 ? "…" : "";
+  const suffix = start + max < source.length ? "…" : "";
+  return `${prefix}${raw}${suffix}`;
 }
 
 export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
@@ -417,6 +463,47 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
         }
       }
       return { records, skipped };
+    },
+
+    async searchSessions(query, opts = {}) {
+      const normalizedQuery = normalizeSearchText(query);
+      if (normalizedQuery === "") return [];
+      const limit = Math.min(50, Math.max(1, opts.limit ?? 20));
+      const snippetChars = Math.min(500, Math.max(40, opts.snippetChars ?? 160));
+      const { records } = await this.listSessions();
+      const hits: SessionSearchHit[] = [];
+
+      for (const record of records) {
+        if (record.meta.origin === "subagent") continue;
+        if (opts.projectId !== undefined && record.meta.projectId !== opts.projectId) continue;
+
+        const title = record.meta.title ?? "";
+        const body = record.events
+          .filter((event) => event.type === "user_message" || event.type === "assistant_message")
+          .map((event) => eventText((event.data as { content?: unknown }).content))
+          .filter((text) => text !== "")
+          .join("\n");
+
+        const normalizedTitle = normalizeSearchText(title);
+        const normalizedBody = normalizeSearchText(body);
+        const inTitle = normalizedTitle.includes(normalizedQuery);
+        const at = inTitle ? -1 : normalizedBody.indexOf(normalizedQuery);
+        if (!inTitle && at === -1) continue;
+
+        const source = inTitle ? title : body;
+        const sourceIndex = inTitle ? normalizedTitle.indexOf(normalizedQuery) : at;
+        hits.push({
+          sessionId: record.sessionId,
+          title,
+          projectId: record.meta.projectId,
+          updatedAt: record.updatedAt,
+          snippet: makeSnippet(source, sourceIndex, normalizedQuery.length, snippetChars),
+          matchedIn: inTitle ? "title" : "message",
+        });
+      }
+
+      hits.sort((a, b) => b.updatedAt - a.updatedAt);
+      return hits.slice(0, limit);
     },
 
     async deleteSession(sessionId) {
