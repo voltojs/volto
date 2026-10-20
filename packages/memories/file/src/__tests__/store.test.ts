@@ -201,6 +201,22 @@ describe("createFileMemoryStore", () => {
     expect(ids).toHaveLength(2);
   });
 
+  it("persists cap evictions so a reload keeps only the newest entries", async () => {
+    let clock = 1000;
+    const { store, reload } = pair({ maxEntriesPerScope: 2, now: () => clock });
+    await store.save(entry("alpha oldest", { scope: { kind: "project", projectId: "p1" } }));
+    clock = 2000;
+    await store.save(entry("alpha middle", { scope: { kind: "project", projectId: "p1" } }));
+    clock = 3000;
+    await store.save(entry("alpha newest", { scope: { kind: "project", projectId: "p1" } }));
+
+    const results = await reload().query("alpha", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+    });
+    expect(results.map((e) => e.text)).toEqual(["alpha newest", "alpha middle"]);
+  });
+
   it("fills createdAt from the injected clock when missing", async () => {
     const clock = 4242;
     const { store } = pair({ now: () => clock });

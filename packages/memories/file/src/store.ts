@@ -200,17 +200,26 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     return index;
   }
 
-  /** Evict entries beyond the per-scope cap, oldest `createdAt` first. */
-  function enforceCap(index: { entries: Map<string, MemoryEntry> }): void {
-    if (index.entries.size <= maxEntriesPerScope) return;
+  /**
+   * Evict entries beyond the per-scope cap, oldest `createdAt` first.
+   * Returns the evicted ids so the caller can persist tombstones — an
+   * in-memory-only eviction would resurface on the next reload.
+   */
+  function enforceCap(index: { entries: Map<string, MemoryEntry> }): string[] {
+    if (index.entries.size <= maxEntriesPerScope) return [];
     const sorted = [...index.entries.values()].sort(
       (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
     );
     const overflow = index.entries.size - maxEntriesPerScope;
+    const victims: string[] = [];
     for (let i = 0; i < overflow; i += 1) {
       const victim = sorted[i];
-      if (victim !== undefined) index.entries.delete(victim.id);
+      if (victim !== undefined) {
+        index.entries.delete(victim.id);
+        victims.push(victim.id);
+      }
     }
+    return victims;
   }
 
   /** Rewrite the scope file as one upsert row per live entry (atomic rename). */
@@ -230,24 +239,36 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     index.ops = index.entries.size;
   }
 
-  /** Append a row, then refresh the in-memory index and cap/compaction. */
-  async function appendRow(scope: MemoryScope, row: Row): Promise<void> {
+  /** Append one or more rows, then refresh the in-memory index and cap/compaction. */
+  async function appendRows(scope: MemoryScope, rows: Row[]): Promise<void> {
+    if (rows.length === 0) return;
     const key = fileNameFor(scope);
     const previous = queues.get(key) ?? Promise.resolve();
     const task = async (): Promise<void> => {
       const index = await loadScope(scope);
+      // Track evictions across the batch: applying the upsert first may
+      // push the scope over the cap, and its victims must reach disk as
+      // delete rows in this same append, or a reload resurrects them.
+      let victims: string[] = [];
+      for (const row of rows) {
+        if (row.op === "upsert") {
+          index.entries.set(row.entry.id, row.entry);
+        } else {
+          index.entries.delete(row.id);
+        }
+        index.ops += 1;
+        victims = victims.concat(enforceCap(index));
+      }
+      const persisted = rows.concat(
+        victims.map((id): Row => ({ version: ROW_VERSION, op: "delete", id })),
+      );
+      const text = persisted.map((row) => `${JSON.stringify(row)}\n`).join("");
       await ensureDir();
-      await fs.appendFile(filePath(scope), `${JSON.stringify(row)}\n`, {
+      await fs.appendFile(filePath(scope), text, {
         encoding: "utf-8",
         mode: FILE_MODE,
       });
-      if (row.op === "upsert") {
-        index.entries.set(row.entry.id, row.entry);
-      } else {
-        index.entries.delete(row.id);
-      }
-      index.ops += 1;
-      enforceCap(index);
+      index.ops += persisted.length - rows.length;
       if (index.ops > Math.max(COMPACT_FLOOR, index.entries.size * COMPACT_MULTIPLE)) {
         await compact(scope, index);
       }
@@ -255,6 +276,11 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     const next = previous.then(task, task);
     queues.set(key, next.catch(() => undefined));
     await next;
+  }
+
+  /** Append a single row (see {@link appendRows}). */
+  async function appendRow(scope: MemoryScope, row: Row): Promise<void> {
+    await appendRows(scope, [row]);
   }
 
   /**
