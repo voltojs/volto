@@ -760,9 +760,18 @@ export type MemoryScope =
 
 /** Optional filter for MemoryStore.query. */
 export interface MemoryQueryFilter {
-  /** Only entries whose scope is this project (entries without scope are excluded). */
+  /**
+   * When set, return entries scoped to this project PLUS global entries
+   * (global entries are included by default; pass includeGlobal: false to
+   * exclude them). When omitted, this field imposes no project restriction.
+   */
   projectId?: string;
-  /** Also include scope-less global entries when projectId is set. */
+  /**
+   * With projectId: include global entries alongside project entries
+   * (default true; false returns project entries only).
+   * Without projectId: true means global entries only, false returns an
+   * empty result (never entries from any project).
+   */
   includeGlobal?: boolean;
   /** Only entries of this tier. */
   tier?: MemoryTier;
