@@ -7,22 +7,32 @@ import type {
   ModelEvent,
   MemoryStore,
   MemoryEntry,
+  MemoryQueryFilter,
   TranscriptEventInput,
 } from "@volto/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 
-function createMockModelPort(): ModelPort & { lastMessages?: unknown[]; lastRequest?: ModelRequest } {
-  let capturedMessages: unknown[] = [];
+const RAG_HEADER = "# Retrieved Memory (project-scoped)";
+
+function createMockModelPort(script?: ModelEvent[][]): ModelPort & {
+  lastMessages?: unknown[];
+  lastRequest?: ModelRequest;
+  requests: ModelRequest[];
+} {
+  const requests: ModelRequest[] = [];
+  let index = 0;
   return {
     lastMessages: undefined,
     lastRequest: undefined,
+    requests,
     async *stream(req: ModelRequest): AsyncGenerator<ModelEvent> {
-      capturedMessages = req.messages;
-      (this as unknown as { lastMessages: unknown[]; lastRequest: ModelRequest }).lastMessages = capturedMessages;
+      requests.push(req);
+      (this as unknown as { lastMessages: unknown[]; lastRequest: ModelRequest }).lastMessages = req.messages;
       (this as unknown as { lastMessages: unknown[]; lastRequest: ModelRequest }).lastRequest = req;
-      yield { type: "text_delta", text: "response" };
-      yield { type: "done", stopReason: "end_turn" };
+      const events = script?.[index] ?? [{ type: "text_delta" as const, text: "response" }];
+      index++;
+      for (const event of events) yield event;
     },
   };
 }
@@ -32,6 +42,22 @@ function createMockMemoryStore(entries: MemoryEntry[]): MemoryStore {
     async save(): Promise<string> { return "ok"; },
     async query(text: string, k?: number): Promise<MemoryEntry[]> {
       return entries.slice(0, k ?? 10);
+    },
+    async delete(): Promise<boolean> { return true; },
+  };
+}
+
+/** Spy store: records every query's text/k/filter, returns a fixed entry list. */
+function createSpyMemoryStore(entries: MemoryEntry[]): MemoryStore & {
+  queries: Array<{ text: string; k?: number; filter?: MemoryQueryFilter }>;
+} {
+  const queries: Array<{ text: string; k?: number; filter?: MemoryQueryFilter }> = [];
+  return {
+    queries,
+    async save(): Promise<string> { return "ok"; },
+    async query(text: string, k?: number, filter?: MemoryQueryFilter): Promise<MemoryEntry[]> {
+      queries.push({ text, k, filter });
+      return entries;
     },
     async delete(): Promise<boolean> { return true; },
   };
@@ -56,14 +82,16 @@ describe("Runner RAG pipeline", () => {
     // The model should have received messages with a RAG fragment
     expect(model.lastMessages).toBeDefined();
     const msgs = model.lastMessages as Array<{ role: string; content: string }>;
-    const ragMsg = msgs.find((m) => typeof m.content === "string" && m.content.includes("Retrieved Context"));
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+    );
     expect(ragMsg).toBeDefined();
     expect(ragMsg!.content).toContain("relevant fact A");
     expect(ragMsg!.content).toContain("relevant fact B");
 
     // With no system messages, the RAG fragment must precede the user's
     // question — it augments the query, not follows it.
-    expect(msgs[0]!.content).toContain("Retrieved Context");
+    expect(msgs[0]!.content).toContain(RAG_HEADER);
     expect(msgs[1]!.content).toBe("question");
   });
 
@@ -80,7 +108,9 @@ describe("Runner RAG pipeline", () => {
     await runner.run({ type: "user_message", content: "question" });
 
     const msgs = model.lastMessages as Array<{ role: string; content: string }>;
-    const ragMsg = msgs.find((m) => typeof m.content === "string" && m.content.includes("Retrieved Context"));
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+    );
     expect(ragMsg).toBeUndefined();
   });
 
@@ -96,8 +126,120 @@ describe("Runner RAG pipeline", () => {
     await runner.run({ type: "user_message", content: "question" });
 
     const msgs = model.lastMessages as Array<{ role: string; content: string }>;
-    const ragMsg = msgs.find((m) => typeof m.content === "string" && m.content.includes("Retrieved Context"));
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+    );
     expect(ragMsg).toBeUndefined();
+  });
+
+  it("queries once with the scoped filter and reuses the retrieval across model calls", async () => {
+    // Two model calls in one turn: a tool batch, then the closing text call.
+    const store = createSpyMemoryStore([{ id: "m1", text: "relevant fact A" }]);
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text_delta", text: "response" }, { type: "done", stopReason: "end_turn" }],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY" as const,
+          },
+        ],
+        model: "test-model",
+      },
+      availableCapabilities: new Set<string>(),
+      toolExecutor: async () => ({ modelContent: "ok", isError: false }),
+      rag: { memoryStore: store, topK: 2, projectId: "p1" },
+    });
+
+    await runner.run({ type: "user_message", content: "question" });
+
+    expect(model.requests).toHaveLength(2);
+    // One query for the whole turn — the second model call reuses the cache.
+    expect(store.queries).toHaveLength(1);
+    expect(store.queries[0]).toEqual({
+      text: "question",
+      k: 2,
+      filter: { projectId: "p1", includeGlobal: true, tier: "semantic" },
+    });
+
+    for (const req of model.requests) {
+      const ragMsg = (req.messages as Array<{ role: string; content: string }>).find(
+        (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+      );
+      expect(ragMsg).toBeDefined();
+      expect(ragMsg!.content).toContain("relevant fact A");
+    }
+  });
+
+  it("defaults includeGlobal to true when projectId is unset (global-only query)", async () => {
+    const store = createSpyMemoryStore([]);
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: { memoryStore: store, topK: 3 },
+    });
+
+    await runner.run({ type: "user_message", content: "question" });
+
+    expect(store.queries[0]!.filter).toEqual({
+      projectId: undefined,
+      includeGlobal: true,
+      tier: "semantic",
+    });
+  });
+
+  it("honors includeGlobal: false from the rag options", async () => {
+    const store = createSpyMemoryStore([]);
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: { memoryStore: store, projectId: "p1", includeGlobal: false },
+    });
+
+    await runner.run({ type: "user_message", content: "question" });
+
+    expect(store.queries[0]!.filter).toEqual({
+      projectId: "p1",
+      includeGlobal: false,
+      tier: "semantic",
+    });
+  });
+
+  it("truncates an over-long rendered message to 4000 chars with a (truncated) marker", async () => {
+    const store = createMockMemoryStore([{ id: "big", text: "x".repeat(5000) }]);
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: { memoryStore: store, topK: 1 },
+    });
+
+    await runner.run({ type: "user_message", content: "question" });
+
+    const msgs = model.lastMessages as Array<{ role: string; content: string }>;
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+    );
+    expect(ragMsg).toBeDefined();
+    expect(ragMsg!.content.length).toBeLessThanOrEqual(4000);
+    expect(ragMsg!.content.endsWith("(truncated)")).toBe(true);
   });
 
   it("includes contextLayers from stepContext in the assembled prompt", async () => {
@@ -161,13 +303,16 @@ describe("Runner RAG pipeline", () => {
     expect(reminder!.data.kind).toBe("retrieval");
     expect(reminder!.data.text as string).toContain("relevant fact A");
     expect(reminder!.data.text as string).toContain("relevant fact B");
-    expect(reminder!.data.displayMetadata).toEqual({ fragmentCount: 2 });
+    expect(reminder!.data.displayMetadata).toEqual({
+      fragmentCount: 2,
+      memoryIds: ["1", "2"],
+    });
 
     // Byte-for-byte: the audit `text` must be exactly the string injected into
     // the model request, not merely a copy that overlaps it.
     const msgs = model.lastMessages as Array<{ role: string; content: string }>;
     const ragMsg = msgs.find(
-      (m) => typeof m.content === "string" && m.content.includes("Retrieved Context"),
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
     );
     expect(ragMsg).toBeDefined();
     expect(ragMsg!.content).toBe(reminder!.data.text);

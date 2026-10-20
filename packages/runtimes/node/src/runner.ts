@@ -387,14 +387,30 @@ export interface RunnerOptions {
     circuitBreakerThreshold?: number;
   };
   /**
-   * RAG pipeline — when configured, queries MemoryStore before each model call
-   * and injects retrieved fragments into the message array without breaking
-   * the static prefix cache.
+   * RAG pipeline — when configured, queries MemoryStore before the turn's
+   * first model call and injects retrieved fragments into every model call's
+   * message array without breaking the static prefix cache.
+   *
+   * The retrieval is cached per runner (one runner = one turn): the store is
+   * queried once and the rendered text is reused on subsequent model calls.
    */
   rag?: {
     memoryStore: MemoryStore;
     topK?: number;
     queryBuilder?: (messages: Message[]) => string;
+    /**
+     * Project scope for the query filter (host passes chatMeta.projectId).
+     * With a projectId the filter means "this project + global" (unless
+     * includeGlobal is false). Without one the filter is global-only — never
+     * every project (spec 2026-10-20 §4.5 / §4.1).
+     */
+    projectId?: string;
+    /**
+     * Whether global-scope entries join the project result. Defaults to true.
+     * Only meaningful together with projectId; omitted, it still rides the
+     * filter explicitly so the store sees the resolved value.
+     */
+    includeGlobal?: boolean;
   };
   /**
    * Attachment store for image bytes. When set, the Runner resolves
@@ -442,6 +458,15 @@ export class CompactionBusyError extends Error {
     this.name = "CompactionBusyError";
   }
 }
+
+/**
+ * Character cap for the rendered RAG injection (spec 2026-10-20 §4.5).
+ * The `buildRAGMessage` output is sliced so the total injected text —
+ * including the marker below — never exceeds this cap.
+ */
+const RAG_MAX_CHARS = 4000;
+/** Appended to the RAG injection when it had to be cut at RAG_MAX_CHARS. */
+const RAG_TRUNCATION_MARKER = "\n(truncated)";
 
 export interface Runner {
   run(initialInput: AgentInput): Promise<ReducerState>;
@@ -647,6 +672,15 @@ export function createRunner(opts: RunnerOptions): Runner {
   // Hash of the last request_header written this turn; a matching hash means
   // the header has not changed and need not be written again.
   let lastHeaderHash: string | null = null;
+  // RAG retrieval cache — one runner serves exactly one turn (opts.turn is
+  // fixed at construction), so the store is queried ONCE and every later
+  // model call of this turn reuses the same rendered text. `ragCacheComputed`
+  // stays false when the query returned nothing or failed, so a later call
+  // does not re-query an empty/failed result either (spec 2026-10-20 §5.2).
+  let ragCacheComputed = false;
+  let ragCacheText = "";
+  let ragCacheFragmentCount = 0;
+  let ragCacheMemoryIds: string[] = [];
   // Timing/aggregation state for the in-flight model call. Hoisted here
   // (rather than declared inside runModelStream) because forwardEmit() reads
   // them when it intercepts the model_done emit to record assistant_message —
@@ -1418,32 +1452,59 @@ export function createRunner(opts: RunnerOptions): Runner {
     firstDeltaAt = undefined;
 
     if (opts.rag) {
-      const { memoryStore, topK = 5, queryBuilder } = opts.rag;
-      const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
-      if (queryText) {
-        try {
-          const fragments = await memoryStore.query(queryText, topK);
-          if (fragments.length > 0) {
-            const index = computeRAGInjectionIndex({
-              staticPrefixLength: assembled.staticPrefixLength,
-              totalMessages: finalMessages.length,
+      const { memoryStore, topK = 5, queryBuilder, projectId, includeGlobal } = opts.rag;
+      if (!ragCacheComputed) {
+        const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
+        ragCacheComputed = true;
+        if (queryText) {
+          try {
+            // Scope the query: project + global by default; with no projectId
+            // the contract means global-only, never every project.
+            const fragments = await memoryStore.query(queryText, topK, {
+              projectId,
+              includeGlobal: includeGlobal ?? true,
+              tier: "semantic",
             });
-            // Keep the exact injected string in a local: the audit event must
-            // carry the same value the model saw, not a re-derived copy, and
-            // reading it here avoids narrowing Message['content'] (string |
-            // ContentBlock[]) at the recorder call.
-            const ragText = buildRAGMessage(fragments.map((f) => f.text));
-            const ragMessage: Message = { id: "rag-injection", role: "user", content: ragText };
-            finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
-            recorder.record("context_reminder", {
-              kind: "retrieval",
-              text: ragText,
-              displayMetadata: { fragmentCount: fragments.length },
-            });
+            if (fragments.length > 0) {
+              const rendered = buildRAGMessage(fragments.map((f) => f.text));
+              // Cap the INJECTED text at 4000 chars (spec 2026-10-20 §4.5):
+              // slice the rendered message so the marker itself sits inside
+              // the cap, then append it — total stays at or under the limit.
+              const needsCut = rendered.length > RAG_MAX_CHARS;
+              const body = needsCut ? rendered.slice(0, RAG_MAX_CHARS - RAG_TRUNCATION_MARKER.length) : rendered;
+              ragCacheText = needsCut ? `${body}${RAG_TRUNCATION_MARKER}` : rendered;
+              ragCacheFragmentCount = fragments.length;
+              ragCacheMemoryIds = fragments.map((f) => f.id);
+            }
+          } catch {
+            /* Memory query failure degrades to no injection for this turn */
           }
-        } catch {
-          /* Memory query and the best-effort audit write are both non-fatal */
         }
+      }
+
+      if (ragCacheText) {
+        const index = computeRAGInjectionIndex({
+          staticPrefixLength: assembled.staticPrefixLength,
+          totalMessages: finalMessages.length,
+        });
+        // Keep the exact injected string in a local: the audit event must
+        // carry the same value the model saw, not a re-derived copy, and
+        // reading it here avoids narrowing Message['content'] (string |
+        // ContentBlock[]) at the recorder call.
+        const ragText = ragCacheText;
+        const ragMessage: Message = { id: "rag-injection", role: "user", content: ragText };
+        finalMessages = [...finalMessages.slice(0, index), ragMessage, ...finalMessages.slice(index)];
+        // `memoryIds` records which entries were retrieved so the UI can trace
+        // the injection back to the store; ids are carried alongside the
+        // rendered text in the cache slot via the reminder below.
+        recorder.record("context_reminder", {
+          kind: "retrieval",
+          text: ragText,
+          displayMetadata: {
+            fragmentCount: ragCacheFragmentCount,
+            memoryIds: ragCacheMemoryIds,
+          },
+        });
       }
     }
 
