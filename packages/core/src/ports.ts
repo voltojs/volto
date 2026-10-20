@@ -750,15 +750,38 @@ export interface ToolSource {
 // MemoryStore — semantic / long-term memory
 // ──────────────────────────────────────────────
 
+/** Memory content classification: episodic events vs semantic facts. */
+export type MemoryTier = "episodic" | "semantic";
+
+/** Visibility scope of a memory entry. */
+export type MemoryScope =
+  | { kind: "project"; projectId: string }
+  | { kind: "global" };
+
+/** Optional filter for MemoryStore.query. */
+export interface MemoryQueryFilter {
+  /** Only entries whose scope is this project (entries without scope are excluded). */
+  projectId?: string;
+  /** Also include scope-less global entries when projectId is set. */
+  includeGlobal?: boolean;
+  /** Only entries of this tier. */
+  tier?: MemoryTier;
+}
+
 export interface MemoryEntry {
   id: string;
   text: string;
+  scope?: MemoryScope;
+  tier?: MemoryTier;
+  source?: "tool" | "user" | "compaction";
+  sessionId?: string;
+  createdAt?: number;
   metadata?: Record<string, unknown>;
 }
 
 export interface MemoryStore {
   save(entry: MemoryEntry): Promise<string>;
-  query(text: string, k?: number): Promise<MemoryEntry[]>;
+  query(text: string, k?: number, filter?: MemoryQueryFilter): Promise<MemoryEntry[]>;
   delete(id: string): Promise<boolean>;
 }
 

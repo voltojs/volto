@@ -127,6 +127,9 @@ export type {
   Tokenizer,
   // M8: new port interfaces
   ToolSource,
+  MemoryTier,
+  MemoryScope,
+  MemoryQueryFilter,
   MemoryEntry,
   MemoryStore,
   Embedder,
