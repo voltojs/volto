@@ -14,6 +14,7 @@ import { ModelSettingsPicker } from './ModelSettingsPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextMeter } from './ContextMeter';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
 import { useChatStore } from '@/stores/chat-store';
@@ -25,11 +26,11 @@ import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
-import { fetchPlan } from '@/lib/sessions-api';
+import { fetchPlan, fetchServerSessions, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
 import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
-import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { applyServerSummaries, ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals, type ApprovalOutcome } from '@/lib/approvals';
@@ -427,6 +428,13 @@ export function ChatPanel() {
     [paneVisible, paneOpen, hasPaneProject, paneProjectId],
   );
 
+
+  // Session fork / branch-rewind state. A fork is a server-side copy of a
+  // completed turn prefix; after it lands we refresh the list and switch.
+  const [forking, setForking] = useState(false);
+  const [rewindOpen, setRewindOpen] = useState(false);
+  const [rewindTurns, setRewindTurns] = useState<Array<{ turn: number; label: string }>>([]);
+
   // Manual compact entry for the open session only. Idle-only enablement:
   // while a turn is generating the button is disabled (server would answer
   // 409 anyway); the toast path still covers a race where the turn starts
@@ -449,6 +457,79 @@ export function ChatPanel() {
             },
           },
     [currentSessionId, isGenerating],
+  );
+
+  async function afterFork(newId: string): Promise<void> {
+    const summaries = await fetchServerSessions();
+    applyServerSummaries(summaries);
+    useSessionStore.getState().setCurrentSession(newId);
+    await ensureSessionDetail(newId);
+  }
+
+  async function handleFork(): Promise<void> {
+    if (currentSessionId === null || forking) return;
+    setForking(true);
+    try {
+      const result = await forkSession(currentSessionId);
+      await afterFork(result.id);
+      toast.success('已创建分支会话');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setForking(false);
+    }
+  }
+
+  async function openRewind(): Promise<void> {
+    if (currentSessionId === null || forking) return;
+    setForking(true);
+    try {
+      const view = await fetchServerTrajectory(currentSessionId);
+      const turns = new Map<number, string>();
+      for (const row of view?.rows ?? []) {
+        if (!turns.has(row.turn)) turns.set(row.turn, row.summary);
+      }
+      setRewindTurns(
+        [...turns.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([turn, label]) => ({ turn, label })),
+      );
+      setRewindOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setForking(false);
+    }
+  }
+
+  async function handleRewind(turn: number): Promise<void> {
+    if (currentSessionId === null || forking) return;
+    setForking(true);
+    try {
+      const result = await forkSession(currentSessionId, { throughTurn: turn });
+      setRewindOpen(false);
+      await afterFork(result.id);
+      toast.success(`已从第 ${turn} 轮创建分支`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setForking(false);
+    }
+  }
+
+  const forkAction = useMemo(
+    () =>
+      currentSessionId === null
+        ? undefined
+        : { disabled: isGenerating || forking, onFork: () => void handleFork() },
+    [currentSessionId, isGenerating, forking],
+  );
+  const rewindAction = useMemo(
+    () =>
+      currentSessionId === null
+        ? undefined
+        : { disabled: isGenerating || forking, onRewind: () => void openRewind() },
+    [currentSessionId, isGenerating, forking],
   );
 
   // ContextMeter 的分母：当前会话绑定模型的上下文窗口；模型未配置窗口时
@@ -499,6 +580,7 @@ export function ChatPanel() {
   // 轨迹面板对新会话自行显示空态/加载态（spec §一）。
   const [activeTab, setActiveTab] = useState<'chat' | 'trajectory'>('chat');
 
+
   // A session whose detail hasn't been fetched yet has no messages in the
   // store either, which would otherwise be indistinguishable from a
   // genuinely empty conversation and flash the welcome screen. Render a
@@ -511,6 +593,8 @@ export function ChatPanel() {
           title={headerTitle}
           paneToggle={paneToggle}
           compactAction={compactAction}
+          forkAction={forkAction}
+          rewindAction={rewindAction}
         />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           {currentSession.detailError ? (
@@ -558,6 +642,8 @@ export function ChatPanel() {
           title={headerTitle}
           paneToggle={paneToggle}
           compactAction={compactAction}
+          forkAction={forkAction}
+          rewindAction={rewindAction}
         />
         <div className="flex min-h-0 flex-1 flex-row">
           <div className="bg-grain flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-4">
@@ -686,7 +772,7 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader title={headerTitle} paneToggle={paneToggle} />
+      <ChatHeader title={headerTitle} paneToggle={paneToggle} forkAction={forkAction} rewindAction={rewindAction} />
       {showOffline && (
         <div
           className={cn(
@@ -835,6 +921,36 @@ export function ChatPanel() {
           projectId={currentProject?.id ?? null}
           onExecutePlan={handleExecutePlan}
         />
+        <Dialog open={rewindOpen} onOpenChange={setRewindOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>从某一轮重新开始</DialogTitle>
+              <DialogDescription>
+                选择一轮已完成对话，创建一个从该轮继续的新分支；原会话保持不变。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {rewindTurns.length === 0 ? (
+                <p className="text-muted-foreground text-sm">这个会话还没有已完成的轮次。</p>
+              ) : (
+                rewindTurns.map((turn) => (
+                  <button
+                    key={turn.turn}
+                    type="button"
+                    className="hover:bg-muted flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm"
+                    disabled={forking}
+                    onClick={() => void handleRewind(turn.turn)}
+                  >
+                    <span className="text-muted-foreground shrink-0 font-mono text-xs">
+                      #{turn.turn}
+                    </span>
+                    <span className="truncate">{turn.label || '（无摘要）'}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

@@ -140,6 +140,34 @@ export function selectUnpersistedSessions(
 }
 
 /**
+ * Replace the store's list with the server's summaries, preserving local
+ * sessions the server does not know about yet. Used by the mount hook and by
+ * post-mutation refreshes (fork).
+ */
+export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
+  const local = useSessionStore.getState().sessions;
+  const unpersisted = selectUnpersistedSessions(local, summaries);
+  useSessionStore.getState().setSessions([
+    ...unpersisted,
+    ...summaries.map((summary) => ({
+      id: summary.id,
+      title: summary.title,
+      messages: [],
+      messageCount: summary.messageCount,
+      detailLoaded: false,
+      detailError: null,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+      projectId: summary.projectId,
+      providerId: summary.providerId,
+      modelId: summary.modelId,
+      permissionMode: normalisePermissionMode(summary.permissionMode),
+      contextUsage: null,
+    })),
+  ]);
+}
+
+/**
  * On mount, loads the session list the headless-server has durably recorded.
  * The server is the sole source of truth: client state is memory-only, so
  * this replaces the list rather than merging into it.
@@ -159,27 +187,7 @@ export function useServerSessions(): void {
       }
       if (cancelled) return;
 
-      const local = useSessionStore.getState().sessions;
-      const unpersisted = selectUnpersistedSessions(local, summaries);
-
-      useSessionStore.getState().setSessions([
-        ...unpersisted,
-        ...summaries.map((summary) => ({
-          id: summary.id,
-          title: summary.title,
-          messages: [],
-          messageCount: summary.messageCount,
-          detailLoaded: false,
-          detailError: null,
-          createdAt: summary.createdAt,
-          updatedAt: summary.updatedAt,
-          projectId: summary.projectId,
-          providerId: summary.providerId,
-          modelId: summary.modelId,
-          permissionMode: normalisePermissionMode(summary.permissionMode),
-          contextUsage: null,
-        })),
-      ]);
+      applyServerSummaries(summaries);
     })();
 
     return () => {
