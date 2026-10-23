@@ -15,8 +15,11 @@
  * The 0.8 ratio is safe because the Runner compares it against a
  * provider-anchored measurement (last usage + heuristic delta), not the old
  * absolute char/4 estimate. Headroom absorbs provider tokenizer variance and
- * the output cap; an exhausted budget is a configuration error rather than a
- * silent negative threshold.
+ * the output cap. Its default scales with the window
+ * (`min(65,536, 10% of the window)`): large windows keep the DSH-compatible
+ * 65,536 reserve, while small local models still get a usable threshold
+ * instead of failing construction. An explicitly configured headroom that
+ * exhausts the budget remains a configuration error.
  *
  * @module compaction-budget
  */
@@ -30,6 +33,9 @@ export const DEFAULT_COMPACTION_WINDOW_RATIO = 0.8;
 /** Space kept between the trigger and the window's completion reserve. */
 export const DEFAULT_COMPACTION_HEADROOM_TOKENS = 65_536;
 
+/** Share of the window used as headroom when it is smaller than the default. */
+const HEADROOM_WINDOW_RATIO = 0.1;
+
 export interface CompactionBudgetInput {
   /** The routed model's context window in tokens. Unknown/absent → fallback. */
   contextWindow?: number;
@@ -37,7 +43,7 @@ export interface CompactionBudgetInput {
   maxOutputTokens?: number;
   /** Override the default ratio; values outside (0, 1) fall back to 0.8. */
   ratio?: number;
-  /** Override the default headroom reserve (65,536 tokens). */
+  /** Override the default headroom reserve (65,536 or 10% of the window). */
   headroomTokens?: number;
   /** Override the 60k fallback used when the window is unknown. */
   fallback?: number;
@@ -50,8 +56,9 @@ export interface CompactionBudgetInput {
  * - window unknown / non-positive → `fallback` (default 60k), preserving the
  *   pre-window-aware behaviour for adapters that cannot describe their model;
  * - otherwise → `floor(min(window × ratio, window − maxOutput − headroom))`;
- * - an exhausted pressure budget throws: silently clamping would either
- *   compact on every call or never compact at all.
+ * - an exhausted pressure budget throws: with the scaled default this needs
+ *   an explicit headroom or an output cap above 90% of the window; silently
+ *   clamping would either compact on every call or never compact at all.
  */
 export function deriveCompactionMaxTokens(input: CompactionBudgetInput = {}): number {
   const fallback = input.fallback ?? DEFAULT_COMPACTION_MAX_TOKENS;
@@ -60,7 +67,13 @@ export function deriveCompactionMaxTokens(input: CompactionBudgetInput = {}): nu
     return fallback;
   }
   const output = Math.max(0, input.maxOutputTokens ?? 0);
-  const headroom = Math.max(0, input.headroomTokens ?? DEFAULT_COMPACTION_HEADROOM_TOKENS);
+  // Scale the default reserve down for small windows; an explicit headroom is
+  // honored verbatim and may still exhaust the budget (then we throw).
+  const headroom = Math.max(
+    0,
+    input.headroomTokens
+      ?? Math.min(DEFAULT_COMPACTION_HEADROOM_TOKENS, Math.floor(window * HEADROOM_WINDOW_RATIO)),
+  );
   const pressureBudget = Math.floor(window) - output - headroom;
   if (pressureBudget <= 0) {
     throw new Error(

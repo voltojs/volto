@@ -18,12 +18,19 @@ describe("deriveCompactionMaxTokens", () => {
     expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, maxOutputTokens: 131_072 })).toBe(
       838_860,
     );
-    // 128k window, 16k output: min(102,400, 46,464)
+    // 128k window, 16k output, 12,800 headroom: min(102,400, 99,200)
     expect(deriveCompactionMaxTokens({ contextWindow: 128_000, maxOutputTokens: 16_000 })).toBe(
-      46_464,
+      99_200,
     );
-    // Unknown output cap still reserves headroom.
-    expect(deriveCompactionMaxTokens({ contextWindow: 100_000 })).toBe(34_464);
+    // Unknown output cap still reserves 10% headroom.
+    expect(deriveCompactionMaxTokens({ contextWindow: 100_000 })).toBe(80_000);
+  });
+
+  it("degrades the default headroom for small windows instead of throwing", () => {
+    expect(deriveCompactionMaxTokens({ contextWindow: 8_192 })).toBe(6_553);
+    expect(deriveCompactionMaxTokens({ contextWindow: 32_000 })).toBe(25_600);
+    expect(deriveCompactionMaxTokens({ contextWindow: 65_536 })).toBe(52_428);
+    expect(deriveCompactionMaxTokens({ contextWindow: 66_000 })).toBe(52_800);
   });
 
   it("honours a valid ratio override and ignores an invalid one", () => {
@@ -32,10 +39,18 @@ describe("deriveCompactionMaxTokens", () => {
     expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, ratio: 1.5 })).toBe(838_860);
   });
 
-  it("throws when output plus headroom exhausts the window", () => {
+  it("throws when an explicit headroom or output cap exhausts the window", () => {
     expect(() =>
-      deriveCompactionMaxTokens({ contextWindow: 100_000, maxOutputTokens: 50_000 }),
+      deriveCompactionMaxTokens({
+        contextWindow: 100_000,
+        maxOutputTokens: 50_000,
+        headroomTokens: 65_536,
+      }),
     ).toThrow(/compaction budget exhausted/);
+    // The scaled default leaves room at the same output cap.
+    expect(deriveCompactionMaxTokens({ contextWindow: 100_000, maxOutputTokens: 50_000 })).toBe(
+      40_000,
+    );
     expect(() => deriveCompactionMaxTokens({ contextWindow: 1_000, maxOutputTokens: 5_000 })).toThrow(
       /compaction budget exhausted/,
     );
