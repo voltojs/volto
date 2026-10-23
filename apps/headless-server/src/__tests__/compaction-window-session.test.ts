@@ -22,7 +22,9 @@ import { sandboxModeFor } from "../permission-modes.js";
  * Host-level proof of the window-aware compaction threshold.
  *
  * The wired agent resolves the model window through `describeModel` and
- * passes it to createAgent, which derives the threshold (0.6 × window). A
+ * passes it to createAgent, which derives the threshold (0.8 × window, with
+ * a scaled headroom). A small-window session explicitly overrides both so the
+ * test can use a 10k model: the override is not the default.
  * 10k window therefore compacts after ~6k heuristic tokens; the old fixed 60k
  * would never have compacted this turn. Also pins that the summarizer's usage
  * reaches the durable transcript.
@@ -117,9 +119,9 @@ describe("window-aware compaction on a real wired session", () => {
       const agent = await createWiredAgent({
         modelPort,
         cwd: tempProjectDir,
-        // No maxTokens: derived from the described 10k window (0.6 → 6k).
-        // The default 65,536 headroom would exhaust a 10k window, so this
-        // small-window session overrides it explicitly.
+        // No maxTokens: derived from the described 10k window. This test
+        // overrides the ratio (0.6) and headroom (1k); the production default
+        // is 0.8 with min(65,536, 10% of the window).
         compaction: { recentKeepCount: 1, windowRatio: 0.6, headroomTokens: 1_000 },
         permissionMode: "auto",
         sandboxMode: sandboxModeFor("auto"),

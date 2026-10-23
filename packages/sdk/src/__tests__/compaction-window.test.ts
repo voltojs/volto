@@ -4,7 +4,8 @@
  * The old host default compacted every model at a fixed 60k tokens — on a
  * 1M-token model that fires at ~6% occupancy, rewrites history and destroys
  * the provider prefix cache for no reason. createAgent now derives the
- * threshold from the model window (0.6 × (window − max output)) unless the
+ * threshold from the model window (min(0.8 × window, window − max output −
+ * min(65,536, 10% of the window))) unless the
  * caller pins `compaction.maxTokens`.
  *
  * These tests drive the real createAgent loop with a stateful ModelPort:
@@ -107,7 +108,9 @@ function makePort(contextWindow: number, maxToolRounds: number): {
 
 describe("window-aware compaction", () => {
   it("compacts on a small window and records the summarizer usage", async () => {
-    // 10k window → 0.6 × 10k = 6k threshold; ~2k-char tool results cross it.
+    // 10k window with an explicit 0.6 ratio / 1k headroom override → 6k
+    // threshold; ~2k-char tool results cross it. This override is not the
+    // production default.
     const { port, requests } = makePort(10_000, 40);
     const transcript = captureStore();
 

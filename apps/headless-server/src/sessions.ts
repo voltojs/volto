@@ -289,7 +289,8 @@ function tokensMatch(a: string, b: string): boolean {
  * Explicit `compaction: false` still disables (see resolveHostCompaction).
  *
  * Deliberately no `maxTokens`: the threshold is derived per model from its
- * context window by createAgent (window × 0.6, minus the output cap) so a
+ * context window by createAgent (0.8 × window, minus the output cap and a
+ * headroom of min(65,536, 10% of the window)) so a
  * 1M-token model is not compacted at 60k. The fixed 60k remains only as the
  * fallback for adapters that cannot report a window.
  */
