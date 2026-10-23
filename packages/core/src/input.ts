@@ -185,7 +185,12 @@ export interface ToolResultsPrunedInput {
     savedTokens?: number;
     /** Prefix invalidation price; present only on the earliest entry. */
     cacheResetTokens?: number;
-    /** True when cacheResetTokens came from the absolute fallback estimate. */
+    /**
+     * True when cacheResetTokens came from the local estimate. Today this is
+     * always true: there is no provider cache metric to price the invalidated
+     * prefix; the field distinguishes the estimate from a future provider
+     * value.
+     */
     cacheResetEstimated?: boolean;
   }>;
 }

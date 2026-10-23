@@ -1314,6 +1314,10 @@ export function createRunner(opts: RunnerOptions): Runner {
         (m) => m.role === "tool"
           && m.content.some((b) => b.type === "tool_result" && prunedIds.has(b.toolUseId)),
       );
+      // Cache invalidation is priced from the local estimate (prefix + the
+      // static layers/tool schemas), not a provider-reported cache metric.
+      // The event therefore carries `cacheResetEstimated: true` permanently
+      // until a provider exposes enough cache telemetry to reconcile it.
       const cacheResetTokens = firstPrunedIndex > 0
         ? estimateTokens(messages.slice(0, firstPrunedIndex), tokenizer) + reservedTokens
         : 0;
