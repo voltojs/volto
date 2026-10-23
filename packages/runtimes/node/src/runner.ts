@@ -1365,9 +1365,11 @@ export function createRunner(opts: RunnerOptions): Runner {
     // otherwise the original reference).
     const surface = pruned.length > 0 ? state.messages : messages;
 
-    // Re-decide on the pruned surface: if the pressure is gone, return it
-    // without paying for a summarization call.
-    const redecision = decideCompaction(surface, decideOpts);
+    // Re-decide only when the surface actually changed. Without a prune the
+    // initial decision is still the valid one — recomputing it through the
+    // absolute fallback would discard a trusted anchor and could flip an
+    // over-threshold decision back to "under" (skipping a needed summary).
+    const redecision = didWriteBack ? decideCompaction(surface, decideOpts) : decision;
     if (!redecision.shouldCompact || !redecision.summaryPrompt) {
       return { messages: surface, replacedCount: 0, didWriteBack };
     }

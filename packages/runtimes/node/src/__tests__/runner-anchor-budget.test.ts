@@ -143,4 +143,33 @@ describe("Runner — provider-usage anchor", () => {
     const calibration = events.find((e) => e.type === "tokenizer_calibration");
     expect(calibration?.data.source).toBe("absolute");
   });
+  it("summarizes when a trusted anchor is over the threshold even with no prunable results", async () => {
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "sys" },
+      { id: "u1", role: "user", content: "hi" },
+    ];
+    const anchorState: PromptAnchorState = {
+      anchor: {
+        totalTokens: 100,
+        messageIndex: messages.length,
+        headerHash: HEADER_HASH,
+        trusted: true,
+      },
+    };
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ok")]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: { ...initialState(), messages },
+      compaction,
+      promptAnchor: anchorState,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    // Absolute estimate is under the threshold, but the trusted anchor is
+    // over it; with no prunable result the summary must still run.
+    expect(spy.calls).toHaveLength(2);
+  });
+
 });
