@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useConfigStore } from '@/stores/config-store';
+import { PopoverRow } from './PopoverRow';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import {
   cacheHitRate,
@@ -15,22 +16,6 @@ import {
   formatExactTokens,
   formatRoute,
 } from '@/lib/turn-usage-model';
-
-/**
- * 一行「标签 —— 值」；value 为 null 时整行不渲染（提供方行在无 source 时消失），
- * 而不是渲染一个空值——"没有这条信息"与"这条信息是空"不是一回事。
- */
-function Row({ label, value }: { label: string; value: string | null }) {
-  if (value === null) return null;
-  return (
-    <li className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      {/* Truncate, never wrap: a long provider/model route stays on one
-          line and the panel grows to fit it up to its max width. */}
-      <span className="min-w-0 truncate font-mono">{value}</span>
-    </li>
-  );
-}
 
 /**
  * 一轮对话的用量：页脚常驻紧凑 chip，点开是完整七行明细（spec 2026-09-26 §4）。
@@ -67,12 +52,12 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
           </span>
         </div>
         <ul className="mt-2 space-y-1 text-xs">
-          <Row label="提供方 / 模型" value={route} />
-          <Row label="缓存命中" value={formatCacheHitRate(cacheHitRate(usage))} />
-          <Row label="未缓存输入" value={`${formatExactTokens(usage.inputTokens)} tok`} />
-          <Row label="缓存读取" value={`${formatExactTokens(usage.cacheReadTokens)} tok`} />
-          <Row label="缓存写入" value={`${formatExactTokens(usage.cacheWriteTokens)} tok`} />
-          <Row label="输出" value={`${formatExactTokens(usage.outputTokens)} tok`} />
+          <PopoverRow label="提供方 / 模型" value={route} />
+          <PopoverRow label="缓存命中" value={formatCacheHitRate(cacheHitRate(usage))} />
+          <PopoverRow label="未缓存输入" value={`${formatExactTokens(usage.inputTokens)} tok`} />
+          <PopoverRow label="缓存读取" value={`${formatExactTokens(usage.cacheReadTokens)} tok`} />
+          <PopoverRow label="缓存写入" value={`${formatExactTokens(usage.cacheWriteTokens)} tok`} />
+          <PopoverRow label="输出" value={`${formatExactTokens(usage.outputTokens)} tok`} />
         </ul>
         {usage.missingUsageCalls > 0 && (
           <p className="text-muted-foreground mt-2 border-t pt-2 text-[10px]">

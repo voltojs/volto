@@ -537,7 +537,7 @@ export function InputBar({
   const showStop = Boolean(isGenerating && onStop);
 
   return (
-    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-4">
+    <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-6 pb-2">
       <div
         data-testid="composer-drop-zone"
         onDragOver={handleDragOver}

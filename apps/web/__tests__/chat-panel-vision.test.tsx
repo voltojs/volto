@@ -29,6 +29,8 @@ vi.mock('@/lib/sessions-api', async (importOriginal) => {
       permissionMode: 'ask',
     }),
     renameServerSession: vi.fn().mockResolvedValue({}),
+    // The bottom status bar folds trajectory rows; keep tests offline.
+    fetchServerTrajectory: vi.fn().mockResolvedValue(null),
   };
 });
 vi.mock('@/lib/git-api', () => ({

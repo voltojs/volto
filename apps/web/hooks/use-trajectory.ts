@@ -69,10 +69,12 @@ export function useStoredRows(sessionId: string | null): StoredState & { retry: 
       try {
         const view = await fetchServerTrajectory(sessionId);
         if (cancelled) return;
-        if (view === null) {
+        if (view === null || !Array.isArray(view.rows)) {
           // 防御性契约护栏：当前服务端对未知会话返回 200 + 空行集，并不
-          // 404；null 仅在契约被破坏时出现。行为不变——展示退化为空行 +
-          // 纯实时投影；不入缓存，落盘后下次拉取即可见。
+          // 404；null 与"rows 不是数组"都意味着契约被破坏（实测还有网关
+          // 报错体这种非 {rows} 形状）。行为不变——展示退化为空行 + 纯实时
+          // 投影；不入缓存，落盘后下次拉取即可见。绝不能把 undefined 交给
+          // 合流：mergeStoredAndLiveRows 的 [...stored] 会直接崩掉整个面板。
           setResolved({ key, state: IDLE_STORED });
           return;
         }
@@ -134,7 +136,10 @@ export function useTrajectory(): TrajectoryFeed {
   }, [bufferIsCurrent, events, deltas]);
 
   const rows = useMemo(() => {
-    if (root.rows === null) return live.rows;
+    // Array.isArray, not === null: a non-array (contract-breaking response
+    // or poisoned cache) must also fall back to the live projection —
+    // feeding it into the merge threw "stored is not iterable".
+    if (!Array.isArray(root.rows)) return live.rows;
     return mergeStoredAndLiveRows(root.rows, live.rows);
   }, [root.rows, live.rows]);
 

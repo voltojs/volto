@@ -13,6 +13,8 @@ import { GitBranchPicker } from './GitBranchPicker';
 import { ModelSettingsPicker } from './ModelSettingsPicker';
 import { PermissionPicker } from './PermissionPicker';
 import { ContextMeter } from './ContextMeter';
+import { SessionStatsChip } from './SessionStatsChip';
+import { ConversationUsageChip } from './ConversationUsageChip';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrajectoryPanel } from '@/components/trajectory/TrajectoryPanel';
@@ -20,6 +22,11 @@ import { useChatStore } from '@/stores/chat-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { RightPane } from '@/components/pane/RightPane';
 import { useConversation } from '@/hooks/use-conversation';
+import { useTrajectory } from '@/hooks/use-trajectory';
+import {
+  conversationUsage,
+  sessionStats,
+} from '@/lib/session-stats-model';
 import { useAutoOpenTasksTab } from '@/hooks/use-auto-open-tasks-tab';
 import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
@@ -43,6 +50,18 @@ export function ChatPanel() {
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
     useChatAgent();
   const { entries, usage, messages } = useConversation();
+  // Bottom status bar: fold the trajectory rows (the one projection with
+  // per-call metrics and usage). Rules of Hooks: runs before any early
+  // return below, same as useConversation.
+  const trajectory = useTrajectory();
+  const stats = useMemo(
+    () => sessionStats(trajectory.rows),
+    [trajectory.rows],
+  );
+  const wholeUsage = useMemo(
+    () => conversationUsage(trajectory.rows),
+    [trajectory.rows],
+  );
   // Rules of Hooks: must run before any early return below.
   useAutoOpenTasksTab();
   const projects = useConfigStore((s) => s.projects);
@@ -788,13 +807,6 @@ export function ChatPanel() {
                 trailing={
                   currentSessionId && currentSession ? (
                     <>
-                      <ContextMeter
-                        usage={usage}
-                        contextWindow={currentModel?.contextWindow}
-                        hasCompletedAssistantMessage={
-                          hasCompletedAssistantMessage
-                        }
-                      />
                       <ModelSettingsPicker
                         providerId={currentSession.providerId}
                         modelId={currentSession.modelId}
@@ -822,6 +834,29 @@ export function ChatPanel() {
                   ) : null
                 }
               />
+              {/* Bottom status bar: session stats + whole-conversation
+                  usage + the context ring, right under the input. */}
+              <div
+                data-testid="chat-status-bar"
+                className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4 px-6 pb-3"
+              >
+                <div className="flex min-w-0 items-center gap-1">
+                  <SessionStatsChip stats={stats} />
+                  <ConversationUsageChip usage={wholeUsage} />
+                </div>
+                <span
+                  data-testid="context-meter-slot"
+                  className="flex shrink-0 items-center"
+                >
+                  <ContextMeter
+                    usage={usage}
+                    contextWindow={currentModel?.contextWindow}
+                    hasCompletedAssistantMessage={
+                      hasCompletedAssistantMessage
+                    }
+                  />
+                </span>
+              </div>
             </div>
           </TabsContent>
           <TabsContent

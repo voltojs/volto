@@ -11,7 +11,10 @@ import type { TrajectoryRow } from '@volto/sdk/sse';
 const cache = new Map<string, TrajectoryRow[]>();
 
 export function getCachedTrajectory(sessionId: string): TrajectoryRow[] | undefined {
-  return cache.get(sessionId);
+  const rows = cache.get(sessionId);
+  // A poisoned entry (whatever wrote a non-array) must read as a miss, or
+  // it would flow into the row merge and take the feed down.
+  return Array.isArray(rows) ? rows : undefined;
 }
 
 export function setCachedTrajectory(sessionId: string, rows: TrajectoryRow[]): void {

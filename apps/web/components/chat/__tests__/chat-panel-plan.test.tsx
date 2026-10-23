@@ -57,6 +57,8 @@ vi.mock('@/hooks/use-server-sessions', () => ({
 vi.mock('@/lib/sessions-api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchPlan: mocks.fetchPlan,
+  // The bottom status bar folds trajectory rows; keep tests offline.
+  fetchServerTrajectory: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('@/components/pane/RightPane', () => ({

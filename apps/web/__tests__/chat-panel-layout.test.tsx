@@ -29,6 +29,8 @@ vi.mock('@/lib/sessions-api', async (importOriginal) => {
       permissionMode: 'ask',
     }),
     renameServerSession: vi.fn().mockResolvedValue({}),
+    // The bottom status bar folds trajectory rows; keep tests offline.
+    fetchServerTrajectory: vi.fn().mockResolvedValue(null),
   };
 });
 vi.mock('@/lib/git-api', () => ({
@@ -173,6 +175,40 @@ describe('ChatPanel input layout', () => {
     );
     expect(chatColumn).not.toBeNull();
     expect(chatColumn!.contains(editor!)).toBe(true);
+  });
+
+  it('hosts the three-module status bar right under the input', () => {
+    const { container } = render(<ChatPanel />);
+
+    const bar = container.querySelector('[data-testid="chat-status-bar"]');
+    expect(bar).not.toBeNull();
+
+    // Inside the chat column, below the editor.
+    const editor = container.querySelector('[data-testid="input-editor"]')!;
+    const editorPanel = editor.closest('[data-slot="tabs-content"]')!;
+    expect(editorPanel.contains(bar)).toBe(true);
+    expect(
+      editor.compareDocumentPosition(bar!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeGreaterThan(0);
+
+    // All three modules: session stats, whole-conversation usage, context ring.
+    expect(bar!.querySelector('[aria-label="会话统计"]')).not.toBeNull();
+    expect(bar!.querySelector('[aria-label="整个对话用量"]')).not.toBeNull();
+    // The ring itself unmounts while no usage is projected; the slot marks
+    // that the third module is wired into the bar either way.
+    expect(
+      bar!.querySelector('[data-testid="context-meter-slot"]'),
+    ).not.toBeNull();
+
+    // Centred as one group, not justified to the edges.
+    expect(bar!.className).toContain('justify-center');
+    expect(bar!.className).not.toContain('justify-between');
+
+    // Tucked under the input: the form's bottom padding is the gap.
+    const form = editor.closest('form')!;
+    expect(form.className).toContain('pb-2');
+    expect(form.className).not.toContain('pb-4');
   });
 
   it('feeds the round generating state to the bottom wave indicator', () => {
