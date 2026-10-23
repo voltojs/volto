@@ -146,6 +146,13 @@ export interface TurnRecord {
    * parking map's existing single-slot shape).
    */
   pendingSubagent?: { label: string; childSessionId: string; startedAt: number };
+  /**
+   * Usage of this turn's compaction summarization call, when the provider
+   * reported one. Compaction is not a visible step, so it rides the turn
+   * record directly; `summariseTurnUsage` folds it into the turn totals so
+   * the cache-hit and cost cards account for the call.
+   */
+  compactionUsage?: TokenUsage;
 }
 
 // ──────────────────────────────────────────────
@@ -434,9 +441,19 @@ export function buildTurnRecords(
         break;
       }
 
+      case "compaction": {
+        // Log-only for the conversation feed, but its summarization usage is
+        // part of the turn's real cost — carry it onto the turn record.
+        const data = event.data as TranscriptEventMap["compaction"];
+        if (data.usage !== undefined) {
+          turnFor(event).compactionUsage = data.usage;
+        }
+        break;
+      }
+
       default:
         // Log-only: session_meta, request_header, context_assembled,
-        // compaction, context_reminder, budget_exceeded, subagent_finished.
+        // context_reminder, budget_exceeded, subagent_finished.
         // They carry audit detail the trajectory view reads straight off the
         // event list, and structurally never enter a TurnRecord — which is
         // why toConversationView (built from TurnRecord[], not raw events)
@@ -607,6 +624,17 @@ function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
     outputTokens += usage.outputTokens;
     cacheReadTokens += usage.cacheReadTokens ?? 0;
     cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+  }
+
+  // Compaction is a real model call but not a step: fold its usage into the
+  // turn totals (reported, so it is not listed as a missing call).
+  const compactionUsage = turn.compactionUsage;
+  if (compactionUsage !== undefined) {
+    reported += 1;
+    inputTokens += compactionUsage.inputTokens;
+    outputTokens += compactionUsage.outputTokens;
+    cacheReadTokens += compactionUsage.cacheReadTokens ?? 0;
+    cacheWriteTokens += compactionUsage.cacheWriteTokens ?? 0;
   }
 
   if (reported === 0) return undefined;

@@ -63,6 +63,7 @@ import {
   CAP_MODEL_VISION,
   narrowPermission,
   CAP_AGENT_DEPTH_AVAILABLE,
+  deriveCompactionMaxTokens,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -834,8 +835,23 @@ export interface CreateAgentOptions {
   /**
    * Compaction config — enables automatic context compression when messages
    * grow large. Uses the default character-count tokenizer if not specified.
+   *
+   * `maxTokens` may be omitted: it is then derived from `contextWindow` (see
+   * that option) so the threshold scales with the model instead of firing at
+   * a fixed 60k on a 1M-token model. An explicit `maxTokens` always wins.
    */
-  compaction?: Omit<CompactionConfig, "tokenizer"> & { tokenizer?: CompactionConfig["tokenizer"] };
+  compaction?: Omit<CompactionConfig, "tokenizer" | "maxTokens"> & {
+    tokenizer?: CompactionConfig["tokenizer"];
+    maxTokens?: number;
+  };
+
+  /**
+   * The routed model's context window in tokens, when known. Used to derive
+   * a window-aware compaction threshold (`0.6 × (window − max output)`). Omit
+   * when the adapter cannot describe its model; compaction then falls back to
+   * 60k. Callers that pass an explicit `compaction.maxTokens` are unaffected.
+   */
+  contextWindow?: number;
 
   // ── M8: New port overrides (all optional, defaults provided) ──
 
@@ -1384,9 +1400,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
   // ── Compaction config ─────────────────────
   const resolvedCompaction = resolve(opts.compaction, "compaction") as
-    (Omit<CompactionConfig, "tokenizer"> & { tokenizer?: CompactionConfig["tokenizer"] }) | undefined;
+    | (Omit<CompactionConfig, "tokenizer" | "maxTokens"> & {
+        tokenizer?: CompactionConfig["tokenizer"];
+        maxTokens?: number;
+      })
+    | undefined;
   const compactionConfig: CompactionConfig | undefined = resolvedCompaction
-    ? { ...resolvedCompaction, tokenizer: resolvedCompaction.tokenizer ?? defaultTokenizer }
+    ? {
+        ...resolvedCompaction,
+        // Window-aware by default. The caller's explicit maxTokens wins; the
+        // fixed 60k survives only as the unknown-window fallback.
+        maxTokens:
+          resolvedCompaction.maxTokens ??
+          deriveCompactionMaxTokens({
+            contextWindow: opts.contextWindow,
+            maxOutputTokens: resolve(opts.maxTokens, "maxTokens"),
+          }),
+        tokenizer: resolvedCompaction.tokenizer ?? defaultTokenizer,
+      }
     : undefined;
 
   // ── Assemble all tools ────────────────────

@@ -313,13 +313,18 @@ itDarwin("F-101 kill() reaps the inner process, not just the sandbox-exec wrappe
 });
 
 it("F-103 enforcement is a runtime fact", async () => {
+  // Snapshot the global profile directory BEFORE spawning: other test files
+  // run in parallel and may legitimately hold their own seatbelt profile, so
+  // "no new profile" must be scoped to this test (an empty `before` set made
+  // this test wait for every parallel file's profile to disappear).
+  const before = sandboxProfiles();
   const passthrough = createSandboxedProcessSpawner({ mode: "danger-full-access" })!;
   const p = passthrough({ command: process.execPath, args: ["-e", ""], cwd: process.cwd() });
   const exit = new Promise<Collected>((resolve) => p.onExit((code, signal) => resolve({ pid: p.pid, code, signal, stdout: "", stderr: "" })));
   expect(p.enforcement).toBe("none");
   // Reap it: a passthrough child has no wrapper to hold it, but leaving it
   // alive would still straddle the end of this test file.
-  await reap(p, await exit, new Set());
+  await reap(p, await exit, before);
 });
 
 it("F-103 a child that fails to start surfaces through onError, never as an uncaught exception", async () => {

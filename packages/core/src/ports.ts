@@ -554,6 +554,13 @@ export interface TranscriptEventMap {
       width?: number;
       height?: number;
     }>;
+    /**
+     * Usage of the summarization model call itself. Optional: adapters that
+     * do not report usage, and older events, omit it. When present it is
+     * included in the turn's usage/cost totals — otherwise the compaction
+     * call is invisible to the cache-hit and cost meters.
+     */
+    usage?: TokenUsage;
   };
   /** Durable write-back of oversized tool_result pruning into state.messages. */
   tool_results_pruned: {

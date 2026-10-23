@@ -5,7 +5,7 @@
 
 import type { ContentBlock, TodoItem, ToolResultBlock } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
-import type { ApprovalDenialReason, FileWatchEvent } from "./ports.js";
+import type { ApprovalDenialReason, FileWatchEvent, TokenUsage } from "./ports.js";
 
 /** User sent a message */
 export interface UserMessageInput {
@@ -188,7 +188,7 @@ export interface ToolResultsPrunedInput {
  * Durable write-back of a compaction decision.
  *
  * Replaces the span of messages named by `replacedIds` with a single
- * system-role summary message carrying `summaryId` / `summaryText`, at the
+ * user-role summary message carrying `summaryId` / `summaryText`, at the
  * earliest position among the replaced span — followed, when preserved
  * images ride along, by one dedicated user-role images message (see
  * `preservedImages` below). Pins that pointed at replaced messages are
@@ -202,10 +202,18 @@ export interface ToolResultsPrunedInput {
  * carries the image ref blocks that survive the compaction: when present
  * and non-empty they ride a dedicated USER-role message inserted right
  * after the summary — content `[marker, image, marker, image, …]`, markers
- * verbatim, one before each image. The summary message itself is ALWAYS the
- * plain string `"[Earlier conversation summary]\n…"`: system content is
- * text-only on every provider's wire, so v1.0's block-array summary never
- * reached the model and is gone.
+ * verbatim, one before each image.
+ *
+ * The summary itself is a USER-role message. A system-role summary is
+ * hoisted by the ContextAssembler ahead of the static context layers
+ * (AGENTS.md / skill catalogue), which moves those layers behind a changed
+ * message and invalidates the whole provider prefix cache on every
+ * compaction. As a user message it stays after the static prefix, so only
+ * the rewritten history is re-read.
+ *
+ * `usage` is the summarization model call's own usage (when the adapter
+ * reports it), carried into the recorded `compaction` event so the turn's
+ * cache-hit / cost figures include the call instead of silently omitting it.
  */
 export interface CompactionAppliedInput {
   type: "compaction_applied";
@@ -215,6 +223,8 @@ export interface CompactionAppliedInput {
   /** Image blocks with `source.type === "ref"` only — the Runner resolves
    *  inline bytes into refs (AttachmentStore) before feeding this input. */
   preservedImages?: ContentBlock[];
+  /** Usage of the summarization model call, if the provider reported one. */
+  usage?: TokenUsage;
 }
 
 /**

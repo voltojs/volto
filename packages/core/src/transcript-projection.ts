@@ -30,12 +30,13 @@
  * Compaction write-back (Task 2): a `compaction` event carrying
  * `replacedIds`/`summaryId` rewrites the projected list the same way the
  * reducer's `compaction_applied` handler rewrites `state.messages` — remove
- * the named messages, insert one system-role summary at the earliest
- * replaced position, and, when the event carries non-empty
- * `preservedImages` (D5 v1.2), the user-role images carrier right after the
- * summary (`${summaryId}-images`, markers verbatim before each image ref).
- * Legacy compaction events without ids are skipped, and so is a write-back
- * whose replacedIds match nothing in the projection.
+ * the named messages, insert one user-role summary at the earliest replaced
+ * position (user role so the ContextAssembler keeps the static layers ahead
+ * of it, preserving the provider prefix cache), and, when the event carries
+ * non-empty `preservedImages` (D5 v1.2), the user-role images carrier right
+ * after the summary (`${summaryId}-images`, markers verbatim before each
+ * image ref). Legacy compaction events without ids are skipped, and so is a
+ * write-back whose replacedIds match nothing in the projection.
  * `tool_results_pruned` stays log-only: the event omits pruned content by
  * design, so the projection has nothing to rewrite with.
  */
@@ -279,9 +280,12 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
         // Same position rule as the reducer's compaction_applied handler
         // (reducer.ts compaction_applied case): remove the named messages,
-        // insert one system-role summary at the earliest replaced position
+        // insert one USER-role summary at the earliest replaced position
         // among the kept order, and — when the event carries preserved
         // images — the user-role carrier at summary position + 1.
+        // The user role is deliberate: a system summary would be hoisted
+        // ahead of the static context layers by the ContextAssembler and
+        // break the provider prefix cache (see reducer.ts).
         const replaced = new Set(data.replacedIds);
         const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
         // No projected id matched replacedIds. Production logs always hit
@@ -293,7 +297,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const summaryEntry: ProjectedMessage = {
           message: {
             id: data.summaryId,
-            role: "system",
+            role: "user",
             content: `[Earlier conversation summary]\n${data.summaryText}`,
           },
           time: event.time,

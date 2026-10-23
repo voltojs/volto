@@ -112,14 +112,14 @@ function scriptedSessionPort(): { modelPort: ModelPort; requests: ModelRequest[]
 }
 
 /** The compaction summary message a request carries (D5 v1.2: a plain string). */
-function summaryMessage(request: ModelRequest): Extract<ModelRequest["messages"][number], { role: "system" }> {
+function summaryMessage(request: ModelRequest): { id: string; role: "user"; content: string } {
   for (const m of request.messages) {
     if (
-      m.role === "system" &&
+      m.role === "user" &&
       typeof m.content === "string" &&
       m.content.startsWith("[Earlier conversation summary]")
     ) {
-      return m;
+      return { id: m.id, role: "user", content: m.content };
     }
   }
   throw new Error("no string summary message in request");
@@ -209,12 +209,13 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
       expect(summaryReq.messages[0]?.id).toBe("compaction-summary-prompt");
       expect(summaryReq.tools).toHaveLength(0);
 
-      // (a) The summary is the plain system string (D5 v1.2), and the
-      // preserved images ride a dedicated USER-role message that comes
-      // after the summary in the request — both marker lines verbatim.
-      // (Assembly hoists system messages to the prefix, so the reducer's
-      // insertAt+1 adjacency is pinned in core's unit tests; here the
-      // ordering claim is "carrier after summary".)
+      // (a) The summary is a plain USER-role string (D5 v1.2 + the cache
+      // placement fix: a system summary would be hoisted ahead of the
+      // static context layers), and the preserved images ride a dedicated
+      // USER-role message that comes after the summary in the request —
+      // both marker lines verbatim. The reducer's insertAt+1 adjacency is
+      // pinned in core's unit tests; here the ordering claim is
+      // "carrier after summary".
       const post = requests[2]!;
       const summary = summaryMessage(post);
       expect(summary.content.startsWith("[Earlier conversation summary]\n")).toBe(true);

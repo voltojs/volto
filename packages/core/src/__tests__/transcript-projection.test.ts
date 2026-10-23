@@ -778,7 +778,7 @@ describe("projectMessages — compaction write-back", () => {
     // proj-2, inserting sum-1 at their earliest position (index 0 of kept).
     const result = projectMessages(events);
     expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
-      { id: "sum-1", role: "system" },
+      { id: "sum-1", role: "user" },
       { id: "proj-3", role: "user" },
       { id: "proj-4", role: "assistant" },
       { id: "proj-5", role: "user" },
@@ -918,7 +918,7 @@ describe("projectMessages — compaction write-back", () => {
     // Same position rule as the reducer's compaction_applied handler: the
     // carrier (`${summaryId}-images`, user role) sits at summary + 1.
     expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
-      { id: "sum-1", role: "system" },
+      { id: "sum-1", role: "user" },
       { id: "sum-1-images", role: "user" },
       { id: "proj-3", role: "user" },
       { id: "proj-4", role: "assistant" },
@@ -964,7 +964,7 @@ describe("projectMessages — compaction write-back", () => {
 
     const result = projectMessages(events);
     expect(result.map((m) => ({ id: m.id, role: m.role }))).toEqual([
-      { id: "sum-1", role: "system" },
+      { id: "sum-1", role: "user" },
       { id: "proj-2", role: "assistant" },
       { id: "proj-3", role: "user" },
     ]);

@@ -665,6 +665,28 @@ export function createRunner(opts: RunnerOptions): Runner {
 
   const nowMs = (): number => opts.clock?.now() ?? Date.now();
 
+  /**
+   * Accumulate one reported usage into the turn's raw-token and cost totals.
+   * Shared by the main model loop and the compaction summarizer: a summary
+   * call spends real tokens, so it must count against the same budgets
+   * instead of being invisible to them.
+   */
+  function accumulateUsage(usage: TokenUsage): void {
+    // Raw tokens always accumulate, regardless of pricing — includes cache
+    // tokens, since input+output alone can undercount a cache-heavy turn.
+    cumulativeTokens += totalUsageTokens(usage);
+    // Cost: dollar pricing when available, else the pre-existing raw-token
+    // fallback (a documented conflation — cumulativeCost is compared against
+    // maxCostDollars, a dollar figure, but the fallback adds token counts).
+    // Kept as-is; this refactor only shares it with the summarizer.
+    if (opts.pricing && stepContext.model) {
+      const entry = opts.pricing[stepContext.model];
+      cumulativeCost += entry ? computeUsageCost(entry, usage) : totalUsageTokens(usage);
+    } else {
+      cumulativeCost += totalUsageTokens(usage);
+    }
+  }
+
   const recorder = createTranscriptRecorder({
     store: opts.chatStore,
     sessionId: opts.chatSessionId,
@@ -1256,8 +1278,17 @@ export function createRunner(opts: RunnerOptions): Runner {
       });
 
       let summaryText = "";
+      // The summarizer is a real model call. Capture its usage so it counts
+      // against this turn's budgets and reaches the turn-usage projection —
+      // previously it was silently absent from both.
+      let summaryUsage: TokenUsage | undefined;
       for await (const event of summaryEvents) {
         if (event.type === "text_delta") summaryText += event.text;
+        if (event.type === "usage") {
+          const { type: _type, ...usageFields } = event;
+          summaryUsage = usageFields;
+          accumulateUsage(usageFields);
+        }
         if (event.type === "error") {
           // Compaction failed — proceed with the pruned surface (prune
           // write-back already happened above, so its progress is kept).
@@ -1297,6 +1328,7 @@ export function createRunner(opts: RunnerOptions): Runner {
           summaryText: finalSummaryText,
           replacedIds,
           ...(preservedImages !== undefined ? { preservedImages } : {}),
+          ...(summaryUsage !== undefined ? { usage: summaryUsage } : {}),
         }));
         // Assemble from post-feed state so the request and state agree.
         return { messages: state.messages, replacedCount: replacedIds.length, didWriteBack: true };
@@ -1553,27 +1585,9 @@ export function createRunner(opts: RunnerOptions): Runner {
           // dominated by cache reads, e.g. 5504 of 5619 total tokens).
           const { type: _type, ...usageFields } = event;
           lastUsage = usageFields;
-          // Track raw tokens (always, regardless of pricing) — includes cache
-          // tokens, since input+output alone can undercount a cache-heavy
-          // turn by an order of magnitude.
-          cumulativeTokens += totalUsageTokens(event);
-          // Accumulate cost: use dollar pricing when available, else a raw
-          // token-count fallback. NOTE: the fallback is a pre-existing
-          // conflation — cumulativeCost is compared against maxCostDollars
-          // (a dollar figure) but the fallback adds a token count instead of
-          // a dollar amount. That mismatch predates this change and is out
-          // of scope here; it is only extended to count cache tokens too,
-          // for consistency with the cumulativeTokens fix above.
-          if (opts.pricing && stepContext.model) {
-            const entry = opts.pricing[stepContext.model];
-            if (entry) {
-              cumulativeCost += computeUsageCost(entry, event);
-            } else {
-              cumulativeCost += totalUsageTokens(event);
-            }
-          } else {
-            cumulativeCost += totalUsageTokens(event);
-          }
+          // Shared helper: tracks raw tokens (always, including cache) and
+          // accumulates cost with the dollar-pricing / token-fallback split.
+          accumulateUsage(usageFields);
           // Check cost budget immediately after accumulation
           if (state.maxCostDollars !== undefined && cumulativeCost > state.maxCostDollars) {
             await runNotificationHook("budget_warning");

@@ -378,9 +378,15 @@ export function step(
     );
     // D5 v1.2: the summary is ALWAYS the plain string this handler has
     // always produced. The v1.0 block-array summary path is gone.
+    //
+    // USER role, not system: the ContextAssembler places every system message
+    // before the static context layers and tool schemas, so a system summary
+    // is hoisted ahead of AGENTS.md / the skill catalogue and invalidates the
+    // whole provider prefix cache on every compaction. As a user message the
+    // summary stays after the static prefix.
     const summaryMsg: Message = {
       id: input.summaryId,
-      role: "system",
+      role: "user",
       content: `[Earlier conversation summary]\n${input.summaryText}`,
     };
     const imagesMsg: Message | undefined =
@@ -433,6 +439,9 @@ export function step(
               summaryText: input.summaryText,
               replacedIds: input.replacedIds,
               summaryId: input.summaryId,
+              // The summarizer's own call usage: without it the turn's
+              // cache-hit / cost totals silently omit the compaction call.
+              ...(input.usage !== undefined ? { usage: input.usage } : {}),
               // Durable replay needs the carrier's shape, not its bytes:
               // ref metadata only (spec 2026-10-16 D5 v1.2). The projection
               // rebuilds the `${summaryId}-images` user-role carrier from

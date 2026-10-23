@@ -35,7 +35,7 @@ describe("compaction_applied", () => {
     );
     expect(state.messages.map((m) => m.id)).toEqual(["sys", "sum-1", "c"]);
     const sum = state.messages.find((m) => m.id === "sum-1")!;
-    expect(sum.role).toBe("system");
+    expect(sum.role).toBe("user");
     expect(String(sum.content)).toContain("[Earlier conversation summary]");
     expect(String(sum.content)).toContain("checkpoint");
     const emit = effects.find((e) => e.type === "emit" && e.event?.type === "compaction");
@@ -103,7 +103,7 @@ describe("compaction_applied — preservedImages (F-212)", () => {
 
     // D5 v1.2: the summary is ALWAYS the plain string.
     const sum = state.messages.find((m) => m.id === "sum-1")!;
-    expect(sum.role).toBe("system");
+    expect(sum.role).toBe("user");
     expect(sum.content).toBe("[Earlier conversation summary]\ncheckpoint");
 
     // The carrier: user role, marker verbatim immediately before each image.

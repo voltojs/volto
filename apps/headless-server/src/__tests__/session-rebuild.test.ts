@@ -78,7 +78,11 @@ function makeFlakyFactory() {
 /** A registry with a stub connection attached so runTurn is allowed to run. */
 function makeRegistry(
   factory: ReturnType<typeof makeFactory>["factory"],
-  overrides: { projectStore?: unknown; extraWiring?: Record<string, unknown> } = {},
+  overrides: {
+    projectStore?: unknown;
+    extraWiring?: Record<string, unknown>;
+    credentials?: Record<string, unknown>;
+  } = {},
 ) {
   const written: string[] = [];
   const registry = createSessionRegistry({
@@ -88,7 +92,13 @@ function makeRegistry(
     providerStore: {
       // A distinctive, obviously-fake secret so the plaintext-leak test has
       // no risk of a false-negative substring match.
-      resolveModel: async () => ({ kind: "custom", baseURL: null, apiKey: "sk-super-secret-token", code: "m" }),
+      resolveModel: async () => ({
+        kind: "custom",
+        baseURL: null,
+        apiKey: "sk-super-secret-token",
+        code: "m",
+        ...(overrides.credentials ?? {}),
+      }),
     } as never,
     ...(overrides.extraWiring ?? {}),
   } as never);
@@ -154,6 +164,19 @@ describe("session agent lifecycle", () => {
     expect(builds[0]!["cwd"]).toBe("/tmp");
   });
 
+  it("forwards the declared model context window to the agent wiring", async () => {
+    const { builds, factory } = makeFactory();
+    const { registry } = makeRegistry(factory, { credentials: { contextWindow: 1_000_000 } });
+
+    await registry.runTurn("s1", "one", {
+      projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask",
+    });
+
+    // The declared window is forwarded so createWiredAgent can derive a
+    // window-aware compaction threshold (it wins over the adapter's catalog).
+    expect(builds[0]!["contextWindow"]).toBe(1_000_000);
+  });
+
   it("compaction defaults to the Plan 2 built-in when the host does not configure it", async () => {
     const { builds, factory } = makeFactory();
     const { registry } = makeRegistry(factory);
@@ -163,9 +186,10 @@ describe("session agent lifecycle", () => {
     });
 
     // Plan 2 flips the default: absent config means ON with host-chosen
-    // defaults, not "never compact".
+    // defaults, not "never compact". No maxTokens here — createAgent derives
+    // it from the model window; the fixed 60k is only the unknown-window
+    // fallback. This factory stub records the pre-derivation config.
     expect(builds[0]!["compaction"]).toEqual({
-      maxTokens: 60_000,
       recentKeepCount: 4,
       toolResultMaxChars: 8000,
       summaryMaxTokens: 4096,

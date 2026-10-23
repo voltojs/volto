@@ -236,6 +236,14 @@ export {
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
+// Compaction budget — window-aware threshold derivation (pure)
+export {
+  deriveCompactionMaxTokens,
+  DEFAULT_COMPACTION_MAX_TOKENS,
+  DEFAULT_COMPACTION_WINDOW_RATIO,
+} from "./compaction-budget.js";
+export type { CompactionBudgetInput } from "./compaction-budget.js";
+
 // Todo standing-list formatter — model-facing injection text (pure)
 export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingTodos } from "./todo-format.js";
 

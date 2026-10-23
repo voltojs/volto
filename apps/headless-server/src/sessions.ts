@@ -78,6 +78,8 @@ interface ResolvedConfig {
   code: string | undefined;
   /** Per-call output cap from the model record; undefined means the provider default. */
   maxOutputTokens: number | undefined;
+  /** Declared context window from the model record; undefined falls back to the adapter's catalog. */
+  contextWindow: number | undefined;
   /**
    * SHA-256 hex digest of the resolved apiKey — never the plaintext. Lets a
    * rotated key be distinguished from an unchanged one without storing the
@@ -102,6 +104,8 @@ type ResolvedCredentials =
       apiKey: string | null;
       code: string;
       maxOutputTokens?: number;
+      /** Declared context window; absent = follow the catalog. */
+      contextWindow?: number;
       /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
@@ -113,6 +117,8 @@ type ResolvedCredentials =
       apiKey: string | null;
       code: string;
       maxOutputTokens?: number;
+      /** Declared context window; absent = the adapter's 128k fallback. */
+      contextWindow?: number;
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
       input?: ModelInputValue;
@@ -153,6 +159,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
   baseURL: undefined,
   code: undefined,
   maxOutputTokens: undefined,
+  contextWindow: undefined,
   keyFingerprint: undefined,
   permissionMode: "read-only",
   reasoningEffort: undefined,
@@ -280,9 +287,13 @@ function tokensMatch(a: string, b: string): boolean {
  * Plan 2 default-on: when the host does not configure compaction at all,
  * sessions get these host-chosen defaults rather than "never compact".
  * Explicit `compaction: false` still disables (see resolveHostCompaction).
+ *
+ * Deliberately no `maxTokens`: the threshold is derived per model from its
+ * context window by createAgent (window × 0.6, minus the output cap) so a
+ * 1M-token model is not compacted at 60k. The fixed 60k remains only as the
+ * fallback for adapters that cannot report a window.
  */
-const DEFAULT_COMPACTION: Omit<CompactionConfig, "tokenizer"> = {
-  maxTokens: 60_000,
+const DEFAULT_COMPACTION: Omit<CompactionConfig, "tokenizer" | "maxTokens"> = {
   recentKeepCount: 4,
   toolResultMaxChars: 8000,
   summaryMaxTokens: 4096,
@@ -294,8 +305,13 @@ const DEFAULT_COMPACTION: Omit<CompactionConfig, "tokenizer"> = {
  * invents values beyond the documented defaults above.
  */
 function resolveHostCompaction(
-  configured: Omit<CompactionConfig, "tokenizer"> | false | undefined,
-): Omit<CompactionConfig, "tokenizer"> | undefined {
+  configured:
+    | (Omit<CompactionConfig, "tokenizer" | "maxTokens"> & { maxTokens?: number })
+    | false
+    | undefined,
+):
+  | (Omit<CompactionConfig, "tokenizer" | "maxTokens"> & { maxTokens?: number })
+  | undefined {
   if (configured === false) return undefined;
   return configured ?? DEFAULT_COMPACTION;
 }
@@ -828,6 +844,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // Both kinds carry an optional per-model cap now that catalog models
       // are configurable records rather than bare codes.
       maxOutputTokens: credentials.maxOutputTokens,
+      contextWindow: credentials.contextWindow,
       keyFingerprint: credentials.apiKey ? fingerprintApiKey(credentials.apiKey) : undefined,
       // I3: an omitted permissionMode must resolve to the narrowest tier
       // that can still do work ("ask"), never to "no mode at all" — the
@@ -853,6 +870,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.baseURL === b.baseURL &&
       a.code === b.code &&
       a.maxOutputTokens === b.maxOutputTokens &&
+      a.contextWindow === b.contextWindow &&
       a.keyFingerprint === b.keyFingerprint &&
       a.permissionMode === b.permissionMode &&
       a.reasoningEffort === b.reasoningEffort
@@ -982,6 +1000,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           }
         : {}),
       ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}),
+      ...(config.contextWindow !== undefined ? { contextWindow: config.contextWindow } : {}),
       ...(config.permissionMode
         ? {
             permissionConfig: buildPermissionConfig(config.permissionMode),

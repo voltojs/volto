@@ -195,4 +195,48 @@ describe("toConversationView turn usage", () => {
       missingUsageCalls: 0,
     });
   });
+
+  it("folds the compaction summarizer's usage into the turn totals", () => {
+    const events = log([
+      { time: 1000, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 1001, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 1010, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 1011,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "text", text: "ok" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 1000, outputTokens: 100 },
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      // The summarizer is a real call but not a visible step.
+      {
+        time: 1012,
+        type: "compaction",
+        data: {
+          replacedCount: 2,
+          summaryText: "s",
+          usage: { inputTokens: 100, outputTokens: 50 },
+        },
+        turn: 1,
+      },
+      { time: 1999, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+    ]);
+
+    const records = buildTurnRecords(events);
+    expect(records[0]!.compactionUsage).toEqual({ inputTokens: 100, outputTokens: 50 });
+    const view = toConversationView(records);
+    expect(view.messages.at(-1)!.turnUsage).toMatchObject({
+      inputTokens: 1100,
+      outputTokens: 150,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 1250,
+      missingUsageCalls: 0,
+    });
+  });
 });

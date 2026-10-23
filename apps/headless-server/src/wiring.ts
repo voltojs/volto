@@ -227,8 +227,20 @@ export interface WiringOptions {
    * Compaction config. Plan 2: absent means the session registry applies
    * its built-in defaults (compaction ON); pass `false` to opt out entirely.
    * Tokenizer is injected by createAgent (character-count default).
+   *
+   * `maxTokens` may be omitted — createAgent then derives a window-aware
+   * threshold from the resolved model's context window, falling back to 60k
+   * only when the window is unknown.
    */
-  compaction?: Omit<CompactionConfig, "tokenizer"> | false;
+  compaction?:
+    | (Omit<CompactionConfig, "tokenizer" | "maxTokens"> & { maxTokens?: number })
+    | false;
+  /**
+   * Explicit context window override for compaction budgeting. Normally left
+   * unset: createWiredAgent asks the model port's `describeModel` (which
+   * already applies stored per-model overrides over the pi-ai catalog).
+   */
+  contextWindow?: number;
   /**
    * Plugin-provided agent specs, forwarded to the definition scan as
    * lowest-priority `plugin` entries — the same list GET /agents reports.
@@ -473,6 +485,20 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
           defaultModel: model,
         },
   );
+  // Resolve the model's context window before createAgent so the compaction
+  // threshold can scale with it (deriveCompactionMaxTokens). The adapter's
+  // describeModel is the single source of truth — it already merges the
+  // stored model overrides with the pi-ai catalog. A port without it, or a
+  // failed lookup, leaves the window unknown; compaction then falls back to
+  // the fixed 60k, which is a supported state rather than an error.
+  let contextWindow = opts.contextWindow;
+  if (contextWindow === undefined && modelPort.describeModel) {
+    try {
+      contextWindow = (await modelPort.describeModel(model))?.contextWindow;
+    } catch {
+      // Unknown window → fixed fallback. Never fail agent construction here.
+    }
+  }
   const sessionStore = createSqliteStore({ path: dbPath });
 
   const skillRegistry = createSkillRegistry(cwd);
@@ -614,6 +640,9 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.maxLoopCount !== undefined ? { maxLoopCount: opts.maxLoopCount } : {}),
     ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
+    // Resolved above from the model port (or an explicit override); lets
+    // createAgent derive a window-aware compaction threshold.
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(opts.permissionConfig
       ? { permissionConfig: mergePermissionRules(opts.permissionConfig, permissionRules) }
       : {}),

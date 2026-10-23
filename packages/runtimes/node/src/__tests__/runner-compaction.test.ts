@@ -115,7 +115,7 @@ function flattenText(messages: Message[]): string {
 }
 
 describe("Runner — compaction wiring", () => {
-  it("issues a summarization call before the main call, then sends [system, summary, ...recent] to the main call", async () => {
+  it("issues a summarization call before the main call, then sends [system, summary(user), ...recent] to the main call", async () => {
     // Build a long history that will exceed the 200-token threshold once a
     // system message and a long user turn are added.
     const history = makeMessages(20, "old"); // 20 alternating messages
@@ -179,8 +179,10 @@ describe("Runner — compaction wiring", () => {
     // System must lead.
     expect(main[0]!.role).toBe("system");
     expect(main[0]!.content).toBe("you are helpful");
-    // Summary sits immediately after system, BEFORE any user/assistant messages.
-    expect(main[1]!.role).toBe("system");
+    // The summary is a USER message: a system-role summary would be hoisted
+    // ahead of the static context layers by the ContextAssembler and break
+    // the provider prefix cache. It still sits before the remaining history.
+    expect(main[1]!.role).toBe("user");
     expect(typeof main[1]!.content === "string" ? main[1]!.content : "").toContain(
       "[Earlier conversation summary]",
     );

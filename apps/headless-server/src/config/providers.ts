@@ -397,6 +397,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           apiKey: string | null;
           code: string;
           maxOutputTokens?: number;
+          /** Declared context window; absent = follow the pi-ai catalog. */
+          contextWindow?: number;
           /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
           reasoning?: boolean;
           input?: ModelInputValue;
@@ -407,6 +409,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           apiKey: string | null;
           code: string;
           maxOutputTokens?: number;
+          /** Declared context window; absent = the adapter's 128k fallback. */
+          contextWindow?: number;
           reasoning?: boolean;
           input?: ModelInputValue;
         }
@@ -431,6 +435,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           apiKey,
           code: model.code,
           ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+          ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
           ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
           ...(model.input === undefined ? {} : { input: model.input }),
         };
@@ -445,6 +450,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         apiKey,
         code: model.code,
         ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
         ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         ...(model.input === undefined ? {} : { input: model.input }),
       };
