@@ -42,6 +42,13 @@ describe("pruneOversizedToolResults", () => {
     expect([...text].length).toBeLessThanOrEqual(8_192);
   });
 
+  it("leaves a block untouched when the marker cannot fit", () => {
+    const msg = toolResult("a", "x".repeat(21));
+    const r = pruneOversizedToolResults([msg], { maxChars: 20 });
+    expect(r.pruned).toHaveLength(0);
+    expect(r.messages[0]).toBe(msg);
+  });
+
   it("rejects a budget that cannot fit the marker", () => {
     expect(() =>
       pruneOversizedToolResults([toolResult("a", "x".repeat(200))], {
@@ -81,10 +88,10 @@ describe("pruneOversizedToolResults", () => {
 
   it("counts code points, not UTF-16 code units", () => {
     // "😀" is one code point but two UTF-16 code units.
-    const emoji = "😀".repeat(50);
-    const r = pruneOversizedToolResults([toolResult("a", emoji)], { maxChars: 40 });
+    const emoji = "😀".repeat(100);
+    const r = pruneOversizedToolResults([toolResult("a", emoji)], { maxChars: 80 });
     expect(r.pruned).toHaveLength(1);
-    expect(r.pruned[0]!.charsBefore).toBe(50);
+    expect(r.pruned[0]!.charsBefore).toBe(100);
     // The pruned head/tail must not split a surrogate pair.
     const tool = r.messages[0]!;
     if (tool.role !== "tool") throw new Error("expected tool message");

@@ -1270,9 +1270,10 @@ export function createRunner(opts: RunnerOptions): Runner {
     // block was rewritten. The pruned message array itself is not used
     // directly — the write-back feed below rewrites state.messages, and
     // that post-feed state is the canonical surface.
-    const { pruned } = opts.compaction.prunePolicy === "off"
-      ? { pruned: [] }
-      : pruneOversizedToolResults(messages, {
+    let pruned: ReturnType<typeof pruneOversizedToolResults>["pruned"] = [];
+    if (opts.compaction.prunePolicy !== "off") {
+      try {
+        pruned = pruneOversizedToolResults(messages, {
           maxChars: opts.compaction.toolResultMaxChars ?? 8_192,
           ...(opts.compaction.toolResultHeadChars !== undefined
             ? { headChars: opts.compaction.toolResultHeadChars }
@@ -1280,7 +1281,14 @@ export function createRunner(opts: RunnerOptions): Runner {
           ...(opts.compaction.toolResultTailChars !== undefined
             ? { tailChars: opts.compaction.toolResultTailChars }
             : {}),
-        });
+        }).pruned;
+      } catch {
+        // Direct Runner users bypass createAgent's construction-time check.
+        // Degrade to "no prune" rather than failing the turn; the summary path
+        // below still handles the pressure.
+        pruned = [];
+      }
+    }
 
     // Write-back: feed tool_results_pruned so state.messages carries the
     // pruned content. Status-independent reducer handler — safe while
@@ -1306,7 +1314,7 @@ export function createRunner(opts: RunnerOptions): Runner {
           && m.content.some((b) => b.type === "tool_result" && prunedIds.has(b.toolUseId)),
       );
       const cacheResetTokens = firstPrunedIndex > 0
-        ? estimateTokens(messages.slice(0, firstPrunedIndex), tokenizer)
+        ? estimateTokens(messages.slice(0, firstPrunedIndex), tokenizer) + reservedTokens
         : 0;
       let entries = pruned.map((entry, index) => {
         const after = entry.content
@@ -1316,7 +1324,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         return {
           ...entry,
           savedTokens: Math.max(0, tokenizer.count(before) - tokenizer.count(after)),
-          ...(index === 0 ? { cacheResetTokens } : {}),
+          ...(index === 0 ? { cacheResetTokens, cacheResetEstimated: true } : {}),
         };
       });
 
@@ -1325,11 +1333,10 @@ export function createRunner(opts: RunnerOptions): Runner {
         for (const entry of entries) {
           const before = originalText.get(entry.toolCallId) ?? "";
           // An already-spilled result has only its head + reference in state;
-          // writing that back would destroy the full original on disk.
-          if (before.includes("full output saved to")) {
-            kept.push(entry);
-            continue;
-          }
+          // writing that back would destroy the full original on disk, and
+          // truncating it again would eat into the model-visible head. Leave
+          // it out of the candidate set entirely.
+          if (before.includes("full output saved to")) continue;
           try {
             const { relativePath } = await opts.spill.store.write({
               sessionId: opts.sessionId ?? "",
@@ -1909,7 +1916,6 @@ export function createRunner(opts: RunnerOptions): Runner {
               provider,
               ratio: provider / estimated,
               source: measuredTokens !== undefined ? "anchor" : "absolute",
-              bytesPerToken: 4,
             },
           });
           calibrationEmitted = true;

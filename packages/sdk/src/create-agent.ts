@@ -64,6 +64,7 @@ import {
   narrowPermission,
   CAP_AGENT_DEPTH_AVAILABLE,
   deriveCompactionMaxTokens,
+  resolvePruneOptions,
 } from "@volto/core";
 import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
@@ -1422,6 +1423,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         tokenizer: resolvedCompaction.tokenizer ?? defaultTokenizer,
       }
     : undefined;
+
+  if (compactionConfig) {
+    // Fail before the turn starts, not mid-compaction: a budget that can
+    // never shrink (head + tail >= maxChars) is a configuration error.
+    resolvePruneOptions({
+      maxChars: compactionConfig.toolResultMaxChars ?? 8_192,
+      ...(compactionConfig.toolResultHeadChars !== undefined
+        ? { headChars: compactionConfig.toolResultHeadChars }
+        : {}),
+      ...(compactionConfig.toolResultTailChars !== undefined
+        ? { tailChars: compactionConfig.toolResultTailChars }
+        : {}),
+    });
+  }
 
   // ── Assemble all tools ────────────────────
   // Collect plugins first — their tools are merged into the custom tool set

@@ -248,7 +248,7 @@ export type { CompactionBudgetInput } from "./compaction-budget.js";
 export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingTodos } from "./todo-format.js";
 
 // Tool-result pruning — deterministic head/tail cut under a char budget
-export { pruneOversizedToolResults } from "./tool-result-prune.js";
+export { pruneOversizedToolResults, resolvePruneOptions } from "./tool-result-prune.js";
 export type { PruneToolResultOptions, PrunedToolResult } from "./tool-result-prune.js";
 
 // Tool-result spill — pure decision + model-facing reference rendering

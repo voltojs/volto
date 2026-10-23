@@ -172,4 +172,65 @@ describe("Runner — provider-usage anchor", () => {
     expect(spy.calls).toHaveLength(2);
   });
 
+  it("falls back when the header hash no longer matches", async () => {
+    const history = initialState().messages;
+    const anchorState: PromptAnchorState = {
+      anchor: { totalTokens: 30, messageIndex: history.length, headerHash: "other", trusted: true },
+    };
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ok")]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: initialState(),
+      compaction,
+      promptAnchor: anchorState,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect(spy.calls).toHaveLength(2);
+  });
+
+  it("clears the anchor when a prune write-back rewrites the surface", async () => {
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "sys" },
+      { id: "t1", role: "tool", content: [{ type: "tool_result", toolUseId: "call-1", content: [{ type: "text", text: "Z".repeat(2_000) }] }] },
+    ];
+    const anchorState: PromptAnchorState = {
+      anchor: { totalTokens: 600, messageIndex: messages.length, headerHash: HEADER_HASH, trusted: true },
+    };
+    const spy = createSpyModelPort([textScript("ack")]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: { ...initialState(), messages },
+      compaction: { ...compaction, toolResultMaxChars: 100 },
+      promptAnchor: anchorState,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect(anchorState.anchor).toBeUndefined();
+  });
+
+  it("marks an anchor untrusted when usage is below the full heuristic price", async () => {
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "sys" },
+      { id: "u1", role: "user", content: "hi" },
+    ];
+    const anchorState: PromptAnchorState = {};
+    const spy = createSpyModelPort([textScript("ok", 1, 1)]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: { ...initialState(), messages },
+      compaction: { ...compaction, maxTokens: 500 },
+      promptAnchor: anchorState,
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect(anchorState.anchor?.trusted).toBe(false);
+  });
+
 });

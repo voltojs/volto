@@ -22,6 +22,9 @@ const BYTES_PER_TOKEN = 4;
 const UTF8 = new TextEncoder();
 
 export function createHeuristicTokenizer(bytesPerToken: number = BYTES_PER_TOKEN): Tokenizer {
+  if (!Number.isFinite(bytesPerToken) || bytesPerToken <= 0) {
+    throw new Error("createHeuristicTokenizer: bytesPerToken must be a positive finite number");
+  }
   return {
     count(text: string): number {
       if (text.length === 0) return 0;

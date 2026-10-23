@@ -206,4 +206,20 @@ describe("compactNow", () => {
     const textBlock = resultBlock.content.find((b) => b.type === "text")!;
     expect(textBlock.text!.length).toBeLessThan(overSized.length);
   });
+  it("rejects a prune budget that cannot shrink at construction", () => {
+    const spy = createSpyModelPort([textScript("ok")]);
+    expect(() =>
+      createAgent({
+        modelPort: spy,
+        compaction: {
+          maxTokens: 100,
+          recentKeepCount: 1,
+          toolResultMaxChars: 100,
+          toolResultHeadChars: 60,
+          toolResultTailChars: 60,
+        },
+      }),
+    ).toThrow(/marker/);
+  });
+
 });

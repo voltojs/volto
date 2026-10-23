@@ -185,6 +185,8 @@ export interface ToolResultsPrunedInput {
     savedTokens?: number;
     /** Prefix invalidation price; present only on the earliest entry. */
     cacheResetTokens?: number;
+    /** True when cacheResetTokens came from the absolute fallback estimate. */
+    cacheResetEstimated?: boolean;
   }>;
 }
 

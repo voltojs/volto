@@ -654,4 +654,43 @@ describe("Runner — compaction wiring", () => {
     expect(spy.calls).toHaveLength(2);
   });
 
+  it("does not prune a result that is already in spill form", async () => {
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      makeToolResult("tr1", "call-1", "N".repeat(2_000)),
+      makeToolResult("tr2", "call-2", "full output saved to spill/x.txt " + "S".repeat(2_000)),
+    ];
+    const writes: Array<{ toolCallId: string }> = [];
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ack")]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      eventSink: { emit(event) { events.push(event as never); } },
+      spill: {
+        store: {
+          async write(input) {
+            writes.push(input);
+            return { relativePath: "spill/s/x.txt" };
+          },
+        },
+      },
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 500,
+        recentKeepCount: 4,
+        toolResultMaxChars: 100,
+        pruneSpill: true,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "go" });
+
+    expect(writes.map((w) => w.toolCallId)).toEqual(["call-1"]);
+    const prune = events.find((e) => e.type === "tool_results_pruned");
+    const entries = prune?.data.entries as Array<{ toolCallId: string }>;
+    expect(entries.map((e) => e.toolCallId)).toEqual(["call-1"]);
+  });
+
 });

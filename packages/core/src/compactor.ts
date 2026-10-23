@@ -85,7 +85,7 @@ export interface CompactionConfig {
   recentKeepCount?: number;
   /**
    * Soft character budget for a single tool_result text block. Oversized
-   * blocks are head/tail pruned before summarization; default 8000 at the
+   * blocks are head/tail pruned before summarization; default 8192 at the
    * Runner call site.
    */
   toolResultMaxChars?: number;

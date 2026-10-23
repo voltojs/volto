@@ -192,7 +192,7 @@ describe("pruneOversizedToolResults — structured blocks", () => {
     const s = structured("in budget");
     const t: TextContent = { type: "text", text: "also in budget" };
     const { messages, pruned } = pruneOversizedToolResults([toolMessage([t, s])], {
-      maxChars: 20,
+      maxChars: 80,
     });
     const blocks = resultBlocks(messages);
     expect(blocks[1]).toBe(s);
@@ -204,7 +204,7 @@ describe("pruneOversizedToolResults — structured blocks", () => {
     const body = "structured-body-".repeat(10); // 160 code points
     const s = structured(body);
     const { messages, pruned } = pruneOversizedToolResults([toolMessage([s])], {
-      maxChars: 20,
+      maxChars: 80,
     });
     const blocks = resultBlocks(messages);
     // No structured shell survives the cut: post-cut data would be incomplete.
@@ -214,7 +214,7 @@ describe("pruneOversizedToolResults — structured blocks", () => {
     // projection would get.
     const { messages: textRef } = pruneOversizedToolResults(
       [toolMessage([{ type: "text", text: body }])],
-      { maxChars: 20 },
+      { maxChars: 80 },
     );
     expect(blocks).toEqual(resultBlocks(textRef));
     expect((blocks[0] as TextContent).type).toBe("text");
@@ -226,27 +226,27 @@ describe("pruneOversizedToolResults — structured blocks", () => {
   });
 
   it("(c) boundary: exactly at budget untouched, one code point over degrades and cuts", () => {
-    const atBudget = structured("x".repeat(20));
-    const overBudget = structured("x".repeat(21));
+    const atBudget = structured("x".repeat(80));
+    const overBudget = structured("x".repeat(81));
     const { messages: untouched } = pruneOversizedToolResults(
       [toolMessage([atBudget])],
-      { maxChars: 20 },
+      { maxChars: 80 },
     );
     expect(resultBlocks(untouched)[0]).toBe(atBudget);
 
     const { messages: cut } = pruneOversizedToolResults([toolMessage([overBudget])], {
-      maxChars: 20,
+      maxChars: 80,
     });
     const blocks = resultBlocks(cut);
     expect(blocks.every((b) => b.type !== "structured")).toBe(true);
-    expect((blocks[0] as TextContent).text).toContain("[omitted 9 chars]");
+    expect((blocks[0] as TextContent).text).toContain("[omitted 31 chars]");
   });
 
   it("(d) interleaved [text, structured-over, image]: only the structured degrades, order preserved", () => {
     const t: TextContent = { type: "text", text: "head text" };
     const s = structured("S".repeat(100));
     const { messages } = pruneOversizedToolResults([toolMessage([t, s, IMAGE])], {
-      maxChars: 20,
+      maxChars: 80,
     });
     const blocks = resultBlocks(messages);
     expect(blocks).toHaveLength(3);

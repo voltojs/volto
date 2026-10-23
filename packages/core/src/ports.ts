@@ -570,6 +570,7 @@ export interface TranscriptEventMap {
       charsAfter: number;
       savedTokens?: number;
       cacheResetTokens?: number;
+      cacheResetEstimated?: boolean;
     }>;
   };
   /** A dynamic mid-conversation injection: a message appended or spliced in

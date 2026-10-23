@@ -31,9 +31,6 @@ export interface PrunedToolResult {
 const HEAD_RATIO = 0.5;
 /** Share of the budget kept from the end of the text (DSH: 12.5%). */
 const TAIL_RATIO = 0.125;
-/** Room reserved for the omission marker on production-sized budgets. */
-const MARKER_RESERVE_CHARS = 64;
-
 /** Unicode code-point count (not UTF-16 code units). */
 function codePointLength(text: string): number {
   return [...text].length;
@@ -43,7 +40,12 @@ function codePointLength(text: string): number {
  * Head/tail cut with an explicit omission marker. Slicing by code point
  * never splits a surrogate pair. Deterministic: no locale, no clock.
  */
-function pruneText(text: string, maxChars: number, headChars: number, tailChars: number): string {
+function pruneText(
+  text: string,
+  maxChars: number,
+  headChars: number,
+  tailChars: number,
+): string | undefined {
   const points = [...text];
   if (points.length <= maxChars) return text;
   const headLen = Math.min(headChars, points.length);
@@ -51,7 +53,11 @@ function pruneText(text: string, maxChars: number, headChars: number, tailChars:
   const head = points.slice(0, headLen).join("");
   const tail = tailLen > 0 ? points.slice(points.length - tailLen).join("") : "";
   const omitted = points.length - headLen - tailLen;
-  return `${head}… [omitted ${omitted} chars] …${tail}`;
+  const cut = `${head}… [omitted ${omitted} chars] …${tail}`;
+  // A tiny threshold cannot fit the marker. Shrinking is the contract; if the
+  // marked result would be longer than the input, leave the block untouched
+  // rather than grow the prompt.
+  return codePointLength(cut) <= maxChars ? cut : undefined;
 }
 
 /** Total code points across the text blocks of a tool_result content array. */
@@ -61,6 +67,29 @@ function textChars(content: readonly ToolResultBlock[]): number {
     if (b.type === "text" || b.type === "structured") n += codePointLength(b.text);
   }
   return n;
+}
+
+/** Validate and default a prune budget. Throws on a configuration that can never shrink. */
+export function resolvePruneOptions(opts: PruneToolResultOptions): {
+  maxChars: number;
+  headChars: number;
+  tailChars: number;
+} {
+  const maxChars = opts.maxChars;
+  if (!Number.isInteger(maxChars) || maxChars < 1) {
+    throw new Error("pruneOversizedToolResults: maxChars must be a positive integer");
+  }
+  const headChars = opts.headChars ?? Math.floor(maxChars * HEAD_RATIO);
+  const tailChars = opts.tailChars ?? Math.floor(maxChars * TAIL_RATIO);
+  if (!Number.isInteger(headChars) || !Number.isInteger(tailChars) || headChars < 0 || tailChars < 0) {
+    throw new Error("pruneOversizedToolResults: headChars/tailChars must be non-negative integers");
+  }
+  if (headChars + tailChars >= maxChars) {
+    throw new Error(
+      "pruneOversizedToolResults: headChars + tailChars must leave room for the omission marker",
+    );
+  }
+  return { maxChars, headChars, tailChars };
 }
 
 /**
@@ -79,25 +108,7 @@ export function pruneOversizedToolResults(
   messages: Message[],
   opts: PruneToolResultOptions,
 ): { messages: Message[]; pruned: PrunedToolResult[] } {
-  const maxChars = opts.maxChars;
-  if (!Number.isInteger(maxChars) || maxChars < 1) {
-    throw new Error("pruneOversizedToolResults: maxChars must be a positive integer");
-  }
-  const headChars = opts.headChars ?? Math.floor(maxChars * HEAD_RATIO);
-  const tailChars = opts.tailChars ?? Math.floor(maxChars * TAIL_RATIO);
-  if (!Number.isInteger(headChars) || !Number.isInteger(tailChars) || headChars < 0 || tailChars < 0) {
-    throw new Error("pruneOversizedToolResults: headChars/tailChars must be non-negative integers");
-  }
-  if (headChars + tailChars >= maxChars) {
-    throw new Error(
-      "pruneOversizedToolResults: headChars + tailChars must leave room for the omission marker",
-    );
-  }
-  if (maxChars >= 512 && headChars + tailChars + MARKER_RESERVE_CHARS > maxChars) {
-    throw new Error(
-      "pruneOversizedToolResults: headChars + tailChars must leave 64 chars for the omission marker",
-    );
-  }
+  const { maxChars, headChars, tailChars } = resolvePruneOptions(opts);
   const pruned: PrunedToolResult[] = [];
   const next = messages.map((msg) => {
     if (msg.role !== "tool") return msg;
@@ -108,17 +119,21 @@ export function pruneOversizedToolResults(
       const budgeted = block.content.map((b) => {
         if (b.type === "text") {
           if (codePointLength(b.text) <= maxChars) return b;
+          const cut = pruneText(b.text, maxChars, headChars, tailChars);
+          if (cut === undefined) return b;
           blockChanged = true;
-          return { ...b, text: pruneText(b.text, maxChars, headChars, tailChars) };
+          return { ...b, text: cut };
         }
         if (b.type === "structured") {
           if (codePointLength(b.text) <= maxChars) return b;
+          const cut = pruneText(b.text, maxChars, headChars, tailChars);
+          if (cut === undefined) return b;
           blockChanged = true;
           // Post-cut data would be incomplete, so keeping the structured
           // shell would lie — degrade to an equivalent plain text block
           // carrying the (cut) projection, then apply the same head/tail
           // cut as text blocks.
-          return { type: "text" as const, text: pruneText(b.text, maxChars, headChars, tailChars) };
+          return { type: "text" as const, text: cut };
         }
         return b;
       });

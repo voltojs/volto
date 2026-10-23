@@ -35,9 +35,9 @@ export interface CompactionBudgetInput {
   contextWindow?: number;
   /** Per-call output cap; reserved out of the window before headroom. */
   maxOutputTokens?: number;
-  /** Override the default ratio (must be in (0, 1)). */
+  /** Override the default ratio; values outside (0, 1) fall back to 0.8. */
   ratio?: number;
-  /** Override the 0.8 headroom reserve. */
+  /** Override the default headroom reserve (65,536 tokens). */
   headroomTokens?: number;
   /** Override the 60k fallback used when the window is unknown. */
   fallback?: number;

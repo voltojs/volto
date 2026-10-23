@@ -262,7 +262,7 @@ describe("tool_results_pruned", () => {
       {
         type: "tool_results_pruned",
         entries: [
-          { toolCallId: "call-1", charsBefore: 100, charsAfter: 20, content: "PR", savedTokens: 80, cacheResetTokens: 50 },
+          { toolCallId: "call-1", charsBefore: 100, charsAfter: 20, content: "PR", savedTokens: 80, cacheResetTokens: 50, cacheResetEstimated: true },
           { toolCallId: "call-2", charsBefore: 80, charsAfter: 10, content: "Q", savedTokens: 70 },
         ],
       },
@@ -277,6 +277,7 @@ describe("tool_results_pruned", () => {
       charsAfter: 20,
       savedTokens: 80,
       cacheResetTokens: 50,
+      cacheResetEstimated: true,
     });
     expect(data.entries[1]).not.toHaveProperty("cacheResetTokens");
   });
