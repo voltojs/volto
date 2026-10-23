@@ -49,6 +49,9 @@ import {
   hasCommandRules,
   policyDenialMessage,
   decideCompaction,
+  estimateFromAnchor,
+  estimateContextLayerTokens,
+  estimateToolDefinitionTokens,
   estimateTokens,
   pruneOversizedToolResults,
   classifyError,
@@ -65,7 +68,7 @@ import {
   renderLoopReminder,
   renderLoopIntervention,
 } from "@volto/core";
-import type { StepContext, ReducerState } from "@volto/core";
+import type { PromptAnchorState, StepContext, ReducerState } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
 import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
@@ -322,6 +325,14 @@ export interface RunnerOptions {
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
   compaction?: CompactionConfig;
+  /**
+   * Provider-usage anchor shared by the per-turn Runners of one agent
+   * instance. The Runner updates it after each successful model call and
+   * clears it whenever compaction or pruning rewrites the surface; a host
+   * that omits it gets a fresh anchor per Runner (still correct, just no
+   * cross-turn reuse).
+   */
+  promptAnchor?: PromptAnchorState;
   /**
    * Cache breakpoints — message indices where provider-side prompt cache
    * should be anchored. Passed through to ModelRequest for provider translation.
@@ -655,6 +666,9 @@ export function createRunner(opts: RunnerOptions): Runner {
   // Hash of the last request_header written this turn; a matching hash means
   // the header has not changed and need not be written again.
   let lastHeaderHash: string | null = null;
+  // Provider-usage anchor for compaction pressure. Shared with other
+  // per-turn Runners through RunnerOptions.promptAnchor; never serialized.
+  const promptAnchorState: PromptAnchorState = opts.promptAnchor ?? {};
   // Timing/aggregation state for the in-flight model call. Hoisted here
   // (rather than declared inside runModelStream) because forwardEmit() reads
   // them when it intercepts the model_done emit to record assistant_message —
@@ -1029,11 +1043,14 @@ export function createRunner(opts: RunnerOptions): Runner {
           // Emitted by the reducer's compaction_applied handler (write-back).
           // The recorder's emit hook streams the same stamped event (task-r6
           // double write), so no separate raw emit here.
+          promptAnchorState.anchor = undefined;
           recorder.record("compaction", event.data as TranscriptEventMap["compaction"]);
           continue;
 
         case "tool_results_pruned":
           // Emitted by the reducer's tool_results_pruned handler (write-back).
+          // The rewritten surface invalidates the provider-usage anchor.
+          promptAnchorState.anchor = undefined;
           recorder.record("tool_results_pruned", event.data as TranscriptEventMap["tool_results_pruned"]);
           continue;
 
@@ -1195,7 +1212,10 @@ export function createRunner(opts: RunnerOptions): Runner {
    * is returned — the prune write-back already happened, so its progress is
    * kept even when summarization fails.
    */
-  async function runCompactionWriteBack(messages: Message[]): Promise<CompactionWriteBackOutcome> {
+  async function runCompactionWriteBack(
+    messages: Message[],
+    measuredTokens?: number,
+  ): Promise<CompactionWriteBackOutcome> {
     const passthrough = (msgs: Message[]): CompactionWriteBackOutcome => ({
       messages: msgs,
       replacedCount: 0,
@@ -1204,14 +1224,21 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     if (!opts.compaction) return passthrough(messages);
 
+    const reservedTokens =
+      estimateContextLayerTokens(stepContext.contextLayers ?? [], opts.compaction.tokenizer)
+      + estimateToolDefinitionTokens(stepContext.tools, opts.compaction.tokenizer);
     const decideOpts = {
       tokenizer: opts.compaction.tokenizer,
       maxTokens: opts.compaction.maxTokens,
       recentKeepCount: opts.compaction.recentKeepCount ?? 4,
       pinnedMessageIds: state.pinnedMessageIds,
+      reservedTokens,
     };
 
-    const decision = decideCompaction(messages, decideOpts);
+    const decision = decideCompaction(messages, {
+      ...decideOpts,
+      ...(measuredTokens !== undefined ? { measuredTokens } : {}),
+    });
     if (!decision.shouldCompact || !decision.summaryPrompt) return passthrough(messages);
 
     // T10 Task 3 — preCompact hook (spec 2026-10-17, D3 / F-032): fires
@@ -1342,8 +1369,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   }
 
   /** Thin wrapper kept for the pre-request call site — returns messages only. */
-  async function applyCompaction(messages: Message[]): Promise<Message[]> {
-    const { messages: out } = await runCompactionWriteBack(messages);
+  async function applyCompaction(messages: Message[], measuredTokens?: number): Promise<Message[]> {
+    const { messages: out } = await runCompactionWriteBack(messages, measuredTokens);
     return out;
   }
 
@@ -1358,13 +1385,62 @@ export function createRunner(opts: RunnerOptions): Runner {
    * If a retriable error occurs and the reducer stays in calling_model,
    * returns without synthesizing — the main loop will call runModelStream again.
    */
+  /** The static request header shared by hashing and the transcript record. */
+  function buildHeaderPayload() {
+    // Mirror the seed system prompt into the header (prepended, so it sits
+    // closest to the static prefix). It deliberately does NOT go through
+    // stepContext.contextLayers: the ContextAssembler converts every layer
+    // into an extra system message, so the model would receive the prompt
+    // twice. Skipped when the host's own layers already carry the id, so a
+    // host managing its own "system-prompt" layer cannot collide.
+    const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
+    if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
+      systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
+    }
+    return {
+      systemLayers,
+      tools: stepContext.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        schema: t.inputSchema,
+      })),
+      params: {
+        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+        ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
+        ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
+      },
+    };
+  }
+
+  /** Hash the static request header; `undefined` when it is not serializable. */
+  function computeHeaderHash(): string | undefined {
+    try {
+      return crypto
+        .createHash("sha256")
+        .update(JSON.stringify(buildHeaderPayload()))
+        .digest("hex")
+        .slice(0, 16);
+    } catch {
+      return undefined;
+    }
+  }
+
   async function runModelStream(): Promise<void> {
     // A new model call starts a new batch: a loop tier that never reached
     // its post-batch fire site must not ride along into a later batch.
     pendingLoopInjection = null;
 
+    // The header hash is needed before compaction (anchor validity) and again
+    // for the transcript record; compute it once from the static stepContext.
+    const currentHeaderHash = computeHeaderHash();
+    const measuredTokens =
+      opts.compaction && currentHeaderHash !== undefined
+        && promptAnchorState.anchor?.headerHash === currentHeaderHash
+        ? estimateFromAnchor(promptAnchorState.anchor, state.messages, opts.compaction.tokenizer)
+        : undefined;
+
     // Apply compaction before building the main request
-    const messages = await applyCompaction(state.messages);
+    const messages = await applyCompaction(state.messages, measuredTokens);
 
     // ContextAssembler: cache-friendly ordering + breakpoint computation.
     // Same pure function the reducer uses for its `call_model` effect, so
@@ -1421,35 +1497,9 @@ export function createRunner(opts: RunnerOptions): Runner {
     if (recorder.enabled || opts.eventSink !== undefined) {
       let headerHash: string | undefined;
       try {
-        // Mirror the seed system prompt into the header (prepended, so it sits
-        // closest to the static prefix). It deliberately does NOT go through
-        // stepContext.contextLayers: the ContextAssembler converts every layer
-        // into an extra system message, so the model would receive the prompt
-        // twice. Skipped when the host's own layers already carry the id, so a
-        // host managing its own "system-prompt" layer cannot collide.
-        const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
-        if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
-          systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
-        }
-        const headerPayload = {
-          systemLayers,
-          tools: stepContext.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            schema: t.inputSchema,
-          })),
-          params: {
-            ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
-            ...(stepContext.temperature !== undefined ? { temperature: stepContext.temperature } : {}),
-            ...(stepContext.maxTokens !== undefined ? { maxTokens: stepContext.maxTokens } : {}),
-          },
-        };
-        headerHash = crypto
-          .createHash("sha256")
-          .update(JSON.stringify(headerPayload))
-          .digest("hex")
-          .slice(0, 16);
-        if (headerHash !== lastHeaderHash) {
+        const headerPayload = buildHeaderPayload();
+        headerHash = currentHeaderHash;
+        if (headerHash !== undefined && headerHash !== lastHeaderHash) {
           // Same callStartedAt reading as model_call_start below — request_header
           // describes the call model_call_start announces, so it must not sort
           // after it when a reader orders the transcript by `time`.
@@ -1531,6 +1581,12 @@ export function createRunner(opts: RunnerOptions): Runner {
       layerOrigins: assembled.layerOrigins,
       reasoningEffort: stepContext.reasoningEffort,
     };
+
+    /** Full heuristic price of this request, used to vet the usage anchor. */
+    const requestEstimate = opts.compaction
+      ? estimateTokens(finalMessages, opts.compaction.tokenizer)
+        + estimateToolDefinitionTokens(stepContext.tools, opts.compaction.tokenizer)
+      : undefined;
 
     const modelSpan = opts.telemetry?.startSpan("model_call", { model: stepContext.model });
     const modelSpanStartedAt = opts.clock?.now() ?? Date.now();
@@ -1753,6 +1809,19 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       const endTime = opts.clock?.now() ?? Date.now();
       const usageData = capturedUsage ?? lastUsage;
+      // A completed call is the only point at which the provider usage and
+      // the assistant message describe the same surface. Missing usage (a
+      // failed/retried call) leaves the previous anchor untouched: the
+      // surface did not change, so that anchor is still valid.
+      if (opts.compaction && currentHeaderHash !== undefined && capturedUsage !== undefined) {
+        const total = totalUsageTokens(capturedUsage);
+        promptAnchorState.anchor = {
+          totalTokens: total,
+          messageIndex: state.messages.length,
+          headerHash: currentHeaderHash,
+          trusted: requestEstimate !== undefined && total >= requestEstimate,
+        };
+      }
       if (modelSpan) {
         if (modelError) modelSpan.setAttribute("error", true);
         if (usageData) {
