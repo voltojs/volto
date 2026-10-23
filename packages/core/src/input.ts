@@ -181,6 +181,10 @@ export interface ToolResultsPrunedInput {
     charsBefore: number;
     charsAfter: number;
     content: string | ToolResultBlock[];
+    /** Tokenizer-estimated savings for this entry. */
+    savedTokens?: number;
+    /** Prefix invalidation price; present only on the earliest entry. */
+    cacheResetTokens?: number;
   }>;
 }
 

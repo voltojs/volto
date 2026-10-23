@@ -564,7 +564,13 @@ export interface TranscriptEventMap {
   };
   /** Durable write-back of oversized tool_result pruning into state.messages. */
   tool_results_pruned: {
-    entries: Array<{ toolCallId: string; charsBefore: number; charsAfter: number }>;
+    entries: Array<{
+      toolCallId: string;
+      charsBefore: number;
+      charsAfter: number;
+      savedTokens?: number;
+      cacheResetTokens?: number;
+    }>;
   };
   /** A dynamic mid-conversation injection: a message appended or spliced in
    * at runtime, distinct from the static system-prompt layers audited via

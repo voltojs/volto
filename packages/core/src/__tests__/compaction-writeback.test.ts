@@ -251,4 +251,33 @@ describe("tool_results_pruned", () => {
     const block = (tool.content as Array<{ type: string; content: Array<{ type: string; text: string }> }>)[0]!;
     expect(block.content).toEqual([{ type: "text", text: "PR" }]);
   });
+
+  it("preserves savedTokens and the earliest cacheResetTokens in the event", () => {
+    const messages: Message[] = [
+      { id: "t1", role: "tool", content: [{ type: "tool_result", toolUseId: "call-1", content: [{ type: "text", text: "LONG" }] }] },
+      { id: "t2", role: "tool", content: [{ type: "tool_result", toolUseId: "call-2", content: [{ type: "text", text: "LONG" }] }] },
+    ];
+    const { effects } = step(
+      base(messages),
+      {
+        type: "tool_results_pruned",
+        entries: [
+          { toolCallId: "call-1", charsBefore: 100, charsAfter: 20, content: "PR", savedTokens: 80, cacheResetTokens: 50 },
+          { toolCallId: "call-2", charsBefore: 80, charsAfter: 10, content: "Q", savedTokens: 70 },
+        ],
+      },
+      ctx,
+    );
+    const emit = effects.find((e) => e.type === "emit" && e.event?.type === "tool_results_pruned")!;
+    const data = (emit as unknown as { event: { data: { entries: Array<Record<string, unknown>> } } })
+      .event.data;
+    expect(data.entries[0]).toEqual({
+      toolCallId: "call-1",
+      charsBefore: 100,
+      charsAfter: 20,
+      savedTokens: 80,
+      cacheResetTokens: 50,
+    });
+    expect(data.entries[1]).not.toHaveProperty("cacheResetTokens");
+  });
 });

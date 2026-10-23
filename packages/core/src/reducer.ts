@@ -347,11 +347,15 @@ export function step(
             data: {
               // content is intentionally omitted from the event: the event
               // records that pruning happened, not the pruned text itself.
-              entries: input.entries.map(({ toolCallId, charsBefore, charsAfter }) => ({
-                toolCallId,
-                charsBefore,
-                charsAfter,
-              })),
+              entries: input.entries.map(
+                ({ toolCallId, charsBefore, charsAfter, savedTokens, cacheResetTokens }) => ({
+                  toolCallId,
+                  charsBefore,
+                  charsAfter,
+                  ...(savedTokens !== undefined ? { savedTokens } : {}),
+                  ...(cacheResetTokens !== undefined ? { cacheResetTokens } : {}),
+                }),
+              ),
             },
           },
         },
