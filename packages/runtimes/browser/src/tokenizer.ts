@@ -8,10 +8,10 @@ import type { Tokenizer } from "@volto/core";
  * only if the client is updated too — see the note in core's module.
  */
 export interface BrowserTokenizerOptions {
-  /** Characters per token estimate (default: 4) */
-  charsPerToken?: number;
+  /** UTF-8 bytes per token estimate (default: 4) */
+  bytesPerToken?: number;
 }
 
 export function createBrowserTokenizer(opts: BrowserTokenizerOptions = {}): Tokenizer {
-  return createHeuristicTokenizer(opts.charsPerToken);
+  return createHeuristicTokenizer(opts.bytesPerToken);
 }

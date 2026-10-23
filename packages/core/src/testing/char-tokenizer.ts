@@ -7,18 +7,23 @@
  */
 
 import type { Tokenizer } from "../ports.js";
-import { createHeuristicTokenizer } from "../heuristic-tokenizer.js";
 
 /** Characters per token — tuned to approximate GPT-4 encoding ratio */
 const CHARS_PER_TOKEN = 4;
 
 /**
- * Testing alias for the production heuristic. Kept so existing tests keep
- * reading naturally; new production code should import
- * createHeuristicTokenizer directly.
+ * Character-based testing tokenizer. Deliberately does NOT delegate to the
+ * production heuristic: production now prices UTF-8 bytes, and a test passing
+ * `charsPerToken: 1` expects one UTF-16 code unit to be one token, not one
+ * byte. Keeping the formula local preserves that test semantics.
  */
-export function createCharTokenizer(charsPerToken?: number): Tokenizer {
-  return createHeuristicTokenizer(charsPerToken);
+export function createCharTokenizer(charsPerToken: number = CHARS_PER_TOKEN): Tokenizer {
+  return {
+    count(text: string): number {
+      if (text.length === 0) return 0;
+      return Math.max(1, Math.ceil(text.length / charsPerToken));
+    },
+  };
 }
 
 /**

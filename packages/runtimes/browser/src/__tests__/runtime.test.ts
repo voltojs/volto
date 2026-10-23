@@ -72,7 +72,7 @@ describe("BrowserTokenizer", () => {
   });
 
   it("respects custom charsPerToken", () => {
-    const tokenizer = createBrowserTokenizer({ charsPerToken: 2 });
+    const tokenizer = createBrowserTokenizer({ bytesPerToken: 2 });
     expect(tokenizer.count("abcd")).toBe(2);
   });
 });

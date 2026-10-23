@@ -10,18 +10,21 @@ describe("createHeuristicTokenizer", () => {
     expect(tokenizer.count("a")).toBe(1);
   });
 
-  it("rounds up at four characters per token", () => {
+  it("rounds up at four UTF-8 bytes per token", () => {
     expect(tokenizer.count("abcd")).toBe(1);
     expect(tokenizer.count("abcde")).toBe(2);
+    expect(tokenizer.count("中文")).toBe(2); // 6 bytes
+    expect(tokenizer.count("😀")).toBe(1); // 4 bytes
   });
 
   it("honours a custom density", () => {
     expect(createHeuristicTokenizer(2).count("abcd")).toBe(2);
+    expect(createHeuristicTokenizer(2).count("中文")).toBe(3); // 6 bytes / 2
   });
 
-  it("agrees with the testing char tokenizer, which now delegates to it", () => {
-    for (const sample of ["", "a", "hello world", "中文内容测试", "x".repeat(1000)]) {
-      expect(createCharTokenizer().count(sample)).toBe(tokenizer.count(sample));
-    }
+  it("keeps the testing char tokenizer on UTF-16 code units", () => {
+    expect(createCharTokenizer(1).count("中文")).toBe(2);
+    expect(createCharTokenizer(1).count("😀")).toBe(2); // surrogate pair
+    expect(createCharTokenizer(4).count("abcd")).toBe(1);
   });
 });

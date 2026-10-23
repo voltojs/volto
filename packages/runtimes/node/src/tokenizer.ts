@@ -7,6 +7,6 @@ import type { Tokenizer } from "@volto/core";
  * real tokenizer (tiktoken and friends) here and both sides move together
  * only if the client is updated too — see the note in core's module.
  */
-export function createNodeTokenizer(charsPerToken?: number): Tokenizer {
-  return createHeuristicTokenizer(charsPerToken);
+export function createNodeTokenizer(bytesPerToken?: number): Tokenizer {
+  return createHeuristicTokenizer(bytesPerToken);
 }
