@@ -42,7 +42,7 @@ export interface ConfigLayer {
   /** Adapter-owned reasoning effort id, forwarded verbatim to the ModelPort */
   reasoningEffort?: string;
 
-  /** Max inner-loop iterations */
+  /** Max model calls per turn (default: no cap) */
   maxIterations?: number;
 
   /** Token budget per turn */
@@ -63,7 +63,7 @@ export interface ConfigLayer {
   /** Max wallclock milliseconds per turn */
   maxWallclockMs?: number;
 
-  /** Max consecutive identical failed tool calls */
+  /** Loop-ladder threshold K (default 3; 0 or 1 disables detection) */
   maxLoopCount?: number;
 
   /** Loop interventions consumed before forced termination (default 2, 0 = hard termination only) */

@@ -96,10 +96,18 @@ export interface WiringOptions {
   maxTokens?: number;
   /**
    * Loop-detection threshold (K) forwarded verbatim to createAgent()'s
-   * `maxLoopCount` — the same passthrough shape as `maxTokens`. Omit to
-   * leave the whole loop ladder off (detection is disabled without it).
+   * `maxLoopCount` — the same passthrough shape as `maxTokens`. Omit to use
+   * the SDK default (3); pass 0 or 1 to disable the whole ladder.
    */
   maxLoopCount?: number;
+  /**
+   * Max model calls per turn, forwarded verbatim to createAgent()'s
+   * `maxIterations`. Omit for no step cap (long tasks run until the model
+   * finishes, the user cancels, or a resource budget fires). A host that
+   * wants a hard bound — or a test that needs to hit it cheaply — sets it
+   * here; hitting it surfaces as a visible turn_end error.
+   */
+  maxIterations?: number;
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
   /**
@@ -605,6 +613,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(allHooks.length > 0 ? { hooks: allHooks } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.maxLoopCount !== undefined ? { maxLoopCount: opts.maxLoopCount } : {}),
+    ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
     ...(opts.permissionConfig
       ? { permissionConfig: mergePermissionRules(opts.permissionConfig, permissionRules) }
       : {}),

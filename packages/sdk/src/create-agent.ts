@@ -259,6 +259,15 @@ function withPluginAgentSpecs(
 const DEFAULT_MAX_AGENT_DEPTH = 2;
 
 /**
+ * Default loop-ladder threshold (K). Long-horizon tasks need a no-progress
+ * guard, not a step cap: at K = 3 an identical repeated call earns an
+ * advisory reminder (repeat chains) or an intervention (error chains), so a
+ * model that is stuck gets nudged while a legitimate long task is never
+ * counted out. Pass `maxLoopCount: 0` (or 1) to turn the ladder off.
+ */
+const DEFAULT_MAX_LOOP_COUNT = 3;
+
+/**
  * Resolve a value: explicit opts wins, then config layer, then undefined.
  * Pure function — no side effects.
  */
@@ -542,7 +551,14 @@ export interface CreateAgentOptions {
    */
   reasoningEffort?: string;
 
-  /** Max inner-loop iterations before runaway guard fires (default: 20) */
+  /**
+   * Max model calls per turn (inner-loop iterations).
+   * Default: no limit — the loop ends when the model stops calling tools,
+   * the caller cancels, or a resource budget (tokenBudget / maxTokensPerTurn
+   * / maxDollarsPerTurn / maxWallclockMs) fires. Set a number only when a
+   * host wants a hard step bound (CI, hosted agents); hitting it closes the
+   * turn with a visible `turn_end` error instead of a silent stop.
+   */
   maxIterations?: number;
 
   /** Token budget per turn (default: no limit) */
@@ -575,7 +591,12 @@ export interface CreateAgentOptions {
   /** Max wallclock milliseconds per turn — Runner feeds budget_exceeded when exceeded (default: no limit) */
   maxWallclockMs?: number;
 
-  /** Max consecutive identical failed tool calls before loop intervention (default: no limit) */
+  /**
+   * K for the loop ladder: consecutive identical tool calls that trigger the
+   * advisory reminder (repeat chains) / intervention (error chains).
+   * Default: 3. Pass 0 or 1 to disable detection entirely; the ladder also
+   * needs K >= 2 by construction.
+   */
   maxLoopCount?: number;
 
   /** Loop interventions consumed before forced termination (default: 2, 0 = hard termination only) */
@@ -1665,7 +1686,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
     maxTokens: resolve(opts.maxTokens, "maxTokens"),
     temperature: resolve(opts.temperature, "temperature"),
-    maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount"),
+    maxLoopCount: resolve(opts.maxLoopCount, "maxLoopCount") ?? DEFAULT_MAX_LOOP_COUNT,
     maxLoopInterventions: resolve(opts.maxLoopInterventions, "maxLoopInterventions"),
     responseFormat: resolve(opts.responseFormat, "responseFormat"),
     permissionConfig,
@@ -3066,6 +3087,20 @@ function createSubAgentExecutor(
     const resolvedSubResponseFormat =
       childSpec?.responseFormat ??
       resolveConfigValue(opts.responseFormat, opts.config?.config, "responseFormat");
+
+    // Loop hygiene is inherited from the parent session: a stuck sub-agent is
+    // the same failure mode as a stuck main agent, and the repeat tier only
+    // nudges. The definition format has no maxLoopCount override, so the
+    // resolved parent value (including the SDK default) is authoritative.
+    const subMaxLoopCount =
+      resolveConfigValue(opts.maxLoopCount, opts.config?.config, "maxLoopCount") ??
+      DEFAULT_MAX_LOOP_COUNT;
+    const subMaxLoopInterventions = resolveConfigValue(
+      opts.maxLoopInterventions,
+      opts.config?.config,
+      "maxLoopInterventions",
+    );
+
     const subStepContext: StepContext = {
       tools: subToolDefs,
       // Model resolution chain (design §4.4): the per-dispatch input
@@ -3080,6 +3115,10 @@ function createSubAgentExecutor(
         childSpec?.temperature ??
         resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
       id: idPort,
+      maxLoopCount: subMaxLoopCount,
+      ...(subMaxLoopInterventions !== undefined
+        ? { maxLoopInterventions: subMaxLoopInterventions }
+        : {}),
       ...(resolvedSubReasoningEffort !== undefined
         ? { reasoningEffort: ReasoningEffortId(resolvedSubReasoningEffort) }
         : {}),

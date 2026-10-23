@@ -258,6 +258,42 @@ describe("step()", () => {
       expect(errorEmit).toBeDefined();
     });
 
+    it("has no step cap by default: 30 tool rounds keep the loop running", () => {
+      const state = createInitialState();
+      // The number of model calls is a property of the task, not a budget.
+      expect(state.maxIterations).toBeUndefined();
+
+      const inputs: AgentInput[] = [{ type: "user_message", content: "long task" }];
+      for (let i = 0; i < 30; i++) {
+        const callId = `call_${i}`;
+        inputs.push({
+          type: "model_chunk",
+          chunk: {
+            type: "tool_use_delta",
+            toolCallId: callId,
+            toolCallName: "read_file",
+            argumentsDelta: `{"path":"f${i}.ts"}`,
+          },
+        });
+        inputs.push({ type: "model_done", stopReason: "tool_use" });
+        inputs.push({
+          type: "tool_result",
+          toolCallId: callId,
+          toolName: "read_file",
+          result: { modelContent: "x" },
+        });
+      }
+
+      const { finalState, allEffects } = runChain(state, inputs);
+      // Still mid-turn after 30 rounds — no cap, no "Maximum iterations" error.
+      expect(finalState.status).toBe("calling_model");
+      expect(finalState.iterationCount).toBe(30);
+      expect(allEffects.some((e) => e.type === "done")).toBe(false);
+      expect(
+        allEffects.some((e) => e.type === "emit" && e.event.type === "error"),
+      ).toBe(false);
+    });
+
     it("should stop a runaway tool_use loop once maxIterations is reached", () => {
       const state = createInitialState({ maxIterations: 2 });
       // Model keeps asking to call tools forever; guard must terminate the loop.

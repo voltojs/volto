@@ -42,7 +42,14 @@ export interface StepContext {
   providerId?: string;
   maxTokens?: number;
   temperature?: number;
-  /** Max consecutive identical failed tool calls before loop intervention (undefined = no check) */
+  /**
+   * Loop-ladder threshold K: consecutive identical tool calls (same tool +
+   * input) that trigger advisory reminders (repeat chains) or interventions
+   * (error chains). The decision site requires K >= 2; `undefined` disables
+   * the ladder entirely. The SDK's product default is 3 (see create-agent's
+   * DEFAULT_MAX_LOOP_COUNT) — core itself stays mechanism-only, so a direct
+   * Runner caller opts in explicitly.
+   */
   maxLoopCount?: number;
   /**
    * Loop intervention budget per turn (spec 2026-10-16 D2). Default 2,
@@ -131,7 +138,13 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
     status: "idle",
     tokenBudget: undefined,
     tokensUsed: 0,
-    maxIterations: 20,
+    // No step cap by default: the number of model calls is a property of the
+    // task, not a budget. Long-horizon agents (DSH, Claude Code, Codex) run
+    // until the model stops calling tools, and bound *resources* (tokens /
+    // cost / wallclock) or detect no-progress instead. A host that wants a
+    // hard stop passes maxIterations explicitly; hitting it terminates the
+    // turn with an error that names the cap (never a silent "done").
+    maxIterations: undefined,
     iterationCount: 0,
     readFiles: [],
     queuedUserInputs: [],
@@ -1424,7 +1437,9 @@ function errorResult(state: ReducerState, message: string): StepResult {
  * model call (tool_use loop continuation or max_tokens continuation).
  */
 function limitReached(state: ReducerState): string | null {
-  if (state.iterationCount >= state.maxIterations) {
+  // undefined = no step cap (see createInitialState). Only an explicitly
+  // configured number bounds the inner loop.
+  if (state.maxIterations !== undefined && state.iterationCount >= state.maxIterations) {
     return "Maximum iterations reached";
   }
   if (state.tokenBudget !== undefined && state.tokensUsed >= state.tokenBudget) {

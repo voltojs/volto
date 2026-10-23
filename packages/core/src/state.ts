@@ -213,7 +213,15 @@ export interface AgentState {
   tokenBudget: number | undefined;
   /** Cumulative tokens consumed this turn (input + output), enforced against tokenBudget */
   tokensUsed: number;
-  maxIterations: number;
+  /**
+   * Runaway guard: max model calls (inner-loop iterations) per turn.
+   * Undefined = no step cap: the loop ends when the model stops calling
+   * tools, the user cancels, or a resource budget (tokens / cost /
+   * wallclock) fires. A number is an explicit host opt-in, not a default.
+   * Exceeding it terminates the turn with an error that names the cap
+   * (never a silent "done").
+   */
+  maxIterations: number | undefined;
   iterationCount: number;
   readFiles: ReadFileRecord[];
   /** Tool call pending HITL approval (serialized for checkpoint/resume) */
