@@ -593,6 +593,43 @@ describe("toTrajectoryView", () => {
     expect(contextRow.inputDetail).toMatch(/^<<<layer id="base" bytes="\d+">>>\n/);
   });
 
+  it("emits exactly one context row per turn when the static-prefix hash repeats across turns", () => {
+    // Each turn opens a fresh model request, so the runner writes one
+    // request_header per turn even when the payload hash is unchanged —
+    // the trajectory mirrors that 1:1: one row per turn, never per step.
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      {
+        time: 105,
+        type: "request_header",
+        data: { hash: "same", systemLayers: [{ id: "base", text: "be helpful" }], tools: [], params: {} },
+        turn: 1,
+        step: 1,
+      },
+      { time: 106, type: "model_call_start", data: { headerHash: "same" }, turn: 1, step: 1 },
+      { time: 107, type: "assistant_message", data: { content: [], stopReason: "tool_use", durationMs: 5 }, turn: 1, step: 1 },
+      { time: 108, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
+      { time: 109, type: "assistant_message", data: { content: [], stopReason: "end_turn", durationMs: 5 }, turn: 1, step: 2 },
+      { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+      {
+        time: 205,
+        type: "request_header",
+        data: { hash: "same", systemLayers: [{ id: "base", text: "be helpful" }], tools: [], params: {} },
+        turn: 2,
+        step: 1,
+      },
+      { time: 206, type: "model_call_start", data: { headerHash: "same" }, turn: 2, step: 1 },
+      { time: 210, type: "assistant_message", data: { content: [], stopReason: "end_turn", durationMs: 5 }, turn: 2, step: 1 },
+    ]);
+
+    const rows = toTrajectoryView(buildTurnRecords(events), events).rows;
+    const contextRows = rows.filter((r) => r.kind === "context");
+    expect(contextRows.map((r) => r.turn)).toEqual([1, 2]);
+    // Row count tracks turns, not model steps: turn 1 made two calls but
+    // still contributes a single context row.
+    expect(contextRows).toHaveLength(2);
+  });
+
   it("emits a reminder row per context_reminder, tagged with its source kind", () => {
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

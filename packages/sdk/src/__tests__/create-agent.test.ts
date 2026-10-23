@@ -618,6 +618,60 @@ describe("createAgent — SDK facade", () => {
       expect(systemMessages.some((m) => (m as { content: string }).content === "layer for: hello")).toBe(true);
     });
 
+    it("injects the seed and every context layer exactly once per request across turns, with one stable request_header per turn", async () => {
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("r1"), textScript("r2"), textScript("r3")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      const agent = createAgent({
+        modelPort,
+        systemPrompt: "SEED PROMPT",
+        chatStore,
+        chatSessionId: "chat-inv",
+        resolveContextLayers: async () => [
+          { id: "user-memory", text: "USER MEMORY LAYER" },
+          { id: "project-memory", text: "PROJECT MEMORY LAYER" },
+        ],
+      });
+
+      await agent.run("turn 1");
+      await agent.run("turn 2");
+      await agent.run("turn 3");
+
+      // Every model request (one per turn here) carries the seed and each
+      // layer exactly once — layers are re-resolved per turn but never
+      // accumulate in the conversation state across turns.
+      expect(capturedRequests).toHaveLength(3);
+      for (const req of capturedRequests) {
+        const systemContents = req.messages
+          .filter((m) => m.role === "system")
+          .map((m) => (m as { content: string }).content);
+        expect(systemContents.filter((c) => c === "SEED PROMPT")).toHaveLength(1);
+        expect(systemContents.filter((c) => c === "USER MEMORY LAYER")).toHaveLength(1);
+        expect(systemContents.filter((c) => c === "PROJECT MEMORY LAYER")).toHaveLength(1);
+      }
+
+      // The transcript records one request_header per turn (the audit
+      // snapshot of that turn's static prefix) — one row per turn in the
+      // trajectory, not one per turn per step — and the hash repeats
+      // because nothing in the static prefix changed between turns.
+      const headers = events.filter((e) => e.type === "request_header");
+      expect(headers.map((h) => h.turn)).toEqual([1, 2, 3]);
+      const hashes = new Set(headers.map((h) => (h.data as { hash: string }).hash));
+      expect(hashes.size).toBe(1);
+    });
+
     it("defaults contextLayers to empty when resolveContextLayers is not provided", async () => {
       const mockModel = createMockModelPort([textScript("ok")]);
       const agent = createAgent({ modelPort: mockModel });
