@@ -12,26 +12,32 @@ describe("deriveCompactionMaxTokens", () => {
     expect(deriveCompactionMaxTokens({ contextWindow: Number.NaN })).toBe(60_000);
   });
 
-  it("scales with the window, reserving the output cap", () => {
-    // 1M window, 128k output → floor((1_048_576 − 131_072) × 0.6)
+  it("scales with the window and reserves output plus headroom", () => {
+    // 1M window, 131k output, 65,536 headroom:
+    // min(floor(1_048_576 × 0.8), 1_048_576 − 131_072 − 65_536)
     expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, maxOutputTokens: 131_072 })).toBe(
-      550_502,
+      838_860,
     );
-    // 128k window, 16k output → floor(112_000 × 0.6)
+    // 128k window, 16k output: min(102,400, 46,464)
     expect(deriveCompactionMaxTokens({ contextWindow: 128_000, maxOutputTokens: 16_000 })).toBe(
-      67_200,
+      46_464,
     );
-    // Unknown output cap → reserve nothing.
-    expect(deriveCompactionMaxTokens({ contextWindow: 100_000 })).toBe(60_000);
+    // Unknown output cap still reserves headroom.
+    expect(deriveCompactionMaxTokens({ contextWindow: 100_000 })).toBe(34_464);
   });
 
   it("honours a valid ratio override and ignores an invalid one", () => {
-    expect(deriveCompactionMaxTokens({ contextWindow: 100_000, ratio: 0.8 })).toBe(80_000);
-    expect(deriveCompactionMaxTokens({ contextWindow: 100_000, ratio: 0 })).toBe(60_000);
-    expect(deriveCompactionMaxTokens({ contextWindow: 100_000, ratio: 1.5 })).toBe(60_000);
+    expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, ratio: 0.5 })).toBe(524_288);
+    expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, ratio: 0 })).toBe(838_860);
+    expect(deriveCompactionMaxTokens({ contextWindow: 1_048_576, ratio: 1.5 })).toBe(838_860);
   });
 
-  it("never exceeds the usable window and never returns 0", () => {
-    expect(deriveCompactionMaxTokens({ contextWindow: 1_000, maxOutputTokens: 5_000 })).toBe(1);
+  it("throws when output plus headroom exhausts the window", () => {
+    expect(() =>
+      deriveCompactionMaxTokens({ contextWindow: 100_000, maxOutputTokens: 50_000 }),
+    ).toThrow(/compaction budget exhausted/);
+    expect(() => deriveCompactionMaxTokens({ contextWindow: 1_000, maxOutputTokens: 5_000 })).toThrow(
+      /compaction budget exhausted/,
+    );
   });
 });

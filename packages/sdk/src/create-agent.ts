@@ -847,7 +847,8 @@ export interface CreateAgentOptions {
 
   /**
    * The routed model's context window in tokens, when known. Used to derive
-   * a window-aware compaction threshold (`0.6 × (window − max output)`). Omit
+   * a window-aware compaction threshold (`0.8 × window`, with output and headroom
+   * reserves). Omit
    * when the adapter cannot describe its model; compaction then falls back to
    * 60k. Callers that pass an explicit `compaction.maxTokens` are unaffected.
    */
