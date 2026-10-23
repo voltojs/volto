@@ -191,7 +191,7 @@ describe("session agent lifecycle", () => {
     // fallback. This factory stub records the pre-derivation config.
     expect(builds[0]!["compaction"]).toEqual({
       recentKeepCount: 4,
-      toolResultMaxChars: 8000,
+      toolResultMaxChars: 8192,
       summaryMaxTokens: 4096,
     });
   });
