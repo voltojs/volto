@@ -406,3 +406,5 @@ export {
   estimateContextLayerTokens,
   estimateToolDefinitionTokens,
 } from "./prompt-budget.js";
+export { estimateFromAnchor } from "./prompt-budget.js";
+export type { PromptAnchor, PromptAnchorState } from "./prompt-budget.js";

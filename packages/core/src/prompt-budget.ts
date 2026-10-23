@@ -9,8 +9,10 @@
  * @module prompt-budget
  */
 
+import { estimateTokens } from "./compactor.js";
 import type { ContextLayer } from "./context-assembler.js";
 import type { Tokenizer } from "./ports.js";
+import type { Message } from "./state.js";
 import type { ToolDefinition } from "./tool.js";
 
 /**
@@ -47,4 +49,43 @@ export function estimateToolDefinitionTokens(
     );
   }
   return total;
+}
+
+/**
+ * Proof that a provider usage measurement is the baseline for the current
+ * surface. The anchor is deliberately not part of `AgentState`: it is derived
+ * from the model stream, survives across per-turn Runners only because the SDK
+ * shares the holder object, and is cleared whenever the surface is rewritten.
+ */
+export interface PromptAnchor {
+  /** Provider usage of the anchored call: prompt + cache read/write + output. */
+  totalTokens: number;
+  /** `state.messages.length` immediately after that call's assistant message. */
+  messageIndex: number;
+  /** Request-header fingerprint; a mismatch invalidates the anchor. */
+  headerHash: string;
+  /** False when provider usage was below the full heuristic request price. */
+  trusted: boolean;
+}
+
+/** Mutable holder shared by the per-turn Runners of one agent instance. */
+export interface PromptAnchorState {
+  anchor?: PromptAnchor;
+}
+
+/**
+ * Current prompt pressure from a trusted anchor plus the messages appended
+ * after the anchored call. Returns `undefined` when the anchor is missing,
+ * untrusted, or stale (the message surface shrank underneath it), so the
+ * caller falls back to the absolute estimate.
+ */
+export function estimateFromAnchor(
+  anchor: PromptAnchor | undefined,
+  messages: readonly Message[],
+  tokenizer: Tokenizer,
+): number | undefined {
+  if (anchor === undefined || !anchor.trusted) return undefined;
+  if (!Number.isInteger(anchor.messageIndex) || anchor.messageIndex < 0) return undefined;
+  if (anchor.messageIndex > messages.length) return undefined;
+  return anchor.totalTokens + estimateTokens(messages.slice(anchor.messageIndex), tokenizer);
 }
