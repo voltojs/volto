@@ -11,6 +11,7 @@ import type {
   ReducerState,
   CompactionConfig,
   PromptAnchorState,
+  EventSink,
 } from "@volto/core";
 
 function createSpyModelPort(script: ModelEvent[][]): ModelPort & { calls: ModelRequest[] } {
@@ -93,13 +94,16 @@ describe("Runner — provider-usage anchor", () => {
         trusted: true,
       },
     };
-    const spy = createSpyModelPort([textScript("ok")]);
+    const spy = createSpyModelPort([textScript("ok", 30, 5)]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const sink: EventSink = { emit(event) { events.push(event as never); } };
     const runner = createRunner({
       modelPort: spy,
       stepContext: ctx,
       initialState: initialState(),
       compaction,
       promptAnchor: anchorState,
+      eventSink: sink,
     });
 
     await runner.run({ type: "user_message", content: "hi" });
@@ -107,6 +111,8 @@ describe("Runner — provider-usage anchor", () => {
     // Absolute estimate is far over 50; the anchor plus the short new user
     // message stays under, so no summarization call happens.
     expect(spy.calls).toHaveLength(1);
+    const calibration = events.find((e) => e.type === "tokenizer_calibration");
+    expect(calibration?.data.source).toBe("anchor");
   });
 
   it("falls back to the absolute estimate when the anchor is untrusted", async () => {
@@ -119,17 +125,22 @@ describe("Runner — provider-usage anchor", () => {
         trusted: false,
       },
     };
-    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ok")]);
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ok", 30, 5)]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const sink: EventSink = { emit(event) { events.push(event as never); } };
     const runner = createRunner({
       modelPort: spy,
       stepContext: ctx,
       initialState: initialState(),
       compaction,
       promptAnchor: anchorState,
+      eventSink: sink,
     });
 
     await runner.run({ type: "user_message", content: "hi" });
 
     expect(spy.calls).toHaveLength(2);
+    const calibration = events.find((e) => e.type === "tokenizer_calibration");
+    expect(calibration?.data.source).toBe("absolute");
   });
 });

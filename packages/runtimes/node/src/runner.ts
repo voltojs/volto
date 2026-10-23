@@ -669,6 +669,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   // Provider-usage anchor for compaction pressure. Shared with other
   // per-turn Runners through RunnerOptions.promptAnchor; never serialized.
   const promptAnchorState: PromptAnchorState = opts.promptAnchor ?? {};
+  // One calibration observation per turn (a fresh Runner is created per turn).
+  let calibrationEmitted = false;
   // Timing/aggregation state for the in-flight model call. Hoisted here
   // (rather than declared inside runModelStream) because forwardEmit() reads
   // them when it intercepts the model_done emit to record assistant_message —
@@ -1809,6 +1811,30 @@ export function createRunner(opts: RunnerOptions): Runner {
 
       const endTime = opts.clock?.now() ?? Date.now();
       const usageData = capturedUsage ?? lastUsage;
+      if (!calibrationEmitted && opts.eventSink !== undefined && capturedUsage !== undefined) {
+        const estimated = measuredTokens ?? requestEstimate;
+        if (estimated !== undefined && estimated > 0) {
+          // The anchor's estimate already includes the last output, so compare
+          // it with total usage; the absolute fallback prices the prompt only.
+          const provider = measuredTokens !== undefined
+            ? totalUsageTokens(capturedUsage)
+            : capturedUsage.inputTokens
+              + (capturedUsage.cacheReadTokens ?? 0)
+              + (capturedUsage.cacheWriteTokens ?? 0);
+          opts.eventSink.emit({
+            type: "tokenizer_calibration",
+            data: {
+              model: stepContext.model,
+              estimated,
+              provider,
+              ratio: provider / estimated,
+              source: measuredTokens !== undefined ? "anchor" : "absolute",
+              bytesPerToken: 4,
+            },
+          });
+          calibrationEmitted = true;
+        }
+      }
       // A completed call is the only point at which the provider usage and
       // the assistant message describe the same surface. Missing usage (a
       // failed/retried call) leaves the previous anchor untouched: the
