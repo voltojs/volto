@@ -214,8 +214,8 @@ describe("createWiredAgent instruction budget override and prompt policy", () =>
   });
 });
 
-describe("createWiredAgent discovered instruction layers from fs touches", () => {
-  it("injects a nested chain directory's AGENTS.md on the turn after the model touches it", async () => {
+describe("createWiredAgent instruction layers resolve once per conversation", () => {
+  it("keeps the first turn's instruction set for the whole conversation (no per-turn rediscovery)", async () => {
     await fs.mkdir(path.join(tempProjectDir, "src", "lib"), { recursive: true });
     await fs.mkdir(path.join(tempProjectDir, ".git"));
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Root rule", "utf-8");
@@ -245,11 +245,16 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
     const systemsByCall = requests.map((req) =>
       req.messages.filter((m) => m.role === "system").map((m) => (m as { content: string }).content),
     );
-    // 第 1 次模型调用（首轮）：只有项目链根层，无 discovered。
+    // First call (turn 1): project-chain root layer only, nothing discovered yet.
     expect(systemsByCall[0]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
     expect(systemsByCall[0]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
-    // 第 3 次模型调用（第二轮）：上一轮 read_file 触达 src/lib → discovered 层出现。
-    expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: src/lib/AGENTS.md\n\nDeep rule"))).toBe(true);
+    // Third call (turn 2): the first turn's set rides in conversation
+    // history — still the root layer, still no discovered layer. Workspace
+    // layers are injected exactly once per conversation; touching a nested
+    // AGENTS.md mid-conversation no longer re-resolves (disk changes take
+    // effect in a new conversation).
+    expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
+    expect(systemsByCall[2]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
   });
 
   it("does not discover from unstructured tools (bash/glob)", async () => {

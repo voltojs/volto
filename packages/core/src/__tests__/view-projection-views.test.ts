@@ -593,10 +593,12 @@ describe("toTrajectoryView", () => {
     expect(contextRow.inputDetail).toMatch(/^<<<layer id="base" bytes="\d+">>>\n/);
   });
 
-  it("emits exactly one context row per turn when the static-prefix hash repeats across turns", () => {
-    // Each turn opens a fresh model request, so the runner writes one
-    // request_header per turn even when the payload hash is unchanged —
-    // the trajectory mirrors that 1:1: one row per turn, never per step.
+  it("shows one context row per static-prefix hash, even when the header event is written again", () => {
+    // Turn 1 injects the workspace layers; later turns carry them from
+    // conversation history without re-injecting. If a header with the same
+    // payload hash is written again (a cross-process resume rebuilding its
+    // Runner, for example), the trajectory must not repeat the identical
+    // context row — identical hash means identical static prefix.
     const events = log([
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
       {
@@ -620,14 +622,23 @@ describe("toTrajectoryView", () => {
       },
       { time: 206, type: "model_call_start", data: { headerHash: "same" }, turn: 2, step: 1 },
       { time: 210, type: "assistant_message", data: { content: [], stopReason: "end_turn", durationMs: 5 }, turn: 2, step: 1 },
+      { time: 300, type: "turn_start", data: { turn: 3 }, turn: 3 },
+      {
+        time: 305,
+        type: "request_header",
+        data: { hash: "changed", systemLayers: [{ id: "base", text: "be helpful" }], tools: [{ name: "new_tool", description: "does new things", schema: { type: "object", properties: {} } }], params: {} },
+        turn: 3,
+        step: 1,
+      },
+      { time: 306, type: "model_call_start", data: { headerHash: "changed" }, turn: 3, step: 1 },
+      { time: 310, type: "assistant_message", data: { content: [], stopReason: "end_turn", durationMs: 5 }, turn: 3, step: 1 },
     ]);
 
     const rows = toTrajectoryView(buildTurnRecords(events), events).rows;
     const contextRows = rows.filter((r) => r.kind === "context");
-    expect(contextRows.map((r) => r.turn)).toEqual([1, 2]);
-    // Row count tracks turns, not model steps: turn 1 made two calls but
-    // still contributes a single context row.
-    expect(contextRows).toHaveLength(2);
+    // The re-written identical header collapses into turn 1's row; a
+    // genuinely changed prefix (new tools) still gets its own row.
+    expect(contextRows.map((r) => r.turn)).toEqual([1, 3]);
   });
 
   it("emits a reminder row per context_reminder, tagged with its source kind", () => {

@@ -68,7 +68,7 @@ import {
   renderLoopReminder,
   renderLoopIntervention,
 } from "@volto/core";
-import type { PromptAnchorState, StepContext, ReducerState } from "@volto/core";
+import type { PromptAnchorState, StepContext, ReducerState, ContextLayer } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
 import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
@@ -321,6 +321,25 @@ export interface RunnerOptions {
    * emit a second system message and the model would see the prompt twice.
    */
   seedSystemPrompt?: string;
+  /**
+   * The instruction layers the FIRST turn injected, kept as the header's
+   * audit mirror for later turns. Later turns carry those layers from
+   * conversation history instead of re-injecting them via
+   * stepContext.contextLayers, so without this mirror the header payload
+   * would change (N layers → 0) and every turn would record — and display —
+   * the same static prefix again. Header-only: the ContextAssembler never
+   * sees these (same rule as seedSystemPrompt).
+   */
+  headerSystemLayers?: ContextLayer[];
+  /**
+   * Cross-turn holder for the last recorded request_header hash (the same
+   * sharing pattern as promptAnchor). The static prefix usually survives
+   * many turns, so a matching hash skips the duplicate transcript write —
+   * one context row in the trajectory, not one per turn. A genuinely
+   * changed prefix (new tools, a new layer) hashes differently and still
+   * gets its own record.
+   */
+  headerHashState?: { hash?: string };
   /** Approval gate for HITL interaction (auto-allow or interactive) */
   approvalGate?: ApprovalGate;
   /** Compaction config — enables automatic context compression when messages grow large */
@@ -663,9 +682,12 @@ export function createRunner(opts: RunnerOptions): Runner {
   // Exactly one item can be pending per batch: the decision site overwrites
   // it on every model_done, the post-batch site fires or clears it.
   let pendingLoopInjection: PendingLoopInjection | null = null;
-  // Hash of the last request_header written this turn; a matching hash means
-  // the header has not changed and need not be written again.
-  let lastHeaderHash: string | null = null;
+  // Hash of the last request_header written for this conversation; a
+  // matching hash means the static prefix has not changed and need not be
+  // written again. Seeded from the cross-turn holder so a fresh per-turn
+  // Runner keeps skipping records for a prefix an earlier turn already
+  // logged (one context row in the trajectory, not one per turn).
+  let lastHeaderHash: string | null = opts.headerHashState?.hash ?? null;
   // Provider-usage anchor for compaction pressure. Shared with other
   // per-turn Runners through RunnerOptions.promptAnchor; never serialized.
   const promptAnchorState: PromptAnchorState = opts.promptAnchor ?? {};
@@ -1499,7 +1521,11 @@ export function createRunner(opts: RunnerOptions): Runner {
     // into an extra system message, so the model would receive the prompt
     // twice. Skipped when the host's own layers already carry the id, so a
     // host managing its own "system-prompt" layer cannot collide.
-    const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
+    // Audit mirror: opts.headerSystemLayers (first-turn layers replayed for
+    // later turns that no longer re-inject them) falls back to this turn's
+    // own injected layers for callers that don't mirror.
+    const sourceLayers = opts.headerSystemLayers ?? stepContext.contextLayers;
+    const systemLayers = (sourceLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
     if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
       systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
     }
@@ -1585,12 +1611,14 @@ export function createRunner(opts: RunnerOptions): Runner {
     callStartedAt = nowMs();
 
     // Static-prefix snapshot: system layers + tool catalogue + sampling
-    // params. In practice this is written exactly once per turn: stepContext
-    // is fixed when createRunner() is called and a fresh Runner is created
-    // per turn, so the payload — and therefore its hash — never changes
-    // within a turn. The hash comparison below is what actually enforces
-    // "write once"; it also means a future caller with a mutable stepContext
-    // gets deduping for free instead of a silent behavior change here.
+    // params. Written once per distinct payload: stepContext is fixed when
+    // createRunner() is called (so the hash never changes within a turn),
+    // and opts.headerHashState carries the last recorded hash across turns,
+    // so an unchanged static prefix is recorded exactly once for the whole
+    // conversation — one context row in the trajectory, not one per turn.
+    // The hash comparison below enforces "write once"; it also means a
+    // future caller with a mutable stepContext gets deduping for free
+    // instead of a silent behavior change here.
     //
     // Since task-r6 the recorder's double write makes request_header /
     // model_call_start part of the live event contract, so this runs whenever
@@ -1611,6 +1639,7 @@ export function createRunner(opts: RunnerOptions): Runner {
           // after it when a reader orders the transcript by `time`.
           recorder.record("request_header", { hash: headerHash, ...headerPayload }, { step, time: callStartedAt });
           lastHeaderHash = headerHash;
+          if (opts.headerHashState) opts.headerHashState.hash = headerHash;
         }
       } catch {
         // Nothing to point model_call_start's (required) headerHash field at.
