@@ -400,3 +400,9 @@ export type { CommandRiskKind } from "./command-risk.js";
 
 // Command matching — strict argv tokenization + prefix matching for commandPrefix rules
 export { tokenizeCommand, matchesCommandPrefix, isMatchableCommandToken } from "./command-match.js";
+
+// Prompt-budget estimators and anchored prompt arithmetic
+export {
+  estimateContextLayerTokens,
+  estimateToolDefinitionTokens,
+} from "./prompt-budget.js";
