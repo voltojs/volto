@@ -89,6 +89,14 @@ export interface CompactionConfig {
    * Runner call site.
    */
   toolResultMaxChars?: number;
+  /** Leading code points kept when pruning; default floor(maxChars * 0.5). */
+  toolResultHeadChars?: number;
+  /** Trailing code points kept when pruning; default floor(maxChars * 0.125). */
+  toolResultTailChars?: number;
+  /** "pressure" (default) prunes only when compaction pressure qualifies. */
+  prunePolicy?: "pressure" | "off";
+  /** Opt-in model-readable spill backup for pruned results (default false). */
+  pruneSpill?: boolean;
   /** maxTokens cap for the summarization model call (default: 4096) */
   summaryMaxTokens?: number;
   /** Window-derived trigger ratio; defaults to 0.8. */

@@ -1270,9 +1270,17 @@ export function createRunner(opts: RunnerOptions): Runner {
     // block was rewritten. The pruned message array itself is not used
     // directly — the write-back feed below rewrites state.messages, and
     // that post-feed state is the canonical surface.
-    const { pruned } = pruneOversizedToolResults(messages, {
-      maxChars: opts.compaction.toolResultMaxChars ?? 8000,
-    });
+    const { pruned } = opts.compaction.prunePolicy === "off"
+      ? { pruned: [] }
+      : pruneOversizedToolResults(messages, {
+          maxChars: opts.compaction.toolResultMaxChars ?? 8_192,
+          ...(opts.compaction.toolResultHeadChars !== undefined
+            ? { headChars: opts.compaction.toolResultHeadChars }
+            : {}),
+          ...(opts.compaction.toolResultTailChars !== undefined
+            ? { tailChars: opts.compaction.toolResultTailChars }
+            : {}),
+        });
 
     // Write-back: feed tool_results_pruned so state.messages carries the
     // pruned content. Status-independent reducer handler — safe while
@@ -1280,8 +1288,78 @@ export function createRunner(opts: RunnerOptions): Runner {
     // pruned surface.
     let didWriteBack = false;
     if (pruned.length > 0) {
-      forwardEmit(feed({ type: "tool_results_pruned", entries: pruned }));
-      didWriteBack = true;
+      const tokenizer = opts.compaction.tokenizer;
+      const originalText = new Map<string, string>();
+      for (const msg of messages) {
+        if (msg.role !== "tool") continue;
+        for (const block of msg.content) {
+          if (block.type !== "tool_result") continue;
+          const text = block.content
+            .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
+            .join("");
+          originalText.set(block.toolUseId, (originalText.get(block.toolUseId) ?? "") + text);
+        }
+      }
+      const prunedIds = new Set(pruned.map((p) => p.toolCallId));
+      const firstPrunedIndex = messages.findIndex(
+        (m) => m.role === "tool"
+          && m.content.some((b) => b.type === "tool_result" && prunedIds.has(b.toolUseId)),
+      );
+      const cacheResetTokens = firstPrunedIndex > 0
+        ? estimateTokens(messages.slice(0, firstPrunedIndex), tokenizer)
+        : 0;
+      let entries = pruned.map((entry, index) => {
+        const after = entry.content
+          .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
+          .join("");
+        const before = originalText.get(entry.toolCallId) ?? "";
+        return {
+          ...entry,
+          savedTokens: Math.max(0, tokenizer.count(before) - tokenizer.count(after)),
+          ...(index === 0 ? { cacheResetTokens } : {}),
+        };
+      });
+
+      if (opts.compaction.pruneSpill && opts.spill?.store) {
+        const kept: typeof entries = [];
+        for (const entry of entries) {
+          const before = originalText.get(entry.toolCallId) ?? "";
+          // An already-spilled result has only its head + reference in state;
+          // writing that back would destroy the full original on disk.
+          if (before.includes("full output saved to")) {
+            kept.push(entry);
+            continue;
+          }
+          try {
+            const { relativePath } = await opts.spill.store.write({
+              sessionId: opts.sessionId ?? "",
+              toolCallId: entry.toolCallId,
+              text: before,
+            });
+            const reference = renderSpillReference({
+              relativePath,
+              totalChars: [...before].length,
+            });
+            entry.content = [...entry.content, { type: "text", text: reference }];
+            entry.charsAfter += [...reference].length;
+            const after = entry.content
+              .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
+              .join("");
+            entry.savedTokens = Math.max(0, tokenizer.count(before) - tokenizer.count(after));
+            kept.push(entry);
+          } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err);
+            opts.eventSink?.emit({ type: "spill_failed", data: { toolCallId: entry.toolCallId, error } });
+            // Skip this entry: no backup means no pruning.
+          }
+        }
+        entries = kept;
+      }
+
+      if (entries.length > 0) {
+        forwardEmit(feed({ type: "tool_results_pruned", entries }));
+        didWriteBack = true;
+      }
     }
     // Post-feed surface: state.messages (pruned if a write-back happened,
     // otherwise the original reference).

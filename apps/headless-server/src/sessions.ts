@@ -295,7 +295,7 @@ function tokensMatch(a: string, b: string): boolean {
  */
 const DEFAULT_COMPACTION: Omit<CompactionConfig, "tokenizer" | "maxTokens"> = {
   recentKeepCount: 4,
-  toolResultMaxChars: 8000,
+  toolResultMaxChars: 8192,
   summaryMaxTokens: 4096,
 };
 

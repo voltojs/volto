@@ -350,11 +350,13 @@ describe("Runner — compaction wiring", () => {
     ];
 
     const spy = createSpyModelPort([textScript("ack")]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
 
     const runner = createRunner({
       modelPort: spy,
       stepContext: ctx,
       initialState: makeInitial(messages),
+      eventSink: { emit(event) { events.push(event as never); } },
       compaction: {
         tokenizer: createCharTokenizer(1),
         maxTokens: 500,
@@ -371,6 +373,39 @@ describe("Runner — compaction wiring", () => {
     expect(flattenText(main)).toContain("omitted");
     // The original huge run must not ride along verbatim.
     expect(flattenText(main)).not.toContain(huge);
+    const prune = events.find((e) => e.type === "tool_results_pruned");
+    const entries = prune?.data.entries as Array<Record<string, unknown>>;
+    expect(entries[0]!.savedTokens).toBeGreaterThan(0);
+    expect(entries[0]!.cacheResetTokens).toBeGreaterThan(0);
+  });
+
+  it("does not prune when prunePolicy is off", async () => {
+    const huge = "X".repeat(2000);
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      { id: "u1", role: "user", content: "q" } as Message,
+      makeToolResult("tr1", "call-1", huge),
+    ];
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ack")]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      eventSink: { emit(event) { events.push(event as never); } },
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 500,
+        recentKeepCount: 4,
+        toolResultMaxChars: 100,
+        prunePolicy: "off",
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "now-user" });
+
+    expect(events.some((e) => e.type === "tool_results_pruned")).toBe(false);
+    expect(spy.calls).toHaveLength(2);
   });
 
   it("prunes oversized tool results, then still summarizes when over threshold", async () => {
@@ -545,4 +580,78 @@ describe("Runner — compaction wiring", () => {
     // No summary was written back.
     expect(flatState).not.toContain("[Earlier conversation summary]");
   });
+  it("writes the full original before pruning when pruneSpill is on", async () => {
+    const huge = "Z".repeat(2_000);
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      makeToolResult("tr1", "call-1", huge),
+    ];
+    const writes: Array<{ sessionId: string; toolCallId: string; text: string }> = [];
+    const spy = createSpyModelPort([textScript("ack")]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      eventSink: { emit(event) { events.push(event as never); } },
+      spill: {
+        store: {
+          async write(input) {
+            writes.push(input);
+            return { relativePath: "spill/s/call-1.txt" };
+          },
+        },
+      },
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 500,
+        recentKeepCount: 4,
+        toolResultMaxChars: 100,
+        pruneSpill: true,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "go" });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.text).toBe(huge);
+    expect(flattenText(spy.calls[0]!.messages)).toContain("full output saved to");
+  });
+
+  it("skips the prune entry when the pruneSpill write fails", async () => {
+    const huge = "Z".repeat(2_000);
+    const messages = [
+      { id: "sys", role: "system", content: "sys" } as Message,
+      makeToolResult("tr1", "call-1", huge),
+    ];
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ack")]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: makeInitial(messages),
+      eventSink: { emit(event) { events.push(event as never); } },
+      spill: {
+        store: {
+          async write() {
+            throw new Error("disk full");
+          },
+        },
+      },
+      compaction: {
+        tokenizer: createCharTokenizer(1),
+        maxTokens: 500,
+        recentKeepCount: 4,
+        toolResultMaxChars: 100,
+        pruneSpill: true,
+      },
+    });
+
+    await runner.run({ type: "user_message", content: "go" });
+
+    expect(events.some((e) => e.type === "spill_failed")).toBe(true);
+    expect(events.some((e) => e.type === "tool_results_pruned")).toBe(false);
+    expect(spy.calls).toHaveLength(2);
+  });
+
 });
