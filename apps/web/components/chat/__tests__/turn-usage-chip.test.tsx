@@ -3,10 +3,12 @@
  * Base UI 的 Popover 在 jsdom 下需要指针捕获/滚动补丁（与
  * model-settings-picker.test.tsx 同型）。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TurnUsageChip } from '../TurnUsageChip';
+import { useConfigStore } from '@/stores/config-store';
+import type { Provider } from '@/lib/config-api';
 import type { TurnUsage } from '@volto/sdk/sse';
 
 Element.prototype.hasPointerCapture ??= () => false;
@@ -22,6 +24,17 @@ const GOLD: TurnUsage = {
   totalTokens: 23_899_016,
   source: { providerId: 'deepseek-official', modelId: 'deepseek-flash' },
   missingUsageCalls: 0,
+};
+
+const KNOWN_PROVIDER: Provider = {
+  kind: 'custom',
+  id: 'deepseek-official',
+  name: 'DeepSeek 官方',
+  baseURL: null,
+  apiKeyMasked: null,
+  models: [
+    { id: 'deepseek-flash', name: 'DeepSeek Flash', code: 'deepseek-flash' },
+  ],
 };
 
 function setup(usage: TurnUsage) {
@@ -75,5 +88,39 @@ describe('TurnUsageChip', () => {
 
     await screen.findByText('本轮用量');
     expect(screen.queryByText('提供方 / 模型')).toBeNull();
+  });
+
+  afterEach(() => {
+    useConfigStore.setState({ providers: [], catalogProviders: [] });
+  });
+
+  it('shows provider and model display names, not wire ids, once config knows them', async () => {
+    useConfigStore.setState({ providers: [KNOWN_PROVIDER] });
+    const user = setup(GOLD);
+
+    await user.click(screen.getByRole('button', { name: '本轮用量' }));
+
+    expect(
+      await screen.findByText('DeepSeek 官方/DeepSeek Flash'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('deepseek-official/deepseek-flash')).toBeNull();
+  });
+
+  it('sizes the panel to its content and keeps values on one line', async () => {
+    useConfigStore.setState({ providers: [KNOWN_PROVIDER] });
+    const user = setup(GOLD);
+
+    await user.click(screen.getByRole('button', { name: '本轮用量' }));
+
+    // No fixed w-64: the panel grows with its longest row (capped so it
+    // cannot burst the viewport).
+    const panel = document.querySelector('.min-w-32');
+    expect(panel).not.toBeNull();
+    expect(panel!.className).not.toContain('w-64');
+    expect(panel!.className).toMatch(/max-w-/);
+
+    // A long route (provider name + model name) stays on a single line.
+    const route = await screen.findByText('DeepSeek 官方/DeepSeek Flash');
+    expect(route.className).toContain('truncate');
   });
 });

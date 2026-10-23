@@ -174,4 +174,16 @@ describe('ChatPanel input layout', () => {
     expect(chatColumn).not.toBeNull();
     expect(chatColumn!.contains(editor!)).toBe(true);
   });
+
+  it('feeds the round generating state to the bottom wave indicator', () => {
+    useChatStore.setState({ isGenerating: true });
+    const { container } = render(<ChatPanel />);
+
+    const wave = container.querySelector('[data-testid="wave-loading"]');
+    expect(wave).not.toBeNull();
+    // The wave lives inside the chat column, under the message feed.
+    const editor = container.querySelector('[data-testid="input-editor"]')!;
+    const editorPanel = editor.closest('[data-slot="tabs-content"]')!;
+    expect(editorPanel.contains(wave)).toBe(true);
+  });
 });

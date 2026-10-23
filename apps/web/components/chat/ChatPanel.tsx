@@ -725,6 +725,7 @@ export function ChatPanel() {
                 entries={entries}
                 onOpenSubagent={openSubagent}
                 sessionId={currentSessionId}
+                isGenerating={isGenerating}
               />
               {pendingApprovals.length > 0 && (
                 <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">

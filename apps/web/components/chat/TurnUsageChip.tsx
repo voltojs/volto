@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useConfigStore } from '@/stores/config-store';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import {
   cacheHitRate,
@@ -24,7 +25,9 @@ function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <li className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono">{value}</span>
+      {/* Truncate, never wrap: a long provider/model route stays on one
+          line and the panel grows to fit it up to its max width. */}
+      <span className="min-w-0 truncate font-mono">{value}</span>
     </li>
   );
 }
@@ -35,7 +38,11 @@ function Row({ label, value }: { label: string; value: string | null }) {
  * hover（用户知道它在那儿），这个不行。
  */
 export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
-  const route = formatRoute(usage.source);
+  // Config supplies display names for the route row; the store is read here
+  // (not passed in) because every footer renders its own chip.
+  const providers = useConfigStore((s) => s.providers);
+  const catalogProviders = useConfigStore((s) => s.catalogProviders);
+  const route = formatRoute(usage.source, providers, catalogProviders);
 
   return (
     <Popover>
@@ -45,7 +52,11 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
       >
         用量 {formatCompactTokens(usage.totalTokens)} tok
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-64">
+      <PopoverContent
+        side="top"
+        align="start"
+        className="max-w-[28rem]"
+      >
         <div className="flex items-center justify-between border-b pb-1.5">
           <span className="flex items-center gap-1.5 text-xs font-medium">
             <Database className="h-3.5 w-3.5" aria-hidden />

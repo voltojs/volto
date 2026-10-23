@@ -190,13 +190,14 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
     }
 
-  /* A blinking terminal caret for the active streaming turn. */
-  .caret-blink {
-    animation: caret-blink 1s step-end infinite;
+  /* The feed's unified loading indicator: five dots waving in sequence
+     while the round generates (one 1.2s cycle, 0.15s stagger per dot). */
+  .wave-dot {
+    animation: wave-bounce 1.2s ease-in-out infinite;
     }
-  @keyframes caret-blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+  @keyframes wave-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+    30% { transform: translateY(-5px); opacity: 1; }
     }
 
   .animate-in-stagger {
@@ -205,6 +206,20 @@
   @keyframes fade-rise {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
+    }
+
+  /* Sidebar session titles that overflow: on hover play the full text
+     through once and stop at the tail (fill forwards) — no reverse pass;
+     the next hover starts over. Travel distance and duration come from the
+     measuring run (--marquee-shift / --marquee-duration), including the
+     width of the hover actions covering the row's right edge; a title that
+     fits never gets this class. */
+  .session-title-marquee {
+    animation: session-title-marquee var(--marquee-duration, 6s) linear 1 both;
+    }
+  @keyframes session-title-marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-1 * var(--marquee-shift, 0px))); }
     }
 }
 

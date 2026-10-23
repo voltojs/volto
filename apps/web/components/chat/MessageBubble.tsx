@@ -6,7 +6,6 @@ import type {
   ConversationBlock,
   ConversationMessage,
 } from '@volto/sdk/sse';
-import { StreamRenderer } from './StreamRenderer';
 import { Markdown } from './Markdown';
 import { SubagentCard } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
@@ -117,15 +116,13 @@ export function MessageBubble({
   }
 
   return (
-    <div className="group animate-in-stagger py-2">
+    <div className="group animate-in-stagger py-1">
       {message.blocks.length === 0 ? (
-        // Streaming but nothing rendered yet (e.g. the first token is in
-        // flight, or a tool-using model has not produced text) — show the
-        // caret so the bubble isn't empty while the turn is alive. Closed
-        // empty bubbles never reach here; the feed drops them up front.
-        message.isStreaming ? (
-          <StreamRenderer content="" />
-        ) : null
+        // Streaming but nothing rendered yet (first token in flight, or a
+        // tool-using model that has not produced text): the bubble stays
+        // empty on purpose — the bottom wave indicator carries loading.
+        // Closed empty bubbles never reach here; the feed drops them up front.
+        null
       ) : (
         <div className="space-y-2">
           {message.blocks.map((block, index) => {
@@ -133,8 +130,7 @@ export function MessageBubble({
               return (
                 <Collapsible
                   key={index}
-                  defaultOpen
-                  className="border-border/60 bg-muted/40 my-2 rounded-md border px-3 py-2"
+                  className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5"
                 >
                   <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
@@ -171,13 +167,7 @@ export function MessageBubble({
                 />
               );
             }
-            const isStreamingTail =
-              message.isStreaming && index === message.blocks.length - 1;
-            return isStreamingTail ? (
-              <StreamRenderer key={index} content={block.text} />
-            ) : (
-              <Markdown key={index} content={block.text} />
-            );
+            return <Markdown key={index} content={block.text} />;
           })}
         </div>
       )}
@@ -194,19 +184,15 @@ export function MessageBubble({
               <button
                 type="button"
                 onClick={() => void copy()}
+                aria-label="复制"
                 className={cn(
-                  'text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px]',
-                  'opacity-0 transition-opacity group-hover:opacity-100',
+                  'text-muted-foreground hover:bg-muted hover:text-foreground flex items-center rounded px-1 py-0.5',
                 )}
               >
                 {copied ? (
-                  <>
-                    <Check className="text-success h-3 w-3" /> 已复制
-                  </>
+                  <Check className="text-success h-3 w-3" />
                 ) : (
-                  <>
-                    <Copy className="h-3 w-3" /> 复制
-                  </>
+                  <Copy className="h-3 w-3" />
                 )}
               </button>
             )}

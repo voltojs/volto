@@ -10,6 +10,7 @@ import {
   formatRoute,
   promptTokens,
 } from '@/lib/turn-usage-model';
+import type { Provider } from '@/lib/config-api';
 import type { TurnUsage } from '@volto/sdk/sse';
 
 const GOLD: TurnUsage = {
@@ -21,6 +22,19 @@ const GOLD: TurnUsage = {
   source: { providerId: 'deepseek-official', modelId: 'deepseek-flash' },
   missingUsageCalls: 0,
 };
+
+const KNOWN_PROVIDERS: Provider[] = [
+  {
+    kind: 'custom',
+    id: 'deepseek-official',
+    name: 'DeepSeek 官方',
+    baseURL: null,
+    apiKeyMasked: null,
+    models: [
+      { id: 'deepseek-flash', name: 'DeepSeek Flash', code: 'deepseek-flash' },
+    ],
+  },
+];
 
 describe('turn usage formatting', () => {
   it('reproduces the screenshot numbers exactly', () => {
@@ -74,6 +88,34 @@ describe('turn usage formatting', () => {
 
   it('degrades to the bare model id when the transcript has no providerId', () => {
     expect(formatRoute({ modelId: 'deepseek-flash' })).toBe('deepseek-flash');
+  });
+
+  it('prefers configured display names over raw wire ids', () => {
+    expect(formatRoute(GOLD.source, KNOWN_PROVIDERS)).toBe(
+      'DeepSeek 官方/DeepSeek Flash',
+    );
+  });
+
+  it('falls back to ids when the route names a provider config no longer knows', () => {
+    expect(formatRoute(GOLD.source, [])).toBe(
+      'deepseek-official/deepseek-flash',
+    );
+  });
+
+  it('falls back to the model id when only the provider display name is known', () => {
+    const providerWithoutModel: Provider[] = [
+      {
+        kind: 'custom',
+        id: 'deepseek-official',
+        name: 'DeepSeek 官方',
+        baseURL: null,
+        apiKeyMasked: null,
+        models: [],
+      },
+    ];
+    expect(formatRoute(GOLD.source, providerWithoutModel)).toBe(
+      'DeepSeek 官方/deepseek-flash',
+    );
   });
 
   it('returns null when the round recorded no source at all', () => {

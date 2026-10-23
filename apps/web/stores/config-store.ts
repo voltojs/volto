@@ -55,7 +55,7 @@ const NO_CATALOG: CatalogProvider[] = [];
 
 export function providerModels(
   provider: Provider,
-  catalogProviders: CatalogProvider[] = NO_CATALOG,
+  catalogProviders: readonly CatalogProvider[] = NO_CATALOG,
 ): Model[] {
   if (provider.kind === 'catalog') {
     // Keyed by both, so a caller that passes no catalog cannot evict the

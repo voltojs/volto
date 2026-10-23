@@ -153,11 +153,19 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 </Button>
               </div>
             ) : bucket?.status === 'running' ? (
-              <MessageList entries={feed.entries} sessionId={childId} />
+              <MessageList
+                entries={feed.entries}
+                sessionId={childId}
+                isGenerating={running}
+              />
             ) : feed.entries.length === 0 ? (
               <div className="text-muted-foreground p-4 text-sm">无执行记录</div>
             ) : (
-              <MessageList entries={feed.entries} sessionId={childId} />
+              <MessageList
+                entries={feed.entries}
+                sessionId={childId}
+                isGenerating={running}
+              />
             )}
           </div>
           {/* Continued-chat input: disabled while the original turn runs, while
