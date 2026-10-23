@@ -239,7 +239,7 @@ describe("pruneOversizedToolResults — structured blocks", () => {
     });
     const blocks = resultBlocks(cut);
     expect(blocks.every((b) => b.type !== "structured")).toBe(true);
-    expect((blocks[0] as TextContent).text).toContain("[omitted 5 chars]");
+    expect((blocks[0] as TextContent).text).toContain("[omitted 9 chars]");
   });
 
   it("(d) interleaved [text, structured-over, image]: only the structured degrades, order preserved", () => {

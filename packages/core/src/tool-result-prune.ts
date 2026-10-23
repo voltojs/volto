@@ -9,6 +9,10 @@ import type { Message, ToolResultBlock } from "./state.js";
 export interface PruneToolResultOptions {
   /** Maximum code points allowed in a single tool_result text block. */
   maxChars: number;
+  /** Leading code points kept; default floor(maxChars * 0.5). */
+  headChars?: number;
+  /** Trailing code points kept; default floor(maxChars * 0.125). */
+  tailChars?: number;
 }
 
 /** One pruned block, reported for observability / write-back bookkeeping. */
@@ -23,10 +27,12 @@ export interface PrunedToolResult {
   content: ToolResultBlock[];
 }
 
-/** Share of the budget kept from the start of the text. */
-const HEAD_RATIO = 0.4;
-/** Share of the budget kept from the end of the text. */
-const TAIL_RATIO = 0.4;
+/** Share of the budget kept from the start of the text (DSH: 50%). */
+const HEAD_RATIO = 0.5;
+/** Share of the budget kept from the end of the text (DSH: 12.5%). */
+const TAIL_RATIO = 0.125;
+/** Room reserved for the omission marker on production-sized budgets. */
+const MARKER_RESERVE_CHARS = 64;
 
 /** Unicode code-point count (not UTF-16 code units). */
 function codePointLength(text: string): number {
@@ -37,11 +43,11 @@ function codePointLength(text: string): number {
  * Head/tail cut with an explicit omission marker. Slicing by code point
  * never splits a surrogate pair. Deterministic: no locale, no clock.
  */
-function pruneText(text: string, maxChars: number): string {
+function pruneText(text: string, maxChars: number, headChars: number, tailChars: number): string {
   const points = [...text];
   if (points.length <= maxChars) return text;
-  const headLen = Math.floor(maxChars * HEAD_RATIO);
-  const tailLen = Math.floor(maxChars * TAIL_RATIO);
+  const headLen = Math.min(headChars, points.length);
+  const tailLen = Math.min(tailChars, points.length - headLen);
   const head = points.slice(0, headLen).join("");
   const tail = tailLen > 0 ? points.slice(points.length - tailLen).join("") : "";
   const omitted = points.length - headLen - tailLen;
@@ -73,6 +79,25 @@ export function pruneOversizedToolResults(
   messages: Message[],
   opts: PruneToolResultOptions,
 ): { messages: Message[]; pruned: PrunedToolResult[] } {
+  const maxChars = opts.maxChars;
+  if (!Number.isInteger(maxChars) || maxChars < 1) {
+    throw new Error("pruneOversizedToolResults: maxChars must be a positive integer");
+  }
+  const headChars = opts.headChars ?? Math.floor(maxChars * HEAD_RATIO);
+  const tailChars = opts.tailChars ?? Math.floor(maxChars * TAIL_RATIO);
+  if (!Number.isInteger(headChars) || !Number.isInteger(tailChars) || headChars < 0 || tailChars < 0) {
+    throw new Error("pruneOversizedToolResults: headChars/tailChars must be non-negative integers");
+  }
+  if (headChars + tailChars >= maxChars) {
+    throw new Error(
+      "pruneOversizedToolResults: headChars + tailChars must leave room for the omission marker",
+    );
+  }
+  if (maxChars >= 512 && headChars + tailChars + MARKER_RESERVE_CHARS > maxChars) {
+    throw new Error(
+      "pruneOversizedToolResults: headChars + tailChars must leave 64 chars for the omission marker",
+    );
+  }
   const pruned: PrunedToolResult[] = [];
   const next = messages.map((msg) => {
     if (msg.role !== "tool") return msg;
@@ -82,18 +107,18 @@ export function pruneOversizedToolResults(
       let blockChanged = false;
       const budgeted = block.content.map((b) => {
         if (b.type === "text") {
-          if (codePointLength(b.text) <= opts.maxChars) return b;
+          if (codePointLength(b.text) <= maxChars) return b;
           blockChanged = true;
-          return { ...b, text: pruneText(b.text, opts.maxChars) };
+          return { ...b, text: pruneText(b.text, maxChars, headChars, tailChars) };
         }
         if (b.type === "structured") {
-          if (codePointLength(b.text) <= opts.maxChars) return b;
+          if (codePointLength(b.text) <= maxChars) return b;
           blockChanged = true;
           // Post-cut data would be incomplete, so keeping the structured
           // shell would lie — degrade to an equivalent plain text block
           // carrying the (cut) projection, then apply the same head/tail
           // cut as text blocks.
-          return { type: "text" as const, text: pruneText(b.text, opts.maxChars) };
+          return { type: "text" as const, text: pruneText(b.text, maxChars, headChars, tailChars) };
         }
         return b;
       });

@@ -29,6 +29,29 @@ describe("pruneOversizedToolResults", () => {
     expect(r.pruned[0]!.charsAfter).toBeLessThan(r.pruned[0]!.charsBefore);
   });
 
+  it("keeps a 50/12.5 head/tail split by default", () => {
+    const msg = toolResult("a", "x".repeat(10_000));
+    const r = pruneOversizedToolResults([msg], { maxChars: 8_192 });
+    const block = r.messages[0]!.content[0] as {
+      type: "tool_result";
+      content: Array<{ type: "text"; text: string }>;
+    };
+    const text = block.content[0]!.text;
+    expect(text.startsWith("x".repeat(4_096))).toBe(true);
+    expect(text.endsWith("x".repeat(1_024))).toBe(true);
+    expect([...text].length).toBeLessThanOrEqual(8_192);
+  });
+
+  it("rejects a budget that cannot fit the marker", () => {
+    expect(() =>
+      pruneOversizedToolResults([toolResult("a", "x".repeat(200))], {
+        maxChars: 100,
+        headChars: 60,
+        tailChars: 60,
+      }),
+    ).toThrow(/marker/);
+  });
+
   it("does not touch non-tool messages", () => {
     const user: Message = { id: "u", role: "user", content: "x".repeat(500) };
     const r = pruneOversizedToolResults([user], { maxChars: 10 });
