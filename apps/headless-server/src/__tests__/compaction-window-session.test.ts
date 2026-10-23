@@ -118,7 +118,9 @@ describe("window-aware compaction on a real wired session", () => {
         modelPort,
         cwd: tempProjectDir,
         // No maxTokens: derived from the described 10k window (0.6 → 6k).
-        compaction: { recentKeepCount: 1 },
+        // The default 65,536 headroom would exhaust a 10k window, so this
+        // small-window session overrides it explicitly.
+        compaction: { recentKeepCount: 1, windowRatio: 0.6, headroomTokens: 1_000 },
         permissionMode: "auto",
         sandboxMode: sandboxModeFor("auto"),
         chatStore: transcript.store,

@@ -171,7 +171,9 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
         sandboxMode: sandboxModeFor("read-only"),
         permissionConfig: buildPermissionConfig("read-only"),
         attachmentStore: store,
-        compaction: { maxTokens: 600, recentKeepCount: 2, summaryMaxTokens: 128 },
+        // The budget now includes the static context layers (~2.6k tokens):
+        // turn 1 must fit under it, and turn 2's telemetry dump must exceed it.
+        compaction: { maxTokens: 3_000, recentKeepCount: 2, summaryMaxTokens: 128 },
       });
 
       let finalStatus: string;
