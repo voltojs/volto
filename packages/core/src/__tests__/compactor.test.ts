@@ -265,6 +265,37 @@ describe("decideCompaction", () => {
     expect(decision.compressibleMessages).toHaveLength(0);
   });
 
+  it("uses measuredTokens instead of the absolute estimate", () => {
+    const messages: Message[] = [
+      sysMsg("System"),
+      userMsg("Hello"),
+      assistantMsg("Hi!"),
+      toolResultMsg("t1", "x"),
+    ];
+
+    const decision = decideCompaction(messages, {
+      maxTokens: 100,
+      recentKeepCount: 1,
+      tokenizer: createFixedTokenizer(1_000),
+      measuredTokens: 40,
+    });
+
+    expect(decision.shouldCompact).toBe(false);
+    expect(decision.currentTokens).toBe(40);
+  });
+
+  it("adds reservedTokens only when measuredTokens is absent", () => {
+    const messages: Message[] = [sysMsg("System"), userMsg("Hello"), assistantMsg("Hi!")];
+    const tokenizer = createFixedTokenizer(20);
+    const base = estimateTokens(messages, tokenizer);
+    const opts = { maxTokens: 10_000, recentKeepCount: 1, tokenizer };
+
+    expect(decideCompaction(messages, { ...opts, reservedTokens: 30 }).currentTokens).toBe(base + 30);
+    expect(
+      decideCompaction(messages, { ...opts, reservedTokens: 30, measuredTokens: 40 }).currentTokens,
+    ).toBe(40);
+  });
+
   it("compacts when over threshold", () => {
     // Create enough messages to exceed a low threshold
     const tokenizer = createFixedTokenizer(100); // each message = 100 + 4 = 104 tokens

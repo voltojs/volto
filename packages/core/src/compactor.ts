@@ -35,6 +35,18 @@ export interface CompactionOptions {
    * Entries address `Message.id` (stable identity), not array indices.
    */
   pinnedMessageIds?: string[];
+  /**
+   * Provider-anchored current prompt pressure (usage baseline + heuristic
+   * delta). When present it wins over the absolute `estimateTokens` — the
+   * anchor already includes the static prefix and tool schemas.
+   */
+  measuredTokens?: number;
+  /**
+   * Static context layers + tool schemas, in tokens. Added only when
+   * `measuredTokens` is absent; counting them alongside an anchor would
+   * double-price what the provider already reported.
+   */
+  reservedTokens?: number;
 }
 
 export interface CompactionDecision {
@@ -188,8 +200,10 @@ export function decideCompaction(
 ): CompactionDecision {
   const { maxTokens, recentKeepCount, tokenizer } = opts;
 
-  // Estimate total tokens
-  const currentTokens = estimateTokens(messages, tokenizer);
+  // Provider-anchored pressure wins; the absolute estimate is the fallback
+  // and adds the static layers / tool schemas the anchor already includes.
+  const currentTokens = opts.measuredTokens
+    ?? estimateTokens(messages, tokenizer) + (opts.reservedTokens ?? 0);
 
   if (currentTokens <= maxTokens) {
     return {
