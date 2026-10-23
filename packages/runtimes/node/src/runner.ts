@@ -624,6 +624,14 @@ export function createRunner(opts: RunnerOptions): Runner {
   let cumulativeTokens = 0;
   // M12 Phase 1: track whether this turn encountered any model/tool error
   let turnHadError = false;
+  // Why the turn ended, when it ended without the model finishing normally
+  // (iteration/tool-call/token cap, loop guard, budget, truncated stream).
+  // Carried into turn_end.error: the raw reducer `error` events are unstamped
+  // and never persisted, so without this the durable transcript (and
+  // therefore a page reload) shows a clean "done" for a turn that was
+  // actually cut off. First writer wins — a later, unrelated error must not
+  // overwrite the reason the turn actually closed.
+  let turnTerminalError: string | undefined;
   // Track whether this turn ended because a budget was exceeded — a more
   // specific turn_end reason than "error", checked first when both could
   // apply (the budget check can fire after a turn has already seen an error).
@@ -885,6 +893,13 @@ export function createRunner(opts: RunnerOptions): Runner {
    * table).
    */
   function forwardEmit(effects: Effect[]): void {
+    // The reducer closes a turn by emitting `done`. An `error` emit in that
+    // same batch is therefore the reason the turn is ENDING, not a transient
+    // observation: a retriable model_error is fed WITHOUT `done` and the turn
+    // continues. Only terminal errors need a durable record — they are the
+    // sole trace of a turn that stopped without the model finishing, and
+    // turn_end.error is the transcript field that carries it.
+    const endsTurn = effects.some((e) => e.type === "done");
     for (const e of effects) {
       if (e.type !== "emit") continue;
 
@@ -968,6 +983,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         case "budget_exceeded":
           turnHadBudgetExceeded = true;
+          if (endsTurn) {
+            const reason = event.data["reason"];
+            turnTerminalError ??= typeof reason === "string" ? reason : "Budget exceeded";
+          }
           recorder.record("budget_exceeded", { reason: event.data["reason"] as string });
           continue;
 
@@ -1005,6 +1024,17 @@ export function createRunner(opts: RunnerOptions): Runner {
           // "model_error": model_error transcript events are recorded
           // directly at every site that constructs that AgentInput (the
           // provider-error stream loop and runModelStream's catch block).
+          //
+          // A terminal error is different: it is the only explanation the
+          // user will ever get for a turn that stopped short, and the raw
+          // event above never reaches the transcript or the host UI (it
+          // carries no stamp, so the gateway drops it). Mark the turn failed
+          // and let recordTurnEnd write the reason into turn_end.
+          if (endsTurn && event.type === "error") {
+            turnHadError = true;
+            const message = event.data["error"];
+            turnTerminalError ??= typeof message === "string" ? message : "Turn ended with an error";
+          }
           opts.eventSink?.emit(event);
           continue;
       }
@@ -1476,6 +1506,12 @@ export function createRunner(opts: RunnerOptions): Runner {
     let capturedUsage: TokenUsage | undefined;
     let receivedTerminal = false; // true after done or error event is fed
     let modelError = false;
+    // What this call streamed before the stream ended. Only read by the
+    // truncated-stream branch below: a cut inside a tool call must not be
+    // turned into an assistant_message with an unpaired tool_use, and an
+    // empty stream has no content worth persisting either.
+    let sawText = false;
+    let sawToolUse = false;
 
     try {
       const stream = opts.modelPort.stream(req);
@@ -1488,6 +1524,11 @@ export function createRunner(opts: RunnerOptions): Runner {
 
         if (event.type === "text_delta" || event.type === "reasoning_delta") {
           firstDeltaAt ??= nowMs();
+          sawText = true;
+        }
+
+        if (event.type === "tool_use_start" || event.type === "tool_use_delta") {
+          sawToolUse = true;
         }
 
         // Provider degradation signal: the request asked for usage but the
@@ -1599,12 +1640,34 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
       }
 
-      // Stream ended. Only synthesize model_done if the reducer never
-      // received a done or error event (e.g. the stream was empty or
-      // only contained usage events).
+      // Stream ended without a terminal event. The ModelPort contract
+      // requires exactly one (`done` or `error`); a stream that merely stops
+      // is a TRUNCATED response — a proxy cutting a long generation, a
+      // half-open socket, a provider bug — and synthesizing a clean end_turn
+      // here is how a long task dies silently with a half-written answer.
+      // Close the turn as an error that says so. Two shapes:
+      //  - nothing streamed, or the cut landed inside a tool call: feed
+      //    model_error. A synthesized assistant_message would either be empty
+      //    or carry a tool_use that never gets a tool_result — the next
+      //    request then violates the provider's pairing contract;
+      //  - otherwise: still persist the assistant text the user already saw
+      //    (synthesized end_turn), and mark the turn failed via
+      //    turnTerminalError so turn_end explains it.
       if (!receivedTerminal && getStatus() === "calling_model") {
         consecutiveModelErrors = 0;
-        forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
+        const truncated = "Model stream ended without a terminal event (truncated response)";
+        turnHadError = true;
+        turnTerminalError ??= truncated;
+        if (sawToolUse || !sawText) {
+          forwardEmit(feed({
+            type: "model_error",
+            error: truncated,
+            retriable: false,
+            errorKind: classifyError(truncated).kind,
+          }));
+        } else {
+          forwardEmit(feed({ type: "model_done", stopReason: "end_turn", usage: lastUsage }));
+        }
       }
     } catch (err: unknown) {
       // An aborted turn surfaces here as a throw from the model stream (the
@@ -2386,6 +2449,10 @@ export function createRunner(opts: RunnerOptions): Runner {
     recorder.record("turn_end", {
       turn: opts.turn ?? 0,
       reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
+      // Without this a turn cut off by a cap / guard / truncated stream is
+      // indistinguishable from a clean completion in the transcript and on
+      // the wire (the reducer's raw error emit is never persisted).
+      ...(turnTerminalError !== undefined ? { error: turnTerminalError } : {}),
     });
   }
 
@@ -2398,6 +2465,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         cumulativeTokens = 0;
         turnHadError = false;
         turnHadBudgetExceeded = false;
+        turnTerminalError = undefined;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
@@ -2462,7 +2530,9 @@ export function createRunner(opts: RunnerOptions): Runner {
         // An exception escaping the loop is not a normal error path (those
         // are normalized to isError ToolResults / model_error inputs and
         // never throw) — but if one somehow does, the turn still ended in
-        // error and the transcript should say so.
+        // error and the transcript should say so. The message itself is
+        // recorded by whichever caller owns the throw (the SDK writes an
+        // `error` event); turn_end only carries `reason: "error"` here.
         turnHadError = true;
         throw err;
       } finally {
