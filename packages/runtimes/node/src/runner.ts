@@ -1295,6 +1295,7 @@ export function createRunner(opts: RunnerOptions): Runner {
     // calling_model. After this feed, state.messages is the canonical
     // pruned surface.
     let didWriteBack = false;
+    let totalSavedTokens = 0;
     if (pruned.length > 0) {
       const tokenizer = opts.compaction.tokenizer;
       const originalText = new Map<string, string>();
@@ -1363,6 +1364,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         entries = kept;
       }
 
+      totalSavedTokens = entries.reduce((sum, entry) => sum + (entry.savedTokens ?? 0), 0);
       if (entries.length > 0) {
         forwardEmit(feed({ type: "tool_results_pruned", entries }));
         didWriteBack = true;
@@ -1376,7 +1378,18 @@ export function createRunner(opts: RunnerOptions): Runner {
     // initial decision is still the valid one — recomputing it through the
     // absolute fallback would discard a trusted anchor and could flip an
     // over-threshold decision back to "under" (skipping a needed summary).
-    const redecision = didWriteBack ? decideCompaction(surface, decideOpts) : decision;
+    const redecision = didWriteBack
+      ? decideCompaction(surface, {
+          ...decideOpts,
+          // Pruning removed these tokens from the prompt. Carry the prior
+          // anchor forward instead of dropping to the absolute fallback: the
+          // saved tokens are known, and this is exactly the case where a
+          // needless summary used to be paid after pressure was relieved.
+          ...(measuredTokens !== undefined
+            ? { measuredTokens: Math.max(0, measuredTokens - totalSavedTokens) }
+            : {}),
+        })
+      : decision;
     if (!redecision.shouldCompact || !redecision.summaryPrompt) {
       return { messages: surface, replacedCount: 0, didWriteBack };
     }

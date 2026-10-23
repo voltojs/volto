@@ -233,4 +233,41 @@ describe("Runner — provider-usage anchor", () => {
     expect(anchorState.anchor?.trusted).toBe(false);
   });
 
+  it("subtracts prune savings from the anchor before re-deciding", async () => {
+    const messages: Message[] = [
+      { id: "sys", role: "system", content: "sys" },
+      { id: "u1", role: "user", content: "U".repeat(1_000) },
+      {
+        id: "t1",
+        role: "tool",
+        content: [{ type: "tool_result", toolUseId: "call-1", content: [{ type: "text", text: "Z".repeat(2_000) }] }],
+      },
+    ];
+    const anchorState: PromptAnchorState = {
+      anchor: {
+        totalTokens: 600,
+        messageIndex: messages.length,
+        headerHash: HEADER_HASH,
+        trusted: true,
+      },
+    };
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const spy = createSpyModelPort([textScript("SUMMARY"), textScript("ack")]);
+    const runner = createRunner({
+      modelPort: spy,
+      stepContext: ctx,
+      initialState: { ...initialState(), messages },
+      compaction: { ...compaction, maxTokens: 500, toolResultMaxChars: 100 },
+      promptAnchor: anchorState,
+      eventSink: { emit(event) { events.push(event as never); } },
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    // Absolute fallback after pruning is still over 500 (the 1,000-char user
+    // message), but the anchor minus the known savings is under it: no summary.
+    expect(spy.calls).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool_results_pruned")).toBe(true);
+  });
+
 });
