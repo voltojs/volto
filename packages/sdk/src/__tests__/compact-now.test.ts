@@ -51,12 +51,11 @@ function makeToolResult(id: string, toolUseId: string, content: string): Message
 
 describe("compactNow", () => {
   it("compactNow shortens state when over threshold", async () => {
-    // The permission-boundary reminder the reducer injects on the first
-    // turn is ~700 tokens with the char tokenizer, so the threshold must
-    // sit above the pre-request total (system + 20 old + reminder + user
-    // ≈ 1420) and below the post-turn total (+800-char assistant reply).
-    // 1500 keeps auto-compaction quiet during the turn and leaves
-    // compactNow real work: ~500 tokens of old history to compress.
+    // The static context layers (~2626 tokens with the char tokenizer) plus
+    // the permission reminder (~700) put the pre-request total around 4120;
+    // the 800-char assistant reply pushes the post-turn total to ~4950.
+    // 4500 keeps auto-compaction quiet during the turn and leaves compactNow
+    // real work to do.
     const oldMessages = makeOldMessages(20);
     const longResponse = "x".repeat(800);
 
@@ -73,7 +72,7 @@ describe("compactNow", () => {
       initialMessages: oldMessages,
       compaction: {
         tokenizer: createCharTokenizer(1),
-        maxTokens: 1500,
+        maxTokens: 4500,
         recentKeepCount: 2,
       },
     });
@@ -164,13 +163,12 @@ describe("compactNow", () => {
   });
 
   it("compactNow returns non-null with replacedCount 0 on prune-only write-back", async () => {
-    // The permission-boundary reminder (~700 tokens) plus a 500-char
-    // tool_result put the pre-request total around 1230 — under the
-    // 1500 threshold, so auto-compaction stays quiet. The model's 500-char
-    // reply pushes the post-turn total to ~1730. Pruning the tool_result
-    // (500 → ~102 chars, ~398 tokens freed) alone brings it back under
-    // 1500 — no summarization — but state DID change, so compactNow must
-    // report the prune, not null.
+    // Static context layers (~2626 tokens) plus the permission reminder
+    // (~700) put the pre-request total around 3840 — under the 4100
+    // threshold, so auto-compaction stays quiet. The model's 500-char reply
+    // pushes the post-turn total over 4100. Pruning the tool_result
+    // (500 → ~102 chars) alone brings it back under — no summarization —
+    // but state DID change, so compactNow must report the prune, not null.
     const overSized = "T".repeat(500);
     const seed: Message[] = [
       { id: "sys", role: "system", content: "sys" },
@@ -187,7 +185,7 @@ describe("compactNow", () => {
       initialMessages: seed,
       compaction: {
         tokenizer: createCharTokenizer(1),
-        maxTokens: 1500,
+        maxTokens: 4100,
         recentKeepCount: 4,
         toolResultMaxChars: 100,
       },

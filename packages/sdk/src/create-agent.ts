@@ -65,7 +65,7 @@ import {
   CAP_AGENT_DEPTH_AVAILABLE,
   deriveCompactionMaxTokens,
 } from "@volto/core";
-import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState } from "@volto/core";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
 import {
@@ -1416,6 +1416,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           deriveCompactionMaxTokens({
             contextWindow: opts.contextWindow,
             maxOutputTokens: resolve(opts.maxTokens, "maxTokens"),
+            ratio: resolvedCompaction.windowRatio,
+            headroomTokens: resolvedCompaction.headroomTokens,
           }),
         tokenizer: resolvedCompaction.tokenizer ?? defaultTokenizer,
       }
@@ -1853,6 +1855,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   let lastRunner: Runner | null = null;
   let lastFinalState: ReducerState | null = null;
   /**
+   * Provider-usage anchor shared by every per-turn Runner of this agent
+   * instance. The Runner owns the update/invalidations; this holder is what
+   * lets turn N+1 start from turn N's measurement instead of the absolute
+   * heuristic estimate.
+   */
+  const promptAnchorState: PromptAnchorState = {};
+  /**
    * True while a turn claimed via run()/stream() (or an auto-wake turn) is
    * still in flight. File-watch batches arriving during a turn are queued and
    * drained after settle so auto-wake never starts a concurrent runner.
@@ -2006,6 +2015,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // defaults, so the only wiring decision is "on, rooted at the cwd".
       spill: { store: spillStore },
       pathRoot: opts.cwd ?? process.cwd(),
+      promptAnchor: promptAnchorState,
     };
 
     if (previousState && previousState.status === "done") {
@@ -2310,6 +2320,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         initialState: restoredState,
         spill: { store: spillStore },
         pathRoot: opts.cwd ?? process.cwd(),
+        promptAnchor: promptAnchorState,
         // Wire the transcript the same way createNextRunner() does — without
         // this, the tool_result and the assistant_message that follow it
         // never reach the durable log, leaving it ending on an
@@ -3214,6 +3225,9 @@ function createSubAgentExecutor(
       // is fine: createNodeSpillStore is a stateless view over rootDir.
       spill: { store: createNodeSpillStore({ rootDir: opts.cwd ?? process.cwd() }) },
       pathRoot: opts.cwd ?? process.cwd(),
+      // A sub-agent is a separate conversation: its usage baseline must not
+      // leak into the parent's anchor (or vice versa).
+      promptAnchor: {},
       // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
       // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
       // never silently executed in the child.

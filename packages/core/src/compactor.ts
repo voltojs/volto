@@ -91,6 +91,10 @@ export interface CompactionConfig {
   toolResultMaxChars?: number;
   /** maxTokens cap for the summarization model call (default: 4096) */
   summaryMaxTokens?: number;
+  /** Window-derived trigger ratio; defaults to 0.8. */
+  windowRatio?: number;
+  /** Headroom between the trigger and the window edge; defaults to 65,536. */
+  headroomTokens?: number;
   /**
    * Maximum number of recent images (refs) preserved on the user-role
    * carrier message right after the summary (spec D3). Default 4 at the

@@ -116,7 +116,7 @@ describe("window-aware compaction", () => {
       tools: [echoTool(2_000)],
       capabilities: new Set(["test:echo"]),
       contextWindow: 10_000,
-      compaction: { recentKeepCount: 1 },
+      compaction: { recentKeepCount: 1, windowRatio: 0.6, headroomTokens: 1_000 },
       chatStore: transcript.store,
       chatSessionId: "window-compaction",
     });
