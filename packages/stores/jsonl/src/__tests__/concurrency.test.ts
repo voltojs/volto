@@ -1,3 +1,4 @@
+import type * as FsPromises from "node:fs/promises";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -19,7 +20,7 @@ import type { TranscriptEventInput } from "@volto/core";
  * first append's write has landed.
  */
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const actual = await importOriginal<typeof FsPromises>();
   return {
     ...actual,
     readFile: async (...args: unknown[]) => {
