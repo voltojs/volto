@@ -316,6 +316,45 @@ describe("Runner transcript capture", () => {
     expect(starts.every((e) => (e.data as { headerHash: string }).headerHash === header.hash)).toBe(true);
   });
 
+  it("skips the request_header on later turns while the shared static-prefix hash is unchanged", async () => {
+    const headerHashState: { hash?: string } = {};
+    // The once-resolved workspace layers ride on StepContext every turn —
+    // same set, same prefix — so only the first turn records a header row.
+    const layer = { id: "instr", text: "workspace instructions" };
+    const stepContext = { tools: [], model: "test-model", contextLayers: [layer] };
+    const { store, events } = fakeChatStore();
+
+    const turn1 = createRunner({
+      modelPort: createMockModelPort([[textDelta("a"), { type: "done", stopReason: "end_turn" }]]),
+      stepContext,
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+      headerHashState,
+    });
+    await turn1.run({ type: "user_message", content: "one" });
+
+    const turn2 = createRunner({
+      modelPort: createMockModelPort([[textDelta("b"), { type: "done", stopReason: "end_turn" }]]),
+      stepContext,
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 2,
+      clock: steppingClock(),
+      headerHashState,
+    });
+    await turn2.run({ type: "user_message", content: "two" });
+
+    // One header record (turn 1) — turn 2's identical prefix must not
+    // produce a second context row — but both calls announce their header.
+    expect(typesOf(events).filter((t) => t === "request_header")).toHaveLength(1);
+    expect(typesOf(events).filter((t) => t === "model_call_start")).toHaveLength(2);
+    const header = firstOf<{ hash: string }>(events, "request_header")!;
+    const starts = events.filter((e) => e.type === "model_call_start");
+    expect(starts.every((e) => (e.data as { headerHash: string }).headerHash === header.hash)).toBe(true);
+  });
+
   it("seeds its step counter from initialStep so a resumed turn's model calls continue the numbering", async () => {
     const model = createMockModelPort([
       [

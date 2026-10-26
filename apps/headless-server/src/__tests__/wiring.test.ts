@@ -214,8 +214,8 @@ describe("createWiredAgent instruction budget override and prompt policy", () =>
   });
 });
 
-describe("createWiredAgent discovered instruction layers from fs touches", () => {
-  it("injects a nested chain directory's AGENTS.md on the turn after the model touches it", async () => {
+describe("createWiredAgent instruction layers resolve once per conversation", () => {
+  it("keeps the first turn's instruction set for the whole conversation (no per-turn rediscovery)", async () => {
     await fs.mkdir(path.join(tempProjectDir, "src", "lib"), { recursive: true });
     await fs.mkdir(path.join(tempProjectDir, ".git"));
     await fs.writeFile(path.join(tempProjectDir, "AGENTS.md"), "Root rule", "utf-8");
@@ -223,9 +223,8 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
     await fs.writeFile(path.join(tempProjectDir, "src", "lib", "x.ts"), "export {};", "utf-8");
 
     const requests: ModelRequest[] = [];
-    // Tool paths are workspace-relative to the agent cwd (…/src), so touching
-    // the fixture file means "lib/x.ts" here — exactly what a real model would
-    // send. descendantChain() then maps the touch onto …/src/lib.
+    // The model touches a nested file mid-conversation; conversation-start
+    // resolution must ignore that and keep the first turn's set.
     const inner = createMockModelPort([
       toolCallScript("c1", "read_file", JSON.stringify({ path: "lib/x.ts" })),
       textScript("read it"),
@@ -245,14 +244,19 @@ describe("createWiredAgent discovered instruction layers from fs touches", () =>
     const systemsByCall = requests.map((req) =>
       req.messages.filter((m) => m.role === "system").map((m) => (m as { content: string }).content),
     );
-    // 第 1 次模型调用（首轮）：只有项目链根层，无 discovered。
+    // First call (turn 1): project-chain root layer only.
     expect(systemsByCall[0]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
     expect(systemsByCall[0]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
-    // 第 3 次模型调用（第二轮）：上一轮 read_file 触达 src/lib → discovered 层出现。
-    expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: src/lib/AGENTS.md\n\nDeep rule"))).toBe(true);
+    // Third call (turn 2): the same once-resolved set — still the root
+    // layer, never a nested one. Workspace layers are resolved once at
+    // conversation start and injected through the stable prefix every turn;
+    // mid-conversation touches and disk edits take effect only in a new
+    // conversation.
+    expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
+    expect(systemsByCall[2]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
   });
 
-  it("does not discover from unstructured tools (bash/glob)", async () => {
+  it("does not pull descendant instruction files into the conversation-start set", async () => {
     await fs.mkdir(path.join(tempProjectDir, "src"), { recursive: true });
     await fs.writeFile(path.join(tempProjectDir, "src", "AGENTS.md"), "Should not appear", "utf-8");
 

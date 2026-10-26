@@ -618,6 +618,110 @@ describe("createAgent — SDK facade", () => {
       expect(systemMessages.some((m) => (m as { content: string }).content === "layer for: hello")).toBe(true);
     });
 
+    it("resolves context layers once per conversation and every request carries them exactly once in the stable prefix", async () => {
+      const events: TranscriptEventInput[] = [];
+      const chatStore = {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      };
+      const capturedRequests: ModelRequest[] = [];
+      const inner = createMockModelPort([textScript("r1"), textScript("r2"), textScript("r3")]);
+      const modelPort: ModelPort = {
+        async *stream(req) {
+          capturedRequests.push(req);
+          yield* inner.stream(req);
+        },
+      };
+
+      let resolveCalls = 0;
+      const agent = createAgent({
+        modelPort,
+        systemPrompt: "SEED PROMPT",
+        chatStore,
+        chatSessionId: "chat-inv",
+        resolveContextLayers: async () => {
+          resolveCalls++;
+          return [
+            { id: "user-memory", text: "USER MEMORY LAYER" },
+            { id: "project-memory", text: "PROJECT MEMORY LAYER" },
+          ];
+        },
+      });
+
+      const state1 = await agent.run("turn 1");
+      const state3 = await agent.run("turn 2");
+      await agent.run("turn 3");
+
+      // Resolved once at conversation start and stamped onto state — later
+      // turns never re-resolve and never accumulate duplicate copies.
+      expect(resolveCalls).toBe(1);
+      expect(state1.contextLayers?.map((l) => l.text)).toEqual([
+        "USER MEMORY LAYER",
+        "PROJECT MEMORY LAYER",
+      ]);
+      expect(state3.contextLayers?.map((l) => l.text)).toEqual([
+        "USER MEMORY LAYER",
+        "PROJECT MEMORY LAYER",
+      ]);
+      // Layers live on state, not as conversation messages — later turns
+      // only accumulate user/assistant messages after the stable prefix.
+      expect(state3.messages.filter((m) => m.role === "system" && m.content === "USER MEMORY LAYER")).toHaveLength(0);
+
+      // Every model request carries the seed and each layer exactly once.
+      expect(capturedRequests).toHaveLength(3);
+      for (const req of capturedRequests) {
+        const systemContents = req.messages
+          .filter((m) => m.role === "system")
+          .map((m) => (m as { content: string }).content);
+        expect(systemContents.filter((c) => c === "SEED PROMPT")).toHaveLength(1);
+        expect(systemContents.filter((c) => c === "USER MEMORY LAYER")).toHaveLength(1);
+        expect(systemContents.filter((c) => c === "PROJECT MEMORY LAYER")).toHaveLength(1);
+      }
+
+      // The transcript records the static prefix once — the first turn's
+      // request_header is the only context row in the trajectory — while
+      // every turn's model call still points at that header hash.
+      const headers = events.filter((e) => e.type === "request_header");
+      expect(headers.map((h) => h.turn)).toEqual([1]);
+      const starts = events.filter((e) => e.type === "model_call_start");
+      expect(starts).toHaveLength(3);
+      expect(new Set(starts.map((s) => (s.data as { headerHash: string }).headerHash)).size).toBe(1);
+    });
+
+    it("seeds layers from initialContextLayers so a rebuilt instance never re-resolves", async () => {
+      let resolveCalls = 0;
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("r1")]),
+        initialContextLayers: [{ id: "user-memory", text: "SEEDED LAYER" }],
+        resolveContextLayers: async () => {
+          resolveCalls++;
+          return [{ id: "user-memory", text: "FRESH LAYER" }];
+        },
+      });
+
+      const state = await agent.run("hello");
+      expect(resolveCalls).toBe(0);
+      expect(state.contextLayers?.map((l) => l.text)).toEqual(["SEEDED LAYER"]);
+    });
+
+    it("treats an empty resolveContextLayers result as a once-per-conversation answer (not a re-ask)", async () => {
+      let resolveCalls = 0;
+      const agent = createAgent({
+        modelPort: createMockModelPort([textScript("r1"), textScript("r2")]),
+        resolveContextLayers: async () => {
+          resolveCalls++;
+          return [];
+        },
+      });
+
+      const state1 = await agent.run("turn 1");
+      await agent.run("turn 2");
+
+      expect(resolveCalls).toBe(1);
+      expect(state1.contextLayers).toEqual([]);
+    });
+
     it("defaults contextLayers to empty when resolveContextLayers is not provided", async () => {
       const mockModel = createMockModelPort([textScript("ok")]);
       const agent = createAgent({ modelPort: mockModel });
@@ -626,7 +730,7 @@ describe("createAgent — SDK facade", () => {
       expect(state.status).toBe("done");
     });
 
-    it("preserves prior turn state when resolveContextLayers rejects, so a retry still carries forward history", async () => {
+    it("preserves prior turn state when the first resolveContextLayers rejects, so a retry still carries forward history", async () => {
       const mockModel = createMockModelPort([
         textScript("First reply"),
         textScript("Second reply"),
@@ -637,28 +741,21 @@ describe("createAgent — SDK facade", () => {
         modelPort: mockModel,
         resolveContextLayers: async () => {
           callCount++;
-          if (callCount === 2) {
+          if (callCount === 1) {
             throw new Error("resolveContextLayers failed");
           }
           return [];
         },
       });
 
-      const state1 = await agent.run("Turn 1");
+      await expect(agent.run("Turn 1 (fails)")).rejects.toThrow("resolveContextLayers failed");
+
+      const state2 = await agent.run("Turn 1 (retry)");
       // +1 for the first-turn permission-boundary reminder (see the
       // "minimal config" describe block above for why).
-      expect(state1.messages).toHaveLength(3);
-
-      await expect(agent.run("Turn 2 (fails)")).rejects.toThrow("resolveContextLayers failed");
-
-      const state2 = await agent.run("Turn 2 (retry)");
-      // The reminder does not re-fire (config unchanged), so the retried
-      // turn only adds its own user+assistant pair on top of turn 1's 3.
-      expect(state2.messages).toHaveLength(5);
-      expect(state2.messages[4]).toMatchObject({
-        role: "assistant",
-        content: [{ type: "text", text: "Second reply" }],
-      });
+      expect(state2.messages).toHaveLength(3);
+      expect(state2.contextLayers).toEqual([]);
+      expect(callCount).toBe(2);
     });
 
     it("resume()'s fallback branch (lastRunner.resume() throwing) still carries the turn's resolved contextLayers", async () => {
@@ -1011,20 +1108,20 @@ describe("createAgent — SDK facade", () => {
       void runPromise;
     });
 
-    it("passes hints as the second argument (empty touchedPaths on a fresh first turn)", async () => {
-      const seen: unknown[] = [];
+    it("passes only the turn's user text to resolveContextLayers (once per conversation)", async () => {
+      const seen: string[] = [];
       const agent = createAgent({
-        modelPort: createMockModelPort([textScript("ok")]),
-        resolveContextLayers: async (input, hints) => {
-          seen.push({ input, hints });
+        modelPort: createMockModelPort([textScript("ok"), textScript("ok2")]),
+        resolveContextLayers: async (input) => {
+          seen.push(input);
           return [];
         },
       });
 
       await agent.run("hi");
+      await agent.run("again");
 
-      expect(seen).toHaveLength(1);
-      expect(seen[0]).toEqual({ input: "hi", hints: { touchedPaths: [] } });
+      expect(seen).toEqual(["hi"]);
     });
   });
 

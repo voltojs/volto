@@ -973,11 +973,19 @@ export function toTrajectoryView(
     (e) => e.type === "request_header" || e.type === "compaction" || e.type === "context_reminder",
   );
 
+  // One context row per static-prefix hash. An unchanged prefix riding into
+  // later turns (or re-recorded by a resumed Runner) must not repeat the
+  // identical row; a genuinely changed prefix hashes differently and still
+  // gets its own.
+  const seenContextHashes = new Set<string>();
+
   for (const turn of records) {
     for (const event of contextEvents) {
       if ((event.turn ?? 0) !== turn.turn) continue;
       if (event.type === "request_header") {
         const data = event.data as TranscriptEventMap["request_header"];
+        if (seenContextHashes.has(data.hash)) continue;
+        seenContextHashes.add(data.hash);
         rows.push({
           index: 0,
           id: `${turn.turn}:header:${event.seq}`,

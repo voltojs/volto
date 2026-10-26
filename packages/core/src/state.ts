@@ -4,6 +4,8 @@
  */
 
 /** Status of the agent state machine */
+import type { ContextLayer } from "./context-assembler.js";
+
 export type AgentStatus =
   | "idle"                  // Waiting for user input
   | "calling_model"         // Model request in flight
@@ -302,6 +304,16 @@ export interface AgentState {
    * Survives turns and checkpoint/resume. Never written by Compactor.
    */
   todos?: TodoItem[];
+  /**
+   * Workspace instruction layers resolved ONCE at conversation start
+   * (global + project prompts, skill catalog). Injected into every request's
+   * stable prefix via StepContext; never re-resolved mid-conversation.
+   * - `undefined`: not yet resolved (first turn will resolve and stamp this)
+   * - `[]`: resolved — none to inject
+   * - non-empty: the resolved layers
+   * Survives turns and checkpoint/resume. Never written by Compactor.
+   */
+  contextLayers?: ContextLayer[];
   /**
    * Background sub-agent tasks dispatched this turn.
    * - `undefined`: never written

@@ -378,6 +378,27 @@ function highestStepInTurn(events: readonly TranscriptEvent[], turn: number): nu
   return max;
 }
 
+/**
+ * The conversation's workspace instruction layers, recovered from the most
+ * recent `request_header` (which mirrors them as `systemLayers` for audit).
+ * Passed to createAgent() as `initialContextLayers` so a rebuilt instance
+ * keeps the once-resolved set instead of re-reading instruction files.
+ * `undefined` when the transcript has no header yet (fresh conversation, or
+ * a rebuild before the first model call).
+ */
+function contextLayersFromHeader(
+  events: readonly TranscriptEvent[],
+): Array<{ id: string; text: string }> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!;
+    if (event.type !== "request_header") continue;
+    const data = event.data as { systemLayers?: Array<{ id: string; text: string }> };
+    const layers = (data.systemLayers ?? []).filter((l) => l.id !== "system-prompt");
+    return layers;
+  }
+  return undefined;
+}
+
 interface Connection {
   res: http.ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
@@ -946,6 +967,15 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     credentials: ResolvedCredentials | null,
   ): Promise<void> {
     const initialTurn = await resolveInitialTurn(session.id);
+    // Same freshness discipline as resolveInitialTurn: recover the once-
+    // resolved workspace layers from the transcript so a rebuild never
+    // re-reads instruction files mid-conversation.
+    const initialContextLayers = await (async () => {
+      if (!chatStore) return undefined;
+      const persisted = await chatStore.readSession(session.id).catch(() => undefined);
+      if (!persisted) return undefined;
+      return contextLayersFromHeader(persisted.events);
+    })();
     // The paused turn a cross-process resume continues is the last turn —
     // exactly the one initialTurn names — so its step seed is looked up
     // against that ordinal. Only consumed by the SDK's cross-process resume
@@ -1033,6 +1063,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(seeded.length > 0 ? { initialMessages: seeded } : {}),
       ...(initialTurn !== undefined ? { initialTurn } : {}),
+      ...(initialContextLayers !== undefined ? { initialContextLayers } : {}),
       ...(session.announcedWorkflowMode !== undefined
         ? { initialAnnouncedWorkflowMode: session.announcedWorkflowMode }
         : {}),
