@@ -91,6 +91,12 @@ export interface SessionSearchOptions {
   projectId?: string;
   limit?: number;
   snippetChars?: number;
+  /**
+   * Pre-loaded records to search instead of re-reading every session file.
+   * Callers that already hold a `listSessions()` result pass it here so one
+   * search costs one directory scan, not two.
+   */
+  records?: readonly ChatSessionRecord[];
 }
 
 export interface JsonlSessionStore {
@@ -470,7 +476,7 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
       if (normalizedQuery === "") return [];
       const limit = Math.min(50, Math.max(1, opts.limit ?? 20));
       const snippetChars = Math.min(500, Math.max(40, opts.snippetChars ?? 160));
-      const { records } = await this.listSessions();
+      const records = opts.records ?? (await this.listSessions()).records;
       const hits: SessionSearchHit[] = [];
 
       for (const record of records) {
@@ -490,8 +496,13 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
         const at = inTitle ? -1 : normalizedBody.indexOf(normalizedQuery);
         if (!inTitle && at === -1) continue;
 
-        const source = inTitle ? title : body;
-        const sourceIndex = inTitle ? normalizedTitle.indexOf(normalizedQuery) : at;
+        // Cut the snippet from the NORMALIZED text: NFKC can change length
+        // (㍿ → 株式会社, ﬁ → fi), so an index into the normalized string
+        // sliced out of the raw source can land anywhere — even on a window
+        // that contains no part of the match. The tradeoff is a lowercase,
+        // NFKC-expanded snippet; it always contains the hit.
+        const source = inTitle ? normalizedTitle : normalizedBody;
+        const sourceIndex = source.indexOf(normalizedQuery);
         hits.push({
           sessionId: record.sessionId,
           title,
@@ -502,7 +513,10 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
         });
       }
 
-      hits.sort((a, b) => b.updatedAt - a.updatedAt);
+      // updatedAt desc, sessionId asc as a stable tie-break: a forked branch
+      // carries its source's event times, so equal timestamps are common and
+      // readdir order must not decide the listing.
+      hits.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
       return hits.slice(0, limit);
     },
 

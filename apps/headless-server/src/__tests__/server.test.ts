@@ -1195,6 +1195,10 @@ describe("Headless server", () => {
     const missing = await post("/sessions/does-not-exist/fork", {});
     expect(missing.status).toBe(404);
 
+    // Title contract matches PATCH rename: empty or oversized is a 400.
+    expect((await post(`/sessions/${sessionId}/fork`, { title: "" })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { title: "x".repeat(201) })).status).toBe(400);
+
     // Malformed JSON must be a client error (400), not a 500 — same
     // normalization as POST /agents.
     const badBody = await fetch(`${baseUrl}/sessions/${sessionId}/fork`, {
@@ -1228,6 +1232,11 @@ describe("Headless server", () => {
     const hit = await getJson("/sessions?q=world");
     expect(hit.status).toBe(200);
     const body = hit.data as { sessions: Array<{ id: string; snippet?: string }> };
+    // Empty parameters are absent parameters: `?limit=` must not clamp the
+    // page to 1 row and `?projectId=` must not filter for "".
+    const emptyParams = await getJson(`/sessions?q=world&limit=&projectId=`);
+    expect(emptyParams.status).toBe(200);
+    expect((emptyParams.data as { sessions: unknown[] }).sessions.length).toBe(body.sessions.length);
     const summary = body.sessions.find((s) => s.id === sessionId);
     expect(summary).toBeDefined();
     expect(summary!.snippet).toContain("Hello world");

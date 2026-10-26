@@ -186,6 +186,13 @@ export async function forkSession(
   opts: ForkOptions,
   deps: ForkDependencies,
 ): Promise<ForkResult> {
+  // A pre-existing target id would make the store's write path resolve to
+  // that session's file and APPEND the prefix onto its tail, corrupting it —
+  // refuse instead. The generated UUID never hits this in practice; it
+  // guards direct callers.
+  if (await deps.chatStore.readSession(deps.newId)) {
+    throw new ForkError(`Target session ${deps.newId} already exists`, 500);
+  }
   const cut = resolveCut(source.events, opts);
   const prefix = source.events
     .slice(0, cut + 1)

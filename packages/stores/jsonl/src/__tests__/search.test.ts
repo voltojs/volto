@@ -120,6 +120,27 @@ describe("searchSessions", () => {
     expect(under).toHaveLength(1);
   });
 
+  it("cuts snippets from the normalized text so NFKC length changes cannot evict the hit", async () => {
+    // ㍿ expands to four characters under NFKC: an index into the normalized
+    // string, sliced out of the raw source, could land on a window that
+    // contains no part of the match.
+    await seed("s1", "Compat", "p1", `${"㍿".repeat(40)} needle-here tail`, "ok");
+    const hits = await store.searchSessions("needle-here");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.snippet).toContain("needle-here");
+  });
+
+  it("searches caller-provided records without re-reading the directory", async () => {
+    await seed("s1", "Reuse probe", "p1", "reuse me", "ok");
+    const { records } = await store.listSessions();
+    // The target store points at a directory that does not exist: any
+    // re-read would fail, so a hit proves the search only touched the
+    // records it was handed.
+    const reused = createStore({ directory: path.join(dir, "missing-subdir") });
+    const hits = await reused.searchSessions("reuse", { records });
+    expect(hits.map((h) => h.sessionId)).toEqual(["s1"]);
+  });
+
   it("returns [] for an empty query and skips unreadable files", async () => {
     await seed("s1", "Alpha", "p1", "alpha", "alpha");
     expect(await store.searchSessions("   ")).toEqual([]);

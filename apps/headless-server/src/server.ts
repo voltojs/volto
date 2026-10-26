@@ -1312,13 +1312,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (req.method === "GET" && url.pathname === "/sessions") {
       try {
         const q = url.searchParams.get("q")?.trim() ?? "";
-        const { records, skipped } = await chatStore.listSessions();
         if (q !== "") {
-          const projectId = url.searchParams.get("projectId") ?? undefined;
-          const limitRaw = Number(url.searchParams.get("limit") ?? "20");
+          // Empty parameters mean "absent": `?projectId=` / `?limit=` must
+          // not silently become a filter for "" or clamp the page to 1 row.
+          const projectIdParam = url.searchParams.get("projectId")?.trim() ?? "";
+          const projectId = projectIdParam !== "" ? projectIdParam : undefined;
+          const limitParam = url.searchParams.get("limit")?.trim() ?? "";
+          const limitRaw = limitParam !== "" ? Number(limitParam) : Number.NaN;
+          // One directory scan for the whole request: the same records feed
+          // both the search and the summary assembly below.
+          const { records, skipped } = await chatStore.listSessions();
           const hits = await chatStore.searchSessions(q, {
             ...(projectId !== undefined ? { projectId } : {}),
             limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+            records,
           });
           const byId = new Map(records.map((record) => [record.sessionId, record]));
           const sessions = hits.flatMap((hit) => {
@@ -1337,6 +1344,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           jsonResponse(res, 200, { sessions, unreadableSessions: skipped.length });
           return;
         }
+        const { records, skipped } = await chatStore.listSessions();
         // Sub-agent sessions are an implementation detail of the task tool —
         // surfacing them here would flood the user's session list with rows
         // they never started.
@@ -1518,7 +1526,14 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               .replace(/[^\p{L}\p{N}._-]+/gu, "-")
               .replace(/^-+|-+$/g, "")
               .slice(0, 80) || "session";
-          const filename = `${base}-${id.slice(0, 8)}.${format}`;
+          // The id segment gets the same sanitizing as the title: an id with
+          // a quote or CR would make writeHead throw on the header value.
+          const safeId =
+            id
+              .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 8) || "session";
+          const filename = `${base}-${safeId}.${format}`;
           res.writeHead(200, {
             "Content-Type":
               format === "md" ? "text/markdown; charset=utf-8" : "application/x-ndjson; charset=utf-8",
@@ -1550,14 +1565,31 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             jsonResponse(res, 409, { error: "Cannot fork a session while a turn is running" });
             return;
           }
+          // Subagent transcripts are an implementation detail of the task
+          // tool; branching one would produce a "top-level" session that
+          // still carries the subagent's delegationDepth.
+          if (record.meta.origin === "subagent") {
+            jsonResponse(res, 400, { error: "Cannot fork a subagent session" });
+            return;
+          }
           const body = (await readBody(req).then((raw) => (raw.trim() === "" ? {} : JSON.parse(raw)))) as {
             throughSeq?: unknown;
             throughTurn?: unknown;
             title?: unknown;
           };
-          if (typeof body.title !== "undefined" && typeof body.title !== "string") {
-            jsonResponse(res, 400, { error: "title must be a string" });
-            return;
+          if (typeof body.title !== "undefined") {
+            if (typeof body.title !== "string") {
+              jsonResponse(res, 400, { error: "title must be a string" });
+              return;
+            }
+            // Same contract as PATCH rename: an empty or oversized title must
+            // not reach the meta (an empty string would also defeat the
+            // `title ?? default` fallback inside forkSession).
+            const titleLength = body.title.trim().length;
+            if (titleLength === 0 || titleLength > 200) {
+              jsonResponse(res, 400, { error: "title must be 1-200 characters" });
+              return;
+            }
           }
           if (
             body.throughSeq !== undefined &&
@@ -1583,7 +1615,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             {
               ...(typeof body.throughSeq === "number" ? { throughSeq: body.throughSeq } : {}),
               ...(typeof body.throughTurn === "number" ? { throughTurn: body.throughTurn } : {}),
-              ...(typeof body.title === "string" ? { title: body.title } : {}),
+              ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
             },
             {
               chatStore,

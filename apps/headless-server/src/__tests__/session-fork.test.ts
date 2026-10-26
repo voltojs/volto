@@ -117,6 +117,19 @@ describe("forkSession", () => {
     warn.mockRestore();
   });
 
+  it("refuses a target id that already exists instead of appending onto it", async () => {
+    const source = await seed();
+    await store.appendEvents(null, "occupied", [
+      { time: 1, type: "session_meta", data: { title: "Occupied", projectId: null, providerId: null, modelId: null, permissionMode: null } },
+    ]);
+
+    // The store's write path resolves an existing id to its file and
+    // APPENDS; forking into it would corrupt the target session.
+    await expect(forkSession(source, {}, deps("occupied"))).rejects.toThrow(/already exists/);
+    const untouched = await store.readSession("occupied");
+    expect(untouched!.events).toHaveLength(1);
+  });
+
   it("keeps branch attachments readable after the source session is deleted", async () => {
     const source = await seed();
     await forkSession(source, {}, deps("fork-survivor"));
