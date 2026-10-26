@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createFileMemoryStore } from "../store.js";
+import { describeMemoryStoreContract } from "@volto/memory-common/contract";
 import type { MemoryEntry, MemoryStore } from "@volto/core";
 
 let tempDir: string;
@@ -381,4 +382,13 @@ describe("createFileMemoryStore", () => {
       expect(stat.mode & 0o777).toBe(0o700);
     },
   );
+});
+
+// The shared contract pins the filter truth table for every implementation.
+let contractCase = 0;
+describeMemoryStoreContract("createFileMemoryStore", () => {
+  contractCase += 1;
+  return createFileMemoryStore({
+    rootDir: path.join(tempDir, `contract-${contractCase}`),
+  });
 });

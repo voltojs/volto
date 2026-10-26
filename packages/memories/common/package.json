@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./contract": {
+      "types": "./dist/contract.d.ts",
+      "import": "./dist/contract.js"
     }
   },
   "scripts": {
@@ -18,5 +22,7 @@
     "test": "vitest run"
   },
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "@volto/core": "workspace:*"
+  }
 }

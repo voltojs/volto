@@ -296,7 +296,11 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/memories/common: {}
+  packages/memories/common:
+    devDependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
 
   packages/memories/file:
     dependencies:

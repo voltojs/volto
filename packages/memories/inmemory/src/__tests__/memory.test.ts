@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createInMemoryMemoryStore } from "../memory.js";
+import { describeMemoryStoreContract } from "@volto/memory-common/contract";
 import type { MemoryEntry } from "@volto/core";
 
 function entry(text: string, overrides?: Partial<MemoryEntry>): MemoryEntry {
@@ -204,3 +205,6 @@ describe("createInMemoryMemoryStore", () => {
     });
   });
 });
+
+// The shared contract pins the filter truth table for every implementation.
+describeMemoryStoreContract("createInMemoryMemoryStore", () => createInMemoryMemoryStore());
