@@ -77,4 +77,12 @@ describe("DEFAULT_MEMORY_MAX_ENTRIES", () => {
   it("is 5000", () => {
     expect(DEFAULT_MEMORY_MAX_ENTRIES).toBe(5000);
   });
+
+it("tokenizes kana, hangul and astral ideographs as CJK windows", () => {
+  // Regression pin: these scripts used to fall outside the CJK run class,
+  // so an exact self-match scored 0 and pure-kana/hangul queries never hit.
+  expect(scoreMemoryText("こんにちは", "こんにちは")).toBeGreaterThan(0);
+  expect(scoreMemoryText("안녕하세요", "안녕하세요")).toBeGreaterThan(0);
+  expect(scoreMemoryText("\u{20bb7}野家ホテル", "\u{20bb7}野家ホテル")).toBeGreaterThan(0);
+});
 });

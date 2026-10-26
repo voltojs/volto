@@ -125,8 +125,11 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
   }
 
   function generateId(): string {
+    // Deterministic within the single-process assumption (spec §9.6): the
+    // monotonic counter keeps same-millisecond ids apart, and the pid keeps
+    // two processes from colliding. No randomness, so tests can pin ids.
     idCounter += 1;
-    return `mem-${now()}-${idCounter}-${Math.random().toString(36).slice(2, 10)}`;
+    return `mem-${process.pid}-${now()}-${idCounter}`;
   }
 
   async function ensureDir(): Promise<void> {
@@ -254,14 +257,22 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     ops: number;
   }): Promise<void> {
     const target = filePath(scope);
-    const tmp = `${target}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 8)}`;
+    // Compaction runs inside the per-scope write queue, so one pid-stamped
+    // tmp name is unique without randomness; the catch removes it when the
+    // rename never happened so a failed compaction leaves no orphan behind.
+    const tmp = `${target}.tmp.${process.pid}`;
     const lines = [...index.entries.values()].map((entry) =>
       JSON.stringify({ version: ROW_VERSION, op: "upsert", entry }),
     );
     const text = lines.length > 0 ? `${lines.join("\n")}\n` : "";
     await ensureDir();
-    await fs.writeFile(tmp, text, { encoding: "utf-8", mode: FILE_MODE });
-    await fs.rename(tmp, target);
+    try {
+      await fs.writeFile(tmp, text, { encoding: "utf-8", mode: FILE_MODE });
+      await fs.rename(tmp, target);
+    } catch (err: unknown) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw err;
+    }
     index.ops = index.entries.size;
   }
 
@@ -331,7 +342,16 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
       seen.add(key);
       scopes.push({ kind: "project", projectId: key.replace(/\.jsonl$/, "") });
     }
-    const dirents = await fs.readdir(rootDir).catch(() => [] as string[]);
+    const dirents = await fs.readdir(rootDir).catch((err: unknown) => {
+      // A missing root is the normal first-use case; anything else (EACCES
+      // etc.) would silently truncate the scope list, so surface it.
+      if (!isEnoent(err)) {
+        console.warn(
+          `memory-file: cannot list ${rootDir}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return [] as string[];
+    });
     for (const name of dirents) {
       if (!name.endsWith(".jsonl") || seen.has(name)) continue;
       seen.add(name);
@@ -418,7 +438,9 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
             b.score - a.score ||
             (b.entry.createdAt ?? 0) - (a.entry.createdAt ?? 0),
         );
-      return scored.slice(0, k).map((r) => r.entry);
+      // Return copies: handing out the index's own objects would let a
+      // caller mutate the in-memory view (the inmemory store copies too).
+      return scored.slice(0, k).map((r) => ({ ...r.entry }));
     },
 
     async delete(id: string): Promise<boolean> {
@@ -438,7 +460,16 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
         }
       }
       // Unknown id: also probe existing project files not yet loaded.
-      const dirents = await fs.readdir(rootDir).catch(() => [] as string[]);
+      const dirents = await fs.readdir(rootDir).catch((err: unknown) => {
+      // A missing root is the normal first-use case; anything else (EACCES
+      // etc.) would silently truncate the scope list, so surface it.
+      if (!isEnoent(err)) {
+        console.warn(
+          `memory-file: cannot list ${rootDir}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return [] as string[];
+    });
       for (const name of dirents) {
         if (!name.endsWith(".jsonl") || name === "_global.jsonl") continue;
         const scope: MemoryScope = {

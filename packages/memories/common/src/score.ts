@@ -29,11 +29,16 @@ export function normalizeMemoryText(text: string): string {
 export function tokenizeMemoryQuery(text: string): string[] {
   const normalized = normalizeMemoryText(text);
   const tokens: string[] = [];
-  // Match runs of word-ish ASCII plus CJK, then split by kind.
-  const runPattern = /[a-z0-9_]+|[㐀-䶿一-鿿豈-﫿]+/gu;
+  // Match runs of word-ish ASCII plus CJK-ish scripts, then split by kind.
+  // The CJK class covers unified ideographs (incl. extension A and compat
+  // forms), kana, hangul syllables, and astral-plane ideographs (𠮷 etc.);
+  // runs of any of them become 2-char sliding windows below.
+  const runPattern =
+    /[a-z0-9_]+|[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯\u{20000}-\u{2ffff}]+/gu;
   for (const match of normalized.matchAll(runPattern)) {
     const run = match[0];
-    if (run.startsWith("_") || /^[a-z0-9_]+$/.test(run)) {
+    // The ASCII class always matches a whole run, so no second test.
+    if (/^[a-z0-9_]+$/.test(run)) {
       tokens.push(run);
       continue;
     }

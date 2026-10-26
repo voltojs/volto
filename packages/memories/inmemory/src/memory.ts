@@ -40,6 +40,11 @@ type StoredEntry = MemoryEntry & {
   _embedding?: number[];
 };
 
+/**
+ * In-process store with no entry cap: it holds whatever the caller saved in
+ * this process only, and no production wiring uses it as a durable memory
+ * (the file store owns persistence and enforces DEFAULT_MEMORY_MAX_ENTRIES).
+ */
 export function createInMemoryMemoryStore(
   opts: InMemoryMemoryStoreOptions = {},
 ): MemoryStore & {
