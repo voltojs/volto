@@ -167,6 +167,23 @@ export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
   ]);
 }
 
+// Monotonic token for list refreshes: a slower EARLIER request must never
+// overwrite the result of a newer one (the mount fetch racing a fork refresh
+// would otherwise wipe the just-forked branch out of the sidebar).
+let listRefreshToken = 0;
+
+/**
+ * Fetch the server list and apply it, unless a newer refresh has landed in
+ * the meantime. Throws when the server is unreachable (callers decide how
+ * loudly to report that).
+ */
+export async function refreshServerSessions(): Promise<void> {
+  const token = ++listRefreshToken;
+  const summaries = await fetchServerSessions();
+  if (token !== listRefreshToken) return; // superseded by a newer refresh
+  applyServerSummaries(summaries);
+}
+
 /**
  * On mount, loads the session list the headless-server has durably recorded.
  * The server is the sole source of truth: client state is memory-only, so

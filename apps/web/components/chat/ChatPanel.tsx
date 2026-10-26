@@ -26,11 +26,11 @@ import { useSessionStore, type PermissionMode } from '@/stores/session-store';
 import { useConfigStore, providerModels } from '@/stores/config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
-import { exportSessionUrl, fetchPlan, fetchServerSessions, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
+import { exportSessionUrl, fetchPlan, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
 import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
-import { applyServerSummaries, ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { ensureSessionDetail, refreshServerSessions } from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals, type ApprovalOutcome } from '@/lib/approvals';
@@ -465,8 +465,7 @@ export function ChatPanel() {
     useSessionStore.getState().setCurrentSession(newId);
     await ensureSessionDetail(newId);
     try {
-      const summaries = await fetchServerSessions();
-      applyServerSummaries(summaries);
+      await refreshServerSessions();
     } catch {
       // A failed list refresh only hides the branch in the sidebar until the
       // next successful fetch; the open session already works. Reporting it
@@ -548,7 +547,31 @@ export function ChatPanel() {
     () =>
       currentSessionId === null
         ? undefined
-        : { onExport: () => { window.location.href = exportSessionUrl(currentSessionId); } },
+        : {
+            onExport: () => {
+              // fetch -> blob -> object URL: a raw location.href navigation
+              // would replace the whole SPA with a JSON error body when the
+              // export 404s or 500s (e.g. the session was just deleted).
+              void (async () => {
+                try {
+                  const res = await fetch(exportSessionUrl(currentSessionId));
+                  if (!res.ok) throw new Error(`export failed (${res.status})`);
+                  const blob = await res.blob();
+                  const objectUrl = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = objectUrl;
+                  // Content-Disposition carries the server's sanitized name.
+                  const disposition = res.headers.get('content-disposition') ?? '';
+                  const match = disposition.match(/filename="?([^"]+)"?/);
+                  link.download = match?.[1] ?? `session-${currentSessionId}.md`;
+                  link.click();
+                  URL.revokeObjectURL(objectUrl);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : String(error));
+                }
+              })();
+            },
+          },
     [currentSessionId],
   );
 
