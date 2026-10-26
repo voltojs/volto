@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { McpToolSource, parseMcpToolName, isMcpToolName } from "../mcp-tool-source.js";
+import type { McpTransport } from "../transport.js";
 import type { ToolSource } from "@volto/core";
 
 /**
@@ -122,7 +123,7 @@ describe("McpToolSource", () => {
     }) as typeof transport.request;
 
     const source = new McpToolSource({
-      servers: [{ serverId: "srv1", transport: transport as unknown as import("../transport.js").McpTransport }],
+      servers: [{ serverId: "srv1", transport: transport as unknown as McpTransport }],
     });
     await source.connectAll();
 
