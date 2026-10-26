@@ -117,6 +117,36 @@ describe("forkSession", () => {
     expect(forked!.meta.title).toBe("Source（分支）");
   });
 
+  it("backs up to the last completed turn when throughTurn names a killed turn", async () => {
+    await seed();
+    // Turn 3 was killed mid-flight: user message exists, no turn_end.
+    await store.appendEvents(null, "src", [
+      { time: 8, type: "user_message", data: { content: "never finished" }, turn: 3 },
+    ]);
+    const killed = (await store.readSession("src"))!;
+
+    // Spec D3: an incomplete turn falls back to the previous completed one
+    // instead of failing with 400.
+    const result = await forkSession(killed, { throughTurn: 3 }, deps("fork-fallback"));
+    expect(result.id).toBe("fork-fallback");
+
+    const forked = await store.readSession("fork-fallback");
+    expect(forked!.events.filter((e) => e.type === "turn_end")).toHaveLength(2);
+    expect(
+      forked!.events.some(
+        (e) =>
+          e.type === "user_message" &&
+          (e.data as { content?: unknown }).content === "never finished",
+      ),
+    ).toBe(false);
+
+    // A cut naming a far-away turn also backs up to the latest completed one.
+    const far = await forkSession(killed, { throughTurn: 99 }, deps("fork-far"));
+    expect(far.id).toBe("fork-far");
+    const farForked = await store.readSession("fork-far");
+    expect(farForked!.events.filter((e) => e.type === "turn_end")).toHaveLength(2);
+  });
+
   it("copies only through a completed turn and backs up a mid-turn seq", async () => {
     const source = await seed();
     await forkSession(source, { throughTurn: 1 }, deps("fork-turn1"));

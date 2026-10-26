@@ -67,16 +67,31 @@ function resolveCut(events: readonly TranscriptEvent[], opts: ForkOptions): numb
     throw new ForkError("throughSeq and throughTurn are mutually exclusive");
   }
 
-  if (opts.throughTurn !== undefined) {
-    if (!Number.isInteger(opts.throughTurn) || opts.throughTurn < 1) {
+  const requestedTurn = opts.throughTurn;
+  if (requestedTurn !== undefined) {
+    if (!Number.isInteger(requestedTurn) || requestedTurn < 1) {
       throw new ForkError("throughTurn must be a positive integer");
     }
-    const at = lastIndexWhere(
+    const exact = lastIndexWhere(
       events,
-      (event) => event.type === "turn_end" && event.turn === opts.throughTurn,
+      (event) => event.type === "turn_end" && event.turn === requestedTurn,
     );
-    if (at === -1) throw new ForkError(`No completed turn ${opts.throughTurn}`);
-    return at;
+    if (exact !== -1) return exact;
+    // The requested turn never completed (the session was killed mid-turn):
+    // back up to the last completed turn before it, per spec D3 — the same
+    // fallback throughSeq already applies. Only when nothing at all
+    // completed is the cut invalid.
+    const fallback = lastIndexWhere(
+      events,
+      (event) =>
+        event.type === "turn_end" &&
+        event.turn !== undefined &&
+        event.turn < requestedTurn,
+    );
+    if (fallback === -1) {
+      throw new ForkError(`No completed turn ${requestedTurn} or earlier`);
+    }
+    return fallback;
   }
 
   if (opts.throughSeq !== undefined) {
