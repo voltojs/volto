@@ -62,6 +62,16 @@ describe("memory tool schema", () => {
     expect(noQuery.modelContent).toContain("Invalid input");
   });
 
+  it("rejects remember text over the 4000-char cap", async () => {
+    const t = tool();
+    const tooLong = await t.handler({ action: "remember", text: "x".repeat(4001) });
+    expect(tooLong.isError).toBe(true);
+    expect(tooLong.modelContent).toContain("Invalid input");
+
+    const atCap = await t.handler({ action: "remember", text: "x".repeat(4000) });
+    expect(atCap.isError).toBeFalsy();
+  });
+
   it("rejects an unknown action and out-of-range k", async () => {
     const t = tool();
     const unknown = await t.handler({ action: "delete", text: "x" });
@@ -168,6 +178,16 @@ describe("remember", () => {
     expect(result.isError).toBe(true);
     expect(String(result.modelContent)).toContain("disk full");
   });
+
+  it("rejects whitespace-only text instead of storing an unretrievable entry", async () => {
+    const store = createSpyStore();
+    const t = createMemoryTool({ memoryStore: store, projectId: "p1", now: () => NOW });
+    const result = await t.handler({ action: "remember", text: "   " });
+
+    expect(result.isError).toBe(true);
+    expect(String(result.modelContent)).toMatch(/non-empty/i);
+    expect(store.saves).toHaveLength(0);
+  });
 });
 
 describe("recall", () => {
@@ -202,6 +222,42 @@ describe("recall", () => {
     expect(result.isError).toBeFalsy();
     expect(String(result.modelContent)).toMatch(/no relevant memories/i);
     expect(store.saves).toHaveLength(0);
+  });
+
+  it("caps each recalled line at 500 chars and declares the truncation", async () => {
+    const longText = `long fact ${"x".repeat(600)}`;
+    const store = createSpyStore({ queryResults: [[{ id: "m1", text: longText }]] });
+    const t = createMemoryTool({ memoryStore: store, projectId: "p1", now: () => NOW });
+    const result = await t.handler({ action: "recall", query: "long" });
+
+    expect(result.isError).toBeFalsy();
+    const content = String(result.modelContent);
+    expect(content).toContain("(truncated)");
+    expect(content.length).toBeLessThan(longText.length);
+    expect(result.displayMetadata).toMatchObject({ truncated: true });
+  });
+
+  it("truncates by code point so surrogate pairs stay intact", async () => {
+    // 600 emoji = 1200 UTF-16 code units; a naive slice(0, 500) would split a
+    // pair and emit a lone surrogate.
+    const emojiText = "😀".repeat(600);
+    const store = createSpyStore({ queryResults: [[{ id: "m1", text: emojiText }]] });
+    const t = createMemoryTool({ memoryStore: store, projectId: "p1", now: () => NOW });
+    const result = await t.handler({ action: "recall", query: "emoji" });
+
+    const content = String(result.modelContent);
+    expect(content).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(result.displayMetadata).toMatchObject({ truncated: true });
+  });
+
+  it("does not mark short entries as truncated", async () => {
+    const store = createSpyStore({ queryResults: [[{ id: "m1", text: "short fact" }]] });
+    const t = createMemoryTool({ memoryStore: store, projectId: "p1", now: () => NOW });
+    const result = await t.handler({ action: "recall", query: "short" });
+
+    expect(result.modelContent).toBe("[1] short fact");
+    expect(result.displayMetadata).toMatchObject({ count: 1 });
+    expect(result.displayMetadata?.truncated).toBeUndefined();
   });
 
   it("rejects an unbound project with an error mentioning the project binding", async () => {

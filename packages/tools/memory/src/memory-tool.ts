@@ -16,11 +16,22 @@ import type { Tool } from "@volto/tools-common";
 import type { MemoryStore, ToolResult } from "@volto/core";
 import { CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "./capabilities.js";
 
+/**
+ * Upper bound for a single `remember` text, aligned with the RAG injection
+ * cap (spec 2026-10-20 memory-rag §4.5): an unbounded model-provided text
+ * would come back through `recall` with no limit at all.
+ */
+const MAX_REMEMBER_CHARS = 4000;
+
 /** Project scope of a remembered entry — `remember` never exposes a scope option. */
 const rememberSchema = z
   .object({
     action: z.literal("remember"),
-    text: z.string().min(1).describe("The fact or note to remember."),
+    text: z
+      .string()
+      .min(1)
+      .max(MAX_REMEMBER_CHARS)
+      .describe("The fact or note to remember."),
   })
   .strict();
 
@@ -55,6 +66,14 @@ export interface MemoryToolDeps {
 const DUP_CHECK_K = 5;
 /** Default number of entries returned by `recall` when the model omits `k`. */
 const DEFAULT_RECALL_K = 5;
+/** Per-line cap for `recall` output so the total modelContent stays bounded. */
+const RECALL_LINE_MAX_CHARS = 500;
+
+/** Truncate by code point so surrogate pairs (emoji) are never split. */
+function truncateByCodePoint(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : `${chars.slice(0, max).join("")}…`;
+}
 
 const DESCRIPTION =
   "Store and retrieve project-scoped memories. Use `remember` to keep a durable fact " +
@@ -95,6 +114,14 @@ export function createMemoryTool(deps: MemoryToolDeps): Tool {
 
       if (input.action === "remember") {
         const text = input.text.trim();
+        if (text === "") {
+          // Whitespace-only input would store an entry that can never be
+          // retrieved (score 0) and wastes a cap slot — reject it.
+          return {
+            modelContent: "memory(remember) requires non-empty text; nothing was stored.",
+            isError: true,
+          };
+        }
         try {
           // Exact-duplicate check scoped to this project (no global entries).
           const existing = await memoryStore.query(text, DUP_CHECK_K, {
@@ -146,12 +173,22 @@ export function createMemoryTool(deps: MemoryToolDeps): Tool {
         if (entries.length === 0) {
           return { modelContent: "No relevant memories found." };
         }
-        const lines = entries.map((entry, index) => `[${index + 1}] ${entry.text}`);
+        // Cap each line and declare the cut: a model may have remembered a
+        // long text, and the ToolResult contract requires truncation to be
+        // visible to the model, not silent.
+        let truncated = false;
+        const lines = entries.map((entry, index) => {
+          const text = truncateByCodePoint(entry.text, RECALL_LINE_MAX_CHARS);
+          if (text !== entry.text) truncated = true;
+          const suffix = text.endsWith("…") ? " (truncated)" : "";
+          return `[${index + 1}] ${text}${suffix}`;
+        });
         return {
           modelContent: lines.join("\n"),
           displayMetadata: {
             memoryIds: entries.map((entry) => entry.id),
             count: entries.length,
+            ...(truncated ? { truncated: true } : {}),
           },
         };
       } catch (error) {
