@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createStore } from "@volto/store-jsonl";
 import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
 import { createNodeAttachmentStore } from "@volto/runtime-node";
-import type { PlanStore, TranscriptEventInput } from "@volto/core";
+import type { AttachmentStore, PlanStore, TranscriptEventInput } from "@volto/core";
 import { forkSession, ForkError } from "../session-fork.js";
 
 let dir: string;
@@ -78,6 +78,34 @@ describe("forkSession", () => {
 
     const attachment = await createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId: "fork-1" }).get("img1");
     expect(attachment?.name).toBe("shot.png");
+  });
+
+  it("still forks when an attachment copy fails, degrading to a warning", async () => {
+    const source = await seed();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const brokenDeps = {
+      ...deps("fork-att-fail"),
+      attachmentStoreFor: (sessionId: string) => {
+        const store = createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId });
+        if (sessionId !== "fork-att-fail") return store;
+        const failing: AttachmentStore = {
+          get: (id) => store.get(id),
+          put: async () => {
+            throw new Error("disk full");
+          },
+          deleteBySession: (target) => store.deleteBySession(target),
+        };
+        return failing;
+      },
+    };
+
+    // The branch is already durable; the request must not fail (a 500 here
+    // would leave an orphaned-but-listed session that a retry duplicates).
+    const result = await forkSession(source, {}, brokenDeps);
+    expect(result.id).toBe("fork-att-fail");
+    expect(await store.readSession("fork-att-fail")).toBeDefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("copy failed"));
+    warn.mockRestore();
   });
 
   it("keeps the branch title when a rename meta sits inside the prefix", async () => {

@@ -1188,6 +1188,15 @@ describe("Headless server", () => {
 
     const missing = await post("/sessions/does-not-exist/fork", {});
     expect(missing.status).toBe(404);
+
+    // Malformed JSON must be a client error (400), not a 500 — same
+    // normalization as POST /agents.
+    const badBody = await fetch(`${baseUrl}/sessions/${sessionId}/fork`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: "{oops",
+    });
+    expect(badBody.status).toBe(400);
   });
 
   it("answers 400 for a malformed percent-encoded session id and stays alive", async () => {

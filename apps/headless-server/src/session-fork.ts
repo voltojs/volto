@@ -165,10 +165,19 @@ async function copyAttachments(
       console.warn(`fork: attachment ${id} is missing from the source session`);
       continue;
     }
-    await targetStore.put(found.data, found.mimeType, {
-      id,
-      ...(found.name !== undefined ? { name: found.name } : {}),
-    });
+    // A failed copy degrades like a missing attachment: the branch is
+    // already durable by this point, and failing the request would leave
+    // an orphaned-but-listed session behind that a retry would duplicate.
+    try {
+      await targetStore.put(found.data, found.mimeType, {
+        id,
+        ...(found.name !== undefined ? { name: found.name } : {}),
+      });
+    } catch (err: unknown) {
+      console.warn(
+        `fork: attachment ${id} copy failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }
 

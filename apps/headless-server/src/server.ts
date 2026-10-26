@@ -1599,6 +1599,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             jsonResponse(res, err.status, { error: err.message });
             return;
           }
+          if (respondBodyError(err)) return;
+          if (err instanceof SyntaxError) {
+            jsonResponse(res, 400, { error: "Invalid JSON body" });
+            return;
+          }
           jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
         }
         return;
