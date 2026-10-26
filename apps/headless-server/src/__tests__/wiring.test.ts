@@ -223,9 +223,8 @@ describe("createWiredAgent instruction layers resolve once per conversation", ()
     await fs.writeFile(path.join(tempProjectDir, "src", "lib", "x.ts"), "export {};", "utf-8");
 
     const requests: ModelRequest[] = [];
-    // Tool paths are workspace-relative to the agent cwd (…/src), so touching
-    // the fixture file means "lib/x.ts" here — exactly what a real model would
-    // send. descendantChain() then maps the touch onto …/src/lib.
+    // The model touches a nested file mid-conversation; conversation-start
+    // resolution must ignore that and keep the first turn's set.
     const inner = createMockModelPort([
       toolCallScript("c1", "read_file", JSON.stringify({ path: "lib/x.ts" })),
       textScript("read it"),
@@ -245,19 +244,19 @@ describe("createWiredAgent instruction layers resolve once per conversation", ()
     const systemsByCall = requests.map((req) =>
       req.messages.filter((m) => m.role === "system").map((m) => (m as { content: string }).content),
     );
-    // First call (turn 1): project-chain root layer only, nothing discovered yet.
+    // First call (turn 1): project-chain root layer only.
     expect(systemsByCall[0]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
     expect(systemsByCall[0]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
-    // Third call (turn 2): the first turn's set rides in conversation
-    // history — still the root layer, still no discovered layer. Workspace
-    // layers are injected exactly once per conversation; touching a nested
-    // AGENTS.md mid-conversation no longer re-resolves (disk changes take
-    // effect in a new conversation).
+    // Third call (turn 2): the same once-resolved set — still the root
+    // layer, never a nested one. Workspace layers are resolved once at
+    // conversation start and injected through the stable prefix every turn;
+    // mid-conversation touches and disk edits take effect only in a new
+    // conversation.
     expect(systemsByCall[2]?.some((c) => c.includes("Instructions from: AGENTS.md\n\nRoot rule"))).toBe(true);
     expect(systemsByCall[2]?.some((c) => c.includes("src/lib/AGENTS.md"))).toBe(false);
   });
 
-  it("does not discover from unstructured tools (bash/glob)", async () => {
+  it("does not pull descendant instruction files into the conversation-start set", async () => {
     await fs.mkdir(path.join(tempProjectDir, "src"), { recursive: true });
     await fs.writeFile(path.join(tempProjectDir, "src", "AGENTS.md"), "Should not appear", "utf-8");
 

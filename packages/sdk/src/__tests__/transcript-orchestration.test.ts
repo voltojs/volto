@@ -91,21 +91,28 @@ describe("createAgent transcript orchestration", () => {
     expect((turnEnd!.data as { turn: number }).turn).toBe(1);
   });
 
-  it("records a turn_end with reason error and turn 2 when resolveContextLayers throws after a prior successful turn", async () => {
+  it("records a turn_end with reason error and turn 2 when createNextRunner rejects after a prior successful turn", async () => {
     const { store, bySession } = fakeChatStore();
-    let callCount = 0;
+    // Per-turn createNextRunner rejection: the config layer is read once per
+    // turn claim, so a getter can blow up on turn 2 after turn 1 succeeded.
+    // (resolveContextLayers is once-per-conversation and cannot fail turn 2.)
+    let configReads = 0;
     const agent = createAgent({
-      // Only turn 1 ever reaches the model — turn 2 fails in
-      // resolveContextLayers, before the model is ever called.
       modelPort: createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]),
       chatStore: store,
       chatSessionId: "chat-1",
       chatMeta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
-      resolveContextLayers: async () => {
-        callCount++;
-        if (callCount === 2) throw new Error("layers exploded");
-        return [];
+      config: {
+        config: {
+          get reasoningStrategy(): "emit" {
+            configReads++;
+            if (configReads > 1) throw new Error("layers exploded");
+            return "emit";
+          },
+        },
+        resolvedFrom: {},
       },
+      resolveContextLayers: async () => [],
     });
 
     await agent.run("first turn");
@@ -119,8 +126,8 @@ describe("createAgent transcript orchestration", () => {
     expect((turnEnd!.data as { error: string }).error).toContain("layers exploded");
     // Must be attributed to turn 2 (the failing turn), never turn 1 (the
     // prior, already-successful turn) — that was the exact bug: turnCounter
-    // was incremented only after resolveContextLayers resolved, so a
-    // rejection there left it pointing at the previous turn.
+    // used to be incremented only after the later awaits, so a rejection
+    // there left it pointing at the previous turn.
     expect(turnEnd!.turn).toBe(2);
     expect((turnEnd!.data as { turn: number }).turn).toBe(2);
   });

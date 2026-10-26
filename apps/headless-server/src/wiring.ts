@@ -29,10 +29,8 @@ import type { AttachmentParsePdf } from "./attachments/convert.js";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import {
   dedupeInstructions,
-  descendantChain,
   renderInstructionLayers,
   type ContextLayer,
-  type ContextLayerHints,
 } from "@volto/core";
 import type { AttachmentStore, Hook, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
@@ -202,6 +200,12 @@ export interface WiringOptions {
    * no transcript exists yet.
    */
   initialTurn?: number;
+  /**
+   * Forwarded verbatim to createAgent()'s `initialContextLayers` so a rebuilt
+   * agent keeps the conversation's once-resolved workspace layers instead of
+   * re-reading instruction files.
+   */
+  initialContextLayers?: import("@volto/core").ContextLayer[];
   /**
    * Seed for the workflow-mode fingerprint (spec 2026-09-25 §3.1-0),
    * captured from the outgoing agent by sessions.rebuild(). Forwarded
@@ -503,10 +507,12 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
 
   const skillRegistry = createSkillRegistry(cwd);
 
-  async function resolveContextLayers(_input: string, hints?: ContextLayerHints): Promise<ContextLayer[]> {
-    const discoveredDirs = descendantChain(cwd, hints?.touchedPaths ?? []);
+  // Conversation-start instruction set: user global + project chain only.
+  // Resolved once per conversation (see CreateAgentOptions.resolveContextLayers);
+  // nested AGENTS.md discovery mid-conversation is intentionally out of scope.
+  async function resolveContextLayers(_input: string): Promise<ContextLayer[]> {
     const maxBytes = opts.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES;
-    const loaded = await collectInstructionFiles(cwd, discoveredDirs);
+    const loaded = await collectInstructionFiles(cwd, []);
     const layers = renderInstructionLayers(dedupeInstructions(loaded), maxBytes).layers;
     return layers;
   }
@@ -656,6 +662,9 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.attachmentStore ? { attachmentStore: opts.attachmentStore } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
+    ...(opts.initialContextLayers !== undefined
+      ? { initialContextLayers: opts.initialContextLayers }
+      : {}),
     ...(opts.initialAnnouncedWorkflowMode !== undefined
       ? { initialAnnouncedWorkflowMode: opts.initialAnnouncedWorkflowMode }
       : {}),

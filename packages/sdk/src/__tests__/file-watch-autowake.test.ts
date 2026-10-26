@@ -348,9 +348,10 @@ describe("createAgent file-watch auto-wake", () => {
     const watcher = createFakeFileWatcher();
     const sinkEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
     // The Runner swallows model-port throws (retry → model_error). Force a
-    // real run() rejection via resolveContextLayers, which runs inside
-    // createNextRunner and is rethrown by agent.run().
-    let resolveCalls = 0;
+    // real run() rejection via a per-turn createNextRunner failure (config
+    // layer is re-read on every turn claim), rethrown by agent.run().
+    // resolveContextLayers is once-per-conversation and cannot fail the wake.
+    let configReads = 0;
     const modelPort = scriptedModelPort([
       () => regCall1(),
       () => regCall2(),
@@ -361,13 +362,19 @@ describe("createAgent file-watch auto-wake", () => {
       modelPort,
       fileWatcher: watcher,
       eventSink: { emit: (e) => sinkEvents.push(e) },
-      resolveContextLayers: async () => {
-        resolveCalls++;
-        if (resolveCalls > 1) {
-          throw new Error("context layers exploded during auto-wake");
-        }
-        return [];
+      config: {
+        config: {
+          get reasoningStrategy(): "emit" {
+            configReads++;
+            if (configReads > 1) {
+              throw new Error("context layers exploded during auto-wake");
+            }
+            return "emit";
+          },
+        },
+        resolvedFrom: {},
       },
+      resolveContextLayers: async () => [],
     });
 
     await agent.run("start watching");

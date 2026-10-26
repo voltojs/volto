@@ -68,7 +68,7 @@ import {
   renderLoopReminder,
   renderLoopIntervention,
 } from "@volto/core";
-import type { PromptAnchorState, StepContext, ReducerState, ContextLayer } from "@volto/core";
+import type { PromptAnchorState, StepContext, ReducerState } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
 import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
@@ -321,16 +321,6 @@ export interface RunnerOptions {
    * emit a second system message and the model would see the prompt twice.
    */
   seedSystemPrompt?: string;
-  /**
-   * The instruction layers the FIRST turn injected, kept as the header's
-   * audit mirror for later turns. Later turns carry those layers from
-   * conversation history instead of re-injecting them via
-   * stepContext.contextLayers, so without this mirror the header payload
-   * would change (N layers → 0) and every turn would record — and display —
-   * the same static prefix again. Header-only: the ContextAssembler never
-   * sees these (same rule as seedSystemPrompt).
-   */
-  headerSystemLayers?: ContextLayer[];
   /**
    * Cross-turn holder for the last recorded request_header hash (the same
    * sharing pattern as promptAnchor). The static prefix usually survives
@@ -1521,11 +1511,10 @@ export function createRunner(opts: RunnerOptions): Runner {
     // into an extra system message, so the model would receive the prompt
     // twice. Skipped when the host's own layers already carry the id, so a
     // host managing its own "system-prompt" layer cannot collide.
-    // Audit mirror: opts.headerSystemLayers (first-turn layers replayed for
-    // later turns that no longer re-inject them) falls back to this turn's
-    // own injected layers for callers that don't mirror.
-    const sourceLayers = opts.headerSystemLayers ?? stepContext.contextLayers;
-    const systemLayers = (sourceLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
+    // The once-resolved workspace layers ride on StepContext every turn
+    // (stable prefix); the header mirrors that same set so its hash stays
+    // identical across the conversation.
+    const systemLayers = (stepContext.contextLayers ?? []).map((l) => ({ id: l.id, text: l.text }));
     if (opts.seedSystemPrompt && !systemLayers.some((l) => l.id === "system-prompt")) {
       systemLayers.unshift({ id: "system-prompt", text: opts.seedSystemPrompt });
     }

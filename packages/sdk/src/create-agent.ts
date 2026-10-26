@@ -41,7 +41,6 @@ import type {
   Id,
   Clock,
   ContextLayer,
-  ContextLayerHints,
   SkillRegistry,
   SkillSummary,
   AttachmentStore,
@@ -57,7 +56,6 @@ import {
   createInitialState,
   resetTurnForNextInput,
   filterByScope,
-  extractTouchedToolPaths,
   parseSkillInvocation,
   ReasoningEffortId,
   CAP_MODEL_VISION,
@@ -455,30 +453,30 @@ export interface CreateAgentOptions {
   systemPrompt?: string;
 
   /**
-   * Called ONCE per conversation — on the first turn whose history has no
-   * persisted layers yet — with that turn's user-message text; returns the
-   * workspace-instruction content layers (AGENTS.md-style memory/instruction
-   * files the host discovers itself). That first turn injects them and
-   * commitFinalState() persists them into conversation history; every later
-   * turn carries them from history instead of calling this again, so disk
-   * changes only take effect in a new conversation. (A host returning an
-   * empty list every time gets no persisted layers and is re-asked each
-   * turn — nothing is injected or displayed either way.) Skills are not
-   * part of this callback — they flow through the separate `skillRegistry`
+   * Called ONCE per conversation — on the first turn — with that turn's
+   * user-message text; returns the workspace-instruction content layers
+   * (global + project prompts, AGENTS.md-style files the host discovers
+   * itself). The resolved set is stamped onto ReducerState.contextLayers and
+   * injected into every request's stable prefix from there; later turns never
+   * re-resolve and never re-inject through a second channel, so disk changes
+   * only take effect in a new conversation. An empty list is a valid
+   * once-per-conversation answer (stamped as `[]`, not re-asked). Skills are
+   * not part of this callback — they flow through the separate `skillRegistry`
    * option (catalog layer + skill tool), joined into the same
-   * once-per-conversation injection. No default —
+   * once-per-conversation resolution. No default —
    * packages/sdk stays host-agnostic and does not know about `~/.volto` or any
    * instruction-file directory convention (that is apps/headless-server's job).
    * Omitted means contextLayers is always empty, identical to today's behavior.
-   *
-   * The second argument carries history-derived hints (`{ touchedPaths }` —
-   * structured fs paths touched so far, derived from the conversation's
-   * tool_use history; empty on a fresh first turn) so hosts can keep
-   * instruction-file discovery in sync with what the agent has actually
-   * touched. Only supplied on the call that actually happens — later turns
-   * never re-resolve.
    */
-  resolveContextLayers?: (input: string, hints?: ContextLayerHints) => Promise<ContextLayer[]>;
+  resolveContextLayers?: (input: string) => Promise<ContextLayer[]>;
+
+  /**
+   * Seeds ReducerState.contextLayers for a rebuilt agent instance so the
+   * same conversation does not re-resolve its workspace layers after a
+   * process/config rebuild. Omit on a fresh conversation. `[]` is a valid
+   * seed (resolved, none).
+   */
+  initialContextLayers?: ContextLayer[];
 
   /**
    * 首轮种子历史消息 —— 追加在 systemPrompt 消息之后，作为第一轮
@@ -1890,17 +1888,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    * drained after settle so auto-wake never starts a concurrent runner.
    */
   let turnInFlight = false;
-  // Most recently resolved per-turn contextLayers, cached for resume()'s
-  // fallback branch (see below). Only covers same-process resume
-  // (lastRunner.resume() throwing but the agent instance still alive) — a
-  // resume in a fresh process after this one exits has no prior turn's
-  // resolved layers to fall back on.
-  let lastTurnContextLayers: ContextLayer[] | undefined;
-  // The workspace layers injected by the first turn, held until they are
-  // persisted into conversation history at that turn's end (see
-  // commitFinalState). Stays set across a failed turn so the retry still
-  // injects exactly the same layers; cleared once persisted.
-  let pendingLayersToPersist: ContextLayer[] | undefined;
+  /**
+   * Once-per-conversation workspace layers (global + project prompts + skill
+   * catalog). `undefined` = not yet resolved; `[]` = resolved, none. Stamped
+   * onto ReducerState.contextLayers at turn start so checkpoint/resume and
+   * every later turn read the same set — never re-resolved mid-conversation,
+   * never lost on a process restart mid-turn.
+   */
+  let resolvedContextLayers: ContextLayer[] | undefined = opts.initialContextLayers;
   /**
    * Cross-turn holder for the last request_header hash, shared with every
    * per-turn Runner (the same pattern as promptAnchorState). The static
@@ -1937,20 +1932,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     return hostLayers === undefined ? [catalogLayer] : [...hostLayers, catalogLayer];
   }
 
-  // Message-id prefix marking the first turn's injected layers once they
-  // persist into conversation history (also the marker persistedLayersFrom
-  // reads on a cross-process rebuild).
-  const PERSISTED_LAYER_PREFIX = "context-layer-";
-
-  /** Rebuilds the persisted first-turn layers from history (header mirror). */
-  function persistedLayersFrom(messages: readonly Message[]): ContextLayer[] | undefined {
-    const layers: ContextLayer[] = [];
-    for (const m of messages) {
-      if (m.role === "system" && m.id.startsWith(PERSISTED_LAYER_PREFIX)) {
-        layers.push({ id: m.id.slice(PERSISTED_LAYER_PREFIX.length), text: m.content });
-      }
-    }
-    return layers.length > 0 ? layers : undefined;
+  /**
+   * Resolve the conversation's workspace layers exactly once. Priority:
+   * checkpointed `state.contextLayers` (resume / carry-forward) → the
+   * in-process cache → one host resolve (skill catalog joined). `[]` is a
+   * valid terminal answer and is cached like any other set.
+   */
+  async function resolveContextLayersOnce(
+    inputText: string,
+    fromState: ContextLayer[] | undefined,
+  ): Promise<ContextLayer[]> {
+    const existing = fromState ?? resolvedContextLayers;
+    if (existing !== undefined) return existing;
+    const hostLayers = opts.resolveContextLayers
+      ? await opts.resolveContextLayers(inputText)
+      : undefined;
+    const layers = (await appendSkillCatalogLayer(hostLayers)) ?? [];
+    resolvedContextLayers = layers;
+    return layers;
   }
 
   async function createNextRunner(
@@ -1958,6 +1957,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     abortSignal: AbortSignal | undefined,
     inputText: string,
   ): Promise<Runner> {
+    // Claim the turn immediately — a turn is "claimed" the moment
+    // createNextRunner() is invoked, regardless of whether it goes on to
+    // construct a Runner. Incrementing only after the later awaits would
+    // leave a failure misattributed to the previous turn (and a first-turn
+    // failure recorded as turn 0).
+    turnCounter++;
+
     // Wrap EventSink to intercept usage events for cost metering
     // and filter reasoning_delta based on reasoningStrategy.
     const reasoningStrategy = resolve(opts.reasoningStrategy, "reasoningStrategy") ?? "emit";
@@ -2001,42 +2007,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       })),
     ];
 
-    // Incremented before resolveContextLayers runs — a turn is "claimed" the
-    // moment createNextRunner() is invoked, regardless of whether it goes on
-    // to construct a Runner. If this were incremented only after
-    // resolveContextLayers resolves, a rejection there would leave
-    // turnCounter pointing at the *previous* turn, so a caught failure would
-    // misattribute its turn_end to the last successful turn instead of this
-    // one (and a first-turn failure would record turn 0).
-    turnCounter++;
-    // History-derived hints: structured fs paths touched so far. After a
-    // rebuild (fresh process) lastFinalState is null — seedMessages already
-    // carries the rebuilt history, so discovery survives cross-process resume.
-    const hintsSource: Message[] = lastFinalState?.messages ?? seedMessages;
-    // Workspace layers are resolved and injected exactly ONCE per
-    // conversation: the first turn reads them from disk (+ rebuilds the
-    // skill catalog), commitFinalState() persists them into history at that
-    // turn's end, and every later turn carries them from history instead of
-    // re-injecting — no per-turn re-resolve, no repeated context_assembled,
-    // no repeated context row. headerLayers mirrors the same set into
-    // request_header so the static-prefix hash stays identical across turns.
-    let injectLayers = pendingLayersToPersist;
-    let headerLayers = injectLayers;
-    if (injectLayers === undefined) {
-      headerLayers = persistedLayersFrom(hintsSource);
-    }
-    if (injectLayers === undefined && headerLayers === undefined) {
-      const hints: ContextLayerHints = { touchedPaths: extractTouchedToolPaths(hintsSource) };
-      const hostLayers = opts.resolveContextLayers
-        ? await opts.resolveContextLayers(inputText, hints)
-        : undefined;
-      injectLayers = await appendSkillCatalogLayer(hostLayers);
-      headerLayers = injectLayers;
-      if (injectLayers !== undefined) pendingLayersToPersist = injectLayers;
-    }
-    const turnStepContext: StepContext =
-      injectLayers !== undefined ? { ...stepContext, contextLayers: injectLayers } : stepContext;
-    lastTurnContextLayers = turnStepContext.contextLayers;
+    // Workspace layers are resolved exactly ONCE per conversation (first
+    // turn, or the carry-forward / checkpointed set on later turns and
+    // resumes). Every turn injects that same set through the one channel —
+    // StepContext.contextLayers — into the request's stable prefix; later
+    // turns accumulate only messages after it. No per-turn re-resolve, no
+    // second injection channel, no prefix churn.
+    const layers = await resolveContextLayersOnce(inputText, lastFinalState?.contextLayers);
+    const turnStepContext: StepContext = { ...stepContext, contextLayers: layers };
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
     // lastRunner/lastFinalState must remain untouched so a subsequent retry
@@ -2068,10 +2046,6 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // Same truthiness gate as the seed message above — an empty prompt
       // produces neither.
       ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
-      // Audit mirror of the once-injected workspace layers: later turns
-      // carry them in history (stepContext has none), and without this the
-      // header payload would change every conversation after turn 1.
-      ...(headerLayers !== undefined ? { headerSystemLayers: headerLayers } : {}),
       // Cross-turn request_header dedupe: skip re-recording an unchanged
       // static prefix (one context row in the trajectory, not one per turn).
       headerHashState,
@@ -2100,7 +2074,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // fields (including reducer-private ones) without leaking internals.
       return createRunner({
         ...runnerOpts,
-        initialState: resetTurnForNextInput(previousState),
+        initialState: {
+          ...resetTurnForNextInput(previousState),
+          contextLayers: layers,
+        },
       });
     }
 
@@ -2122,6 +2099,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(seedMessages.length > 0 ? { messages: [...seedMessages] } : {}),
+      contextLayers: layers,
       ...(opts.initialAnnouncedWorkflowMode !== undefined
         ? { _announcedWorkflowMode: opts.initialAnnouncedWorkflowMode }
         : {}),
@@ -2137,30 +2115,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
 
   /**
-   * End-of-turn state hand-off. Persists the first turn's injected
-   * workspace layers into conversation history exactly once (appended as
-   * system messages — the ContextAssembler hoists them back into the static
-   * prefix on every later request, so the model keeps seeing them without
-   * any further injection), then records the state as the carried-forward
-   * baseline. Called on every successful turn close, including resumes.
+   * End-of-turn state hand-off: record the state as the carried-forward
+   * baseline, guaranteeing the once-resolved context layers ride along.
+   * Called on every successful turn close, including resumes.
    */
   function commitFinalState(finalState: ReducerState): ReducerState {
-    let committed = finalState;
-    const layers = pendingLayersToPersist;
-    if (layers !== undefined && persistedLayersFrom(committed.messages) === undefined) {
-      committed = {
-        ...committed,
-        messages: [
-          ...committed.messages,
-          ...layers.map((layer) => ({
-            id: `${PERSISTED_LAYER_PREFIX}${layer.id}`,
-            role: "system" as const,
-            content: layer.text,
-          })),
-        ],
-      };
-    }
-    pendingLayersToPersist = undefined;
+    const committed =
+      resolvedContextLayers !== undefined && finalState.contextLayers === undefined
+        ? { ...finalState, contextLayers: resolvedContextLayers }
+        : finalState;
     lastFinalState = committed;
     return committed;
   }
@@ -2406,15 +2369,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         );
       }
 
-      // The header's layer mirror for the resumed call: same-process falls
-      // back to the in-memory injection cache, a cross-process rebuild to
-      // the layers persisted in the restored history.
-      const resumeHeaderLayers = lastTurnContextLayers ?? persistedLayersFrom(restoredState.messages);
+      // The once-resolved layers live on the checkpointed state (stamped at
+      // turn start, before the approval pause), so a cross-process resume
+      // picks them up from the snapshot and keeps the stable prefix intact.
+      const resumeLayers = await resolveContextLayersOnce("", restoredState.contextLayers);
       const resumeRunner = createRunner({
         modelPort,
-        stepContext: lastTurnContextLayers
-          ? { ...stepContext, contextLayers: lastTurnContextLayers }
-          : stepContext,
+        stepContext: { ...stepContext, contextLayers: resumeLayers },
         eventSink: opts.eventSink ?? defaultEventSink,
         toolExecutor,
         availableCapabilities: capabilities,
@@ -2424,7 +2385,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         sessionStore,
         compaction: compactionConfig,
         sessionId,
-        initialState: restoredState,
+        initialState: { ...restoredState, contextLayers: resumeLayers },
         spill: { store: spillStore },
         pathRoot: opts.cwd ?? process.cwd(),
         promptAnchor: promptAnchorState,
@@ -2455,11 +2416,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // request_header for the resumed model call, and without this the
         // resumed turn's header would silently drop the seed system prompt.
         ...(resolvedSystemPrompt ? { seedSystemPrompt: resolvedSystemPrompt } : {}),
-        // Same layers/header-hash sharing as createNextRunner()'s runners:
-        // the resumed call re-records only if the static prefix actually
-        // changed, and the header still mirrors the once-injected layers.
+        // Same cross-turn request_header dedupe as createNextRunner()'s
+        // runners: the resumed call re-records only if the static prefix
+        // actually changed.
         headerHashState,
-        ...(resumeHeaderLayers !== undefined ? { headerSystemLayers: resumeHeaderLayers } : {}),
         clock: opts.clock,
         attachmentStore,
         // Same registry as the live runners: an in-process fallback resume

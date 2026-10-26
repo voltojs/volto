@@ -339,17 +339,12 @@ export {
   userInstructionDirs,
   BASE_INSTRUCTION_FILES,
   LOCAL_INSTRUCTION_FILES,
-  FS_PATH_TOOLS,
-  descendantChain,
-  extractTouchedToolPaths,
-  DEFAULT_MAX_DISCOVERED_DIRS,
 } from "./workspace-instructions.js";
 export type {
   LoadedInstructionFile,
   InstructionOrigin,
   RenderedInstructions,
   TruncationRecord,
-  ContextLayerHints,
 } from "./workspace-instructions.js";
 
 // Heuristic tokenizer — the production default behind the Tokenizer port

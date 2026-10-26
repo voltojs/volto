@@ -318,12 +318,15 @@ describe("Runner transcript capture", () => {
 
   it("skips the request_header on later turns while the shared static-prefix hash is unchanged", async () => {
     const headerHashState: { hash?: string } = {};
+    // The once-resolved workspace layers ride on StepContext every turn —
+    // same set, same prefix — so only the first turn records a header row.
     const layer = { id: "instr", text: "workspace instructions" };
+    const stepContext = { tools: [], model: "test-model", contextLayers: [layer] };
     const { store, events } = fakeChatStore();
 
     const turn1 = createRunner({
       modelPort: createMockModelPort([[textDelta("a"), { type: "done", stopReason: "end_turn" }]]),
-      stepContext: { tools: [], model: "test-model", contextLayers: [layer] },
+      stepContext,
       chatStore: store,
       chatSessionId: "chat-1",
       turn: 1,
@@ -332,17 +335,13 @@ describe("Runner transcript capture", () => {
     });
     await turn1.run({ type: "user_message", content: "one" });
 
-    // Turn 2: the layers now ride in conversation history, so the step
-    // context carries none — the header keeps them as its audit mirror,
-    // which is what lets the payload hash match turn 1's.
     const turn2 = createRunner({
       modelPort: createMockModelPort([[textDelta("b"), { type: "done", stopReason: "end_turn" }]]),
-      stepContext: { tools: [], model: "test-model" },
+      stepContext,
       chatStore: store,
       chatSessionId: "chat-1",
       turn: 2,
       clock: steppingClock(),
-      headerSystemLayers: [layer],
       headerHashState,
     });
     await turn2.run({ type: "user_message", content: "two" });
