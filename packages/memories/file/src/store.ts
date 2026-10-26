@@ -80,6 +80,10 @@ function fileNameFor(scope: MemoryScope): string {
 function isValidProjectId(projectId: string): boolean {
   if (projectId.trim() === "") return false;
   if (projectId === "." || projectId === "..") return false;
+  // `_global` is reserved: it names the shared _global.jsonl file, so a
+  // project with that id would read and write the global scope — leaking
+  // its memories into every project's view and vice versa.
+  if (projectId === "_global") return false;
   return !projectId.includes("/") && !projectId.includes("\\");
 }
 

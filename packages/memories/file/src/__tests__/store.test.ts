@@ -83,6 +83,19 @@ describe("createFileMemoryStore", () => {
     expect(onDisk[0]?.text).toBe("concurrent fact");
   });
 
+  it("rejects the reserved _global projectId so it cannot alias the global file", async () => {
+    const { store } = pair();
+    // A project named "_global" would map onto _global.jsonl: its entries
+    // would surface in every project's includeGlobal view and its writes
+    // would corrupt the shared global scope.
+    await expect(
+      store.save(entry("sneaky", { scope: { kind: "project", projectId: "_global" } })),
+    ).rejects.toThrow(/Invalid projectId/);
+    await expect(
+      store.query("sneaky", 10, { projectId: "_global", includeGlobal: true }),
+    ).rejects.toThrow(/Invalid projectId/);
+  });
+
   it("isolates projects: p1 query returns p1 + global by default, project-only with includeGlobal: false", async () => {
     const { store } = pair();
     await store.save(
