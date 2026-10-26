@@ -6,7 +6,7 @@ import type { ScopeGroupConfig, ToolDefinition, ToolScopeConfig } from "@volto/c
  * Pure: no I/O, deterministic, no sorting. Given the actual assembled tool
  * list and the assembly state, it produces a five-tier `ToolScopeConfig`
  * (spec 2026-10-15-toolset-governance-design.md, D3/D4) plus a fixed
- * `limit` of 20.
+ * `limit` of 20 (21 when `hasMemory` — the T11 revision of that contract).
  *
  * Every actual tool is mapped to exactly one group that is present in
  * `groups`: `filterByScope` keeps only tools whose group exists and is
@@ -104,7 +104,7 @@ function buildGroups(presence: AssemblyPresence): Record<string, ScopeGroupConfi
   return groups;
 }
 
-/** Pure: actual tool list + assembly state -> default visibility (limit 20). */
+/** Pure: actual tool list + assembly state -> default visibility (limit 20 / 21 with memory). */
 export function buildDefaultToolVisibility(
   toolDefs: readonly ToolDefinition[],
   presence: AssemblyPresence,

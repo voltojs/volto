@@ -464,6 +464,12 @@ export class CompactionBusyError extends Error {
  * The `buildRAGMessage` output is sliced so the total injected text —
  * including the marker below — never exceeds this cap.
  */
+/** Truncate by code point so surrogate pairs (emoji) are never split. */
+function truncateCodePoints(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : chars.slice(0, max).join("");
+}
+
 const RAG_MAX_CHARS = 4000;
 /** Appended to the RAG injection when it had to be cut at RAG_MAX_CHARS. */
 const RAG_TRUNCATION_MARKER = "\n(truncated)";
@@ -681,6 +687,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   let ragCacheText = "";
   let ragCacheFragmentCount = 0;
   let ragCacheMemoryIds: string[] = [];
+  // One context_reminder per turn, not per model call: a tool-loop turn
+  // injects the same cached text several times, and the audit trail should
+  // record the retrieval once (spec 2026-10-20 memory-rag §5.2).
+  let ragReminderRecorded = false;
   // Timing/aggregation state for the in-flight model call. Hoisted here
   // (rather than declared inside runModelStream) because forwardEmit() reads
   // them when it intercepts the model_done emit to record assistant_message —
@@ -1472,13 +1482,27 @@ export function createRunner(opts: RunnerOptions): Runner {
             });
             if (fragments.length > 0) {
               const rendered = buildRAGMessage(fragments.map((f) => f.text));
-              // Cap the INJECTED text at 4000 chars (spec 2026-10-20 §4.5):
-              // slice the rendered message so the marker itself sits inside
-              // the cap, then append it — total stays at or under the limit.
-              const needsCut = rendered.length > RAG_MAX_CHARS;
-              const body = needsCut ? rendered.slice(0, RAG_MAX_CHARS - RAG_TRUNCATION_MARKER.length) : rendered;
-              ragCacheText = needsCut ? `${body}${RAG_TRUNCATION_MARKER}` : rendered;
-              ragCacheFragmentCount = fragments.length;
+              // Cap the INJECTED text at 4000 chars (spec 2026-10-20 §4.5).
+              // Cut by code point so surrogate pairs (emoji) stay intact,
+              // and cut back to the last COMPLETE block boundary so the
+              // declared fragment count matches what the model sees.
+              if (Array.from(rendered).length <= RAG_MAX_CHARS) {
+                ragCacheText = rendered;
+                ragCacheFragmentCount = fragments.length;
+              } else {
+                const body = truncateCodePoints(
+                  rendered,
+                  RAG_MAX_CHARS - RAG_TRUNCATION_MARKER.length,
+                );
+                const cutAt = body.lastIndexOf("\n\n[");
+                const kept = cutAt > 0 ? body.slice(0, cutAt) : body;
+                ragCacheText = `${kept}${RAG_TRUNCATION_MARKER}`;
+                // Each `\n\n[` starts one block (buildRAGMessage always
+                // separates the header from block 1 the same way), so the
+                // number of occurrences IS the number of complete blocks.
+                ragCacheFragmentCount =
+                  cutAt > 0 ? (kept.match(/\n\n\[/g)?.length ?? 0) : fragments.length;
+              }
               ragCacheMemoryIds = fragments.map((f) => f.id);
             }
           }
@@ -1502,14 +1526,20 @@ export function createRunner(opts: RunnerOptions): Runner {
         // `memoryIds` records which entries were retrieved so the UI can trace
         // the injection back to the store; ids are carried alongside the
         // rendered text in the cache slot via the reminder below.
-        recorder.record("context_reminder", {
-          kind: "retrieval",
-          text: ragText,
-          displayMetadata: {
-            fragmentCount: ragCacheFragmentCount,
-            memoryIds: ragCacheMemoryIds,
-          },
-        });
+        // Record the retrieval once per turn: every later model call of the
+        // same turn injects the same cached text, and duplicating the audit
+        // event adds noise, not traceability.
+        if (!ragReminderRecorded) {
+          ragReminderRecorded = true;
+          recorder.record("context_reminder", {
+            kind: "retrieval",
+            text: ragText,
+            displayMetadata: {
+              fragmentCount: ragCacheFragmentCount,
+              memoryIds: ragCacheMemoryIds,
+            },
+          });
+        }
       }
     }
 

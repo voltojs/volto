@@ -434,4 +434,90 @@ describe("Runner context_assembled event", () => {
     expect(event).toBeDefined();
     expect(event!.data["layerOrigins"]).toContainEqual({ id: "user-memory", messageIndex: 0 });
   });
+
+  it("records exactly one context_reminder per turn, not per model call", async () => {
+    const store = createMockMemoryStore([{ id: "1", text: "relevant fact A" }]);
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text_delta", text: "response" }, { type: "done", stopReason: "end_turn" }],
+    ]);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const chatStore = {
+      async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+        events.push(...(batch as unknown as Array<{ type: string; data: Record<string, unknown> }>));
+      },
+    };
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY" as const,
+          },
+        ],
+        model: "test-model",
+      },
+      availableCapabilities: new Set<string>(),
+      toolExecutor: async () => ({ modelContent: "ok", isError: false }),
+      rag: { memoryStore: store },
+      chatStore,
+      chatSessionId: "chat-dedupe",
+    });
+    await runner.run({ type: "user_message", content: "question" });
+
+    // Two model calls both inject the same cached text, but the audit trail
+    // records the retrieval once (spec 2026-10-20 memory-rag §5.2).
+    expect(model.requests).toHaveLength(2);
+    const reminders = events.filter((e) => e.type === "context_reminder");
+    expect(reminders).toHaveLength(1);
+  });
+
+  it("caps a long retrieval by code point and keeps fragmentCount truthful", async () => {
+    // Each fragment is ~1200 code points: four of them blow past the
+    // 4000-char injection cap.
+    const big = (tag: string): string => `${tag} ${"x".repeat(1200)}`;
+    const store = createMockMemoryStore([
+      { id: "1", text: big("\ud83d\ude00 fact one") },
+      { id: "2", text: big("\ud83d\ude00 fact two") },
+      { id: "3", text: big("\ud83d\ude00 fact three") },
+      { id: "4", text: big("\ud83d\ude00 fact four") },
+    ]);
+    const model = createMockModelPort();
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const chatStore = {
+      async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+        events.push(...(batch as unknown as Array<{ type: string; data: Record<string, unknown> }>));
+      },
+    };
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: { memoryStore: store },
+      chatStore,
+      chatSessionId: "chat-cap",
+    });
+    await runner.run({ type: "user_message", content: "question" });
+
+    const reminder = events.find((e) => e.type === "context_reminder")!;
+    const text = reminder.data.text as string;
+    expect(Array.from(text).length).toBeLessThanOrEqual(4000);
+    expect(text).toContain("(truncated)");
+    // The cut is by code point: no lone surrogate ever ships to the model.
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    const meta = reminder.data.displayMetadata as { fragmentCount: number };
+    // Only complete blocks survive the cut, and the declared count matches
+    // the blocks actually present in the injected text.
+    expect(meta.fragmentCount).toBeGreaterThanOrEqual(1);
+    expect(meta.fragmentCount).toBeLessThan(4);
+    // Each `\n\n[` in the injected text starts one block (header included).
+    expect(text.match(/\n\n\[/g)?.length ?? 0).toBe(meta.fragmentCount);
+  });
 });

@@ -29,7 +29,9 @@ function capture(script: Parameters<typeof createMockModelPort>[0]): {
     requests,
     modelPort: {
       async *stream(req) {
-        requests.push(structuredClone(req));
+        // Keep the live request rather than a structuredClone: a future
+        // abortSignal on ModelRequest would make cloning throw DataCloneError.
+        requests.push(req);
         yield* inner.stream(req);
       },
     },
@@ -105,6 +107,22 @@ describe("SDK memory wiring", () => {
       expect(ragMessages).toHaveLength(1);
     }
     expect(JSON.stringify(requests[1]!.messages).match(/# Retrieved Memory/g)).toHaveLength(1);
+  });
+
+  it("passes memory.rag.includeGlobal through to the runner filter", async () => {
+    const queries: Array<{ text: string; k?: number; filter?: MemoryQueryFilter }> = [];
+    const { modelPort } = capture([textScript("ok")]);
+    const agent = createAgent({
+      modelPort,
+      memoryStore: memoryStore([ENTRY], queries),
+      memory: { rag: { includeGlobal: false } },
+    });
+    await agent.run("hello");
+    expect(queries[0]?.filter).toEqual({
+      projectId: undefined,
+      includeGlobal: false,
+      tier: "semantic",
+    });
   });
 
   it("passes memory.rag.queryBuilder through to the runner", async () => {

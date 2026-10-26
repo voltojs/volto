@@ -848,7 +848,14 @@ export interface CreateAgentOptions {
    * - `tools`: register the single `memory` tool (default true when enabled).
    */
   memory?: {
-    rag?: false | { topK?: number; queryBuilder?: (messages: Message[]) => string };
+    rag?:
+      | false
+      | {
+          topK?: number;
+          queryBuilder?: (messages: Message[]) => string;
+          /** Include global memories alongside project ones (default true). */
+          includeGlobal?: boolean;
+        };
     tools?: boolean;
   };
 
@@ -1194,6 +1201,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // read_document always ships now — grant the capability unconditionally.
   capabilities.add("document:parse");
   const memoryEnabled = opts.memoryStore !== undefined;
+  // RAG wiring shared by every runner this agent creates - next turn, HITL
+  // resume, and subagents - so memory behavior never forks by code path. A
+  // resume that silently lost the injection would make the same turn answer
+  // with and without project memory depending on where it was interrupted.
+  const ragWiring =
+    memoryEnabled && opts.memory?.rag
+      ? {
+          rag: {
+            memoryStore: opts.memoryStore!,
+            topK: opts.memory.rag.topK ?? 5,
+            ...(opts.memory.rag.queryBuilder !== undefined
+              ? { queryBuilder: opts.memory.rag.queryBuilder }
+              : {}),
+            projectId: opts.chatMeta?.projectId ?? undefined,
+            includeGlobal: opts.memory.rag.includeGlobal ?? true,
+          },
+        }
+      : {};
   const memoryToolsEnabled = memoryEnabled && opts.memory?.tools !== false;
   if (memoryToolsEnabled) {
     capabilities.add(CAP_MEMORY_READ);
@@ -1487,6 +1512,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       () => turnCounter,
       agentSpecs,
       getSession,
+      ragWiring,
     );
     // Assign into the outer binding so createNextRunner's runnerOpts can
     // hand the registry to each Runner for turn-boundary draining.
@@ -1985,19 +2011,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // defaults, so the only wiring decision is "on, rooted at the cwd".
       spill: { store: spillStore },
       pathRoot: opts.cwd ?? process.cwd(),
-      ...(memoryEnabled && opts.memory?.rag
-        ? {
-            rag: {
-              memoryStore: opts.memoryStore!,
-              topK: opts.memory.rag.topK ?? 5,
-              ...(opts.memory.rag.queryBuilder !== undefined
-                ? { queryBuilder: opts.memory.rag.queryBuilder }
-                : {}),
-              projectId: opts.chatMeta?.projectId ?? undefined,
-              includeGlobal: true,
-            },
-          }
-        : {}),
+      ...ragWiring,
     };
 
     if (previousState && previousState.status === "done") {
@@ -2287,6 +2301,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
       const resumeRunner = createRunner({
         modelPort,
+        // Same RAG wiring as the normal path: a mid-turn resume continues the
+        // SAME turn, so its model calls must see the same memory injection.
+        ...ragWiring,
         stepContext: lastTurnContextLayers
           ? { ...stepContext, contextLayers: lastTurnContextLayers }
           : stepContext,
@@ -2815,6 +2832,7 @@ function createSubAgentExecutor(
   // user's point of view there is one workspace, and a task tool dispatch
   // must see the same cd/export state the parent built up.
   getSession?: () => BashSessionLike | undefined,
+  ragWiring: { rag?: NonNullable<Parameters<typeof createRunner>[0]["rag"]> } = {},
 ): SyncSubAgentExecutor {
   return async ({
     message,
@@ -2939,6 +2957,7 @@ function createSubAgentExecutor(
         getCurrentTurn,
         agentSpecs,
         getSession,
+        ragWiring,
       );
       const nestedDispatch: SubAgentDispatch = async (req) => {
         if (req.background) {
@@ -3173,6 +3192,9 @@ function createSubAgentExecutor(
 
     const subRunner = createRunner({
       modelPort: opts.modelPort,
+      // Subagents work inside the same project; project-scoped memory is part
+      // of that context, so they get the parent RAG wiring verbatim.
+      ...ragWiring,
       stepContext: subStepContext,
       toolExecutor: subExecutor,
       availableCapabilities: childCapabilities,
