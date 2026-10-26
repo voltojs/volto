@@ -1454,10 +1454,15 @@ export function createRunner(opts: RunnerOptions): Runner {
     if (opts.rag) {
       const { memoryStore, topK = 5, queryBuilder, projectId, includeGlobal } = opts.rag;
       if (!ragCacheComputed) {
-        const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
+        // Mark the cache computed up front: retrieval happens at most once
+        // per turn, whether it succeeds or fails.
         ragCacheComputed = true;
-        if (queryText) {
-          try {
+        // The queryBuilder is host-supplied code, same trust level as the
+        // store: a throw from it must degrade to "no RAG this turn", never
+        // escape and abort the turn (spec 2026-10-20 memory-rag §6).
+        try {
+          const queryText = queryBuilder ? queryBuilder(messages) : extractLastUserMessage(messages);
+          if (queryText) {
             // Scope the query: project + global by default; with no projectId
             // the contract means global-only, never every project.
             const fragments = await memoryStore.query(queryText, topK, {
@@ -1476,9 +1481,9 @@ export function createRunner(opts: RunnerOptions): Runner {
               ragCacheFragmentCount = fragments.length;
               ragCacheMemoryIds = fragments.map((f) => f.id);
             }
-          } catch {
-            /* Memory query failure degrades to no injection for this turn */
           }
+        } catch {
+          /* Memory retrieval failure degrades to no injection for this turn */
         }
       }
 

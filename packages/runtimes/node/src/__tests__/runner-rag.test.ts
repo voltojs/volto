@@ -132,6 +132,89 @@ describe("Runner RAG pipeline", () => {
     expect(ragMsg).toBeUndefined();
   });
 
+  it("degrades to no injection when the queryBuilder throws, without failing the turn", async () => {
+    const store = createSpyMemoryStore([{ id: "m1", text: "relevant fact A" }]);
+    const model = createMockModelPort();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      rag: {
+        memoryStore: store,
+        // Host-supplied callback that explodes: same trust level as the
+        // store, so it must degrade to no RAG instead of aborting the turn.
+        queryBuilder: () => {
+          throw new Error("host callback exploded");
+        },
+      },
+    });
+
+    // Must not throw or reject — the model call still happens.
+    await runner.run({ type: "user_message", content: "question" });
+
+    expect(model.requests).toHaveLength(1);
+    const msgs = model.lastMessages as Array<{ role: string; content: string }>;
+    const ragMsg = msgs.find(
+      (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+    );
+    expect(ragMsg).toBeUndefined();
+    expect(store.queries).toHaveLength(0);
+  });
+
+  it("a failing memory query degrades to no injection and is not retried this turn", async () => {
+    let queryCalls = 0;
+    const store: MemoryStore = {
+      async save(): Promise<string> { return "ok"; },
+      async query(): Promise<MemoryEntry[]> {
+        queryCalls++;
+        throw new Error("store offline");
+      },
+      async delete(): Promise<boolean> { return true; },
+    };
+    // Two model calls in one turn (tool batch) to pin the once-per-turn
+    // semantics: a failed query must not be retried by the second call.
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text_delta", text: "response" }, { type: "done", stopReason: "end_turn" }],
+    ]);
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY" as const,
+          },
+        ],
+        model: "test-model",
+      },
+      availableCapabilities: new Set<string>(),
+      toolExecutor: async () => ({ modelContent: "ok", isError: false }),
+      rag: { memoryStore: store },
+    });
+
+    // Must not throw or reject — both model calls still happen.
+    await runner.run({ type: "user_message", content: "question" });
+
+    expect(model.requests).toHaveLength(2);
+    expect(queryCalls).toBe(1);
+    for (const req of model.requests) {
+      const msgs = req.messages as Array<{ role: string; content: string }>;
+      const ragMsg = msgs.find(
+        (m) => typeof m.content === "string" && m.content.includes(RAG_HEADER),
+      );
+      expect(ragMsg).toBeUndefined();
+    }
+  });
+
   it("queries once with the scoped filter and reuses the retrieval across model calls", async () => {
     // Two model calls in one turn: a tool batch, then the closing text call.
     const store = createSpyMemoryStore([{ id: "m1", text: "relevant fact A" }]);
