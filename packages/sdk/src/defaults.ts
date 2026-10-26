@@ -22,6 +22,7 @@ import type {
   ToolSource,
   MemoryStore,
   MemoryEntry,
+  MemoryQueryFilter,
   Embedder,
   Telemetry,
   TelemetrySpan,
@@ -91,8 +92,18 @@ export function createDefaultMemoryStore(): MemoryStore {
       return entry.id;
     },
 
-    async query(_text: string, k: number = 10): Promise<MemoryEntry[]> {
-      // Naive: return all entries (no vector similarity without an Embedder)
+    async query(
+      _text: string,
+      k: number = 10,
+      filter?: MemoryQueryFilter,
+    ): Promise<MemoryEntry[]> {
+      // Naive: return all entries (no vector similarity without an Embedder).
+      // A scoped query must never leak entries across scopes, and this inert
+      // default cannot honor scope/tier semantics — so a filtered query
+      // (including an empty filter object) returns nothing, per the
+      // MemoryStore contract (spec 2026-10-20 memory-rag §4.1). Hosts that
+      // enable memory features must inject a real MemoryStore.
+      if (filter !== undefined) return [];
       return [...entries.values()].slice(0, k);
     },
 
