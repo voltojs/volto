@@ -762,12 +762,22 @@ export type MemoryScope =
  * Optional filter for MemoryStore.query. Passing no filter at all returns
  * every entry (advanced / test use only; RAG and the memory tool must
  * always pass a filter).
+ *
+ * Branch semantics every implementation must agree on:
+ * - no filter at all: every entry (advanced / test use only).
+ * - `{ projectId }`: that project's entries plus global entries.
+ * - `{ projectId, includeGlobal: false }`: that project's entries only.
+ * - `{ includeGlobal: true }` (no projectId): global entries only.
+ * - `{ includeGlobal: false }` (no projectId): nothing — never any project.
+ * - `{ tier }` only (no projectId / includeGlobal): global entries of that
+ *   tier only — never every project.
+ * - an empty filter object `{}`: nothing.
  */
 export interface MemoryQueryFilter {
   /**
    * When set, return entries scoped to this project PLUS global entries
    * (global entries are included by default; pass includeGlobal: false to
-   * exclude them). When omitted, this field imposes no project restriction.
+   * exclude them).
    */
   projectId?: string;
   /**
@@ -777,7 +787,11 @@ export interface MemoryQueryFilter {
    * empty result (never entries from any project).
    */
   includeGlobal?: boolean;
-  /** Only entries of this tier. */
+  /**
+   * Only entries of this tier. A missing tier on save normalizes to
+   * "semantic" (see MemoryEntry.tier), so an entry saved without a tier
+   * matches a tier: "semantic" filter.
+   */
   tier?: MemoryTier;
 }
 
@@ -785,6 +799,7 @@ export interface MemoryEntry {
   id: string;
   text: string;
   scope?: MemoryScope;
+  /** Defaults to "semantic" when omitted on save; stores normalize it. */
   tier?: MemoryTier;
   source?: "tool" | "user" | "compaction";
   sessionId?: string;

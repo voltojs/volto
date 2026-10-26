@@ -96,6 +96,36 @@ describe("createFileMemoryStore", () => {
     ).rejects.toThrow(/Invalid projectId/);
   });
 
+  it("normalizes a missing tier to semantic so tier filters match across stores", async () => {
+    const { store, reload } = pair();
+    // An entry saved without a tier must match a tier: "semantic" query —
+    // the same answer @volto/memory-inmemory gives (core contract).
+    await store.save(entry("tierless alpha", { scope: { kind: "project", projectId: "p1" } }));
+
+    const semantic = await store.query("tierless", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+      tier: "semantic",
+    });
+    expect(semantic).toHaveLength(1);
+    expect(semantic[0]?.tier).toBe("semantic");
+
+    const episodic = await store.query("tierless", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+      tier: "episodic",
+    });
+    expect(episodic).toHaveLength(0);
+
+    // The normalized tier survives to disk.
+    const onDisk = await reload().query("tierless", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+      tier: "semantic",
+    });
+    expect(onDisk).toHaveLength(1);
+  });
+
   it("isolates projects: p1 query returns p1 + global by default, project-only with includeGlobal: false", async () => {
     const { store } = pair();
     await store.save(

@@ -27,6 +27,8 @@ import {
 } from "@volto/memory-common";
 
 const ROW_VERSION = 1;
+/** A missing tier normalizes to this default (core MemoryEntry contract). */
+const DEFAULT_TIER = "semantic" as const;
 const DEFAULT_MAX_ENTRIES_PER_SCOPE = DEFAULT_MEMORY_MAX_ENTRIES;
 /** Compact when the op count exceeds max(1000, live * 3) (spec §4.3). */
 const COMPACT_FLOOR = 1000;
@@ -378,6 +380,10 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
         id,
         createdAt: input.createdAt ?? now(),
         scope,
+        // Normalize the missing tier to the default so both stores answer a
+        // tier-filtered query identically for tier-less entries (core
+        // MemoryEntry contract).
+        tier: input.tier ?? DEFAULT_TIER,
       };
       await appendRow(scope, { version: ROW_VERSION, op: "upsert", entry: stored });
       return id;
@@ -393,7 +399,9 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
       const candidates = await collectEntries(scopes);
       const tier = filter?.tier;
       const scored = candidates
-        .filter((entry) => tier === undefined || entry.tier === tier)
+        // Entries persisted before tier normalization lack the field; treat
+        // them as the default tier (same rule as save).
+        .filter((entry) => tier === undefined || (entry.tier ?? DEFAULT_TIER) === tier)
         .map((entry) => ({ entry, score: scoreMemoryText(text, entry.text) }))
         .filter((r) => r.score > 0)
         .sort(
