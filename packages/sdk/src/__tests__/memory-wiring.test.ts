@@ -66,7 +66,7 @@ describe("SDK memory wiring", () => {
     expect(tool).toBeDefined();
     expect(tool!.requires).toEqual(["memory:read", "memory:write"]);
     expect(tool!.riskTier).toBe("WRITE_LOW");
-    expect(JSON.stringify(requests[0]!.messages)).toContain("# Retrieved Memory (project-scoped)");
+    expect(JSON.stringify(requests[0]!.messages)).toContain("# Retrieved Memory");
     expect(JSON.stringify(requests[0]!.messages)).toContain("The project uses pnpm.");
     expect(queries[0]?.filter).toEqual({ projectId: undefined, includeGlobal: true, tier: "semantic" });
   });

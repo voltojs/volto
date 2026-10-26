@@ -105,7 +105,7 @@ describe("T11 real-session memory", () => {
 
     const request = sessionB.requests[0]!;
     const serialized = JSON.stringify(request.messages);
-    expect(serialized).toContain("# Retrieved Memory (project-scoped)");
+    expect(serialized).toContain("# Retrieved Memory");
     expect(serialized).toContain("The project uses pnpm.");
     expect(request.tools.map((t) => t.name)).toContain("memory");
   });

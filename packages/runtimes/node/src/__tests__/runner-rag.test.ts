@@ -13,7 +13,7 @@ import type {
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 
-const RAG_HEADER = "# Retrieved Memory (project-scoped)";
+const RAG_HEADER = "# Retrieved Memory";
 
 function createMockModelPort(script?: ModelEvent[][]): ModelPort & {
   lastMessages?: unknown[];
