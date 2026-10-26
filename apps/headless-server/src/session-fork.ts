@@ -96,30 +96,46 @@ function resolveCut(events: readonly TranscriptEvent[], opts: ForkOptions): numb
   return at;
 }
 
-/** Rewrite the first session_meta for the new branch. */
+/**
+ * Rewrite every session_meta inside the prefix for the new branch. A rename
+ * appends its own meta event and the store merges metas last-wins, so
+ * rewriting only the first one would let a later meta restore the source
+ * title (losing the branch marker) or re-introduce origin: "subagent".
+ */
 function rewriteMeta(
   prefix: TranscriptEventInput[],
   source: ChatSessionRecord,
   title: string,
 ): void {
-  const first = prefix[0];
-  const firstData =
-    first?.type === "session_meta"
-      ? (first.data as Record<string, unknown>)
-      : (source.meta as unknown as Record<string, unknown>);
-  const meta: Record<string, unknown> = {
-    ...firstData,
-    title,
-    parentSessionId: source.sessionId,
+  const branchData = (base: Record<string, unknown> | undefined): Record<string, unknown> => {
+    const meta: Record<string, unknown> = {
+      ...(base ?? (source.meta as unknown as Record<string, unknown>)),
+      title,
+      parentSessionId: source.sessionId,
+    };
+    delete meta["origin"];
+    return meta;
   };
-  delete meta["origin"];
-  const metaEvent: TranscriptEventInput = {
-    time: first?.time ?? Date.now(),
-    type: "session_meta",
-    data: meta as never,
-  };
-  if (first?.type === "session_meta") prefix[0] = metaEvent;
-  else prefix.unshift(metaEvent);
+
+  let sawMeta = false;
+  for (let i = 0; i < prefix.length; i += 1) {
+    const event = prefix[i]!;
+    if (event.type !== "session_meta") continue;
+    sawMeta = true;
+    prefix[i] = {
+      time: event.time,
+      type: "session_meta",
+      data: branchData(event.data as Record<string, unknown>) as never,
+    };
+  }
+  if (!sawMeta) {
+    const first = prefix[0];
+    prefix.unshift({
+      time: first?.time ?? Date.now(),
+      type: "session_meta",
+      data: branchData(undefined) as never,
+    });
+  }
 }
 
 /** Copy bytes for every ref the prefix uses; missing refs degrade to a warning. */

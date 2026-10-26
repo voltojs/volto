@@ -80,6 +80,43 @@ describe("forkSession", () => {
     expect(attachment?.name).toBe("shot.png");
   });
 
+  it("keeps the branch title when a rename meta sits inside the prefix", async () => {
+    const source = await seed();
+    // PATCH rename appends a full meta event and the store merges metas
+    // last-wins: a fork that only rewrote the first meta would surface the
+    // renamed title without the branch marker.
+    await store.appendEvents(null, "src", [
+      { time: 8, type: "session_meta", data: { ...source.meta, title: "Renamed" } },
+      { time: 9, type: "user_message", data: { content: "third" }, turn: 3 },
+      { time: 10, type: "assistant_message", data: { content: [{ type: "text", text: "third answer" }], durationMs: 1 }, turn: 3 },
+      { time: 11, type: "turn_end", data: { turn: 3, reason: "done" }, turn: 3 },
+    ]);
+    const renamed = (await store.readSession("src"))!;
+
+    const result = await forkSession(renamed, {}, deps("fork-renamed"));
+    expect(result.title).toBe("Renamed（分支）");
+
+    const forked = await store.readSession("fork-renamed");
+    expect(forked!.meta.title).toBe("Renamed（分支）");
+    expect(forked!.meta.parentSessionId).toBe("src");
+  });
+
+  it("strips origin from every meta so a renamed subagent source stays visible", async () => {
+    const source = await seed();
+    await store.appendEvents(null, "src", [
+      { time: 8, type: "session_meta", data: { ...source.meta, origin: "subagent" } },
+      { time: 9, type: "user_message", data: { content: "sub" }, turn: 3 },
+      { time: 10, type: "assistant_message", data: { content: [{ type: "text", text: "sub answer" }], durationMs: 1 }, turn: 3 },
+      { time: 11, type: "turn_end", data: { turn: 3, reason: "done" }, turn: 3 },
+    ]);
+    const subagent = (await store.readSession("src"))!;
+
+    await forkSession(subagent, {}, deps("fork-sub"));
+    const forked = await store.readSession("fork-sub");
+    expect(forked!.meta.origin).toBeUndefined();
+    expect(forked!.meta.title).toBe("Source（分支）");
+  });
+
   it("copies only through a completed turn and backs up a mid-turn seq", async () => {
     const source = await seed();
     await forkSession(source, { throughTurn: 1 }, deps("fork-turn1"));
