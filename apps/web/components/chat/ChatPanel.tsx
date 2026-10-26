@@ -460,10 +460,19 @@ export function ChatPanel() {
   );
 
   async function afterFork(newId: string): Promise<void> {
-    const summaries = await fetchServerSessions();
-    applyServerSummaries(summaries);
+    // Switch first: opening the branch must not depend on the list refresh
+    // succeeding — the session is already durable server-side.
     useSessionStore.getState().setCurrentSession(newId);
     await ensureSessionDetail(newId);
+    try {
+      const summaries = await fetchServerSessions();
+      applyServerSummaries(summaries);
+    } catch {
+      // A failed list refresh only hides the branch in the sidebar until the
+      // next successful fetch; the open session already works. Reporting it
+      // as a fork failure would make the user retry and duplicate the branch.
+      console.warn("fork: session list refresh failed");
+    }
   }
 
   async function handleFork(): Promise<void> {
@@ -471,8 +480,8 @@ export function ChatPanel() {
     setForking(true);
     try {
       const result = await forkSession(currentSessionId);
-      await afterFork(result.id);
       toast.success('已创建分支会话');
+      await afterFork(result.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -507,9 +516,12 @@ export function ChatPanel() {
     setForking(true);
     try {
       const result = await forkSession(currentSessionId, { throughTurn: turn });
+      // Close the dialog only after the fork landed: closing it on a failed
+      // request would strand a branch that exists nowhere in the UI, and the
+      // user would click again to create a second one.
       setRewindOpen(false);
-      await afterFork(result.id);
       toast.success(`已从第 ${turn} 轮创建分支`);
+      await afterFork(result.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
