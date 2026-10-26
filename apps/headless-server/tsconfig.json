@@ -12,6 +12,7 @@
     { "path": "../../packages/providers/openai" },
     { "path": "../../packages/runtimes/node" },
     { "path": "../../packages/stores/sqlite" },
+    { "path": "../../packages/memories/file" },
     { "path": "../../packages/tools/fs" },
     { "path": "../../packages/tools/shell" },
     { "path": "../../packages/tools/web" }

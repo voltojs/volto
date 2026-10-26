@@ -62,6 +62,38 @@ describe("createDefaultMemoryStore", () => {
     expect(results.length).toBe(2);
   });
 
+  it("filtered queries return nothing instead of leaking across scopes", async () => {
+    const store = createDefaultMemoryStore();
+    await store.save({
+      id: "d1",
+      text: "alpha",
+      scope: { kind: "project", projectId: "pA" },
+    });
+    await store.save({
+      id: "d2",
+      text: "beta",
+      scope: { kind: "project", projectId: "pB" },
+    });
+
+    // The inert default cannot honor scope/tier semantics; any filter must
+    // yield nothing rather than silently crossing project boundaries.
+    const scoped = await store.query("alpha", 10, {
+      projectId: "pA",
+      includeGlobal: false,
+    });
+    expect(scoped).toEqual([]);
+
+    const emptyFilter = await store.query("alpha", 10, {});
+    expect(emptyFilter).toEqual([]);
+
+    const tierOnly = await store.query("alpha", 10, { tier: "semantic" });
+    expect(tierOnly).toEqual([]);
+
+    // No filter keeps the naive advanced-use behavior.
+    const unfiltered = await store.query("alpha", 10);
+    expect(unfiltered.map((e) => e.id).sort()).toEqual(["d1", "d2"]);
+  });
+
   it("delete removes an entry", async () => {
     const store = createDefaultMemoryStore();
     await store.save({ id: "c1", text: "ephemeral" });

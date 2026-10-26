@@ -111,6 +111,9 @@ importers:
       '@volto/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@volto/memory-file':
+        specifier: workspace:*
+        version: link:../../packages/memories/file
       '@volto/provider-pi-ai':
         specifier: workspace:*
         version: link:../../packages/providers/pi-ai
@@ -293,11 +296,29 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/memories/common:
+    devDependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/memories/file:
+    dependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@volto/memory-common':
+        specifier: workspace:*
+        version: link:../common
+
   packages/memories/inmemory:
     dependencies:
       '@volto/core':
         specifier: workspace:*
         version: link:../../core
+      '@volto/memory-common':
+        specifier: workspace:*
+        version: link:../common
 
   packages/providers/anthropic:
     dependencies:
@@ -419,6 +440,9 @@ importers:
       '@volto/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
+      '@volto/tools-memory':
+        specifier: workspace:*
+        version: link:../tools/memory
       '@volto/tools-plan':
         specifier: workspace:*
         version: link:../tools/plan
@@ -577,6 +601,18 @@ importers:
       '@volto/core':
         specifier: workspace:*
         version: link:../../core
+
+  packages/tools/memory:
+    dependencies:
+      '@volto/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@volto/tools-common':
+        specifier: workspace:*
+        version: link:../common
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/tools/plan:
     dependencies:

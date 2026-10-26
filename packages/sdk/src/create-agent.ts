@@ -148,6 +148,7 @@ import {
   createBuildTool,
 } from "@volto/tools-vcs";
 import { createAskUserTool } from "@volto/tools-ask";
+import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@volto/tools-memory";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
 import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@volto/tools-data";
 import type { DatabaseOpener } from "@volto/tools-data";
@@ -885,6 +886,24 @@ export interface CreateAgentOptions {
   /** Text embedding provider. Defaults to throw-if-called. */
   embedder?: Embedder;
 
+  /**
+   * Memory behavior. Feature is enabled only when `memoryStore` is explicitly
+   * provided; the default store stays inert for `agent.ports` use.
+   * - `rag`: auto-retrieval before the turn's first model call (default off).
+   * - `tools`: register the single `memory` tool (default true when enabled).
+   */
+  memory?: {
+    rag?:
+      | false
+      | {
+          topK?: number;
+          queryBuilder?: (messages: Message[]) => string;
+          /** Include global memories alongside project ones (default true). */
+          includeGlobal?: boolean;
+        };
+    tools?: boolean;
+  };
+
   /** Structured telemetry (OTel-style). Defaults to no-op. */
   telemetry?: Telemetry;
 
@@ -1226,6 +1245,30 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   // read_document always ships now — grant the capability unconditionally.
   capabilities.add("document:parse");
+  const memoryEnabled = opts.memoryStore !== undefined;
+  // RAG wiring shared by every runner this agent creates - next turn, HITL
+  // resume, and subagents - so memory behavior never forks by code path. A
+  // resume that silently lost the injection would make the same turn answer
+  // with and without project memory depending on where it was interrupted.
+  const ragWiring =
+    memoryEnabled && opts.memory?.rag
+      ? {
+          rag: {
+            memoryStore: opts.memoryStore!,
+            topK: opts.memory.rag.topK ?? 5,
+            ...(opts.memory.rag.queryBuilder !== undefined
+              ? { queryBuilder: opts.memory.rag.queryBuilder }
+              : {}),
+            projectId: opts.chatMeta?.projectId ?? undefined,
+            includeGlobal: opts.memory.rag.includeGlobal ?? true,
+          },
+        }
+      : {};
+  const memoryToolsEnabled = memoryEnabled && opts.memory?.tools !== false;
+  if (memoryToolsEnabled) {
+    capabilities.add(CAP_MEMORY_READ);
+    capabilities.add(CAP_MEMORY_WRITE);
+  }
   // Tri-state: only an explicit true grants vision. Absent stays unknown so
   // a gateway that cannot describe its models does not lose pure image
   // producers; mixed tools (read_file / read_document) gate at call time.
@@ -1506,6 +1549,19 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   capabilities.add(CAP_PLAN_WRITE);
   allCustomTools.push(createTodoWriteTool());
 
+  // Explicit memory tool — only when the host provided a store and did not
+  // opt out. The tool is the sole writer (no turn-end auto-summary).
+  if (memoryToolsEnabled && opts.memoryStore) {
+    allCustomTools.push(
+      createMemoryTool({
+        memoryStore: opts.memoryStore,
+        projectId: opts.chatMeta?.projectId ?? undefined,
+        sessionId: opts.chatSessionId,
+        now: () => opts.clock?.now() ?? Date.now(),
+      }),
+    );
+  }
+
   // Registry of detached background tasks for this agent instance.
   // Promises live here, never in AgentState (not serializable). Declared
   // outside the enableTaskTool block so every Runner this agent creates
@@ -1532,6 +1588,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       () => turnCounter,
       agentSpecs,
       getSession,
+      ragWiring,
     );
     // Assign into the outer binding so createNextRunner's runnerOpts can
     // hand the registry to each Runner for turn-boundary draining.
@@ -1716,6 +1773,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       hasLsp: opts.lsp !== undefined,
       hasDb: opts.db !== undefined,
       hasBrowser: opts.browserAdapter !== undefined,
+      hasMemory: memoryToolsEnabled,
     });
   }
   const { scope: visibilityScope, limit: visibilityLimit } = resolveVisibility(toolDefs);
@@ -2065,6 +2123,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // defaults, so the only wiring decision is "on, rooted at the cwd".
       spill: { store: spillStore },
       pathRoot: opts.cwd ?? process.cwd(),
+      ...ragWiring,
       promptAnchor: promptAnchorState,
     };
 
@@ -2375,6 +2434,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       const resumeLayers = await resolveContextLayersOnce("", restoredState.contextLayers);
       const resumeRunner = createRunner({
         modelPort,
+        // Same RAG wiring as the normal path: a mid-turn resume continues the
+        // SAME turn, so its model calls must see the same memory injection.
+        ...ragWiring,
         stepContext: { ...stepContext, contextLayers: resumeLayers },
         eventSink: opts.eventSink ?? defaultEventSink,
         toolExecutor,
@@ -2905,6 +2967,7 @@ function createSubAgentExecutor(
   // user's point of view there is one workspace, and a task tool dispatch
   // must see the same cd/export state the parent built up.
   getSession?: () => BashSessionLike | undefined,
+  ragWiring: { rag?: NonNullable<Parameters<typeof createRunner>[0]["rag"]> } = {},
 ): SyncSubAgentExecutor {
   return async ({
     message,
@@ -3029,6 +3092,7 @@ function createSubAgentExecutor(
         getCurrentTurn,
         agentSpecs,
         getSession,
+        ragWiring,
       );
       const nestedDispatch: SubAgentDispatch = async (req) => {
         if (req.background) {
@@ -3281,6 +3345,9 @@ function createSubAgentExecutor(
 
     const subRunner = createRunner({
       modelPort: opts.modelPort,
+      // Subagents work inside the same project; project-scoped memory is part
+      // of that context, so they get the parent RAG wiring verbatim.
+      ...ragWiring,
       stepContext: subStepContext,
       toolExecutor: subExecutor,
       availableCapabilities: childCapabilities,

@@ -764,15 +764,66 @@ export interface ToolSource {
 // MemoryStore — semantic / long-term memory
 // ──────────────────────────────────────────────
 
+/** Memory content classification: episodic events vs semantic facts. */
+export type MemoryTier = "episodic" | "semantic";
+
+/** Visibility scope of a memory entry. */
+export type MemoryScope =
+  | { kind: "project"; projectId: string }
+  | { kind: "global" };
+
+/**
+ * Optional filter for MemoryStore.query. Passing no filter at all returns
+ * every entry (advanced / test use only; RAG and the memory tool must
+ * always pass a filter).
+ *
+ * Branch semantics every implementation must agree on:
+ * - no filter at all: every entry (advanced / test use only).
+ * - `{ projectId }`: that project's entries plus global entries.
+ * - `{ projectId, includeGlobal: false }`: that project's entries only.
+ * - `{ includeGlobal: true }` (no projectId): global entries only.
+ * - `{ includeGlobal: false }` (no projectId): nothing — never any project.
+ * - `{ tier }` only (no projectId / includeGlobal): global entries of that
+ *   tier only — never every project.
+ * - an empty filter object `{}`: nothing.
+ */
+export interface MemoryQueryFilter {
+  /**
+   * When set, return entries scoped to this project PLUS global entries
+   * (global entries are included by default; pass includeGlobal: false to
+   * exclude them).
+   */
+  projectId?: string;
+  /**
+   * With projectId: include global entries alongside project entries
+   * (default true; false returns project entries only).
+   * Without projectId: true means global entries only, false returns an
+   * empty result (never entries from any project).
+   */
+  includeGlobal?: boolean;
+  /**
+   * Only entries of this tier. A missing tier on save normalizes to
+   * "semantic" (see MemoryEntry.tier), so an entry saved without a tier
+   * matches a tier: "semantic" filter.
+   */
+  tier?: MemoryTier;
+}
+
 export interface MemoryEntry {
   id: string;
   text: string;
+  scope?: MemoryScope;
+  /** Defaults to "semantic" when omitted on save; stores normalize it. */
+  tier?: MemoryTier;
+  source?: "tool" | "user" | "compaction";
+  sessionId?: string;
+  createdAt?: number;
   metadata?: Record<string, unknown>;
 }
 
 export interface MemoryStore {
   save(entry: MemoryEntry): Promise<string>;
-  query(text: string, k?: number): Promise<MemoryEntry[]>;
+  query(text: string, k?: number, filter?: MemoryQueryFilter): Promise<MemoryEntry[]>;
   delete(id: string): Promise<boolean>;
 }
 

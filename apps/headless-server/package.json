@@ -21,7 +21,8 @@
     "@volto/store-jsonl": "workspace:*",
     "@volto/store-sqlite": "workspace:*",
     "typescript-language-server": "^5.3.0",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "@volto/memory-file": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.5.0",

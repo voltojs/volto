@@ -30,6 +30,7 @@
  */
 
 import * as http from "node:http";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -55,6 +56,8 @@ import { createSkillRegistry } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
+import { forkSession, ForkError } from "./session-fork.js";
+import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
 import {
   createProjectStore,
   InvalidPathError,
@@ -530,7 +533,15 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     };
   }
 
-  const httpServer = http.createServer(async (req, res) => {
+  // The whole route handler runs through a single async function so the
+  // createServer callback below can install a top-level guard. Any exception
+  // a route lets escape (e.g. decodeURIComponent throwing URIError on a
+  // malformed percent-encoded path segment) would otherwise surface as an
+  // unhandled rejection and crash the process.
+  const handleRequest = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
 
@@ -1295,9 +1306,44 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       }
     }
 
-    // GET /sessions — lightweight list for the web app's session recovery
+    // GET /sessions — lightweight list for the web app's session recovery.
+    // `?q=` switches to a title + message text search; `projectId` / `limit`
+    // optionally narrow it. Empty q keeps the plain list contract.
     if (req.method === "GET" && url.pathname === "/sessions") {
       try {
+        const q = url.searchParams.get("q")?.trim() ?? "";
+        if (q !== "") {
+          // Empty parameters mean "absent": `?projectId=` / `?limit=` must
+          // not silently become a filter for "" or clamp the page to 1 row.
+          const projectIdParam = url.searchParams.get("projectId")?.trim() ?? "";
+          const projectId = projectIdParam !== "" ? projectIdParam : undefined;
+          const limitParam = url.searchParams.get("limit")?.trim() ?? "";
+          const limitRaw = limitParam !== "" ? Number(limitParam) : Number.NaN;
+          // One directory scan for the whole request: the same records feed
+          // both the search and the summary assembly below.
+          const { records, skipped } = await chatStore.listSessions();
+          const hits = await chatStore.searchSessions(q, {
+            ...(projectId !== undefined ? { projectId } : {}),
+            limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+            records,
+          });
+          const byId = new Map(records.map((record) => [record.sessionId, record]));
+          const sessions = hits.flatMap((hit) => {
+            const record = byId.get(hit.sessionId);
+            if (record === undefined) return [];
+            return [{
+              id: record.sessionId,
+              title: record.meta.title ?? "",
+              ...bindingsOf(record.meta),
+              messageCount: projectMessageEntries(record.events).length,
+              createdAt: record.createdAt,
+              updatedAt: record.updatedAt,
+              snippet: hit.snippet,
+            }];
+          });
+          jsonResponse(res, 200, { sessions, unreadableSessions: skipped.length });
+          return;
+        }
         const { records, skipped } = await chatStore.listSessions();
         // Sub-agent sessions are an implementation detail of the task tool —
         // surfacing them here would flood the user's session list with rows
@@ -1452,6 +1498,148 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
+    }
+
+    // GET /sessions/:id/export — download the persisted transcript as
+    // Markdown (default) or v2 JSONL. Read-only; no temp files.
+    if (req.method === "GET") {
+      const exportMatch = url.pathname.match(/^\/sessions\/([^/]+)\/export$/);
+      if (exportMatch) {
+        const id = decodeURIComponent(exportMatch[1]!);
+        const format = url.searchParams.get("format") ?? "md";
+        if (format !== "md" && format !== "jsonl") {
+          jsonResponse(res, 400, { error: "format must be md or jsonl" });
+          return;
+        }
+        try {
+          const record = await chatStore.readSession(id);
+          if (!record) {
+            jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+            return;
+          }
+          const body =
+            format === "md"
+              ? renderSessionMarkdown(id, record.meta, record.events)
+              : renderSessionJsonl(id, record.events);
+          const base =
+            (record.meta.title ?? "session")
+              .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 80) || "session";
+          // The id segment gets the same sanitizing as the title: an id with
+          // a quote or CR would make writeHead throw on the header value.
+          const safeId =
+            id
+              .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 8) || "session";
+          const filename = `${base}-${safeId}.${format}`;
+          res.writeHead(200, {
+            "Content-Type":
+              format === "md" ? "text/markdown; charset=utf-8" : "application/x-ndjson; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Content-Length": Buffer.byteLength(body),
+          });
+          res.end(body);
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+    }
+
+    // POST /sessions/:id/fork — copy a completed turn prefix into a new
+    // session. The source is never modified; attachments and plan follow the
+    // prefix. 400 invalid cut, 404 unknown, 409 source mid-turn.
+    if (req.method === "POST") {
+      const forkMatch = url.pathname.match(/^\/sessions\/([^/]+)\/fork$/);
+      if (forkMatch) {
+        const id = decodeURIComponent(forkMatch[1]!);
+        try {
+          const record = await chatStore.readSession(id);
+          if (!record) {
+            jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+            return;
+          }
+          if (registry.isRunning(id)) {
+            jsonResponse(res, 409, { error: "Cannot fork a session while a turn is running" });
+            return;
+          }
+          // Subagent transcripts are an implementation detail of the task
+          // tool; branching one would produce a "top-level" session that
+          // still carries the subagent's delegationDepth.
+          if (record.meta.origin === "subagent") {
+            jsonResponse(res, 400, { error: "Cannot fork a subagent session" });
+            return;
+          }
+          const body = (await readBody(req).then((raw) => (raw.trim() === "" ? {} : JSON.parse(raw)))) as {
+            throughSeq?: unknown;
+            throughTurn?: unknown;
+            title?: unknown;
+          };
+          if (typeof body.title !== "undefined") {
+            if (typeof body.title !== "string") {
+              jsonResponse(res, 400, { error: "title must be a string" });
+              return;
+            }
+            // Same contract as PATCH rename: an empty or oversized title must
+            // not reach the meta (an empty string would also defeat the
+            // `title ?? default` fallback inside forkSession).
+            const titleLength = body.title.trim().length;
+            if (titleLength === 0 || titleLength > 200) {
+              jsonResponse(res, 400, { error: "title must be 1-200 characters" });
+              return;
+            }
+          }
+          if (
+            body.throughSeq !== undefined &&
+            (typeof body.throughSeq !== "number" || !Number.isInteger(body.throughSeq))
+          ) {
+            jsonResponse(res, 400, { error: "throughSeq must be an integer" });
+            return;
+          }
+          if (
+            body.throughTurn !== undefined &&
+            (typeof body.throughTurn !== "number" || !Number.isInteger(body.throughTurn))
+          ) {
+            jsonResponse(res, 400, { error: "throughTurn must be an integer" });
+            return;
+          }
+          const projectPath =
+            record.meta.projectId === null
+              ? null
+              : ((await resolveProjectPath(projectStore, record.meta.projectId)) ?? null);
+          const newId = randomUUID();
+          const result = await forkSession(
+            record,
+            {
+              ...(typeof body.throughSeq === "number" ? { throughSeq: body.throughSeq } : {}),
+              ...(typeof body.throughTurn === "number" ? { throughTurn: body.throughTurn } : {}),
+              ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
+            },
+            {
+              chatStore,
+              attachmentStoreFor,
+              planStore,
+              projectPath,
+              newId,
+            },
+          );
+          jsonResponse(res, 201, result);
+        } catch (err: unknown) {
+          if (err instanceof ForkError) {
+            jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          if (respondBodyError(err)) return;
+          if (err instanceof SyntaxError) {
+            jsonResponse(res, 400, { error: "Invalid JSON body" });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
     }
 
     // DELETE /sessions/:id — drop the durable transcript. Without this the web
@@ -1837,6 +2025,30 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     }
 
     jsonResponse(res, 404, { error: "Not found" });
+  };
+
+  const httpServer = http.createServer((req, res) => {
+    handleRequest(req, res).catch((err: unknown) => {
+      // Top-level guard: a malformed percent-encoded path segment makes
+      // decodeURIComponent throw before any route-level try block runs.
+      // Answer 400 for that client error and 500 for anything else; never
+      // let the rejection escape and take the process down.
+      if (!res.headersSent) {
+        const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+        res.writeHead(err instanceof URIError ? 400 : 500, {
+          "Content-Type": "application/json",
+          ...corsHeadersFor(origin),
+        });
+        res.end(
+          JSON.stringify({
+            error:
+              err instanceof URIError ? "Malformed URI path segment" : "Internal server error",
+          }),
+        );
+      } else {
+        res.end();
+      }
+    });
   });
 
   // WebSocket server on the same HTTP server. `noServer` so the upgrade

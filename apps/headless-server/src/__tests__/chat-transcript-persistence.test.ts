@@ -42,6 +42,9 @@ function makeFakeChatStore(): JsonlSessionStore & {
       return { records: [], skipped: [] };
     },
     async deleteSession() {},
+    async searchSessions() {
+      return [];
+    },
   };
 }
 
@@ -130,6 +133,9 @@ function makeStatefulChatStore(): JsonlSessionStore {
       return { records: [], skipped: [] };
     },
     async deleteSession() {},
+    async searchSessions() {
+      return [];
+    },
   };
 }
 

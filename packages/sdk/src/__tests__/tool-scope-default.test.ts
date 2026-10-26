@@ -12,6 +12,7 @@ const INFO  = ["web_search","web_fetch","read_document","http_query","save_plan"
 const LSP   = ["lsp_definition","lsp_hover","lsp_references","lsp_rename","lsp_diagnostics"];
 const DB    = ["db_query","db_exec"];
 const BROWSER = ["browser_navigate","browser_click","browser_type","browser_get_page_text","browser_screenshot"];
+const MEMORY = ["memory"];
 const UNKNOWN = ["future_tool","mcp__srv__echo","plugin_thing","watch_files","build","git_push"];
 
 function def(name: string): ToolDefinition {
@@ -20,7 +21,7 @@ function def(name: string): ToolDefinition {
 const allDefs = () => [...FLOOR, ...BASIC, ...INFO, ...UNKNOWN].map(def);
 
 it("F-161 maps every actual tool into an on-table group; unknown names fall to rest", () => {
-  const presence = { hasLsp: false, hasDb: false, hasBrowser: false };
+  const presence = { hasLsp: false, hasDb: false, hasBrowser: false, hasMemory: false };
   const { scope } = buildDefaultToolVisibility(allDefs(), presence);
   expect(scope.toolGroups).toBeDefined();
   for (const d of allDefs()) {
@@ -41,7 +42,7 @@ it("F-161 maps every actual tool into an on-table group; unknown names fall to r
 });
 
 it("F-161 the floor 14 survive a >20 trim and lead the output", () => {
-  const presence = { hasLsp: false, hasDb: false, hasBrowser: false };
+  const presence = { hasLsp: false, hasDb: false, hasBrowser: false, hasMemory: false };
   const defs = allDefs();                      // 14 + 5 + 5 + 6 = 30 > 20
   const { scope, limit } = buildDefaultToolVisibility(defs, presence);
   expect(limit).toBe(20);
@@ -54,16 +55,16 @@ it("F-161 the floor 14 survive a >20 trim and lead the output", () => {
 });
 
 it("F-162 mode groups join the table only when assembled; absent keeps presence-false tables lsp-free", () => {
-  const on = buildDefaultToolVisibility(allDefs(), { hasLsp: true, hasDb: false, hasBrowser: false });
+  const on = buildDefaultToolVisibility(allDefs(), { hasLsp: true, hasDb: false, hasBrowser: false, hasMemory: false });
   expect(on.scope.groups["lsp"]).toEqual({ priority: 40, enabled: true });
   expect(on.scope.groups["db"]).toBeUndefined();
-  const off = buildDefaultToolVisibility(allDefs(), { hasLsp: false, hasDb: false, hasBrowser: false });
+  const off = buildDefaultToolVisibility(allDefs(), { hasLsp: false, hasDb: false, hasBrowser: false, hasMemory: false });
   expect(off.scope.groups["lsp"]).toBeUndefined();
 });
 
 it("F-162 with mode tools present, they take the discretionary slots after floor+basic", () => {
   const defs = [...FLOOR, ...BASIC, ...LSP, ...INFO, ...UNKNOWN].map(def);   // 14+5+5+5+6 = 35
-  const { scope, limit } = buildDefaultToolVisibility(defs, { hasLsp: true, hasDb: false, hasBrowser: false });
+  const { scope, limit } = buildDefaultToolVisibility(defs, { hasLsp: true, hasDb: false, hasBrowser: false, hasMemory: false });
   const names = filterByScope(defs, scope, limit).map((t) => t.name);
   expect(names).toHaveLength(20);
   expect(names.slice(14, 19).sort()).toEqual([...BASIC].sort());             // tier 2 owns 15-19
@@ -73,13 +74,58 @@ it("F-162 with mode tools present, they take the discretionary slots after floor
 
 it("F-162 db and browser groups join the table only when assembled", () => {
   const defs = [...FLOOR, ...BASIC, ...DB, ...BROWSER, ...INFO, ...UNKNOWN].map(def);
-  const db = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: true, hasBrowser: false });
+  const db = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: true, hasBrowser: false, hasMemory: false });
   expect(db.scope.groups["db"]).toEqual({ priority: 40, enabled: true });
   expect(db.scope.groups["browser"]).toBeUndefined();
-  const browser = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: false, hasBrowser: true });
+  const browser = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: false, hasBrowser: true, hasMemory: false });
   expect(browser.scope.groups["browser"]).toEqual({ priority: 40, enabled: true });
   expect(browser.scope.groups["db"]).toBeUndefined();
   // a presence-false mode name never leaves the table: it falls to rest instead
   expect(db.scope.toolGroups!["browser_navigate"]).toBe("rest");
   expect(browser.scope.toolGroups!["db_query"]).toBe("rest");
+});
+
+
+it("T11 memory group joins at priority 45 and raises the limit to 21", () => {
+  const defs = [...FLOOR, ...BASIC, ...MEMORY].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: false,
+    hasDb: false,
+    hasBrowser: false,
+    hasMemory: true,
+  });
+  expect(limit).toBe(21);
+  expect(scope.groups["memory"]).toEqual({ priority: 45, enabled: true });
+  expect(scope.toolGroups!["memory"]).toBe("memory");
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  expect(names).toContain("memory");
+});
+
+it("T11 memory slot never evicts the floor or basic tools when the limit rises to 21", () => {
+  // Spec D6 worst case: floor + basic + memory + a full discretionary crowd.
+  const defs = [...FLOOR, ...BASIC, ...MEMORY, ...LSP, ...INFO, ...UNKNOWN].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: true,
+    hasDb: false,
+    hasBrowser: false,
+    hasMemory: true,
+  });
+  expect(limit).toBe(21);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  for (const f of FLOOR) expect(names, `floor lost: ${f}`).toContain(f);
+  for (const b of BASIC) expect(names, `basic lost: ${b}`).toContain(b);
+  expect(names).toContain("memory");
+});
+
+it("T11 memory tool falls to rest when memory is not assembled", () => {
+  const defs = [...FLOOR, ...BASIC, ...MEMORY].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: false,
+    hasDb: false,
+    hasBrowser: false,
+    hasMemory: false,
+  });
+  expect(limit).toBe(20);
+  expect(scope.groups["memory"]).toBeUndefined();
+  expect(scope.toolGroups!["memory"]).toBe("rest");
 });

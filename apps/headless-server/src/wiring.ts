@@ -27,12 +27,13 @@ import {
 import type { SandboxConfig } from "@volto/runtime-node";
 import type { AttachmentParsePdf } from "./attachments/convert.js";
 import { createStore as createSqliteStore } from "@volto/store-sqlite";
+import { createFileMemoryStore } from "@volto/memory-file";
 import {
   dedupeInstructions,
   renderInstructionLayers,
   type ContextLayer,
 } from "@volto/core";
-import type { AttachmentStore, Hook, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
+import type { AttachmentStore, Hook, MemoryStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
@@ -59,6 +60,21 @@ export const DEFAULT_SYSTEM_PROMPT = [
  * store (see sessions.ts's resolveConfig).
  */
 const DEFAULT_MODEL = "gpt-4o";
+
+/**
+ * One file-backed memory store per memory root, shared by every session the
+ * process builds (T11 D2/D5). Keyed by root so tests with different temp
+ * config dirs never share memory.
+ */
+const sharedMemoryStores = new Map<string, MemoryStore>();
+function sharedMemoryStore(rootDir: string): MemoryStore {
+  let store = sharedMemoryStores.get(rootDir);
+  if (store === undefined) {
+    store = createFileMemoryStore({ rootDir });
+    sharedMemoryStores.set(rootDir, store);
+  }
+  return store;
+}
 
 export interface WiringOptions {
   modelPort?: ModelPort;
@@ -106,6 +122,16 @@ export interface WiringOptions {
    * here; hitting it surfaces as a visible turn_end error.
    */
   maxIterations?: number;
+  /**
+   * Project memory (T11). Omitted = enabled with one shared file store under
+   * `getConfigDir()/memory`; `false` disables memory and its tool; `store`
+   * injects a test/alternate store. `rag` defaults to `{ topK: 5 }`.
+   */
+  memory?: false | {
+    rag?: false | { topK?: number };
+    tools?: boolean;
+    store?: MemoryStore;
+  };
   /** Permission policy for this agent instance. */
   permissionConfig?: PermissionConfig;
   /**
@@ -609,6 +635,20 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // the first open, so a host without the optional driver still builds.
   const db = createSqliteDatabaseOpener({ fs, workspaceRoot: cwd });
 
+  const memoryConfig = opts.memory;
+  const memoryRoot = path.join(getConfigDir(), "memory");
+  const memoryStore =
+    memoryConfig === false
+      ? undefined
+      : (memoryConfig?.store ?? sharedMemoryStore(memoryRoot));
+  const memoryOptions =
+    memoryConfig === false
+      ? undefined
+      : {
+          rag: memoryConfig?.rag ?? { topK: 5 },
+          tools: memoryConfig?.tools ?? true,
+        };
+
   return createAgent({
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
@@ -661,6 +701,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
     ...(opts.attachmentStore ? { attachmentStore: opts.attachmentStore } : {}),
     ...(opts.chatMeta ? { chatMeta: opts.chatMeta } : {}),
+    ...(memoryStore !== undefined ? { memoryStore, memory: memoryOptions } : {}),
     ...(opts.initialTurn !== undefined ? { initialTurn: opts.initialTurn } : {}),
     ...(opts.initialContextLayers !== undefined
       ? { initialContextLayers: opts.initialContextLayers }

@@ -89,8 +89,17 @@ export interface ServerSessionDetail {
 }
 
 /** Lists every session the server has durably recorded. */
-export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
-  const response = await fetch(`${SERVER_URL}/sessions`, {
+export async function fetchServerSessions(opts?: {
+  q?: string;
+  projectId?: string;
+  limit?: number;
+}): Promise<ServerSessionSummary[]> {
+  const params = new URLSearchParams();
+  if (opts?.q) params.set('q', opts.q);
+  if (opts?.projectId) params.set('projectId', opts.projectId);
+  if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+  const query = params.size > 0 ? `?${params.toString()}` : '';
+  const response = await fetch(`${SERVER_URL}/sessions${query}`, {
     credentials: 'include',
   });
   if (!response.ok) {
@@ -98,6 +107,41 @@ export async function fetchServerSessions(): Promise<ServerSessionSummary[]> {
   }
   const body = (await response.json()) as { sessions: ServerSessionSummary[] };
   return body.sessions;
+}
+
+export interface ForkSessionOptions {
+  throughSeq?: number;
+  throughTurn?: number;
+  title?: string;
+}
+
+/** Copies a completed turn prefix into a new session and returns its id. */
+export async function forkSession(
+  id: string,
+  opts: ForkSessionOptions = {},
+): Promise<{ id: string; title: string; parentSessionId: string }> {
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/fork`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    },
+  );
+  if (!response.ok) {
+    const message = await readErrorMessage(
+      response,
+      `Failed to fork session ${id}: HTTP ${response.status}`,
+    );
+    throw new Error(message);
+  }
+  return (await response.json()) as { id: string; title: string; parentSessionId: string };
+}
+
+/** Download URL for a session export (cookie auth travels with the request). */
+export function exportSessionUrl(id: string, format: "md" | "jsonl" = "md"): string {
+  return `${SERVER_URL}/sessions/${encodeURIComponent(id)}/export?format=${format}`;
 }
 
 /** Fetches one session's projected conversation view. Returns null for an unknown id. */

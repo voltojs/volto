@@ -321,6 +321,25 @@ function getJson(
   });
 }
 
+function getRaw(
+  path: string,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    http.get(new URL(path, baseUrl), { headers: authHeaders(launchToken) }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString(),
+        }),
+      );
+      res.on("error", reject);
+    });
+  });
+}
+
 function del(path: string, token: string = launchToken): Promise<{ status: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -1110,6 +1129,123 @@ describe("Headless server", () => {
     expect(summary!.messageCount).toBe(2);
   });
 
+  it("GET /sessions/:id/export returns Markdown or JSONL with a download header", async () => {
+    const sessionId = "export-session-raw";
+    const sessionsDir = path.join(process.env["VOLTO_CONFIG_DIR"]!, "sessions", "export-ws");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const event = (seq: number, type: string, data: unknown) => ({
+      version: 3,
+      sessionId,
+      event: { seq, time: 1_700_000_000_000 + seq, type, data },
+    });
+    await fs.writeFile(
+      path.join(sessionsDir, `${sessionId}.jsonl`),
+      [
+        event(0, "session_meta", { title: "Export test", projectId: "p1", providerId: null, modelId: null, permissionMode: null }),
+        event(1, "turn_start", { turn: 1 }),
+        event(2, "user_message", { content: "hello" }),
+        event(3, "assistant_message", { content: [{ type: "text", text: "world" }], durationMs: 1 }),
+        event(4, "turn_end", { turn: 1, reason: "done" }),
+      ].map((row) => JSON.stringify(row)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    const md = await getRaw(`/sessions/${sessionId}/export`);
+    expect(md.status).toBe(200);
+    expect(md.headers["content-type"]).toContain("text/markdown");
+    expect(md.headers["content-disposition"]).toContain("attachment");
+    expect(md.body).toContain("## Turn 1");
+    expect(md.body).toContain("world");
+
+    const jsonl = await getRaw(`/sessions/${sessionId}/export?format=jsonl`);
+    expect(jsonl.status).toBe(200);
+    expect(jsonl.headers["content-type"]).toContain("application/x-ndjson");
+    const first = JSON.parse(jsonl.body.split("\n")[0]!) as { version: number; event: { type: string } };
+    expect(first).toMatchObject({ version: 3, event: { type: "session_meta" } });
+
+    expect((await getRaw(`/sessions/${sessionId}/export?format=pdf`)).status).toBe(400);
+    expect((await getRaw("/sessions/does-not-exist/export")).status).toBe(404);
+  });
+
+  it("POST /sessions/:id/fork creates a visible branch and 404s unknown ids", async () => {
+    const sessionId = "session-fork-source";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi", config);
+
+    const created = await post(`/sessions/${sessionId}/fork`, {});
+    expect(created.status).toBe(201);
+    const forked = created.data as { id: string; title: string; parentSessionId: string };
+    expect(forked.parentSessionId).toBe(sessionId);
+    expect(forked.title).toContain("分支");
+
+    const detail = await getJson(`/sessions/${forked.id}`);
+    expect(detail.status).toBe(200);
+    const listed = await getJson("/sessions");
+    expect((listed.data as { sessions: Array<{ id: string }> }).sessions.map((s) => s.id)).toContain(forked.id);
+
+    const invalid = await post(`/sessions/${sessionId}/fork`, { throughSeq: "1" });
+    expect(invalid.status).toBe(400);
+
+    // Non-integer and out-of-range numeric cuts are client errors too.
+    expect((await post(`/sessions/${sessionId}/fork`, { throughSeq: 1.5 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughSeq: -1 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughTurn: 0 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughTurn: 1.5 })).status).toBe(400);
+
+    const missing = await post("/sessions/does-not-exist/fork", {});
+    expect(missing.status).toBe(404);
+
+    // Title contract matches PATCH rename: empty or oversized is a 400.
+    expect((await post(`/sessions/${sessionId}/fork`, { title: "" })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { title: "x".repeat(201) })).status).toBe(400);
+
+    // Malformed JSON must be a client error (400), not a 500 — same
+    // normalization as POST /agents.
+    const badBody = await fetch(`${baseUrl}/sessions/${sessionId}/fork`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: "{oops",
+    });
+    expect(badBody.status).toBe(400);
+  });
+
+  it("answers 400 for a malformed percent-encoded session id and stays alive", async () => {
+    // %E0%A4 is an incomplete UTF-8 sequence: decodeURIComponent throws
+    // URIError before any route-level try block runs. The top-level guard
+    // must answer 400 instead of letting an unhandled rejection kill the
+    // process, and the server must keep serving the next request.
+    const badExport = await getRaw("/sessions/%E0%A4/export");
+    expect(badExport.status).toBe(400);
+
+    const badFork = await post("/sessions/%E0%A4/fork", {});
+    expect(badFork.status).toBe(400);
+
+    const alive = await getJson("/sessions");
+    expect(alive.status).toBe(200);
+  });
+
+  it("GET /sessions?q= searches title and message text and returns a snippet", async () => {
+    const sessionId = "session-search-after-turn";
+    const config = await createTestProjectAndModel();
+    await collectProtocolTurn(sessionId, "hi", config);
+
+    const hit = await getJson("/sessions?q=world");
+    expect(hit.status).toBe(200);
+    const body = hit.data as { sessions: Array<{ id: string; snippet?: string }> };
+    // Empty parameters are absent parameters: `?limit=` must not clamp the
+    // page to 1 row and `?projectId=` must not filter for "".
+    const emptyParams = await getJson(`/sessions?q=world&limit=&projectId=`);
+    expect(emptyParams.status).toBe(200);
+    expect((emptyParams.data as { sessions: unknown[] }).sessions.length).toBe(body.sessions.length);
+    const summary = body.sessions.find((s) => s.id === sessionId);
+    expect(summary).toBeDefined();
+    expect(summary!.snippet).toContain("Hello world");
+
+    const miss = await getJson("/sessions?q=definitely-not-present");
+    expect(miss.status).toBe(200);
+    expect((miss.data as { sessions: unknown[] }).sessions).toEqual([]);
+  });
+
   it("GET /sessions excludes sub-agent sessions (meta.origin === \"subagent\")", async () => {
     // Sub-agents write their own session files directly to the same
     // top-level sessions directory the task tool uses — a raw v2 file is
@@ -1118,7 +1254,7 @@ describe("Headless server", () => {
     await fs.mkdir(sessionsDir, { recursive: true });
     const subagentSessionId = "subagent-session-1";
     const line = JSON.stringify({
-      version: 2,
+      version: 3,
       sessionId: subagentSessionId,
       event: {
         seq: 0,

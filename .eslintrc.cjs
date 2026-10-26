@@ -21,6 +21,20 @@ module.exports = {
   ignorePatterns: ["dist/", "node_modules/", "*.js", "*.cjs"],
   overrides: [
     {
+      // Type-import discipline (AGENTS.md §3): tools-*/memories-* consume
+      // core CONTRACT TYPES only; a value import would couple them to the
+      // implementation. consistent-type-imports is what makes "import type
+      // everywhere" mechanically checkable instead of review-enforced.
+      files: [
+        "packages/memories/*/src/**/*.ts",
+        "packages/tools/*/src/**/*.ts",
+        "packages/stores/*/src/**/*.ts",
+      ],
+      rules: {
+        "@typescript-eslint/consistent-type-imports": "error",
+      },
+    },
+    {
       // @volto/core: purity rules — no node:*, no implementation packages, no implicit side effects
       files: ["packages/core/src/**/*.ts"],
       rules: {

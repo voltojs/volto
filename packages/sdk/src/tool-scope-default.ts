@@ -6,7 +6,7 @@ import type { ScopeGroupConfig, ToolDefinition, ToolScopeConfig } from "@volto/c
  * Pure: no I/O, deterministic, no sorting. Given the actual assembled tool
  * list and the assembly state, it produces a five-tier `ToolScopeConfig`
  * (spec 2026-10-15-toolset-governance-design.md, D3/D4) plus a fixed
- * `limit` of 20.
+ * `limit` of 20 (21 when `hasMemory` — the T11 revision of that contract).
  *
  * Every actual tool is mapped to exactly one group that is present in
  * `groups`: `filterByScope` keeps only tools whose group exists and is
@@ -20,6 +20,7 @@ export interface AssemblyPresence {
   hasLsp: boolean; // opts.lsp !== undefined
   hasDb: boolean; // opts.db !== undefined
   hasBrowser: boolean; // opts.browserAdapter !== undefined
+  hasMemory: boolean; // opts.memoryStore !== undefined && memory.tools !== false
 }
 
 /** Shape consumed by the toolVisibility wiring (defaults filled in by us). */
@@ -65,6 +66,10 @@ const BROWSER_TOOLS = [
 // Tier 4: information tools, priority 20.
 const INFO_TOOLS = ["web_search", "web_fetch", "read_document", "http_query", "save_plan"];
 
+// Tier 3.5: explicit memory tool, priority 45 — above mode groups so a
+// memory-enabled session keeps it, below basic so control channels win.
+const MEMORY_TOOLS = ["memory"];
+
 // Tier 5 (rest): priority 0, the fallback for every tool not listed above.
 
 /** name -> group for every explicitly listed tool; mode groups gated by presence. */
@@ -77,6 +82,7 @@ function buildMembership(presence: AssemblyPresence): Record<string, string> {
   if (presence.hasLsp) for (const name of LSP_TOOLS) membership[name] = "lsp";
   if (presence.hasDb) for (const name of DB_TOOLS) membership[name] = "db";
   if (presence.hasBrowser) for (const name of BROWSER_TOOLS) membership[name] = "browser";
+  if (presence.hasMemory) for (const name of MEMORY_TOOLS) membership[name] = "memory";
   for (const name of INFO_TOOLS) membership[name] = "info";
   return membership;
 }
@@ -92,12 +98,13 @@ function buildGroups(presence: AssemblyPresence): Record<string, ScopeGroupConfi
   if (presence.hasLsp) groups["lsp"] = { priority: 40, enabled: true };
   if (presence.hasDb) groups["db"] = { priority: 40, enabled: true };
   if (presence.hasBrowser) groups["browser"] = { priority: 40, enabled: true };
+  if (presence.hasMemory) groups["memory"] = { priority: 45, enabled: true };
   groups["info"] = { priority: 20, enabled: true };
   groups["rest"] = { priority: 0, enabled: true };
   return groups;
 }
 
-/** Pure: actual tool list + assembly state -> default visibility (limit 20). */
+/** Pure: actual tool list + assembly state -> default visibility (limit 20 / 21 with memory). */
 export function buildDefaultToolVisibility(
   toolDefs: readonly ToolDefinition[],
   presence: AssemblyPresence,
@@ -109,6 +116,8 @@ export function buildDefaultToolVisibility(
   }
   return {
     scope: { groups: buildGroups(presence), toolGroups },
-    limit: DEFAULT_TOOL_VISIBILITY_LIMIT,
+    // Memory-enabled sessions get one extra slot so the single `memory`
+    // tool and the lsp discretionary slot can coexist (T11 spec D6).
+    limit: DEFAULT_TOOL_VISIBILITY_LIMIT + (presence.hasMemory ? 1 : 0),
   };
 }
