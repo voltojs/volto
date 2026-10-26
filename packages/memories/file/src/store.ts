@@ -104,7 +104,12 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
   } = opts;
 
   // Lazy per-scope index: live entries plus the raw op count for compaction.
-  const indexes = new Map<string, { entries: Map<string, MemoryEntry>; ops: number }>();
+  type ScopeIndex = { entries: Map<string, MemoryEntry>; ops: number };
+  const indexes = new Map<string, ScopeIndex>();
+  // In-flight cold loads, keyed like `indexes`. Each entry is removed as soon
+  // as the read settles (success or failure), so a failed load is retried on
+  // the next access instead of being cached as an error.
+  const loads = new Map<string, Promise<ScopeIndex>>();
   // Serializes writes per scope so appends and compactions never interleave.
   const queues = new Map<string, Promise<void>>();
   let idCounter = 0;
@@ -178,26 +183,41 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     return rows;
   }
 
-  async function loadScope(scope: MemoryScope): Promise<{
-    entries: Map<string, MemoryEntry>;
-    ops: number;
-  }> {
+  async function loadScope(scope: MemoryScope): Promise<ScopeIndex> {
     const key = fileNameFor(scope);
     const cached = indexes.get(key);
     if (cached !== undefined) return cached;
 
-    const rows = await readRows(filePath(scope));
-    const entries = new Map<string, MemoryEntry>();
-    for (const row of rows) {
-      if (row.op === "upsert") {
-        entries.set(row.entry.id, row.entry);
-      } else {
-        entries.delete(row.id);
-      }
-    }
-    const index = { entries, ops: rows.length };
-    indexes.set(key, index);
-    return index;
+    // Concurrent cold-start readers share one in-flight read. Without this, a
+    // query and a save hitting a fresh scope each build their own index from
+    // the same file; whichever `indexes.set` lands last overwrites the other
+    // one's applied writes, making them invisible in memory and — once a later
+    // compact rewrites the file from the stale map — lost on disk.
+    const inflight = loads.get(key);
+    if (inflight !== undefined) return inflight;
+
+    const loading = readRows(filePath(scope)).then(
+      (rows): ScopeIndex => {
+        const entries = new Map<string, MemoryEntry>();
+        for (const row of rows) {
+          if (row.op === "upsert") {
+            entries.set(row.entry.id, row.entry);
+          } else {
+            entries.delete(row.id);
+          }
+        }
+        const index: ScopeIndex = { entries, ops: rows.length };
+        indexes.set(key, index);
+        loads.delete(key);
+        return index;
+      },
+      (err: unknown) => {
+        loads.delete(key);
+        throw err;
+      },
+    );
+    loads.set(key, loading);
+    return loading;
   }
 
   /**

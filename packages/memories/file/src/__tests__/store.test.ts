@@ -54,6 +54,35 @@ describe("createFileMemoryStore", () => {
     expect(results[0]?.text).toBe("alpha fact");
   });
 
+  it("keeps a concurrent cold-start save visible: query and save share one load", async () => {
+    const { store, reload } = pair();
+    // Both calls hit the same fresh scope at the same time. Without a shared
+    // in-flight load, each builds its own index from the same (empty) file,
+    // and the query's stale `indexes.set` overwrites the save's applied
+    // write — the entry then vanishes from this instance and, after a later
+    // compact rewrites the file from the stale map, from disk as well.
+    await Promise.all([
+      store.save(entry("concurrent fact", { scope: { kind: "project", projectId: "p1" } })),
+      store.query("concurrent", 10, { projectId: "p1", includeGlobal: false }),
+    ]);
+
+    const after = await store.query("concurrent", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+    });
+    expect(after).toHaveLength(1);
+    expect(after[0]?.text).toBe("concurrent fact");
+
+    // A fresh instance must see it on disk too (the append reached the file).
+    const reloaded = reload();
+    const onDisk = await reloaded.query("concurrent", 10, {
+      projectId: "p1",
+      includeGlobal: false,
+    });
+    expect(onDisk).toHaveLength(1);
+    expect(onDisk[0]?.text).toBe("concurrent fact");
+  });
+
   it("isolates projects: p1 query returns p1 + global by default, project-only with includeGlobal: false", async () => {
     const { store } = pair();
     await store.save(
