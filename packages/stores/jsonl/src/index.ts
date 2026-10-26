@@ -159,6 +159,41 @@ function normalizeSearchText(text: string): string {
   return text.normalize("NFKC").toLowerCase();
 }
 
+/**
+ * Same normalization as `normalizeSearchText`, but also returns a
+ * normalized-index → source-index map. NFKC can change lengths (㍿ →
+ * 株式会社), so slicing the raw source with a normalized index can land
+ * anywhere; the map is what lets a snippet keep the original casing and
+ * still contain the match.
+ */
+function normalizeSearchTextWithMap(text: string): {
+  normalized: string;
+  map: number[];
+} {
+  let normalized = "";
+  const map: number[] = [];
+  for (let i = 0; i < text.length; ) {
+    const cp = text.codePointAt(i);
+    if (cp === undefined) break;
+    const char = String.fromCodePoint(cp);
+    const folded = char.normalize("NFKC").toLowerCase();
+    for (const f of folded) {
+      normalized += f;
+      map.push(i);
+    }
+    i += char.length;
+  }
+  return { normalized, map };
+}
+
+/** Snap an index off the low half of a surrogate pair (never split one). */
+function snapToCharBoundary(source: string, index: number): number {
+  if (index <= 0) return 0;
+  if (index >= source.length) return source.length;
+  const code = source.charCodeAt(index);
+  return code >= 0xdc00 && code <= 0xdfff ? index - 1 : index;
+}
+
 /** Extract text blocks (or a plain string) from message content. */
 function eventText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -175,7 +210,7 @@ function eventText(content: unknown): string {
 
 /** One-line snippet centered on the first match. */
 function makeSnippet(source: string, index: number, length: number, max: number): string {
-  const start = Math.max(0, index - Math.floor((max - length) / 2));
+  const start = snapToCharBoundary(source, Math.max(0, index - Math.floor((max - length) / 2)));
   const raw = source.slice(start, start + max).replace(/\s+/g, " ").trim();
   const prefix = start > 0 ? "…" : "";
   const suffix = start + max < source.length ? "…" : "";
@@ -490,25 +525,29 @@ export function createStore(opts: JsonlStoreOptions): JsonlSessionStore {
           .filter((text) => text !== "")
           .join("\n");
 
-        const normalizedTitle = normalizeSearchText(title);
-        const normalizedBody = normalizeSearchText(body);
+        const { normalized: normalizedTitle, map: titleMap } = normalizeSearchTextWithMap(title);
+        const { normalized: normalizedBody, map: bodyMap } = normalizeSearchTextWithMap(body);
         const inTitle = normalizedTitle.includes(normalizedQuery);
         const at = inTitle ? -1 : normalizedBody.indexOf(normalizedQuery);
         if (!inTitle && at === -1) continue;
 
-        // Cut the snippet from the NORMALIZED text: NFKC can change length
-        // (㍿ → 株式会社, ﬁ → fi), so an index into the normalized string
-        // sliced out of the raw source can land anywhere — even on a window
-        // that contains no part of the match. The tradeoff is a lowercase,
-        // NFKC-expanded snippet; it always contains the hit.
-        const source = inTitle ? normalizedTitle : normalizedBody;
-        const sourceIndex = source.indexOf(normalizedQuery);
+        // Locate the hit in the SOURCE text through the map: the snippet
+        // keeps the original casing, and the map guarantees the window
+        // actually contains the match even when NFKC changed lengths.
+        const map = inTitle ? titleMap : bodyMap;
+        const source = inTitle ? title : body;
+        const hitStart = map[at] ?? 0;
+        const lastMapped = Math.min(at + normalizedQuery.length - 1, map.length - 1);
+        const nextAfter = map[lastMapped + 1];
+        const hitEnd = nextAfter !== undefined ? nextAfter : source.length;
+        const sourceIndex = hitStart;
+        const sourceLength = Math.max(1, hitEnd - hitStart);
         hits.push({
           sessionId: record.sessionId,
           title,
           projectId: record.meta.projectId,
           updatedAt: record.updatedAt,
-          snippet: makeSnippet(source, sourceIndex, normalizedQuery.length, snippetChars),
+          snippet: makeSnippet(source, sourceIndex, sourceLength, snippetChars),
           matchedIn: inTitle ? "title" : "message",
         });
       }
