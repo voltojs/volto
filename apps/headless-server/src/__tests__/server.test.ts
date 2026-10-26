@@ -1186,6 +1186,12 @@ describe("Headless server", () => {
     const invalid = await post(`/sessions/${sessionId}/fork`, { throughSeq: "1" });
     expect(invalid.status).toBe(400);
 
+    // Non-integer and out-of-range numeric cuts are client errors too.
+    expect((await post(`/sessions/${sessionId}/fork`, { throughSeq: 1.5 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughSeq: -1 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughTurn: 0 })).status).toBe(400);
+    expect((await post(`/sessions/${sessionId}/fork`, { throughTurn: 1.5 })).status).toBe(400);
+
     const missing = await post("/sessions/does-not-exist/fork", {});
     expect(missing.status).toBe(404);
 

@@ -78,6 +78,15 @@ describe("forkSession", () => {
 
     const attachment = await createNodeAttachmentStore({ rootDir: attachmentRoot, sessionId: "fork-1" }).get("img1");
     expect(attachment?.name).toBe("shot.png");
+
+    // Spec manual 8.2.2, automated: the branch message stream is verbatim
+    // identical to the source prefix (only meta and seq differ).
+    const sourceEvents = source.events;
+    const branchMessages = forked!.events.filter((e) => e.type !== "session_meta");
+    const sourceMessages = sourceEvents.filter((e) => e.type !== "session_meta");
+    expect(branchMessages.map((e) => ({ type: e.type, data: e.data }))).toEqual(
+      sourceMessages.map((e) => ({ type: e.type, data: e.data })),
+    );
   });
 
   it("still forks when an attachment copy fails, degrading to a warning", async () => {
@@ -106,6 +115,23 @@ describe("forkSession", () => {
     expect(await store.readSession("fork-att-fail")).toBeDefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("copy failed"));
     warn.mockRestore();
+  });
+
+  it("keeps branch attachments readable after the source session is deleted", async () => {
+    const source = await seed();
+    await forkSession(source, {}, deps("fork-survivor"));
+
+    await store.deleteSession("src");
+    expect(await store.readSession("src")).toBeUndefined();
+
+    // Attachment bytes are copied into the branch's own directory, so the
+    // branch stays readable once the source is gone (spec F-041).
+    const branchAttachment = await createNodeAttachmentStore({
+      rootDir: attachmentRoot,
+      sessionId: "fork-survivor",
+    }).get("img1");
+    expect(branchAttachment?.data).toBe(PNG);
+    expect(await store.readSession("fork-survivor")).toBeDefined();
   });
 
   it("keeps the branch title when a rename meta sits inside the prefix", async () => {

@@ -101,6 +101,22 @@ it("T11 memory group joins at priority 45 and raises the limit to 21", () => {
   expect(names).toContain("memory");
 });
 
+it("T11 memory slot never evicts the floor or basic tools when the limit rises to 21", () => {
+  // Spec D6 worst case: floor + basic + memory + a full discretionary crowd.
+  const defs = [...FLOOR, ...BASIC, ...MEMORY, ...LSP, ...INFO, ...UNKNOWN].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: true,
+    hasDb: false,
+    hasBrowser: false,
+    hasMemory: true,
+  });
+  expect(limit).toBe(21);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  for (const f of FLOOR) expect(names, `floor lost: ${f}`).toContain(f);
+  for (const b of BASIC) expect(names, `basic lost: ${b}`).toContain(b);
+  expect(names).toContain("memory");
+});
+
 it("T11 memory tool falls to rest when memory is not assembled", () => {
   const defs = [...FLOOR, ...BASIC, ...MEMORY].map(def);
   const { scope, limit } = buildDefaultToolVisibility(defs, {

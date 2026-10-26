@@ -84,6 +84,47 @@ describe("SDK memory wiring", () => {
     expect(JSON.stringify(requests[0]!.messages)).toContain("The project uses pnpm.");
   });
 
+  it("injects exactly one RAG message per turn and never accumulates in history", async () => {
+    const { modelPort, requests } = capture([textScript("first"), textScript("second")]);
+    const agent = createAgent({
+      modelPort,
+      memoryStore: memoryStore([ENTRY]),
+      memory: { rag: { topK: 2 } },
+    });
+    await agent.run("first question");
+    await agent.run("second question");
+
+    // The injection lives only on the request surface: each turn sees
+    // exactly one RAG message, and the durable history never accumulates
+    // copies of it across turns.
+    expect(requests).toHaveLength(2);
+    for (const req of requests) {
+      const ragMessages = (req.messages as Array<{ role: string; content: unknown }>).filter(
+        (m) => typeof m.content === "string" && m.content.includes("# Retrieved Memory"),
+      );
+      expect(ragMessages).toHaveLength(1);
+    }
+    expect(JSON.stringify(requests[1]!.messages).match(/# Retrieved Memory/g)).toHaveLength(1);
+  });
+
+  it("passes memory.rag.queryBuilder through to the runner", async () => {
+    const queries: Array<{ text: string; k?: number; filter?: MemoryQueryFilter }> = [];
+    const { modelPort, requests } = capture([textScript("ok")]);
+    const agent = createAgent({
+      modelPort,
+      memoryStore: memoryStore([ENTRY], queries),
+      memory: {
+        rag: {
+          queryBuilder: (messages) =>
+            `custom:${String((messages.at(-1) as { content?: unknown } | undefined)?.content ?? "")}`,
+        },
+      },
+    });
+    await agent.run("hello");
+    expect(queries[0]?.text).toBe("custom:hello");
+    expect(JSON.stringify(requests[0]!.messages)).toContain("# Retrieved Memory");
+  });
+
   it("memory rag default is off even with a store", async () => {
     const { modelPort, requests } = capture([textScript("ok")]);
     const agent = createAgent({ modelPort, memoryStore: memoryStore([ENTRY]) });

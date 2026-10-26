@@ -60,7 +60,7 @@ function chatMeta() {
   return { projectId: PROJECT_ID, providerId: null, modelId: null, permissionMode: "auto" };
 }
 
-async function build(modelPort: ModelPort, chatSessionId: string) {
+async function build(modelPort: ModelPort, chatSessionId: string, projectId: string = PROJECT_ID) {
   return createWiredAgent({
     modelPort,
     cwd: tempProjectDir,
@@ -68,11 +68,41 @@ async function build(modelPort: ModelPort, chatSessionId: string) {
     sandboxMode: sandboxModeFor("auto"),
     permissionConfig: buildPermissionConfig("auto"),
     chatSessionId,
-    chatMeta: chatMeta(),
+    chatMeta: { ...chatMeta(), projectId },
   });
 }
 
 describe("T11 real-session memory", () => {
+  it("a fact remembered in project p1 never reaches a p2 session's RAG injection", async () => {
+    const sessionA = capture([
+      toolCallScript(
+        "call-remember",
+        "memory",
+        JSON.stringify({ action: "remember", text: "The project uses pnpm." }),
+      ),
+      textScript("Remembered."),
+    ]);
+    const agentA = await build(sessionA.modelPort, "iso-1");
+    try {
+      await agentA.run("Remember that this project uses pnpm.");
+    } finally {
+      await agentA.dispose();
+    }
+
+    const sessionB = capture([textScript("no idea")]);
+    const agentB = await build(sessionB.modelPort, "iso-2", "p2");
+    try {
+      await agentB.run("Which package manager does this project use?");
+    } finally {
+      await agentB.dispose();
+    }
+
+    // Isolation is the point of project scoping: p1's memory must not leak
+    // into p2's context even though both share the same process-level store.
+    const serialized = JSON.stringify(sessionB.requests[0]!.messages);
+    expect(serialized).not.toContain("The project uses pnpm.");
+  });
+
   it("remember in session A is retrieved by RAG in a fresh session B of the same project", async () => {
     const sessionA = capture([
       toolCallScript(

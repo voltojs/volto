@@ -95,6 +95,31 @@ describe("searchSessions", () => {
     expect(limited[0]!.snippet.length).toBeLessThanOrEqual(162);
   });
 
+  it("treats regex metacharacters as literal text", async () => {
+    await seed("s1", "Call (alpha)", "p1", "array[0] access", "ok");
+    expect((await store.searchSessions("(alpha")).map((h) => h.sessionId)).toEqual(["s1"]);
+    expect((await store.searchSessions("[0]")).map((h) => h.sessionId)).toEqual(["s1"]);
+    // A dot must not act as a wildcard: "a.b" matches nothing here.
+    expect(await store.searchSessions("a.b")).toEqual([]);
+  });
+
+  it("orders results by updatedAt descending", async () => {
+    await seed("old", "Sort probe", "p1", "probe text", "ok", 10);
+    await seed("new", "Sort probe two", "p1", "probe text", "ok", 99);
+    const hits = await store.searchSessions("probe");
+    expect(hits.map((h) => h.sessionId)).toEqual(["new", "old"]);
+  });
+
+  it("clamps limit into 1..50", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      await seed(`lim${i}`, "Clamp probe", "p1", "clamp text", "ok", 20 + i);
+    }
+    const over = await store.searchSessions("clamp", { limit: 10_000 });
+    expect(over).toHaveLength(3);
+    const under = await store.searchSessions("clamp", { limit: -5 });
+    expect(under).toHaveLength(1);
+  });
+
   it("returns [] for an empty query and skips unreadable files", async () => {
     await seed("s1", "Alpha", "p1", "alpha", "alpha");
     expect(await store.searchSessions("   ")).toEqual([]);
