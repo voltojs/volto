@@ -1190,6 +1190,21 @@ describe("Headless server", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("answers 400 for a malformed percent-encoded session id and stays alive", async () => {
+    // %E0%A4 is an incomplete UTF-8 sequence: decodeURIComponent throws
+    // URIError before any route-level try block runs. The top-level guard
+    // must answer 400 instead of letting an unhandled rejection kill the
+    // process, and the server must keep serving the next request.
+    const badExport = await getRaw("/sessions/%E0%A4/export");
+    expect(badExport.status).toBe(400);
+
+    const badFork = await post("/sessions/%E0%A4/fork", {});
+    expect(badFork.status).toBe(400);
+
+    const alive = await getJson("/sessions");
+    expect(alive.status).toBe(200);
+  });
+
   it("GET /sessions?q= searches title and message text and returns a snippet", async () => {
     const sessionId = "session-search-after-turn";
     const config = await createTestProjectAndModel();

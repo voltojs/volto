@@ -533,7 +533,15 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     };
   }
 
-  const httpServer = http.createServer(async (req, res) => {
+  // The whole route handler runs through a single async function so the
+  // createServer callback below can install a top-level guard. Any exception
+  // a route lets escape (e.g. decodeURIComponent throwing URIError on a
+  // malformed percent-encoded path segment) would otherwise surface as an
+  // unhandled rejection and crash the process.
+  const handleRequest = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
 
@@ -1980,6 +1988,30 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     }
 
     jsonResponse(res, 404, { error: "Not found" });
+  };
+
+  const httpServer = http.createServer((req, res) => {
+    handleRequest(req, res).catch((err: unknown) => {
+      // Top-level guard: a malformed percent-encoded path segment makes
+      // decodeURIComponent throw before any route-level try block runs.
+      // Answer 400 for that client error and 500 for anything else; never
+      // let the rejection escape and take the process down.
+      if (!res.headersSent) {
+        const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+        res.writeHead(err instanceof URIError ? 400 : 500, {
+          "Content-Type": "application/json",
+          ...corsHeadersFor(origin),
+        });
+        res.end(
+          JSON.stringify({
+            error:
+              err instanceof URIError ? "Malformed URI path segment" : "Internal server error",
+          }),
+        );
+      } else {
+        res.end();
+      }
+    });
   });
 
   // WebSocket server on the same HTTP server. `noServer` so the upgrade
