@@ -272,18 +272,25 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
     const previous = queues.get(key) ?? Promise.resolve();
     const task = async (): Promise<void> => {
       const index = await loadScope(scope);
+      // Apply the batch to a copy and publish it only after the append has
+      // reached disk (spec §4.3 write order: append, then update the index).
+      // Mutating the live index first would leave phantom entries — or
+      // resurrected eviction victims — in memory whenever the append fails,
+      // and a later recall would return rows that were never persisted.
+      const nextEntries = new Map(index.entries);
+      let nextOps = index.ops;
       // Track evictions across the batch: applying the upsert first may
       // push the scope over the cap, and its victims must reach disk as
       // delete rows in this same append, or a reload resurrects them.
       let victims: string[] = [];
       for (const row of rows) {
         if (row.op === "upsert") {
-          index.entries.set(row.entry.id, row.entry);
+          nextEntries.set(row.entry.id, row.entry);
         } else {
-          index.entries.delete(row.id);
+          nextEntries.delete(row.id);
         }
-        index.ops += 1;
-        victims = victims.concat(enforceCap(index));
+        nextOps += 1;
+        victims = victims.concat(enforceCap({ entries: nextEntries }));
       }
       const persisted = rows.concat(
         victims.map((id): Row => ({ version: ROW_VERSION, op: "delete", id })),
@@ -294,7 +301,9 @@ export function createFileMemoryStore(opts: FileMemoryStoreOptions): MemoryStore
         encoding: "utf-8",
         mode: FILE_MODE,
       });
-      index.ops += persisted.length - rows.length;
+      // The write reached disk: publish the new view.
+      index.entries = nextEntries;
+      index.ops = nextOps + persisted.length - rows.length;
       if (index.ops > Math.max(COMPACT_FLOOR, index.entries.size * COMPACT_MULTIPLE)) {
         await compact(scope, index);
       }

@@ -83,6 +83,32 @@ describe("createFileMemoryStore", () => {
     expect(onDisk[0]?.text).toBe("concurrent fact");
   });
 
+  it.skipIf(process.platform === "win32")(
+    "keeps the in-memory view unchanged when the append cannot reach disk",
+    async () => {
+      // A read-only root: the directory already exists so loading works,
+      // but the append fails with EACCES — nothing reaches disk.
+      const rootDir = path.join(tempDir, "readonly");
+      await fs.mkdir(rootDir, { recursive: true, mode: 0o500 });
+      const store = createFileMemoryStore({ rootDir });
+
+      await expect(
+        store.save(
+          entry("phantom fact", { scope: { kind: "project", projectId: "p1" } }),
+        ),
+      ).rejects.toThrow();
+
+      // The failed write must not leave a phantom entry in the instance
+      // view — otherwise a later recall would return a row that was never
+      // persisted.
+      const visible = await store.query("phantom", 10, {
+        projectId: "p1",
+        includeGlobal: false,
+      });
+      expect(visible).toHaveLength(0);
+    },
+  );
+
   it("rejects the reserved _global projectId so it cannot alias the global file", async () => {
     const { store } = pair();
     // A project named "_global" would map onto _global.jsonl: its entries
