@@ -276,28 +276,38 @@ describe("createFileMemoryStore", () => {
     expect(results.map((e) => e.text)).toEqual(["alpha survivor"]);
   });
 
-  it("compacts: line count stays <= max(1000, live * 3) after many upserts/deletes", async () => {
-    const { store } = pair();
-    for (let i = 0; i < 1200; i += 1) {
-      await store.save(
-        entry(`alpha entry ${i}`, { scope: { kind: "project", projectId: "p1" } }),
-      );
+  it("compacts: op churn past the threshold rewrites the file down to live entries", async () => {
+    // Trigger compaction for real: 1200 plain upserts keep ops (1200) below
+    // max(1000, live * 3) so they never compact. With a tiny cap every save
+    // also writes an eviction tombstone in the same append, so the op count
+    // grows by 2 per save and crosses 1000 around save 501 — the file is
+    // then rewritten down to the live set.
+    let clock = 1000;
+    const { store, reload } = pair({ maxEntriesPerScope: 5, now: () => (clock += 10) });
+    const scope = { kind: "project", projectId: "p1" } as const;
+    for (let i = 0; i < 510; i += 1) {
+      await store.save(entry(`alpha churn ${i}`, { scope }));
     }
-    const first = await store.query("alpha", 5, { projectId: "p1", includeGlobal: false });
-    expect(first.length).toBeGreaterThan(0);
 
     const file = path.join(tempDir, "p1.jsonl");
     const raw = await fs.readFile(file, "utf-8");
-    const live = (await store.query("alpha", 5000, { projectId: "p1", includeGlobal: false })).length;
-    expect(raw.split("\n").filter((l) => l.trim() !== "").length).toBeLessThanOrEqual(
-      Math.max(1000, live * 3),
-    );
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    // Without compaction this file would hold 1020 rows; the rewrite leaves
+    // only the live set plus the handful of rows appended after it.
+    expect(lines.length).toBeLessThan(50);
 
-    const results = await pair().reload().query("alpha", 5, {
+    const live = await store.query("alpha churn", 5, {
       projectId: "p1",
       includeGlobal: false,
     });
-    expect(results.length).toBeGreaterThan(0);
+    expect(live).toHaveLength(5);
+
+    // The rewrite is faithful: a reload sees exactly the live set.
+    const reloaded = await reload().query("alpha churn", 5, {
+      projectId: "p1",
+      includeGlobal: false,
+    });
+    expect(reloaded.map((e) => e.text).sort()).toEqual(live.map((e) => e.text).sort());
   });
 
   it("enforces the per-scope cap by createdAt, keeping the newest entries", async () => {
