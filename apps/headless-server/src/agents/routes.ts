@@ -89,17 +89,26 @@ function storeFor(ctx: AgentsContext) {
   return createAgentStore({ cwd: ctx.cwd, configDir: ctx.configDir, homeDir: ctx.homeDir });
 }
 
-/** Fresh scan of every source; no caching — see the module comment. */
-export async function listAgents(
-  ctx: AgentsContext,
-): Promise<{ agents: PublicAgentEntry[] }> {
+/**
+ * Fresh scan of every source for one workspace root; no caching — see the
+ * module comment. Shared by the /agents routes and the routing-tier
+ * deletion reference scan (`config/routing-tiers.ts`), so the two can never
+ * disagree on which sources count as project / user / plugin.
+ */
+export async function scanAgentEntries(ctx: AgentsContext): Promise<AgentEntry[]> {
   const { entries } = await scanAgentSources({
     cwd: ctx.cwd,
     configDir: ctx.configDir,
     homeDir: ctx.homeDir,
     pluginSpecs: ctx.pluginSpecs,
   });
-  return { agents: entries.map(toPublicEntry) };
+  return entries;
+}
+
+export async function listAgents(
+  ctx: AgentsContext,
+): Promise<{ agents: PublicAgentEntry[] }> {
+  return { agents: (await scanAgentEntries(ctx)).map(toPublicEntry) };
 }
 
 export async function createAgentDefinition(
