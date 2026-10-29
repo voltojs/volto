@@ -15,12 +15,14 @@ import {
 import type {
   ConversationMessage,
   ConversationView,
+  TodoTransition,
   TranscriptDelta,
   TranscriptEvent,
   TranscriptEventInput,
   TrajectoryRow,
   TurnRecord,
 } from '@volto/sdk/sse';
+import type { TodoFeedRow } from './todo-feed';
 
 /** Events arriving over SSE carry no seq; the projection never reads one. */
 function asStored(events: readonly TranscriptEventInput[]): TranscriptEvent[] {
@@ -80,11 +82,16 @@ export function mergeStoredAndLive(
   ];
 }
 
-/** One rendered row of the conversation: a chat bubble, an error, or a notice. */
+/** One rendered row of the conversation: a chat bubble, an error, a notice, or a todo change. */
 export type ChatEntry =
   | { kind: 'message'; message: ConversationMessage }
   | { kind: 'error'; key: string; text: string; time: number }
-  | { kind: 'notice'; key: string; text: string; time: number };
+  | { kind: 'notice'; key: string; text: string; time: number }
+  /**
+   * One todo status change, in the position it happened. `key` starts with the
+   * owning turn so `entryTurn` (cancel-notice placement) keeps working.
+   */
+  | { kind: 'todo'; key: string; transition: TodoTransition; time: number };
 
 /**
  * Composes the feed a UI renders from a merged message list plus the live
@@ -109,6 +116,7 @@ export type ChatEntry =
 export function composeChatEntries(
   messages: readonly ConversationMessage[],
   records: readonly TurnRecord[],
+  todoRows: readonly TodoFeedRow[] = [],
 ): ChatEntry[] {
   const stepErrorText = new Map<string, string>();
   for (const turn of records) {
@@ -176,7 +184,36 @@ export function composeChatEntries(
     });
   }
 
-  return withCancelNotices(entries, records);
+  return insertTodoRows(withCancelNotices(entries, records), todoRows);
+}
+
+/** Sort key of a rendered row: a bubble uses its timestamp, everything else its own. */
+function entryTime(entry: ChatEntry): number {
+  return entry.kind === 'message' ? entry.message.timestamp : entry.time;
+}
+
+/**
+ * Splices todo rows into the feed by time.
+ *
+ * Rows take the position of the event that produced them; on a tie they land
+ * after the message, because a change belongs to the step it concluded rather
+ * than to the text before it. Empty input is the identity transform.
+ */
+function insertTodoRows(
+  entries: readonly ChatEntry[],
+  rows: readonly TodoFeedRow[],
+): ChatEntry[] {
+  if (rows.length === 0) return entries as ChatEntry[];
+  const out: ChatEntry[] = [];
+  let cursor = 0;
+  for (const row of rows) {
+    while (cursor < entries.length && entryTime(entries[cursor]!) <= row.time) {
+      out.push(entries[cursor++]!);
+    }
+    out.push({ kind: 'todo', key: row.key, transition: row.transition, time: row.time });
+  }
+  while (cursor < entries.length) out.push(entries[cursor++]!);
+  return out;
 }
 
 /** The turn an entry belongs to; ids and keys are all `${turn}:…`. */

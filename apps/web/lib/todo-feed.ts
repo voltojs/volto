@@ -6,8 +6,10 @@
  * SSE buffer folds it as a turn runs. They overlap whenever an event landed on
  * both sides, and there is no `seq` on the client — SSE frames carry
  * `TranscriptEventInput` only — so identity comes from the event itself:
- * `turn:time:kind:content`. Live wins on a collision, mirroring how the feed
- * merges messages by id.
+ * `turn:time:kind:content`, with a missing turn folding to `0` so the key
+ * always starts with a number (the feed reads the leading segment back as the
+ * entry's turn). Live wins on a collision, mirroring how the feed merges
+ * messages by id.
  */
 
 import type { TodoTransition, TodoTransitionRecord } from '@volto/sdk/sse';
@@ -25,7 +27,7 @@ export function todoTransitionKey(row: {
   time: number;
   transition: TodoTransition;
 }): string {
-  return `${row.turn ?? ''}:${row.time}:${row.transition.kind}:${row.transition.content}`;
+  return `${row.turn ?? 0}:${row.time}:${row.transition.kind}:${row.transition.content}`;
 }
 
 /**
