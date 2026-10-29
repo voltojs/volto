@@ -91,6 +91,28 @@ describe("SubagentsPanel", () => {
     ]);
   });
 
+  it("never marks a tier stale while the tier fetch has not settled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      // Pending forever: the panel sees no tier list yet and must not read
+      // that window as "the table is empty".
+      if (url.includes("/config/routing-tiers")) return new Promise<Response>(() => {});
+      if (url.includes("/agents")) {
+        const agents = [{ ...AGENTS[0]!, spec: { name: "searcher", model: "economy" } }];
+        return new Response(JSON.stringify({ agents }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ tools: [] }), { status: 200 });
+    }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("searcher")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /编辑 searcher/ }));
+    // spec.model names a valid tier that simply has not been fetched yet;
+    // showing it as stale would push the user toward dropping the reference.
+    expect(screen.queryByText(/已失效档位/)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /model/ })).toBeInTheDocument();
+  });
+
   it("keeps the form usable when the tier fetch fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

@@ -132,6 +132,21 @@ describe("/config/routing-tiers", () => {
     await close();
   });
 
+  it("rejects the reserved inherit sentinel id with 400 naming it", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const target = await createTarget(url, token);
+    // `__inherit__` is the web form's sentinel for "inherit the parent
+    // model"; a tier id colliding with it would make that tier unselectable
+    // in the form, so the table must refuse to store it.
+    const put = await putTiers(url, token, [tier("__inherit__", target)]);
+    expect(put.status).toBe(400);
+    const body = (await put.json()) as { error: string };
+    expect(body.error).toContain("__inherit__");
+    // Validation must fail before anything is persisted.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+    await close();
+  });
+
   it("rejects a body that is not an array with 400", async () => {
     const { url, token, close } = await startRouteTestServer();
     const put = await fetch(`${url}/config/routing-tiers`, {

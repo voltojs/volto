@@ -33,8 +33,11 @@ export type SubagentFormSubmit =
 
 type SubagentFormProps = {
   tools: ToolInfo[];
-  /** Routing tiers offered by the model dropdown (may be empty). */
-  tiers: RoutingTier[];
+  /**
+   * Routing tiers for the model dropdown. `null` means the fetch has not
+   * settled yet: the list is unknown, so nothing may be judged stale.
+   */
+  tiers: RoutingTier[] | null;
   onSubmit: (payload: SubagentFormSubmit) => void | Promise<void>;
   onCancel: () => void;
   /** Edit-mode only: open straight in the delete confirmation (row trash button). */
@@ -106,9 +109,14 @@ export function SubagentForm({
   // A stored tier id that no longer exists in the table stays visible as an
   // explicit disabled option instead of silently reading as "inherit" — and
   // survives a save the user does not retarget, so the reference is never
-  // dropped behind the user's back.
+  // dropped behind the user's back. Staleness needs the settled list: while
+  // `tiers` is null the fetch may still come back with this very tier, so
+  // the reference is not stale yet — only "fetch settled and the id is
+  // absent" is.
   const staleModel =
-    spec?.model && !tiers.some((tier) => tier.id === spec.model)
+    spec?.model &&
+    tiers !== null &&
+    !tiers.some((tier) => tier.id === spec.model)
       ? spec.model
       : undefined;
   const modelOptions: ModelOption[] = [
@@ -116,7 +124,7 @@ export function SubagentForm({
     ...(staleModel
       ? [{ value: staleModel, label: `已失效档位:${staleModel}`, disabled: true }]
       : []),
-    ...tiers.map((tier) => ({ value: tier.id, label: tier.label })),
+    ...(tiers?.map((tier) => ({ value: tier.id, label: tier.label })) ?? []),
   ];
 
   const toggleTool = (toolName: string) => {

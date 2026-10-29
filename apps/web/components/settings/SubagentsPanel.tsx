@@ -87,18 +87,24 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
   const { agents, tools, status, refresh, mutate } = useAgents(projectId);
   const [form, setForm] = useState<FormState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [tiers, setTiers] = useState<RoutingTier[]>([]);
+  // `null` = the tier fetch has not settled yet; a list (even an empty
+  // one) is the settled answer, including the degraded empty list a failed
+  // fetch falls back to. The form must not judge staleness before settle.
+  const [tiers, setTiers] = useState<RoutingTier[] | null>(null);
 
   // Routing tiers feed the form's model dropdown. A failed load is not a
   // form error: the dropdown degrades to the inherit-only list and saving
-  // still works.
+  // still works — but it still settles (to an empty list) so a stale
+  // spec.model reads as stale only once the answer is known.
   useEffect(() => {
     let cancelled = false;
     void fetchRoutingTiers()
       .then((list) => {
         if (!cancelled) setTiers(list);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setTiers([]);
+      });
     return () => {
       cancelled = true;
     };

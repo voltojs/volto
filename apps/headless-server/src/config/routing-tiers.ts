@@ -26,6 +26,14 @@ export interface RoutingTierRecord {
   target: { providerId: string; modelId: string };
 }
 
+/**
+ * Sentinel the web agent form uses for "inherit the parent model"
+ * (`MODEL_INHERIT_VALUE` in apps/web SubagentForm). A tier id colliding
+ * with it would render that tier's option as the inherit choice and make
+ * it permanently unselectable, so it is reserved out of the id space.
+ */
+const INHERIT_SENTINEL_ID = "__inherit__";
+
 /** Validation failure carrying a client-safe message (the route answers 400). */
 export class RoutingTierValidationError extends Error {
   constructor(message: string) {
@@ -53,6 +61,11 @@ export function validateTierRecords(input: unknown): RoutingTierRecord[] {
     if (typeof id !== "string" || id.length === 0) {
       throw new RoutingTierValidationError(
         `routing tier at index ${index} must have a non-empty id`,
+      );
+    }
+    if (id === INHERIT_SENTINEL_ID) {
+      throw new RoutingTierValidationError(
+        `routing tier at index ${index} must not use the reserved inherit sentinel id "${INHERIT_SENTINEL_ID}"`,
       );
     }
     if (seen.has(id)) {
