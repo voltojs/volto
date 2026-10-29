@@ -14,6 +14,7 @@ import type {
   TranscriptEventInput,
   TrajectoryView,
   TodoItem,
+  TodoTransitionRecord,
 } from '@volto/sdk/sse';
 
 /** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */
@@ -84,6 +85,11 @@ export interface ServerSessionDetail {
   contextUsage: ContextUsageSnapshot | null;
   /** Standing todos folded from the durable event log; null when never written. */
   todos?: TodoItem[] | null;
+  /**
+   * Progress lines derived from consecutive todo snapshots. Folded server-side
+   * from the same event log, so a reload shows the history a live session saw.
+   */
+  todoChanges?: TodoTransitionRecord[];
   createdAt: number;
   updatedAt: number;
 }
