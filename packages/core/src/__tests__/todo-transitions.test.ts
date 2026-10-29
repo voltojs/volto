@@ -10,6 +10,13 @@ describe("diffTodoSnapshots", () => {
     expect(diffTodoSnapshots([t("a", "pending")], [t("a", "pending")])).toEqual([]);
   });
 
+  it("reports a newly planned item and a pending item that finished", () => {
+    expect(diffTodoSnapshots([], [t("n", "pending")])).toEqual([{ kind: "added", content: "n" }]);
+    expect(diffTodoSnapshots([t("x", "pending")], [t("x", "completed")])).toEqual([
+      { kind: "completed", content: "x" },
+    ]);
+  });
+
   it("covers add, start, complete, reopen and remove", () => {
     const prev = [
       t("a", "pending"),

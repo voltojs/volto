@@ -9,6 +9,18 @@ describe('TodoTransitionLine', () => {
     expect(screen.getByText(/写测试/)).toBeInTheDocument();
   });
 
+  it.each([
+    ['started', '开始'],
+    ['completed', '完成'],
+    ['reopened', '重新打开'],
+    ['added', '新增'],
+    ['removed', '移除'],
+  ] as const)('renders %s as "%s"', (kind, verb) => {
+    render(<TodoTransitionLine transition={{ kind, content: '任务项' }} />);
+    expect(screen.getByText(new RegExp(verb))).toBeInTheDocument();
+    expect(screen.getByText('任务项')).toBeInTheDocument();
+  });
+
   it('marks completions with the success tone class', () => {
     const { container } = render(
       <TodoTransitionLine transition={{ kind: 'completed', content: 'x' }} />,

@@ -43,6 +43,10 @@ beforeAll(async () => {
     },
     { time: 130, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
   ]);
+  await store.appendEvents("/tmp/project", "s2", [
+    { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+    { time: 110, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+  ]);
   server = await createServer({ port: 0, modelPort: IDLE_MODEL });
   token = server.launchToken;
   await new Promise<void>((resolve) => {
@@ -79,5 +83,14 @@ describe("GET /sessions/:id todoChanges", () => {
     expect(body.todoChanges).toEqual([
       { turn: 1, time: 120, transition: { kind: "completed", content: "a" } },
     ]);
+  });
+
+  it("returns an empty list for a session that never wrote todos", async () => {
+    const res = await fetch(`${baseUrl}/sessions/s2`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { todoChanges: unknown[] };
+    expect(body.todoChanges).toEqual([]);
   });
 });

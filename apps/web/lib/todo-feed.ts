@@ -12,7 +12,16 @@
  * messages by id.
  */
 
+import { foldTodoTransitions } from '@volto/sdk/sse';
 import type { TodoTransition, TodoTransitionRecord } from '@volto/sdk/sse';
+
+/** The part of a transcript event this module folds. */
+interface TodoEvent {
+  type: string;
+  data: unknown;
+  time?: number;
+  turn?: number;
+}
 
 /** One rendered progress line. */
 export interface TodoFeedRow {
@@ -47,4 +56,28 @@ export function mergeTodoChanges(
   for (const record of stored ?? []) add(record);
   for (const record of live) add(record);
   return [...byKey.values()].sort((a, b) => a.time - b.time);
+}
+
+/**
+ * Folds a stored transcript plus the live buffer around it.
+ *
+ * The two overlap: the buffer starts when the channel opened, which is
+ * normally before the `fetchSessionEvents` snapshot was taken, so it repeats
+ * events the stored list already contains. Concatenating them replays old
+ * snapshots after newer ones and diffing backwards invents `reopened` /
+ * `removed` lines. Cut the buffer at the newest stored event instead — the
+ * transcript is time-ordered, so everything at or before that point is
+ * already accounted for.
+ */
+export function foldMergedTodoTransitions(
+  stored: readonly TodoEvent[],
+  live: readonly TodoEvent[],
+): TodoTransitionRecord[] {
+  if (stored.length === 0) return foldTodoTransitions(live, null);
+  let cutoff = Number.NEGATIVE_INFINITY;
+  for (const event of stored) cutoff = Math.max(cutoff, event.time ?? 0);
+  return foldTodoTransitions(
+    [...stored, ...live.filter((event) => (event.time ?? 0) > cutoff)],
+    null,
+  );
 }

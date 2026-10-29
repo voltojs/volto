@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageBubble } from '../MessageBubble';
 import type { ConversationMessage } from '@volto/sdk/sse';
 
@@ -41,6 +41,18 @@ describe('MessageBubble segments', () => {
     );
     expect(container.querySelector('[data-testid="activity-rail"]')).toBeNull();
     expect(screen.queryByText('只有推理')).toBeNull();
+  });
+
+  it('expands a detailed card to show the call arguments', () => {
+    render(<MessageBubble message={withOps} density="detailed" />);
+    fireEvent.click(screen.getByText('bash'));
+    expect(screen.getByText(/"command": "pnpm test"/)).toBeInTheDocument();
+  });
+
+  it('expands a concise one-liner into the same card', () => {
+    render(<MessageBubble message={withOps} density="concise" />);
+    fireEvent.click(screen.getByText('pnpm test'));
+    expect(screen.getByText(/"command": "pnpm test"/)).toBeInTheDocument();
   });
 
   it('does not drop the tail text of a streaming message while a tool block is pending', () => {

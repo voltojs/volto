@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { ChevronRight, CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import {
   Collapsible,
@@ -72,14 +72,27 @@ export const ToolCallCard = memo(function ToolCallCard({
       ? denialNoteFor(call.approval.reason)
       : null;
 
-  // Failures open by default in BOTH densities: a collapsed failure is a
-  // failure the user has to hunt for. Still collapsible — this is a default,
-  // not a lock.
+  // Failures open in BOTH densities: a collapsed failure is a failure the
+  // user has to hunt for. Controlled rather than `defaultOpen`, because in a
+  // live run the card mounts while the tool is still running and the failure
+  // only lands later — an uncontrolled default would keep it shut. Manual
+  // collapse stays allowed: the effect fires only when `failed` flips.
   const failed = call.isError === true || call.approval?.decision === 'deny';
+  // `manualOpen` is null until the user touches the trigger, so the panel
+  // follows `failed` on its own — a failure that lands after mount opens the
+  // card without an effect. A user's collapse wins until the next failure.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const [lastFailed, setLastFailed] = useState(failed);
+  if (failed !== lastFailed) {
+    setLastFailed(failed);
+    if (failed) setManualOpen(null);
+  }
+  const open = manualOpen ?? failed;
 
   return (
     <Collapsible
-      defaultOpen={failed}
+      open={open}
+      onOpenChange={setManualOpen}
       className={cn(
         'bg-card/60 overflow-hidden rounded-md border text-xs',
         call.isError && 'border-destructive/30 bg-destructive/5',
@@ -87,9 +100,15 @@ export const ToolCallCard = memo(function ToolCallCard({
     >
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
         <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <span className="text-foreground/90 truncate font-mono">
-          {compact ? (label ?? call.name) : call.name}
-        </span>
+        {compact && label !== undefined ? (
+          <>
+            <span className="text-foreground/90 shrink-0 font-mono">{call.name}</span>
+            <span className="text-muted-foreground/70 shrink-0">·</span>
+            <span className="truncate">{label}</span>
+          </>
+        ) : (
+          <span className="text-foreground/90 truncate font-mono">{call.name}</span>
+        )}
         {typeof call.durationMs === 'number' && (
           <span className="text-muted-foreground/70 font-mono text-[10px]">
             · {call.durationMs}ms
@@ -99,6 +118,18 @@ export const ToolCallCard = memo(function ToolCallCard({
           <StatusIcon call={call} />
         </span>
       </CollapsibleTrigger>
+
+      {/* The failure fact must survive collapsing. Shown only while closed:
+          open, the body already carries the same text, and printing it twice
+          reads like two separate failures. */}
+      {failed && compact && !open && call.result !== undefined && (
+        <div
+          data-testid="tool-error-summary"
+          className="text-destructive/90 border-t px-2.5 py-1 font-mono text-[11px] break-words"
+        >
+          {firstLineClipped(call.result)}
+        </div>
+      )}
 
       {denialNote && (
         <div className="text-muted-foreground border-t px-2.5 py-1.5 text-[11px]">
@@ -145,3 +176,11 @@ export const ToolCallCard = memo(function ToolCallCard({
     </Collapsible>
   );
 }, toolCallCardComparator);
+
+
+/** First line of a tool's output, clipped to a readable length. */
+function firstLineClipped(text: string): string {
+  const line = (text.split('\n')[0] ?? '').trim();
+  const points = Array.from(line);
+  return points.length <= 120 ? line : `${points.slice(0, 119).join('')}…`;
+}
