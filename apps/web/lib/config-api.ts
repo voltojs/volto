@@ -191,12 +191,15 @@ export type ProviderUpdateInput =
 /**
  * An error response from the gateway. Carries the HTTP status so callers can
  * branch on specific conditions (e.g. 409) without matching on message text,
- * which is server-generated English and not meant to be parsed.
+ * which is server-generated English and not meant to be parsed. Structured
+ * error details travel on `body` for the same reason.
  */
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** The parsed error body the gateway sent, when there was one. */
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
