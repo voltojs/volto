@@ -42,43 +42,45 @@ function assistant(
 }
 
 describe('reasoning panel default state', () => {
-  it('keeps the thinking panel collapsed on a closed message', () => {
+  it('shows only the first line of a closed reasoning row', () => {
     render(
       <MessageBubble
         message={assistant({
-          blocks: [{ type: 'reasoning', text: 'step by step' }],
+          blocks: [{ type: 'reasoning', text: 'step by step\nsecond line' }],
           content: '',
         })}
       />,
     );
-    expect(screen.queryByText('step by step')).toBeNull();
+    expect(screen.getByText('step by step')).toBeInTheDocument();
+    expect(screen.queryByText(/second line/)).toBeNull();
   });
 
-  it('keeps it collapsed while the reasoning is still streaming', () => {
+  it('keeps the body closed while the reasoning is still streaming', () => {
     render(
       <MessageBubble
         message={assistant({
-          blocks: [{ type: 'reasoning', text: 'mid-flight thought' }],
+          blocks: [{ type: 'reasoning', text: 'mid-flight thought\nstill typing' }],
           content: '',
           isStreaming: true,
         })}
       />,
     );
-    expect(screen.queryByText('mid-flight thought')).toBeNull();
+    expect(screen.getByText('mid-flight thought')).toBeInTheDocument();
+    expect(screen.queryByText(/still typing/)).toBeNull();
   });
 
-  it('opens the panel on demand', async () => {
+  it('opens the row on demand', async () => {
     const user = userEvent.setup();
     render(
       <MessageBubble
         message={assistant({
-          blocks: [{ type: 'reasoning', text: 'revealed' }],
+          blocks: [{ type: 'reasoning', text: 'revealed\nand the rest' }],
           content: '',
         })}
       />,
     );
-    await user.click(screen.getByText('思考过程'));
-    expect(await screen.findByText('revealed')).toBeInTheDocument();
+    await user.click(screen.getByText('思考'));
+    expect(await screen.findByText(/and the rest/)).toBeInTheDocument();
   });
 });
 

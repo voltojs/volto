@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, ChevronRight, Copy } from 'lucide-react';
+import { Check, ChevronRight, CircleAlert, Copy, LoaderCircle } from 'lucide-react';
 import { groupConversationBlocks } from '@volto/sdk/sse';
 import type {
   ConversationBlock,
@@ -204,13 +204,16 @@ export function MessageBubble({
 
 
 /**
- * The execution layer of one turn: reasoning and tool calls, grouped so they
- * read as a sidetrack rather than as part of the answer.
+ * The execution layer of one turn.
  *
- * Rendering an activity segment as its own indented rail — instead of leaving
- * cards inline with prose — is what keeps "what the model said" and "what it
- * ran" distinguishable. Blocks keep their order, so a tool call stays where
- * it actually happened.
+ * Detailed density lays every step out flat: one row per tool call (name ·
+ * summary · duration) and one per reasoning block (with a first-line
+ * preview), each expandable for args/output. Concise folds the whole segment
+ * behind a single control whose label tracks the step currently running, so
+ * a long turn still shows what is happening without filling the feed.
+ *
+ * Either way the answer stays outside; blocks keep their order, so a tool
+ * call stays where it actually happened.
  */
 function ActivityRail({
   segment,
@@ -221,57 +224,88 @@ function ActivityRail({
   density: StreamDensity;
   onOpenSubagent?: (childSessionId: string) => void;
 }) {
-  const blocks = segment.blocks.filter(
-    (block) => block.type === 'tool_call' || density === 'detailed',
+  const rows = segment.blocks.map((block, index) =>
+    block.type === 'reasoning' ? (
+      <ReasoningRow key={`r-${index}`} text={block.text} />
+    ) : block.call.childSessionId !== undefined ? (
+      <SubagentCard
+        key={block.call.id}
+        call={block.call}
+        onOpenSubagent={onOpenSubagent}
+      />
+    ) : (
+      <ToolCallCard
+        key={block.call.id}
+        call={block.call}
+        label={toolCallSummary(block.call.name, block.call.args)}
+      />
+    ),
   );
-  // Concise hides reasoning; a reasoning-only stretch must not leave an empty
-  // rail (or the spacing that would go with it).
-  if (blocks.length === 0) return null;
+
+  if (density === 'detailed') {
+    return (
+      <div data-testid="activity-rail" className="ml-1 space-y-1 border-l border-border/60 pl-3">
+        {rows}
+      </div>
+    );
+  }
+
+  const calls = segment.blocks.filter((block) => block.type === 'tool_call');
+  const reasoningCount = segment.blocks.length - calls.length;
+  const running = [...calls].reverse().find((block) => block.call.result === undefined);
+  const failed = calls.some(
+    (block) => block.call.isError === true || block.call.approval?.decision === 'deny',
+  );
+  const label =
+    running !== undefined
+      ? `执行中 · ${running.call.name} · ${toolCallSummary(running.call.name, running.call.args)}`
+      : calls.length > 0
+        ? `已执行 ${calls.length} 步`
+        : `思考 ${reasoningCount} 段`;
 
   return (
-    <div
-      data-testid="activity-rail"
-      className="border-border/60 ml-1 space-y-1 border-l pl-3"
+    <Collapsible
+      data-testid="activity-group"
+      defaultOpen={failed}
+      className="ml-1 rounded-md border border-border/60"
     >
-      {blocks.map((block, index) => {
-        if (block.type === 'reasoning') {
-          return (
-            <Collapsible
-              key={index}
-              className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5"
-            >
-              <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-                思考过程
-              </CollapsibleTrigger>
-              <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-                <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
-                  {block.text}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          );
-        }
-        // Sub-agent delegations render as a compact single clickable row
-        // (SubagentCard); plain calls keep the collapsible card.
-        if (block.call.childSessionId !== undefined) {
-          return (
-            <SubagentCard
-              key={block.call.id}
-              call={block.call}
-              onOpenSubagent={onOpenSubagent}
-            />
-          );
-        }
-        return (
-          <ToolCallCard
-            key={block.call.id}
-            call={block.call}
-            compact={density === 'concise'}
-            label={toolCallSummary(block.call.name, block.call.args)}
-          />
-        );
-      })}
-    </div>
+      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left text-xs select-none">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        {running !== undefined && (
+          <LoaderCircle className="text-primary h-3 w-3 shrink-0 animate-spin" />
+        )}
+        <span className="truncate">{label}</span>
+        {failed && <CircleAlert className="text-destructive ml-auto h-3 w-3 shrink-0" />}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
+        <div className="space-y-1 border-t px-2 py-1.5">{rows}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/**
+ * One reasoning block as a row rather than a wall of prose: the first line is
+ * the preview, the full text opens on demand. Reasoning belongs to the
+ * execution layer — it explains the next call, it is not part of the answer.
+ */
+function ReasoningRow({ text }: { text: string }) {
+  const preview = (text.split('\n')[0] ?? '').trim();
+  return (
+    <Collapsible className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5">
+      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        <span className="shrink-0">思考</span>
+        {preview !== '' && (
+          <>
+            <span className="text-muted-foreground/70 shrink-0">·</span>
+            <span className="truncate">{preview}</span>
+          </>
+        )}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
+        <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">{text}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

@@ -12,17 +12,16 @@ const failed: ConversationToolCall = {
   durationMs: 12,
 };
 
-describe('ToolCallCard density', () => {
-  it('shows the error body without a click, in compact mode too', () => {
-    render(<ToolCallCard call={failed} compact label="false" />);
+describe('ToolCallCard rows', () => {
+  it('shows the error body without a click', () => {
+    render(<ToolCallCard call={failed} label="false" />);
     expect(screen.getByText(/boom: command failed/)).toBeInTheDocument();
   });
 
-  it('keeps args hidden until expanded in compact mode', () => {
+  it('keeps args hidden until expanded', () => {
     render(
       <ToolCallCard
         call={{ id: '2', name: 'bash', args: { command: 'ls' }, result: 'a' }}
-        compact
         label="ls"
       />,
     );
@@ -30,9 +29,28 @@ describe('ToolCallCard density', () => {
     expect(screen.queryByText(/"command"/)).toBeNull();
   });
 
-  it('re-renders when compact changes', () => {
-    const a = { call: failed, compact: true, label: 'false' } as const;
-    const b = { call: failed, compact: false, label: 'false' } as const;
+  it('shows the tool name next to the summary', () => {
+    render(
+      <ToolCallCard
+        call={{ id: '4', name: 'edit_file', args: { path: 'src/a.ts' }, result: 'ok' }}
+        label="src/a.ts"
+      />,
+    );
+    expect(screen.getByText('edit_file')).toBeInTheDocument();
+    expect(screen.getByText(/src\/a\.ts/)).toBeInTheDocument();
+  });
+
+  it('keeps an inline error summary visible after the user collapses it', () => {
+    const { container } = render(<ToolCallCard call={failed} label="false" />);
+    const trigger = container.querySelector('[data-slot="collapsible-trigger"]');
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger!);
+    expect(screen.getByTestId('tool-error-summary')).toHaveTextContent(/boom: command failed/);
+  });
+
+  it('re-renders when the summary changes', () => {
+    const a = { call: failed, label: 'false' } as const;
+    const b = { call: failed, label: 'other' } as const;
     expect(toolCallCardComparator(a, b)).toBe(false);
   });
 });
@@ -48,31 +66,7 @@ describe('ToolCallCard failure timing', () => {
     const { rerender } = render(<ToolCallCard call={running} />);
     expect(screen.queryByText(/boom/)).toBeNull();
 
-    rerender(
-      <ToolCallCard
-        call={{ ...running, result: 'boom: command failed', isError: true }}
-      />,
-    );
+    rerender(<ToolCallCard call={{ ...running, result: 'boom: command failed', isError: true }} />);
     expect(screen.getByText(/boom: command failed/)).toBeInTheDocument();
-  });
-
-  it('shows the tool name next to the label in compact mode', () => {
-    render(
-      <ToolCallCard
-        call={{ id: '4', name: 'edit_file', args: { path: 'src/a.ts' }, result: 'ok' }}
-        compact
-        label="src/a.ts"
-      />,
-    );
-    expect(screen.getByText('edit_file')).toBeInTheDocument();
-    expect(screen.getByText(/src\/a\.ts/)).toBeInTheDocument();
-  });
-
-  it('keeps an inline error summary visible after the user collapses it', () => {
-    const { container } = render(<ToolCallCard call={failed} compact label="false" />);
-    const trigger = container.querySelector('[data-slot="collapsible-trigger"]');
-    expect(trigger).not.toBeNull();
-    fireEvent.click(trigger!);
-    expect(screen.getByTestId('tool-error-summary')).toHaveTextContent(/boom: command failed/);
   });
 });

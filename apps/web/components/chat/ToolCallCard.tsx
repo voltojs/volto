@@ -14,11 +14,10 @@ import { cn } from '@/lib/utils';
 interface ToolCallCardProps {
   call: ConversationToolCall;
   /**
-   * One-line trigger (concise density): the summary label replaces the bare
-   * tool name and args stay collapsed until opened.
+   * One-line summary of the call (its command, path, query…), shown after the
+   * tool name. Rows are indistinguishable without it — every `bash` call would
+   * read the same.
    */
-  compact?: boolean;
-  /** Pre-computed one-line label; ignored unless `compact`. */
   label?: string;
 }
 
@@ -52,7 +51,6 @@ export function toolCallCardComparator(
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
     a.call.approval?.decision === b.call.approval?.decision &&
-    a.compact === b.compact &&
     a.label === b.label
   );
 }
@@ -60,7 +58,6 @@ export function toolCallCardComparator(
 /** Collapsed summary of one tool call, expandable to show args and output. */
 export const ToolCallCard = memo(function ToolCallCard({
   call,
-  compact = false,
   label,
 }: ToolCallCardProps) {
   // Settled-approval rendering. The pending `ApprovalCard` vanishes the
@@ -100,14 +97,12 @@ export const ToolCallCard = memo(function ToolCallCard({
     >
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
         <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        {compact && label !== undefined ? (
+        <span className="text-foreground/90 shrink-0 font-mono">{call.name}</span>
+        {label !== undefined && label !== call.name && (
           <>
-            <span className="text-foreground/90 shrink-0 font-mono">{call.name}</span>
             <span className="text-muted-foreground/70 shrink-0">·</span>
             <span className="truncate">{label}</span>
           </>
-        ) : (
-          <span className="text-foreground/90 truncate font-mono">{call.name}</span>
         )}
         {typeof call.durationMs === 'number' && (
           <span className="text-muted-foreground/70 font-mono text-[10px]">
@@ -122,7 +117,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       {/* The failure fact must survive collapsing. Shown only while closed:
           open, the body already carries the same text, and printing it twice
           reads like two separate failures. */}
-      {failed && compact && !open && call.result !== undefined && (
+      {failed && !open && call.result !== undefined && (
         <div
           data-testid="tool-error-summary"
           className="text-destructive/90 border-t px-2.5 py-1 font-mono text-[11px] break-words"
