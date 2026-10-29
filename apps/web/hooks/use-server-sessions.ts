@@ -105,6 +105,7 @@ export async function ensureSessionDetail(id: string): Promise<void> {
       messages: detail.messages,
       contextUsage: detail.contextUsage,
       todos: detail.todos ?? null,
+      todoChanges: detail.todoChanges ?? [],
       projectId: detail.projectId,
       providerId: detail.providerId,
       modelId: detail.modelId,

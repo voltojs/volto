@@ -13,6 +13,8 @@ import {
   setCachedSubagentEvents,
 } from '@/lib/subagent-cache';
 import { fetchSessionEvents } from '@/lib/sessions-api';
+import { foldTodoTransitions } from '@volto/sdk/sse';
+import { mergeTodoChanges } from '@/lib/todo-feed';
 import type { TranscriptEventInput } from '@volto/sdk/sse';
 
 /**
@@ -104,9 +106,16 @@ export function useSubagentConversation(childId: string | null): {
     () => mergeStoredAndLive(storedView?.view.messages ?? [], liveView?.view.messages ?? []),
     [storedView, liveView],
   );
+  // A sub-agent runs todo_write too, so its pane gets the same progress
+  // lines. There is no seed: the pane usually opens mid-run, and the first
+  // snapshot it sees can only establish a baseline.
+  const todoRows = useMemo(() => {
+    const events = [...(state.stored ?? []), ...(bucket?.events ?? [])];
+    return mergeTodoChanges([], foldTodoTransitions(events, null));
+  }, [state.stored, bucket]);
   const entries = useMemo(
-    () => composeChatEntries(messages, liveView?.records ?? []),
-    [messages, liveView],
+    () => composeChatEntries(messages, liveView?.records ?? [], todoRows),
+    [messages, liveView, todoRows],
   );
 
   // status：桶在场时桶状态胜出（done/error 括号、running）；桶缺席时由

@@ -6,6 +6,7 @@ import { MessageBubble } from './MessageBubble';
 import { ErrorNotice } from './ErrorNotice';
 import { Notice } from './Notice';
 import { WaveLoading } from './WaveLoading';
+import { TodoTransitionLine } from './TodoTransitionLine';
 
 function renderEntry(
   entry: ChatEntry,
@@ -26,6 +27,8 @@ function renderEntry(
       return <ErrorNotice key={entry.key} text={entry.text} time={entry.time} />;
     case 'notice':
       return <Notice key={entry.key} text={entry.text} time={entry.time} />;
+    case 'todo':
+      return <TodoTransitionLine key={entry.key} transition={entry.transition} />;
   }
 }
 
