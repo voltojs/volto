@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { AlignLeft, List, Monitor, Moon, Sun } from 'lucide-react';
 import {
   Item,
   ItemActions,
@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
 
 const THEME_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'light', label: '浅色' },
@@ -26,11 +27,17 @@ const THEME_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'system', label: '跟随系统' },
 ];
 
-/** 通用设置 Tab：目前只有主题。 */
+const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
+  { value: 'detailed', label: '详细' },
+  { value: 'concise', label: '简约' },
+];
+
+/** 通用设置 Tab：主题与信息流密度。 */
 export function GeneralPanel() {
   // `theme` (the stored preference) rather than `resolvedTheme`, so "跟随
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const { theme, setTheme } = useTheme();
+  const [density, setDensity] = useStreamDensity();
 
   return (
     <ItemGroup>
@@ -64,6 +71,39 @@ export function GeneralPanel() {
                     {option.value === 'light' && <Sun />}
                     {option.value === 'dark' && <Moon />}
                     {option.value === 'system' && <Monitor />}
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </ItemActions>
+      </Item>
+
+      <Item variant="outline">
+        <ItemMedia variant="icon">
+          <AlignLeft className="hidden opacity-60 dark:block" />
+          <List className="opacity-60 dark:hidden" />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle>显示模式</ItemTitle>
+          <ItemDescription>
+            详细：工具调用逐个成卡，推理可见；简约：每个工具一行，点击看详情。
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <Select
+            items={DENSITY_OPTIONS}
+            value={density}
+            onValueChange={(next) => setDensity(next as StreamDensity)}
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {DENSITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
                 ))}
