@@ -13,6 +13,13 @@ import { cn } from '@/lib/utils';
 
 interface ToolCallCardProps {
   call: ConversationToolCall;
+  /**
+   * One-line trigger (concise density): the summary label replaces the bare
+   * tool name and args stay collapsed until opened.
+   */
+  compact?: boolean;
+  /** Pre-computed one-line label; ignored unless `compact`. */
+  label?: string;
 }
 
 function StatusIcon({ call }: ToolCallCardProps) {
@@ -44,13 +51,17 @@ export function toolCallCardComparator(
     a.call.id === b.call.id &&
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
-    a.call.approval?.decision === b.call.approval?.decision
+    a.call.approval?.decision === b.call.approval?.decision &&
+    a.compact === b.compact &&
+    a.label === b.label
   );
 }
 
 /** Collapsed summary of one tool call, expandable to show args and output. */
 export const ToolCallCard = memo(function ToolCallCard({
   call,
+  compact = false,
+  label,
 }: ToolCallCardProps) {
   // Settled-approval rendering. The pending `ApprovalCard` vanishes the
   // moment a decision lands; without this line a fail-closed denial
@@ -61,8 +72,14 @@ export const ToolCallCard = memo(function ToolCallCard({
       ? denialNoteFor(call.approval.reason)
       : null;
 
+  // Failures open by default in BOTH densities: a collapsed failure is a
+  // failure the user has to hunt for. Still collapsible — this is a default,
+  // not a lock.
+  const failed = call.isError === true || call.approval?.decision === 'deny';
+
   return (
     <Collapsible
+      defaultOpen={failed}
       className={cn(
         'bg-card/60 overflow-hidden rounded-md border text-xs',
         call.isError && 'border-destructive/30 bg-destructive/5',
@@ -71,7 +88,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
         <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         <span className="text-foreground/90 truncate font-mono">
-          {call.name}
+          {compact ? (label ?? call.name) : call.name}
         </span>
         {typeof call.durationMs === 'number' && (
           <span className="text-muted-foreground/70 font-mono text-[10px]">
