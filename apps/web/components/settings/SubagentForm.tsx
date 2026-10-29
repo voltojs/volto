@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import type { AgentEntry, AgentSpec, ToolInfo } from '@/lib/agents-api';
+import type { RoutingTier } from '@/lib/routing-tiers-api';
 
 /** Discriminated payload handed to `onSubmit` — the panel maps it to API calls. */
 export type SubagentFormSubmit =
@@ -32,6 +33,8 @@ export type SubagentFormSubmit =
 
 type SubagentFormProps = {
   tools: ToolInfo[];
+  /** Routing tiers offered by the model dropdown (may be empty). */
+  tiers: RoutingTier[];
   onSubmit: (payload: SubagentFormSubmit) => void | Promise<void>;
   onCancel: () => void;
   /** Edit-mode only: open straight in the delete confirmation (row trash button). */
@@ -52,6 +55,16 @@ const SANDBOX_OPTIONS = [
 type SandboxMode = (typeof SANDBOX_OPTIONS)[number]['value'];
 
 /**
+ * Base UI Select rejects empty-string values, so "inherit the parent model"
+ * is carried by a sentinel option value and mapped back to `model: undefined`
+ * on submit — the wire semantics stay "absent field = inherit".
+ */
+const MODEL_INHERIT_VALUE = '__inherit__';
+const MODEL_INHERIT_LABEL = '继承主对话';
+
+type ModelOption = { value: string; label: string; disabled?: boolean };
+
+/**
  * Create / edit form for one agent definition.
  *
  * Scope is only offered on create: changing it on an existing entry would
@@ -63,6 +76,7 @@ type SandboxMode = (typeof SANDBOX_OPTIONS)[number]['value'];
 export function SubagentForm({
   mode,
   tools,
+  tiers,
   entry,
   onSubmit,
   onCancel,
@@ -76,7 +90,8 @@ export function SubagentForm({
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(spec?.tools ?? []),
   );
-  const [model, setModel] = useState(spec?.model ?? '');
+  // `spec.model` carries a routing tier id; the sentinel stands for inherit.
+  const [model, setModel] = useState(spec?.model || MODEL_INHERIT_VALUE);
   const [sandbox, setSandbox] = useState<SandboxMode>(
     (spec?.policy?.sandbox as SandboxMode | undefined) ?? 'workspace-write',
   );
@@ -87,6 +102,22 @@ export function SubagentForm({
   // mis-click on the small trash button never destroys a definition. The
   // panel's row trash button seeds this open; the form's 删除 button arms it.
   const [confirmingDelete, setConfirmingDelete] = useState(startConfirmingDelete);
+
+  // A stored tier id that no longer exists in the table stays visible as an
+  // explicit disabled option instead of silently reading as "inherit" — and
+  // survives a save the user does not retarget, so the reference is never
+  // dropped behind the user's back.
+  const staleModel =
+    spec?.model && !tiers.some((tier) => tier.id === spec.model)
+      ? spec.model
+      : undefined;
+  const modelOptions: ModelOption[] = [
+    { value: MODEL_INHERIT_VALUE, label: MODEL_INHERIT_LABEL },
+    ...(staleModel
+      ? [{ value: staleModel, label: `已失效档位:${staleModel}`, disabled: true }]
+      : []),
+    ...tiers.map((tier) => ({ value: tier.id, label: tier.label })),
+  ];
 
   const toggleTool = (toolName: string) => {
     setSelectedTools((prev) => {
@@ -110,7 +141,7 @@ export function SubagentForm({
         ? { description: description.trim() }
         : { description: undefined }),
       tools: [...selectedTools],
-      ...(model.trim() ? { model: model.trim() } : { model: undefined }),
+      ...(model !== MODEL_INHERIT_VALUE ? { model } : { model: undefined }),
       policy: { ...(base.policy ?? { approval: 'ask' }), sandbox },
       ...(systemPrompt.trim()
         ? { systemPrompt: systemPrompt.trim() }
@@ -233,13 +264,24 @@ export function SubagentForm({
 
         <Field orientation="vertical">
           <FieldLabel htmlFor="agent-model">model（可选）</FieldLabel>
-          <Input
-            id="agent-model"
-            className="h-8 font-mono text-xs"
+          <Select
+            items={modelOptions}
             value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="留空继承主会话模型"
-          />
+            onValueChange={(value) => setModel(String(value))}
+          >
+            <SelectTrigger id="agent-model" size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {modelOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} disabled={opt.disabled}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field orientation="vertical">
