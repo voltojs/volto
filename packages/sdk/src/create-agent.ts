@@ -3098,6 +3098,7 @@ function createSubAgentExecutor(
     // strings through unchanged.
     const tierId = model ?? childSpec?.model;
     let subModelOverride: string | undefined = tierId;
+    let resolvedTierProviderId: string | undefined;
     let resolvedTier:
       | { modelPort: ModelPort; model: string; visionSupported?: boolean; contextWindow?: number }
       | undefined;
@@ -3129,6 +3130,9 @@ function createSubAgentExecutor(
           }
           if (resolvedTier !== undefined) {
             subModelOverride = resolvedTier.model;
+            // The child runs on the tier's target provider — its
+            // assistant_message.source must name it (spec D6 acceptance 6).
+            resolvedTierProviderId = tier.target.providerId;
           } else {
             // Table hit but the target no longer resolves (or no factory is
             // wired): same audience as above; the event names the dead
@@ -3384,7 +3388,14 @@ function createSubAgentExecutor(
       // subStepContext.model — tools, capabilities and permissionConfig stay
       // on their own axes.
       model: subModelOverride ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
-      ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
+      // A tier hit routes the child to the tier's target provider — the
+      // source stamp must name it, not the parent's host routing id
+      // (spec D6 acceptance 6). Otherwise the host's provider id as before.
+      ...(resolvedTierProviderId !== undefined
+        ? { providerId: resolvedTierProviderId }
+        : opts.providerId !== undefined
+          ? { providerId: opts.providerId }
+          : {}),
       maxTokens: subMaxTokens,
       temperature:
         childSpec?.temperature ??

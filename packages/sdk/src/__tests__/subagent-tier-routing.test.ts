@@ -25,6 +25,7 @@ import type {
   ModelRequest,
   ToolDefinition,
   ToolResult,
+  TranscriptEventInput,
 } from "@volto/core";
 import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
 import { createNodeFileSystem, createNodeAttachmentStore } from "@volto/runtime-node";
@@ -167,12 +168,23 @@ describe("sub-agent model tier routing", () => {
     const { port: portB, requests: portBRequests } = recordingModelPort([
       textScript("child done"),
     ]);
+    // Child transcript capture — the assistant_message.source stamp is where
+    // the routed provider id surfaces (review Important #1).
+    const written: Array<{ sessionId: string; event: TranscriptEventInput }> = [];
+    const chatStore = {
+      async appendEvents(sessionId: string, events: TranscriptEventInput[]) {
+        for (const event of events) written.push({ sessionId, event });
+      },
+    };
     const agent = createAgent({
       modelPort: parentPort,
       model: "parent-model",
+      providerId: "parent-provider",
       enableTaskTool: true,
       routingTiers: [ECONOMY_TIER],
       resolveSubagentModelPort: async () => ({ modelPort: portB, model: "small" }),
+      chatStore,
+      chatSessionId: "s1",
     });
 
     await agent.run("do the work");
@@ -188,6 +200,15 @@ describe("sub-agent model tier routing", () => {
         r.messages.some((m) => m.role === "user" && m.content === "child job"),
       ),
     ).toBe(false);
+    // The child's assistant_message.source names the TIER's target provider,
+    // not the parent's routing provider (spec D6 acceptance 6).
+    const childAssistant = written.find(
+      (w) => w.sessionId.startsWith("s1-sub-") && w.event.type === "assistant_message",
+    );
+    expect(childAssistant).toBeDefined();
+    expect(childAssistant!.event.data).toMatchObject({
+      source: { providerId: "p1", modelId: "small" },
+    });
   });
 
   it("工厂返回 null → 降级 + 事件（data 含失效 target）", async () => {
