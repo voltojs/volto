@@ -250,7 +250,19 @@ export {
 export type { CompactionBudgetInput } from "./compaction-budget.js";
 
 // Todo standing-list formatter — model-facing injection text (pure)
-export { formatTodoListForModel, formatTodoCounts, todoStatusIcon, foldStandingTodos } from "./todo-format.js";
+export {
+  formatTodoListForModel,
+  formatTodoCounts,
+  todoStatusIcon,
+  foldStandingTodos,
+  diffTodoSnapshots,
+  foldTodoTransitions,
+} from "./todo-format.js";
+export type {
+  TodoTransition,
+  TodoTransitionKind,
+  TodoTransitionRecord,
+} from "./todo-format.js";
 
 // Tool-result pruning — deterministic head/tail cut under a char budget
 export { pruneOversizedToolResults, resolvePruneOptions } from "./tool-result-prune.js";
