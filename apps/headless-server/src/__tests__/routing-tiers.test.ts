@@ -62,6 +62,12 @@ describe("createRoutingTierStore", () => {
     ).rejects.toThrow(/index 0.*non-empty id/);
   });
 
+  it("rejects a whitespace-only id, naming the offending record", async () => {
+    await expect(
+      createRoutingTierStore(dir).replace([{ ...tier("economy"), id: " " }]),
+    ).rejects.toThrow(/index 0.*non-empty id/);
+  });
+
   it("writes nothing when validation fails", async () => {
     const store = createRoutingTierStore(dir);
     await expect(store.replace([tier("economy"), tier("economy")])).rejects.toThrow();
@@ -142,6 +148,20 @@ describe("/config/routing-tiers", () => {
     expect(put.status).toBe(400);
     const body = (await put.json()) as { error: string };
     expect(body.error).toContain("__inherit__");
+    // Validation must fail before anything is persisted.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+    await close();
+  });
+
+  it("rejects a whitespace-only id with 400 naming the index", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const target = await createTarget(url, token);
+    // A whitespace-only id is as unusable as an empty one (it can never be
+    // matched by a dispatch), so the PUT must refuse it the same way.
+    const put = await putTiers(url, token, [tier("economy", target), tier(" ", target)]);
+    expect(put.status).toBe(400);
+    const body = (await put.json()) as { error: string };
+    expect(body.error).toContain("index 1");
     // Validation must fail before anything is persisted.
     expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
     await close();

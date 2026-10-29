@@ -30,7 +30,12 @@ export interface AgentSpec {
   description?: string;
   /** System prompt prepended as first message */
   systemPrompt?: string;
-  /** Model name override (sent to provider) */
+  /**
+   * Model reference with two meanings: a routing-tier id in tier mode (when
+   * `CreateAgentOptions.routingTiers` is present), or a raw model code for
+   * the legacy single-tier chain when it is omitted. See the `routingTiers`
+   * JSDoc in create-agent.ts.
+   */
   model?: string;
   /** Max tokens per model call */
   maxTokens?: number;

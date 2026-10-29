@@ -58,9 +58,11 @@ export function validateTierRecords(input: unknown): RoutingTierRecord[] {
     }
     const fields = record as Record<string, unknown>;
     const id = fields["id"];
-    if (typeof id !== "string" || id.length === 0) {
+    // Whitespace-only ids are rejected together with empty ones — a blank
+    // id can never be matched by a dispatch, yet `length === 0` let " " in.
+    if (typeof id !== "string" || id.trim().length === 0) {
       throw new RoutingTierValidationError(
-        `routing tier at index ${index} must have a non-empty id`,
+        `routing tier at index ${index} must have a non-empty id (whitespace-only ids are rejected)`,
       );
     }
     if (id === INHERIT_SENTINEL_ID) {
