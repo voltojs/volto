@@ -182,12 +182,13 @@ export type {
 } from "./view-projection.js";
 
 // View projection — turn records → chat feed for the web UI
-export { toConversationView } from "./view-projection.js";
+export { toConversationView, groupConversationBlocks } from "./view-projection.js";
 export type {
   ConversationView,
   ConversationMessage,
   ConversationBlock,
   ConversationToolCall,
+  ConversationSegment,
   TurnUsage,
 } from "./view-projection.js";
 

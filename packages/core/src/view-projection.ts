@@ -557,6 +557,57 @@ export type ConversationBlock =
       height?: number;
     };
 
+/**
+ * A chat-feed rendering unit: the model's answer, or the activity that
+ * produced it.
+ *
+ * Purely derived from `ConversationBlock[]` — the ordered block sequence
+ * stays the source of truth (a tool call lands where it actually happened,
+ * per the view-projection consolidation spec §3.1). This only decides which
+ * visual layer each block belongs to, so a UI can separate "what the model
+ * said" from "what it ran" without inventing a second durable shape.
+ */
+export type ConversationSegment =
+  | { kind: "answer"; blocks: Array<Extract<ConversationBlock, { type: "text" | "image" }>> }
+  | {
+      kind: "activity";
+      blocks: Array<Extract<ConversationBlock, { type: "reasoning" | "tool_call" }>>;
+    };
+
+function segmentKindOf(block: ConversationBlock): ConversationSegment["kind"] {
+  return block.type === "text" || block.type === "image" ? "answer" : "activity";
+}
+
+/**
+ * Groups blocks into adjacent same-kind segments, preserving order.
+ *
+ * Consecutive activity blocks coalesce; an answer block closes the current
+ * activity segment, and vice versa. Never reorders: an answer that resumed
+ * after a tool call stays after it.
+ */
+export function groupConversationBlocks(
+  blocks: readonly ConversationBlock[],
+): ConversationSegment[] {
+  const segments: ConversationSegment[] = [];
+  for (const block of blocks) {
+    const kind = segmentKindOf(block);
+    const current = segments[segments.length - 1];
+    if (current !== undefined && current.kind === kind) {
+      (current.blocks as ConversationBlock[]).push(block);
+      continue;
+    }
+    if (kind === "answer") {
+      segments.push({ kind: "answer", blocks: [block as Extract<ConversationBlock, { type: "text" | "image" }>] });
+    } else {
+      segments.push({
+        kind: "activity",
+        blocks: [block as Extract<ConversationBlock, { type: "reasoning" | "tool_call" }>],
+      });
+    }
+  }
+  return segments;
+}
+
 export interface ConversationMessage {
   /** Stable across incremental rebuilds — never an array index. */
   id: string;
