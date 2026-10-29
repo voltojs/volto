@@ -7,11 +7,13 @@ import { ErrorNotice } from './ErrorNotice';
 import { Notice } from './Notice';
 import { WaveLoading } from './WaveLoading';
 import { TodoTransitionLine } from './TodoTransitionLine';
+import type { StreamDensity } from '@/lib/stream-density';
 
 function renderEntry(
   entry: ChatEntry,
   onOpenSubagent?: (childSessionId: string) => void,
   sessionId?: string | null,
+  density?: StreamDensity,
 ) {
   switch (entry.kind) {
     case 'message':
@@ -21,6 +23,7 @@ function renderEntry(
           message={entry.message}
           onOpenSubagent={onOpenSubagent}
           sessionId={sessionId}
+          density={density}
         />
       );
     case 'error':
@@ -37,9 +40,12 @@ export function MessageList({
   onOpenSubagent,
   sessionId,
   isGenerating = false,
+  density,
 }: {
   entries: ChatEntry[];
   onOpenSubagent?: (childSessionId: string) => void;
+  /** How much execution detail each bubble shows; omitted → stored preference. */
+  density?: StreamDensity;
   /** Session for resolving image attachment refs; omitted → images stay as placeholders. */
   sessionId?: string | null;
   /** Round in flight for this feed — shows the bottom wave indicator. */
@@ -61,7 +67,7 @@ export function MessageList({
           second argument); the reference handed down stays whatever the
           caller passed, so downstream memo comparators see a stable prop. */}
       <div className="mx-auto max-w-3xl px-6 py-2">
-        {entries.map((entry) => renderEntry(entry, onOpenSubagent, sessionId))}
+        {entries.map((entry) => renderEntry(entry, onOpenSubagent, sessionId, density))}
         {/* Unified loading: pinned under the feed so the existing scroll-to-
             bottom keeps it in view for the whole round. */}
         {isGenerating && <WaveLoading />}

@@ -2,10 +2,14 @@
 
 import { useState } from 'react';
 import { Check, ChevronRight, Copy } from 'lucide-react';
+import { groupConversationBlocks } from '@volto/sdk/sse';
 import type {
   ConversationBlock,
   ConversationMessage,
+  ConversationSegment,
 } from '@volto/sdk/sse';
+import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
+import { toolCallSummary } from '@/lib/tool-summary';
 import { Markdown } from './Markdown';
 import { SubagentCard } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
@@ -27,6 +31,11 @@ interface MessageBubbleProps {
    * guaranteed 400 on the gateway.
    */
   sessionId?: string | null;
+  /**
+   * How much execution detail to show. Omitted → the user's stored preference
+   * (see lib/stream-density), so callers that do not care stay unchanged.
+   */
+  density?: StreamDensity;
 }
 
 type ImageBlock = Extract<ConversationBlock, { type: 'image' }>;
@@ -46,6 +55,11 @@ function AttachmentImage({
 }: {
   block: ImageBlock;
   sessionId?: string | null;
+  /**
+   * How much execution detail to show. Omitted → the user's stored preference
+   * (see lib/stream-density), so callers that do not care stay unchanged.
+   */
+  density?: StreamDensity;
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -78,7 +92,10 @@ export function MessageBubble({
   message,
   onOpenSubagent,
   sessionId,
+  density: densityProp,
 }: MessageBubbleProps) {
+  const [storedDensity] = useStreamDensity();
+  const density = densityProp ?? storedDensity;
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
 
@@ -125,50 +142,30 @@ export function MessageBubble({
         null
       ) : (
         <div className="space-y-2">
-          {message.blocks.map((block, index) => {
-            if (block.type === 'reasoning') {
-              return (
-                <Collapsible
-                  key={index}
-                  className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5"
-                >
-                  <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-                    思考过程
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-                    <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
-                      {block.text}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            }
-            if (block.type === 'tool_call') {
-              // Sub-agent delegations render as a compact single clickable
-              // row (SubagentCard); plain calls keep the collapsible card.
-              if (block.call.childSessionId !== undefined) {
-                return (
-                  <SubagentCard
-                    key={block.call.id}
-                    call={block.call}
-                    onOpenSubagent={onOpenSubagent}
-                  />
-                );
-              }
-              return <ToolCallCard key={block.call.id} call={block.call} />;
-            }
-            if (block.type === 'image') {
-              return (
-                <AttachmentImage
-                  key={index}
-                  block={block}
-                  sessionId={sessionId}
-                />
-              );
-            }
-            return <Markdown key={index} content={block.text} />;
-          })}
+          {groupConversationBlocks(message.blocks).map((segment, segmentIndex) =>
+            segment.kind === 'answer' ? (
+              <div key={`answer-${segmentIndex}`} className="space-y-2">
+                {segment.blocks.map((block, index) =>
+                  block.type === 'image' ? (
+                    <AttachmentImage
+                      key={index}
+                      block={block}
+                      sessionId={sessionId}
+                    />
+                  ) : (
+                    <Markdown key={index} content={block.text} />
+                  ),
+                )}
+              </div>
+            ) : (
+              <ActivityRail
+                key={`activity-${segmentIndex}`}
+                segment={segment}
+                density={density}
+                onOpenSubagent={onOpenSubagent}
+              />
+            ),
+          )}
         </div>
       )}
 
@@ -201,6 +198,80 @@ export function MessageBubble({
             )}
           </div>
         )}
+    </div>
+  );
+}
+
+
+/**
+ * The execution layer of one turn: reasoning and tool calls, grouped so they
+ * read as a sidetrack rather than as part of the answer.
+ *
+ * Rendering an activity segment as its own indented rail — instead of leaving
+ * cards inline with prose — is what keeps "what the model said" and "what it
+ * ran" distinguishable. Blocks keep their order, so a tool call stays where
+ * it actually happened.
+ */
+function ActivityRail({
+  segment,
+  density,
+  onOpenSubagent,
+}: {
+  segment: Extract<ConversationSegment, { kind: 'activity' }>;
+  density: StreamDensity;
+  onOpenSubagent?: (childSessionId: string) => void;
+}) {
+  const blocks = segment.blocks.filter(
+    (block) => block.type === 'tool_call' || density === 'detailed',
+  );
+  // Concise hides reasoning; a reasoning-only stretch must not leave an empty
+  // rail (or the spacing that would go with it).
+  if (blocks.length === 0) return null;
+
+  return (
+    <div
+      data-testid="activity-rail"
+      className="border-border/60 ml-1 space-y-1 border-l pl-3"
+    >
+      {blocks.map((block, index) => {
+        if (block.type === 'reasoning') {
+          return (
+            <Collapsible
+              key={index}
+              className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5"
+            >
+              <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+                思考过程
+              </CollapsibleTrigger>
+              <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
+                <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
+                  {block.text}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          );
+        }
+        // Sub-agent delegations render as a compact single clickable row
+        // (SubagentCard); plain calls keep the collapsible card.
+        if (block.call.childSessionId !== undefined) {
+          return (
+            <SubagentCard
+              key={block.call.id}
+              call={block.call}
+              onOpenSubagent={onOpenSubagent}
+            />
+          );
+        }
+        return (
+          <ToolCallCard
+            key={block.call.id}
+            call={block.call}
+            compact={density === 'concise'}
+            label={toolCallSummary(block.call.name, block.call.args)}
+          />
+        );
+      })}
     </div>
   );
 }

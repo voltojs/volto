@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
+import { useStreamDensity } from '@/lib/stream-density';
 import { InputBar } from './InputBar';
 import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
@@ -362,6 +363,7 @@ export function ChatPanel() {
   // Live SSE fold wins when the buffer has any todoListUpdated; otherwise
   // fall back to the seed from GET /sessions/:id so a cold reload restores
   // the dock without waiting for the next write.
+  const [streamDensity] = useStreamDensity();
   const liveTodos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
   const todos = liveTodos ?? currentSession?.todos ?? null;
 
@@ -876,6 +878,7 @@ export function ChatPanel() {
                 onOpenSubagent={openSubagent}
                 sessionId={currentSessionId}
                 isGenerating={isGenerating}
+                density={streamDensity}
               />
               {pendingApprovals.length > 0 && (
                 <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
