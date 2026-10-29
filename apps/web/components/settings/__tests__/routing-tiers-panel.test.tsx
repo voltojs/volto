@@ -250,6 +250,61 @@ describe('RoutingTiersPanel', () => {
     expect(screen.getByText(/\/projects\/gone/)).toBeInTheDocument();
   });
 
+  it('上移第二行改变草稿顺序，保存后 PUT body 顺序随之改变', async () => {
+    const calls = stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: TIERS },
+      }),
+      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [] },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    await screen.findByDisplayValue('premium');
+
+    // Move the second row above the first: the draft reorders locally.
+    await user.click(screen.getByRole('button', { name: '上移 economy' }));
+    expect(
+      Array.from(document.querySelectorAll('[data-tier-row]')).map((el) =>
+        el.getAttribute('data-tier-id'),
+      ),
+    ).toEqual(['economy', 'premium']);
+
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    // The persisted order follows the draft, not the original fetch order.
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === 'PUT')).toBe(true);
+    });
+    const put = calls.find((c) => c.method === 'PUT');
+    expect((put?.body as Array<{ id: string }>).map((t) => t.id)).toEqual([
+      'economy',
+      'premium',
+    ]);
+  });
+
+  it('首行的上移与末行的下移按钮 disabled', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: TIERS },
+      }),
+    });
+    render(<RoutingTiersPanel />);
+    await screen.findByDisplayValue('premium');
+
+    // Edges cannot move further; interior rows stay actionable.
+    expect(screen.getByRole('button', { name: '上移 premium' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '下移 premium' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: '上移 economy' }),
+    ).toBeEnabled();
+    expect(screen.getByRole('button', { name: '下移 economy' })).toBeDisabled();
+  });
+
   it('shows the gateway 400 message inline when a target model does not exist', async () => {
     stubFetch({
       [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({

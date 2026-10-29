@@ -1,7 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Plus, Save, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -161,6 +168,22 @@ export function RoutingTiersPanel() {
     setSaveError(null);
   };
 
+  /** Swap the draft row with its neighbour; the save button persists it. */
+  const handleMove = (index: number, delta: -1 | 1) => {
+    setRows((prev) => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const a = prev[index];
+      const b = prev[target];
+      if (a === undefined || b === undefined) return prev;
+      next[index] = b;
+      next[target] = a;
+      return next;
+    });
+    setSaveError(null);
+  };
+
   const handleSave = async () => {
     try {
       await saveRoutingTiers(toWire(rows));
@@ -248,7 +271,7 @@ export function RoutingTiersPanel() {
       {rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">还没有模型路由档位。</p>
       ) : (
-        rows.map((row) => {
+        rows.map((row, index) => {
           const provider = providers.find((p) => p.id === row.target.providerId);
           // Model options come from the store's own projection (catalog kinds
           // included) — never recomputed here.
@@ -384,7 +407,29 @@ export function RoutingTiersPanel() {
                   </Select>
                 </Field>
 
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center">
+                  {/* Order is part of the draft: moving a row only reorders
+                      the local array; the save button PUTs the new order. */}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    data-action="move-up"
+                    aria-label={`上移 ${row.id}`}
+                    disabled={index === 0}
+                    onClick={() => handleMove(index, -1)}
+                  >
+                    <ChevronUp />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    data-action="move-down"
+                    aria-label={`下移 ${row.id}`}
+                    disabled={index === rows.length - 1}
+                    onClick={() => handleMove(index, 1)}
+                  >
+                    <ChevronDown />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
