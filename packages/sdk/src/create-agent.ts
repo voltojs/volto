@@ -2832,6 +2832,15 @@ function extractInputText(input: AgentInput): string {
 }
 
 /**
+ * An EventSink envelope carrying the transcript stamp top-level — the
+ * toSinkEvent isomorphism (see runner.ts). The gateway's frame() drops
+ * unstamped envelopes (`asTranscriptEvent` requires `typeof event.time ===
+ * "number"`), so parent-level events emitted from here are stamped at the
+ * emit site, like the subagent brackets — never patched downstream.
+ */
+type StampedSinkEvent = { type: string; data: Record<string, unknown>; time: number };
+
+/**
  * Wrap an EventSink so every emitted event is tagged with the originating
  * agent depth and an optional label. Used by sub-agents so the host can
  * distinguish nested output from the main agent's stream without breaking
@@ -3250,7 +3259,8 @@ function createSubAgentExecutor(
     // so on the main feed — otherwise the user sees a silent, inexplicable
     // restriction. Parent-level (un-tagged), like the brackets above.
     if (downgrades.length > 0 && subagentType !== undefined) {
-      currentSink?.emit({
+      const downgradeEvent: StampedSinkEvent = {
+        time: nowMs(),
         type: "subagent_permission_downgraded",
         data: {
           ...(childSessionId !== undefined ? { childSessionId } : {}),
@@ -3258,7 +3268,8 @@ function createSubAgentExecutor(
           downgrades,
           turn,
         },
-      });
+      };
+      currentSink?.emit(downgradeEvent);
     }
 
     // Unresolved model tier (design D5): same audience and channel as the
@@ -3266,7 +3277,8 @@ function createSubAgentExecutor(
     // main feed — so a model swap that silently fell back to the parent's
     // model never goes unnoticed.
     if (tierUnresolved !== undefined) {
-      currentSink?.emit({
+      const tierUnresolvedEvent: StampedSinkEvent = {
+        time: nowMs(),
         type: "subagent_model_tier_unresolved",
         data: {
           ...(childSessionId !== undefined ? { childSessionId } : {}),
@@ -3275,7 +3287,8 @@ function createSubAgentExecutor(
           turn,
           ...(tierUnresolved.target !== undefined ? { target: tierUnresolved.target } : {}),
         },
-      });
+      };
+      currentSink?.emit(tierUnresolvedEvent);
     }
 
     const finishSubAgent = (isError: boolean): void => {

@@ -58,9 +58,12 @@ function textOf(modelContent: ToolResult["modelContent"]): string {
     .join("");
 }
 
-/** Capture sink for the parent-feed events. */
-function captureSink(): { sink: EventSink; events: Array<{ type: string; data: Record<string, unknown> }> } {
-  const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+/** Capture sink for the parent-feed events. `time` is read like the gateway's frame() does. */
+function captureSink(): {
+  sink: EventSink;
+  events: Array<{ type: string; data: Record<string, unknown>; time?: number }>;
+} {
+  const events: Array<{ type: string; data: Record<string, unknown>; time?: number }> = [];
   const sink: EventSink = {
     emit(event) {
       events.push(event);
@@ -127,6 +130,9 @@ describe("sub-agent model tier routing", () => {
     expect(unresolved!.data).toMatchObject({ subagentType: "ghosty", tierId: "ghost" });
     // F-023 shape: parent-level event carrying the turn stamp.
     expect(typeof unresolved!.data["turn"]).toBe("number");
+    // Envelope stamp: the gateway's frame() drops events without a top-level
+    // numeric `time` (sessions.ts asTranscriptEvent).
+    expect(typeof unresolved!.time).toBe("number");
   });
 
   it("档位命中同 provider → 子 runner 用档位模型", async () => {
@@ -241,6 +247,7 @@ describe("sub-agent model tier routing", () => {
       target: { providerId: "p1", modelId: "small" },
     });
     expect(typeof unresolved!.data["turn"]).toBe("number");
+    expect(typeof unresolved!.time).toBe("number");
   });
 
   it("工厂 throw → 降级 + 事件（与返回 null 同规则）", async () => {
@@ -339,6 +346,44 @@ describe("sub-agent model tier routing", () => {
     expect(portARequests).toHaveLength(1);
     expect(portARequests[0]!.model).toBe("small");
     expect(portARequests[0]!.messages.map((m) => m.content)).toContain("level two");
+  });
+
+  it("事件信封带顶层 time（tier 降级与权限降级同批断言）", async () => {
+    // The gateway's frame() drops envelopes without a numeric top-level
+    // `time` (sessions.ts asTranscriptEvent), so both parent-level dispatch
+    // events must be stamped at the emit site (review fix round 2). One
+    // dispatch here trips BOTH events: the definition references an unknown
+    // tier AND asks for a wider policy than the parent allows.
+    const { sink, events } = captureSink();
+    const { port } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "risky" })),
+      textScript("sub done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      eventSink: sink,
+      permissionConfig: { sandbox: "workspace-write", approval: "ask" },
+      routingTiers: [PREMIUM_TIER],
+      agentSpecs: [
+        agentEntry({
+          name: "risky",
+          model: "ghost",
+          policy: { sandbox: "danger-full-access", approval: "never" },
+        }),
+      ],
+    });
+
+    await agent.run("dispatch the risky agent");
+
+    const downgrade = events.find((e) => e.type === "subagent_permission_downgraded");
+    const unresolved = events.find((e) => e.type === "subagent_model_tier_unresolved");
+    expect(downgrade).toBeDefined();
+    expect(unresolved).toBeDefined();
+    expect(typeof downgrade!.time).toBe("number");
+    expect(typeof unresolved!.time).toBe("number");
   });
 });
 

@@ -231,7 +231,7 @@ describe("typed sub-agent dispatch wiring", () => {
   });
 
   it("emits a downgrade event when the definition asks for wider permissions (F-023)", async () => {
-    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const events: Array<{ type: string; data: Record<string, unknown>; time?: number }> = [];
     const sink: EventSink = {
       emit(event) {
         events.push(event);
@@ -278,6 +278,9 @@ describe("typed sub-agent dispatch wiring", () => {
       }),
     );
     expect(downgrade!.data["subagentType"]).toBe("risky");
+    // Envelope stamp: the gateway's frame() drops events without a top-level
+    // numeric `time` (sessions.ts asTranscriptEvent).
+    expect(typeof downgrade!.time).toBe("number");
   });
 
   it("surfaces an unknown subagent_type as a tool error, not a crash", async () => {
