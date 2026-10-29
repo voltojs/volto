@@ -541,6 +541,27 @@ export interface CreateAgentOptions {
   model?: string;
 
   /**
+   * Model routing tiers for sub-agent dispatches — pure data (id + target
+   * pair), never provider imports: the SDK stays provider-agnostic and only
+   * resolves names. When present, every model reference on a dispatch (the
+   * per-dispatch `model` input first, the definition's `model:` second) is a
+   * tier id, never a raw model code. Omit to keep the legacy chain that
+   * passes model strings through unchanged.
+   */
+  routingTiers?: ReadonlyArray<{ id: string; target: { providerId: string; modelId: string } }>;
+
+  /**
+   * Injected callback that materializes a tier's target into a ModelPort —
+   * pure wiring, provided by the host (e.g. the gateway builds the port from
+   * its provider store); the SDK never imports providers. Returning `null`
+   * (or throwing) degrades the dispatch to the parent model with a visible
+   * `subagent_model_tier_unresolved` event.
+   */
+  resolveSubagentModelPort?: (target: { providerId: string; modelId: string }) => Promise<
+    { modelPort: ModelPort; model: string; visionSupported?: boolean; contextWindow?: number } | null
+  >;
+
+  /**
    * 宿主路由的 provider 配置 id（如 "deepseek-official"），写进每条
    * assistant_message 的 source，供每轮用量卡片展示「提供方」。SDK 不理解
    * 它的取值，也不参与路由；不传则 source 里没有该键（spec 2026-09-26 §3.3）。
@@ -3065,6 +3086,59 @@ function createSubAgentExecutor(
       childSpec = entry.spec;
     }
 
+    // ── Model routing tier resolution (spec 2026-10-29 D3-D6) ──
+    // With a tier table configured, every model reference on this dispatch —
+    // the per-dispatch input first, the definition's `model:` second — is a
+    // tier id, never a raw model code. The two audiences split as design D5
+    // pins: a per-dispatch id outside the table is the caller's own mistake
+    // and fails loudly (the model can self-correct); a definition id outside
+    // it, or a tier whose target no longer resolves, degrades visibly to the
+    // parent model via the `subagent_model_tier_unresolved` event emitted by
+    // the F-023 block below. Without a table the legacy chain passes model
+    // strings through unchanged.
+    const tierId = model ?? childSpec?.model;
+    let subModelOverride: string | undefined = tierId;
+    let resolvedTier:
+      | { modelPort: ModelPort; model: string; visionSupported?: boolean; contextWindow?: number }
+      | undefined;
+    let tierUnresolved:
+      | { tierId: string; target?: { providerId: string; modelId: string } }
+      | undefined;
+    if (opts.routingTiers !== undefined) {
+      // Tier mode: raw model codes must never reach the provider — only a
+      // resolved tier's model, or the inherited parent model.
+      subModelOverride = undefined;
+      if (tierId !== undefined) {
+        const tier = opts.routingTiers.find((t) => t.id === tierId);
+        if (tier === undefined) {
+          if (model !== undefined) {
+            // Per-dispatch reference (design D5, "model error" audience):
+            // reject before any child runner — and any provider I/O — exists.
+            // The task tool's catch normalizes this into an isError result.
+            const ids = opts.routingTiers.map((t) => t.id).join(", ");
+            throw new Error(`Unknown model tier "${tierId}". Available tiers: ${ids}`);
+          }
+          // Definition reference (design D5, "environment change" audience):
+          // degrade to the parent model and report below.
+          tierUnresolved = { tierId };
+        } else {
+          try {
+            resolvedTier = (await opts.resolveSubagentModelPort?.(tier.target)) ?? undefined;
+          } catch {
+            resolvedTier = undefined;
+          }
+          if (resolvedTier !== undefined) {
+            subModelOverride = resolvedTier.model;
+          } else {
+            // Table hit but the target no longer resolves (or no factory is
+            // wired): same audience as above; the event names the dead
+            // target (design D5 row 3).
+            tierUnresolved = { tierId, target: tier.target };
+          }
+        }
+      }
+    }
+
     // ── Nested delegation (design §9) ──
     // A child below the cap gets its own `task`, bound to an executor one
     // level deeper, so "research agent fans out sub-searches" works and each
@@ -3183,6 +3257,23 @@ function createSubAgentExecutor(
       });
     }
 
+    // Unresolved model tier (design D5): same audience and channel as the
+    // F-023 downgrade above — parent-level (un-tagged), turn-stamped, on the
+    // main feed — so a model swap that silently fell back to the parent's
+    // model never goes unnoticed.
+    if (tierUnresolved !== undefined) {
+      currentSink?.emit({
+        type: "subagent_model_tier_unresolved",
+        data: {
+          ...(childSessionId !== undefined ? { childSessionId } : {}),
+          ...(subagentType !== undefined ? { subagentType } : {}),
+          tierId: tierUnresolved.tierId,
+          turn,
+          ...(tierUnresolved.target !== undefined ? { target: tierUnresolved.target } : {}),
+        },
+      });
+    }
+
     const finishSubAgent = (isError: boolean): void => {
       if (chatStore && parentChatSessionId && childSessionId) {
         bestEffortAppend(chatStore, parentChatSessionId, [
@@ -3222,7 +3313,9 @@ function createSubAgentExecutor(
       ? createFsToolExecutor({
           fs: opts.fs,
           attachments: attachmentStore,
-          visionSupported: opts.modelVision,
+          // The tier's image-input gate outranks the parent's on a hit
+          // (spec D6); absent from the factory answer, inherit unchanged.
+          visionSupported: resolvedTier?.visionSupported ?? opts.modelVision,
           // Same default-on parser the parent wires: the sub path is a
           // top-level factory and cannot see createAgent's local const, so
           // resolve it again here (lazy — no construction cost until used).
@@ -3279,16 +3372,20 @@ function createSubAgentExecutor(
       "maxLoopInterventions",
     );
 
+    const subMaxTokens =
+      childSpec?.maxTokens ?? resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens");
     const subStepContext: StepContext = {
       tools: subToolDefs,
       // Model resolution chain (design §4.4): the per-dispatch input
       // outranks the typed definition, which outranks the parent's model.
-      // The chain touches only subStepContext.model — tools, capabilities
-      // and permissionConfig stay on their own axes.
-      model: model ?? childSpec?.model ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
+      // With a tier table configured the chain is pre-resolved above — a hit
+      // carries the tier's model, a degraded reference falls back to the
+      // parent's — and never leaks a raw model code. The chain touches only
+      // subStepContext.model — tools, capabilities and permissionConfig stay
+      // on their own axes.
+      model: subModelOverride ?? resolveConfigValue(opts.model, opts.config?.config, "model"),
       ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
-      maxTokens:
-        childSpec?.maxTokens ?? resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens"),
+      maxTokens: subMaxTokens,
       temperature:
         childSpec?.temperature ??
         resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
@@ -3343,8 +3440,32 @@ function createSubAgentExecutor(
         }
       : undefined;
 
+    // A tier that reports its own context window re-derives the child's
+    // compaction threshold from that window (the parent's threshold is
+    // already baked into `compactionConfig`). An explicit caller
+    // `compaction.maxTokens` still wins (same rule as the parent's own
+    // derivation), and a tier without a window inherits the parent's
+    // threshold unchanged.
+    let subCompactionConfig = compactionConfig;
+    if (compactionConfig && resolvedTier?.contextWindow !== undefined) {
+      const rawCompaction = resolveConfigValue(opts.compaction, opts.config?.config, "compaction");
+      subCompactionConfig = {
+        ...compactionConfig,
+        maxTokens:
+          rawCompaction?.maxTokens ??
+          deriveCompactionMaxTokens({
+            contextWindow: resolvedTier.contextWindow,
+            maxOutputTokens: subMaxTokens,
+            ratio: rawCompaction?.windowRatio,
+            headroomTokens: rawCompaction?.headroomTokens,
+          }),
+      };
+    }
+
     const subRunner = createRunner({
-      modelPort: opts.modelPort,
+      // A tier hit swaps in the factory's port (cross-provider dispatch,
+      // spec D6); otherwise the child runs on the parent's.
+      modelPort: resolvedTier?.modelPort ?? opts.modelPort,
       // Subagents work inside the same project; project-scoped memory is part
       // of that context, so they get the parent RAG wiring verbatim.
       ...ragWiring,
@@ -3372,7 +3493,7 @@ function createSubAgentExecutor(
       approvalGate: createSubAgentApprovalGate(),
       eventSink: usageTapSink ?? taggedSink,
       sessionStore: createDefaultSessionStore(),
-      compaction: compactionConfig,
+      compaction: subCompactionConfig,
       sessionId: `sub-${idPort.next()}`,
       // Guarded on parentChatSessionId too: without a parent session there
       // is no valid childSessionId (see above), so never hand the Runner a
