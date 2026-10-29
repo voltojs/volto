@@ -17,8 +17,8 @@ describe("SubagentForm", () => {
 
   it("lists every tool from the catalogue as a choice", () => {
     render(<SubagentForm mode="create" tools={TOOLS} onSubmit={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.getByLabelText("read_file")).toBeInTheDocument();
-    expect(screen.getByLabelText("bash")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "read_file" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "bash" })).toBeInTheDocument();
   });
 
   it("prefills every field when editing", () => {
@@ -37,7 +37,7 @@ describe("SubagentForm", () => {
     expect(screen.getByDisplayValue("x")).toBeInTheDocument();
     expect(screen.getByDisplayValue("desc")).toBeInTheDocument();
     expect(screen.getByDisplayValue("body")).toBeInTheDocument();
-    expect(screen.getByLabelText("read_file")).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "read_file" })).toBeChecked();
     // Scope cannot change on edit: that would mean moving the file.
     expect(screen.queryByLabelText(/作用范围/)).not.toBeInTheDocument();
   });

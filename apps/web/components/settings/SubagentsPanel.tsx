@@ -4,6 +4,11 @@ import { useState } from 'react';
 import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useAgents } from '@/hooks/use-agents';
 import {
   createAgent,
@@ -28,6 +33,42 @@ type FormState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: AgentEntry; startConfirmingDelete?: boolean }
   | null;
+
+/** Tools shown inline before the "+N" overflow badge takes over. */
+const VISIBLE_TOOL_COUNT = 2;
+
+/**
+ * Tool badges for one agent row: the first `VISIBLE_TOOL_COUNT` names inline,
+ * the rest folded into a single "+N" badge whose tooltip lists them.
+ */
+function ToolBadges({ tools }: { tools: readonly string[] }) {
+  if (tools.length === 0) return null;
+  const visible = tools.slice(0, VISIBLE_TOOL_COUNT);
+  const hidden = tools.slice(VISIBLE_TOOL_COUNT);
+  return (
+    <span className="flex items-center gap-1">
+      {visible.map((tool) => (
+        <Badge key={tool} variant="outline" className="font-mono text-[10px]">
+          {tool}
+        </Badge>
+      ))}
+      {hidden.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Badge variant="outline" className="text-[10px]">
+                +{hidden.length}
+              </Badge>
+            }
+          />
+          <TooltipContent className="max-w-64 flex-wrap">
+            {hidden.join('、')}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </span>
+  );
+}
 
 /**
  * Settings tab listing every agent definition the gateway can resolve
@@ -155,62 +196,81 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
             key={agent.id}
             data-agent-row=""
             data-agent-id={agent.id}
-            className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm"
+            className="space-y-1.5 rounded-md border p-2.5 text-sm"
           >
-            {/* Shadowed rows append a qualifier so the bare name stays unique
-                to the winning definition. The qualifier avoids the warning's
-                Chinese phrasing so only the warning matches /被.*覆盖|不生效/. */}
-            <span className="font-medium">
-              {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
-            </span>
-            <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
-            <span className="text-muted-foreground min-w-0 flex-1 truncate">
-              {agent.description}
-            </span>
+            {/* Line 1: identity — name, scope, tools. */}
+            <div className="flex min-w-0 items-center gap-2">
+              {/* Shadowed rows append a qualifier so the bare name stays unique
+                  to the winning definition. The qualifier avoids the warning's
+                  Chinese phrasing so only the warning matches /被.*覆盖|不生效/. */}
+              <span className="font-medium truncate">
+                {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
+              </span>
+              <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
+              <ToolBadges tools={agent.spec.tools ?? []} />
+              <div className="ml-auto flex shrink-0 gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  data-action="edit"
+                  disabled={agent.readOnly}
+                  aria-label={`编辑 ${agent.name}`}
+                  onClick={() => {
+                    setActionError(null);
+                    setForm({ mode: 'edit', entry: agent });
+                  }}
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  data-action="delete"
+                  disabled={agent.readOnly}
+                  aria-label={`删除 ${agent.name}`}
+                  onClick={() => {
+                    setActionError(null);
+                    setForm({
+                      mode: 'edit',
+                      entry: agent,
+                      startConfirmingDelete: true,
+                    });
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+
+            {/* Line 2: description, clamped at two lines. */}
+            {agent.description && (
+              <p className="text-muted-foreground line-clamp-2 text-xs">
+                {agent.description}
+              </p>
+            )}
             {agent.shadowed && (
               // Single text node: nested markup would let the same warning
               // match two elements under getByText's direct-text extraction.
-              <p className="w-full text-xs text-amber-600 dark:text-amber-500">
+              <p className="text-xs text-amber-600 dark:text-amber-500">
                 此定义已被更高优先级的同名定义覆盖，不生效——编辑它不会改变子代理的实际行为。
               </p>
             )}
+
+            {/* Line 3: source file (truncated, full path in tooltip). */}
             {agent.filePath && (
-              <code className="text-muted-foreground text-xs">
-                {agent.filePath}
-              </code>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <p className="text-muted-foreground truncate font-mono text-[11px]">
+                      {agent.filePath}
+                    </p>
+                  }
+                />
+                <TooltipContent className="max-w-96 break-all">
+                  {agent.filePath}
+                </TooltipContent>
+              </Tooltip>
             )}
-            <div className="ml-auto flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                data-action="edit"
-                disabled={agent.readOnly}
-                aria-label={`编辑 ${agent.name}`}
-                onClick={() => {
-                  setActionError(null);
-                  setForm({ mode: 'edit', entry: agent });
-                }}
-              >
-                <Pencil />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                data-action="delete"
-                disabled={agent.readOnly}
-                aria-label={`删除 ${agent.name}`}
-                onClick={() => {
-                  setActionError(null);
-                  setForm({
-                    mode: 'edit',
-                    entry: agent,
-                    startConfirmingDelete: true,
-                  });
-                }}
-              >
-                <Trash2 />
-              </Button>
-            </div>
           </div>
         ))
       )}

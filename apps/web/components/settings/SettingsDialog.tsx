@@ -44,11 +44,14 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
           <DialogTitle>设置</DialogTitle>
         </DialogHeader>
 
+        {/* min-w-0: the dialog is a grid, so this Tabs (its grid item) defaults
+            to min-width auto — content with nowrap text (truncate rows) would
+            push the panel past the dialog's max width instead of shrinking. */}
         <Tabs
           orientation="vertical"
           value={tab}
           onValueChange={(value) => setTab(String(value))}
-          className="flex min-h-[60vh] flex-row gap-4"
+          className="flex min-h-[60vh] min-w-0 flex-row gap-4"
         >
           <TabsList className="h-auto w-40 shrink-0 flex-col items-stretch justify-start gap-0.5 self-start p-1">
             {TABS.map(({ value, label, icon: Icon }) => (
