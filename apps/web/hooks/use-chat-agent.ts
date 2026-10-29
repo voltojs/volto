@@ -11,6 +11,7 @@ import {
 } from '@/lib/agent-config';
 import { useChatStore } from '@/stores/chat-store';
 import { deltaChildId, eventChildId } from '@/lib/subagent-routing';
+import { tierNoticeFromEvent } from '@/lib/tier-notice';
 import { useSessionStore } from '@/stores/session-store';
 
 type SSEClient = ReturnType<typeof createSSEClient>;
@@ -96,6 +97,12 @@ export function useChatAgent(): UseChatAgentReturn {
           return;
         }
         chat.pushEvent(event);
+        // Tier-fallback frames (routing tiers D5) ride the main feed
+        // un-tagged. The raw event stays in the durable buffer above; the
+        // user-facing degradation note additionally becomes a trailing
+        // session notice that the projection appends after the feed.
+        const tierNotice = tierNoticeFromEvent(event);
+        if (tierNotice) chat.pushNotice(tierNotice);
         if (event.type === 'subagent_finished') {
           const data = event.data as {
             childSessionId?: string;

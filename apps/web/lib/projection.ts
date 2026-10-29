@@ -80,15 +80,26 @@ export function mergeStoredAndLive(
   ];
 }
 
+/**
+ * A neutral status row in the conversation (a cancelled turn, a model-tier
+ * fallback). `key` is the React key; `time` is the event's epoch time.
+ */
+export interface ChatNotice {
+  key: string;
+  text: string;
+  time: number;
+}
+
 /** One rendered row of the conversation: a chat bubble, an error, or a notice. */
 export type ChatEntry =
   | { kind: 'message'; message: ConversationMessage }
   | { kind: 'error'; key: string; text: string; time: number }
-  | { kind: 'notice'; key: string; text: string; time: number };
+  | ({ kind: 'notice' } & ChatNotice);
 
 /**
  * Composes the feed a UI renders from a merged message list plus the live
- * turn records the projection produced.
+ * turn records the projection produced, with session-level notices (e.g. a
+ * model-tier fallback) trailing the whole feed.
  *
  * Three rules keep the conversation honest around failures:
  * - A step that errored before producing an authoritative `assistant_message`
@@ -109,6 +120,7 @@ export type ChatEntry =
 export function composeChatEntries(
   messages: readonly ConversationMessage[],
   records: readonly TurnRecord[],
+  notices: readonly ChatNotice[] = [],
 ): ChatEntry[] {
   const stepErrorText = new Map<string, string>();
   for (const turn of records) {
@@ -176,7 +188,21 @@ export function composeChatEntries(
     });
   }
 
-  return withCancelNotices(entries, records);
+  const composed = withCancelNotices(entries, records);
+
+  // Session-level notices (model-tier fallback) trail the whole feed. They
+  // deliberately differ from the cancel notice above: a cancelled turn has
+  // no message of its own, so its notice is spliced into the turn's own
+  // entries to stay with what it describes (appending would float it below
+  // every later turn), while a tier degradation is a session-level advisory
+  // about how a sub-agent was dispatched (D5 emits it parent-level,
+  // un-tagged) — not a property of any turn's messages. Turn-anchoring it
+  // would invent an association the event does not claim, so it renders
+  // once, trailing the feed.
+  return [
+    ...composed,
+    ...notices.map((notice) => ({ kind: 'notice' as const, ...notice })),
+  ];
 }
 
 /** The turn an entry belongs to; ids and keys are all `${turn}:…`. */

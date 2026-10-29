@@ -76,6 +76,7 @@ beforeEach(() => {
     deltas: [],
     isGenerating: false,
     subagents: {},
+    notices: [],
   });
 });
 
@@ -131,5 +132,36 @@ describe('useChatAgent sub-agent routing wiring', () => {
     expect(end.events).toHaveLength(2);
     expect(end.subagents['w-sub-1']!.status).toBe('done');
     expect(end.subagents['w-sub-1']!.durationMs).toBe(42);
+  });
+
+  it('projects a main-feed tier-fallback frame into a session notice', () => {
+    renderHook(() => useChatAgent());
+    expect(channel.onEvent).toBeDefined();
+
+    // The tier event rides the main feed un-tagged (F-023 shape: no
+    // agentDepth), so it must land in the main buffer AND additionally
+    // surface as the session notice the feed renders.
+    act(() => {
+      channel.onEvent!({
+        time: 7,
+        type: 'subagent_model_tier_unresolved',
+        data: {
+          tierId: 'ghost',
+          turn: 1,
+          childSessionId: 'w-sub-9',
+          target: { providerId: 'openai', modelId: 'gpt-5' },
+        },
+      } as never);
+    });
+
+    const state = useChatStore.getState();
+    expect(state.events).toHaveLength(1);
+    expect(state.notices).toEqual([
+      {
+        key: 'tier-notice:ghost:7:w-sub-9',
+        text: '模型档位 "ghost" 未配置或已失效，本次子代理已回退使用主对话模型',
+        time: 7,
+      },
+    ]);
   });
 });
