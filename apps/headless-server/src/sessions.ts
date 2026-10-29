@@ -10,7 +10,7 @@
 
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
-import { sse } from "@volto/sdk";
+import { sse, type CreateAgentOptions } from "@volto/sdk";
 import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore } from "@volto/store-jsonl";
@@ -21,6 +21,7 @@ import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
+import { createRoutingTierStore } from "./config/routing-tiers.js";
 import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
 import { savePermissionRule } from "./config/permissions.js";
 import type { StoreFor } from "./attachments/store.js";
@@ -96,7 +97,7 @@ interface ResolvedConfig {
  * `PiAiProviderConfig` (same discriminant) and handed to `createWiredAgent`
  * via `WiringOptions.providerConfig`, which builds the actual ModelPort.
  */
-type ResolvedCredentials =
+export type ResolvedCredentials =
   | {
       kind: "catalog";
       piProvider: string;
@@ -207,6 +208,89 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
           },
         ],
       };
+}
+
+/**
+ * Credential resolution for one tier target — the same
+ * resolveModel→credentials projection `rebuild()` applies to the turn's own
+ * model. A parameter rather than a hard-wired `providerStore.resolveModel`
+ * so tests can inject fake credentials without faking the whole store.
+ */
+export type SubagentCredentialsResolver = (target: {
+  providerId: string;
+  modelId: string;
+}) => Promise<ResolvedCredentials | null>;
+
+/**
+ * The SDK's per-dispatch subagent ModelPort factory contract (spec
+ * 2026-10-29 D6) — pinned to `CreateAgentOptions.resolveSubagentModelPort`
+ * so the two can never drift apart.
+ */
+export type SubagentModelPortResolver = NonNullable<
+  CreateAgentOptions["resolveSubagentModelPort"]
+>;
+
+/**
+ * Per-dispatch subagent ModelPort factory (spec 2026-10-29 D6) — the host
+ * side of `CreateAgentOptions.resolveSubagentModelPort`. For one tier target
+ * it:
+ *
+ * 1. resolves the target through the credentials resolver (by default the
+ *    provider store's `resolveModel` — the exact path `rebuild()` uses for
+ *    the turn's own model); an unresolvable target answers `null`, which the
+ *    SDK turns into a visible degrade-to-parent for definition references;
+ * 2. projects the credentials through `buildProviderConfig` and builds a
+ *    single-model port routed on the TARGET provider's config id (same
+ *    construction path as `assertSupportedReasoningEffort`);
+ * 3. attaches the tier model's capability facts so the child dispatch gates
+ *    images and sizes compaction against the tier model, not the parent's.
+ *    A stored declaration wins over the adapter's `describeModel` answer —
+ *    the precedence the main agent already applies (rebuild forwards the
+ *    declared window; createWiredAgent falls back to describeModel, see
+ *    wiring.ts) — and anything still unknown is left OUT of the resolution
+ *    so the SDK inherits the parent's value.
+ *
+ * Every call builds a fresh port (same as `assertSupportedReasoningEffort`;
+ * no caching — YAGNI).
+ */
+export function buildSubagentModelPortFactory(
+  providerStore: Pick<ReturnType<typeof createProviderStore>, "resolveModel">,
+  credentialsResolver: SubagentCredentialsResolver = (target) =>
+    providerStore.resolveModel(target.providerId, target.modelId),
+): SubagentModelPortResolver {
+  return async (target) => {
+    const credentials = await credentialsResolver(target);
+    if (!credentials) return null;
+    const providerConfig = buildProviderConfig(target.providerId, credentials);
+    const modelPort = createPiAiModelPort({
+      providers: [providerConfig],
+      defaultProviderId: providerConfig.id,
+    });
+    let describedInput: ModelInputValue | undefined;
+    let describedWindow: number | undefined;
+    if (modelPort.describeModel) {
+      try {
+        const info = await modelPort.describeModel(credentials.code);
+        describedInput = info.input;
+        describedWindow = info.contextWindow;
+      } catch {
+        // A model the adapter cannot describe: only the stored declarations
+        // remain as facts. Never fail the resolution over metadata.
+      }
+    }
+    const input = credentials.input ?? describedInput;
+    // Tri-state, matching core's `input` semantics: absent = UNKNOWN, which
+    // leaves the field out (the SDK inherits the parent's gate); only an
+    // explicit list decides, and a text-only list is what refuses images.
+    const visionSupported = input?.includes("image");
+    const contextWindow = credentials.contextWindow ?? describedWindow;
+    return {
+      modelPort,
+      model: credentials.code,
+      ...(visionSupported !== undefined ? { visionSupported } : {}),
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+    };
+  };
 }
 
 /**
@@ -511,6 +595,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // Destructured out so `wiring` never carries a raw `false` that the
     // spread below would leak into createAgent.
     compaction: configuredCompaction,
+    // Tier wiring is owned by the registry itself (rebuild() reads the
+    // routing-tier config store on every build — the store is the single
+    // source of truth). Destructured out so `wiring` can never leak a tier
+    // table — especially an empty `[]`, which the SDK would read as tier
+    // mode — past the "both keys together or neither" rule in rebuild().
+    routingTiers: _wiringRoutingTiers,
+    resolveSubagentModelPort: _wiringResolveSubagentModelPort,
     ...wiring
   } = opts;
 
@@ -993,6 +1084,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     const seeded = seedHistory(session.history);
     // Plan 2: default-on. Absent config uses DEFAULT_COMPACTION; false disables.
     const compaction = resolveHostCompaction(configuredCompaction);
+    // Model routing tier table (spec 2026-10-29 D3-D6), read fresh on every
+    // rebuild — same reload discipline as egress/permissions/hooks in
+    // wiring.ts: an edit to routing-tiers.json reaches the next build without
+    // a restart. Missing file or `[]` reads as "no tiers configured".
+    const tierRecords = await createRoutingTierStore().list();
     // A rebuild replaces the instance, so the outgoing one's persistent bash
     // session and background processes have to be reclaimed here — nothing
     // else holds a reference to them afterwards.
@@ -1013,6 +1109,25 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       ...wiring,
       // Explicit override of the spread so the default-on decision is visible here.
       ...(compaction !== undefined ? { compaction } : {}),
+      // Model routing tiers (spec 2026-10-29 D3-D6): the tier table plus the
+      // per-dispatch ModelPort factory that materializes a tier's target. The
+      // two keys travel together or not at all — the SDK switches to tier
+      // mode on `routingTiers !== undefined`, so an empty/absent table must
+      // arrive as NO key, never `[]`, or every legacy raw model code would be
+      // hijacked into tier resolution (and per-dispatch raw codes would
+      // throw).
+      ...(tierRecords.length > 0
+        ? {
+            routingTiers: tierRecords,
+            // No provider store on a legacy registry (the /run path): no
+            // target can ever resolve, so a null factory degrades every tier
+            // dispatch to the parent model with the visible unresolved event
+            // — still better than passing tier ids through as raw codes.
+            resolveSubagentModelPort: providerStore
+              ? buildSubagentModelPortFactory(providerStore)
+              : async () => null,
+          }
+        : {}),
       // Same store the /attachments routes wrote to, scoped to this session:
       // the Runner resolves image refs against it when it assembles the
       // ModelRequest.
