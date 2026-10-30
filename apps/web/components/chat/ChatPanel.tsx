@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { MessageList } from './MessageList';
 import { ConversationColumn } from './ConversationColumn';
 import { useStreamDensity } from '@/lib/stream-density';
+import { expandStoredTitle } from '@/lib/session-title';
 import { InputBar } from './InputBar';
 import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
@@ -410,9 +411,13 @@ export function ChatPanel() {
     [sendMessage],
   );
 
-  // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
+  // Header 标题：会话标题（旧版本截断过的展开为全文）→ 项目名 → 欢迎语。
   const headerTitle =
-    currentSession?.title || currentProject?.name || '探索未至之境';
+    (currentSession
+      ? expandStoredTitle(currentSession.title, currentSession.messages)
+      : '') ||
+    currentProject?.name ||
+    '探索未至之境';
 
   // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
   // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接

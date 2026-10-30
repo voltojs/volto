@@ -6,7 +6,13 @@
 
 import type { ConversationMessage } from '@volto/sdk/sse';
 
-const MAX_TITLE_LENGTH = 30;
+/**
+ * A title is the first user message collapsed to one line. Early builds clipped
+ * it at 30 code points, which made the header unreadable ("review 从 29cd234…");
+ * the cap is now generous enough to keep a real title whole while still
+ * refusing to turn a pasted essay into a header.
+ */
+const MAX_TITLE_LENGTH = 200;
 
 /**
  * Derives a title from the first user message, collapsing whitespace
@@ -250,4 +256,31 @@ export async function runManualRename(
     setTitle(sessionId, previousTitle);
     setError('重命名失败，已恢复为原标题');
   }
+}
+
+/**
+ * The title to display when the stored one was clipped by an older build.
+ *
+ * Old sessions kept the clipped string ("…" included) and the write-back never
+ * revisits a non-empty title, so without this the header would keep showing a
+ * 30-character stub forever. Expansion only happens when the stored title is
+ * provably a prefix of the first user message — a hand-written title that
+ * happens to end with "…" is left alone.
+ */
+export function expandStoredTitle(
+  storedTitle: string,
+  messages: ConversationMessage[],
+): string {
+  if (!storedTitle.endsWith('…')) return storedTitle;
+  const first = messages.find((m) => m.role === 'user');
+  if (first === undefined) return storedTitle;
+  const collapsed = first.content.replace(/\s+/g, ' ').trim();
+  const prefix = storedTitle.slice(0, -1);
+  if (!collapsed.startsWith(prefix) || collapsed.length <= prefix.length) {
+    return storedTitle;
+  }
+  const codepoints = Array.from(collapsed);
+  return codepoints.length > MAX_TITLE_LENGTH
+    ? `${codepoints.slice(0, MAX_TITLE_LENGTH).join('')}…`
+    : collapsed;
 }
