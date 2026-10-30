@@ -241,26 +241,26 @@ export async function fetchPlan(
 }
 
 /**
- * Renames a session. The server stores titles as session_meta (last-wins),
- * so callers that race each other (the derived title vs. a manual rename)
- * must serialize via cancellation rather than relying on request ordering —
- * see `apps/web/lib/session-title.ts`'s `cancelPendingTitleWriteBack`. An
- * optional `signal` lets a caller abort the request; an aborted fetch
- * rejects (typically with `AbortError`) like any other failure, so callers
- * that pass a signal are responsible for distinguishing "aborted" from "the
- * server said no".
+ * Renames a session.
+ *
+ * `source` is the provenance the server ranks: `"user"` (the default) wins
+ * over everything, so a generated title that lands later cannot bury a name
+ * the human typed. A non-ok response rejects — including the 409 the server
+ * answers when a lower-ranked source tries to overwrite a higher one — so a
+ * caller that lost the ranking race sees a real failure instead of silence.
  */
 export async function renameServerSession(
   id: string,
   title: string,
-  signal?: AbortSignal,
+  opts: { signal?: AbortSignal; source?: 'user' | 'model' | 'heuristic' } = {},
 ): Promise<void> {
+  const { signal, source = 'user' } = opts;
   const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title }),
-    signal,
+    body: JSON.stringify({ title, source }),
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
     throw new Error(`Failed to rename session ${id}: HTTP ${response.status}`);
