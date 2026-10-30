@@ -110,7 +110,9 @@ export function TraceRow({
   );
 
   const rowClass = cn(
-    'group relative flex w-full items-center gap-1.5 rounded-md py-[2px] pr-1 pl-5',
+    // The button reaches into the gutter so the glyph has room without
+    // indenting the text; the panel itself stays on the prose edge.
+    'group relative -ml-5 flex w-[calc(100%_+_1.25rem)] items-center gap-1.5 rounded-md py-[2px] pr-1 pl-5',
     'text-left text-[13px] leading-[18px] transition-colors',
     'hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
   );
