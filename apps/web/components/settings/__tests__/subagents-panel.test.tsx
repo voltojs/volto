@@ -91,17 +91,36 @@ describe("SubagentsPanel", () => {
     expect(screen.getByText("继承主对话")).toBeInTheDocument();
   });
 
-  it("names the provider in the model tooltip instead of its id", async () => {
+  it("names the provider, model, and reasoning effort in the model tooltip", async () => {
     useConfigStore.setState({
-      providers: [{ id: "v1", name: "DeepSeek" } as never],
+      providers: [
+        {
+          id: "v1",
+          name: "DeepSeek",
+          kind: "custom",
+          baseURL: null,
+          models: [
+            {
+              id: "m2",
+              name: "DeepSeek V4",
+              code: "deepseek-flash",
+              reasoning: { efforts: [{ id: "low", name: "低" }], defaultEffort: "low" },
+            },
+          ],
+        } as never,
+      ],
+      catalogProviders: [],
     });
-    stub([{ ...AGENTS[0]!, spec: { ...AGENTS[0]!.spec, model: "premium" } }], TIERS);
+    const tiers = [{ ...TIERS[0]!, reasoningEffort: "low" }];
+    stub([{ ...AGENTS[0]!, spec: { ...AGENTS[0]!.spec, model: "premium" } }], tiers);
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<SubagentsPanel projectId={null} />);
     await waitFor(() => expect(screen.getByText("路由：最强")).toBeInTheDocument());
 
     await user.hover(screen.getByText("路由：最强"));
-    expect(await screen.findByText(/DeepSeek \/ m2/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("DeepSeek / DeepSeek V4 · 推理：低"),
+    ).toBeInTheDocument();
   });
 
   it("renders an empty state rather than a blank panel", async () => {

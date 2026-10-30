@@ -20,8 +20,8 @@ import {
   fetchRoutingTiers,
   type RoutingTier,
 } from '@/lib/routing-tiers-api';
-import { useConfigStore } from '@/stores/config-store';
-import type { Provider } from '@/lib/config-api';
+import { providerModels, useConfigStore } from '@/stores/config-store';
+import type { CatalogProvider, Provider } from '@/lib/config-api';
 import { SubagentForm, type SubagentFormSubmit } from './SubagentForm';
 
 interface SubagentsPanelProps {
@@ -95,10 +95,12 @@ function ModelBadge({
   model,
   tiers,
   providers,
+  catalogProviders,
 }: {
   model: string | undefined;
   tiers: RoutingTier[] | null;
   providers: readonly Provider[];
+  catalogProviders: readonly CatalogProvider[];
 }) {
   if (!model) return <Badge variant="secondary">继承主对话</Badge>;
   const tier = tiers?.find((candidate) => candidate.id === model);
@@ -112,18 +114,26 @@ function ModelBadge({
   if (!tier.target) {
     return <Badge variant="outline">路由：{tier.label}（未配置模型）</Badge>;
   }
-  // Prefer the user-facing provider name; fall back to the id when the
-  // provider list has not loaded (or the provider was deleted).
+  // Prefer the user-facing names; fall back to the raw ids when the provider
+  // list has not loaded, the provider was deleted, or the model is gone.
   const target = tier.target;
-  const providerName =
-    providers.find((provider) => provider.id === target.providerId)?.name ??
-    target.providerId;
+  const provider = providers.find((candidate) => candidate.id === target.providerId);
+  const providerName = provider?.name ?? target.providerId;
+  const targetModel = provider
+    ? providerModels(provider, catalogProviders).find(
+        (candidate) => candidate.id === target.modelId || candidate.code === target.modelId,
+      )
+    : undefined;
+  const modelName = targetModel?.name ?? target.modelId;
+  const effortName =
+    targetModel?.reasoning?.efforts.find((effort) => effort.id === tier.reasoningEffort)?.name ??
+    tier.reasoningEffort;
   return (
     <Tooltip>
       <TooltipTrigger render={<Badge variant="outline">路由：{tier.label}</Badge>} />
       <TooltipContent>
-        {providerName} / {target.modelId}
-        {tier.reasoningEffort ? ` · 推理：${tier.reasoningEffort}` : ''}
+        {providerName} / {modelName}
+        {effortName ? ` · 推理：${effortName}` : ''}
       </TooltipContent>
     </Tooltip>
   );
@@ -138,6 +148,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
   // fetch falls back to. The form must not judge staleness before settle.
   const [tiers, setTiers] = useState<RoutingTier[] | null>(null);
   const providers = useConfigStore((state) => state.providers);
+  const catalogProviders = useConfigStore((state) => state.catalogProviders);
 
   // Routing tiers feed the form's model dropdown. A failed load is not a
   // form error: the dropdown degrades to the inherit-only list and saving
@@ -284,7 +295,12 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                 {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
               </span>
               <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
-              <ModelBadge model={agent.spec.model} tiers={tiers} providers={providers} />
+              <ModelBadge
+                model={agent.spec.model}
+                tiers={tiers}
+                providers={providers}
+                catalogProviders={catalogProviders}
+              />
               <ToolBadges tools={agent.spec.tools ?? []} />
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button
