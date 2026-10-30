@@ -608,7 +608,6 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   const { entries: agentSpecs } = await scanAgentSources({
     cwd,
     configDir: getConfigDir(),
-    homeDir: os.homedir(),
     ...(opts.pluginAgents ? { pluginSpecs: opts.pluginAgents } : {}),
   });
 

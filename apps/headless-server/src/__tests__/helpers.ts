@@ -342,8 +342,8 @@ async function writeAgentFile(dir: string, name: string, systemPrompt: string): 
  * Each call creates its own VOLTO_CONFIG_DIR / HOME temp dirs and a real
  * project row (POST /projects), and binds the server's default cwd to that
  * project — so project-scope agent writes land in the temp tree, never the
- * repo. HOME is redirected so os.homedir()-based scans cannot pick up the
- * machine's real ~/.claude / ~/.agents definitions.
+ * repo. HOME is redirected so os.homedir()-based skill and instruction scans
+ * cannot pick up the machine's real ~/.claude / ~/.agents files.
  */
 export async function startRouteTestServer(
   options: StartRouteTestServerOptions = {},

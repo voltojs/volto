@@ -1,10 +1,10 @@
 /**
  * Write layer for agent definition files.
  *
- * Creates / updates / deletes `.md` files in the canonical write targets
- * (project: `<cwd>/.volto/agents`, user: `<configDir>/agents`). The
- * compatibility sources (`.claude`, `.agents`) are read by scan.ts but
- * never written here — we only ever write where we fully own the format.
+ * Creates / updates / deletes `.md` files in the canonical definition dirs
+ * (project: `<cwd>/.volto/agents`, user: `<configDir>/agents`). These are
+ * also the only dirs scan.ts reads, so what this store writes is exactly
+ * what the settings UI lists.
  *
  * `update` rereads the file before writing so hand-authored frontmatter
  * keys and the body survive an edit made through the UI.
@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentSpec } from "../agent-spec.js";
 import { parseAgentFile } from "./frontmatter.js";
-import { fileSources, type AgentEntry } from "./scan.js";
+import type { AgentEntry } from "./scan.js";
 import { serializeAgentFile } from "./serialize.js";
 
 export interface AgentStore {
@@ -26,7 +26,6 @@ export interface AgentStore {
 export interface CreateAgentStoreOptions {
   cwd: string;
   configDir: string;
-  homeDir: string;
 }
 
 /**
@@ -82,22 +81,13 @@ export function createAgentStore(opts: CreateAgentStoreOptions): AgentStore {
       ? path.join(opts.cwd, ".volto", "agents")
       : path.join(opts.configDir, "agents");
 
-  /** Every directory the scanner reads for a scope — duplicate checks span all of them. */
-  const scopeDirs = (scope: "project" | "user"): string[] =>
-    fileSources(opts)
-      .filter((s) => s.scope === scope)
-      .map((s) => s.dir);
-
   return {
     async create({ spec, scope }) {
       assertValidName(spec.name);
-      for (const dir of scopeDirs(scope)) {
-        const candidate = path.join(dir, `${spec.name}.md`);
-        if (await exists(candidate)) {
-          throw new Error(`agent "${spec.name}" already exists at ${candidate}`);
-        }
-      }
       const filePath = path.join(writeDir(scope), `${spec.name}.md`);
+      if (await exists(filePath)) {
+        throw new Error(`agent "${spec.name}" already exists at ${filePath}`);
+      }
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, serializeAgentFile(spec), "utf8");
       return { id: `${scope}:${spec.name}`, scope, spec, filePath, shadowed: false };

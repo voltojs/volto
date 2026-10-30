@@ -32,7 +32,6 @@
 import * as http from "node:http";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos } from "@volto/core";
@@ -1264,7 +1263,6 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       const agentsCtx: AgentsContext = {
         cwd: agentsCwd,
         configDir: getConfigDir(),
-        homeDir: os.homedir(),
         pluginSpecs: pluginAgents,
       };
 

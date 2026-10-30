@@ -27,11 +27,10 @@ describe("scanAgentSources", () => {
   it("prefers a project definition over a same-named user definition", async () => {
     const cwd = await tmp();
     const configDir = await tmp();
-    const home = await tmp();
     await writeAgent(path.join(configDir, "agents"), "searcher", "user version");
     await writeAgent(path.join(cwd, ".volto", "agents"), "searcher", "project version");
 
-    const { entries } = await scanAgentSources({ cwd, configDir, homeDir: home });
+    const { entries } = await scanAgentSources({ cwd, configDir });
     const winner = entries.find((e) => e.spec.name === "searcher" && !e.shadowed);
     expect(winner?.scope).toBe("project");
     expect(winner?.spec.systemPrompt).toBe("project version");
@@ -40,25 +39,27 @@ describe("scanAgentSources", () => {
   it("marks the losing definition as shadowed instead of dropping it", async () => {
     const cwd = await tmp();
     const configDir = await tmp();
-    const home = await tmp();
     await writeAgent(path.join(configDir, "agents"), "searcher");
     await writeAgent(path.join(cwd, ".volto", "agents"), "searcher");
 
-    const { entries } = await scanAgentSources({ cwd, configDir, homeDir: home });
+    const { entries } = await scanAgentSources({ cwd, configDir });
     const all = entries.filter((e) => e.spec.name === "searcher");
     expect(all).toHaveLength(2);
     expect(all.filter((e) => e.shadowed)).toHaveLength(1);
     expect(all.find((e) => e.shadowed)?.scope).toBe("user");
   });
 
-  it("prefers .volto over .claude at the same level", async () => {
+  it("reads only .volto/agents, never the .claude or .agents compat dirs", async () => {
     const cwd = await tmp();
-    await writeAgent(path.join(cwd, ".claude", "agents"), "x", "claude version");
-    await writeAgent(path.join(cwd, ".volto", "agents"), "x", "volto version");
+    const configDir = await tmp();
+    await writeAgent(path.join(cwd, ".claude", "agents"), "proj-claude");
+    await writeAgent(path.join(cwd, ".agents", "agents"), "proj-agents");
+    await writeAgent(path.join(configDir, ".claude", "agents"), "user-claude");
+    await writeAgent(path.join(configDir, "agents"), "only-user", "user version");
+    await writeAgent(path.join(cwd, ".volto", "agents"), "only-project", "project version");
 
-    const { entries } = await scanAgentSources({ cwd, configDir: await tmp(), homeDir: await tmp() });
-    expect(entries.find((e) => e.spec.name === "x" && !e.shadowed)?.spec.systemPrompt)
-      .toBe("volto version");
+    const { entries } = await scanAgentSources({ cwd, configDir });
+    expect(entries.map((e) => e.spec.name).sort()).toEqual(["only-project", "only-user"]);
   });
 
   it("includes plugin specs at the lowest priority", async () => {
@@ -68,7 +69,6 @@ describe("scanAgentSources", () => {
     const { entries } = await scanAgentSources({
       cwd,
       configDir: await tmp(),
-      homeDir: await tmp(),
       pluginSpecs: [
         { name: "dup", systemPrompt: "plugin version" },
         { name: "only-plugin", systemPrompt: "p" },
@@ -87,7 +87,7 @@ describe("scanAgentSources", () => {
     await fs.writeFile(path.join(dir, "bad.md"), "no frontmatter here", "utf8");
 
     const { entries, warnings } = await scanAgentSources({
-      cwd, configDir: await tmp(), homeDir: await tmp(),
+      cwd, configDir: await tmp(),
     });
 
     expect(entries.map((e) => e.spec.name)).toContain("good");
@@ -98,15 +98,14 @@ describe("scanAgentSources", () => {
   it("rereads the directory on every call so new files appear", async () => {
     const cwd = await tmp();
     const configDir = await tmp();
-    const home = await tmp();
     const dir = path.join(cwd, ".volto", "agents");
     await writeAgent(dir, "first");
 
-    const before = await scanAgentSources({ cwd, configDir, homeDir: home });
+    const before = await scanAgentSources({ cwd, configDir });
     expect(before.entries).toHaveLength(1);
 
     await writeAgent(dir, "second");
-    const after = await scanAgentSources({ cwd, configDir, homeDir: home });
+    const after = await scanAgentSources({ cwd, configDir });
     expect(after.entries).toHaveLength(2);
   });
 
@@ -114,7 +113,7 @@ describe("scanAgentSources", () => {
     const cwd = await tmp();
     await writeAgent(path.join(cwd, ".volto", "agents"), "searcher");
     const { entries } = await scanAgentSources({
-      cwd, configDir: await tmp(), homeDir: await tmp(),
+      cwd, configDir: await tmp(),
       pluginSpecs: [{ name: "plugged", systemPrompt: "p" }],
     });
     expect(entries.find((e) => e.spec.name === "searcher")?.id).toBe("project:searcher");
@@ -131,7 +130,7 @@ describe("scanAgentSources", () => {
       "utf8",
     );
     const { entries } = await scanAgentSources({
-      cwd, configDir: await tmp(), homeDir: await tmp(),
+      cwd, configDir: await tmp(),
     });
     const entry = entries.find((e) => e.spec.name === "tagged");
     expect(entry?.filePath).toBe(path.join(dir, "tagged.md"));

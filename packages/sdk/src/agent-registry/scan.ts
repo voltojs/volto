@@ -33,28 +33,28 @@ export interface AgentScanResult {
 export interface ScanAgentSourcesOptions {
   cwd: string;
   configDir: string;
-  homeDir: string;
   pluginSpecs?: AgentSpec[];
 }
 
 /**
- * File sources in ascending priority (later wins). Order mirrors the skill
- * registry: user-level homes first, then project; within a level `.volto`
- * beats `.claude` beats `.agents`. Exported because the write layer shares
- * this layout for same-scope duplicate checks.
+ * File sources in ascending priority (later wins): user-level
+ * `<configDir>/agents` first, then the project's `.volto/agents`.
+ *
+ * These are the only two definition locations. Compatibility sources
+ * (`.claude/agents`, `.agents/agents`) are deliberately not read: an agent
+ * definition has one home, so a file the settings UI never shows cannot
+ * silently override the one it does.
+ *
+ * Exported because the write layer shares this layout for same-scope
+ * duplicate checks.
  */
 export function fileSources(opts: {
   cwd: string;
   configDir: string;
-  homeDir: string;
 }): Array<{ dir: string; scope: "user" | "project" }> {
-  const { cwd, configDir, homeDir } = opts;
+  const { cwd, configDir } = opts;
   return [
-    { dir: path.join(homeDir, ".agents", "agents"), scope: "user" },
-    { dir: path.join(homeDir, ".claude", "agents"), scope: "user" },
     { dir: path.join(configDir, "agents"), scope: "user" },
-    { dir: path.join(cwd, ".agents", "agents"), scope: "project" },
-    { dir: path.join(cwd, ".claude", "agents"), scope: "project" },
     { dir: path.join(cwd, ".volto", "agents"), scope: "project" },
   ];
 }

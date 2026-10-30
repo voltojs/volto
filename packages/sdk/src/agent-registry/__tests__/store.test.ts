@@ -83,7 +83,7 @@ describe("AgentStore", () => {
   async function store() {
     const cwd = await tmp();
     const configDir = await tmp();
-    return { cwd, configDir, store: createAgentStore({ cwd, configDir, homeDir: await tmp() }) };
+    return { cwd, configDir, store: createAgentStore({ cwd, configDir }) };
   }
 
   it("creates a project-level definition under .volto/agents", async () => {

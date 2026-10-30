@@ -45,7 +45,6 @@ export interface AgentsContext {
   /** Project directory — store target for `project` scope, scan root. */
   cwd: string;
   configDir: string;
-  homeDir: string;
   pluginSpecs: AgentSpec[];
 }
 
@@ -86,7 +85,7 @@ export function parseAgentId(id: string): {
 }
 
 function storeFor(ctx: AgentsContext) {
-  return createAgentStore({ cwd: ctx.cwd, configDir: ctx.configDir, homeDir: ctx.homeDir });
+  return createAgentStore({ cwd: ctx.cwd, configDir: ctx.configDir });
 }
 
 /** Fresh scan of every source; no caching — see the module comment. */
@@ -96,7 +95,6 @@ export async function listAgents(
   const { entries } = await scanAgentSources({
     cwd: ctx.cwd,
     configDir: ctx.configDir,
-    homeDir: ctx.homeDir,
     pluginSpecs: ctx.pluginSpecs,
   });
   return { agents: entries.map(toPublicEntry) };

@@ -187,7 +187,9 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
 
       {agents.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          还没有子代理定义。在 <code className="font-mono">.volto/agents</code>{' '}
+          还没有子代理定义。在用户级{' '}
+          <code className="font-mono">~/.volto/agents</code> 或项目级{' '}
+          <code className="font-mono">.volto/agents</code>{' '}
           下添加 Markdown 文件后会自动出现。
         </p>
       ) : (
