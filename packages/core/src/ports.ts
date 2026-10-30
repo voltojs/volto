@@ -436,6 +436,8 @@ export interface SessionStore {
 
 export interface ChatSessionMeta {
   title?: string;
+  /** Who produced the current title; decides what may overwrite it. */
+  titleSource?: "user" | "model" | "heuristic";
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;

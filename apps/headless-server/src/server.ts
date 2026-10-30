@@ -1112,6 +1112,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           "lastProviderId",
           "lastModelId",
           "lastReasoningEffort",
+          "titleProviderId",
+          "titleModelId",
         ]) {
           if (typeof body?.[key] === "string") patch[key] = body[key];
         }

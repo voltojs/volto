@@ -1,6 +1,6 @@
 /**
- * Defaults the next conversation starts with, persisted by the gateway under
- * `~/.volto/preferences.json`.
+ * Defaults the next conversation starts with, persisted by the gateway in
+ * `~/.volto/config.json` (`preferences` section).
  *
  * They live on the server rather than in `localStorage` because they describe
  * the workspace's setup (which model, which permission tier), not this
@@ -18,6 +18,12 @@ export interface Preferences {
   lastModelId?: string;
   /** Last reasoning-effort id chosen for that model. */
   lastReasoningEffort?: string;
+  /**
+   * Model used to name new sessions. Absent/empty = the gateway truncates the
+   * first message instead of calling a model.
+   */
+  titleProviderId?: string;
+  titleModelId?: string;
 }
 
 export const EMPTY_PREFERENCES: Preferences = {};
