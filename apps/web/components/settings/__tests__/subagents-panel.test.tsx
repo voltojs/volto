@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { SubagentsPanel } from "../SubagentsPanel";
 import type { RoutingTier } from "@/lib/routing-tiers-api";
 import type { AgentEntry } from "@/lib/agents-api";
+import { useConfigStore } from "@/stores/config-store";
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
 // Select uses internally; stub them so the popup can open in tests.
@@ -41,7 +42,10 @@ function stub(agents = AGENTS, tiers: RoutingTier[] = []) {
     return new Response(JSON.stringify({ tools: [] }), { status: 200 });
   }));
 }
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useConfigStore.setState({ providers: [] });
+});
 
 describe("SubagentsPanel", () => {
   it("shows a source badge for every entry", async () => {
@@ -85,6 +89,19 @@ describe("SubagentsPanel", () => {
     expect(screen.getByText("已失效档位:gone")).toBeInTheDocument();
     // The plugin entry carries no model and must read as inheritance.
     expect(screen.getByText("继承主对话")).toBeInTheDocument();
+  });
+
+  it("names the provider in the model tooltip instead of its id", async () => {
+    useConfigStore.setState({
+      providers: [{ id: "v1", name: "DeepSeek" } as never],
+    });
+    stub([{ ...AGENTS[0]!, spec: { ...AGENTS[0]!.spec, model: "premium" } }], TIERS);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("路由：最强")).toBeInTheDocument());
+
+    await user.hover(screen.getByText("路由：最强"));
+    expect(await screen.findByText(/DeepSeek \/ m2/)).toBeInTheDocument();
   });
 
   it("renders an empty state rather than a blank panel", async () => {

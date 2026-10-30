@@ -20,6 +20,8 @@ import {
   fetchRoutingTiers,
   type RoutingTier,
 } from '@/lib/routing-tiers-api';
+import { useConfigStore } from '@/stores/config-store';
+import type { Provider } from '@/lib/config-api';
 import { SubagentForm, type SubagentFormSubmit } from './SubagentForm';
 
 interface SubagentsPanelProps {
@@ -92,9 +94,11 @@ function ToolBadges({ tools }: { tools: readonly string[] }) {
 function ModelBadge({
   model,
   tiers,
+  providers,
 }: {
   model: string | undefined;
   tiers: RoutingTier[] | null;
+  providers: readonly Provider[];
 }) {
   if (!model) return <Badge variant="secondary">继承主对话</Badge>;
   const tier = tiers?.find((candidate) => candidate.id === model);
@@ -108,11 +112,17 @@ function ModelBadge({
   if (!tier.target) {
     return <Badge variant="outline">路由：{tier.label}（未配置模型）</Badge>;
   }
+  // Prefer the user-facing provider name; fall back to the id when the
+  // provider list has not loaded (or the provider was deleted).
+  const target = tier.target;
+  const providerName =
+    providers.find((provider) => provider.id === target.providerId)?.name ??
+    target.providerId;
   return (
     <Tooltip>
       <TooltipTrigger render={<Badge variant="outline">路由：{tier.label}</Badge>} />
       <TooltipContent>
-        {tier.target.providerId} / {tier.target.modelId}
+        {providerName} / {target.modelId}
         {tier.reasoningEffort ? ` · 推理：${tier.reasoningEffort}` : ''}
       </TooltipContent>
     </Tooltip>
@@ -127,6 +137,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
   // one) is the settled answer, including the degraded empty list a failed
   // fetch falls back to. The form must not judge staleness before settle.
   const [tiers, setTiers] = useState<RoutingTier[] | null>(null);
+  const providers = useConfigStore((state) => state.providers);
 
   // Routing tiers feed the form's model dropdown. A failed load is not a
   // form error: the dropdown degrades to the inherit-only list and saving
@@ -273,7 +284,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                 {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
               </span>
               <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
-              <ModelBadge model={agent.spec.model} tiers={tiers} />
+              <ModelBadge model={agent.spec.model} tiers={tiers} providers={providers} />
               <ToolBadges tools={agent.spec.tools ?? []} />
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button
