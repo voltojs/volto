@@ -127,7 +127,7 @@ function ReasoningRow({ text }: { text: string }) {
   const preview = (text.split('\n')[0] ?? '').trim();
   return (
     <Collapsible className="group/reason">
-      <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
+      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
         <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         <span className="shrink-0">思考</span>
         {preview !== '' && (

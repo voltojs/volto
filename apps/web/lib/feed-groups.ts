@@ -73,7 +73,13 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
     const footerFor = (): ConversationMessage | null => (isTurnTail ? message : null);
     const segments = groupConversationBlocks(message.blocks);
     if (segments.length === 0) {
+      // A step that errored before producing content still carries the round's
+      // usage. Dropping the row would drop the only trace of that round, so an
+      // empty answer row keeps the footer alive.
       flush();
+      if (isTurnTail) {
+        rows.push({ kind: 'answer', key: `${message.id}:footer`, blocks: [], footer: message });
+      }
       continue;
     }
 

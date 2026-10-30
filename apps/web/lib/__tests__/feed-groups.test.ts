@@ -87,6 +87,16 @@ describe('groupFeedEntries', () => {
     expect(kinds(rows)).toEqual(['entry', 'activity', 'entry']);
   });
 
+  it('keeps the footer of an empty tail step (errored round)', () => {
+    const rows = groupFeedEntries([
+      assistant('1:1', [tool('t1')]),
+      assistant('1:2', []),
+    ]);
+    const last = rows[rows.length - 1]!;
+    expect(last.kind).toBe('answer');
+    expect(footerOf(last)?.id).toBe('1:2');
+  });
+
   it('drops nothing when a message is pure answer text', () => {
     const rows = groupFeedEntries([assistant('m1', [text('only words')], 'only words')]);
     expect(kinds(rows)).toEqual(['answer']);

@@ -24,15 +24,17 @@ export function AnswerRow({
 }) {
   return (
     <div className="animate-in-stagger py-1">
-      <div className="space-y-2">
-        {blocks.map((block, index) =>
-          block.type === 'image' ? (
-            <AttachmentImage key={index} block={block} sessionId={sessionId} />
-          ) : (
-            <Markdown key={index} content={block.text} />
-          ),
-        )}
-      </div>
+      {blocks.length > 0 && (
+        <div className="space-y-2">
+          {blocks.map((block, index) =>
+            block.type === 'image' ? (
+              <AttachmentImage key={index} block={block} sessionId={sessionId} />
+            ) : (
+              <Markdown key={index} content={block.text} />
+            ),
+          )}
+        </div>
+      )}
       {footer !== null && footer !== undefined && <MessageFooter message={footer} />}
     </div>
   );
