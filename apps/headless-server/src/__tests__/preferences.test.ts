@@ -79,8 +79,8 @@ describe("preferences", () => {
     });
   });
 
-  it("writes the defaults to ~/.volto/preferences.json", async () => {
-    const raw = await fs.readFile(path.join(dir, "preferences.json"), "utf8");
-    expect(JSON.parse(raw)).toMatchObject({ defaultPermissionMode: "auto" });
+  it("writes the defaults to config.json", async () => {
+    const raw = await fs.readFile(path.join(dir, "config.json"), "utf8");
+    expect(JSON.parse(raw).preferences).toMatchObject({ defaultPermissionMode: "auto" });
   });
 });

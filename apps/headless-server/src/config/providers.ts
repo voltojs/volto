@@ -1,6 +1,7 @@
 /**
  * Provider registry — LLM providers and the models available under each.
- * Persisted as `~/.volto/providers.json` with the apiKey encrypted.
+ * Persisted in `~/.volto/config.json` under `providers`, with the apiKey
+ * encrypted.
  *
  * The public surface (`listPublic`, `create`, `update`) never returns the
  * plaintext key. `resolveModel` is the single exception and exists only to
@@ -10,8 +11,8 @@
 import * as crypto from "node:crypto";
 import type { ModelInputValue } from "@volto/core";
 import { createCipher } from "./crypto.js";
-import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
-import { readJsonFile, writeJsonFileAtomic } from "./io.js";
+import { getConfigDir } from "./paths.js";
+import { getConfigStore } from "./store.js";
 
 export interface Model {
   id: string;
@@ -126,20 +127,20 @@ export type ProviderInput =
     };
 
 export function createProviderStore(dir: string = getConfigDir()) {
-  const file = getConfigPath("providers.json", dir);
+  const store = getConfigStore(dir);
   const cipher = createCipher(dir);
 
   async function readAll(): Promise<Provider[]> {
-    // Missing file means "no providers yet"; a present-but-corrupt file
-    // throws instead of being treated as empty — see config/io.ts. Treating
-    // it as empty here would have meant the next create()/update() call
+    // Missing section means "no providers yet"; a corrupt document throws
+    // instead of being treated as empty — see config/store.ts. Treating it
+    // as empty here would have meant the next create()/update() call
     // silently discarded every provider (and every apiKey with it).
     // `kind` is optional on disk: a record written before the discriminator
     // existed has none, and reads as "custom" — a default, not a migration
     // (see module header). This is the only place that default is applied.
-    const raw = await readJsonFile<
-      Array<Provider & { kind?: "catalog" | "custom"; modelCodes?: string[] }>
-    >(file, []);
+    const raw = (await store.read())["providers"] as
+      | Array<Provider & { kind?: "catalog" | "custom"; modelCodes?: string[] }>
+      | undefined ?? [];
     return raw.map((p) => {
       if (p.kind !== "catalog") return { ...p, kind: "custom" as const };
       // Same read-time default as `kind` above: a catalog record written when
@@ -152,8 +153,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
   }
 
   async function writeAll(providers: Provider[]): Promise<void> {
-    await ensureConfigDir(dir);
-    await writeJsonFileAtomic(file, providers);
+    await store.update("providers", () => providers);
   }
 
   async function toPublic(provider: Provider): Promise<PublicProvider> {

@@ -47,7 +47,7 @@ describe("createProviderStore", () => {
 
   it("stores the key encrypted on disk", async () => {
     await createProviderStore(dir).create(INPUT);
-    const raw = await fs.readFile(path.join(dir, "providers.json"), "utf-8");
+    const raw = await fs.readFile(path.join(dir, "config.json"), "utf-8");
     expect(raw).not.toContain("sk-abcdefgh3f2a");
   });
 
@@ -126,7 +126,7 @@ describe("createProviderStore", () => {
 
   it("throws instead of treating a corrupt file as empty", async () => {
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, "providers.json"), "{not valid json", "utf-8");
+    await fs.writeFile(path.join(dir, "config.json"), "{not valid json", "utf-8");
     await expect(createProviderStore(dir).listPublic()).rejects.toThrow();
   });
 
@@ -136,7 +136,7 @@ describe("createProviderStore", () => {
 
     // Simulate corruption (e.g. a crash mid-write under the old
     // non-atomic writeAll) rather than the code under test producing it.
-    const file = path.join(dir, "providers.json");
+    const file = path.join(dir, "config.json");
     await fs.writeFile(file, "{not valid json", "utf-8");
 
     // Before the fix, create() would read the corrupt file as `[]` and
@@ -148,7 +148,7 @@ describe("createProviderStore", () => {
   it("writes atomically: no leftover temp file after a successful write", async () => {
     await createProviderStore(dir).create(INPUT);
     const entries = (await fs.readdir(dir)).filter((name) => name !== "key");
-    expect(entries).toEqual(["providers.json"]);
+    expect(entries).toEqual(["config.json"]);
   });
 });
 
@@ -161,8 +161,8 @@ describe("model contextWindow", () => {
     });
     const [provider] = await store.listPublic();
     expect(asCustom(provider!).models[0]).toMatchObject({ code: "m-1", contextWindow: 128000 });
-    const raw = JSON.parse(await fs.readFile(path.join(dir, "providers.json"), "utf-8"));
-    expect(raw[0].models[0].contextWindow).toBe(128000);
+    const raw = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf-8"));
+    expect(raw.providers[0].models[0].contextWindow).toBe(128000);
   });
 
   it("rejects zero, negative and non-integer contextWindow with a 400-worthy error", async () => {
@@ -512,8 +512,8 @@ describe("model maxOutputTokens", () => {
     });
     const [provider] = await store.listPublic();
     expect(asCustom(provider!).models[0]).toMatchObject({ code: "m-1", maxOutputTokens: 8192 });
-    const raw = JSON.parse(await fs.readFile(path.join(dir, "providers.json"), "utf-8"));
-    expect(raw[0].models[0].maxOutputTokens).toBe(8192);
+    const raw = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf-8"));
+    expect(raw.providers[0].models[0].maxOutputTokens).toBe(8192);
   });
 
   it("rejects zero, negative and non-integer maxOutputTokens", async () => {

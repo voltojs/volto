@@ -3,15 +3,16 @@
  * and reasoning effort the *next* conversation should start with.
  *
  * These are deliberately not per-session: the session already stores its own
- * copy (and the transcript records what a turn actually ran with). This file
- * only answers "what should a fresh conversation pre-select", which is why a
- * missing or corrupt file degrades to empty defaults instead of failing the
- * gateway — a preference is never worth blocking on.
+ * copy (and the transcript records what a turn actually ran with). The values
+ * live in `config.json` under `preferences`; a corrupt document degrades to
+ * empty defaults instead of failing the gateway — a preference is never worth
+ * blocking on.
  */
 
 import * as path from "node:path";
 import { getConfigDir } from "./paths.js";
-import { readJsonFile, writeJsonFileAtomic } from "./io.js";
+import { ConfigCorruptError } from "./io.js";
+import { getConfigStore } from "./store.js";
 
 /** Opaque ids: the server never interprets them, only hands them back. */
 export interface Preferences {
@@ -29,21 +30,22 @@ export interface PreferencesStore {
   patch(next: Preferences): Promise<Preferences>;
 }
 
+/** The pre-unification file, retained for migration and documentation. */
 export function preferencesPath(dir: string = getConfigDir()): string {
   return path.join(dir, "preferences.json");
 }
 
 /**
- * Reads the preferences object.
- *
- * Unknown keys are dropped rather than persisted, so a hand-edited file
- * cannot smuggle arbitrary data into later writes.
+ * Keeps only the string fields this domain owns. Unknown keys are dropped on
+ * read, so a hand-edited document cannot smuggle arbitrary data into a later
+ * write.
  */
-export async function readPreferences(dir: string = getConfigDir()): Promise<Preferences> {
-  const raw = await readJsonFile<Record<string, unknown>>(preferencesPath(dir), {});
+function normalizePreferences(raw: unknown): Preferences {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
   const out: Preferences = {};
   const str = (key: keyof Preferences): void => {
-    const value = raw[key];
+    const value = record[key];
     if (typeof value === "string" && value.length > 0) out[key] = value;
   };
   str("defaultPermissionMode");
@@ -53,18 +55,30 @@ export async function readPreferences(dir: string = getConfigDir()): Promise<Pre
   return out;
 }
 
-/** Merges a patch over the current file and rewrites it atomically. */
+/** Reads the preferences object from the unified config. */
+export async function readPreferences(dir: string = getConfigDir()): Promise<Preferences> {
+  try {
+    const config = await getConfigStore(dir).read();
+    return normalizePreferences(config["preferences"]);
+  } catch (err) {
+    if (err instanceof ConfigCorruptError) return {};
+    throw err;
+  }
+}
+
+/** Merges a patch into the stored preferences under the config write lock. */
 export async function patchPreferences(
   patch: Preferences,
   dir: string = getConfigDir(),
 ): Promise<Preferences> {
-  const current = await readPreferences(dir);
-  const next: Preferences = { ...current };
-  for (const [key, value] of Object.entries(patch)) {
-    if (key in current || value !== undefined) {
-      (next as Record<string, unknown>)[key] = value;
+  return getConfigStore(dir).update<Preferences>("preferences", (stored) => {
+    const current = normalizePreferences(stored);
+    const next: Preferences = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      if (key in current || value !== undefined) {
+        (next as Record<string, unknown>)[key] = value;
+      }
     }
-  }
-  await writeJsonFileAtomic(preferencesPath(dir), next);
-  return next;
+    return next;
+  });
 }

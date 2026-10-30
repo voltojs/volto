@@ -1,7 +1,7 @@
 /**
  * Routing tier registry — the model routing table sub-agent dispatches
- * resolve tier ids against. Persisted as `~/.volto/routing-tiers.json`.
- * Before the first write the table is the factory template
+ * resolve tier ids against. Persisted in `~/.volto/config.json` under
+ * `routingTiers`. Before the first write the table is the factory template
  * (`DEFAULT_TIER_TEMPLATES`), served unpersisted (spec v2 D7/D8).
  *
  * The store only owns persistence plus id validation. Two decisions live
@@ -18,8 +18,8 @@
 import * as fs from "node:fs/promises";
 import type { AgentEntry, AgentSpec } from "@volto/sdk";
 import { scanAgentEntries } from "../agents/routes.js";
-import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
-import { readJsonFile, writeJsonFileAtomic } from "./io.js";
+import { getConfigDir } from "./paths.js";
+import { getConfigStore } from "./store.js";
 
 export interface RoutingTierRecord {
   id: string;
@@ -177,29 +177,29 @@ export function createRoutingTierStore(dir: string = getConfigDir()): {
   list(): Promise<RoutingTierRecord[]>;
   replace(tiers: RoutingTierRecord[]): Promise<void>;
 } {
-  const file = getConfigPath("routing-tiers.json", dir);
+  const store = getConfigStore(dir);
 
   return {
-    // A missing file is the first-run state: the factory template comes back
-    // UNPERSISTED (spec v2 D7/D8) — reading never writes, so the first
-    // `replace()` is what makes the table user-owned. A present file is
+    // A missing section is the first-run state: the factory template comes
+    // back UNPERSISTED (spec v2 D7/D8) — reading never writes, so the first
+    // `replace()` is what makes the table user-owned. A present section is
     // returned verbatim (even `[]`, so the template can never override user
-    // data); a present-but-corrupt file throws instead — see config/io.ts.
-    list(): Promise<RoutingTierRecord[]> {
+    // data); a corrupt document throws instead — see config/store.ts.
+    async list(): Promise<RoutingTierRecord[]> {
+      const stored = (await store.read())["routingTiers"] as
+        | RoutingTierRecord[]
+        | undefined;
+      if (stored !== undefined) return stored;
       // Fresh copies so a caller mutating the result cannot poison the
       // presets for the next read.
-      return readJsonFile<RoutingTierRecord[]>(
-        file,
-        DEFAULT_TIER_TEMPLATES.map((tier) => ({ ...tier })),
-      );
+      return DEFAULT_TIER_TEMPLATES.map((tier) => ({ ...tier }));
     },
 
     async replace(tiers: RoutingTierRecord[]): Promise<void> {
       // Id non-empty + unique, before anything touches disk — a rejected
       // replace must never half-write the table.
       validateTierRecords(tiers);
-      await ensureConfigDir(dir);
-      await writeJsonFileAtomic(file, tiers);
+      await store.update("routingTiers", () => tiers);
     },
   };
 }

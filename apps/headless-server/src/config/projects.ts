@@ -1,13 +1,13 @@
 /**
  * Project registry — the list of directories the user can open a
- * conversation against. Persisted as `~/.volto/projects.json`.
+ * conversation against. Persisted in `~/.volto/config.json` under `projects`.
  */
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { ensureConfigDir, getConfigDir, getConfigPath } from "./paths.js";
-import { readJsonFile, writeJsonFileAtomic } from "./io.js";
+import { getConfigDir } from "./paths.js";
+import { getConfigStore } from "./store.js";
 
 export interface Project {
   id: string;
@@ -40,17 +40,16 @@ export async function resolveProjectPath(
 }
 
 export function createProjectStore(dir: string = getConfigDir()) {
-  const file = getConfigPath("projects.json", dir);
+  const store = getConfigStore(dir);
 
   async function readAll(): Promise<Project[]> {
-    // Missing file means "no projects yet"; a present-but-corrupt file
-    // throws instead of being treated as empty — see config/io.ts.
-    return readJsonFile<Project[]>(file, []);
+    // Missing section means "no projects yet"; a corrupt document throws
+    // instead of being treated as empty — see config/store.ts.
+    return (await store.read())["projects"] as Project[] | undefined ?? [];
   }
 
   async function writeAll(projects: Project[]): Promise<void> {
-    await ensureConfigDir(dir);
-    await writeJsonFileAtomic(file, projects);
+    await store.update("projects", () => projects);
   }
 
   return {

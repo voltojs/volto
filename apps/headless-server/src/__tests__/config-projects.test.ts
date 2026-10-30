@@ -72,7 +72,7 @@ describe("createProjectStore", () => {
 
   it("throws instead of treating a corrupt file as empty", async () => {
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, "projects.json"), "{not valid json", "utf-8");
+    await fs.writeFile(path.join(dir, "config.json"), "{not valid json", "utf-8");
     await expect(createProjectStore(dir).list()).rejects.toThrow();
   });
 
@@ -82,7 +82,7 @@ describe("createProjectStore", () => {
 
     // Simulate corruption (e.g. a crash mid-write under the old
     // non-atomic writeAll) rather than the code under test producing it.
-    const file = path.join(dir, "projects.json");
+    const file = path.join(dir, "config.json");
     await fs.writeFile(file, "{not valid json", "utf-8");
 
     // Before the fix, create() would read the corrupt file as `[]` and
@@ -94,6 +94,6 @@ describe("createProjectStore", () => {
   it("writes atomically: no leftover temp file after a successful write", async () => {
     await createProjectStore(dir).create({ name: "demo", path: workdir });
     const entries = await fs.readdir(dir);
-    expect(entries).toEqual(["projects.json"]);
+    expect(entries).toEqual(["config.json"]);
   });
 });

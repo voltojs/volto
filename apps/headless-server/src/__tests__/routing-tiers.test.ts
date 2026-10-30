@@ -149,15 +149,17 @@ describe("/config/routing-tiers", () => {
     await close();
   });
 
-  it("never writes a config file when serving the template", async () => {
+  it("never persists routing tiers when serving the template", async () => {
     const { url, token, close } = await startRouteTestServer();
-    const tiersFile = getConfigPath("routing-tiers.json");
-    // Template GETs are read-only: repeated reads stay on the template and
-    // no routing-tiers.json ever appears (the first PUT persists instead).
+    const configFile = getConfigPath("config.json");
+    // Template GETs are read-only: the document may exist for other domains
+    // (a project was created at startup), but it must carry no routingTiers
+    // section until the first PUT persists one.
     for (let i = 0; i < 2; i += 1) {
       const body = (await (await getTiers(url, token)).json()) as { tiers: RoutingTierRecord[] };
       expect(body.tiers.map((t) => t.id)).toEqual(["premium", "fast", "economy"]);
-      expect(await fs.readdir(path.dirname(tiersFile))).not.toContain(path.basename(tiersFile));
+      const stored = JSON.parse(await fs.readFile(configFile, "utf8")) as Record<string, unknown>;
+      expect(stored["routingTiers"]).toBeUndefined();
     }
     await close();
   });
@@ -220,7 +222,7 @@ describe("/config/routing-tiers", () => {
     expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
 
     // ...and once the file is gone the first-run template comes back.
-    await fs.rm(getConfigPath("routing-tiers.json"));
+    await fs.rm(getConfigPath("config.json"));
     expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
