@@ -119,7 +119,7 @@ export function TraceRow({
     return (
       <div
         data-testid={testId}
-        className={cn('-ml-5 w-[calc(100%+1.25rem)] rounded-md', failed && 'text-destructive')}
+        className={cn('relative rounded-md', failed && 'text-destructive')}
       >
         {onActivate === undefined ? (
           <div className={cn(rowClass, 'select-none')}>{content}</div>
@@ -137,14 +137,11 @@ export function TraceRow({
       open={open}
       onOpenChange={onOpenChange}
       data-testid={testId}
-      className={cn(
-        '-ml-5 w-[calc(100%+1.25rem)] rounded-md transition-colors',
-        expanded && 'bg-muted/30',
-      )}
+      className={cn('relative rounded-md transition-colors', expanded && 'bg-muted/30')}
     >
       <CollapsibleTrigger className={rowClass}>{content}</CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-1.5 pt-0.5 pr-2 pb-2 pl-5">{children}</div>
+        <div className="space-y-1.5 pt-0.5 pr-2 pb-2">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );
