@@ -7,6 +7,9 @@ import { ErrorNotice } from './ErrorNotice';
 import { Notice } from './Notice';
 import { WaveLoading } from './WaveLoading';
 import { TodoTransitionLine } from './TodoTransitionLine';
+import { ActivitySteps } from './ActivitySteps';
+import { groupFeedEntries } from '@/lib/feed-groups';
+import { useStreamDensity } from '@/lib/stream-density';
 import type { StreamDensity } from '@/lib/stream-density';
 
 function renderEntry(
@@ -52,6 +55,11 @@ export function MessageList({
   isGenerating?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Grouped rows need the density value itself; bubbles can fall back to the
+  // stored preference on their own, but an execution group cannot.
+  const [storedDensity] = useStreamDensity();
+  const effectiveDensity = density ?? storedDensity;
+  const rows = groupFeedEntries(entries);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -67,7 +75,18 @@ export function MessageList({
           second argument); the reference handed down stays whatever the
           caller passed, so downstream memo comparators see a stable prop. */}
       <div className="mx-auto max-w-3xl px-6 py-2">
-        {entries.map((entry) => renderEntry(entry, onOpenSubagent, sessionId, density))}
+        {rows.map((row) =>
+          row.kind === 'activity' ? (
+            <ActivitySteps
+              key={row.key}
+              blocks={row.blocks}
+              density={effectiveDensity}
+              onOpenSubagent={onOpenSubagent}
+            />
+          ) : (
+            renderEntry(row.entry, onOpenSubagent, sessionId, density)
+          ),
+        )}
         {/* Unified loading: pinned under the feed so the existing scroll-to-
             bottom keeps it in view for the whole round. */}
         {isGenerating && <WaveLoading />}
