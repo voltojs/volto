@@ -71,7 +71,7 @@ export function ActivitySteps({
 
   if (density === 'detailed') {
     return (
-      <div data-testid="activity-rail" className="ml-1 space-y-1 border-l border-border/60 pl-3">
+      <div data-testid="activity-rail" className="space-y-1">
         {rows}
       </div>
     );
