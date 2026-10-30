@@ -283,6 +283,24 @@ function resolveConfigValue<T>(
 }
 
 /**
+ * The tier-error self-correction menu: the ids a dispatch can actually land
+ * on. A `target: null` tier cannot run — listing one would bounce a
+ * menu-following model straight back into the same error — and an
+ * all-unassigned table (the factory template state) renders the defined
+ * empty form `(none assignable)` so the model reports back instead of
+ * retrying a dead menu (review fix round 1).
+ */
+function dispatchableTierIds(
+  tiers: ReadonlyArray<{ id: string; target: { providerId: string; modelId: string } | null }>,
+): string {
+  const ids = tiers
+    .filter((t) => t.target !== null)
+    .map((t) => t.id)
+    .join(", ");
+  return ids === "" ? "(none assignable)" : ids;
+}
+
+/**
  * Best-effort transcript write: awaits the call inside its own try/catch
  * rather than chaining `.catch()` on its return value. A store whose
  * `appendEvents` is a plain (non-`async`) function that throws synchronously
@@ -3143,8 +3161,9 @@ function createSubAgentExecutor(
             // Per-dispatch reference (design D5, "model error" audience):
             // reject before any child runner — and any provider I/O — exists.
             // The task tool's catch normalizes this into an isError result.
-            const ids = opts.routingTiers.map((t) => t.id).join(", ");
-            throw new Error(`Unknown model tier "${tierId}". Available tiers: ${ids}`);
+            throw new Error(
+              `Unknown model tier "${tierId}". Available tiers: ${dispatchableTierIds(opts.routingTiers)}`,
+            );
           }
           // Definition reference (design D5, "environment change" audience):
           // degrade to the parent model and report below.
@@ -3159,9 +3178,8 @@ function createSubAgentExecutor(
           // reported below. The factory is never called for a null target,
           // and the event carries no target to name.
           if (model !== undefined) {
-            const ids = opts.routingTiers.map((t) => t.id).join(", ");
             throw new Error(
-              `model tier "${tierId}" has no assigned model. Available tiers: ${ids}`,
+              `model tier "${tierId}" has no assigned model. Available tiers: ${dispatchableTierIds(opts.routingTiers)}`,
             );
           }
           tierUnresolved = { tierId };

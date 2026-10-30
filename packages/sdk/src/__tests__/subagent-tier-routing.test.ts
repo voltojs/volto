@@ -445,10 +445,11 @@ describe("sub-agent model tier routing — null targets and tier effort", () => 
     // unknown id: the dispatch must reject with the pinned signature (the
     // task tool's catch normalizes it into an isError result the model can
     // self-correct from) BEFORE any child runner — and any provider I/O —
-    // exists. Full message, verbatim from the brief:
-    //   model tier "economy" has no assigned model. Available tiers: premium, economy
-    // The available list renders the table's ids in order — the same list the
-    // unknown-tier error prints.
+    // exists. Full message after the fix:
+    //   model tier "economy" has no assigned model. Available tiers: premium
+    // The list names only DISPATCHABLE tiers (review fix round 1): the
+    // unassigned "economy" must not be offered back to a self-correcting
+    // model, or it bounces straight back into the same error.
     const factoryCalls: Array<{ providerId: string; modelId: string }> = [];
     const { port, requests } = recordingModelPort([]);
     const agent = createAgent({
@@ -470,11 +471,68 @@ describe("sub-agent model tier routing — null targets and tier effort", () => 
     const text = textOf(result.modelContent);
     expect(text).toContain("has no assigned model");
     expect(text).toContain('model tier "economy"');
-    expect(text).toContain("Available tiers: premium, economy");
+    // Review fix round 1: only dispatchable tiers belong in the list. The
+    // `$` anchor pins the list's tail — the old ", economy" suffix fails it.
+    expect(text).toMatch(/Available tiers: premium$/);
     // Zero provider I/O: no model call, and the factory (the only door to a
     // provider port) was never reached either.
     expect(requests).toHaveLength(0);
     expect(factoryCalls).toEqual([]);
+  });
+
+  it("an all-unassigned table lists (none assignable) for a null-target dispatch", async () => {
+    // Review fix round 1: the factory template state (premium/fast/economy,
+    // all targets null) must not hand a menu-following model a menu it can
+    // only fail on — that is the self-correct loop the D4 contract exists to
+    // prevent. When nothing is dispatchable the list has a defined empty
+    // form, `(none assignable)`, so the model reports back instead of
+    // retrying an empty menu.
+    const { port, requests } = recordingModelPort([]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "premium", target: null },
+        { id: "economy", target: null },
+      ],
+    });
+    const taskTool = agent.tools.find((t) => t.definition.name === "task");
+    expect(taskTool).toBeDefined();
+
+    const result = await taskTool!.handler({ message: "go", model: "economy" });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result.modelContent)).toContain(
+      'model tier "economy" has no assigned model. Available tiers: (none assignable)',
+    );
+    expect(requests).toHaveLength(0);
+  });
+
+  it("an all-unassigned table lists (none assignable) for an unknown tier id", async () => {
+    // The same empty-menu form on the unknown-id throw (review fix round 1):
+    // the caller asked for "nope", and with nothing dispatchable the reply
+    // must say so instead of printing a dead menu.
+    const { port, requests } = recordingModelPort([]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "premium", target: null },
+        { id: "economy", target: null },
+      ],
+    });
+    const taskTool = agent.tools.find((t) => t.definition.name === "task");
+    expect(taskTool).toBeDefined();
+
+    const result = await taskTool!.handler({ message: "go", model: "nope" });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result.modelContent)).toContain(
+      'Unknown model tier "nope". Available tiers: (none assignable)',
+    );
+    expect(requests).toHaveLength(0);
   });
 
   it("a tier-carried reasoningEffort reaches the child run when the definition has none", async () => {
