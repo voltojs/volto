@@ -547,12 +547,18 @@ export interface CreateAgentOptions {
    * per-dispatch `model` input first, the definition's `model:` second) is a
    * tier id, never a raw model code. Omit to keep the legacy chain that
    * passes model strings through unchanged. A `null` target marks an
-   * unassigned tier (spec v2 D7/D8): it has no model to dispatch to and
-   * degrades like a dead target.
+   * unassigned tier (spec v2 D7/D8): it has no model to dispatch to — a
+   * per-dispatch reference throws like an unknown id (the model can
+   * self-correct), a definition reference degrades like a dead target. A
+   * tier may carry a `reasoningEffort` (spec v2 D10): it slots between the
+   * definition's effort and the parent's, and applies only when the tier
+   * fully resolves.
    */
   routingTiers?: ReadonlyArray<{
     id: string;
     target: { providerId: string; modelId: string } | null;
+    /** Spec v2 D10: effort this tier carries; absent = inherit the parent's. */
+    reasoningEffort?: string;
   }>;
 
   /**
@@ -3104,17 +3110,24 @@ function createSubAgentExecutor(
     // With a tier table configured, every model reference on this dispatch —
     // the per-dispatch input first, the definition's `model:` second — is a
     // tier id, never a raw model code. The two audiences split as design D5
-    // pins: a per-dispatch id outside the table is the caller's own mistake
-    // and fails loudly (the model can self-correct); a definition id outside
-    // it, or a tier whose target no longer resolves, degrades visibly to the
-    // parent model via the `subagent_model_tier_unresolved` event emitted by
-    // the F-023 block below. Without a table the legacy chain passes model
-    // strings through unchanged.
+    // pins: a per-dispatch id outside the table — or one that names an
+    // unassigned tier (spec v2 D8) — is the caller's own mistake and fails
+    // loudly (the model can self-correct); a definition id outside the table,
+    // a tier whose target no longer resolves, or an unassigned one, degrades
+    // visibly to the parent model via the `subagent_model_tier_unresolved`
+    // event emitted by the F-023 block below. Without a table the legacy
+    // chain passes model strings through unchanged.
     const tierId = model ?? childSpec?.model;
     let subModelOverride: string | undefined = tierId;
     let resolvedTierProviderId: string | undefined;
     let resolvedTier:
-      | { modelPort: ModelPort; model: string; visionSupported?: boolean; contextWindow?: number }
+      | {
+          modelPort: ModelPort;
+          model: string;
+          visionSupported?: boolean;
+          contextWindow?: number;
+          reasoningEffort?: string;
+        }
       | undefined;
     let tierUnresolved:
       | { tierId: string; target?: { providerId: string; modelId: string } }
@@ -3137,9 +3150,20 @@ function createSubAgentExecutor(
           // degrade to the parent model and report below.
           tierUnresolved = { tierId };
         } else if (tier.target === null) {
-          // Unassigned tier (spec v2 D7/D8): no model to dispatch to, so it
-          // degrades exactly like a dead target — and the factory is never
-          // called for it. The event carries no target to name.
+          // Unassigned tier (spec v2 D8): no model to dispatch to. Same
+          // audience split as an unknown id (design D5): a per-dispatch
+          // reference is the caller's own mistake and fails loudly before
+          // any child runner — and any provider I/O — exists (the task
+          // tool's catch normalizes this into an isError result); a
+          // definition reference degrades exactly like a dead target and is
+          // reported below. The factory is never called for a null target,
+          // and the event carries no target to name.
+          if (model !== undefined) {
+            const ids = opts.routingTiers.map((t) => t.id).join(", ");
+            throw new Error(
+              `model tier "${tierId}" has no assigned model. Available tiers: ${ids}`,
+            );
+          }
           tierUnresolved = { tierId };
         } else {
           try {
@@ -3152,6 +3176,13 @@ function createSubAgentExecutor(
             // The child runs on the tier's target provider — its
             // assistant_message.source must name it (spec D6 acceptance 6).
             resolvedTierProviderId = tier.target.providerId;
+            // The tier's reasoning effort rides on the RESOLVED tier only
+            // (spec v2 D10): a degraded dispatch runs the parent's model,
+            // whose per-call effort gate may not accept this tier's value,
+            // so the effort chain below falls back to the parent's there.
+            if (tier.reasoningEffort !== undefined) {
+              resolvedTier = { ...resolvedTier, reasoningEffort: tier.reasoningEffort };
+            }
           } else {
             // Table hit but the target no longer resolves (or no factory is
             // wired): same audience as above; the event names the dead
@@ -3379,8 +3410,13 @@ function createSubAgentExecutor(
     // sub-agent pinned to a small model at temperature 0 is the whole point
     // of these fields — silently running it on the parent's settings is the
     // "configured it, nothing happened" failure the design calls out.
+    // Reasoning effort adds the tier layer between the two (spec v2 D10,
+    // definition > tier > parent — same shape as the model chain above): the
+    // tier's value rides on the resolved tier only, so a degraded dispatch
+    // (resolvedTier undefined) inherits the parent's with no special case.
     const resolvedSubReasoningEffort =
       childSpec?.reasoningEffort ??
+      resolvedTier?.reasoningEffort ??
       resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort");
     const resolvedSubResponseFormat =
       childSpec?.responseFormat ??

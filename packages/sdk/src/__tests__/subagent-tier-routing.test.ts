@@ -4,11 +4,17 @@
  * With a `routingTiers` table configured, every model reference on a dispatch
  * — the per-dispatch `model` input first, the definition's `model:` second —
  * is a tier id, never a raw model code. The two audiences split exactly as
- * design D5 pins: a per-dispatch id that is not in the table is the caller's
- * own mistake and fails loudly (the model can self-correct); a definition id
- * that is not in the table, or a tier whose target no longer resolves,
- * degrades visibly to the parent model with a `subagent_model_tier_unresolved`
- * event on the main feed.
+ * design D5 pins: a per-dispatch id that is not in the table — or that names
+ * an unassigned (`target: null`) tier (spec v2 D8) — is the caller's own
+ * mistake and fails loudly (the model can self-correct); a definition id that
+ * is not in the table, or a tier whose target no longer resolves (unassigned
+ * included), degrades visibly to the parent model with a
+ * `subagent_model_tier_unresolved` event on the main feed.
+ *
+ * A tier may also carry a `reasoningEffort` (spec v2 D10). It slots between
+ * the definition's own effort and the parent's — definition > tier > parent —
+ * and only rides on a fully resolved tier: a degraded dispatch has no resolved
+ * tier and falls back to the parent's effort with no special handling.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -136,10 +142,14 @@ describe("sub-agent model tier routing", () => {
   });
 
   it("unassigned null-target tier degrades without calling the factory", async () => {
-    // Spec v2 D7/D8: `target: null` is a legal "unassigned" tier. A
+    // Task-9 brief cases 2 and 6, PINNING (written green — no RED phase):
+    // task 8 already landed this guard while adapting `target: null` for the
+    // server side, so these assertions pin that behavior rather than drive
+    // it. Spec v2 D7/D8: `target: null` is a legal "unassigned" tier. A
     // definition reference to it degrades exactly like a dead target — the
     // factory must not be called at all, and the unresolved event names the
-    // tier without a target.
+    // tier without a target. (A per-dispatch reference to such a tier throws
+    // instead — covered separately below.)
     const { sink, events } = captureSink();
     const factoryCalls: Array<{ providerId: string; modelId: string }> = [];
     const { port, requests } = recordingModelPort([
@@ -421,6 +431,170 @@ describe("sub-agent model tier routing", () => {
     expect(unresolved).toBeDefined();
     expect(typeof downgrade!.time).toBe("number");
     expect(typeof unresolved!.time).toBe("number");
+  });
+});
+
+// ──────────────────────────────────────────────
+// Unassigned (null-target) tiers and tier-carried reasoning effort
+// ──────────────────────────────────────────────
+
+describe("sub-agent model tier routing — null targets and tier effort", () => {
+  it("per-dispatch null-target tier reference fails with has no assigned model", async () => {
+    // Task-9 brief case 1 (behavioral). A per-dispatch reference to a tier
+    // whose target is null is the caller's own mistake, exactly like an
+    // unknown id: the dispatch must reject with the pinned signature (the
+    // task tool's catch normalizes it into an isError result the model can
+    // self-correct from) BEFORE any child runner — and any provider I/O —
+    // exists. Full message, verbatim from the brief:
+    //   model tier "economy" has no assigned model. Available tiers: premium, economy
+    // The available list renders the table's ids in order — the same list the
+    // unknown-tier error prints.
+    const factoryCalls: Array<{ providerId: string; modelId: string }> = [];
+    const { port, requests } = recordingModelPort([]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      routingTiers: [PREMIUM_TIER, { id: "economy", target: null }],
+      resolveSubagentModelPort: async (target) => {
+        factoryCalls.push(target);
+        return { modelPort: port, model: "never-used" };
+      },
+    });
+    const taskTool = agent.tools.find((t) => t.definition.name === "task");
+    expect(taskTool).toBeDefined();
+
+    const result = await taskTool!.handler({ message: "go", model: "economy" });
+
+    expect(result.isError).toBe(true);
+    const text = textOf(result.modelContent);
+    expect(text).toContain("has no assigned model");
+    expect(text).toContain('model tier "economy"');
+    expect(text).toContain("Available tiers: premium, economy");
+    // Zero provider I/O: no model call, and the factory (the only door to a
+    // provider port) was never reached either.
+    expect(requests).toHaveLength(0);
+    expect(factoryCalls).toEqual([]);
+  });
+
+  it("a tier-carried reasoningEffort reaches the child run when the definition has none", async () => {
+    // Task-9 brief case 3 (behavioral). Spec v2 D10 chain: definition >
+    // tier > parent. The definition is silent, so the resolved tier's effort
+    // applies to the child's model calls — and only a fully resolved tier
+    // carries one (the factory hit below is what makes it resolved).
+    const { port: parentPort } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "worker" })),
+      textScript("parent done"),
+    ]);
+    const { port: portA, requests: childRequests } = recordingModelPort([
+      textScript("child done"),
+    ]);
+    const agent = createAgent({
+      modelPort: parentPort,
+      model: "parent-model",
+      reasoningEffort: "medium",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "economy", target: { providerId: "p1", modelId: "small" }, reasoningEffort: "high" },
+      ],
+      resolveSubagentModelPort: async () => ({ modelPort: portA, model: "small" }),
+      agentSpecs: [agentEntry({ name: "worker", model: "economy" })],
+    });
+
+    await agent.run("delegate");
+
+    expect(childRequests).toHaveLength(1);
+    expect(childRequests[0]!.reasoningEffort).toBe("high");
+  });
+
+  it("the definition's reasoningEffort outranks the tier's", async () => {
+    // Task-9 brief case 4 (chain-order guard). Definition > tier > parent:
+    // all three levels disagree ("low" / "high" / "medium"), and the
+    // definition's explicit effort must win (spec acceptance 10).
+    const { port: parentPort } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "worker" })),
+      textScript("parent done"),
+    ]);
+    const { port: portA, requests: childRequests } = recordingModelPort([
+      textScript("child done"),
+    ]);
+    const agent = createAgent({
+      modelPort: parentPort,
+      model: "parent-model",
+      reasoningEffort: "medium",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "economy", target: { providerId: "p1", modelId: "small" }, reasoningEffort: "high" },
+      ],
+      resolveSubagentModelPort: async () => ({ modelPort: portA, model: "small" }),
+      agentSpecs: [
+        agentEntry({ name: "worker", model: "economy", reasoningEffort: "low" }),
+      ],
+    });
+
+    await agent.run("delegate");
+
+    expect(childRequests).toHaveLength(1);
+    expect(childRequests[0]!.reasoningEffort).toBe("low");
+  });
+
+  it("a child whose tier and definition both omit effort inherits the parent's", async () => {
+    // Task-9 brief case 5 (no-regression guard for the existing chain):
+    // neither level configures an effort, so the child runs with the
+    // parent's — unchanged legacy behavior through a resolved tier.
+    const { port: parentPort } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "worker" })),
+      textScript("parent done"),
+    ]);
+    const { port: portA, requests: childRequests } = recordingModelPort([
+      textScript("child done"),
+    ]);
+    const agent = createAgent({
+      modelPort: parentPort,
+      model: "parent-model",
+      reasoningEffort: "medium",
+      enableTaskTool: true,
+      routingTiers: [{ id: "economy", target: { providerId: "p1", modelId: "small" } }],
+      resolveSubagentModelPort: async () => ({ modelPort: portA, model: "small" }),
+      agentSpecs: [agentEntry({ name: "worker", model: "economy" })],
+    });
+
+    await agent.run("delegate");
+
+    expect(childRequests).toHaveLength(1);
+    expect(childRequests[0]!.reasoningEffort).toBe("medium");
+  });
+
+  it("a degraded tier contributes no reasoningEffort to the child", async () => {
+    // Guard for the degrade path (task 9 notes): the tier's effort rides on
+    // the RESOLVED tier only. Here the factory reports the target dead, the
+    // child degrades to the parent's model — whose per-call effort gate may
+    // not accept this tier's value at all — so the effort must fall back to
+    // the parent's with no special handling. (Green before and after the
+    // chain change: the pre-chain code never saw tier effort either.)
+    const { port, requests } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "worker" })),
+      textScript("sub done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      reasoningEffort: "medium",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "economy", target: { providerId: "p1", modelId: "small" }, reasoningEffort: "high" },
+      ],
+      resolveSubagentModelPort: async () => null,
+      agentSpecs: [agentEntry({ name: "worker", model: "economy" })],
+    });
+
+    await agent.run("delegate");
+
+    // The degraded child ran on the parent port (request #1) with the
+    // parent's effort, never the tier's.
+    expect(requests).toHaveLength(3);
+    expect(requests[1]!.reasoningEffort).toBe("medium");
   });
 });
 
