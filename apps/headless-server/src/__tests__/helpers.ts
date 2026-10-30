@@ -72,6 +72,12 @@ export interface TestServer {
   captureMessages: () => Promise<TranscriptMessage[]>;
   /** Number of `turn_start` frames seen since the stream opened. */
   turnCount: () => number;
+  /**
+   * Every `event` frame's payload seen since the channel (re)opened, in
+   * arrival order — for tests that assert an out-of-band push (a title
+   * change) rather than a turn's transcript.
+   */
+  events: () => FrameEventPayload[];
   /** Shut down the server and clean up the temp config dir. */
   close: () => Promise<void>;
 }
@@ -96,7 +102,7 @@ function parseFrames(raw: string): EventFrame[] {
 }
 
 /** Payload shape of an `event` frame: a stamped TranscriptEventInput. */
-interface FrameEventPayload {
+export interface FrameEventPayload {
   type: string;
   data: Record<string, unknown>;
   time: number;
@@ -282,6 +288,7 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     openEvents,
     captureMessages,
     turnCount,
+    events: eventPayloads,
     close: async () => {
       if (settleTimer) clearTimeout(settleTimer);
       eventsReq?.destroy();

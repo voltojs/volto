@@ -13,7 +13,7 @@ import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
 import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
-import type { JsonlSessionStore } from "@volto/store-jsonl";
+import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
@@ -496,6 +496,27 @@ interface Connection {
   token: string;
 }
 
+/** Who produced a session title; decides what may overwrite it. */
+export type TitleSource = "user" | "model" | "heuristic";
+
+/**
+ * Higher wins. `user` is what a human typed, `model` a generated title, and
+ * `heuristic` the first message truncated — the fallback that is only ever
+ * improved on, never allowed to land last.
+ */
+const TITLE_SOURCE_RANK: Record<TitleSource, number> = {
+  user: 3,
+  model: 2,
+  heuristic: 1,
+};
+
+/**
+ * Outcome of a title write: `missing` also covers a transcript that could not
+ * be read or appended to, which is the same "nothing changed" answer for
+ * every caller.
+ */
+export type TitleWriteResult = "written" | "outranked" | "missing";
+
 interface Session {
   id: string;
   agent: Awaited<ReturnType<typeof createWiredAgent>> | null;
@@ -757,6 +778,57 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       session.mapper.event({ ...event, time: Date.now() } as TranscriptEventInput),
     );
     return session.connection != null;
+  }
+
+  /**
+   * Writes a session title when `source` outranks the one already stored, then
+   * mirrors the same `session_meta` onto the session's live channel so the
+   * header and the sidebar follow without a reload.
+   *
+   * The ranking is the server-side half of "a manual rename is never
+   * overwritten": `user` beats `model` beats `heuristic`, so a late model
+   * title cannot bury a name the human typed, and a retried heuristic patch
+   * cannot undo either. Same-source writes are allowed (the user renaming
+   * twice, a model regenerating), and a session with no title accepts any
+   * source. Logs written before titles had provenance are read as
+   * `heuristic`, which is what every pre-existing title actually was.
+   */
+  function writeSessionTitle(
+    sessionId: string,
+    title: string,
+    source: TitleSource,
+  ): Promise<TitleWriteResult> {
+    return (async (): Promise<TitleWriteResult> => {
+      let record: ChatSessionRecord | undefined;
+      try {
+        record = await chatStore?.readSession(sessionId);
+      } catch {
+        // An unreadable transcript cannot be safely overwritten — the next
+        // successful turn re-derives the title instead.
+        return "missing";
+      }
+      if (!record) return "missing";
+
+      const current: TitleSource | undefined =
+        record.meta.titleSource ?? (record.meta.title ? "heuristic" : undefined);
+      if (current !== undefined && TITLE_SOURCE_RANK[source] < TITLE_SOURCE_RANK[current]) {
+        return "outranked";
+      }
+
+      const data = { ...record.meta, title, titleSource: source };
+      try {
+        await chatStore?.appendEvents(null, sessionId, [
+          { time: Date.now(), type: "session_meta", data },
+        ]);
+      } catch {
+        // Best-effort, like every other transcript write on a turn's path: a
+        // title that cannot be persisted must not fail the caller.
+        return "missing";
+      }
+      // Offline listeners simply get nothing — the write above is the truth.
+      emitToSession(sessionId, { type: "session_meta", data: data as Record<string, unknown> });
+      return "written";
+    })();
   }
 
   /**
@@ -1537,6 +1609,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
      * without riding a turn's stream. Returns whether anyone received it.
      */
     emitToSession,
+    /**
+     * Writes a session title when `source` outranks the stored one — the
+     * ranking `PATCH /sessions/:id` answers 409 from, and the same path the
+     * derived/model titles take. Exposed so the route and the turn loop share
+     * one implementation of "who may rename this session".
+     */
+    writeTitle: writeSessionTitle,
     /**
      * Resolves and validates a `TurnConfig` without building/rebuilding an
      * agent — throws exactly as `runTurn()`'s internal call would. Exposed so
