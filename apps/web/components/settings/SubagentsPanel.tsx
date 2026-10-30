@@ -83,6 +83,42 @@ function ToolBadges({ tools }: { tools: readonly string[] }) {
  * list — `shadowed` is recomputed server-side, so a local patch cannot
  * get it right.
  */
+/**
+ * A sub-agent's model choice is a routing tier id (or absent = inherit the
+ * main conversation). The list must say which one is in effect: a stale id
+ * reads as stale rather than as inheritance, and an unassigned tier says so.
+ * Staleness waits for the tier fetch to settle, matching the form.
+ */
+function ModelBadge({
+  model,
+  tiers,
+}: {
+  model: string | undefined;
+  tiers: RoutingTier[] | null;
+}) {
+  if (!model) return <Badge variant="secondary">继承主对话</Badge>;
+  const tier = tiers?.find((candidate) => candidate.id === model);
+  if (tier === undefined) {
+    return (
+      <Badge variant="outline">
+        {tiers === null ? `路由：${model}` : `已失效档位:${model}`}
+      </Badge>
+    );
+  }
+  if (!tier.target) {
+    return <Badge variant="outline">路由：{tier.label}（未配置模型）</Badge>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Badge variant="outline">路由：{tier.label}</Badge>} />
+      <TooltipContent>
+        {tier.target.providerId} / {tier.target.modelId}
+        {tier.reasoningEffort ? ` · 推理：${tier.reasoningEffort}` : ''}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
   const { agents, tools, status, refresh, mutate } = useAgents(projectId);
   const [form, setForm] = useState<FormState>(null);
@@ -237,6 +273,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                 {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
               </span>
               <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
+              <ModelBadge model={agent.spec.model} tiers={tiers} />
               <ToolBadges tools={agent.spec.tools ?? []} />
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SubagentsPanel } from "../SubagentsPanel";
 import type { RoutingTier } from "@/lib/routing-tiers-api";
+import type { AgentEntry } from "@/lib/agents-api";
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
 // Select uses internally; stub them so the popup can open in tests.
@@ -11,7 +12,7 @@ Element.prototype.setPointerCapture ??= () => {};
 Element.prototype.releasePointerCapture ??= () => {};
 Element.prototype.scrollIntoView ??= () => {};
 
-const AGENTS = [
+const AGENTS: AgentEntry[] = [
   { id: "project:searcher", name: "searcher", description: "finds things", scope: "project", readOnly: false, shadowed: false, filePath: "/p/.volto/agents/searcher.md", spec: { name: "searcher" } },
   { id: "user:searcher", name: "searcher", description: "older copy", scope: "user", readOnly: false, shadowed: true, filePath: "/h/.volto/agents/searcher.md", spec: { name: "searcher" } },
   { id: "plugin:builtin", name: "builtin", description: "from a plugin", scope: "plugin", readOnly: true, shadowed: false, spec: { name: "builtin" } },
@@ -68,6 +69,22 @@ describe("SubagentsPanel", () => {
     const row = screen.getByText("builtin").closest("[data-agent-row]")!;
     expect(row.querySelector("[data-action='edit']")).toHaveAttribute("disabled");
     expect(row.querySelector("[data-action='delete']")).toHaveAttribute("disabled");
+  });
+
+  it("shows the routing tier a sub-agent is pinned to, or inheritance", async () => {
+    stub(
+      [
+        { ...AGENTS[0]!, spec: { ...AGENTS[0]!.spec, model: "premium" } },
+        { ...AGENTS[1]!, spec: { ...AGENTS[1]!.spec, model: "gone" } },
+        AGENTS[2]!,
+      ],
+      TIERS,
+    );
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("路由：最强")).toBeInTheDocument());
+    expect(screen.getByText("已失效档位:gone")).toBeInTheDocument();
+    // The plugin entry carries no model and must read as inheritance.
+    expect(screen.getByText("继承主对话")).toBeInTheDocument();
   });
 
   it("renders an empty state rather than a blank panel", async () => {
