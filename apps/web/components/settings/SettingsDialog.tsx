@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, KeyRound, SlidersHorizontal } from 'lucide-react';
+import { Bot, KeyRound, SlidersHorizontal, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProvidersPanel } from './ProvidersPanel';
 import { GeneralPanel } from './GeneralPanel';
 import { SubagentsPanel } from './SubagentsPanel';
+import { SkillsPanel } from './SkillsPanel';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -31,6 +32,7 @@ const TABS = [
   { value: 'general', label: '通用设置', icon: SlidersHorizontal },
   { value: 'models', label: '模型配置', icon: KeyRound },
   { value: 'subagents', label: '子代理', icon: Bot },
+  { value: 'skills', label: '技能', icon: Sparkles },
 ] as const;
 
 /** 设置面板：左侧 Tab 导航，右侧对应内容。 */
@@ -74,6 +76,9 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
             </TabsContent>
             <TabsContent value="subagents">
               <SubagentsPanel projectId={projectId} />
+            </TabsContent>
+            <TabsContent value="skills">
+              <SkillsPanel projectId={projectId} />
             </TabsContent>
             <TabsContent value="general">
               <GeneralPanel />

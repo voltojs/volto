@@ -16,6 +16,9 @@ function stubFetch() {
       if (url.includes("/agents")) {
         return new Response(JSON.stringify({ agents: [] }), { status: 200 });
       }
+      if (url.includes("/skills")) {
+        return new Response(JSON.stringify({ skills: [] }), { status: 200 });
+      }
       if (url.includes("/catalog/providers") || url.includes("/providers")) {
         return new Response(JSON.stringify([]), { status: 200 });
       }
@@ -28,11 +31,11 @@ function stubFetch() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SettingsDialog", () => {
-  it("orders tabs 通用设置 → 模型配置 → 子代理", () => {
+  it("orders tabs 通用设置 → 模型配置 → 子代理 → 技能", () => {
     stubFetch();
     render(<SettingsDialog open onOpenChange={() => {}} />);
     const labels = screen.getAllByRole("tab").map((tab) => tab.textContent);
-    expect(labels).toEqual(["通用设置", "模型配置", "子代理"]);
+    expect(labels).toEqual(["通用设置", "模型配置", "子代理", "技能"]);
   });
 
   it("scopes the subagents panel to the current workspace's project", async () => {
@@ -45,5 +48,18 @@ describe("SettingsDialog", () => {
     const agentsCalls = urls.filter((url) => url.includes("/agents"));
     expect(agentsCalls.length).toBeGreaterThan(0);
     expect(agentsCalls.every((url) => url.includes("projectId=proj-1"))).toBe(true);
+  });
+
+  it("scopes the skills panel to the current workspace's project", async () => {
+    const urls = stubFetch();
+    const user = userEvent.setup();
+    render(<SettingsDialog open onOpenChange={() => {}} projectId="proj-1" />);
+    // The skills catalog is read-only, so the empty group is the ready signal.
+    await user.click(screen.getByRole("tab", { name: "技能" }));
+    await screen.findAllByText(/还没有技能/);
+    const skillsCalls = urls.filter((url) => url.includes("/skills"));
+    expect(skillsCalls.length).toBeGreaterThan(0);
+    expect(skillsCalls.every((url) => url.includes("includeDefinitions=1"))).toBe(true);
+    expect(skillsCalls.every((url) => url.includes("projectId=proj-1"))).toBe(true);
   });
 });
