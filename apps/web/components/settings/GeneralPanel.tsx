@@ -19,9 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { PermissionPicker } from '@/components/chat/PermissionPicker';
+import type { PermissionMode } from '@/stores/session-store';
 import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { isPermissionMode, PERMISSION_MODES } from '@/lib/permission-mode';
+import { isPermissionMode } from '@/lib/permission-mode';
 
 const THEME_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'light', label: '浅色' },
@@ -34,18 +36,6 @@ const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
   { value: 'concise', label: '简约' },
 ];
 
-const PERMISSION_LABELS: Record<(typeof PERMISSION_MODES)[number], string> = {
-  'read-only': '只读',
-  plan: '计划',
-  ask: '询问',
-  auto: '自动',
-  full: '完全',
-};
-
-const PERMISSION_OPTIONS = PERMISSION_MODES.map((value) => ({
-  value,
-  label: PERMISSION_LABELS[value],
-}));
 
 /** 通用设置 Tab：主题与信息流密度。 */
 export function GeneralPanel() {
@@ -54,7 +44,13 @@ export function GeneralPanel() {
   const { theme, setTheme } = useTheme();
   const [density, setDensity] = useStreamDensity();
   const defaultPermission = usePreferencesStore((s) => s.preferences.defaultPermissionMode);
-  const permissionValue = isPermissionMode(defaultPermission) ? defaultPermission : 'ask';
+  // 'plan' is not a choosable preset (it is entered via /plan), so a stored
+  // value of 'plan' falls back to the picker's default rather than rendering
+  // the read-only badge in a settings row.
+  const permissionValue: PermissionMode =
+    isPermissionMode(defaultPermission) && defaultPermission !== 'plan'
+      ? defaultPermission
+      : 'ask';
 
   return (
     <ItemGroup>
@@ -141,26 +137,12 @@ export function GeneralPanel() {
           </ItemDescription>
         </ItemContent>
         <ItemActions>
-          <Select
-            items={PERMISSION_OPTIONS}
+          <PermissionPicker
             value={permissionValue}
-            onValueChange={(next) =>
-              usePreferencesStore.getState().save({ defaultPermissionMode: String(next) })
+            onChange={(mode) =>
+              usePreferencesStore.getState().save({ defaultPermissionMode: mode })
             }
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <SelectGroup>
-                {PERMISSION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          />
         </ItemActions>
       </Item>
     </ItemGroup>

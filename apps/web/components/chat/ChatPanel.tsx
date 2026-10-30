@@ -129,10 +129,6 @@ export function ChatPanel() {
   // provider must not leave the composer pointing at nothing.
   const rememberedProviderId = usePreferencesStore((s) => s.preferences.lastProviderId);
   const rememberedModelId = usePreferencesStore((s) => s.preferences.lastModelId);
-  const providerModelIds = (provider: (typeof providers)[number]): string[] =>
-    providerModels(provider)
-      .map((m) => m.id)
-      .filter((id): id is string => typeof id === 'string');
   const rememberedProvider = providers.find(
     (p) =>
       p.id === rememberedProviderId &&

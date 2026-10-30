@@ -40,7 +40,7 @@ describe('GeneralPanel', () => {
 
     const selects = screen.getAllByRole('combobox');
     await user.click(selects[2]!);
-    await user.click(await screen.findByRole('option', { name: '自动' }));
+    await user.click(await screen.findByRole('option', { name: /自动/ }));
 
     expect(usePreferencesStore.getState().preferences.defaultPermissionMode).toBe('auto');
     expect(fetchSpy).toHaveBeenCalledWith(
