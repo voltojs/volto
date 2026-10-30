@@ -759,6 +759,67 @@ describe("Headless server", () => {
     expect(data).toEqual({ error: "Unknown project: nonexistent" });
   });
 
+  it("GET /skills?includeDefinitions=1 returns scope, source, and shadowed entries", async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-defs-"));
+    const configSkills = path.join(process.env["VOLTO_CONFIG_DIR"]!, "skills");
+    const writeSkill = async (dir: string, name: string, description: string) => {
+      const skillDir = path.join(dir, name);
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${description}\n---\nbody`,
+      );
+    };
+    await writeSkill(configSkills, "defs-duplicate", "user copy");
+    await writeSkill(path.join(projectDir, ".volto", "skills"), "defs-duplicate", "project copy");
+
+    const project = await post("/projects", { name: "skills-defs", path: projectDir });
+    expect(project.status).toBe(201);
+    const projectId = (project.data as { id: string }).id;
+    const { status, data } = await getJson(
+      `/skills?projectId=${encodeURIComponent(projectId)}&includeDefinitions=1`,
+    );
+    expect(status).toBe(200);
+
+    const dup = (data as { skills: Array<Record<string, unknown>> }).skills.filter(
+      (s) => s["name"] === "defs-duplicate",
+    );
+    expect(dup).toHaveLength(2);
+    const projectEntry = dup.find((s) => s["scope"] === "project")!;
+    const userEntry = dup.find((s) => s["scope"] === "user")!;
+    expect(projectEntry["shadowed"]).toBe(false);
+    expect(userEntry["shadowed"]).toBe(true);
+    expect(userEntry["id"]).toBe("user:defs-duplicate");
+    expect(String(userEntry["filePath"])).toContain(
+      path.join("skills", "defs-duplicate", "SKILL.md"),
+    );
+    expect(userEntry["modelInvocable"]).toBe(true);
+    expect(userEntry["userInvocable"]).toBe(true);
+  });
+
+  it("keeps the legacy /skills response shape when includeDefinitions is absent", async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-legacy-"));
+    const skillDir = path.join(projectDir, ".volto", "skills", "legacy-shape");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: legacy-shape\ndescription: legacy\n---\nbody",
+    );
+    const project = await post("/projects", { name: "skills-legacy", path: projectDir });
+    expect(project.status).toBe(201);
+    const projectId = (project.data as { id: string }).id;
+    const { data } = await getJson(`/skills?projectId=${encodeURIComponent(projectId)}`);
+    const entry = (data as { skills: Array<Record<string, unknown>> }).skills.find(
+      (s) => s["name"] === "legacy-shape",
+    )!;
+    expect(Object.keys(entry).sort()).toEqual([
+      "description",
+      "modelInvocable",
+      "name",
+      "userInvocable",
+    ]);
+  });
+
   it("POST /run returns final state", async () => {
     const { status, data } = await post("/run", { message: "hi" });
     expect(status).toBe(200);

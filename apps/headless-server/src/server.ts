@@ -51,7 +51,7 @@ import {
 } from "@volto/store-jsonl";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
 import { BUILT_IN_COMMANDS } from "./commands.js";
-import { createSkillRegistry } from "./skills/registry.js";
+import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
 import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
@@ -1198,6 +1198,27 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             return;
           }
           skillsCwd = projectPath;
+        }
+        // includeDefinitions=1 is the settings catalog: every on-disk
+        // definition (shadowed losers included) with its scope and source
+        // path. Without it the response shape stays exactly what the `/`
+        // command panel has always consumed.
+        if (url.searchParams.get("includeDefinitions") === "1") {
+          const definitions = await listSkillDefinitions(skillsCwd);
+          jsonResponse(res, 200, {
+            skills: definitions.map((d) => ({
+              id: d.id,
+              name: d.name,
+              description: d.description,
+              scope: d.scope,
+              filePath: d.filePath,
+              baseDir: d.baseDir,
+              modelInvocable: d.invocation.modelInvocable,
+              userInvocable: d.invocation.userInvocable,
+              shadowed: d.shadowed,
+            })),
+          });
+          return;
         }
         const summaries = await createSkillRegistry(skillsCwd).list();
         jsonResponse(res, 200, {
