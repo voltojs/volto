@@ -546,9 +546,14 @@ export interface CreateAgentOptions {
    * resolves names. When present, every model reference on a dispatch (the
    * per-dispatch `model` input first, the definition's `model:` second) is a
    * tier id, never a raw model code. Omit to keep the legacy chain that
-   * passes model strings through unchanged.
+   * passes model strings through unchanged. A `null` target marks an
+   * unassigned tier (spec v2 D7/D8): it has no model to dispatch to and
+   * degrades like a dead target.
    */
-  routingTiers?: ReadonlyArray<{ id: string; target: { providerId: string; modelId: string } }>;
+  routingTiers?: ReadonlyArray<{
+    id: string;
+    target: { providerId: string; modelId: string } | null;
+  }>;
 
   /**
    * Injected callback that materializes a tier's target into a ModelPort —
@@ -3130,6 +3135,11 @@ function createSubAgentExecutor(
           }
           // Definition reference (design D5, "environment change" audience):
           // degrade to the parent model and report below.
+          tierUnresolved = { tierId };
+        } else if (tier.target === null) {
+          // Unassigned tier (spec v2 D7/D8): no model to dispatch to, so it
+          // degrades exactly like a dead target — and the factory is never
+          // called for it. The event carries no target to name.
           tierUnresolved = { tierId };
         } else {
           try {

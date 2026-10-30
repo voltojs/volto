@@ -12,7 +12,8 @@
  * 2. `sessions.rebuild()` — reads the routing-tier table (redirected via
  *    VOLTO_CONFIG_DIR) and hands `buildAgent` BOTH keys together — or
  *    neither. The SDK reads `routingTiers !== undefined` as tier mode, so an
- *    empty/absent table must arrive as no key at all, never `[]`;
+ *    empty table must arrive as no key at all, never `[]`, while an absent
+ *    file arrives as the factory template (spec v2 D7/D8);
  * 3. `wiring.createWiredAgent` — forwards both keys verbatim to
  *    createAgent().
  */
@@ -45,6 +46,32 @@ const ECONOMY: RoutingTierRecord = {
   description: "cheap model for bulk sub-agent work",
   target: { providerId: "prov-b", modelId: "m-b" },
 };
+
+/**
+ * The factory template spelled out verbatim (spec v2 D7/D8) — a local
+ * literal, not the production constant, so a reordering of the presets is
+ * caught here instead of following the constant blindly.
+ */
+const FACTORY_TEMPLATE: RoutingTierRecord[] = [
+  {
+    id: "premium",
+    label: "高级",
+    description: "最强能力，复杂任务与深度推理",
+    target: null,
+  },
+  {
+    id: "fast",
+    label: "快速",
+    description: "低延迟，简单问答与快速检索",
+    target: null,
+  },
+  {
+    id: "economy",
+    label: "经济",
+    description: "省成本，批量与低风险子任务",
+    target: null,
+  },
+];
 
 /** Minimal model port that ends every stream immediately. */
 const IDLE_PORT: ModelPort = {
@@ -294,16 +321,17 @@ describe("sessions.rebuild tier passthrough", () => {
     expect(resolved!.model).toBe("m1");
   });
 
-  it("omits both keys when no tier table exists", async () => {
+  it("forwards the factory template when no config file exists", async () => {
     const { builds, factory } = makeFactory();
     const registry = makeRegistry(factory);
 
     await registry.runTurn("s1", "one", baseConfig);
 
-    // Tier mode must NOT be activated: `routingTiers !== undefined` hijacks
-    // every legacy raw model code into tier resolution.
-    expect(builds[0]).not.toHaveProperty("routingTiers");
-    expect(builds[0]).not.toHaveProperty("resolveSubagentModelPort");
+    // First-run state (spec v2 D7/D8): the factory template IS the table —
+    // tier mode on, every tier unassigned — so a dispatch naming a preset
+    // degrades visibly instead of leaking the id through as a raw model code.
+    expect(builds[0]!["routingTiers"]).toEqual(FACTORY_TEMPLATE);
+    expect(typeof builds[0]!["resolveSubagentModelPort"]).toBe("function");
   });
 
   it("omits both keys when the tier table is an empty array", async () => {
@@ -313,6 +341,8 @@ describe("sessions.rebuild tier passthrough", () => {
 
     await registry.runTurn("s1", "one", baseConfig);
 
+    // Tier mode must NOT be activated: `routingTiers !== undefined` hijacks
+    // every legacy raw model code into tier resolution.
     expect(builds[0]).not.toHaveProperty("routingTiers");
     expect(builds[0]).not.toHaveProperty("resolveSubagentModelPort");
   });

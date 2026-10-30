@@ -135,6 +135,43 @@ describe("sub-agent model tier routing", () => {
     expect(typeof unresolved!.time).toBe("number");
   });
 
+  it("unassigned null-target tier degrades without calling the factory", async () => {
+    // Spec v2 D7/D8: `target: null` is a legal "unassigned" tier. A
+    // definition reference to it degrades exactly like a dead target — the
+    // factory must not be called at all, and the unresolved event names the
+    // tier without a target.
+    const { sink, events } = captureSink();
+    const factoryCalls: Array<{ providerId: string; modelId: string }> = [];
+    const { port, requests } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "budgety" })),
+      textScript("sub done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      eventSink: sink,
+      routingTiers: [{ id: "economy", target: null }],
+      resolveSubagentModelPort: async (target) => {
+        factoryCalls.push(target);
+        return { modelPort: port, model: "never-used" };
+      },
+      agentSpecs: [agentEntry({ name: "budgety", model: "economy" })],
+    });
+
+    await agent.run("dispatch the budgety agent");
+
+    expect(factoryCalls).toEqual([]);
+    // The child still runs — on the parent's model.
+    expect(requests).toHaveLength(3);
+    expect(requests[1]!.model).toBe("parent-model");
+    const unresolved = events.find((e) => e.type === "subagent_model_tier_unresolved");
+    expect(unresolved).toBeDefined();
+    expect(unresolved!.data).toMatchObject({ subagentType: "budgety", tierId: "economy" });
+    expect(unresolved!.data).not.toHaveProperty("target");
+  });
+
   it("档位命中同 provider → 子 runner 用档位模型", async () => {
     const { port: parentPort, requests: parentRequests } = recordingModelPort([
       toolCallScript("c1", "task", JSON.stringify({ message: "child job", model: "economy" })),

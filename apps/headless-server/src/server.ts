@@ -1323,8 +1323,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (url.pathname === "/config/routing-tiers") {
       const tierStore = createRoutingTierStore();
 
-      // GET — the current table; `{ tiers: [] }` means "no tiers configured"
-      // and callers fall back to plain model references.
+      // GET — the current table. Before the first PUT this is the factory
+      // template (unassigned targets, served unpersisted — spec v2 D7/D8);
+      // `[]` means the table is explicitly empty and callers fall back to
+      // plain model references.
       if (req.method === "GET") {
         try {
           jsonResponse(res, 200, { tiers: await tierStore.list() });
@@ -1340,10 +1342,13 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         try {
           const body: unknown = JSON.parse(await readBody(req));
           const tiers = validateTierRecords(body);
-          // Target check: every target must resolve in the provider registry.
-          // resolveModel is the one call that returns plaintext credentials —
-          // only its null/miss answer is used here, never the payload.
+          // Target check: every ASSIGNED target must resolve in the provider
+          // registry; `target: null` (unassigned) is legal and skips the
+          // lookup. resolveModel is the one call that returns plaintext
+          // credentials — only its null/miss answer is used here, never the
+          // payload.
           for (const tier of tiers) {
+            if (tier.target === null) continue;
             const resolved = await providerStore.resolveModel(
               tier.target.providerId,
               tier.target.modelId,

@@ -1087,7 +1087,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // Model routing tier table (spec 2026-10-29 D3-D6), read fresh on every
     // rebuild — same reload discipline as egress/permissions/hooks in
     // wiring.ts: an edit to routing-tiers.json reaches the next build without
-    // a restart. Missing file or `[]` reads as "no tiers configured".
+    // a restart. A missing file reads as the factory template (spec v2
+    // D7/D8: tier mode on, every tier unassigned); `[]` reads as "no tiers
+    // configured".
     const tierRecords = await createRoutingTierStore().list();
     // A rebuild replaces the instance, so the outgoing one's persistent bash
     // session and background processes have to be reclaimed here — nothing
@@ -1112,10 +1114,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // Model routing tiers (spec 2026-10-29 D3-D6): the tier table plus the
       // per-dispatch ModelPort factory that materializes a tier's target. The
       // two keys travel together or not at all — the SDK switches to tier
-      // mode on `routingTiers !== undefined`, so an empty/absent table must
-      // arrive as NO key, never `[]`, or every legacy raw model code would be
+      // mode on `routingTiers !== undefined`, so an EMPTY table must arrive
+      // as NO key, never `[]`, or every legacy raw model code would be
       // hijacked into tier resolution (and per-dispatch raw codes would
-      // throw).
+      // throw). An absent file is not empty: it arrives as the factory
+      // template (spec v2 D7/D8), so tier ids are real from the first run.
       ...(tierRecords.length > 0
         ? {
             routingTiers: tierRecords,

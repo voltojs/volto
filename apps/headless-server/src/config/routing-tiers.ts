@@ -1,6 +1,8 @@
 /**
  * Routing tier registry — the model routing table sub-agent dispatches
  * resolve tier ids against. Persisted as `~/.volto/routing-tiers.json`.
+ * Before the first write the table is the factory template
+ * (`DEFAULT_TIER_TEMPLATES`), served unpersisted (spec v2 D7/D8).
  *
  * The store only owns persistence plus id validation. Two decisions live
  * outside it, at the call site that has the context for them:
@@ -23,8 +25,47 @@ export interface RoutingTierRecord {
   id: string;
   label: string;
   description: string;
-  target: { providerId: string; modelId: string };
+  /**
+   * Dispatch target, or `null` for "unassigned" (spec v2 D7/D8) — a legal
+   * state, not an error: such a tier degrades to the parent model at dispatch
+   * time and skips the provider-registry lookup on submit.
+   */
+  target: { providerId: string; modelId: string } | null;
+  /**
+   * Optional reasoning effort carried on the tier. Its VALUE is never
+   * validated here — the port layer's per-call gate owns that (spec D10).
+   */
+  reasoningEffort?: string;
 }
+
+/**
+ * Factory presets the table starts from (spec v2 D7/D8): `list()` falls back
+ * to them only while `routing-tiers.json` does not exist, so the routing UI
+ * and the sub-agent dropdown have tiers to show before anyone configures
+ * anything. They are never written to disk — the first `replace()` persists
+ * the user's own table and the presets stop applying (a present file, even
+ * an empty one, is returned verbatim). Every target is `null` (unassigned).
+ */
+export const DEFAULT_TIER_TEMPLATES: readonly RoutingTierRecord[] = [
+  {
+    id: "premium",
+    label: "高级",
+    description: "最强能力，复杂任务与深度推理",
+    target: null,
+  },
+  {
+    id: "fast",
+    label: "快速",
+    description: "低延迟，简单问答与快速检索",
+    target: null,
+  },
+  {
+    id: "economy",
+    label: "经济",
+    description: "省成本，批量与低风险子任务",
+    target: null,
+  },
+];
 
 /**
  * Sentinel the web agent form uses for "inherit the parent model"
@@ -84,7 +125,31 @@ export function validateTierRecords(input: unknown): RoutingTierRecord[] {
         `routing tier "${id}" must have a string description`,
       );
     }
+    // `reasoningEffort` is opaque data: only its JSON shape is enforced here,
+    // its value is not — the port layer's per-call gate owns that (spec D10).
+    // `null` means "cleared" and is stored as absent.
+    const reasoningEffort = fields["reasoningEffort"];
+    if (
+      reasoningEffort !== undefined &&
+      reasoningEffort !== null &&
+      typeof reasoningEffort !== "string"
+    ) {
+      throw new RoutingTierValidationError(
+        `routing tier "${id}" reasoningEffort must be a string when provided`,
+      );
+    }
     const target = fields["target"];
+    // `null` = "unassigned" (spec v2 D7/D8): a legal tier state with no model
+    // to resolve, so the provider-registry lookup is skipped for it.
+    if (target === null) {
+      return {
+        id,
+        label,
+        description,
+        target: null,
+        ...(typeof reasoningEffort === "string" ? { reasoningEffort } : {}),
+      };
+    }
     const providerId =
       typeof target === "object" && target !== null
         ? (target as Record<string, unknown>)["providerId"]
@@ -95,10 +160,16 @@ export function validateTierRecords(input: unknown): RoutingTierRecord[] {
         : undefined;
     if (typeof providerId !== "string" || typeof modelId !== "string") {
       throw new RoutingTierValidationError(
-        `routing tier "${id}" must have a target with string providerId and modelId`,
+        `routing tier "${id}" must have a target with string providerId and modelId, or null when unassigned`,
       );
     }
-    return { id, label, description, target: { providerId, modelId } };
+    return {
+      id,
+      label,
+      description,
+      target: { providerId, modelId },
+      ...(typeof reasoningEffort === "string" ? { reasoningEffort } : {}),
+    };
   });
 }
 
@@ -109,11 +180,18 @@ export function createRoutingTierStore(dir: string = getConfigDir()): {
   const file = getConfigPath("routing-tiers.json", dir);
 
   return {
-    // A missing file means "no tiers configured yet" (the caller omits
-    // routingTiers); a present-but-corrupt file throws instead — see
-    // config/io.ts.
+    // A missing file is the first-run state: the factory template comes back
+    // UNPERSISTED (spec v2 D7/D8) — reading never writes, so the first
+    // `replace()` is what makes the table user-owned. A present file is
+    // returned verbatim (even `[]`, so the template can never override user
+    // data); a present-but-corrupt file throws instead — see config/io.ts.
     list(): Promise<RoutingTierRecord[]> {
-      return readJsonFile<RoutingTierRecord[]>(file, []);
+      // Fresh copies so a caller mutating the result cannot poison the
+      // presets for the next read.
+      return readJsonFile<RoutingTierRecord[]>(
+        file,
+        DEFAULT_TIER_TEMPLATES.map((tier) => ({ ...tier })),
+      );
     },
 
     async replace(tiers: RoutingTierRecord[]): Promise<void> {

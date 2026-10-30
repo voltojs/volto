@@ -1,6 +1,7 @@
 /**
  * Routing tier config store + `/config/routing-tiers` routes + deletion
- * reference scan (spec 2026-10-29 task 2).
+ * reference scan (spec 2026-10-29 task 2), plus the factory template and
+ * unassigned (null) targets (spec v2 D7/D8, task 8).
  *
  * Route tests run against a real server via startRouteTestServer and create
  * referencing agent definitions through POST /agents — the same write path
@@ -15,6 +16,7 @@ import {
   createRoutingTierStore,
   type RoutingTierRecord,
 } from "../config/routing-tiers.js";
+import { getConfigPath } from "../config/paths.js";
 import { startRouteTestServer } from "./helpers.js";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
@@ -25,7 +27,33 @@ const authJson = (token: string) => ({
 
 const TIER_TARGET = { providerId: "p", modelId: "m" };
 
-function tier(id: string, target = TIER_TARGET): RoutingTierRecord {
+/**
+ * The factory template spelled out verbatim (spec v2 D7/D8): the brief's
+ * copy is contract — labels, descriptions and order are pinned literally
+ * instead of importing the production constant.
+ */
+const FACTORY_TEMPLATE: RoutingTierRecord[] = [
+  {
+    id: "premium",
+    label: "高级",
+    description: "最强能力，复杂任务与深度推理",
+    target: null,
+  },
+  {
+    id: "fast",
+    label: "快速",
+    description: "低延迟，简单问答与快速检索",
+    target: null,
+  },
+  {
+    id: "economy",
+    label: "经济",
+    description: "省成本，批量与低风险子任务",
+    target: null,
+  },
+];
+
+function tier(id: string, target: RoutingTierRecord["target"] = TIER_TARGET): RoutingTierRecord {
   return { id, label: `${id} label`, description: `${id} description`, target };
 }
 
@@ -40,8 +68,11 @@ describe("createRoutingTierStore", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  it("starts empty when no config file exists", async () => {
-    expect(await createRoutingTierStore(dir).list()).toEqual([]);
+  it("returns the factory template when no config file exists", async () => {
+    // First-run state (spec v2 D7/D8): the presets are visible without being
+    // persisted — listing must not create the config file either.
+    expect(await createRoutingTierStore(dir).list()).toEqual(FACTORY_TEMPLATE);
+    expect(await fs.readdir(dir)).toEqual([]);
   });
 
   it("persists replaced records and preserves order across instances", async () => {
@@ -71,7 +102,10 @@ describe("createRoutingTierStore", () => {
   it("writes nothing when validation fails", async () => {
     const store = createRoutingTierStore(dir);
     await expect(store.replace([tier("economy"), tier("economy")])).rejects.toThrow();
-    expect(await store.list()).toEqual([]);
+    // Nothing persisted: the directory is untouched, so a read still falls
+    // back to the factory template.
+    expect(await fs.readdir(dir)).toEqual([]);
+    expect(await store.list()).toEqual(FACTORY_TEMPLATE);
   });
 });
 
@@ -103,11 +137,91 @@ describe("/config/routing-tiers", () => {
     return fetch(`${url}/config/routing-tiers`, { headers: auth(token) });
   }
 
-  it("answers { tiers: [] } before anything is configured", async () => {
+  it("answers the factory template before anything is configured", async () => {
     const { url, token, close } = await startRouteTestServer();
     const res = await getTiers(url, token);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ tiers: [] });
+    // Three presets in premium → fast → economy order, verbatim copy, and
+    // every target unassigned (null) — a legal state, not an error.
+    const body = (await res.json()) as { tiers: RoutingTierRecord[] };
+    expect(body.tiers).toEqual(FACTORY_TEMPLATE);
+    expect(body.tiers.map((t) => t.target)).toEqual([null, null, null]);
+    await close();
+  });
+
+  it("never writes a config file when serving the template", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const tiersFile = getConfigPath("routing-tiers.json");
+    // Template GETs are read-only: repeated reads stay on the template and
+    // no routing-tiers.json ever appears (the first PUT persists instead).
+    for (let i = 0; i < 2; i += 1) {
+      const body = (await (await getTiers(url, token)).json()) as { tiers: RoutingTierRecord[] };
+      expect(body.tiers.map((t) => t.id)).toEqual(["premium", "fast", "economy"]);
+      expect(await fs.readdir(path.dirname(tiersFile))).not.toContain(path.basename(tiersFile));
+    }
+    await close();
+  });
+
+  it("accepts an unassigned (null) target without any provider lookup", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    // No provider is created on purpose: `target: null` means "unassigned",
+    // so validation must skip resolving it. `reasoningEffort` rides along
+    // unvalidated — the port layer's per-call gate owns its value (spec D10).
+    const records: RoutingTierRecord[] = [
+      { ...tier("unassigned"), target: null, reasoningEffort: "ultra" },
+    ];
+    const put = await putTiers(url, token, records);
+    expect(put.status).toBe(200);
+    expect(await put.json()).toEqual({ tiers: records });
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: records });
+    await close();
+  });
+
+  it("still rejects an unresolvable non-null target beside unassigned tiers", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const put = await putTiers(url, token, [
+      { ...tier("unassigned"), target: null },
+      tier("ghost", { providerId: "ghost-provider", modelId: "ghost-model" }),
+    ]);
+    expect(put.status).toBe(400);
+    const body = (await put.json()) as { error: string };
+    // The null-skip branch must not swallow the real target check.
+    expect(body.error).toContain("ghost");
+    expect(body.error).toContain("ghost-provider");
+    expect(body.error).toContain("ghost-model");
+    await close();
+  });
+
+  it("returns the persisted table verbatim once a config file exists", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const target = await createTarget(url, token);
+    // Deliberately unlike the template (different ids, one assigned and one
+    // not): a present file always wins over the factory presets.
+    const records: RoutingTierRecord[] = [
+      {
+        id: "custom-a",
+        label: "A",
+        description: "first custom tier",
+        target,
+        reasoningEffort: "max",
+      },
+      { id: "custom-b", label: "B", description: "second custom tier", target: null },
+    ];
+    expect((await putTiers(url, token, records)).status).toBe(200);
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: records });
+    await close();
+  });
+
+  it("shows the factory template only while no config file exists", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    // An explicitly cleared table is a real, persisted `[]` — the template
+    // must not resurrect over it...
+    expect((await putTiers(url, token, [])).status).toBe(200);
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+
+    // ...and once the file is gone the first-run template comes back.
+    await fs.rm(getConfigPath("routing-tiers.json"));
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
 
@@ -133,8 +247,9 @@ describe("/config/routing-tiers", () => {
     expect(put.status).toBe(400);
     const body = (await put.json()) as { error: string };
     expect(body.error).toContain("economy");
-    // Validation must fail before anything is persisted.
-    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+    // Validation must fail before anything is persisted — the read still
+    // falls back to the untouched factory template.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
 
@@ -148,8 +263,9 @@ describe("/config/routing-tiers", () => {
     expect(put.status).toBe(400);
     const body = (await put.json()) as { error: string };
     expect(body.error).toContain("__inherit__");
-    // Validation must fail before anything is persisted.
-    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+    // Validation must fail before anything is persisted — the read still
+    // falls back to the untouched factory template.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
 
@@ -162,8 +278,9 @@ describe("/config/routing-tiers", () => {
     expect(put.status).toBe(400);
     const body = (await put.json()) as { error: string };
     expect(body.error).toContain("index 1");
-    // Validation must fail before anything is persisted.
-    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [] });
+    // Validation must fail before anything is persisted — the read still
+    // falls back to the untouched factory template.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
 
