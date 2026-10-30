@@ -129,9 +129,9 @@ function ReasoningRow({ text }: { text: string }) {
     <Collapsible className="group/reason">
       <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
         <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <span className="text-muted-foreground/60 shrink-0 text-[11px]">思考</span>
+        <span className="shrink-0">思考</span>
         {preview !== '' && (
-          <span className="text-muted-foreground/60 truncate">{preview}</span>
+          <span className="text-muted-foreground/70 truncate">{preview}</span>
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">

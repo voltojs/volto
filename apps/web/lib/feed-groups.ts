@@ -32,7 +32,25 @@ function entryKey(entry: ChatEntry): string {
   return entry.kind === 'message' ? entry.message.id : entry.key;
 }
 
+/**
+ * The turn a message belongs to, parsed off its `${turn}:${step}` id. Messages
+ * that do not carry a turn id are treated as their own turn, so they still get
+ * a footer rather than none.
+ */
+function turnOf(message: ConversationMessage): string {
+  const head = message.id.split(':')[0] ?? message.id;
+  return Number.isNaN(Number(head)) ? message.id : head;
+}
+
 export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
+  // Time, copy and usage are per turn, not per step: a turn is several model
+  // calls, and only the last one's tail should carry them.
+  const lastMessageOfTurn = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.kind !== 'message' || entry.message.role !== 'assistant') continue;
+    lastMessageOfTurn.set(turnOf(entry.message), entry.message.id);
+  }
+
   const rows: FeedRow[] = [];
   let open: { key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null } | null = null;
 
@@ -51,6 +69,8 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
     }
 
     const message = entry.message;
+    const isTurnTail = lastMessageOfTurn.get(turnOf(message)) === message.id;
+    const footerFor = (): ConversationMessage | null => (isTurnTail ? message : null);
     const segments = groupConversationBlocks(message.blocks);
     if (segments.length === 0) {
       flush();
@@ -64,7 +84,7 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
         open.blocks.push(...segment.blocks);
         // The tail of a message may sit inside a run that keeps growing; the
         // last message to end in activity owns the footer of that run.
-        if (isLast) open.footer = message;
+        if (isLast) open.footer = footerFor();
         return;
       }
       flush();
@@ -72,7 +92,7 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
         kind: 'answer',
         key: `${message.id}:a${index}`,
         blocks: segment.blocks,
-        footer: isLast ? message : null,
+        footer: isLast ? footerFor() : null,
       });
     });
   }

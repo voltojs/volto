@@ -28,8 +28,8 @@ const reasoning = (t: string): ConversationMessage['blocks'][number] => ({
 
 /** 思考 - 工具 - 正文 - 工具 - 思考 - 正文 */
 const turn = [
-  assistant('m1', [reasoning('第一段思考'), tool('t1', 'pnpm test'), text('第一段正文')], '第一段正文'),
-  assistant('m2', [tool('t2', 'pnpm build'), reasoning('第二段思考'), text('结尾正文')], '第一段正文结尾正文'),
+  assistant('1:1', [reasoning('第一段思考'), tool('t1', 'pnpm test'), text('第一段正文')], '第一段正文'),
+  assistant('1:2', [tool('t2', 'pnpm build'), reasoning('第二段思考'), text('结尾正文')], '第一段正文结尾正文'),
 ];
 
 describe('concise density', () => {
@@ -54,7 +54,7 @@ describe('concise density', () => {
       <MessageList
         density="concise"
         entries={[
-          assistant('m1', [
+          assistant('2:1', [
             {
               type: 'tool_call',
               call: { id: 't9', name: 'bash', args: { command: 'false' }, result: 'boom: failed', isError: true },
@@ -83,9 +83,9 @@ describe('detailed density', () => {
 });
 
 describe('message footer', () => {
-  it('appears once per message, on the row holding its tail', () => {
+  it('appears once per turn, on the row holding its tail', () => {
     const { container } = render(<MessageList entries={turn} density="concise" />);
-    // Two messages → two time stamps, regardless of how many rows each spans.
-    expect(container.querySelectorAll('[aria-label="复制"]')).toHaveLength(2);
+    // Two steps of one turn → a single footer, however many rows it spans.
+    expect(container.querySelectorAll('[aria-label="复制"]')).toHaveLength(1);
   });
 });

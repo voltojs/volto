@@ -53,6 +53,17 @@ describe('groupFeedEntries', () => {
     expect(rows[0]!.kind === 'activity' && rows[0]!.blocks).toHaveLength(4);
   });
 
+  it('leaves mid-turn execution without a footer', () => {
+    const rows = groupFeedEntries([
+      // Two steps of one turn; only the second ends it.
+      assistant('1:1', [tool('t1')]),
+      assistant('1:2', [text('answer')], 'answer'),
+    ]);
+    expect(kinds(rows)).toEqual(['activity', 'answer']);
+    expect(footerOf(rows[0]!)).toBeNull();
+    expect(footerOf(rows[1]!)?.id).toBe('1:2');
+  });
+
   it('puts the footer on the row that holds the message tail', () => {
     const endingInText = groupFeedEntries([assistant('m1', [tool('t1'), text('done')], 'done')]);
     expect(footerOf(endingInText[0]!)).toBeNull();
