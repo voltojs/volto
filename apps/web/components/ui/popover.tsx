@@ -27,11 +27,18 @@ function PopoverContent({
         align={align}
         side={side}
         sideOffset={sideOffset}
+        // z-[60] > dialogs (z-50): a popover is a floating layer and must
+        // paint above modal dialogs, or it reads as dead there. The token
+        // lives on the absolutely positioned Positioner — the stacking
+        // unit; a z-index on the static Popup inside never joins paint
+        // order — plus the Popup as a belt-and-braces copy.
+        className="z-[60]"
         {...props}
       >
         <PopoverPrimitive.Popup
+          data-slot="popover-content"
           className={cn(
-            'bg-popover text-popover-foreground z-50 min-w-32 rounded-lg border p-3 shadow-md',
+            'bg-popover text-popover-foreground z-[60] min-w-32 rounded-lg border p-3 shadow-md',
             className,
           )}
         >

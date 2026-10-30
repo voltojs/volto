@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModelSettingsPicker } from '@/components/chat/ModelSettingsPicker';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 
 // jsdom does not implement the pointer-capture APIs Base UI uses internally.
@@ -133,5 +134,88 @@ describe('ModelSettingsPicker', () => {
 
     expect(await screen.findByText('推理等级')).toBeInTheDocument();
     expect(screen.queryByText('MiMo-V2.5')).not.toBeInTheDocument();
+  });
+});
+
+/** Parses a Tailwind z token (`z-50`, `z-[60]`) into its numeric level. */
+function zToken(el: Element): number {
+  const match = /(?:^|\s)z-(?:\[(\d+)\]|(\d+))(?:\s|$)/.exec(el.className);
+  return match ? Number(match[1] ?? match[2]) : NaN;
+}
+
+describe('ModelSettingsPicker placement', () => {
+  it('paints its popup above the modal dialog content instead of under it', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent>
+          <ModelSettingsPicker
+            providerId="v1"
+            modelId="m2"
+            onModelChange={vi.fn()}
+            efforts={EFFORTS}
+            effort={undefined}
+            onEffortChange={vi.fn()}
+          />
+        </DialogContent>
+      </Dialog>,
+    );
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+
+    // jsdom paints nothing, so the stacking contract is pinned as the z
+    // tokens themselves. The stacking unit is Base UI's absolutely
+    // positioned Positioner: the popup inside it is static, whose z-index
+    // never joins paint order — a token there is a no-op (the bug's real
+    // shape). A unit that does not declare a level above the dialog's
+    // z-50 paints under the dialog and reads as "click does nothing".
+    const popup = document.querySelector('[data-slot="popover-content"]');
+    const dialogContent = document.querySelector(
+      '[data-slot="dialog-content"]',
+    );
+    expect(popup).not.toBeNull();
+    expect(dialogContent).not.toBeNull();
+    const positioner = popup!.parentElement!;
+    expect(zToken(positioner)).toBeGreaterThan(zToken(dialogContent!));
+  });
+
+  it('opens below the trigger by default', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ModelSettingsPicker
+        providerId="v1"
+        modelId="m2"
+        onModelChange={vi.fn()}
+        efforts={EFFORTS}
+        effort={undefined}
+        onEffortChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+    // The composer's default placement stays as it was.
+    expect(
+      document.querySelector('[data-slot="popover-content"]'),
+    ).toHaveAttribute('data-side', 'bottom');
+  });
+
+  it('honors a side override so hosts can keep the popup clear of actions', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ModelSettingsPicker
+        providerId="v1"
+        modelId="m2"
+        onModelChange={vi.fn()}
+        efforts={EFFORTS}
+        effort={undefined}
+        onEffortChange={vi.fn()}
+        side="top"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="popover-content"]'),
+    ).toHaveAttribute('data-side', 'top');
   });
 });

@@ -24,6 +24,12 @@ interface ModelSettingsPickerProps {
    * the default keeps the composer's prompt-like wording.
    */
   triggerFallback?: string;
+  /**
+   * Which side of the trigger the popup opens on. Hosts whose trigger sits
+   * just above their submit actions (the tier form) pass 'top' so the
+   * popup never covers them; the composer keeps the default.
+   */
+  side?: 'top' | 'bottom';
 }
 
 /** Which pane the popup is showing; the root lists both settings. */
@@ -52,6 +58,7 @@ export function ModelSettingsPicker({
   effort,
   onEffortChange,
   triggerFallback,
+  side = 'bottom',
 }: ModelSettingsPickerProps) {
   const providers = useConfigStore((s) => s.providers);
   const catalogProviders = useConfigStore((s) => s.catalogProviders);
@@ -82,7 +89,9 @@ export function ModelSettingsPicker({
             rather than silently naming some other model. */}
         <span className="truncate font-mono">
           {model?.name ??
-            (providerId ? '模型已失效，请重选' : (triggerFallback ?? '选择模型'))}
+            (providerId
+              ? '模型已失效，请重选'
+              : (triggerFallback ?? '选择模型'))}
         </span>
         {effortName && (
           <span className="text-muted-foreground shrink-0 font-mono text-xs">
@@ -92,7 +101,7 @@ export function ModelSettingsPicker({
         <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
       </PopoverTrigger>
 
-      <PopoverContent className="w-64 p-1">
+      <PopoverContent side={side} className="w-64 p-1">
         {pane === 'root' && (
           <>
             <Row

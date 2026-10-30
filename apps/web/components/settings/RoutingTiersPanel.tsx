@@ -190,6 +190,9 @@ function TierForm({
         effort={reasoningEffort}
         onEffortChange={setReasoningEffort}
         triggerFallback="未配置模型"
+        // The trigger sits right above the submit row: open upward so the
+        // popup covers form fields (harmless) and never 保存/取消.
+        side="top"
       />
       {error && (
         <p className="text-destructive text-sm" role="alert">

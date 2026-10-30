@@ -449,6 +449,29 @@ describe('RoutingTiersPanel', () => {
     expect(screen.getByDisplayValue('改了')).toBeInTheDocument();
   });
 
+  it('表单内 picker popup 向上弹出，不遮挡保存/取消', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [TIERS[0]] },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    await screen.findByText('premium');
+
+    await user.click(screen.getByRole('button', { name: '编辑 premium' }));
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+
+    // jsdom lays nothing out, so the "never covers the submit row" contract
+    // is pinned as the popup's side: opening upward lands it over the form
+    // fields, while the default downward side covered 保存/取消 (bug report).
+    const popup = document.querySelector('[data-slot="popover-content"]');
+    expect(popup).not.toBeNull();
+    expect(popup).toHaveAttribute('data-side', 'top');
+  });
+
   it('删除被引用档位：PUT reject 409 body {error, references} → 面板展示「被 XXX 引用，无法删除」且不丢本地列表', async () => {
     stubFetch({
       [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
