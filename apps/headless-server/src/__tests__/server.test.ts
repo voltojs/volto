@@ -797,22 +797,32 @@ describe("Headless server", () => {
     expect(userEntry["userInvocable"]).toBe(true);
   });
 
-  it("keeps the legacy /skills response shape when includeDefinitions is absent", async () => {
+  it("keeps the legacy /skills response shape and only the de-duplicated winner", async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-legacy-"));
-    const skillDir = path.join(projectDir, ".volto", "skills", "legacy-shape");
-    await fs.mkdir(skillDir, { recursive: true });
-    await fs.writeFile(
-      path.join(skillDir, "SKILL.md"),
-      "---\nname: legacy-shape\ndescription: legacy\n---\nbody",
-    );
+    const configSkills = path.join(process.env["VOLTO_CONFIG_DIR"]!, "skills");
+    const writeSkill = async (dir: string, description: string) => {
+      const skillDir = path.join(dir, "legacy-shape");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        `---\nname: legacy-shape\ndescription: ${description}\n---\nbody`,
+      );
+    };
+    // Same name at both levels: the slash menu must see exactly one entry —
+    // the project-level winner — not the shadowed user-level twin.
+    await writeSkill(configSkills, "user legacy");
+    await writeSkill(path.join(projectDir, ".volto", "skills"), "project legacy");
+
     const project = await post("/projects", { name: "skills-legacy", path: projectDir });
     expect(project.status).toBe(201);
     const projectId = (project.data as { id: string }).id;
     const { data } = await getJson(`/skills?projectId=${encodeURIComponent(projectId)}`);
-    const entry = (data as { skills: Array<Record<string, unknown>> }).skills.find(
+    const matches = (data as { skills: Array<Record<string, unknown>> }).skills.filter(
       (s) => s["name"] === "legacy-shape",
-    )!;
-    expect(Object.keys(entry).sort()).toEqual([
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!["description"]).toBe("project legacy");
+    expect(Object.keys(matches[0]!).sort()).toEqual([
       "description",
       "modelInvocable",
       "name",
