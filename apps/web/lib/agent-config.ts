@@ -224,3 +224,32 @@ export async function fetchSkills(projectId?: string | null): Promise<SkillDescr
   const data = await getJson<{ skills: SkillDescriptor[] }>(`/skills${query}`);
   return data.skills;
 }
+
+/** One on-disk skill definition, including shadowed losers (settings catalog). */
+export interface SkillEntry {
+  /** `${scope}:${name}` */
+  id: string;
+  name: string;
+  description: string;
+  scope: 'user' | 'project';
+  /** Absolute path of the SKILL.md entry file. */
+  filePath: string;
+  /** Absolute path of the skill's own directory. */
+  baseDir: string;
+  modelInvocable: boolean;
+  userInvocable: boolean;
+  /** True when a higher-priority source defines the same name. */
+  shadowed: boolean;
+}
+
+/**
+ * Fetches every definition (shadowed ones included) for the settings catalog.
+ * The default `/skills` shape stays untouched for the slash menu, so this
+ * path opts in through `includeDefinitions=1`.
+ */
+export async function fetchSkillEntries(projectId: string | null): Promise<SkillEntry[]> {
+  const params = new URLSearchParams({ includeDefinitions: '1' });
+  if (projectId) params.set('projectId', projectId);
+  const data = await getJson<{ skills: SkillEntry[] }>(`/skills?${params.toString()}`);
+  return data.skills;
+}
