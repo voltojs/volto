@@ -64,9 +64,6 @@ export type {
   TrajectoryView,
   TrajectoryRow,
   TodoItem,
-  TodoTransition,
-  TodoTransitionKind,
-  TodoTransitionRecord,
 } from "@volto/core";
 export {
   emptyContextUsageFold,
@@ -79,8 +76,6 @@ export {
   foldSnapshotEvent,
   snapshotView,
   foldStandingTodos,
-  diffTodoSnapshots,
-  foldTodoTransitions,
 } from "@volto/core";
 export type {
   ContextUsageFold,

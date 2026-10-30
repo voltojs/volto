@@ -10,9 +10,7 @@ import {
   type ChatEntry,
   type ProjectedConversation,
 } from '@/lib/projection';
-import { foldTodoTransitions } from '@volto/sdk/sse';
 import type { ConversationMessage, ContextUsageView } from '@volto/sdk/sse';
-import { mergeTodoChanges } from '@/lib/todo-feed';
 import { dropCachedTrajectory } from '@/lib/trajectory-cache';
 import { projectContextUsage } from '@/lib/context-usage';
 import { runTitleWriteBack } from '@/lib/session-title';
@@ -102,24 +100,9 @@ export function useConversation(): ConversationFeed {
     [stored, live],
   );
 
-  // Todo progress lines: the stored history the session detail already
-  // carries, plus whatever the live buffer folded since it was opened. The
-  // session's own last snapshot is the diff baseline, so a resumed session's
-  // first write still reports its change instead of seeding a new baseline.
-  const storedTodos = currentSession?.todos ?? null;
-  const storedTodoChanges = currentSession?.todoChanges;
-  const todoRows = useMemo(
-    () =>
-      mergeTodoChanges(
-        storedTodoChanges,
-        bufferIsCurrent ? foldTodoTransitions(events, storedTodos) : [],
-      ),
-    [storedTodoChanges, events, bufferIsCurrent, storedTodos],
-  );
-
   const entries = useMemo(
-    () => composeChatEntries(messages, live.records, todoRows),
-    [messages, live, todoRows],
+    () => composeChatEntries(messages, live.records),
+    [messages, live],
   );
 
   // -- session switch bookkeeping ------------------------------------------

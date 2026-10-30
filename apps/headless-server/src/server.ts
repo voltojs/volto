@@ -35,7 +35,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { projectMessageEntries, foldStandingTodos, foldTodoTransitions } from "@volto/core";
+import { projectMessageEntries, foldStandingTodos } from "@volto/core";
 import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@volto/core";
 import {
   readConversation,
@@ -1690,17 +1690,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // event log so a cold page load restores the plan without replaying
         // tool args. Live SSE `todoListUpdated` frames still override this.
         const todos = foldStandingTodos(record.events);
-        // Progress lines for the chat feed. Folded from the same event array
-        // the standing list reads, so a cold reload shows the same history a
-        // live session accumulated instead of losing it on refresh (spec D8).
-        const todoChanges = foldTodoTransitions(record.events, null);
         jsonResponse(res, 200, {
           id,
           ...bindingsOf(record.meta),
           messages: view.messages,
           contextUsage,
           todos,
-          todoChanges,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
         });

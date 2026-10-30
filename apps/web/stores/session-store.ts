@@ -3,7 +3,6 @@ import type {
   ConversationMessage,
   ContextUsageSnapshot,
   TodoItem,
-  TodoTransitionRecord,
 } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import { useConfigStore } from './config-store';
@@ -75,12 +74,6 @@ export interface Session {
    * frames override this when the chat event buffer has any.
    */
   todos?: TodoItem[] | null;
-  /**
-   * Todo transition history seeded from `GET /sessions/:id`. Live SSE folds
-   * override duplicates by key (see lib/todo-feed.ts); this is what keeps the
-   * progress lines after a reload.
-   */
-  todoChanges?: TodoTransitionRecord[];
 }
 
 /** Detail payload used to fill in a session fetched via `GET /sessions/:id`. */
@@ -88,7 +81,6 @@ export interface SessionDetail {
   messages: ConversationMessage[];
   contextUsage: ContextUsageSnapshot | null;
   todos?: TodoItem[] | null;
-  todoChanges?: TodoTransitionRecord[];
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;
