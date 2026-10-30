@@ -87,13 +87,6 @@ export function ActivitySteps({
     (block) => block.call.isError === true || block.call.approval?.decision === 'deny',
   );
   const failed = failedCalls.length > 0;
-  const failureSummary = failedCalls
-    .map((block) =>
-      block.call.approval?.decision === 'deny'
-        ? `${block.call.name} 被拒绝`
-        : `${block.call.name} · ${firstLineClipped(block.call.result ?? '执行失败')}`,
-    )
-    .join(' ｜ ');
   const label =
     running !== undefined
       ? `执行中 · ${running.call.name} · ${toolCallSummary(running.call.name, running.call.args)}`
@@ -118,14 +111,6 @@ export function ActivitySteps({
         <span className="truncate">{label}</span>
         {failed && <CircleAlert className="text-destructive/70 ml-auto h-3 w-3 shrink-0" />}
       </CollapsibleTrigger>
-      {failed && (
-        <div
-          data-testid="activity-group-failure"
-          className="text-destructive/80 py-0.5 pr-1 pl-6 text-[11px] break-words"
-        >
-          {failureSummary}
-        </div>
-      )}
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
         <div className="space-y-0.5 pl-3">{rows}</div>
       </CollapsibleContent>
@@ -156,11 +141,4 @@ function ReasoningRow({ text }: { text: string }) {
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-/** First line of a tool's output, clipped to a readable length. */
-function firstLineClipped(text: string): string {
-  const line = (text.split('\n')[0] ?? '').trim();
-  const points = Array.from(line);
-  return points.length <= 120 ? line : `${points.slice(0, 119).join('')}…`;
 }

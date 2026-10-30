@@ -40,12 +40,15 @@ describe('ToolCallCard rows', () => {
     expect(screen.getByText(/src\/a\.ts/)).toBeInTheDocument();
   });
 
-  it('keeps an inline error summary visible after the user collapses it', () => {
+  it('collapses the failure body too, leaving only the red row', () => {
     const { container } = render(<ToolCallCard call={failed} label="false" />);
     const trigger = container.querySelector('[data-slot="collapsible-trigger"]');
     expect(trigger).not.toBeNull();
     fireEvent.click(trigger!);
-    expect(screen.getByTestId('tool-error-summary')).toHaveTextContent(/boom: command failed/);
+    // Nothing survives outside the fold: the failure is still legible from the
+    // red tool name and the red status icon on the row.
+    expect(screen.queryByText(/boom: command failed/)).toBeNull();
+    expect(screen.getByText('bash')).toHaveClass('text-destructive');
   });
 
   it('re-renders when the summary changes', () => {

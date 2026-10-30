@@ -96,7 +96,7 @@ export const ToolCallCard = memo(function ToolCallCard({
           also the affordance that says "open me". */}
       <CollapsibleTrigger
         className={cn(
-          'flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors',
+          'group flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors',
           'hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none',
         )}
       >
@@ -121,18 +121,6 @@ export const ToolCallCard = memo(function ToolCallCard({
           <StatusIcon call={call} />
         </span>
       </CollapsibleTrigger>
-
-      {/* The failure fact must survive collapsing. Shown only while closed:
-          open, the body already carries the same text, and printing it twice
-          reads like two separate failures. */}
-      {failed && !open && call.result !== undefined && (
-        <div
-          data-testid="tool-error-summary"
-          className="text-destructive/80 py-0.5 pr-1 pl-6 font-mono text-[11px] break-words"
-        >
-          {firstLineClipped(call.result)}
-        </div>
-      )}
 
       {denialNote && (
         <div className="text-muted-foreground/80 py-0.5 pr-1 pl-6 text-[11px]">{denialNote}</div>
@@ -177,11 +165,3 @@ export const ToolCallCard = memo(function ToolCallCard({
     </Collapsible>
   );
 }, toolCallCardComparator);
-
-
-/** First line of a tool's output, clipped to a readable length. */
-function firstLineClipped(text: string): string {
-  const line = (text.split('\n')[0] ?? '').trim();
-  const points = Array.from(line);
-  return points.length <= 120 ? line : `${points.slice(0, 119).join('')}…`;
-}

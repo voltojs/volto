@@ -70,7 +70,7 @@ describe('MessageBubble concise density', () => {
     expect(screen.getByText(/"command": "pnpm test"/)).toBeInTheDocument();
   });
 
-  it('stays folded on failure but names the failure in the control', () => {
+  it('stays folded on failure, counting it but leaking no body', () => {
     render(
       <MessageBubble
         message={message([
@@ -93,8 +93,8 @@ describe('MessageBubble concise density', () => {
       />,
     );
     expect(screen.getByText(/1 步失败/)).toBeInTheDocument();
-    expect(screen.getByTestId('activity-group-failure')).toHaveTextContent(/boom: command failed/);
-    // The step rows themselves stay behind the fold.
+    // Nothing from the failure is printed outside the fold.
+    expect(screen.queryByText(/boom: command failed/)).toBeNull();
     expect(screen.queryByText('bash')).toBeNull();
   });
 
