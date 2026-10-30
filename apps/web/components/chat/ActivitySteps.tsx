@@ -105,7 +105,7 @@ export function ActivitySteps({
   return (
     <Collapsible
       data-testid="activity-group"
-      className="ml-1 rounded-md border border-border/60"
+      className="rounded-md border border-border/60"
     >
       <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left text-xs select-none">
         <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
