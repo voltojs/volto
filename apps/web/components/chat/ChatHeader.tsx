@@ -50,17 +50,19 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3">
+    <header className="flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5">
       <SidebarToggle />
       <Separator orientation="vertical" className="h-5 !self-center" />
 
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="text-foreground/90 truncate font-mono text-[13px]">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        {/* The full title, wrapped rather than clipped: the header is the only
+            place a long auto-generated title can be read. */}
+        <span className="text-foreground/90 font-mono text-[13px] break-words">
           {title}
         </span>
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-1 self-center">
         {forkAction && (
           <Tooltip>
             <TooltipTrigger

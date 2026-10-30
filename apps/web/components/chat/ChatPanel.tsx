@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
+import { ConversationColumn } from './ConversationColumn';
+import { useStreamDensity } from '@/lib/stream-density';
+import { expandStoredTitle } from '@/lib/session-title';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { isPermissionMode } from '@/lib/permission-mode';
 import { InputBar } from './InputBar';
 import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
@@ -68,6 +73,9 @@ export function ChatPanel() {
   const projects = useConfigStore((s) => s.projects);
   const providers = useConfigStore((s) => s.providers);
   const pendingProjectId = useSessionStore((s) => s.pendingProjectId);
+  useEffect(() => {
+    void usePreferencesStore.getState().load();
+  }, []);
   const setPendingProjectId = useSessionStore((s) => s.setPendingProjectId);
   const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
 
@@ -78,8 +86,17 @@ export function ChatPanel() {
     null,
   );
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
+  // The default comes from the persisted preferences (Settings → General),
+  // not from this component: a new conversation should open in the tier the
+  // user configured, on any browser.
   const [pendingPermissionMode, setPendingPermissionMode] =
-    useState<PermissionMode>('ask');
+    useState<PermissionMode | null>(null);
+  const preferredPermissionMode = usePreferencesStore(
+    (s) => s.preferences.defaultPermissionMode,
+  );
+  const effectivePermissionMode: PermissionMode =
+    pendingPermissionMode ??
+    (isPermissionMode(preferredPermissionMode) ? preferredPermissionMode : 'ask');
   // Cleared on every model change (below) rather than trying to mirror
   // `setSessionModel`'s keep-if-still-valid rule — there is no session yet
   // to carry that nuance for, so falling back to the new model's declared
@@ -107,13 +124,25 @@ export function ChatPanel() {
   // `onChange` below), so falling back to the first provider's first model
   // while they're null cannot produce a mismatched provider/model pair.
   const firstProviderWithModels = providers.find((p) => p.models.length > 0);
+  // What the user picked last time wins over "first provider's first model",
+  // but only while that pair still exists in the catalogue — a deleted
+  // provider must not leave the composer pointing at nothing.
+  const rememberedProviderId = usePreferencesStore((s) => s.preferences.lastProviderId);
+  const rememberedModelId = usePreferencesStore((s) => s.preferences.lastModelId);
+  const rememberedProvider = providers.find(
+    (p) =>
+      p.id === rememberedProviderId &&
+      providerModels(p).some((m) => m.id === rememberedModelId),
+  );
   const effectiveProviderId =
-    pendingProviderId ?? firstProviderWithModels?.id ?? null;
+    pendingProviderId ?? rememberedProvider?.id ?? firstProviderWithModels?.id ?? null;
   const effectiveModelId =
     pendingModelId ??
-    (firstProviderWithModels
-      ? providerModels(firstProviderWithModels)[0]?.id
-      : undefined) ??
+    (rememberedProvider !== undefined
+      ? rememberedModelId
+      : firstProviderWithModels
+        ? providerModels(firstProviderWithModels)[0]?.id
+        : undefined) ??
     null;
   const pendingReasoning = useConfigStore((s) =>
     s.getModelReasoning(effectiveProviderId, effectiveModelId),
@@ -121,13 +150,17 @@ export function ChatPanel() {
   // A new session starts at the user's last choice for this exact model,
   // falling back to the model's own default. `rememberedEffort` validates
   // against the declared efforts, so a stale tier can never reach a turn.
+  const rememberedEffortPreference = usePreferencesStore(
+    (s) => s.preferences.lastReasoningEffort,
+  );
+  const declaredEfforts = pendingReasoning?.efforts ?? [];
   const effectiveReasoningEffort =
     pendingReasoningEffort ??
-    rememberedEffort(
-      effectiveProviderId,
-      effectiveModelId,
-      pendingReasoning?.efforts ?? [],
-    ) ??
+    (rememberedEffortPreference !== undefined &&
+    declaredEfforts.some((e) => e.id === rememberedEffortPreference)
+      ? rememberedEffortPreference
+      : undefined) ??
+    rememberedEffort(effectiveProviderId, effectiveModelId, declaredEfforts) ??
     pendingReasoning?.defaultEffort;
 
   // Fallback for entering a session by any path this component didn't itself
@@ -153,7 +186,7 @@ export function ChatPanel() {
       projectId: pendingProjectId,
       providerId: effectiveProviderId,
       modelId: effectiveModelId,
-      permissionMode: pendingPermissionMode,
+      permissionMode: effectivePermissionMode,
       reasoningEffort: effectiveReasoningEffort,
     });
     draftSessionIdRef.current = id;
@@ -163,7 +196,7 @@ export function ChatPanel() {
     pendingProjectId,
     effectiveProviderId,
     effectiveModelId,
-    pendingPermissionMode,
+    effectivePermissionMode,
     effectiveReasoningEffort,
   ]);
 
@@ -177,7 +210,7 @@ export function ChatPanel() {
           .getState()
           .setSessionModel(id, effectiveProviderId, effectiveModelId);
       }
-      useSessionStore.getState().setSessionPermissionMode(id, pendingPermissionMode);
+      useSessionStore.getState().setSessionPermissionMode(id, effectivePermissionMode);
       useSessionStore.getState().setSessionReasoningEffort(id, effectiveReasoningEffort);
       useSessionStore.getState().setCurrentSession(id);
       draftSessionIdRef.current = null;
@@ -188,7 +221,7 @@ export function ChatPanel() {
       ensureDraftSession,
       effectiveProviderId,
       effectiveModelId,
-      pendingPermissionMode,
+      effectivePermissionMode,
       effectiveReasoningEffort,
       sendMessage,
     ],
@@ -362,6 +395,7 @@ export function ChatPanel() {
   // Live SSE fold wins when the buffer has any todoListUpdated; otherwise
   // fall back to the seed from GET /sessions/:id so a cold reload restores
   // the dock without waiting for the next write.
+  const [streamDensity] = useStreamDensity();
   const liveTodos = useMemo(() => foldTodosFromEvents(chatEvents), [chatEvents]);
   const todos = liveTodos ?? currentSession?.todos ?? null;
 
@@ -407,9 +441,13 @@ export function ChatPanel() {
     [sendMessage],
   );
 
-  // Header 标题：会话标题（新会话尚未生成标题时回落项目名）→ 项目名 → 欢迎语。
+  // Header 标题：会话标题（旧版本截断过的展开为全文）→ 项目名 → 欢迎语。
   const headerTitle =
-    currentSession?.title || currentProject?.name || '探索未至之境';
+    (currentSession
+      ? expandStoredTitle(currentSession.title, currentSession.messages)
+      : '') ||
+    currentProject?.name ||
+    '探索未至之境';
 
   // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
   // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
@@ -761,7 +799,7 @@ export function ChatPanel() {
                 </p>
               ) : (
                 <>
-                  <div className="mb-2 flex items-center gap-2 px-6">
+                  <div className="mb-2 flex items-center gap-2">
                     <ProjectPicker
                       value={pendingProjectId}
                       onChange={setPendingProjectId}
@@ -795,7 +833,7 @@ export function ChatPanel() {
                     }
                     toolbar={
                       <PermissionPicker
-                        value={pendingPermissionMode}
+                        value={effectivePermissionMode}
                         onChange={setPendingPermissionMode}
                       />
                     }
@@ -807,6 +845,10 @@ export function ChatPanel() {
                           setPendingProviderId(providerId);
                           setPendingModelId(modelId);
                           setPendingReasoningEffort(undefined);
+                          usePreferencesStore.getState().save({
+                            lastProviderId: providerId,
+                            lastModelId: modelId,
+                          });
                         }}
                         efforts={pendingReasoning?.efforts ?? []}
                         effort={effectiveReasoningEffort}
@@ -817,6 +859,9 @@ export function ChatPanel() {
                             effort,
                           );
                           setPendingReasoningEffort(effort);
+                          usePreferencesStore
+                            .getState()
+                            .save({ lastReasoningEffort: effort });
                         }}
                       />
                     }
@@ -870,15 +915,16 @@ export function ChatPanel() {
             keepMounted
             className="flex min-h-0 flex-1 flex-row"
           >
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ConversationColumn>
               <MessageList
                 entries={entries}
                 onOpenSubagent={openSubagent}
                 sessionId={currentSessionId}
                 isGenerating={isGenerating}
+                density={streamDensity}
               />
               {pendingApprovals.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+                <div className="space-y-2 pb-3">
                   {pendingApprovals.map((approval) => (
                     <ApprovalCard
                       key={approval.callId}
@@ -889,7 +935,7 @@ export function ChatPanel() {
                 </div>
               )}
               {todos && todos.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl px-6">
+                <div>
                   <TodoDock todos={todos} />
                 </div>
               )}
@@ -941,25 +987,32 @@ export function ChatPanel() {
                       <ModelSettingsPicker
                         providerId={currentSession.providerId}
                         modelId={currentSession.modelId}
-                        onModelChange={(providerId, modelId) =>
+                        onModelChange={(providerId, modelId) => {
                           useSessionStore
                             .getState()
                             .setSessionModel(
                               currentSessionId,
                               providerId,
                               modelId,
-                            )
-                        }
+                            );
+                          usePreferencesStore.getState().save({
+                            lastProviderId: providerId,
+                            lastModelId: modelId,
+                          });
+                        }}
                         efforts={currentReasoning?.efforts ?? []}
                         effort={currentSession.reasoningEffort}
-                        onEffortChange={(effort) =>
+                        onEffortChange={(effort) => {
                           useSessionStore
                             .getState()
                             .setSessionReasoningEffort(
                               currentSessionId,
                               effort,
-                            )
-                        }
+                            );
+                          usePreferencesStore
+                            .getState()
+                            .save({ lastReasoningEffort: effort });
+                        }}
                       />
                     </>
                   ) : null
@@ -969,7 +1022,7 @@ export function ChatPanel() {
                   usage + the context ring, right under the input. */}
               <div
                 data-testid="chat-status-bar"
-                className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4 px-6 pb-3"
+                className="flex w-full items-center justify-center gap-4 pb-3"
               >
                 <div className="flex min-w-0 items-center gap-1">
                   <SessionStatsChip stats={stats} />
@@ -988,7 +1041,7 @@ export function ChatPanel() {
                   />
                 </span>
               </div>
-            </div>
+            </ConversationColumn>
           </TabsContent>
           <TabsContent
             value="trajectory"

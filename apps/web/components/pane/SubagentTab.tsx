@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MessageList } from '@/components/chat/MessageList';
+import { ConversationColumn } from '@/components/chat/ConversationColumn';
+import { useStreamDensity } from '@/lib/stream-density';
 import { InputBar } from '@/components/chat/InputBar';
 import { ContextMeter } from '@/components/chat/ContextMeter';
 import { ModelSettingsPicker } from '@/components/chat/ModelSettingsPicker';
@@ -47,6 +49,9 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
     childId !== undefined ? s.subagents[childId] : undefined,
   );
   const feed = useSubagentConversation(childId ?? null);
+  // Same display preference as the main chat: a sub-agent's execution detail
+  // is read at the same distance, so it must not have a second setting.
+  const [streamDensity] = useStreamDensity();
   // Parent config is bound to the session that spawned this tab, not the
   // session that happens to be current. Legacy tabs without parentSessionId
   // fall back to currentSessionId; a parent that has left the store yields
@@ -142,7 +147,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         </TabsList>
         {/* 对话：keepMounted 保滚动；行为矩阵逐行平移自旧版独立执行分栏。 */}
         <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col">
+          <ConversationColumn>
             {feed.isLoading ? (
               <div className="text-muted-foreground p-4 text-sm">加载执行记录…</div>
             ) : feed.error !== null ? (
@@ -157,6 +162,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 entries={feed.entries}
                 sessionId={childId}
                 isGenerating={running}
+                density={streamDensity}
               />
             ) : feed.entries.length === 0 ? (
               <div className="text-muted-foreground p-4 text-sm">无执行记录</div>
@@ -165,9 +171,9 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 entries={feed.entries}
                 sessionId={childId}
                 isGenerating={running}
+                density={streamDensity}
               />
             )}
-          </div>
           {/* Continued-chat input: disabled while the original turn runs, while
               a continued turn streams, or when the bound parent session is
               missing from the store / lacks a project-model binding. */}
@@ -221,6 +227,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               </>
             }
           />
+          </ConversationColumn>
         </TabsContent>
         {/* 轨迹：非 keepMounted——切走即卸载，其内部 hook 随挂载合法。 */}
         <TabsContent value="trajectory" className="flex min-h-0 flex-1 flex-col">

@@ -5,7 +5,7 @@ import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
 import { subagentTaskTitle } from '@/lib/background-tasks';
-import { cn } from '@/lib/utils';
+import { TraceRow } from './TraceRow';
 
 interface SubagentCardProps {
   call: ConversationToolCall;
@@ -37,10 +37,8 @@ export function subagentCardComparator(
 }
 
 /**
- * Compact single clickable row for a sub-agent delegation in the main
- * conversation (type + title + status). The whole row opens the sub-agent
- * pane; there is no collapsible body and no footer button — the plain
- * ToolCallCard keeps that job.
+ * A delegation as a trace row: same anatomy as a tool call, but activating it
+ * opens the child session instead of expanding a body.
  */
 export const SubagentCard = memo(function SubagentCard({
   call,
@@ -59,53 +57,36 @@ export const SubagentCard = memo(function SubagentCard({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isRunning]);
+
   const elapsed =
     isRunning && call.startedAt !== undefined && now !== undefined
       ? formatDuration(now - call.startedAt)
       : null;
   const duration =
-    typeof call.durationMs === 'number'
-      ? formatDuration(call.durationMs)
-      : null;
+    typeof call.durationMs === 'number' ? formatDuration(call.durationMs) : null;
   const title = subagentTaskTitle(call.args);
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpenSubagent?.(call.childSessionId!)}
-      aria-label={`子智能体 ${title}`.trim()}
-      className={cn(
-        'bg-card/60 hover:bg-muted/60 flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs',
-        call.isError && 'border-destructive/30 bg-destructive/5',
-      )}
-    >
-      <Bot className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
-      <span className="text-muted-foreground shrink-0">子智能体</span>
-      <span className="text-primary shrink-0 font-mono">task</span>
-      {title && (
-        <>
-          <span className="text-muted-foreground/70 shrink-0">·</span>
-          <span className="truncate">{title}</span>
-        </>
-      )}
-      <span className="text-muted-foreground/70 ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px]">
-        {isRunning ? (
-          <>
+    <TraceRow
+      icon={Bot}
+      label="task"
+      detail={title === '' ? undefined : title}
+      meta={isRunning ? undefined : (duration ?? undefined)}
+      failed={call.isError === true}
+      status={
+        isRunning ? (
+          <span className="text-muted-foreground/40 flex items-center gap-1 font-mono text-[10px] tabular-nums">
             <LoaderCircle className="h-3 w-3 animate-spin" />
-            <span>运行中</span>
-            {elapsed && <span>{elapsed}</span>}
-          </>
+            {elapsed ?? undefined}
+          </span>
+        ) : call.isError ? (
+          <CircleAlert className="text-destructive h-3 w-3" />
         ) : (
-          <>
-            {call.isError ? (
-              <CircleAlert className="text-destructive h-3 w-3" />
-            ) : (
-              <Check className="text-success h-3 w-3" />
-            )}
-            {duration && <span>{duration}</span>}
-          </>
-        )}
-      </span>
-    </button>
+          <Check className="text-success/60 h-3 w-3" />
+        )
+      }
+      onActivate={() => onOpenSubagent?.(call.childSessionId ?? '')}
+      ariaLabel={`子智能体 ${title}`.trim()}
+    />
   );
 }, subagentCardComparator);

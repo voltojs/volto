@@ -1,30 +1,29 @@
 'use client';
 
-import { memo } from 'react';
-import { ChevronRight, CircleAlert, Check, LoaderCircle } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+import { memo, useState } from 'react';
+import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
-import { denialNoteFor } from '@/lib/approvals';
-import { cn } from '@/lib/utils';
+import { toolIcon } from '@/lib/tool-icon';
+import { TraceRow } from './TraceRow';
 
 interface ToolCallCardProps {
   call: ConversationToolCall;
+  /**
+   * One-line summary of the call (its command, path, query…), shown after the
+   * tool name. Rows are indistinguishable without it — every `bash` call would
+   * read the same.
+   */
+  label?: string;
 }
 
-function StatusIcon({ call }: ToolCallCardProps) {
+function StatusIcon({ call }: { call: ConversationToolCall }) {
   if (call.result === undefined) {
-    return (
-      <LoaderCircle className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
-    );
+    return <LoaderCircle className="text-muted-foreground/60 h-3 w-3 animate-spin" />;
   }
   return call.isError ? (
-    <CircleAlert className="text-destructive h-3.5 w-3.5" />
+    <CircleAlert className="text-destructive h-3 w-3" />
   ) : (
-    <Check className="text-success h-3.5 w-3.5" />
+    <Check className="text-success/60 h-3 w-3" />
   );
 }
 
@@ -44,87 +43,60 @@ export function toolCallCardComparator(
     a.call.id === b.call.id &&
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
-    a.call.approval?.decision === b.call.approval?.decision
+    a.call.approval?.decision === b.call.approval?.decision &&
+    a.label === b.label
   );
 }
 
-/** Collapsed summary of one tool call, expandable to show args and output. */
+/** One tool call as a trace row; its body holds the arguments and the output. */
 export const ToolCallCard = memo(function ToolCallCard({
   call,
+  label,
 }: ToolCallCardProps) {
-  // Settled-approval rendering. The pending `ApprovalCard` vanishes the
-  // moment a decision lands; without this line a fail-closed denial
-  // (connection lost, turn interrupted) would look identical to a click the
-  // user made — or to a silent disappearance.
-  const denialNote =
-    call.approval?.decision === 'deny'
-      ? denialNoteFor(call.approval.reason)
-      : null;
+  const failed = call.isError === true || call.approval?.decision === 'deny';
+  // Failures open in both densities: a collapsed failure is a failure the user
+  // has to hunt for. Controlled rather than `defaultOpen`, because in a live
+  // run the card mounts while the tool is still running and the failure only
+  // lands later. A user's collapse wins until the next failure.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const [lastFailed, setLastFailed] = useState(failed);
+  if (failed !== lastFailed) {
+    setLastFailed(failed);
+    if (failed) setManualOpen(null);
+  }
 
   return (
-    <Collapsible
-      className={cn(
-        'bg-card/60 overflow-hidden rounded-md border text-xs',
-        call.isError && 'border-destructive/30 bg-destructive/5',
-      )}
+    <TraceRow
+      icon={toolIcon(call.name)}
+      label={call.name}
+      detail={label !== undefined && label !== call.name ? label : undefined}
+      meta={call.durationMs === undefined ? undefined : `${call.durationMs}ms`}
+      status={<StatusIcon call={call} />}
+      failed={failed}
+      open={manualOpen ?? failed}
+      onOpenChange={setManualOpen}
+      scrollable
     >
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
-        <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <span className="text-foreground/90 truncate font-mono">
-          {call.name}
-        </span>
-        {typeof call.durationMs === 'number' && (
-          <span className="text-muted-foreground/70 font-mono text-[10px]">
-            · {call.durationMs}ms
-          </span>
-        )}
-        <span className="ml-auto shrink-0">
-          <StatusIcon call={call} />
-        </span>
-      </CollapsibleTrigger>
-
-      {denialNote && (
-        <div className="text-muted-foreground border-t px-2.5 py-1.5 text-[11px]">
-          {denialNote}
+      <div>
+        <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
+          参数
+        </div>
+        <pre className="text-muted-foreground overflow-x-auto font-mono text-[11px] leading-relaxed">
+          {JSON.stringify(call.args, null, 2)}
+        </pre>
+      </div>
+      {call.result !== undefined && (
+        <div>
+          <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
+            {call.isError ? '执行失败' : '输出'}
+          </div>
+          {/* The protocol carries the tool's real output — render it as text,
+              never JSON.stringify'd metadata. */}
+          <pre className="text-muted-foreground font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
+            {call.result}
+          </pre>
         </div>
       )}
-
-      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-2 border-t px-2.5 py-2">
-          <div>
-            <div className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wide uppercase">
-              参数
-            </div>
-            <pre className="bg-muted/60 text-foreground/80 overflow-x-auto rounded p-2 font-mono">
-              {JSON.stringify(call.args, null, 2)}
-            </pre>
-          </div>
-          {call.result !== undefined && (
-            <div>
-              <div
-                className={cn(
-                  'mb-1 font-mono text-[10px] tracking-wide uppercase',
-                  call.isError ? 'text-destructive' : 'text-success',
-                )}
-              >
-                {call.isError ? '✕ 执行失败' : '✓ 执行成功'}
-              </div>
-              {/* The protocol carries the tool's real output — render it as
-                  text, never JSON.stringify'd metadata. */}
-              <pre
-                className={cn(
-                  'rounded p-2 font-mono text-[11px] break-words whitespace-pre-wrap',
-                  call.isError
-                    ? 'text-destructive/90 bg-destructive/5'
-                    : 'text-foreground/80 bg-muted/40',
-                )}
-              >
-                {call.result}
-              </pre>
-            </div>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    </TraceRow>
   );
 }, toolCallCardComparator);

@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import type { ConversationMessage, ContextUsageSnapshot, TodoItem } from '@volto/sdk/sse';
+import type {
+  ConversationMessage,
+  ContextUsageSnapshot,
+  TodoItem,
+} from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import { useConfigStore } from './config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';

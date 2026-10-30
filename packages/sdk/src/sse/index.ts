@@ -45,6 +45,7 @@ export {
   applyPartial,
   toConversationView,
   toTrajectoryView,
+  groupConversationBlocks,
 } from "@volto/core";
 export type {
   TurnRecord,
@@ -56,6 +57,7 @@ export type {
   ConversationView,
   ConversationMessage,
   ConversationBlock,
+  ConversationSegment,
   ConversationToolCall,
   TurnUsage,
   RouteSource,

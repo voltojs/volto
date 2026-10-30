@@ -4,6 +4,21 @@ function isTodoStatus(value: unknown): value is TodoItem["status"] {
   return value === "pending" || value === "in_progress" || value === "completed";
 }
 
+/** One `todoListUpdated` snapshot, or `null` when the payload is malformed. */
+function parseTodoSnapshot(data: unknown): TodoItem[] | null {
+  const raw = (data as { todos?: unknown } | null | undefined)?.todos;
+  if (!Array.isArray(raw)) return null;
+  const next: TodoItem[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) return null;
+    const content = (item as { content?: unknown }).content;
+    const status = (item as { status?: unknown }).status;
+    if (typeof content !== "string" || !isTodoStatus(status)) return null;
+    next.push({ content, status });
+  }
+  return next;
+}
+
 /**
  * Standing plan from a durable event log: latest valid `todoListUpdated`
  * snapshot (last-write-wins). `null` when the session never wrote a list.
@@ -15,25 +30,8 @@ export function foldStandingTodos(
   let todos: TodoItem[] | null = null;
   for (const event of events) {
     if (event.type !== "todoListUpdated") continue;
-    const data = event.data as { todos?: unknown } | null | undefined;
-    const raw = data?.todos;
-    if (!Array.isArray(raw)) continue;
-    const next: TodoItem[] = [];
-    let ok = true;
-    for (const item of raw) {
-      if (typeof item !== "object" || item === null) {
-        ok = false;
-        break;
-      }
-      const content = (item as { content?: unknown }).content;
-      const status = (item as { status?: unknown }).status;
-      if (typeof content !== "string" || !isTodoStatus(status)) {
-        ok = false;
-        break;
-      }
-      next.push({ content, status });
-    }
-    if (ok) todos = next;
+    const next = parseTodoSnapshot(event.data);
+    if (next !== null) todos = next;
   }
   return todos;
 }

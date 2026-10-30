@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   deriveSessionTitle,
+  expandStoredTitle,
   runTitleWriteBack,
   runManualRename,
   cancelPendingTitleWriteBack,
@@ -16,8 +17,9 @@ describe('deriveSessionTitle', () => {
     expect(deriveSessionTitle([user('修复\n上下文注入')])).toBe('修复 上下文注入');
   });
 
-  it('caps the title at 30 characters with an ellipsis', () => {
-    expect(deriveSessionTitle([user('x'.repeat(50))])).toBe(`${'x'.repeat(30)}…`);
+  it('keeps a normal title whole and only clips a pasted essay', () => {
+    expect(deriveSessionTitle([user('x'.repeat(50))])).toBe('x'.repeat(50));
+    expect(deriveSessionTitle([user('x'.repeat(260))])).toBe(`${'x'.repeat(200)}…`);
   });
 
   it('skips assistant messages when looking for the first user turn', () => {
@@ -35,13 +37,13 @@ describe('deriveSessionTitle', () => {
 
   it('truncates on a codepoint boundary for astral-plane characters', () => {
     // Each 😀 is a surrogate pair (2 UTF-16 code units, 1 codepoint). A naive
-    // `.slice(0, 30)` on the raw string would cut one in half at the 30-unit
-    // mark and produce an unpaired surrogate; codepoint-aware slicing must
-    // keep all 30 emoji intact.
-    const emoji = '😀'.repeat(40);
+    // `.slice(0, limit)` on the raw string would cut one in half and produce an
+    // unpaired surrogate; the cap counts codepoints, so the ellipsis lands on a
+    // whole character.
+    const emoji = '😀'.repeat(260);
     const result = deriveSessionTitle([user(emoji)]);
-    expect(result).toBe(`${'😀'.repeat(30)}…`);
-    expect(Array.from(result ?? '').length).toBe(31); // 30 emoji + ellipsis
+    expect(result).toBe(`${'😀'.repeat(200)}…`);
+    expect(Array.from(result ?? '').length).toBe(201); // 200 emoji + ellipsis
   });
 });
 
@@ -404,5 +406,21 @@ describe('runManualRename', () => {
     expect(setError).toHaveBeenLastCalledWith(
       expect.stringContaining('重命名失败'),
     );
+  });
+});
+
+describe('expandStoredTitle', () => {
+  it('restores the full message behind an old clipped title', () => {
+    const title = 'review 从 29cd234ac054b96542e37…';
+    const full = 'review 从 29cd234ac054b96542e37af1aced46b2222d748d 到最新的这些提交记录，并给出分析报告';
+    expect(expandStoredTitle(title, [user(full)])).toBe(full);
+  });
+
+  it('leaves a hand-written title alone', () => {
+    expect(expandStoredTitle('我的手写标题…', [user('完全不同的内容')])).toBe('我的手写标题…');
+  });
+
+  it('does nothing when the stored title is not clipped', () => {
+    expect(expandStoredTitle('普通标题', [user('普通标题但更长')])).toBe('普通标题');
   });
 });

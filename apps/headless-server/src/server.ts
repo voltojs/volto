@@ -67,6 +67,7 @@ import {
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
+import { patchPreferences, readPreferences } from "./config/preferences.js";
 import { createPlanStore } from "./config/plan-store.js";
 import { isUiPermissionMode, buildPermissionConfig, sandboxModeFor } from "./permission-modes.js";
 import {
@@ -1064,6 +1065,39 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // no network request.
     if (req.method === "GET" && url.pathname === "/catalog/providers") {
       jsonResponse(res, 200, listCatalogProviders());
+      return;
+    }
+
+    // GET /preferences — defaults the next conversation starts with.
+    if (req.method === "GET" && url.pathname === "/preferences") {
+      try {
+        jsonResponse(res, 200, await readPreferences());
+      } catch (err: unknown) {
+        // A preference is never worth failing a page load over: unreadable
+        // file → empty defaults, same as a first run.
+        jsonResponse(res, 200, {});
+        void err;
+      }
+      return;
+    }
+
+    // PUT /preferences — merge the given keys into the stored defaults.
+    if (req.method === "PUT" && url.pathname === "/preferences") {
+      try {
+        const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+        const patch: Record<string, unknown> = {};
+        for (const key of [
+          "defaultPermissionMode",
+          "lastProviderId",
+          "lastModelId",
+          "lastReasoningEffort",
+        ]) {
+          if (typeof body?.[key] === "string") patch[key] = body[key];
+        }
+        jsonResponse(res, 200, await patchPreferences(patch));
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 

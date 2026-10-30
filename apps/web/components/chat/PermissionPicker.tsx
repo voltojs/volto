@@ -32,6 +32,15 @@ interface PermissionPickerProps {
    * 位）。缺省不渲染退出入口（子代理面板等复用方无需退出语义）。
    */
   onExitPlan?: () => void;
+  /**
+   * Trigger chrome. The composer sits on another surface and wants the
+   * borderless variant; a settings row sits beside ordinary selects and wants
+   * the bordered one, so the caller picks rather than the component forcing a
+   * look that only fits one of the two places.
+   */
+  variant?: 'default' | 'ghost';
+  /** Extra trigger classes (width, for example), so callers need no wrapper. */
+  triggerClassName?: string;
 }
 
 /**
@@ -86,7 +95,13 @@ const OPTIONS: Array<{
  * them — showing one would let the user "switch" to a mode the session
  * isn't in).
  */
-export function PermissionPicker({ value, onChange, onExitPlan }: PermissionPickerProps) {
+export function PermissionPicker({
+  value,
+  onChange,
+  onExitPlan,
+  variant = 'ghost',
+  triggerClassName,
+}: PermissionPickerProps) {
   const [confirmFull, setConfirmFull] = useState(false);
   if (value === 'plan') {
     return (
@@ -128,7 +143,11 @@ export function PermissionPicker({ value, onChange, onExitPlan }: PermissionPick
           onChange(mode);
         }}
       >
-        <SelectTrigger size="sm" variant="ghost" className="font-mono">
+        <SelectTrigger
+          size="sm"
+          variant={variant}
+          className={cn(variant === 'ghost' && 'font-mono', triggerClassName)}
+        >
           <Icon
             className={cn(
               'h-3.5 w-3.5',
