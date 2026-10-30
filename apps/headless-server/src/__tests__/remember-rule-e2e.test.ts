@@ -261,9 +261,9 @@ describe("remembered command prefix rule in a real session (spec §8.3 + audit)"
         );
 
         // 规则确实落盘（loader 形状），permissionsDirty 才有东西可重建。
-        const rulesPath = path.join(tempConfigDir, "permissions.json");
-        const rulesRaw = await fs.readFile(rulesPath, "utf-8");
-        expect(JSON.parse(rulesRaw)).toEqual({
+        const configPath = path.join(tempConfigDir, "config.json");
+        const configRaw = await fs.readFile(configPath, "utf-8");
+        expect(JSON.parse(configRaw).permissions).toEqual({
           rules: [{ toolName: "bash", commandPrefix: ["echo"], decision: "allow" }],
         });
 
