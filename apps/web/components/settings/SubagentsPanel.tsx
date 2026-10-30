@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,10 @@ import {
   updateAgent,
   type AgentEntry,
 } from '@/lib/agents-api';
+import {
+  fetchRoutingTiers,
+  type RoutingTier,
+} from '@/lib/routing-tiers-api';
 import { SubagentForm, type SubagentFormSubmit } from './SubagentForm';
 
 interface SubagentsPanelProps {
@@ -83,6 +87,28 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
   const { agents, tools, status, refresh, mutate } = useAgents(projectId);
   const [form, setForm] = useState<FormState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // `null` = the tier fetch has not settled yet; a list (even an empty
+  // one) is the settled answer, including the degraded empty list a failed
+  // fetch falls back to. The form must not judge staleness before settle.
+  const [tiers, setTiers] = useState<RoutingTier[] | null>(null);
+
+  // Routing tiers feed the form's model dropdown. A failed load is not a
+  // form error: the dropdown degrades to the inherit-only list and saving
+  // still works — but it still settles (to an empty list) so a stale
+  // spec.model reads as stale only once the answer is known.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchRoutingTiers()
+      .then((list) => {
+        if (!cancelled) setTiers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setTiers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (payload: SubagentFormSubmit) => {
     if (payload.mode === 'create') {
@@ -138,6 +164,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
           <SubagentForm
             mode="create"
             tools={tools}
+            tiers={tiers}
             onSubmit={(payload) => handleSubmit(payload)}
             onCancel={() => {
               setForm(null);
@@ -148,6 +175,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
           <SubagentForm
             mode="edit"
             tools={tools}
+            tiers={tiers}
             entry={form.entry}
             // The row trash button opens straight into the confirmation;
             // the pencil opens the editable fields.

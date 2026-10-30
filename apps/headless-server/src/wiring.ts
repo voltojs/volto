@@ -6,13 +6,20 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createAgent, defaultClock, scanAgentSources, type AgentSpec } from "@volto/sdk";
+import {
+  createAgent,
+  defaultClock,
+  scanAgentSources,
+  type AgentSpec,
+  type CreateAgentOptions,
+} from "@volto/sdk";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
 import { loadHooksConfig } from "./config/hooks.js";
 import { loadLspServers } from "./config/lsp.js";
 import { loadPermissionRules, mergePermissionRules } from "./config/permissions.js";
+import type { RoutingTierRecord } from "./config/routing-tiers.js";
 import type { UiPermissionMode } from "./permission-modes.js";
 import {
   createNodeFileSystem,
@@ -101,6 +108,25 @@ export interface WiringOptions {
    * below); ignored when `modelPort` is supplied.
    */
   providerConfig?: PiAiProviderConfig;
+  /**
+   * Model routing tier table for sub-agent dispatches (spec 2026-10-29
+   * D3-D6), forwarded verbatim to createAgent()'s `routingTiers`. The SDK
+   * switches every dispatch's model reference to tier mode on `routingTiers
+   * !== undefined`, so callers must omit BOTH tier keys when the table is
+   * empty — passing `[]` would hijack legacy raw model codes into tier
+   * resolution and make per-dispatch raw codes throw. The session registry
+   * owns this for gateway sessions (it reads the routing-tier config store on
+   * every rebuild) and ignores values passed here.
+   */
+  routingTiers?: RoutingTierRecord[];
+  /**
+   * Host-side factory that materializes a tier target into a ModelPort —
+   * same signature as createAgent()'s `resolveSubagentModelPort`, forwarded
+   * verbatim. Always passed together with `routingTiers`; alone it is inert.
+   * The session registry builds its own from the provider store on every
+   * rebuild and ignores a value passed here.
+   */
+  resolveSubagentModelPort?: CreateAgentOptions["resolveSubagentModelPort"];
   cwd?: string;
   dbPath?: string;
   /**
@@ -652,6 +678,13 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
     ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
+    // Model routing tiers (spec 2026-10-29 D6), forwarded verbatim. Each key
+    // travels only when defined: the SDK reads `routingTiers !== undefined`
+    // as tier mode, so an absent table must arrive as no key at all.
+    ...(opts.routingTiers !== undefined ? { routingTiers: opts.routingTiers } : {}),
+    ...(opts.resolveSubagentModelPort !== undefined
+      ? { resolveSubagentModelPort: opts.resolveSubagentModelPort }
+      : {}),
     // Anchors the persistent bash session's initial cwd at the project —
     // without it the session spawns at the gateway process cwd, which is
     // neither the workspace nor a writable root.

@@ -69,6 +69,7 @@ export function useConversation(): ConversationFeed {
   const stored = currentSession?.messages ?? EMPTY_MESSAGES;
   const events = useChatStore((s) => s.events);
   const deltas = useChatStore((s) => s.deltas);
+  const notices = useChatStore((s) => s.notices);
   const bufferSessionId = useChatStore((s) => s.currentSessionId);
   const bufferIsCurrent = bufferSessionId === currentSessionId;
 
@@ -101,8 +102,9 @@ export function useConversation(): ConversationFeed {
   );
 
   const entries = useMemo(
-    () => composeChatEntries(messages, live.records),
-    [messages, live],
+    // Session notices (model-tier fallback) are appended to the feed's end.
+    () => composeChatEntries(messages, live.records, notices),
+    [messages, live, notices],
   );
 
   // -- session switch bookkeeping ------------------------------------------

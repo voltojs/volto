@@ -11,6 +11,8 @@
  *   GET  /skills?projectId=   — user-invocable skills for the `/` panel
  *   GET  /tools?projectId=    — tool catalogue for the sub-agent form
  *   GET|POST /agents, PUT|DELETE /agents/:id — sub-agent definition CRUD
+ *   GET|PUT /config/routing-tiers — model routing tier table; PUT replaces
+ *                               it and 409s on deleting a referenced tier id
  *   GET  /fs/tree|search|file, POST /fs/pick-directory|reveal — @ file mention data
  *   GET  /git/summary|branches|graph, POST /git/checkout|branches,
  *   GET  /git/commits/:hash   — workspace git pane data
@@ -68,6 +70,13 @@ import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } fr
 import { getConfigDir } from "./config/paths.js";
 import { patchPreferences, readPreferences } from "./config/preferences.js";
 import { createPlanStore } from "./config/plan-store.js";
+import {
+  collectTierReferences,
+  createRoutingTierStore,
+  RoutingTierValidationError,
+  validateTierRecords,
+  type TierReferenceScan,
+} from "./config/routing-tiers.js";
 import { isUiPermissionMode, buildPermissionConfig, sandboxModeFor } from "./permission-modes.js";
 import {
   createDirectoryPicker,
@@ -1351,6 +1360,94 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         } catch (err: unknown) {
           if (err instanceof AgentsHttpError) {
             jsonResponse(res, err.status, { error: err.message });
+            return;
+          }
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+    }
+
+    // GET|PUT /config/routing-tiers — the model routing tier table the
+    // sub-agent dispatch resolves tier ids against. PUT is a full replace;
+    // a tier id that disappears while agent definitions still reference it
+    // answers 409 with those definitions. Plugin-sourced references are
+    // hints only and never block. Every verb re-reads disk, like /agents.
+    if (url.pathname === "/config/routing-tiers") {
+      const tierStore = createRoutingTierStore();
+
+      // GET — the current table. Before the first PUT this is the factory
+      // template (unassigned targets, served unpersisted — spec v2 D7/D8);
+      // `[]` means the table is explicitly empty and callers fall back to
+      // plain model references.
+      if (req.method === "GET") {
+        try {
+          jsonResponse(res, 200, { tiers: await tierStore.list() });
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      // PUT — replace the whole table: 200, 400 (validation failure naming
+      // the tier), or 409 (a removed tier id is still referenced).
+      if (req.method === "PUT") {
+        try {
+          const body: unknown = JSON.parse(await readBody(req));
+          const tiers = validateTierRecords(body);
+          // Target check: every ASSIGNED target must resolve in the provider
+          // registry; `target: null` (unassigned) is legal and skips the
+          // lookup. resolveModel is the one call that returns plaintext
+          // credentials — only its null/miss answer is used here, never the
+          // payload.
+          for (const tier of tiers) {
+            if (tier.target === null) continue;
+            const resolved = await providerStore.resolveModel(
+              tier.target.providerId,
+              tier.target.modelId,
+            );
+            if (resolved === null) {
+              throw new RoutingTierValidationError(
+                `routing tier "${tier.id}" targets unknown model: ${JSON.stringify(tier.target)}`,
+              );
+            }
+          }
+          // Deletion reference scan — only ids that disappear can strand an
+          // existing definition.
+          const nextIds = new Set(tiers.map((t) => t.id));
+          const removedIds = (await tierStore.list())
+            .map((t) => t.id)
+            .filter((id) => !nextIds.has(id));
+          let scan: TierReferenceScan = { references: [], skipped: [] };
+          if (removedIds.length > 0) {
+            scan = await collectTierReferences(removedIds, {
+              projectPaths: (await projectStore.list()).map((p) => p.path),
+              configDir: getConfigDir(),
+              pluginSpecs: pluginAgents,
+            });
+          }
+          if (scan.references.some((r) => r.scope !== "plugin")) {
+            jsonResponse(res, 409, {
+              error: `cannot remove routing tier(s) still referenced by agent definitions: ${removedIds.join(", ")}`,
+              references: scan.references,
+              ...(scan.skipped.length > 0 ? { skipped: scan.skipped } : {}),
+            });
+            return;
+          }
+          await tierStore.replace(tiers);
+          jsonResponse(res, 200, {
+            tiers,
+            ...(scan.references.length > 0 ? { references: scan.references } : {}),
+            ...(scan.skipped.length > 0 ? { skipped: scan.skipped } : {}),
+          });
+        } catch (err: unknown) {
+          if (respondBodyError(err)) return;
+          if (err instanceof SyntaxError) {
+            jsonResponse(res, 400, { error: "Invalid JSON body" });
+            return;
+          }
+          if (err instanceof RoutingTierValidationError) {
+            jsonResponse(res, 400, { error: err.message });
             return;
           }
           jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });

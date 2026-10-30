@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, KeyRound, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Bot, KeyRound, Route, SlidersHorizontal, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProvidersPanel } from './ProvidersPanel';
 import { GeneralPanel } from './GeneralPanel';
 import { SubagentsPanel } from './SubagentsPanel';
+import { RoutingTiersPanel } from './RoutingTiersPanel';
 import { SkillsPanel } from './SkillsPanel';
 
 interface SettingsDialogProps {
@@ -31,6 +32,7 @@ interface SettingsDialogProps {
 const TABS = [
   { value: 'general', label: '通用设置', icon: SlidersHorizontal },
   { value: 'models', label: '模型配置', icon: KeyRound },
+  { value: 'routing-tiers', label: '模型路由', icon: Route },
   { value: 'subagents', label: '子代理', icon: Bot },
   { value: 'skills', label: '技能', icon: Sparkles },
 ] as const;
@@ -73,6 +75,9 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
           <div className="max-h-[60vh] min-w-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="models">
               <ProvidersPanel />
+            </TabsContent>
+            <TabsContent value="routing-tiers">
+              <RoutingTiersPanel />
             </TabsContent>
             <TabsContent value="subagents">
               <SubagentsPanel projectId={projectId} />

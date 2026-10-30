@@ -22,6 +22,9 @@ function stubFetch() {
       if (url.includes("/catalog/providers") || url.includes("/providers")) {
         return new Response(JSON.stringify([]), { status: 200 });
       }
+      if (url.includes("/config/routing-tiers")) {
+        return new Response(JSON.stringify({ tiers: [] }), { status: 200 });
+      }
       return new Response(JSON.stringify({ tools: [] }), { status: 200 });
     }),
   );
@@ -31,11 +34,11 @@ function stubFetch() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SettingsDialog", () => {
-  it("orders tabs 通用设置 → 模型配置 → 子代理 → 技能", () => {
+  it("orders tabs 通用设置 → 模型配置 → 模型路由 → 子代理 → 技能", () => {
     stubFetch();
     render(<SettingsDialog open onOpenChange={() => {}} />);
     const labels = screen.getAllByRole("tab").map((tab) => tab.textContent);
-    expect(labels).toEqual(["通用设置", "模型配置", "子代理", "技能"]);
+    expect(labels).toEqual(["通用设置", "模型配置", "模型路由", "子代理", "技能"]);
   });
 
   it("scopes the subagents panel to the current workspace's project", async () => {

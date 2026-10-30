@@ -105,7 +105,12 @@ export function useSubagentConversation(childId: string | null): {
     [storedView, liveView],
   );
   const entries = useMemo(
-    () => composeChatEntries(messages, liveView?.records ?? []),
+    // Session notices (model-tier fallback) are main-feed rows: the tier
+    // event is emitted un-tagged and never reaches a child bucket, so the
+    // sub-agent pane renders none. Pass the empty list explicitly so the
+    // choice stays visible at every call site instead of hiding behind the
+    // parameter default.
+    () => composeChatEntries(messages, liveView?.records ?? [], []),
     [messages, liveView],
   );
 

@@ -5,6 +5,7 @@ import type {
   TranscriptDelta,
   TranscriptEventInput,
 } from '@volto/sdk/sse';
+import type { ChatNotice } from '@/lib/projection';
 
 /**
  * Per-sub-agent transcript. One bucket per childSessionId; the bucket's
@@ -80,11 +81,19 @@ interface ChatState {
   subagents: Record<string, SubagentBucket>;
   /** SSE 通道连接状态（Sidebar 状态指示与 ChatPanel 共读）。 */
   connectionState: ConnectionState;
+  /**
+   * Session-level notice rows (e.g. a model-tier fallback) that trail the
+   * composed feed. Session-scoped like the event buffer — dropped whenever
+   * the log is cleared or replaced (session switch).
+   */
+  notices: ChatNotice[];
 
   /** Appends an authoritative event and clears the streaming tail it supersedes. */
   pushEvent: (event: TranscriptEventInput) => void;
   /** Appends a streaming increment. */
   pushDelta: (delta: TranscriptDelta) => void;
+  /** Appends one session-level notice row to the trailing notice feed. */
+  pushNotice: (notice: ChatNotice) => void;
   /** Appends a tagged sub-agent event to its child bucket (lazily created). */
   pushSubagentEvent: (childId: string, event: TranscriptEventInput) => void;
   /** Appends a tagged sub-agent increment to its child bucket (lazily created). */
@@ -127,6 +136,7 @@ export const useChatStore = create<ChatState>((set) => ({
   currentSessionId: null,
   subagents: {},
   connectionState: 'disconnected',
+  notices: [],
 
   pushEvent: (event) =>
     set((state) => ({
@@ -137,6 +147,9 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
 
   pushDelta: (delta) => set((state) => ({ deltas: [...state.deltas, delta] })),
+
+  pushNotice: (notice) =>
+    set((state) => ({ notices: [...state.notices, notice] })),
 
   pushSubagentEvent: (childId, event) =>
     set((state) => {
@@ -194,9 +207,12 @@ export const useChatStore = create<ChatState>((set) => ({
 
   resetSubagents: () => set({ subagents: {} }),
 
-  setEvents: (events) => set({ events, deltas: [] }),
+  // Notices are session-scoped like the log itself: replacing the log (a
+  // session switch) or clearing it starts a fresh feed, so the notices go
+  // with it — a tier fallback must never leak into the next session.
+  setEvents: (events) => set({ events, deltas: [], notices: [] }),
 
-  clear: () => set({ events: [], deltas: [] }),
+  clear: () => set({ events: [], deltas: [], notices: [] }),
 
   setGenerating: (isGenerating) => set({ isGenerating }),
 

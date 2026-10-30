@@ -82,8 +82,7 @@ const taskSchema = z.object({
     "Return a task id immediately instead of waiting for the result.",
   ),
   model: z.string().optional().describe(
-    "Model for this dispatch only; overrides the agent definition's model. " +
-    "Omit to use the definition's model (or the parent's).",
+    "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
   ),
 });
 

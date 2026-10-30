@@ -13,9 +13,9 @@ interface NoticeProps {
 }
 
 /**
- * A neutral status row in the conversation — currently only "the user stopped
- * this turn". Deliberately not styled like `ErrorNotice`: an interruption the
- * user asked for is an outcome, not a failure.
+ * A neutral status row in the conversation — a turn the user stopped, a
+ * model-tier fallback. Deliberately not styled like `ErrorNotice`: neither
+ * is a failure, both are outcomes.
  */
 export function Notice({ text, time }: NoticeProps) {
   return (
