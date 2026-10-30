@@ -22,9 +22,11 @@ cd apps/web
 pnpm dev
 ```
 
-打开网关打印的登录 URL（或 `http://localhost:6100/gateway?token=…`）完成鉴权，然后在「设置 → 模型配置」里添加供应商与 API Key（密钥加密存储在 `~/.volto/providers.json`，不落入浏览器）。选择一个工作区目录即可开始对话。
+打开网关打印的登录 URL（或 `http://localhost:6100/gateway?token=…`）完成鉴权，然后在「设置 → 模型配置」里添加供应商与 API Key（密钥加密存储在 `~/.volto/config.json` 的 `providers` 分区，不落入浏览器）。选择一个工作区目录即可开始对话。
 
-运行期数据都在用户级配置目录 `~/.volto/`（供应商、项目注册表、会话库、附件）。开发期也可用 `VOLTO_CONFIG_DIR` 指到别处。
+运行期数据都在用户级配置目录 `~/.volto/`。**用户级配置集中在一个文件 `~/.volto/config.json`**，按分区保存：`preferences`、`projects`、`providers`、`routingTiers`、`permissions`、`hooks`、`lsp`、`egress`。会话库、附件、agents、skills 仍是独立目录；密钥文件 `key` / `auth-secret` 也保持独立。
+
+旧版本的 `preferences.json` / `projects.json` / `providers.json` / `routing-tiers.json` / `permissions.json` / `hooks.json` / `lsp.json` / `egress.json` 会在首次启动时合并进 `config.json`，之后不再读取（旧文件保留作回滚：删除 `config.json` 即可回到旧文件）。开发期也可用 `VOLTO_CONFIG_DIR` 指到别处。
 
 ## 平台支持矩阵
 
@@ -44,7 +46,7 @@ pnpm dev
 
 ### 网络出口（egress）
 
-`~/.volto/egress.json` 可约束 Network port 的三个工具（`web_fetch` / `web_search` / `http_query`）：
+`~/.volto/config.json` 的 `egress` 分区可约束 Network port 的三个工具（`web_fetch` / `web_search` / `http_query`）：
 
 ```json
 { "allowHosts": ["api.example.com"], "denyHosts": ["evil.example.net"] }
@@ -54,7 +56,7 @@ pnpm dev
 
 ### 参数级权限规则
 
-`~/.volto/permissions.json`（改动在下一次会话重建时生效）：
+`~/.volto/config.json` 的 `permissions` 分区（改动在下一次会话重建时生效）：
 
 ```json
 {
@@ -69,11 +71,11 @@ pnpm dev
 - 规则按顺序匹配，第一条命中生效；`allow` / `deny` / `ask` 三档。
 - 路径同时按绝对真实路径与工作区相对路径匹配，软链接会被跟随。
 - 规则只能收紧权限，或在不越过沙箱边界的前提下减少询问；`read-only` 下任何 `allow` 规则都不会放行写入。
-- 只对声明了路径 / URL 入参的工具生效，`bash` 不在此列。域名的硬边界是 `egress.json`。
+- 只对声明了路径 / URL 入参的工具生效，`bash` 不在此列。域名的硬边界是 `config.json` 的 `egress` 分区。
 
 ### 命令前缀规则（减少询问，不是安全边界）
 
-`~/.volto/permissions.json`（与上面同一份文件、同一组规则；改动在下一次会话重建时生效）：
+`~/.volto/config.json` 的 `permissions` 分区（与上面同一组规则；改动在下一次会话重建时生效）：
 
 ```json
 {
@@ -90,9 +92,9 @@ pnpm dev
 - 只对**声明了命令入参**的工具生效——当前只有 `bash`。写给其他工具（如 `run_tests`、`build`）的命令规则不会匹配，因为那些工具没有声明命令入参。
 - **它不保证执行的是什么。** bash 默认使用持久会话，先前的命令可以留下 alias、shell 函数或改写 `PATH`——文本命中的 `pnpm test` 未必是 npm。`cwd` 也不受规则约束。
 
-### 一键记住规则（审批卡 → permissions.json）
+### 一键记住规则（审批卡 → permissions 分区）
 
-审批卡上对合格的 `bash` 命令提供"始终允许…"入口。选中前缀并点击"记住并允许"后，对应规则写入 `~/.volto/permissions.json`：
+审批卡上对合格的 `bash` 命令提供"始终允许…"入口。选中前缀并点击"记住并允许"后，对应规则写入 `~/.volto/config.json` 的 `permissions.rules`：
 
 ```json
 { "toolName": "bash", "commandPrefix": ["pnpm", "test"], "decision": "allow" }
@@ -102,7 +104,7 @@ pnpm dev
 - **下一轮生效。** 当前这一轮内如果再遇到同类命令，仍然会询问。卡片回执会写明"下一轮生效"。
 - **保存失败。** 写盘失败（只读目录、磁盘满、文件损坏等）时，本次调用仍按"允许一次"执行——不会因为记账失败而拒掉工具调用。卡片显示错误信息。
 - **不重复写入。** 相同规则已存在或有更宽规则覆盖时，不重复写入，回执说明原因。
-- **如何删除。** 直接编辑 `~/.volto/permissions.json`，删除对应规则条目即可。规则与手写的完全等价——一键保存只是"替你手写"，边界、上限、天花板夹紧与手写完全相同。
+- **如何删除。** 直接编辑 `~/.volto/config.json` 的 `permissions.rules`，删除对应规则条目即可。规则与手写的完全等价——一键保存只是"替你手写"，边界、上限、天花板夹紧与手写完全相同。
 
 ## 代码智能（LSP）与 sqlite：边界与不覆盖
 
@@ -113,7 +115,7 @@ pnpm dev
 - **只读档下语言服务器写不了自己的缓存**（索引、`node_modules/.cache` 一类）。超大仓因此可能变慢。这是隔离的代价，不是缺陷。
 - **在途 LSP 请求不可取消。** 工具 handler 收不到 `abortSignal`，最长等待由请求超时（默认 15 秒）界定；超时会**回收该连接**（kill 子进程），下一次调用重新起一个服务器，因此一次超时不会永久污染后续调用。
 - **`typescript-language-server` 是网关的运行时依赖。** 未安装（或不在 `PATH`）时五个 `lsp_*` 仍**留在可见集**，调用返回 `LSP_SERVER_MISSING` 与可执行的安装指引（`npm install -g typescript-language-server typescript`），不是静默消失。
-- **非 TS/JS 语言没有内置默认。** 内置映射只覆盖 `.ts/.tsx/.mts/.cts` 与 `.js/.jsx/.mjs/.cjs`；其他语言需要 `~/.volto/lsp.json`（与 `egress.json` / `permissions.json` 同纪律：每次会话构建重读，**非法即拒绝构建**）。语言未配置时调用返回可复制的配置片段，而不是构建失败：
+- **非 TS/JS 语言没有内置默认。** 内置映射只覆盖 `.ts/.tsx/.mts/.cts` 与 `.js/.jsx/.mjs/.cjs`；其他语言需要 `~/.volto/config.json` 的 `lsp` 分区（与 `egress` / `permissions` 同纪律：每次会话构建重读，**非法即拒绝构建**）。语言未配置时调用返回可复制的配置片段，而不是构建失败：
 
   ```json
   { "servers": { "python": { "command": "pyright-langserver", "args": ["--stdio"] } } }
