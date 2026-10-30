@@ -11,13 +11,23 @@ Element.prototype.scrollIntoView ??= () => {};
 describe('TraceRow', () => {
   it('caps the open body so a huge output cannot stretch the feed', () => {
     const { container } = render(
-      <TraceRow icon={Terminal} label="bash" detail="ls" open onOpenChange={() => {}}>
+      <TraceRow icon={Terminal} label="bash" detail="ls" open onOpenChange={() => {}} scrollable>
         <pre>{'line\n'.repeat(5000)}</pre>
       </TraceRow>,
     );
     const body = container.querySelector('[data-slot="collapsible-content"] > div');
     expect(body?.className).toContain('max-h-[300px]');
     expect(body?.className).toContain('overflow-y-auto');
+  });
+
+  it('does not scroll a container of rows by default', () => {
+    const { container } = render(
+      <TraceRow icon={Terminal} label="已执行 3 步" open onOpenChange={() => {}}>
+        <span>row</span>
+      </TraceRow>,
+    );
+    const body = container.querySelector('[data-slot="collapsible-content"] > div');
+    expect(body?.className).not.toContain('overflow-y-auto');
   });
 
   it('is a disclosure when it has a body and an action when it has none', () => {

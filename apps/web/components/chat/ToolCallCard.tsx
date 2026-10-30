@@ -75,6 +75,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       failed={failed}
       open={manualOpen ?? failed}
       onOpenChange={setManualOpen}
+      scrollable
     >
       <div>
         <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">

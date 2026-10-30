@@ -117,6 +117,7 @@ function ReasoningRow({ text }: { text: string }) {
       detail={preview === '' ? undefined : preview}
       open={open}
       onOpenChange={setOpen}
+      scrollable
     >
       <div className="text-muted-foreground/80 text-[13px] leading-relaxed whitespace-pre-wrap">
         {text}

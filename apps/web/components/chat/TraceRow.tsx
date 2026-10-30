@@ -25,6 +25,13 @@ export interface TraceRowProps {
   failed?: boolean;
   /** Row body. Its presence makes the row expandable. */
   children?: ReactNode;
+  /**
+   * Caps the body at 300px and lets it scroll. Only leaf bodies (a tool's
+   * output, one reasoning block) ask for this: a container of rows that
+   * scrolls as well produces nested scrollbars, and the inner one is the one
+   * the user actually wants to move.
+   */
+  scrollable?: boolean;
   /** Controlled open state; omit together with `children` for static rows. */
   open?: boolean;
   onOpenChange?: (next: boolean) => void;
@@ -56,6 +63,7 @@ export function TraceRow({
   status,
   failed = false,
   children,
+  scrollable = false,
   open,
   onOpenChange,
   onActivate,
@@ -143,9 +151,14 @@ export function TraceRow({
     >
       <CollapsibleTrigger className={rowClass}>{content}</CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        {/* A tool can print thousands of lines; the body scrolls instead of
+        {/* A tool can print thousands of lines; a leaf body scrolls instead of
             stretching the whole feed and pushing the answer off screen. */}
-        <div className="max-h-[300px] space-y-1.5 overflow-y-auto pt-0.5 pr-2 pb-2 pl-[18px]">
+        <div
+          className={cn(
+            'space-y-1.5 pt-0.5 pr-2 pb-2 pl-[18px]',
+            scrollable && 'max-h-[300px] overflow-y-auto',
+          )}
+        >
           {children}
         </div>
       </CollapsibleContent>
