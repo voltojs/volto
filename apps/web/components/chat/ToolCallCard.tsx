@@ -96,11 +96,14 @@ export const ToolCallCard = memo(function ToolCallCard({
           also the affordance that says "open me". */}
       <CollapsibleTrigger
         className={cn(
-          'group flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors',
-          'hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none',
+          // The chevron lives in the gutter so the row's text starts on the
+          // same left edge as the prose above and below it.
+          'group relative -ml-5 flex w-[calc(100%_+_1.25rem)] items-center gap-1.5 rounded py-[2px] pr-1 pl-5',
+          'text-left text-[13px] leading-[18px] transition-colors',
+          'hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
         )}
       >
-        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        <ChevronRight className="text-muted-foreground/40 absolute left-1 top-1/2 h-3 w-3 -translate-y-1/2 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         <span
           className={cn(
             'shrink-0 font-mono text-[11px]',
@@ -123,11 +126,11 @@ export const ToolCallCard = memo(function ToolCallCard({
       </CollapsibleTrigger>
 
       {denialNote && (
-        <div className="text-muted-foreground/80 py-0.5 pr-1 pl-6 text-[11px]">{denialNote}</div>
+        <div className="text-muted-foreground/80 py-0.5 text-[11px]">{denialNote}</div>
       )}
 
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="mt-1 mb-1.5 space-y-1.5 pl-6">
+        <div className="mt-0.5 mb-1 space-y-1.5 pl-5">
           <div>
             <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
               参数

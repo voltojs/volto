@@ -76,7 +76,7 @@ export function MessageList({
           }
           if (row.kind === 'activity') {
             return (
-              <div key={row.key} className="py-1">
+              <div key={row.key} className="py-0.5">
                 <ActivitySteps
                   blocks={row.blocks}
                   density={effectiveDensity}

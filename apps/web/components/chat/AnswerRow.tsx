@@ -23,7 +23,7 @@ export function AnswerRow({
   footer?: ConversationMessage | null;
 }) {
   return (
-    <div className="animate-in-stagger py-1">
+    <div className="animate-in-stagger py-0.5">
       {blocks.length > 0 && (
         <div className="space-y-2">
           {blocks.map((block, index) =>

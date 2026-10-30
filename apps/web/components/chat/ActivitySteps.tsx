@@ -46,7 +46,7 @@ export function ActivitySteps({
       // It belongs to the execution layer, not to the answer.
       <div
         key={`t-${index}`}
-        className="text-muted-foreground/80 py-[3px] pl-6 text-[13px] leading-5 whitespace-pre-wrap break-words"
+        className="text-muted-foreground/80 py-[2px] text-[13px] leading-[18px] whitespace-pre-wrap break-words"
       >
         {block.text}
       </div>
@@ -74,7 +74,7 @@ export function ActivitySteps({
 
   if (density === 'detailed') {
     return (
-      <div data-testid="activity-rail" className="space-y-0.5">
+      <div data-testid="activity-rail">
         {rows}
       </div>
     );
@@ -103,8 +103,8 @@ export function ActivitySteps({
       data-testid="activity-group"
       className="group/activity"
     >
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
-        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+      <CollapsibleTrigger className="text-muted-foreground group relative -ml-5 flex w-[calc(100%_+_1.25rem)] cursor-pointer items-center gap-1.5 rounded py-[2px] pr-1 pl-5 text-left text-[13px] leading-[18px] transition-colors select-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none">
+        <ChevronRight className="text-muted-foreground/40 absolute left-1 top-1/2 h-3 w-3 -translate-y-1/2 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         {running !== undefined && (
           <LoaderCircle className="text-muted-foreground/60 h-3 w-3 shrink-0 animate-spin" />
         )}
@@ -112,7 +112,7 @@ export function ActivitySteps({
         {failed && <CircleAlert className="text-destructive/70 ml-auto h-3 w-3 shrink-0" />}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-0.5 pl-3">{rows}</div>
+        <div>{rows}</div>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -127,15 +127,15 @@ function ReasoningRow({ text }: { text: string }) {
   const preview = (text.split('\n')[0] ?? '').trim();
   return (
     <Collapsible className="group/reason">
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
-        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+      <CollapsibleTrigger className="text-muted-foreground group relative -ml-5 flex w-[calc(100%_+_1.25rem)] cursor-pointer items-center gap-1.5 rounded py-[2px] pr-1 pl-5 text-left text-[13px] leading-[18px] transition-colors select-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none">
+        <ChevronRight className="text-muted-foreground/40 absolute left-1 top-1/2 h-3 w-3 -translate-y-1/2 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         <span className="shrink-0">思考</span>
         {preview !== '' && (
           <span className="text-muted-foreground/70 truncate">{preview}</span>
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="text-muted-foreground/80 mt-1 mb-1.5 pl-6 text-[13px] leading-relaxed whitespace-pre-wrap">
+        <div className="text-muted-foreground/80 mt-0.5 mb-1 pl-5 text-[13px] leading-relaxed whitespace-pre-wrap">
           {text}
         </div>
       </CollapsibleContent>
