@@ -62,9 +62,14 @@ export function ActivitySteps({
     ),
   );
 
-  // A single step needs no wrapper: the control would carry the same text the
-  // one row below it already shows, and its fold has nothing to hide.
-  if (density === 'detailed' || blocks.length === 1) {
+  // A single step needs no wrapper at all: the control would carry the same
+  // text the one row below it already shows, its fold has nothing to hide, and
+  // an indent/rail around one row only shrinks it. Align to the left edge.
+  if (blocks.length === 1) {
+    return <>{rows}</>;
+  }
+
+  if (density === 'detailed') {
     return (
       <div data-testid="activity-rail" className="ml-1 space-y-1 border-l border-border/60 pl-3">
         {rows}

@@ -103,6 +103,7 @@ describe('MessageBubble concise density', () => {
       <MessageBubble message={message([{ type: 'reasoning', text: '只有推理' }])} density="concise" />,
     );
     expect(container.querySelector('[data-testid="activity-group"]')).toBeNull();
+    expect(container.querySelector('[data-testid="activity-rail"]')).toBeNull();
     expect(screen.getByText('思考')).toBeInTheDocument();
     expect(screen.queryByText(/思考 1 段/)).toBeNull();
   });
