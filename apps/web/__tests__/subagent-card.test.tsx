@@ -6,7 +6,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MessageBubble } from '@/components/chat/MessageBubble';
+import { MessageList } from '@/components/chat/MessageList';
+
+// jsdom has no layout; the feed scrolls its bottom anchor into view.
+Element.prototype.scrollIntoView ??= () => {};
 import {
   SubagentCard,
   subagentCardComparator,
@@ -87,33 +90,39 @@ describe('SubagentCard', () => {
   });
 });
 
-describe('MessageBubble sub-agent routing', () => {
+describe('feed sub-agent routing', () => {
   it('renders sub-agent calls as SubagentCard while plain calls keep ToolCallCard', () => {
     render(
-      <MessageBubble
-        message={{
-          id: 'm1',
-          role: 'assistant',
-          blocks: [
-            {
-              type: 'tool_call',
-              call: { id: 'c2', name: 'read_file', args: {}, result: 'ok' },
+      <MessageList
+        density="detailed"
+        entries={[
+          {
+            kind: 'message',
+            message: {
+              id: 'm1',
+              role: 'assistant',
+              blocks: [
+                {
+                  type: 'tool_call',
+                  call: { id: 'c2', name: 'read_file', args: {}, result: 'ok' },
+                },
+                {
+                  type: 'tool_call',
+                  call: {
+                    id: 'c3',
+                    name: 'task',
+                    args: { message: 'hi' },
+                    childSessionId: 's-sub-1',
+                    result: 'done',
+                    durationMs: 900,
+                  },
+                },
+              ],
+              content: '',
+              timestamp: 0,
             },
-            {
-              type: 'tool_call',
-              call: {
-                id: 'c3',
-                name: 'task',
-                args: { message: 'hi' },
-                childSessionId: 's-sub-1',
-                result: 'done',
-                durationMs: 900,
-              },
-            },
-          ],
-          content: '',
-          timestamp: 0,
-        }}
+          },
+        ]}
       />,
     );
     // plain 调用仍走 ToolCallCard（工具名以 mono 折叠行展示）

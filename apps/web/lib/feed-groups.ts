@@ -1,58 +1,80 @@
 /**
- * Coalesces a chat feed into rows where consecutive tool-bearing steps share
- * one execution group.
+ * Turns the chat feed into rows split at answer text.
  *
- * A turn is several steps, each its own `ConversationMessage`. In concise
- * density, folding per message produces a stack of one-line "已执行 N 步"
- * bars for what the user reads as a single stretch of work — and leaves the
- * reasoning of the final step stranded in a group of its own.
+ * A turn's blocks look like `reasoning, tool, tool, text, tool, text`: the
+ * text can arrive *between* tool runs, and often inside the same message that
+ * called them. Grouping by message therefore hid prose inside the execution
+ * group and produced a stack of one-line groups.
  *
- * The rule is therefore about what a step *is*, not what its blocks look
- * like: a message that calls any tool is execution (reasoning, the preamble
- * text it writes before calling, and the calls themselves), while a message
- * with no tool call is the answer. Order is never rearranged.
+ * The boundary is now the text block itself: every text/image block renders
+ * as its own answer row, and the reasoning and tool calls between two answer
+ * rows merge into one execution group — across message boundaries, because
+ * those boundaries are an artefact of how the model was called, not of how
+ * the work happened.
+ *
+ * The footer (time, copy, usage) rides the row holding the message's tail, so
+ * a message split across rows still shows exactly one footer.
  */
 
-import type { ConversationBlock } from '@volto/sdk/sse';
+import { groupConversationBlocks } from '@volto/sdk/sse';
+import type { ConversationBlock, ConversationMessage } from '@volto/sdk/sse';
 import type { ChatEntry } from './projection';
 
-/** The block kinds the execution layer can carry. */
-type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' | 'text' }>;
+type AnswerBlock = Extract<ConversationBlock, { type: 'text' | 'image' }>;
+type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' }>;
 
 export type FeedRow =
   | { kind: 'entry'; key: string; entry: ChatEntry }
-  | { kind: 'activity'; key: string; blocks: ActivityBlock[] };
+  | { kind: 'answer'; key: string; blocks: AnswerBlock[]; footer: ConversationMessage | null }
+  | { kind: 'activity'; key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null };
 
 function entryKey(entry: ChatEntry): string {
   return entry.kind === 'message' ? entry.message.id : entry.key;
 }
 
-/** A step that called at least one tool is execution, whatever else it wrote. */
-function isToolBearing(entry: ChatEntry): boolean {
-  if (entry.kind !== 'message' || entry.message.role !== 'assistant') return false;
-  return entry.message.blocks.some((block) => block.type === 'tool_call');
-}
-
-/** Groups consecutive tool-bearing steps; every other entry stays its own row. */
 export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   const rows: FeedRow[] = [];
-  let open: { key: string; blocks: ActivityBlock[] } | null = null;
+  let open: { key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null } | null = null;
 
   const flush = (): void => {
     if (open !== null) {
-      rows.push({ kind: 'activity', key: open.key, blocks: open.blocks });
+      rows.push({ kind: 'activity', ...open });
       open = null;
     }
   };
 
   for (const entry of entries) {
-    if (isToolBearing(entry) && entry.kind === 'message') {
-      if (open === null) open = { key: `activity-${entry.message.id}`, blocks: [] };
-      open.blocks.push(...(entry.message.blocks as ActivityBlock[]));
+    if (entry.kind !== 'message' || entry.message.role !== 'assistant') {
+      flush();
+      rows.push({ kind: 'entry', key: entryKey(entry), entry });
       continue;
     }
-    flush();
-    rows.push({ kind: 'entry', key: entryKey(entry), entry });
+
+    const message = entry.message;
+    const segments = groupConversationBlocks(message.blocks);
+    if (segments.length === 0) {
+      flush();
+      continue;
+    }
+
+    segments.forEach((segment, index) => {
+      const isLast = index === segments.length - 1;
+      if (segment.kind === 'activity') {
+        open ??= { key: `activity-${message.id}`, blocks: [], footer: null };
+        open.blocks.push(...segment.blocks);
+        // The tail of a message may sit inside a run that keeps growing; the
+        // last message to end in activity owns the footer of that run.
+        if (isLast) open.footer = message;
+        return;
+      }
+      flush();
+      rows.push({
+        kind: 'answer',
+        key: `${message.id}:a${index}`,
+        blocks: segment.blocks,
+        footer: isLast ? message : null,
+      });
+    });
   }
   flush();
   return rows;

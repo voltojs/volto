@@ -1,0 +1,45 @@
+'use client';
+
+import { useState } from 'react';
+import type { ConversationBlock } from '@volto/sdk/sse';
+import { SERVER_URL } from '@/lib/agent-config';
+
+export type ImageBlock = Extract<ConversationBlock, { type: 'image' }>;
+
+/**
+ * One history image: ref-only in state, resolved against the attachment route.
+ *
+ * Browser auth is the gateway's HttpOnly cookie on the same-origin `/gateway`
+ * rewrite — a plain same-origin `<img>` carries it automatically, so no
+ * crossOrigin / credentials plumbing exists (and `<img>` offers none).
+ * A cleaned-up attachment degrades to an explanation rather than a broken
+ * image icon: the icon cannot say why the picture is missing.
+ */
+export function AttachmentImage({
+  block,
+  sessionId,
+}: {
+  block: ImageBlock;
+  sessionId?: string | null;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (!sessionId || failed) {
+    return (
+      <div className="text-muted-foreground rounded-md border border-dashed px-2 py-1 text-xs">
+        {failed ? '图片已不可用' : '[image]'}（{block.mediaType ?? 'image'} ·{' '}
+        {block.attachmentId}）
+      </div>
+    );
+  }
+
+  const src = `${SERVER_URL}/attachments/${encodeURIComponent(block.attachmentId)}?sessionId=${encodeURIComponent(sessionId)}`;
+  return (
+    <img
+      src={src}
+      alt="attachment"
+      className="max-h-64 max-w-full rounded-md object-contain"
+      onError={() => setFailed(true)}
+    />
+  );
+}
