@@ -23,9 +23,15 @@ export interface Preferences {
 export const EMPTY_PREFERENCES: Preferences = {};
 
 export async function fetchPreferences(): Promise<Preferences> {
-  const response = await fetch(`${SERVER_URL}/preferences`, { credentials: 'include' });
-  if (!response.ok) return EMPTY_PREFERENCES;
-  return (await response.json()) as Preferences;
+  try {
+    const response = await fetch(`${SERVER_URL}/preferences`, { credentials: 'include' });
+    if (!response.ok) return EMPTY_PREFERENCES;
+    return (await response.json()) as Preferences;
+  } catch {
+    // A gateway that is down or unreachable must not take the app with it:
+    // the defaults are an optimisation, never a prerequisite.
+    return EMPTY_PREFERENCES;
+  }
 }
 
 /** Merges `patch` into the stored defaults; resolves to the merged result. */

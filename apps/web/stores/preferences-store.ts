@@ -27,8 +27,14 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
 
   load: async () => {
     if (get().loaded) return;
-    const preferences = await fetchPreferences();
-    set({ preferences, loaded: true });
+    try {
+      const preferences = await fetchPreferences();
+      set({ preferences, loaded: true });
+    } catch {
+      // Mark as loaded anyway: retrying on every mount would hammer a down
+      // gateway, and the empty defaults are correct behaviour for one.
+      set({ loaded: true });
+    }
   },
 
   save: (patch) => {
