@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MessageList } from '@/components/chat/MessageList';
+import { ConversationColumn } from '@/components/chat/ConversationColumn';
 import { useStreamDensity } from '@/lib/stream-density';
 import { InputBar } from '@/components/chat/InputBar';
 import { ContextMeter } from '@/components/chat/ContextMeter';
@@ -146,7 +147,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         </TabsList>
         {/* 对话：keepMounted 保滚动；行为矩阵逐行平移自旧版独立执行分栏。 */}
         <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 flex-col">
+          <ConversationColumn>
             {feed.isLoading ? (
               <div className="text-muted-foreground p-4 text-sm">加载执行记录…</div>
             ) : feed.error !== null ? (
@@ -173,7 +174,6 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 density={streamDensity}
               />
             )}
-          </div>
           {/* Continued-chat input: disabled while the original turn runs, while
               a continued turn streams, or when the bound parent session is
               missing from the store / lacks a project-model binding. */}
@@ -227,6 +227,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               </>
             }
           />
+          </ConversationColumn>
         </TabsContent>
         {/* 轨迹：非 keepMounted——切走即卸载，其内部 hook 随挂载合法。 */}
         <TabsContent value="trajectory" className="flex min-h-0 flex-1 flex-col">

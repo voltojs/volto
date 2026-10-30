@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FolderPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MessageList } from './MessageList';
+import { ConversationColumn } from './ConversationColumn';
 import { useStreamDensity } from '@/lib/stream-density';
 import { InputBar } from './InputBar';
 import { TodoDock } from './TodoDock';
@@ -872,7 +873,7 @@ export function ChatPanel() {
             keepMounted
             className="flex min-h-0 flex-1 flex-row"
           >
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ConversationColumn>
               <MessageList
                 entries={entries}
                 onOpenSubagent={openSubagent}
@@ -881,7 +882,7 @@ export function ChatPanel() {
                 density={streamDensity}
               />
               {pendingApprovals.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl space-y-2 px-6 pb-3">
+                <div className="space-y-2 pb-3">
                   {pendingApprovals.map((approval) => (
                     <ApprovalCard
                       key={approval.callId}
@@ -892,7 +893,7 @@ export function ChatPanel() {
                 </div>
               )}
               {todos && todos.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl px-6">
+                <div>
                   <TodoDock todos={todos} />
                 </div>
               )}
@@ -972,7 +973,7 @@ export function ChatPanel() {
                   usage + the context ring, right under the input. */}
               <div
                 data-testid="chat-status-bar"
-                className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4 px-6 pb-3"
+                className="flex w-full items-center justify-center gap-4 pb-3"
               >
                 <div className="flex min-w-0 items-center gap-1">
                   <SessionStatsChip stats={stats} />
@@ -991,7 +992,7 @@ export function ChatPanel() {
                   />
                 </span>
               </div>
-            </div>
+            </ConversationColumn>
           </TabsContent>
           <TabsContent
             value="trajectory"

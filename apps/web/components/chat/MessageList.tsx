@@ -62,7 +62,7 @@ export function MessageList({
           `renderEntry` straight to `map` (map would feed the index as the
           second argument); the reference handed down stays whatever the
           caller passed, so downstream memo comparators see a stable prop. */}
-      <div className="mx-auto max-w-3xl px-6 py-2">
+      <div className="py-2">
         {rows.map((row) => {
           if (row.kind === 'answer') {
             return (
