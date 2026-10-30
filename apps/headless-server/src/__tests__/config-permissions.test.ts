@@ -8,6 +8,7 @@ import {
   savePermissionRule,
   PermissionRulesConfigError,
 } from "../config/permissions.js";
+import { getConfigStore } from "../config/store.js";
 
 let dir: string;
 
@@ -206,7 +207,9 @@ describe("savePermissionRule", () => {
   it("does not treat a different tool or a narrower existing rule as coverage", async () => {
     await write({ rules: [{ toolName: "bash", commandPrefix: ["pnpm", "test", "extra"], decision: "allow" }] });
     expect((await savePermissionRule(dir, candidate)).status).toBe("saved");
-    await write({ rules: [{ toolName: "other", commandPrefix: ["pnpm"], decision: "allow" }] });
+    await getConfigStore(dir).update("permissions", () => ({
+      rules: [{ toolName: "other", commandPrefix: ["pnpm"], decision: "allow" }],
+    }));
     expect((await savePermissionRule(dir, candidate)).status).toBe("saved");
   });
 

@@ -1,7 +1,7 @@
 /**
- * Parameter permission rules — `permissions.json` in the user config dir,
+ * Parameter permission rules — the `permissions` section of `config.json`,
  * loaded once per session build (an edit reaches newly built sessions without
- * a restart), same pattern as `egress.json`.
+ * a restart), same pattern as the `egress` section.
  *
  * Scope, stated plainly because pretending otherwise is the illusion
  * SAFETY.md warns about: a `pathPattern` only speaks about tools that declare
@@ -15,12 +15,12 @@
  * disable the whole set.
  */
 
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Decision, PermissionConfig, PermissionRule } from "@volto/core";
 import { isMatchableCommandToken } from "@volto/core";
-import { readJsonFile, writeJsonFileAtomic } from "./io.js";
+import { ConfigCorruptError } from "./io.js";
+import { getConfigStore } from "./store.js";
 
 const TOP_LEVEL_KEYS = ["rules"] as const;
 const STRING_MATCH_KEYS = ["toolName", "toolPattern", "capability", "pathPattern", "hostPattern"] as const;
@@ -139,44 +139,37 @@ export function validatePermissionRule(value: unknown, where = "remembered rule"
   return parseRule(value, where);
 }
 
-/** Load parameter rules from `<configDir>/permissions.json`. `[]` when absent. */
+/** Load parameter rules from `config.json`'s permissions section. `[]` when absent. */
 export async function loadPermissionRules(configDir: string): Promise<PermissionRule[]> {
-  const file = path.join(configDir, "permissions.json");
-  let raw: string;
+  let section: unknown;
   try {
-    raw = await fs.readFile(file, "utf-8");
+    section = (await getConfigStore(configDir).read())["permissions"];
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw new PermissionRulesConfigError(
-      `permissions.json exists but could not be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (err instanceof ConfigCorruptError) {
+      throw new PermissionRulesConfigError(
+        `config.json could not be read: ${err.message}`,
+      );
+    }
+    throw err;
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new PermissionRulesConfigError(
-      `permissions.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  if (section === undefined) return [];
+  if (typeof section !== "object" || section === null || Array.isArray(section)) {
+    throw new PermissionRulesConfigError("config.json: permissions must be a JSON object");
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new PermissionRulesConfigError("permissions.json must be a JSON object");
-  }
-  const obj = parsed as Record<string, unknown>;
+  const obj = section as Record<string, unknown>;
   const unknown = Object.keys(obj).filter((key) => !(TOP_LEVEL_KEYS as readonly string[]).includes(key));
   if (unknown.length > 0) {
     throw new PermissionRulesConfigError(
-      `permissions.json has unknown key(s): ${unknown.join(", ")} — expected ${TOP_LEVEL_KEYS.join(" / ")}`,
+      `config.json: permissions has unknown key(s): ${unknown.join(", ")} — expected ${TOP_LEVEL_KEYS.join(" / ")}`,
     );
   }
   const rules = obj["rules"];
   if (rules === undefined) return [];
-  if (!Array.isArray(rules)) throw new PermissionRulesConfigError("permissions.json: \"rules\" must be an array");
+  if (!Array.isArray(rules)) throw new PermissionRulesConfigError("config.json: permissions.rules must be an array");
   if (rules.length > MAX_RULES) {
-    throw new PermissionRulesConfigError(`permissions.json: at most ${MAX_RULES} rules are supported`);
+    throw new PermissionRulesConfigError(`config.json: at most ${MAX_RULES} rules are supported`);
   }
-  return rules.map((rule, index) => parseRule(rule, `permissions.json: rules[${index}]`));
+  return rules.map((rule, index) => parseRule(rule, `config.json: permissions.rules[${index}]`));
 }
 
 /** User rules first: rules are first-match-wins, so user intent outranks presets. */
@@ -256,45 +249,48 @@ function covers(existing: PermissionRule, candidate: PermissionRule): boolean {
   return c.length >= e.length && e.every((token, index) => c[index] === token);
 }
 
-// One writer in this process (the gateway); a promise chain is enough to keep
-// two clicks from interleaving a read-modify-write into a lost update.
-let saveChain: Promise<unknown> = Promise.resolve();
-function withSaveLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = saveChain.then(fn, fn);
-  saveChain = next.catch(() => undefined);
-  return next;
-}
-
 /**
- * Append one remembered rule to the user-level permissions.json.
+ * Append one remembered rule to the config document.
  *
- * Read-modify-write under a process lock, and never through a corrupt file:
- * `readJsonFile` throws rather than reporting "empty", so a save can never
- * turn one damaged file into a total loss of the rules it used to hold.
+ * Read-modify-write under the config store's per-directory lock, and never
+ * through a corrupt document: a failed read throws instead of reporting
+ * "empty", so a save can never turn one damaged file into a total loss of the
+ * rules it used to hold.
  */
 export async function savePermissionRule(
   configDir: string,
   candidate: unknown,
 ): Promise<SaveRuleResult> {
   const rule = validatePermissionRule(candidate);
-  return withSaveLock(async () => {
-    const file = path.join(configDir, "permissions.json");
-    // Two reads on purpose: `readJsonFile` gives us the raw document so
-    // anything we don't own (extra top-level keys, comments if JSON5 ever
-    // lands) survives verbatim.  `loadPermissionRules` gives us the
-    // validated, expanded rules used for dedup/coverage — expanding `~` in
-    // pathPattern, for instance.  Merging the two into one read would risk
-    // writing back expanded paths where the user originally wrote `~`.
-    const doc = await readJsonFile<Record<string, unknown>>(file, {});
-    const existing = await loadPermissionRules(configDir);
+  let result: SaveRuleResult | undefined;
+  await getConfigStore(configDir).update<Record<string, unknown>>(
+    "permissions",
+    async (current) => {
+      // The raw section is preserved as-is so a hand-edited document keeps
+      // whatever it had; the validated view drives dedup/coverage (~ is
+      // expanded there, and writing that expansion back would lose the
+      // author's original form).
+      const doc = current ?? {};
+      const existing = await loadPermissionRules(configDir);
 
-    for (const current of existing) {
-      if (isIdentical(current, rule)) return { status: "duplicate", rule };
-      if (covers(current, rule)) return { status: "covered", by: current };
-    }
+      for (const candidateRule of existing) {
+        if (isIdentical(candidateRule, rule)) {
+          result = { status: "duplicate", rule };
+          return doc;
+        }
+        if (covers(candidateRule, rule)) {
+          result = { status: "covered", by: candidateRule };
+          return doc;
+        }
+      }
 
-    const rawRules = Array.isArray(doc["rules"]) ? (doc["rules"] as unknown[]) : [];
-    await writeJsonFileAtomic(file, { ...doc, rules: [...rawRules, rule] });
-    return { status: "saved", rule };
-  });
+      const rawRules = Array.isArray(doc["rules"]) ? (doc["rules"] as unknown[]) : [];
+      result = { status: "saved", rule };
+      return { ...doc, rules: [...rawRules, rule] };
+    },
+  );
+  if (result === undefined) {
+    throw new Error("savePermissionRule: update completed without a result");
+  }
+  return result;
 }
