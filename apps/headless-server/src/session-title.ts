@@ -12,7 +12,13 @@
  * provider resolution.
  */
 
-import type { ModelPort, ModelRequest, TranscriptEvent } from "@volto/core";
+import type {
+  AgentInput,
+  ContentBlock,
+  ModelPort,
+  ModelRequest,
+  TranscriptEvent,
+} from "@volto/core";
 import { projectMessages } from "@volto/core";
 
 /**
@@ -43,18 +49,12 @@ export function deriveHeuristicTitle(firstUserMessage: string): string | null {
 }
 
 /**
- * The text of the first user message in a transcript, or null when the log
- * has none yet.
+ * The text of one message's content, or null when it carries no text.
  *
- * Reads the projected message list rather than walking events, so a message
- * that arrived as content blocks (text + attachments) projects the same way
- * the conversation view does. Only text blocks contribute — an attachment's
- * filename is not the session's subject.
+ * Only text blocks contribute: a message that also holds attachments must be
+ * named after what the user wrote, not after the attachment.
  */
-export function firstUserMessageText(events: readonly TranscriptEvent[]): string | null {
-  const first = projectMessages(events).find((message) => message.role === "user");
-  if (!first) return null;
-  const content = first.content;
+function contentText(content: string | ContentBlock[]): string | null {
   if (typeof content === "string") return content.length > 0 ? content : null;
   const text = content
     .filter((block): block is { type: "text"; text: string } => block.type === "text")
@@ -62,6 +62,34 @@ export function firstUserMessageText(events: readonly TranscriptEvent[]): string
     .join(" ")
     .trim();
   return text.length > 0 ? text : null;
+}
+
+/**
+ * The text of the first user message in a transcript, or null when the log
+ * has none yet.
+ *
+ * Reads the projected message list rather than walking events, so a message
+ * that arrived as content blocks (text + attachments) projects the same way
+ * the conversation view does.
+ */
+export function firstUserMessageText(events: readonly TranscriptEvent[]): string | null {
+  const first = projectMessages(events).find((message) => message.role === "user");
+  return first ? contentText(first.content) : null;
+}
+
+/**
+ * The text of the message a turn was started with, or null when it is not a
+ * user message.
+ *
+ * `POST /messages` passes a plain string unless the message carries
+ * attachments, in which case it becomes a `user_message` input holding the
+ * text next to the attachment blocks — so the first turn's own message has to
+ * be read the same way the transcript is read.
+ */
+export function messageText(message: string | AgentInput): string | null {
+  if (typeof message === "string") return message;
+  if (message.type !== "user_message") return null;
+  return contentText(message.content);
 }
 /**
  * How long a title request may take. A title that is not worth waiting 15
@@ -154,9 +182,14 @@ export async function generateTitle(
 
     let text = "";
     for await (const event of port.stream(request)) {
+      // A port that ignores its abort signal must not be able to answer after
+      // the deadline: the bound is the generator's to enforce, not the
+      // provider's to honour.
+      if (controller.signal.aborted) return null;
       if (event.type === "text_delta") text += event.text;
       else if (event.type === "error") return null;
     }
+    if (controller.signal.aborted) return null;
     return sanitizeGeneratedTitle(text);
   } catch {
     // Aborts and provider failures are both "no title this time".

@@ -126,6 +126,19 @@ describe("session title provenance", () => {
     expect(meta["titleSource"]).toBe("user");
   });
 
+  it("refuses a heuristic write over a user title", async () => {
+    const server = await boot();
+    await runFirstTurn(server);
+    expect((await rename(server, { title: "我起的名字", source: "user" })).status).toBe(204);
+
+    const response = await rename(server, { title: "截断出来的标题", source: "heuristic" });
+    expect(response.status).toBe(409);
+
+    const meta = await persistedMeta(server);
+    expect(meta["title"]).toBe("我起的名字");
+    expect(meta["titleSource"]).toBe("user");
+  });
+
   it("lets a model title replace a heuristic one", async () => {
     const server = await boot();
     await runFirstTurn(server);

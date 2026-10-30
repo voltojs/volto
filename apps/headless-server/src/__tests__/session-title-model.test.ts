@@ -96,6 +96,25 @@ describe("generateTitle", () => {
     expect(await generateTitle(fakePort([], [], "throw"), "small", "hi")).toBeNull();
   });
 
+  it("ignores output a port keeps producing after the timeout", async () => {
+    vi.useFakeTimers();
+    // A port that never looks at its abort signal and answers late: the 15s
+    // bound has to hold anyway, or a stalled provider could still rename a
+    // session minutes later.
+    const port: ModelPort = {
+      async *stream() {
+        await new Promise((resolve) => setTimeout(resolve, TITLE_TIMEOUT_MS + 1_000));
+        yield { type: "text_delta", text: "迟到的标题" };
+        yield { type: "done", stopReason: "end_turn" };
+      },
+    };
+
+    const pending = generateTitle(port, "small", "hi");
+    await vi.advanceTimersByTimeAsync(TITLE_TIMEOUT_MS + 1_000);
+
+    expect(await pending).toBeNull();
+  });
+
   it("aborts the request on timeout and answers null", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
@@ -210,7 +229,7 @@ describe("title model through the gateway", () => {
   });
 
   it("names a session once, not on every turn", async () => {
-    const { server } = await bootWithTitleModel();
+    const { server, calls } = await bootWithTitleModel();
     await runTurn(server, "第一条消息");
     await eventually(async () => (await titleOf(server)) === "模型起的标题", "the model title");
 
@@ -218,6 +237,24 @@ describe("title model through the gateway", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(await titleOf(server)).toBe("模型起的标题");
+    // The claim is "named once", not just "the title did not change": a second
+    // call returning the same answer would look identical from the title.
+    expect(calls.count).toBe(1);
+  });
+
+  it("writes nothing when the model repeats the heuristic title", async () => {
+    const { server } = await bootWithTitleModel({ answer: ["第一条消息"] });
+    await runTurn(server, "第一条消息");
+
+    // Give a (wrong) write a chance to land before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = (await (
+      await fetch(`${server.url}/sessions/${encodeURIComponent(server.sessionId)}/events`, {
+        headers: authHeaders(server),
+      })
+    ).json()) as { events: Array<{ type: string; data: Record<string, unknown> }> };
+    expect(events.events.some((event) => event.data["titleSource"] === "model")).toBe(false);
   });
 
   it("gives up when the user renames while the title is being generated", async () => {

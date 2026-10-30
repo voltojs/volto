@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
-import type { ChatSessionMeta, Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -22,7 +22,7 @@ import { resolveProjectPath, unknownProjectMessage, type createProjectStore } fr
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
 import { createRoutingTierStore } from "./config/routing-tiers.js";
-import { deriveHeuristicTitle, firstUserMessageText, generateTitle } from "./session-title.js";
+import { deriveHeuristicTitle, firstUserMessageText, generateTitle, messageText } from "./session-title.js";
 import { readPreferences } from "./config/preferences.js";
 import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
 import { savePermissionRule } from "./config/permissions.js";
@@ -835,9 +835,37 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   }
 
   /**
+   * Serializes title writes per session.
+   *
+   * Read-rank-append is not atomic on its own, and every entry point funnels
+   * through `writeSessionTitle`: without this, a model title and a manual
+   * rename that overlap both pass the rank check on the same snapshot, and
+   * whichever append lands last wins regardless of rank. Queueing makes the
+   * later write re-read the earlier one's result, so the rank is decided
+   * against the truth.
+   */
+  const titleWriteQueues = new Map<string, Promise<unknown>>();
+
+  function withTitleLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+    const previous = titleWriteQueues.get(sessionId) ?? Promise.resolve();
+    const next = previous.then(task, task);
+    const tail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    titleWriteQueues.set(sessionId, tail);
+    void tail.then(() => {
+      // Drop the entry once it is the tail again, so a long-lived process does
+      // not accumulate one promise per titled session.
+      if (titleWriteQueues.get(sessionId) === tail) titleWriteQueues.delete(sessionId);
+    });
+    return next;
+  }
+
+  /**
    * Writes a session title when `source` outranks the one already stored, then
-   * mirrors the same `session_meta` onto the session's live channel so the
-   * header and the sidebar follow without a reload.
+   * mirrors the record onto the session's live channel so the header and the
+   * sidebar follow without a reload.
    *
    * The ranking is the server-side half of "a manual rename is never
    * overwritten": `user` beats `model` beats `heuristic`, so a late model
@@ -847,9 +875,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * source. Logs written before titles had provenance are read as
    * `heuristic`, which is what every pre-existing title actually was.
    *
+   * Never throws: a title rides the turn's critical path, so every failure —
+   * unreadable log, unwritable log, a live-channel write that blows up — is
+   * reported as a result and leaves the caller's turn intact.
+   *
    * `createIfMissing` is for the derived title of a session whose first turn
    * has not written its header yet: the appended event carries only the title
-   * fields, and the store merges metas field-by-field, so the later header
+   * fields, and the store folds metas field-by-field, so the later header
    * cannot erase them and they cannot erase it. The rename route keeps the
    * default and answers 404 for a session that does not exist.
    */
@@ -859,45 +891,55 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     source: TitleSource,
     createIfMissing = false,
   ): Promise<TitleWriteResult> {
-    return (async (): Promise<TitleWriteResult> => {
-      let record: ChatSessionRecord | undefined;
+    return withTitleLock(sessionId, async (): Promise<TitleWriteResult> => {
       try {
-        record = await chatStore?.readSession(sessionId);
+        let record: ChatSessionRecord | undefined;
+        try {
+          record = await chatStore?.readSession(sessionId);
+        } catch {
+          // An unreadable transcript cannot be safely overwritten — the next
+          // successful turn re-derives the title instead.
+          return "missing";
+        }
+        if (!record && !createIfMissing) return "missing";
+
+        const current: TitleSource | undefined =
+          record?.meta.titleSource ?? (record?.meta.title ? "heuristic" : undefined);
+        if (current !== undefined && TITLE_SOURCE_RANK[source] < TITLE_SOURCE_RANK[current]) {
+          return "outranked";
+        }
+
+        // ONLY the fields this write owns. The store folds each `session_meta`
+        // into the last one field by field, so replaying a snapshot would
+        // rewrite values that moved after the read — and, with no transcript
+        // yet, stamp `projectId: null` onto a session whose header lands a
+        // moment later.
+        const own = { title, titleSource: source };
+        try {
+          await chatStore?.appendEvents(null, sessionId, [
+            { time: Date.now(), type: "session_meta", data: own } as TranscriptEventInput,
+          ]);
+        } catch {
+          // Best-effort, like every other transcript write on a turn's path.
+          return "missing";
+        }
+
+        // The live frame carries the merged meta (what a listener would read
+        // back from the store) — a throw here is a dead socket, not a reason
+        // to fail the write the caller already persisted.
+        try {
+          emitToSession(sessionId, {
+            type: "session_meta",
+            data: { ...(record?.meta ?? {}), ...own } as unknown as Record<string, unknown>,
+          });
+        } catch {
+          // No listener reached; the durable write above is the truth.
+        }
+        return "written";
       } catch {
-        // An unreadable transcript cannot be safely overwritten — the next
-        // successful turn re-derives the title instead.
         return "missing";
       }
-      if (!record && !createIfMissing) return "missing";
-
-      const current: TitleSource | undefined =
-        record?.meta.titleSource ?? (record?.meta.title ? "heuristic" : undefined);
-      if (current !== undefined && TITLE_SOURCE_RANK[source] < TITLE_SOURCE_RANK[current]) {
-        return "outranked";
-      }
-
-      // Only field-merge is relied on: a missing record contributes nothing,
-      // and the store merges each `session_meta` into the last one.
-      const base: ChatSessionMeta = record?.meta ?? {
-        projectId: null,
-        providerId: null,
-        modelId: null,
-        permissionMode: null,
-      };
-      const data: ChatSessionMeta = { ...base, title, titleSource: source };
-      try {
-        await chatStore?.appendEvents(null, sessionId, [
-          { time: Date.now(), type: "session_meta", data },
-        ]);
-      } catch {
-        // Best-effort, like every other transcript write on a turn's path: a
-        // title that cannot be persisted must not fail the caller.
-        return "missing";
-      }
-      // Offline listeners simply get nothing — the write above is the truth.
-      emitToSession(sessionId, { type: "session_meta", data: { ...data } as unknown as Record<string, unknown> });
-      return "written";
-    })();
+    });
   }
 
   /**
@@ -927,8 +969,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     }
     if (record?.meta.title) return;
 
-    const text = (record ? firstUserMessageText(record.events) : null) ??
-      (typeof message === "string" ? message : null);
+    const text = (record ? firstUserMessageText(record.events) : null) ?? messageText(message);
     if (text === null) return;
     const title = deriveHeuristicTitle(text);
     if (title === null) return;

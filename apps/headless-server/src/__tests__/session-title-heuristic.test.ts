@@ -81,7 +81,46 @@ describe("heuristic session title", () => {
 
     expect(await storedTitle(server)).toBe("重构 会话标题 并补测试");
     // Provenance is what stops a later write from burying it.
-    expect((await sessionMetaEvents(server)).some((m) => m.titleSource === "heuristic")).toBe(true);
+    const derived = (await sessionMetaEvents(server)).find((m) => m.titleSource === "heuristic");
+    expect(derived).toBeDefined();
+    // The derived write runs before the turn's own header exists, so it must
+    // carry the title alone: re-writing the (then empty) bindings as nulls
+    // would blank the project/model binding the header sets a moment later.
+    expect(Object.keys(derived ?? {}).sort()).toEqual(["title", "titleSource"]);
+  });
+
+  it("names a session whose first message carries an attachment", async () => {
+    // With attachments the route wraps the text in an AgentInput instead of
+    // passing a plain string, so the derived title has to read the text block
+    // back out of it.
+    const server = await boot();
+    await server.openEvents();
+    const uploaded = (await (
+      await fetch(`${server.url}/attachments`, {
+        method: "POST",
+        headers: authHeaders(server),
+        body: JSON.stringify({
+          sessionId: server.sessionId,
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          mimeType: "image/png",
+        }),
+      })
+    ).json()) as { id: string };
+
+    const response = await fetch(`${server.url}/messages`, {
+      method: "POST",
+      headers: authHeaders(server),
+      body: JSON.stringify({
+        sessionId: server.sessionId,
+        message: "这张截图里的报错怎么修",
+        attachments: [uploaded.id],
+        ...server.turnConfig,
+      }),
+    });
+    expect(response.status).toBe(202);
+    await server.captureMessages();
+
+    expect(await storedTitle(server)).toBe("这张截图里的报错怎么修");
   });
 
   it("caps a long first message at 200 codepoints plus an ellipsis", async () => {
