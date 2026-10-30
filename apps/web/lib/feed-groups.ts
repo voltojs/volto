@@ -1,23 +1,23 @@
 /**
- * Coalesces a chat feed into rows where consecutive tool-only steps share one
- * execution group.
+ * Coalesces a chat feed into rows where consecutive tool-bearing steps share
+ * one execution group.
  *
  * A turn is several steps, each its own `ConversationMessage`. In concise
  * density, folding per message produces a stack of one-line "已执行 N 步"
- * bars for what the user reads as a single stretch of work. Merging the
- * messages that carry no answer text at all — only reasoning and tool calls —
- * is what makes one turn one group.
+ * bars for what the user reads as a single stretch of work — and leaves the
+ * reasoning of the final step stranded in a group of its own.
  *
- * A message that contains any answer text is never merged: the text is the
- * boundary between two stretches of execution, and the order the model
- * produced them in must survive.
+ * The rule is therefore about what a step *is*, not what its blocks look
+ * like: a message that calls any tool is execution (reasoning, the preamble
+ * text it writes before calling, and the calls themselves), while a message
+ * with no tool call is the answer. Order is never rearranged.
  */
 
 import type { ConversationBlock } from '@volto/sdk/sse';
 import type { ChatEntry } from './projection';
 
-/** The block kinds the execution layer owns. */
-type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' }>;
+/** The block kinds the execution layer can carry. */
+type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' | 'text' }>;
 
 export type FeedRow =
   | { kind: 'entry'; key: string; entry: ChatEntry }
@@ -27,15 +27,13 @@ function entryKey(entry: ChatEntry): string {
   return entry.kind === 'message' ? entry.message.id : entry.key;
 }
 
-/** True when a message is nothing but execution: no answer text, no image. */
-function isActivityOnly(entry: ChatEntry): boolean {
-  if (entry.kind !== 'message') return false;
-  const { blocks, content } = entry.message;
-  if (blocks.length === 0 || content !== '') return false;
-  return blocks.every((block) => block.type === 'reasoning' || block.type === 'tool_call');
+/** A step that called at least one tool is execution, whatever else it wrote. */
+function isToolBearing(entry: ChatEntry): boolean {
+  if (entry.kind !== 'message' || entry.message.role !== 'assistant') return false;
+  return entry.message.blocks.some((block) => block.type === 'tool_call');
 }
 
-/** Groups consecutive tool-only messages; every other entry stays its own row. */
+/** Groups consecutive tool-bearing steps; every other entry stays its own row. */
 export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   const rows: FeedRow[] = [];
   let open: { key: string; blocks: ActivityBlock[] } | null = null;
@@ -48,7 +46,7 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   };
 
   for (const entry of entries) {
-    if (isActivityOnly(entry) && entry.kind === 'message') {
+    if (isToolBearing(entry) && entry.kind === 'message') {
       if (open === null) open = { key: `activity-${entry.message.id}`, blocks: [] };
       open.blocks.push(...(entry.message.blocks as ActivityBlock[]));
       continue;

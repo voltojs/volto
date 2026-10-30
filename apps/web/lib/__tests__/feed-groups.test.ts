@@ -22,21 +22,43 @@ describe('groupFeedEntries', () => {
     const rows = groupFeedEntries([
       assistant('m1', [tool('t1')]),
       assistant('m2', [tool('t2')]),
-      assistant('m3', [{ type: 'reasoning', text: 'r' }]),
+      assistant('m3', [{ type: 'reasoning', text: 'r' }, tool('t3')]),
     ]);
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.kind).toBe('activity');
-    expect(row.kind === 'activity' && row.blocks).toHaveLength(3);
+    expect(row.kind === 'activity' && row.blocks).toHaveLength(4);
   });
 
-  it('keeps answer text as the boundary between two stretches', () => {
+  it('keeps a tool-free answer step outside the execution run', () => {
     const rows = groupFeedEntries([
       assistant('m1', [tool('t1')]),
       assistant('m2', [{ type: 'text', text: 'done' }], 'done'),
       assistant('m3', [tool('t3')]),
     ]);
     expect(rows.map((r) => r.kind)).toEqual(['activity', 'entry', 'activity']);
+  });
+
+  it('moves the preamble text of a tool-bearing step into the run', () => {
+    const rows = groupFeedEntries([
+      assistant('m1', [tool('t1')]),
+      assistant('m2', [{ type: 'text', text: 'let me look' }, tool('t2')]),
+    ]);
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.kind === 'activity' && row.blocks.map((b) => b.type)).toEqual([
+      'tool_call',
+      'text',
+      'tool_call',
+    ]);
+  });
+
+  it('leaves the final reasoning beside its answer in its own step', () => {
+    const rows = groupFeedEntries([
+      assistant('m1', [tool('t1')]),
+      assistant('m2', [{ type: 'reasoning', text: 'wrap up' }, { type: 'text', text: 'done' }], 'done'),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(['activity', 'entry']);
   });
 
   it('never merges across a user message', () => {

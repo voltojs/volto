@@ -25,6 +25,10 @@ const withOps = message([
 const running = message([
   {
     type: 'tool_call',
+    call: { id: 't1b', name: 'bash', args: { command: 'pnpm test' }, result: 'ok', durationMs: 5 },
+  },
+  {
+    type: 'tool_call',
     call: { id: 't2', name: 'bash', args: { command: 'pnpm build' } },
   },
 ]);
@@ -72,6 +76,10 @@ describe('MessageBubble concise density', () => {
         message={message([
           {
             type: 'tool_call',
+            call: { id: 't4', name: 'bash', args: { command: 'ls' }, result: 'a' },
+          },
+          {
+            type: 'tool_call',
             call: {
               id: 't3',
               name: 'bash',
@@ -90,13 +98,13 @@ describe('MessageBubble concise density', () => {
     expect(screen.queryByText('bash')).toBeNull();
   });
 
-  it('never leaves an empty container for a reasoning-only message', () => {
+  it('renders a lone reasoning step bare, without a group around it', () => {
     const { container } = render(
       <MessageBubble message={message([{ type: 'reasoning', text: '只有推理' }])} density="concise" />,
     );
-    expect(container.querySelector('[data-testid="activity-group"]')).not.toBeNull();
-    expect(screen.getByText(/思考 1 段/)).toBeInTheDocument();
-    expect(screen.queryByText('只有推理')).toBeNull();
+    expect(container.querySelector('[data-testid="activity-group"]')).toBeNull();
+    expect(screen.getByText('思考')).toBeInTheDocument();
+    expect(screen.queryByText(/思考 1 段/)).toBeNull();
   });
 });
 

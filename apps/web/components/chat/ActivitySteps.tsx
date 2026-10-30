@@ -12,8 +12,8 @@ import { toolCallSummary } from '@/lib/tool-summary';
 import { SubagentCard } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
 
-/** The two block kinds the execution layer owns. */
-type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' }>;
+/** The block kinds the execution layer owns: calls, thinking, and the preamble text before a call. */
+type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' | 'text' }>;
 
 /**
  * The execution layer of one turn — or of several consecutive tool-only steps,
@@ -41,6 +41,12 @@ export function ActivitySteps({
   const rows = blocks.map((block, index) =>
     block.type === 'reasoning' ? (
       <ReasoningRow key={`r-${index}`} text={block.text} />
+    ) : block.type === 'text' ? (
+      // Preamble the model wrote right before calling a tool ("Let me look…").
+      // It belongs to the execution layer, not to the answer.
+      <div key={`t-${index}`} className="text-muted-foreground px-1 text-xs whitespace-pre-wrap break-words">
+        {block.text}
+      </div>
     ) : block.call.childSessionId !== undefined ? (
       <SubagentCard
         key={block.call.id}
@@ -56,7 +62,9 @@ export function ActivitySteps({
     ),
   );
 
-  if (density === 'detailed') {
+  // A single step needs no wrapper: the control would carry the same text the
+  // one row below it already shows, and its fold has nothing to hide.
+  if (density === 'detailed' || blocks.length === 1) {
     return (
       <div data-testid="activity-rail" className="ml-1 space-y-1 border-l border-border/60 pl-3">
         {rows}
