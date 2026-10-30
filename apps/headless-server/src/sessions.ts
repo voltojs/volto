@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
+import type { ChatSessionMeta, Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -22,6 +22,7 @@ import { resolveProjectPath, unknownProjectMessage, type createProjectStore } fr
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
 import { createRoutingTierStore } from "./config/routing-tiers.js";
+import { deriveHeuristicTitle, firstUserMessageText } from "./session-title.js";
 import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
 import { savePermissionRule } from "./config/permissions.js";
 import type { StoreFor } from "./attachments/store.js";
@@ -556,6 +557,19 @@ interface Session {
    * config change.
    */
   permissionsDirty: boolean;
+  /**
+   * Whether this process already looked for a title to derive. Set before the
+   * first attempt so a session is asked exactly once — the answer cannot
+   * change later (a title that exists stays), and re-reading the transcript
+   * on every turn would be pure waste.
+   */
+  titlePrepared?: boolean;
+  /**
+   * True for the turn that wrote the session's heuristic title, i.e. the
+   * first turn. The title model runs only off this flag, so a session is
+   * never renamed mid-conversation.
+   */
+  titleWrittenThisTurn?: boolean;
 }
 
 /** An event as an agent's stream() yields it.
@@ -792,11 +806,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * twice, a model regenerating), and a session with no title accepts any
    * source. Logs written before titles had provenance are read as
    * `heuristic`, which is what every pre-existing title actually was.
+   *
+   * `createIfMissing` is for the derived title of a session whose first turn
+   * has not written its header yet: the appended event carries only the title
+   * fields, and the store merges metas field-by-field, so the later header
+   * cannot erase them and they cannot erase it. The rename route keeps the
+   * default and answers 404 for a session that does not exist.
    */
   function writeSessionTitle(
     sessionId: string,
     title: string,
     source: TitleSource,
+    createIfMissing = false,
   ): Promise<TitleWriteResult> {
     return (async (): Promise<TitleWriteResult> => {
       let record: ChatSessionRecord | undefined;
@@ -807,15 +828,23 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         // successful turn re-derives the title instead.
         return "missing";
       }
-      if (!record) return "missing";
+      if (!record && !createIfMissing) return "missing";
 
       const current: TitleSource | undefined =
-        record.meta.titleSource ?? (record.meta.title ? "heuristic" : undefined);
+        record?.meta.titleSource ?? (record?.meta.title ? "heuristic" : undefined);
       if (current !== undefined && TITLE_SOURCE_RANK[source] < TITLE_SOURCE_RANK[current]) {
         return "outranked";
       }
 
-      const data = { ...record.meta, title, titleSource: source };
+      // Only field-merge is relied on: a missing record contributes nothing,
+      // and the store merges each `session_meta` into the last one.
+      const base: ChatSessionMeta = record?.meta ?? {
+        projectId: null,
+        providerId: null,
+        modelId: null,
+        permissionMode: null,
+      };
+      const data: ChatSessionMeta = { ...base, title, titleSource: source };
       try {
         await chatStore?.appendEvents(null, sessionId, [
           { time: Date.now(), type: "session_meta", data },
@@ -826,9 +855,47 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         return "missing";
       }
       // Offline listeners simply get nothing — the write above is the truth.
-      emitToSession(sessionId, { type: "session_meta", data: data as Record<string, unknown> });
+      emitToSession(sessionId, { type: "session_meta", data: { ...data } as unknown as Record<string, unknown> });
       return "written";
     })();
+  }
+
+  /**
+   * Derives and stores a title for a session that has none, from its first
+   * user message.
+   *
+   * The transcript is the preferred source: it holds the real first message
+   * whenever this session has run before (a session created before titles
+   * existed, or one whose title write failed). On the very first turn that
+   * message is not on disk yet — the agent writes it as the turn starts — so
+   * the message this turn was called with stands in for it.
+   *
+   * A session that already carries a title is left untouched: this only ever
+   * runs once per process per session, and a title that exists is either
+   * newer than the derivation (the user, or a model) or identical to it.
+   */
+  async function prepareHeuristicTitle(
+    session: Session,
+    message: string | AgentInput,
+  ): Promise<void> {
+    if (!chatStore) return;
+    let record: ChatSessionRecord | undefined;
+    try {
+      record = await chatStore.readSession(session.id);
+    } catch {
+      return;
+    }
+    if (record?.meta.title) return;
+
+    const text = (record ? firstUserMessageText(record.events) : null) ??
+      (typeof message === "string" ? message : null);
+    if (text === null) return;
+    const title = deriveHeuristicTitle(text);
+    if (title === null) return;
+
+    if (await writeSessionTitle(session.id, title, "heuristic", true) === "written") {
+      session.titleWrittenThisTurn = true;
+    }
   }
 
   /**
@@ -1383,6 +1450,15 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // ever double-recording a failure createAgent() already saw.
     let turnReachedStream = false;
     try {
+      // Title first, model second: this runs before the turn's first token so
+      // the client never shows an untitled conversation, and the heuristic it
+      // writes is what a later model title improves on. Best-effort — every
+      // failure inside is swallowed, and a title never fails a turn.
+      if (!session.titlePrepared) {
+        session.titlePrepared = true;
+        await prepareHeuristicTitle(session, message);
+      }
+
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config) || session.permissionsDirty) {
         await rebuild(session, config, credentials);

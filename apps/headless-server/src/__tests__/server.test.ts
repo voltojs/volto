@@ -939,7 +939,12 @@ describe("Headless server", () => {
     expect(eventPayloads.some((e) => e.type === "assistant_message")).toBe(true);
     expect(eventPayloads.some((e) => e.type === "turn_end")).toBe(true);
     expect(eventPayloads.every((e) => typeof e.time === "number")).toBe(true);
-    expect(eventPayloads.every((e) => typeof e.turn === "number")).toBe(true);
+    // Every TURN-scoped event is stamped with its turn. `session_meta` is the
+    // one session-level record that rides this channel (the gateway pushes it
+    // when it names a session), and it sits outside the turn axis by nature.
+    expect(
+      eventPayloads.every((e) => typeof e.turn === "number" || e.type === "session_meta"),
+    ).toBe(true);
     expect(eventPayloads.some((e) => e.type === "model_done")).toBe(false);
     expect(eventPayloads.some((e) => e.type === "tool_use_complete")).toBe(false);
 
