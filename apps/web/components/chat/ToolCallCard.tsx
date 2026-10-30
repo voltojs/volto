@@ -23,14 +23,12 @@ interface ToolCallCardProps {
 
 function StatusIcon({ call }: ToolCallCardProps) {
   if (call.result === undefined) {
-    return (
-      <LoaderCircle className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
-    );
+    return <LoaderCircle className="text-muted-foreground/60 h-3 w-3 animate-spin" />;
   }
   return call.isError ? (
-    <CircleAlert className="text-destructive h-3.5 w-3.5" />
+    <CircleAlert className="text-destructive h-3 w-3" />
   ) : (
-    <Check className="text-success h-3.5 w-3.5" />
+    <Check className="text-success/60 h-3 w-3" />
   );
 }
 
@@ -90,26 +88,36 @@ export const ToolCallCard = memo(function ToolCallCard({
     <Collapsible
       open={open}
       onOpenChange={setManualOpen}
-      className={cn(
-        'bg-card/60 overflow-hidden rounded-md border text-xs',
-        call.isError && 'border-destructive/30 bg-destructive/5',
-      )}
+      className="group/tool"
     >
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
-        <ChevronRight className="text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <span className="text-foreground/90 shrink-0 font-mono">{call.name}</span>
+      {/* A log line, not a card: no frame, no surface, no padding box. The
+          row reads as an annotation on the answer — mono label, muted summary,
+          hairline duration — and only earns a background on hover, which is
+          also the affordance that says "open me". */}
+      <CollapsibleTrigger
+        className={cn(
+          'flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors',
+          'hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none',
+        )}
+      >
+        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        <span
+          className={cn(
+            'shrink-0 font-mono text-[11px]',
+            failed ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
+          {call.name}
+        </span>
         {label !== undefined && label !== call.name && (
-          <>
-            <span className="text-muted-foreground/70 shrink-0">·</span>
-            <span className="truncate">{label}</span>
-          </>
+          <span className="text-muted-foreground/70 truncate">{label}</span>
         )}
         {typeof call.durationMs === 'number' && (
-          <span className="text-muted-foreground/70 font-mono text-[10px]">
-            · {call.durationMs}ms
+          <span className="text-muted-foreground/40 ml-auto shrink-0 font-mono text-[10px] tabular-nums">
+            {call.durationMs}ms
           </span>
         )}
-        <span className="ml-auto shrink-0">
+        <span className={cn('shrink-0', typeof call.durationMs === 'number' ? '' : 'ml-auto')}>
           <StatusIcon call={call} />
         </span>
       </CollapsibleTrigger>
@@ -120,25 +128,23 @@ export const ToolCallCard = memo(function ToolCallCard({
       {failed && !open && call.result !== undefined && (
         <div
           data-testid="tool-error-summary"
-          className="text-destructive/90 border-t px-2.5 py-1 font-mono text-[11px] break-words"
+          className="text-destructive/80 py-0.5 pr-1 pl-6 font-mono text-[11px] break-words"
         >
           {firstLineClipped(call.result)}
         </div>
       )}
 
       {denialNote && (
-        <div className="text-muted-foreground border-t px-2.5 py-1.5 text-[11px]">
-          {denialNote}
-        </div>
+        <div className="text-muted-foreground/80 py-0.5 pr-1 pl-6 text-[11px]">{denialNote}</div>
       )}
 
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-2 border-t px-2.5 py-2">
+        <div className="mt-1 mb-1.5 space-y-1.5 pl-6">
           <div>
-            <div className="text-muted-foreground mb-1 font-mono text-[10px] tracking-wide uppercase">
+            <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
               参数
             </div>
-            <pre className="bg-muted/60 text-foreground/80 overflow-x-auto rounded p-2 font-mono">
+            <pre className="bg-muted/40 text-muted-foreground overflow-x-auto rounded px-2 py-1.5 font-mono text-[11px] leading-relaxed">
               {JSON.stringify(call.args, null, 2)}
             </pre>
           </div>
@@ -146,20 +152,20 @@ export const ToolCallCard = memo(function ToolCallCard({
             <div>
               <div
                 className={cn(
-                  'mb-1 font-mono text-[10px] tracking-wide uppercase',
-                  call.isError ? 'text-destructive' : 'text-success',
+                  'mb-0.5 font-mono text-[10px] tracking-wide uppercase',
+                  call.isError ? 'text-destructive/70' : 'text-muted-foreground/50',
                 )}
               >
-                {call.isError ? '✕ 执行失败' : '✓ 执行成功'}
+                {call.isError ? '执行失败' : '输出'}
               </div>
               {/* The protocol carries the tool's real output — render it as
                   text, never JSON.stringify'd metadata. */}
               <pre
                 className={cn(
-                  'rounded p-2 font-mono text-[11px] break-words whitespace-pre-wrap',
+                  'rounded px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap',
                   call.isError
-                    ? 'text-destructive/90 bg-destructive/5'
-                    : 'text-foreground/80 bg-muted/40',
+                    ? 'text-destructive/80 bg-destructive/5'
+                    : 'text-muted-foreground bg-muted/40',
                 )}
               >
                 {call.result}

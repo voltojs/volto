@@ -153,11 +153,12 @@ describe('block spacing stays compact', () => {
     expect(stack.className).toContain('space-y-2');
     expect(stack.className).not.toContain('space-y-1');
 
-    // The reasoning panel carries no outer margin of its own and a slimmer
-    // inner padding.
+    // Reasoning is a log row now, not a framed panel: no border, no vertical
+    // padding box of its own, and the trigger carries the row density.
     const reasoning = container.querySelector('[data-slot="collapsible"]')!;
     expect(reasoning.className).not.toContain('my-2');
-    expect(reasoning.className).toContain('py-1.5');
-    expect(reasoning.className).not.toContain('py-2');
+    expect(reasoning.className).not.toContain('border');
+    const trigger = reasoning.querySelector('[data-slot="collapsible-trigger"]')!;
+    expect(trigger.className).toContain('text-[13px]');
   });
 });

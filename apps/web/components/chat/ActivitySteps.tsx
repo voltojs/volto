@@ -44,7 +44,10 @@ export function ActivitySteps({
     ) : block.type === 'text' ? (
       // Preamble the model wrote right before calling a tool ("Let me look…").
       // It belongs to the execution layer, not to the answer.
-      <div key={`t-${index}`} className="text-muted-foreground px-1 text-xs whitespace-pre-wrap break-words">
+      <div
+        key={`t-${index}`}
+        className="text-muted-foreground/80 py-[3px] pl-6 text-[13px] leading-5 whitespace-pre-wrap break-words"
+      >
         {block.text}
       </div>
     ) : block.call.childSessionId !== undefined ? (
@@ -71,7 +74,7 @@ export function ActivitySteps({
 
   if (density === 'detailed') {
     return (
-      <div data-testid="activity-rail" className="space-y-1">
+      <div data-testid="activity-rail" className="space-y-0.5">
         {rows}
       </div>
     );
@@ -105,26 +108,26 @@ export function ActivitySteps({
   return (
     <Collapsible
       data-testid="activity-group"
-      className="rounded-md border border-border/60"
+      className="group/activity"
     >
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left text-xs select-none">
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
+        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         {running !== undefined && (
-          <LoaderCircle className="text-primary h-3 w-3 shrink-0 animate-spin" />
+          <LoaderCircle className="text-muted-foreground/60 h-3 w-3 shrink-0 animate-spin" />
         )}
         <span className="truncate">{label}</span>
-        {failed && <CircleAlert className="text-destructive ml-auto h-3 w-3 shrink-0" />}
+        {failed && <CircleAlert className="text-destructive/70 ml-auto h-3 w-3 shrink-0" />}
       </CollapsibleTrigger>
       {failed && (
         <div
           data-testid="activity-group-failure"
-          className="text-destructive/90 border-t px-2.5 py-1 text-[11px] break-words"
+          className="text-destructive/80 py-0.5 pr-1 pl-6 text-[11px] break-words"
         >
           {failureSummary}
         </div>
       )}
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-1 border-t px-2 py-1.5">{rows}</div>
+        <div className="space-y-0.5 pl-3">{rows}</div>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -138,19 +141,18 @@ export function ActivitySteps({
 function ReasoningRow({ text }: { text: string }) {
   const preview = (text.split('\n')[0] ?? '').trim();
   return (
-    <Collapsible className="border-border/60 bg-muted/40 rounded-md border px-3 py-1.5">
-      <CollapsibleTrigger className="text-muted-foreground group flex w-full cursor-pointer items-center gap-1 text-left text-xs select-none">
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
-        <span className="shrink-0">思考</span>
+    <Collapsible className="group/reason">
+      <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors select-none hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
+        <ChevronRight className="text-muted-foreground/40 h-3 w-3 shrink-0 transition-transform duration-150 group-data-[panel-open]:rotate-90" />
+        <span className="text-muted-foreground/60 shrink-0 text-[11px]">思考</span>
         {preview !== '' && (
-          <>
-            <span className="text-muted-foreground/70 shrink-0">·</span>
-            <span className="truncate">{preview}</span>
-          </>
+          <span className="text-muted-foreground/60 truncate">{preview}</span>
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">{text}</div>
+        <div className="text-muted-foreground/80 mt-1 mb-1.5 pl-6 text-[13px] leading-relaxed whitespace-pre-wrap">
+          {text}
+        </div>
       </CollapsibleContent>
     </Collapsible>
   );

@@ -75,20 +75,15 @@ export const SubagentCard = memo(function SubagentCard({
       onClick={() => onOpenSubagent?.(call.childSessionId!)}
       aria-label={`子智能体 ${title}`.trim()}
       className={cn(
-        'bg-card/60 hover:bg-muted/60 flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs',
-        call.isError && 'border-destructive/30 bg-destructive/5',
+        'flex w-full items-center gap-1.5 rounded px-1.5 py-[3px] text-left text-[13px] leading-5 transition-colors',
+        'hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none',
       )}
     >
-      <Bot className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
-      <span className="text-muted-foreground shrink-0">子智能体</span>
-      <span className="text-primary shrink-0 font-mono">task</span>
-      {title && (
-        <>
-          <span className="text-muted-foreground/70 shrink-0">·</span>
-          <span className="truncate">{title}</span>
-        </>
-      )}
-      <span className="text-muted-foreground/70 ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px]">
+      <Bot className={cn('h-3 w-3 shrink-0', call.isError ? 'text-destructive' : 'text-muted-foreground/60')} />
+      <span className="text-muted-foreground/60 shrink-0 text-[11px]">子智能体</span>
+      <span className="text-muted-foreground shrink-0 font-mono text-[11px]">task</span>
+      {title !== '' && <span className="text-muted-foreground/70 truncate">{title}</span>}
+      <span className="text-muted-foreground/40 ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums">
         {isRunning ? (
           <>
             <LoaderCircle className="h-3 w-3 animate-spin" />
