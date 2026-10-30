@@ -143,7 +143,7 @@ export function GeneralPanel() {
               usePreferencesStore.getState().save({ defaultPermissionMode: mode })
             }
             variant="default"
-            triggerClassName="w-36"
+            triggerClassName="w-32"
           />
         </ItemActions>
       </Item>
