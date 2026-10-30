@@ -413,6 +413,14 @@ export function RoutingTiersPanel() {
   );
   const blockingText = `被 ${blockingRefs.map((ref) => ref.name).join('、')} 引用，无法删除`;
 
+  // The save button retires unless the draft's row ORDER diverges from the
+  // saved one. Compared as clientKey sequences: row CONTENT edits are the
+  // form's business (it PUTs on submit), while adds/deletes also light the
+  // button up — a deletion needs this button to reach the server at all.
+  const orderDirty =
+    rows.map((row) => row.clientKey).join() !==
+    saved.map((row) => row.clientKey).join();
+
   /** Resolve a tier target against the provider registry for display. */
   const findTargetModel = (target: RoutingTier['target']) => {
     if (!target) return null;
@@ -454,7 +462,11 @@ export function RoutingTiersPanel() {
           <Plus />
           新增档位
         </Button>
-        <Button size="sm" onClick={() => void handleSave()}>
+        <Button
+          size="sm"
+          disabled={!orderDirty}
+          onClick={() => void handleSave()}
+        >
           <Save />
           保存
         </Button>

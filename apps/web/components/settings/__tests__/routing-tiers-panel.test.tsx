@@ -555,9 +555,12 @@ describe('RoutingTiersPanel', () => {
     expect(
       await screen.findByText('被 deploy-bot 引用，无法删除'),
     ).toBeInTheDocument();
-    // The refused deletion must not cost the local list any row.
+    // The refused deletion must not cost the local list any row …
     expect(screen.getByText('premium')).toBeInTheDocument();
     expect(screen.getByText('economy')).toBeInTheDocument();
+    // … and the restored order matches the saved one again, so there is
+    // nothing left for the save button to persist.
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
   });
 
   it('treats plugin-scope references as hints, not blocking reasons', async () => {
@@ -620,6 +623,50 @@ describe('RoutingTiersPanel', () => {
       screen.getByRole('button', { name: 'MiMo-V2.5-Pro' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Claude X' })).toBeInTheDocument();
+  });
+
+  it('列表保存按钮默认禁用，顺序变化后点亮', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: TIERS },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    await screen.findByText('premium');
+
+    // Nothing to persist while the draft order matches the saved one …
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    // … until a move makes the order diverge.
+    await user.click(screen.getByRole('button', { name: '上移 economy' }));
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+  });
+
+  it('保存成功后保存按钮回到禁用', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: TIERS },
+      }),
+      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [] },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    await screen.findByText('premium');
+
+    await user.click(screen.getByRole('button', { name: '上移 economy' }));
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    // A successful save writes the draft back, so there is again nothing
+    // to persist and the button retires.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
   });
 
   it('上移第二行改变草稿顺序，保存后 PUT body 顺序随之改变', async () => {
@@ -689,6 +736,7 @@ describe('RoutingTiersPanel', () => {
               description: '复杂任务',
               target: { providerId: 'v1', modelId: 'm9' },
             },
+            TIERS[1],
           ],
         },
       }),
@@ -704,6 +752,9 @@ describe('RoutingTiersPanel', () => {
     render(<RoutingTiersPanel />);
     await screen.findByText('premium');
 
+    // The save button only lights up for unsaved draft changes, so make
+    // one (a reorder) before saving.
+    await user.click(screen.getByRole('button', { name: '上移 economy' }));
     await user.click(screen.getByRole('button', { name: '保存' }));
 
     // The server's 400 names the tier and target; show it so the row can be
