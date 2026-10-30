@@ -97,7 +97,7 @@ export function ActivitySteps({
     >
       {/* Indent the steps under the group header: they are its contents, and
           the header's own icon already marks the column. */}
-      <div className="space-y-0.5 pl-5">{rows}</div>
+      <div className="space-y-0.5">{rows}</div>
     </TraceRow>
   );
 }
