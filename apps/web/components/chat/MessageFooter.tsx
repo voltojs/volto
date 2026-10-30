@@ -4,11 +4,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import type { ConversationMessage } from '@volto/sdk/sse';
 import { TurnUsageChip } from './TurnUsageChip';
-
-const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-});
+import { formatTimestamp } from '@/lib/time-format';
 
 /**
  * Time, copy and round usage under the last row a message produced.
@@ -33,7 +29,7 @@ export function MessageFooter({ message }: { message: ConversationMessage }) {
   return (
     <div className="mt-1 flex items-center gap-2">
       <span className="text-muted-foreground/70 font-mono text-[10px]">
-        {timeFormatter.format(message.timestamp)}
+        {formatTimestamp(message.timestamp)}
       </span>
       {message.content !== '' && (
         <button

@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { MessageList } from '../MessageList';
 import type { ChatEntry } from '@/lib/projection';
 import type { ConversationMessage, TurnUsage } from '@volto/sdk/sse';
+import { formatTimestamp } from '@/lib/time-format';
 
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};
@@ -42,10 +43,7 @@ function message(overrides: Partial<ConversationMessage> = {}): ChatEntry {
   };
 }
 
-const timeLabel = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-}).format(0);
+const timeLabel = formatTimestamp(0);
 
 function renderMessage(entry: ChatEntry) {
   return render(<MessageList entries={[entry]} density="detailed" />);
@@ -59,6 +57,8 @@ describe('message usage footer', () => {
   it('renders the chip after the copy button, keeping the timestamp first', () => {
     renderMessage(message({ turnUsage: TURN_USAGE }));
     expect(screen.getByText(timeLabel)).toBeInTheDocument();
+    // Full local date-time, not just the clock.
+    expect(timeLabel).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     const copy = screen.getByRole('button', { name: '复制' });
     expect(copy).toBeInTheDocument();
     expect(screen.getByText(/tok/i)).toBeInTheDocument();
