@@ -295,6 +295,42 @@ describe("/config/routing-tiers", () => {
     await close();
   });
 
+  it("rejects a non-string reasoningEffort with 400 naming the tier id", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    // Only the JSON SHAPE of reasoningEffort is validated here (string or
+    // null); the value stays the port layer's gate (spec D10). A number is
+    // neither shape and must be refused, naming the offending tier.
+    const put = await putTiers(url, token, [
+      { ...tier("economy", null), reasoningEffort: 123 } as unknown as RoutingTierRecord,
+    ]);
+    expect(put.status).toBe(400);
+    const body = (await put.json()) as { error: string };
+    expect(body.error).toContain("economy");
+    expect(body.error).toContain("reasoningEffort");
+    // Validation fails before anything is persisted.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
+    await close();
+  });
+
+  it("normalizes a null reasoningEffort to an absent key on read-back", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    // `null` means "cleared": the record is stored without the key at all,
+    // so both the PUT echo and the GET read-back carry no reasoningEffort
+    // property — not an explicit null.
+    const put = await putTiers(url, token, [
+      { ...tier("economy", null), reasoningEffort: null } as unknown as RoutingTierRecord,
+    ]);
+    expect(put.status).toBe(200);
+    const putBody = (await put.json()) as { tiers: Array<Record<string, unknown>> };
+    expect(putBody.tiers[0]).not.toHaveProperty("reasoningEffort");
+    const getBody = (await (await getTiers(url, token)).json()) as {
+      tiers: Array<Record<string, unknown>>;
+    };
+    expect(getBody.tiers).toHaveLength(1);
+    expect(getBody.tiers[0]).not.toHaveProperty("reasoningEffort");
+    await close();
+  });
+
   it("rejects a target that resolves to no model with 400 naming tier id and target", async () => {
     const { url, token, close } = await startRouteTestServer();
     const put = await putTiers(url, token, [
@@ -330,6 +366,39 @@ describe("/config/routing-tiers", () => {
     expect(body.error).toContain("economy");
     // The blocked delete must not have changed anything.
     expect(await (await getTiers(url, token)).json()).toEqual({ tiers: [tier("economy", target)] });
+    await close();
+  });
+
+  it("blocks first-PUT removal of a template id a user-scope definition references", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    // First PUT: no config file exists yet, so list() serves the factory
+    // template and its ids count as live table ids — deleting "economy" from
+    // the template must be guarded exactly like deleting a persisted tier,
+    // because the id still disappears from the effective table.
+    const create = await fetch(`${url}/agents`, {
+      method: "POST",
+      headers: authJson(token),
+      body: JSON.stringify({ scope: "user", spec: { name: "thrifty", model: "economy" } }),
+    });
+    expect(create.status).toBe(201);
+
+    // premium + fast only (targets still unassigned, like the template):
+    // "economy" is gone from the submitted table.
+    const put = await putTiers(
+      url,
+      token,
+      FACTORY_TEMPLATE.filter((t) => t.id !== "economy"),
+    );
+    expect(put.status).toBe(409);
+    const body = (await put.json()) as {
+      error: string;
+      references: Array<{ name: string; scope: string }>;
+    };
+    expect(body.references).toContainEqual({ name: "thrifty", scope: "user" });
+    expect(body.error).toContain("economy");
+    // The blocked first PUT persisted nothing: GET still falls back to the
+    // unpersisted template.
+    expect(await (await getTiers(url, token)).json()).toEqual({ tiers: FACTORY_TEMPLATE });
     await close();
   });
 
