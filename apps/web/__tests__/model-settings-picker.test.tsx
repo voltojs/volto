@@ -144,7 +144,7 @@ function zToken(el: Element): number {
 }
 
 describe('ModelSettingsPicker placement', () => {
-  it('paints its popup above the modal dialog content instead of under it', async () => {
+  it('paints its popup above the modal dialog content when the host asks for it', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <Dialog open onOpenChange={() => {}}>
@@ -156,6 +156,7 @@ describe('ModelSettingsPicker placement', () => {
             efforts={EFFORTS}
             effort={undefined}
             onEffortChange={vi.fn()}
+            zIndexClassName="z-[60]"
           />
         </DialogContent>
       </Dialog>,
@@ -168,7 +169,8 @@ describe('ModelSettingsPicker placement', () => {
     // positioned Positioner: the popup inside it is static, whose z-index
     // never joins paint order — a token there is a no-op (the bug's real
     // shape). A unit that does not declare a level above the dialog's
-    // z-50 paints under the dialog and reads as "click does nothing".
+    // z-50 paints under the dialog and reads as "click does nothing", so
+    // the host passes the layer in via `zIndexClassName`.
     const popup = document.querySelector('[data-slot="popover-content"]');
     const dialogContent = document.querySelector(
       '[data-slot="dialog-content"]',
@@ -177,6 +179,47 @@ describe('ModelSettingsPicker placement', () => {
     expect(dialogContent).not.toBeNull();
     const positioner = popup!.parentElement!;
     expect(zToken(positioner)).toBeGreaterThan(zToken(dialogContent!));
+  });
+
+  it('defaults to the dialog-level z-50 layer when the host passes none', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ModelSettingsPicker
+        providerId="v1"
+        modelId="m2"
+        onModelChange={vi.fn()}
+        efforts={EFFORTS}
+        effort={undefined}
+        onEffortChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+    // The shared popover keeps its stock layer: only hosts that opt in get
+    // a popup above their dialogs (ChatPanel & friends stay untouched).
+    const popup = document.querySelector('[data-slot="popover-content"]');
+    expect(zToken(popup!.parentElement!)).toBe(50);
+  });
+
+  it('honors a zIndexClassName override on the stacking unit', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <ModelSettingsPicker
+        providerId="v1"
+        modelId="m2"
+        onModelChange={vi.fn()}
+        efforts={EFFORTS}
+        effort={undefined}
+        onEffortChange={vi.fn()}
+        zIndexClassName="z-[70]"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /模型与推理等级/ }));
+    expect(await screen.findByText('模型')).toBeInTheDocument();
+    // An off-default value proves the level comes from the caller's prop,
+    // not from a hard-coded class inside the shared component.
+    const popup = document.querySelector('[data-slot="popover-content"]');
+    expect(zToken(popup!.parentElement!)).toBe(70);
   });
 
   it('opens below the trigger by default', async () => {

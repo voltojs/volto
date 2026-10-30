@@ -11,6 +11,16 @@ const PopoverTitle = PopoverPrimitive.Title;
 interface PopoverContentProps extends PopoverPrimitive.Positioner.Props {
   className?: string;
   children?: React.ReactNode;
+  /**
+   * Stacking layer for the popup, applied to the absolutely positioned
+   * Positioner — the stacking unit; a z-index on the static Popup inside
+   * never joins paint order (the bug's real shape) — plus the Popup as a
+   * belt-and-braces copy. Hosts inside a modal dialog (z-50) pass a
+   * higher token so the popup paints above it; the default keeps the
+   * stock dialog-level layer. Pass a full literal class name so
+   * Tailwind's scanner generates it.
+   */
+  zIndexClassName?: string;
 }
 
 function PopoverContent({
@@ -18,6 +28,7 @@ function PopoverContent({
   align = 'end',
   side = 'bottom',
   sideOffset = 6,
+  zIndexClassName = 'z-50',
   children,
   ...props
 }: PopoverContentProps) {
@@ -27,18 +38,14 @@ function PopoverContent({
         align={align}
         side={side}
         sideOffset={sideOffset}
-        // z-[60] > dialogs (z-50): a popover is a floating layer and must
-        // paint above modal dialogs, or it reads as dead there. The token
-        // lives on the absolutely positioned Positioner — the stacking
-        // unit; a z-index on the static Popup inside never joins paint
-        // order — plus the Popup as a belt-and-braces copy.
-        className="z-[60]"
+        className={zIndexClassName}
         {...props}
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            'bg-popover text-popover-foreground z-[60] min-w-32 rounded-lg border p-3 shadow-md',
+            'bg-popover text-popover-foreground min-w-32 rounded-lg border p-3 shadow-md',
+            zIndexClassName,
             className,
           )}
         >

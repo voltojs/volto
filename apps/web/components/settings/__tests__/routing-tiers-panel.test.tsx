@@ -467,9 +467,13 @@ describe('RoutingTiersPanel', () => {
     // jsdom lays nothing out, so the "never covers the submit row" contract
     // is pinned as the popup's side: opening upward lands it over the form
     // fields, while the default downward side covered 保存/取消 (bug report).
+    // The layer is pinned the same way: the form is hosted inside the modal
+    // settings dialog, so it passes the above-dialog token in explicitly
+    // (a full literal — Tailwind's scanner must see the whole class name).
     const popup = document.querySelector('[data-slot="popover-content"]');
     expect(popup).not.toBeNull();
     expect(popup).toHaveAttribute('data-side', 'top');
+    expect(popup!.parentElement!.className).toContain('z-[60]');
   });
 
   it('删除被引用档位：PUT reject 409 body {error, references} → 面板展示「被 XXX 引用，无法删除」且不丢本地列表', async () => {

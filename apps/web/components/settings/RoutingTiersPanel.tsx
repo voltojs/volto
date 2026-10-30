@@ -191,8 +191,12 @@ function TierForm({
         onEffortChange={setReasoningEffort}
         triggerFallback="未配置模型"
         // The trigger sits right above the submit row: open upward so the
-        // popup covers form fields (harmless) and never 保存/取消.
+        // popup covers form fields (harmless) and never 保存/取消. This
+        // form is hosted inside the modal settings dialog (z-50), so the
+        // popup's layer is passed in as a full literal class name —
+        // Tailwind's scanner must see the whole token to generate it.
         side="top"
+        zIndexClassName="z-[60]"
       />
       {error && (
         <p className="text-destructive text-sm" role="alert">

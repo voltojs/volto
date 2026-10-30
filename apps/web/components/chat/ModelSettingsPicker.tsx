@@ -30,6 +30,12 @@ interface ModelSettingsPickerProps {
    * popup never covers them; the composer keeps the default.
    */
   side?: 'top' | 'bottom';
+  /**
+   * Stacking layer forwarded to the popup (see PopoverContent). Hosts
+   * inside a modal dialog pass a token above the dialog's z-50; omitted,
+   * the stock layer applies. Pass a full literal class name.
+   */
+  zIndexClassName?: string;
 }
 
 /** Which pane the popup is showing; the root lists both settings. */
@@ -59,6 +65,7 @@ export function ModelSettingsPicker({
   onEffortChange,
   triggerFallback,
   side = 'bottom',
+  zIndexClassName,
 }: ModelSettingsPickerProps) {
   const providers = useConfigStore((s) => s.providers);
   const catalogProviders = useConfigStore((s) => s.catalogProviders);
@@ -101,7 +108,11 @@ export function ModelSettingsPicker({
         <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
       </PopoverTrigger>
 
-      <PopoverContent side={side} className="w-64 p-1">
+      <PopoverContent
+        side={side}
+        zIndexClassName={zIndexClassName}
+        className="w-64 p-1"
+      >
         {pane === 'root' && (
           <>
             <Row
