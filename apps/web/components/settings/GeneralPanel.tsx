@@ -142,6 +142,8 @@ export function GeneralPanel() {
             onChange={(mode) =>
               usePreferencesStore.getState().save({ defaultPermissionMode: mode })
             }
+            variant="default"
+            triggerClassName="w-36"
           />
         </ItemActions>
       </Item>
