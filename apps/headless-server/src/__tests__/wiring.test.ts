@@ -30,10 +30,11 @@ let originalHome: string | undefined;
 // os.homedir() would otherwise track the hijacked $HOME.
 const REAL_HOME = os.homedir();
 
-// User-level instruction/skill probing hangs off the REAL home directory
+// User-level instruction probing hangs off the REAL home directory
 // (os.homedir() honors $HOME on POSIX), so every test needs an isolated
 // $HOME — otherwise it picks up whatever ~/.agents or ~/.claude happens to
-// contain on the machine running the suite.
+// contain on the machine running the suite. Skills no longer read $HOME:
+// they live under the config dir and the project's .volto/skills.
 beforeEach(async () => {
   tempConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-config-"));
   tempProjectDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiring-project-"));
@@ -281,9 +282,8 @@ describe("createWiredAgent instruction layers resolve once per conversation", ()
 });
 
 describe("createWiredAgent skill registry (progressive disclosure)", () => {
-  // tempHomeDir is set up in the top-level beforeEach — user-level
-  // .agents/.claude hang off the REAL home directory (os.homedir() honors
-  // $HOME on POSIX), so it's isolated there for every describe block.
+  // User-level skills live in tempConfigDir (VOLTO_CONFIG_DIR), set up in the
+  // top-level beforeEach so no test reads the machine's real ~/.volto.
 
   async function writeSkill(
     root: string,
@@ -405,11 +405,12 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     expect(systemContents.some((c) => c.includes("CRLF-BODY"))).toBe(false);
   });
 
-  it("dedupes same-named skills across sources (project beats user, .volto beats .claude)", async () => {
-    // Same skill name in three of the six sources; the catalog must carry
-    // exactly one winner per the six-source priority order: project-level
-    // beats user-level, and within a level .volto beats .claude.
+  it("reads only .volto/skills: project beats user, .claude/.agents are ignored", async () => {
+    // Same skill name in every directory one might expect; only the two
+    // .volto sources may contribute, and the project one wins.
     await writeSkill(tempHomeDir, path.join(".claude", "skills"), "dup", "DUP-BODY", "USER-CLAUDE");
+    await writeSkill(tempHomeDir, path.join(".agents", "skills"), "compat-only", "COMPAT-BODY", "USER-AGENTS");
+    await writeSkill(tempProjectDir, path.join(".claude", "skills"), "dup", "DUP-BODY", "PROJECT-CLAUDE");
     await writeSkill(tempConfigDir, "skills", "dup", "DUP-BODY", "USER-VOLTO");
     await writeSkill(tempProjectDir, path.join(".volto", "skills"), "dup", "DUP-BODY", "PROJECT-WINS");
     const { modelPort, requests } = captureModelPort();
@@ -422,6 +423,8 @@ describe("createWiredAgent skill registry (progressive disclosure)", () => {
     expect(catalog).toContain("- dup: PROJECT-WINS");
     expect(catalog).not.toContain("USER-VOLTO");
     expect(catalog).not.toContain("USER-CLAUDE");
+    expect(catalog).not.toContain("PROJECT-CLAUDE");
+    expect(catalog).not.toContain("compat-only");
     expect(systemContentsOf(requests).some((c) => c.includes("DUP-BODY"))).toBe(false);
   });
 

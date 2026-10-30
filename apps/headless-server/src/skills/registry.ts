@@ -5,7 +5,6 @@
  */
 
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expandInstructions } from "@volto/core";
 import type { LoadedSkill, SkillInvocationPolicy, SkillRegistry, SkillSummary } from "@volto/core";
@@ -117,22 +116,17 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedS
  * load() must reread current disk state so mid-session skill edits are
  * picked up (skills are instructions; their files can change). Sources are
  * listed in ascending priority order and merged into a name-keyed map where
- * later entries override earlier ones — a project directory beats its
- * user-level counterpart, and within a level .volto beats .claude beats
- * .agents (the .claude/skills entries on real machines are frequently
- * symlinks into .agents/skills, so name-based dedupe is load-bearing).
- * User-level .agents/.claude hang off the real home directory (the
- * cross-tool convention), not the volto config dir.
+ * later entries override earlier ones — the project's `.volto/skills` beats
+ * the user-level `<configDir>/skills`.
+ *
+ * These are the only two skill locations. Compatibility sources
+ * (`.claude/skills`, `.agents/skills`) are deliberately not read: a skill
+ * file the host never advertises cannot silently override the one it does.
  */
 async function scanSkillSources(cwd: string): Promise<ScannedSkills> {
   const configDir = getConfigDir();
-  const home = os.homedir();
   const sources: Array<{ root: string; subdir: string; rootDir: string }> = [
-    { root: home, subdir: path.join(".agents", "skills"), rootDir: home },
-    { root: home, subdir: path.join(".claude", "skills"), rootDir: home },
     { root: configDir, subdir: "skills", rootDir: configDir },
-    { root: cwd, subdir: path.join(".agents", "skills"), rootDir: cwd },
-    { root: cwd, subdir: path.join(".claude", "skills"), rootDir: cwd },
     { root: cwd, subdir: path.join(".volto", "skills"), rootDir: cwd },
   ];
   const byName = new Map<string, ScannedSkill>();
@@ -178,7 +172,7 @@ async function loadSkillResourceText(skill: ScannedSkill, rootDirByResource: Map
 }
 
 /**
- * Host-owned SkillRegistry over the six-source skill directory scan.
+ * Host-owned SkillRegistry over the two-source skill directory scan.
  * list() → name/description/policy summaries only; load() → body plus the
  * skill's own directory, rereading disk every call (no body caching) so
  * mid-session skill edits are picked up. Non-model-invocable skills are

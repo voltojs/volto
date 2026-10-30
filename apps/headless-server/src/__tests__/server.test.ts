@@ -722,7 +722,7 @@ describe("Headless server", () => {
     // resolving to this directory, not by coincidentally reusing the
     // process-cwd scan.
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-project-"));
-    const skillDir = path.join(projectDir, ".claude", "skills", "task11-fixture-skill");
+    const skillDir = path.join(projectDir, ".volto", "skills", "task11-fixture-skill");
     await fs.mkdir(skillDir, { recursive: true });
     await fs.writeFile(
       path.join(skillDir, "SKILL.md"),

@@ -23,7 +23,7 @@ describe("createSkillRegistry", () => {
     base = await fs.mkdtemp(path.join(os.tmpdir(), "volto-skills-"));
     home = path.join(base, "home");
     cwd = path.join(base, "project");
-    await fs.mkdir(path.join(home, ".agents", "skills"), { recursive: true });
+    await fs.mkdir(path.join(home, ".volto", "skills"), { recursive: true });
     await fs.mkdir(cwd, { recursive: true });
     // os.homedir() cannot be reliably spied under ESM in this repo — it
     // honors $HOME on POSIX, so redirect via the environment instead (same
@@ -39,7 +39,7 @@ describe("createSkillRegistry", () => {
   });
 
   it("returns the skill directory as baseDir, not the SKILL.md path", async () => {
-    const skillDir = await writeSkill(path.join(home, ".agents", "skills"), "demo", "Body.");
+    const skillDir = await writeSkill(path.join(home, ".volto", "skills"), "demo", "Body.");
     const { createSkillRegistry } = await import("../skills/registry.js");
 
     const loaded = await createSkillRegistry(cwd).load("demo");
@@ -66,7 +66,7 @@ describe("createSkillRegistry", () => {
   // return the stale (cached) description if it actually consulted the
   // cache instead of rereading — proving the cache is real with no mocking.
   it("reuses parsed metadata while mtime and size are unchanged", async () => {
-    const dir = path.join(home, ".agents", "skills");
+    const dir = path.join(home, ".volto", "skills");
     const skillPath = path.join(await writeSkill(dir, "cached", "Body."), "SKILL.md");
     const { createSkillRegistry } = await import("../skills/registry.js");
     const registry = createSkillRegistry(cwd);
@@ -106,7 +106,7 @@ describe("createSkillRegistry", () => {
   });
 
   it("re-parses after the file changes", async () => {
-    const dir = path.join(home, ".agents", "skills");
+    const dir = path.join(home, ".volto", "skills");
     await writeSkill(dir, "changing", "Body.");
     const { createSkillRegistry } = await import("../skills/registry.js");
     const registry = createSkillRegistry(cwd);
@@ -121,7 +121,7 @@ describe("createSkillRegistry", () => {
   });
 
   it("always rereads the body, never serving it from cache", async () => {
-    const dir = path.join(home, ".agents", "skills");
+    const dir = path.join(home, ".volto", "skills");
     await writeSkill(dir, "live", "First body.");
     const { createSkillRegistry } = await import("../skills/registry.js");
     const registry = createSkillRegistry(cwd);
@@ -144,7 +144,7 @@ describe("createSkillRegistry", () => {
   // changes. If the body were ever served from that cache entry, this
   // assertion would see the stale body instead of the fresh one.
   it("serves the fresh body from disk even when the metadata cache hits", async () => {
-    const dir = path.join(home, ".agents", "skills");
+    const dir = path.join(home, ".volto", "skills");
     const skillPath = path.join(await writeSkill(dir, "livecache", "First body."), "SKILL.md");
     const { createSkillRegistry } = await import("../skills/registry.js");
     const registry = createSkillRegistry(cwd);
