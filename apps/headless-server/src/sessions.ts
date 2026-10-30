@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
-import type { ChatSessionMeta, Message, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
+import type { ChatSessionMeta, Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -22,7 +22,8 @@ import { resolveProjectPath, unknownProjectMessage, type createProjectStore } fr
 import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
 import { createRoutingTierStore } from "./config/routing-tiers.js";
-import { deriveHeuristicTitle, firstUserMessageText } from "./session-title.js";
+import { deriveHeuristicTitle, firstUserMessageText, generateTitle } from "./session-title.js";
+import { readPreferences } from "./config/preferences.js";
 import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
 import { savePermissionRule } from "./config/permissions.js";
 import type { StoreFor } from "./attachments/store.js";
@@ -42,6 +43,14 @@ export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore" 
   heartbeatInterval?: number;
   projectStore?: ReturnType<typeof createProjectStore>;
   providerStore?: ReturnType<typeof createProviderStore>;
+  /**
+   * Builds the ModelPort used to NAME a session (spec 2026-10-30 D2), or
+   * null when no title model is configured. Defaults to resolving the
+   * `titleProviderId`/`titleModelId` preferences through the provider store —
+   * the same path a sub-agent tier target takes. A seam because a title write
+   * happens on a background task a test cannot otherwise observe.
+   */
+  titleModelPortFactory?: () => Promise<{ modelPort: ModelPort; model: string } | null>;
   /** Overridable agent constructor — production uses createWiredAgent. */
   agentFactory?: typeof createWiredAgent;
   /**
@@ -570,6 +579,11 @@ interface Session {
    * never renamed mid-conversation.
    */
   titleWrittenThisTurn?: boolean;
+  /**
+   * Set once this process has tried to name the session with a model, so the
+   * background call is never made twice for one session.
+   */
+  titleGenerationStarted?: boolean;
 }
 
 /** An event as an agent's stream() yields it.
@@ -641,6 +655,32 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   } = opts;
 
   const buildAgent = agentFactory ?? createWiredAgent;
+
+  /**
+   * The user's configured title model, or null when they have not picked one
+   * (spec 2026-10-30 D2) — in which case the heuristic title stands and no
+   * model is called at all.
+   */
+  const titleModelPortFactory =
+    opts.titleModelPortFactory ??
+    (async (): Promise<{ modelPort: ModelPort; model: string } | null> => {
+      if (!providerStore) return null;
+      let preferences;
+      try {
+        preferences = await readPreferences();
+      } catch {
+        return null;
+      }
+      const providerId = preferences.titleProviderId;
+      const modelId = preferences.titleModelId;
+      if (providerId === undefined || modelId === undefined) return null;
+      const resolved = await buildSubagentModelPortFactory(providerStore)({
+        providerId,
+        modelId,
+      });
+      if (resolved === null) return null;
+      return { modelPort: resolved.modelPort, model: resolved.model };
+    });
 
   const sessions = new Map<string, Session>();
 
@@ -895,6 +935,35 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
     if (await writeSessionTitle(session.id, title, "heuristic", true) === "written") {
       session.titleWrittenThisTurn = true;
+    }
+  }
+
+  /**
+   * Replaces a freshly derived title with one written by the configured title
+   * model.
+   *
+   * Runs after the turn settled, so everything it needs is durable: it re-reads
+   * the transcript to take the first user message and to check that the title
+   * is still the heuristic one — a rename that landed while the model was
+   * thinking wins, and the late model answer is dropped. Every failure is the
+   * same: the heuristic title stays, and nothing reaches the conversation.
+   */
+  async function finalizeTitle(session: Session): Promise<void> {
+    try {
+      if (!chatStore) return;
+      const record = await chatStore.readSession(session.id);
+      if (!record || record.meta.titleSource !== "heuristic") return;
+      const text = firstUserMessageText(record.events);
+      if (text === null) return;
+
+      const target = await titleModelPortFactory();
+      if (target === null) return;
+      const title = await generateTitle(target.modelPort, target.model, text);
+      if (title === null || title === record.meta.title) return;
+
+      await writeSessionTitle(session.id, title, "model");
+    } catch {
+      // A title is decoration: it never surfaces an error or fails a turn.
     }
   }
 
@@ -1449,6 +1518,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // the boundary so this catch block records exactly that gap, without
     // ever double-recording a failure createAgent() already saw.
     let turnReachedStream = false;
+    /** Why this turn's stream closed, if it reached `turn_end` at all. */
+    let turnEndReason: string | undefined;
     try {
       // Title first, model second: this runs before the turn's first token so
       // the client never shows an untitled conversation, and the heuristic it
@@ -1469,8 +1540,23 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       session.abort = abort;
       for await (const event of session.agent!.stream(message, { signal: abort.signal })) {
         push(session, frame(session, event));
+        if (event.type === "turn_end") turnEndReason = String(event.data["reason"] ?? "");
       }
       await captureHistory();
+      // Naming comes last and off the turn's critical path: the model call it
+      // makes can take seconds, and `session.running` must be released first
+      // so the next message is not answered with BUSY. Only the turn that
+      // wrote the heuristic title reaches here with the flag set, and the
+      // once-only guard keeps a session named exactly once.
+      if (
+        session.titleWrittenThisTurn &&
+        !session.titleGenerationStarted &&
+        turnEndReason === "done"
+      ) {
+        session.titleWrittenThisTurn = false;
+        session.titleGenerationStarted = true;
+        void finalizeTitle(session);
+      }
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));

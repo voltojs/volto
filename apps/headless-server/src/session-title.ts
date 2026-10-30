@@ -63,7 +63,6 @@ export function firstUserMessageText(events: readonly TranscriptEvent[]): string
     .trim();
   return text.length > 0 ? text : null;
 }
-
 /**
  * How long a title request may take. A title that is not worth waiting 15
  * seconds for is not worth keeping a request open for either: on timeout the
@@ -97,8 +96,7 @@ const MAX_PROMPT_INPUT = 2_000;
 export function sanitizeGeneratedTitle(raw: string): string | null {
   let title = raw.trim();
   // A fenced answer: keep whatever is inside the fence.
-  title = title.replace(/^```[^\n]*\n?/u, "").replace(/\n?```$/u, "");
-  title = title.trim();
+  title = title.replace(/^```[^\n]*\n?/u, "").replace(/\n?```$/u, "").trim();
   // Quotes / backticks wrapping the whole answer, possibly repeated.
   for (let i = 0; i < 2; i += 1) {
     const previous = title;
