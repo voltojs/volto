@@ -67,7 +67,7 @@ export function TraceRow({
 
   const content = (
     <>
-      <span className="absolute top-1/2 left-0 h-3 w-3 -translate-y-1/2">
+      <span className="relative h-3 w-3 shrink-0">
         <Icon
           aria-hidden
           className={cn(
@@ -109,10 +109,10 @@ export function TraceRow({
     </>
   );
 
+  // The glyph leads the row, on the same left edge as the prose. Nothing hangs
+  // outside the column: an icon in a gutter reads as a misaligned row.
   const rowClass = cn(
-    // The button reaches into the gutter so the glyph has room without
-    // indenting the text; the panel itself stays on the prose edge.
-    'group relative -ml-5 flex w-[calc(100%_+_1.25rem)] items-center gap-1.5 rounded-md py-[2px] pr-1 pl-5',
+    'group relative flex w-full items-center gap-1.5 rounded-md py-[2px] pr-1',
     'text-left text-[13px] leading-[18px] transition-colors',
     'hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
   );
@@ -143,7 +143,7 @@ export function TraceRow({
     >
       <CollapsibleTrigger className={rowClass}>{content}</CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="space-y-1.5 pt-0.5 pr-2 pb-2">{children}</div>
+        <div className="space-y-1.5 pt-0.5 pr-2 pb-2 pl-[18px]">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );
