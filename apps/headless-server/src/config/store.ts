@@ -36,6 +36,21 @@ export const LEGACY_FILES = {
 
 export type ConfigSection = keyof typeof LEGACY_FILES;
 
+/**
+ * Domains whose existing readers refuse to build on a corrupt config. The
+ * migration must not paper over their corruption: writing a complete
+ * `config.json` without them would turn egress / permissions / lsp from
+ * fail-closed into "silently no policy".
+ */
+const FAIL_CLOSED_LEGACY: ReadonlySet<string> = new Set([
+  "projects",
+  "providers",
+  "routingTiers",
+  "permissions",
+  "egress",
+  "lsp",
+]);
+
 export interface VoltoConfig {
   version: number;
   /** Kept loose on purpose: each domain store owns its own validation. */
@@ -175,8 +190,10 @@ export async function ensureConfigMigrated(dir: string = getConfigDir()): Promis
   try {
     await fs.access(configPath);
     return false;
-  } catch {
-    // Missing: continue with the migration.
+  } catch (err) {
+    // Only a genuinely missing file starts the migration. An existing but
+    // unreadable config.json (EACCES) must not be overwritten.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
   const config: VoltoConfig = { version: CONFIG_VERSION };
@@ -189,10 +206,16 @@ export async function ensureConfigMigrated(dir: string = getConfigDir()): Promis
         found = true;
       }
     } catch (err) {
-      console.warn(
-        `skipping unreadable legacy config ${file}:`,
-        err instanceof Error ? err.message : err,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      if (FAIL_CLOSED_LEGACY.has(section)) {
+        // Abort the whole migration: a partial config.json would make the
+        // unreadable domain read as empty, which is exactly the fail-open
+        // behaviour its reader exists to prevent.
+        throw new Error(`cannot migrate ${file}: ${message}`);
+      }
+      // preferences already degrades to empty and hooks already fail open,
+      // so their migration may skip a damaged file.
+      console.warn(`skipping unreadable legacy config ${file}: ${message}`);
     }
   }
   if (!found) return false;

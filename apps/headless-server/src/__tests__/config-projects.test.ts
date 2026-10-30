@@ -97,3 +97,14 @@ describe("createProjectStore", () => {
     expect(entries).toEqual(["config.json"]);
   });
 });
+
+describe("concurrent project creates", () => {
+  it("keeps every project created by concurrent requests", async () => {
+    const store = createProjectStore(dir);
+    await Promise.all([
+      store.create({ name: "a", path: workdir }),
+      store.create({ name: "b", path: workdir }),
+    ]);
+    expect((await store.list()).map((p) => p.name).sort()).toEqual(["a", "b"]);
+  });
+});

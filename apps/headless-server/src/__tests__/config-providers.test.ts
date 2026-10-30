@@ -620,3 +620,14 @@ it("drops an unrecognized legacy vision key at the write boundary instead of mig
   expect(created.models[0]).not.toHaveProperty("vision");
   expect(created.models[0]).not.toHaveProperty("input");
 });
+
+describe("concurrent provider creates", () => {
+  it("keeps every provider created by concurrent requests", async () => {
+    const store = createProviderStore(dir);
+    await Promise.all([
+      store.create({ ...INPUT, name: "p1" }),
+      store.create({ ...INPUT, name: "p2" }),
+    ]);
+    expect((await store.listPublic()).map((p) => p.name).sort()).toEqual(["p1", "p2"]);
+  });
+});

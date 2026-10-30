@@ -152,10 +152,6 @@ export function createProviderStore(dir: string = getConfigDir()) {
     });
   }
 
-  async function writeAll(providers: Provider[]): Promise<void> {
-    await store.update("providers", () => providers);
-  }
-
   async function toPublic(provider: Provider): Promise<PublicProvider> {
     let masked: string | null = null;
     if (provider.apiKeyEnc) {
@@ -316,7 +312,10 @@ export function createProviderStore(dir: string = getConfigDir()) {
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
               models: normalizeModels(input.models),
             };
-      await writeAll([...(await readAll()), provider]);
+      await store.update<Provider[]>("providers", (current) => [
+        ...(current ?? []),
+        provider,
+      ]);
       return toPublic(provider);
     },
 
@@ -327,63 +326,70 @@ export function createProviderStore(dir: string = getConfigDir()) {
     // of silently keeping the old kind and dropping the input's kind-specific
     // fields.
     async update(id: string, input: Partial<ProviderInput>): Promise<PublicProvider | null> {
-      const all = await readAll();
-      const index = all.findIndex((p) => p.id === id);
-      const current = all[index];
-      if (!current) return null;
+      let publicNext: PublicProvider | null = null;
+      await store.update<Provider[]>("providers", async (stored) => {
+        const all = stored ?? [];
+        const index = all.findIndex((p) => p.id === id);
+        const current = all[index];
+        if (!current) return all;
 
-      if (input.kind !== undefined && input.kind !== current.kind) {
-        throw new Error(
-          `Cannot change provider "${current.id}" kind from "${current.kind}" to "${input.kind}"; delete and recreate it instead.`,
-        );
-      }
-
-      // An omitted apiKey means "keep the existing one" — this is what lets
-      // the settings UI show a masked value without round-tripping secrets.
-      const apiKeyEnc = input.apiKey ? await cipher.encrypt(input.apiKey) : current.apiKeyEnc;
-      const name = input.name ?? current.name;
-
-      let next: Provider;
-      if (current.kind === "catalog") {
-        const catalogInput = input as Partial<Extract<ProviderInput, { kind: "catalog" }>>;
-        if (catalogInput.piProvider !== undefined && catalogInput.piProvider !== current.piProvider) {
-          await assertPiProviderFree(catalogInput.piProvider, current.id);
+        if (input.kind !== undefined && input.kind !== current.kind) {
+          throw new Error(
+            `Cannot change provider "${current.id}" kind from "${current.kind}" to "${input.kind}"; delete and recreate it instead.`,
+          );
         }
-        next = {
-          kind: "catalog",
-          id: current.id,
-          name,
-          piProvider: catalogInput.piProvider ?? current.piProvider,
-          baseURL:
-            catalogInput.baseURL === undefined ? current.baseURL ?? null : catalogInput.baseURL,
-          apiKeyEnc,
-          models: catalogInput.models
-            ? normalizeCatalogModels(catalogInput.models)
-            : current.models,
-        };
-      } else {
-        const customInput = input as Partial<Extract<ProviderInput, { kind?: "custom" }>>;
-        next = {
-          kind: "custom",
-          id: current.id,
-          name,
-          baseURL: customInput.baseURL === undefined ? current.baseURL : customInput.baseURL,
-          apiKeyEnc,
-          models: customInput.models ? normalizeModels(customInput.models) : current.models,
-        };
-      }
 
-      all[index] = next;
-      await writeAll(all);
-      return toPublic(next);
+        // An omitted apiKey means "keep the existing one" — this is what lets
+        // the settings UI show a masked value without round-tripping secrets.
+        const apiKeyEnc = input.apiKey ? await cipher.encrypt(input.apiKey) : current.apiKeyEnc;
+        const name = input.name ?? current.name;
+
+        let next: Provider;
+        if (current.kind === "catalog") {
+          const catalogInput = input as Partial<Extract<ProviderInput, { kind: "catalog" }>>;
+          if (catalogInput.piProvider !== undefined && catalogInput.piProvider !== current.piProvider) {
+            await assertPiProviderFree(catalogInput.piProvider, current.id);
+          }
+          next = {
+            kind: "catalog",
+            id: current.id,
+            name,
+            piProvider: catalogInput.piProvider ?? current.piProvider,
+            baseURL:
+              catalogInput.baseURL === undefined ? current.baseURL ?? null : catalogInput.baseURL,
+            apiKeyEnc,
+            models: catalogInput.models
+              ? normalizeCatalogModels(catalogInput.models)
+              : current.models,
+          };
+        } else {
+          const customInput = input as Partial<Extract<ProviderInput, { kind?: "custom" }>>;
+          next = {
+            kind: "custom",
+            id: current.id,
+            name,
+            baseURL: customInput.baseURL === undefined ? current.baseURL : customInput.baseURL,
+            apiKeyEnc,
+            models: customInput.models ? normalizeModels(customInput.models) : current.models,
+          };
+        }
+
+        all[index] = next;
+        publicNext = await toPublic(next);
+        return all;
+      });
+      return publicNext;
     },
 
     async remove(id: string): Promise<boolean> {
-      const all = await readAll();
-      const next = all.filter((p) => p.id !== id);
-      if (next.length === all.length) return false;
-      await writeAll(next);
-      return true;
+      let removed = false;
+      await store.update<Provider[]>("providers", (current) => {
+        const all = current ?? [];
+        const next = all.filter((p) => p.id !== id);
+        removed = next.length !== all.length;
+        return removed ? next : all;
+      });
+      return removed;
     },
 
     async resolveModel(

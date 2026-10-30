@@ -48,10 +48,6 @@ export function createProjectStore(dir: string = getConfigDir()) {
     return (await store.read())["projects"] as Project[] | undefined ?? [];
   }
 
-  async function writeAll(projects: Project[]): Promise<void> {
-    await store.update("projects", () => projects);
-  }
-
   return {
     list: readAll,
 
@@ -76,16 +72,22 @@ export function createProjectStore(dir: string = getConfigDir()) {
         path: input.path,
         createdAt: Date.now(),
       };
-      await writeAll([...(await readAll()), project]);
+      await store.update<Project[]>("projects", (current) => [
+        ...(current ?? []),
+        project,
+      ]);
       return project;
     },
 
     async remove(id: string): Promise<boolean> {
-      const all = await readAll();
-      const next = all.filter((p) => p.id !== id);
-      if (next.length === all.length) return false;
-      await writeAll(next);
-      return true;
+      let removed = false;
+      await store.update<Project[]>("projects", (current) => {
+        const all = current ?? [];
+        const next = all.filter((p) => p.id !== id);
+        removed = next.length !== all.length;
+        return removed ? next : all;
+      });
+      return removed;
     },
 
     async findById(id: string): Promise<Project | null> {

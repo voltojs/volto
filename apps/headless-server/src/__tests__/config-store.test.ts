@@ -4,6 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { ensureConfigMigrated, getConfigStore } from "../config/store.js";
 import { ConfigCorruptError } from "../config/io.js";
+import { readPreferences } from "../config/preferences.js";
+import { createProjectStore } from "../config/projects.js";
+import { createProviderStore } from "../config/providers.js";
+import { loadHooksConfig } from "../config/hooks.js";
+import { loadLspServers } from "../config/lsp.js";
+import { loadEgressPolicy } from "../config/egress.js";
 
 const dirs: string[] = [];
 async function tmp(): Promise<string> {
@@ -130,17 +136,76 @@ describe("ensureConfigMigrated", () => {
     await expect(fs.access(path.join(dir, "config.json"))).rejects.toThrow();
   });
 
-  it("skips a corrupt legacy file and still migrates the readable ones", async () => {
+  it("aborts the whole migration when a fail-closed legacy file is corrupt", async () => {
     const dir = await tmp();
     await fs.writeFile(path.join(dir, "projects.json"), JSON.stringify([{ id: "p1" }]));
-    await fs.writeFile(path.join(dir, "providers.json"), "{ broken", "utf8");
+    await fs.writeFile(path.join(dir, "egress.json"), "{ broken", "utf8");
+
+    // Writing a config.json without the egress section would turn a corrupt
+    // (previously fail-closed) egress file into "no egress policy at all".
+    await expect(ensureConfigMigrated(dir)).rejects.toThrow(/cannot migrate egress\.json/);
+    await expect(fs.access(path.join(dir, "config.json"))).rejects.toThrow();
+  });
+
+  it("skips a corrupt legacy file in a fail-open domain and migrates the rest", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, "projects.json"), JSON.stringify([{ id: "p1" }]));
+    await fs.writeFile(path.join(dir, "hooks.json"), "{ broken", "utf8");
 
     expect(await ensureConfigMigrated(dir)).toBe(true);
     const config = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
       projects: unknown[];
-      providers?: unknown;
+      hooks?: unknown;
     };
     expect(config.projects).toHaveLength(1);
-    expect(config.providers).toBeUndefined();
+    expect(config.hooks).toBeUndefined();
+  });
+});
+
+describe("domain error policy", () => {
+  async function corruptBoth(dir: string): Promise<void> {
+    await fs.writeFile(path.join(dir, "config.json"), "{", "utf8");
+    await fs.writeFile(path.join(dir, "config.json.bak"), "{", "utf8");
+  }
+
+  it("degrades preferences to empty when the config is unreadable", async () => {
+    const dir = await tmp();
+    await corruptBoth(dir);
+    await expect(readPreferences(dir)).resolves.toEqual({});
+  });
+
+  it("fails projects and providers when the config is unreadable", async () => {
+    const dir = await tmp();
+    await corruptBoth(dir);
+    await expect(createProjectStore(dir).list()).rejects.toThrow();
+    await expect(createProviderStore(dir).listPublic()).rejects.toThrow();
+  });
+
+  it("fails hooks, egress, and lsp when the config is unreadable", async () => {
+    const dir = await tmp();
+    await corruptBoth(dir);
+    await expect(loadHooksConfig(dir)).rejects.toThrow();
+    await expect(loadEgressPolicy(dir)).rejects.toThrow();
+    await expect(loadLspServers(dir)).rejects.toThrow();
+  });
+
+  it("preserves hooks, lsp, and egress sections across another domain's write", async () => {
+    const dir = await tmp();
+    await fs.writeFile(
+      path.join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        hooks: { PreToolUse: [] },
+        lsp: { servers: {} },
+        egress: { allowHosts: ["api.example.com"] },
+      }),
+      "utf8",
+    );
+
+    await getConfigStore(dir).update("preferences", () => ({ defaultPermissionMode: "ask" }));
+    const config = await getConfigStore(dir).read();
+    expect(config["hooks"]).toEqual({ PreToolUse: [] });
+    expect(config["lsp"]).toEqual({ servers: {} });
+    expect(config["egress"]).toEqual({ allowHosts: ["api.example.com"] });
   });
 });
