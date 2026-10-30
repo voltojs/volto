@@ -68,6 +68,7 @@ import {
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
+import { ensureConfigMigrated } from "./config/store.js";
 import { patchPreferences, readPreferences } from "./config/preferences.js";
 import { createPlanStore } from "./config/plan-store.js";
 import {
@@ -407,6 +408,18 @@ export interface HeadlessServer extends http.Server {
 }
 
 export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
+  // One-shot migration of the per-domain config files into config.json.
+  // A failure here must not stop the gateway: reads still fall back to the
+  // legacy files, and the next write retries the migration.
+  try {
+    await ensureConfigMigrated(getConfigDir());
+  } catch (err) {
+    console.warn(
+      "config migration skipped:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   const port = opts.port ?? 3100;
   const host = opts.host ?? "127.0.0.1";
 

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getConfigStore } from "../config/store.js";
+import { ensureConfigMigrated, getConfigStore } from "../config/store.js";
 import { ConfigCorruptError } from "../config/io.js";
 
 const dirs: string[] = [];
@@ -102,5 +102,45 @@ describe("ConfigStore", () => {
     const config = await store.read();
     expect(config["preferences"]).toEqual({ keep: "me", added: true });
     expect(config["permissions"]).toEqual({ customKey: "keep", rules: [] });
+  });
+});
+
+describe("ensureConfigMigrated", () => {
+  it("migrates legacy files once and never overwrites an existing config.json", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, "projects.json"), JSON.stringify([{ id: "p1" }]));
+
+    expect(await ensureConfigMigrated(dir)).toBe(true);
+    const first = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
+      projects: Array<{ id: string }>;
+    };
+    expect(first.projects).toEqual([{ id: "p1" }]);
+
+    await fs.writeFile(path.join(dir, "projects.json"), JSON.stringify([{ id: "p2" }]));
+    expect(await ensureConfigMigrated(dir)).toBe(false);
+    const second = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
+      projects: Array<{ id: string }>;
+    };
+    expect(second.projects).toEqual([{ id: "p1" }]);
+  });
+
+  it("does not create config.json on an empty directory", async () => {
+    const dir = await tmp();
+    expect(await ensureConfigMigrated(dir)).toBe(false);
+    await expect(fs.access(path.join(dir, "config.json"))).rejects.toThrow();
+  });
+
+  it("skips a corrupt legacy file and still migrates the readable ones", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, "projects.json"), JSON.stringify([{ id: "p1" }]));
+    await fs.writeFile(path.join(dir, "providers.json"), "{ broken", "utf8");
+
+    expect(await ensureConfigMigrated(dir)).toBe(true);
+    const config = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
+      projects: unknown[];
+      providers?: unknown;
+    };
+    expect(config.projects).toHaveLength(1);
+    expect(config.providers).toBeUndefined();
   });
 });
