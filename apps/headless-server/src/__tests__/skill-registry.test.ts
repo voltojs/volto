@@ -173,4 +173,53 @@ describe("createSkillRegistry", () => {
     // NEW body — proving the body is never served from the cache entry.
     expect((await registry.load("livecache"))?.body).toBe("Second body");
   });
+
+  describe("listSkillDefinitions", () => {
+  it("tags each entry with scope, filePath, baseDir and shadowed=false", async () => {
+    const userDir = path.join(home, ".volto", "skills");
+    const projectDir = path.join(cwd, ".volto", "skills");
+    await writeSkill(userDir, "u-skill", "U");
+    await writeSkill(projectDir, "p-skill", "P");
+    const { listSkillDefinitions } = await import("../skills/registry.js");
+
+    const entries = await listSkillDefinitions(cwd);
+    const user = entries.find((e) => e.name === "u-skill")!;
+    expect(user.id).toBe("user:u-skill");
+    expect(user.scope).toBe("user");
+    expect(user.filePath).toBe(path.join(userDir, "u-skill", "SKILL.md"));
+    expect(user.baseDir).toBe(path.join(userDir, "u-skill"));
+    expect(user.shadowed).toBe(false);
+    expect(entries.find((e) => e.name === "p-skill")?.scope).toBe("project");
+  });
+
+  it("keeps the losing same-named entry with shadowed=true", async () => {
+    await writeSkill(path.join(home, ".volto", "skills"), "dup", "U");
+    await writeSkill(path.join(cwd, ".volto", "skills"), "dup", "P");
+    const { listSkillDefinitions } = await import("../skills/registry.js");
+
+    const entries = await listSkillDefinitions(cwd);
+    const dup = entries.filter((e) => e.name === "dup");
+    expect(dup).toHaveLength(2);
+    expect(dup.find((e) => e.scope === "project")?.shadowed).toBe(false);
+    expect(dup.find((e) => e.scope === "user")?.shadowed).toBe(true);
+  });
+
+  it("sorts by scope then name regardless of readdir order", async () => {
+    const userDir = path.join(home, ".volto", "skills");
+    const projectDir = path.join(cwd, ".volto", "skills");
+    await writeSkill(projectDir, "zeta", "Z");
+    await writeSkill(userDir, "beta", "B");
+    await writeSkill(userDir, "alpha", "A");
+    await writeSkill(projectDir, "alpha", "PA");
+    const { listSkillDefinitions } = await import("../skills/registry.js");
+
+    const entries = await listSkillDefinitions(cwd);
+    expect(entries.map((e) => `${e.scope}:${e.name}`)).toEqual([
+      "user:alpha",
+      "user:beta",
+      "project:alpha",
+      "project:zeta",
+    ]);
+  });
+});
 });

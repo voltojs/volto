@@ -54,21 +54,44 @@ interface ScannedSkill {
   name: string;
   description: string;
   invocation: SkillInvocationPolicy;
+  scope: "user" | "project";
   resources: string[];
+  /** Absolute path of the SKILL.md entry file. */
+  filePath: string;
   /** Absolute path of the skill's own directory (parent of SKILL.md). */
   baseDir: string;
+  /** True when a higher-priority source defines the same name. */
+  shadowed: boolean;
 }
 
-interface ScannedSkills {
+/**
+ * All entries of one source directory. `shadowed` is decided by the caller
+ * that merges sources, not here.
+ */
+interface ScannedSource {
   skills: ScannedSkill[];
   rootDirByResource: Map<string, string>;
 }
 
+interface ScannedSkills {
+  /** Every entry from every source, in scan order, including shadowed ones. */
+  entries: ScannedSkill[];
+  /** The winning entry per name — what list() and load() must use. */
+  byName: Map<string, ScannedSkill>;
+  rootDirByResource: Map<string, string>;
+}
+
 /** Scans a skills directory (one subdirectory per skill, each containing SKILL.md) and loads them, tagging each skill's resource path with the rootDir @import expansion should use for it. */
-async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedSkills> {
+async function loadSkillsFromDir(
+  dir: string,
+  rootDir: string,
+  scope: "user" | "project",
+): Promise<ScannedSource> {
   let entries: string[];
   try {
-    entries = await fs.readdir(dir);
+    // readdir order is filesystem-dependent; sort so the definition list is
+    // stable across calls before the caller re-sorts by scope + name.
+    entries = (await fs.readdir(dir)).sort();
   } catch {
     return { skills: [], rootDirByResource: new Map() };
   }
@@ -99,8 +122,11 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedS
           name: metadata.name,
           description: metadata.description,
           invocation: metadata.invocation,
+          scope,
           resources: [skillPath],
+          filePath: skillPath,
           baseDir: path.join(dir, entry),
+          shadowed: false,
         });
         rootDirByResource.set(skillPath, rootDir);
       }
@@ -125,21 +151,36 @@ async function loadSkillsFromDir(dir: string, rootDir: string): Promise<ScannedS
  */
 async function scanSkillSources(cwd: string): Promise<ScannedSkills> {
   const configDir = getConfigDir();
-  const sources: Array<{ root: string; subdir: string; rootDir: string }> = [
-    { root: configDir, subdir: "skills", rootDir: configDir },
-    { root: cwd, subdir: path.join(".volto", "skills"), rootDir: cwd },
+  const sources: Array<{
+    root: string;
+    subdir: string;
+    rootDir: string;
+    scope: "user" | "project";
+  }> = [
+    { root: configDir, subdir: "skills", rootDir: configDir, scope: "user" },
+    { root: cwd, subdir: path.join(".volto", "skills"), rootDir: cwd, scope: "project" },
   ];
+  const entries: ScannedSkill[] = [];
   const byName = new Map<string, ScannedSkill>();
   const rootDirByResource = new Map<string, string>();
   for (const source of sources) {
-    const { skills } = await loadSkillsFromDir(path.join(source.root, source.subdir), source.rootDir);
+    const { skills } = await loadSkillsFromDir(
+      path.join(source.root, source.subdir),
+      source.rootDir,
+      source.scope,
+    );
     for (const skill of skills) {
+      // The loser stays in `entries` with shadowed=true instead of being
+      // discarded: "my edit had no effect" has to be self-diagnosable.
+      const previous = byName.get(skill.name);
+      if (previous !== undefined) previous.shadowed = true;
       byName.set(skill.name, skill);
+      entries.push(skill);
       const resourcePath = skill.resources[0];
       if (resourcePath !== undefined) rootDirByResource.set(resourcePath, source.rootDir);
     }
   }
-  return { skills: [...byName.values()], rootDirByResource };
+  return { entries, byName, rootDirByResource };
 }
 
 /** Loads a skill's resource files (each already-expanded via @import) and joins them. */
@@ -184,17 +225,62 @@ async function loadSkillResourceText(skill: ScannedSkill, rootDirByResource: Map
 export function createSkillRegistry(cwd: string): SkillRegistry {
   return {
     async list(): Promise<SkillSummary[]> {
-      const { skills } = await scanSkillSources(cwd);
-      return skills.map(({ name, description, invocation }) => ({ name, description, invocation }));
+      const { byName } = await scanSkillSources(cwd);
+      return [...byName.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(({ name, description, invocation }) => ({ name, description, invocation }));
     },
     async load(name): Promise<LoadedSkill | undefined> {
       // Single scan of all skill sources, reused for both the name lookup
       // and the resource-root map loadSkillResourceText needs.
-      const { skills, rootDirByResource } = await scanSkillSources(cwd);
-      const hit = skills.find((s) => s.name === name && s.invocation.modelInvocable);
-      if (hit === undefined) return undefined;
+      const { byName, rootDirByResource } = await scanSkillSources(cwd);
+      const hit = byName.get(name);
+      if (hit === undefined || !hit.invocation.modelInvocable) return undefined;
       const body = await loadSkillResourceText(hit, rootDirByResource);
       return body === "" ? undefined : { body, baseDir: hit.baseDir };
     },
   };
+}
+
+/** One skill definition prepared for a host UI — includes shadowed losers. */
+export interface SkillDefinitionEntry {
+  /** `${scope}:${name}` */
+  id: string;
+  name: string;
+  description: string;
+  scope: "user" | "project";
+  /** Absolute path of the SKILL.md entry file. */
+  filePath: string;
+  /** Absolute path of the skill's own directory. */
+  baseDir: string;
+  invocation: SkillInvocationPolicy;
+  shadowed: boolean;
+}
+
+const SCOPE_ORDER: Record<"user" | "project", number> = { user: 0, project: 1 };
+
+/**
+ * Every on-disk skill definition, including same-named losers, for the
+ * settings catalog. The model-facing `list()` keeps returning only winners.
+ * Sorted user-level first, then by name, so the two UI groups render in a
+ * stable order without client-side re-sorting.
+ */
+export async function listSkillDefinitions(cwd: string): Promise<SkillDefinitionEntry[]> {
+  const { entries } = await scanSkillSources(cwd);
+  return entries
+    .slice()
+    .sort(
+      (a, b) =>
+        SCOPE_ORDER[a.scope] - SCOPE_ORDER[b.scope] || a.name.localeCompare(b.name),
+    )
+    .map((skill) => ({
+      id: `${skill.scope}:${skill.name}`,
+      name: skill.name,
+      description: skill.description,
+      scope: skill.scope,
+      filePath: skill.filePath,
+      baseDir: skill.baseDir,
+      invocation: skill.invocation,
+      shadowed: skill.shadowed,
+    }));
 }
