@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { AlignLeft, List, Monitor, Moon, Sun } from 'lucide-react';
+import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sun } from 'lucide-react';
 import {
   Item,
   ItemActions,
@@ -20,6 +20,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { isPermissionMode, PERMISSION_MODES } from '@/lib/permission-mode';
 
 const THEME_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'light', label: '浅色' },
@@ -32,12 +34,27 @@ const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
   { value: 'concise', label: '简约' },
 ];
 
+const PERMISSION_LABELS: Record<(typeof PERMISSION_MODES)[number], string> = {
+  'read-only': '只读',
+  plan: '计划',
+  ask: '询问',
+  auto: '自动',
+  full: '完全',
+};
+
+const PERMISSION_OPTIONS = PERMISSION_MODES.map((value) => ({
+  value,
+  label: PERMISSION_LABELS[value],
+}));
+
 /** 通用设置 Tab：主题与信息流密度。 */
 export function GeneralPanel() {
   // `theme` (the stored preference) rather than `resolvedTheme`, so "跟随
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const { theme, setTheme } = useTheme();
   const [density, setDensity] = useStreamDensity();
+  const defaultPermission = usePreferencesStore((s) => s.preferences.defaultPermissionMode);
+  const permissionValue = isPermissionMode(defaultPermission) ? defaultPermission : 'ask';
 
   return (
     <ItemGroup>
@@ -103,6 +120,40 @@ export function GeneralPanel() {
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>
                 {DENSITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </ItemActions>
+      </Item>
+
+      <Item variant="outline">
+        <ItemMedia variant="icon">
+          <ShieldCheck className="opacity-60" />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle>新会话默认权限</ItemTitle>
+          <ItemDescription>
+            每开一个新对话，都从这个权限档位开始。已在进行的会话不受影响。
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <Select
+            items={PERMISSION_OPTIONS}
+            value={permissionValue}
+            onValueChange={(next) =>
+              usePreferencesStore.getState().save({ defaultPermissionMode: String(next) })
+            }
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {PERMISSION_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>

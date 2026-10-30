@@ -35,7 +35,7 @@ const TABS = [
 
 /** 设置面板：左侧 Tab 导航，右侧对应内容。 */
 export function SettingsDialog({ open, onOpenChange, projectId = null }: SettingsDialogProps) {
-  const [tab, setTab] = useState<string>('models');
+  const [tab, setTab] = useState<string>('general');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
