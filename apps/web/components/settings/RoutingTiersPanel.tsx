@@ -303,6 +303,10 @@ export function RoutingTiersPanel() {
   > => {
     try {
       await saveRoutingTiers(toWire(next));
+      // Write the saved draft back: the list renders `rows`, so without
+      // this every form save snaps the panel back to pre-edit values.
+      // Idempotent for handleSave, whose `next` already is `rows`.
+      setRows(next);
       setSaved(next);
       return { status: 'ok' };
     } catch (err) {

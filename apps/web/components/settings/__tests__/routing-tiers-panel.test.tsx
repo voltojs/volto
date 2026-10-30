@@ -449,6 +449,60 @@ describe('RoutingTiersPanel', () => {
     expect(screen.getByDisplayValue('改了')).toBeInTheDocument();
   });
 
+  it('表单保存后列表行显示编辑后的值，旧值消失', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: TIERS },
+      }),
+      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [] },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    await screen.findByText('premium');
+
+    await user.click(screen.getByRole('button', { name: '编辑 premium' }));
+    const label = screen.getByLabelText('label');
+    await user.clear(label);
+    await user.type(label, '顶配');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    // The list rows must show what was just saved — the row is rendered
+    // from the draft, so a save that never writes back leaves the old
+    // values on screen (reported bug: "保存后列表不刷新").
+    expect(await screen.findByText('顶配')).toBeInTheDocument();
+    expect(screen.queryByText('最强')).toBeNull();
+  });
+
+  it('新增档位保存后列表出现新行', async () => {
+    stubFetch({
+      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [] },
+      }),
+      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+        status: 200,
+        body: { tiers: [] },
+      }),
+    });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RoutingTiersPanel />);
+    expect(await screen.findByText('还没有模型路由档位。')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '新增档位' }));
+    await user.type(screen.getByLabelText('id'), 'fast');
+    await user.type(screen.getByLabelText('label'), '快速');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    // Same write-back contract as editing: the new row lands in the list.
+    expect(await screen.findByText('fast')).toBeInTheDocument();
+    expect(screen.getByText('快速')).toBeInTheDocument();
+    expect(screen.queryByText('还没有模型路由档位。')).toBeNull();
+  });
+
   it('表单内 picker popup 向上弹出，不遮挡保存/取消', async () => {
     stubFetch({
       [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
