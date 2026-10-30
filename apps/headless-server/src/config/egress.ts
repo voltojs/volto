@@ -14,8 +14,8 @@
  * (`allowHost`) must not quietly disable the whole policy.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import { ConfigCorruptError } from "./io.js";
+import { getConfigStore } from "./store.js";
 import type { EgressPolicy } from "@volto/runtime-node";
 
 const HOST_LIST_KEYS = ["allowHosts", "denyHosts"] as const;
@@ -49,29 +49,22 @@ function normalizeHostList(key: string, value: unknown): string[] {
  * `{ "allowHosts": [] }` is meaningful (deny-all) and is preserved.
  */
 export async function loadEgressPolicy(configDir: string): Promise<EgressPolicy | null> {
-  const file = path.join(configDir, "egress.json");
-  let raw: string;
+  let section: unknown;
   try {
-    raw = await fs.readFile(file, "utf-8");
+    section = (await getConfigStore(configDir).read())["egress"];
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw new EgressConfigError(
-      `egress.json exists but could not be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (err instanceof ConfigCorruptError) {
+      throw new EgressConfigError(
+        `config.json could not be read: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    throw err;
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new EgressConfigError(
-      `egress.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  if (section === undefined) return null;
+  if (typeof section !== "object" || section === null || Array.isArray(section)) {
+    throw new EgressConfigError("config.json: egress must be a JSON object");
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new EgressConfigError("egress.json must be a JSON object");
-  }
-  const obj = parsed as Record<string, unknown>;
+  const obj = section as Record<string, unknown>;
   const unknownKeys = Object.keys(obj).filter(
     (key) => !(HOST_LIST_KEYS as readonly string[]).includes(key),
   );

@@ -18,8 +18,8 @@
  */
 
 import { spawn } from "node:child_process";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import { ConfigCorruptError } from "./io.js";
+import { getConfigStore } from "./store.js";
 import type { Hook, HookContext, HookLifecycle, HookOutcome } from "@volto/core";
 
 /** Default per-hook wall-clock budget (spec D5): 10s, then SIGTERM + deny. */
@@ -240,26 +240,19 @@ export function runCommandHook(
  * the same as refusing a policy the way egress does.
  */
 export async function loadHooksConfig(configDir: string): Promise<Hook[] | null> {
-  const file = path.join(configDir, "hooks.json");
-  let raw: string;
+  let section: unknown;
   try {
-    raw = await fs.readFile(file, "utf-8");
+    section = (await getConfigStore(configDir).read())["hooks"];
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw new HooksConfigError(
-      `hooks.json exists but could not be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (err instanceof ConfigCorruptError) {
+      throw new HooksConfigError(
+        `config.json could not be read: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    throw err;
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new HooksConfigError(
-      `hooks.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  return buildHooksFromConfig(parseHooksConfig(parsed));
+  if (section === undefined) return null;
+  return buildHooksFromConfig(parseHooksConfig(section));
 }
 
 /**

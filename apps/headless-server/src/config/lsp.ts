@@ -21,8 +21,8 @@
  *   opt-out is visible to the model rather than silently absent.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import { ConfigCorruptError } from "./io.js";
+import { getConfigStore } from "./store.js";
 import type { LspServerSpec } from "@volto/runtime-node";
 
 const TOP_LEVEL_KEYS = ["servers"] as const;
@@ -116,36 +116,29 @@ function cloneSpec(spec: LspServerSpec): LspServerSpec {
 export async function loadLspServers(
   configDir: string,
 ): Promise<Record<string, LspServerSpec | undefined>> {
-  const file = path.join(configDir, "lsp.json");
-  let raw: string;
+  let section: unknown;
   try {
-    raw = await fs.readFile(file, "utf-8");
+    section = (await getConfigStore(configDir).read())["lsp"];
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      // A deep copy per call: the default table is module state, and a caller
-      // that mutated its entry (or the `args` array) would corrupt every later
-      // session in this process.
-      return Object.fromEntries(
-        Object.entries(BUILT_IN_SERVERS).map(([language, spec]) => [language, cloneSpec(spec)]),
+    if (err instanceof ConfigCorruptError) {
+      throw new LspConfigError(
+        `config.json could not be read: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    throw new LspConfigError(
-      `lsp.json exists but could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    throw err;
+  }
+  if (section === undefined) {
+    // A deep copy per call: the default table is module state, and a caller
+    // that mutated its entry (or the `args` array) would corrupt every later
+    // session in this process.
+    return Object.fromEntries(
+      Object.entries(BUILT_IN_SERVERS).map(([language, spec]) => [language, cloneSpec(spec)]),
     );
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new LspConfigError(
-      `lsp.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  if (typeof section !== "object" || section === null || Array.isArray(section)) {
+    throw new LspConfigError("config.json: lsp must be a JSON object");
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new LspConfigError("lsp.json must be a JSON object");
-  }
-  const obj = parsed as Record<string, unknown>;
+  const obj = section as Record<string, unknown>;
   const unknown = Object.keys(obj).filter(
     (key) => !(TOP_LEVEL_KEYS as readonly string[]).includes(key),
   );
