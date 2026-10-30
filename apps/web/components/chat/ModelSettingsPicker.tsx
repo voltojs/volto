@@ -18,6 +18,12 @@ interface ModelSettingsPickerProps {
   efforts: ReasoningEffort[];
   effort: string | undefined;
   onEffortChange: (effort: string) => void;
+  /**
+   * Trigger text when no model is selected. A picker whose empty state
+   * means something concrete (an unassigned routing tier) names it here;
+   * the default keeps the composer's prompt-like wording.
+   */
+  triggerFallback?: string;
 }
 
 /** Which pane the popup is showing; the root lists both settings. */
@@ -45,6 +51,7 @@ export function ModelSettingsPicker({
   efforts,
   effort,
   onEffortChange,
+  triggerFallback,
 }: ModelSettingsPickerProps) {
   const providers = useConfigStore((s) => s.providers);
   const catalogProviders = useConfigStore((s) => s.catalogProviders);
@@ -74,7 +81,8 @@ export function ModelSettingsPicker({
         {/* A session can reference a model that was since deleted; say so
             rather than silently naming some other model. */}
         <span className="truncate font-mono">
-          {model?.name ?? (providerId ? '模型已失效，请重选' : '选择模型')}
+          {model?.name ??
+            (providerId ? '模型已失效，请重选' : (triggerFallback ?? '选择模型'))}
         </span>
         {effortName && (
           <span className="text-muted-foreground shrink-0 font-mono text-xs">

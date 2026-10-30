@@ -5,6 +5,8 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Cpu,
+  Pencil,
   Plus,
   Save,
   Trash2,
@@ -12,14 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { ModelSettingsPicker } from '@/components/chat/ModelSettingsPicker';
 import { ApiError } from '@/lib/config-api';
 import {
   fetchRoutingTiers,
@@ -42,13 +37,28 @@ interface SaveError {
   skipped: TierScanSkip[];
 }
 
+/** Which form, if any, currently replaces the list. */
+type FormState =
+  | { mode: 'create' }
+  | { mode: 'edit'; row: TierRow }
+  | null;
+
+/** The fields the tier form owns; `reasoningEffort` is cleared by a model change. */
+interface TierFormData {
+  id: string;
+  label: string;
+  description: string;
+  target: { providerId: string; modelId: string } | null;
+  reasoningEffort: string | undefined;
+}
+
 let nextClientKey = 0;
 
 function toRow(tier: RoutingTier): TierRow {
   nextClientKey += 1;
   return {
     ...tier,
-    target: { ...tier.target },
+    target: tier.target ? { ...tier.target } : null,
     clientKey: `tier-${nextClientKey}`,
   };
 }
@@ -59,7 +69,10 @@ function toWire(rows: TierRow[]): RoutingTier[] {
     id: row.id,
     label: row.label,
     description: row.description,
-    target: { providerId: row.target.providerId, modelId: row.target.modelId },
+    target: row.target
+      ? { providerId: row.target.providerId, modelId: row.target.modelId }
+      : null,
+    reasoningEffort: row.reasoningEffort,
   }));
 }
 
@@ -102,11 +115,108 @@ function readConflict(body: unknown): {
 }
 
 /**
- * Settings tab that maintains the model routing tier table: every tier is a
- * row of inline fields (id / label / description + provider / model target),
- * edited as a local draft and persisted by one full-table PUT. A 409 conflict
- * is shown inline — blocking (user/project) references as "无法删除", plugin
- * references as hints only — without losing the local list.
+ * Create / edit form for one tier. The dispatch target and its reasoning
+ * effort live behind `ModelSettingsPicker`: the efforts offered belong to
+ * the selected model's declared capability (same source ChatPanel reads),
+ * and a model change resets the effort because it belonged to the model
+ * being replaced.
+ */
+function TierForm({
+  initial,
+  onSubmit,
+  onCancel,
+  error,
+}: {
+  initial: TierFormData | null;
+  onSubmit: (data: TierFormData) => void | Promise<void>;
+  onCancel: () => void;
+  error: string | null;
+}) {
+  const [id, setId] = useState(initial?.id ?? '');
+  const [label, setLabel] = useState(initial?.label ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [target, setTarget] = useState(initial?.target ?? null);
+  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(
+    initial?.reasoningEffort,
+  );
+  const reasoning = useConfigStore((s) =>
+    s.getModelReasoning(target?.providerId ?? null, target?.modelId ?? null),
+  );
+
+  return (
+    <form
+      data-tier-form=""
+      className="space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void onSubmit({ id, label, description, target, reasoningEffort });
+      }}
+    >
+      <Field>
+        <FieldLabel htmlFor="tier-id">id</FieldLabel>
+        <Input
+          id="tier-id"
+          className="h-8 font-mono text-xs"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="tier-label">label</FieldLabel>
+        <Input
+          id="tier-label"
+          className="h-8"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="tier-description">description</FieldLabel>
+        <Input
+          id="tier-description"
+          className="h-8"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </Field>
+      <ModelSettingsPicker
+        providerId={target?.providerId ?? null}
+        modelId={target?.modelId ?? null}
+        onModelChange={(providerId, modelId) => {
+          setTarget({ providerId, modelId });
+          setReasoningEffort(undefined);
+        }}
+        efforts={reasoning?.efforts ?? []}
+        effort={reasoningEffort}
+        onEffortChange={setReasoningEffort}
+        triggerFallback="未配置模型"
+      />
+      {error && (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm">
+          保存
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          取消
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Settings tab that maintains the model routing tier table (SubagentsPanel-
+ * style two-state UI). The list shows one card per tier — identity, copy,
+ * the target model in the ModelSettingsPicker trigger shape, the tier's
+ * reasoning effort — with move/edit/delete actions. Create and edit replace
+ * the list with a form. The draft is persisted by one full-table PUT: only
+ * reordering and form saves mutate locally, the save buttons PUT. A 409
+ * conflict is shown inline in the list — blocking (user/project) references
+ * as "无法删除", plugin references as hints only — without losing the list.
  */
 export function RoutingTiersPanel() {
   const providers = useConfigStore((s) => s.providers);
@@ -117,6 +227,8 @@ export function RoutingTiersPanel() {
     'loading',
   );
   const [saveError, setSaveError] = useState<SaveError | null>(null);
+  const [form, setForm] = useState<FormState>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     // No setState before the first await: the effect that bootstraps this
@@ -141,26 +253,16 @@ export function RoutingTiersPanel() {
     })();
   }, [load]);
 
-  const updateRow = (clientKey: string, patch: Partial<TierRow>) => {
-    setRows((prev) =>
-      prev.map((row) =>
-        row.clientKey === clientKey ? { ...row, ...patch } : row,
-      ),
-    );
+  const handleAdd = () => {
     setSaveError(null);
+    setFormError(null);
+    setForm({ mode: 'create' });
   };
 
-  const handleAdd = () => {
-    setRows((prev) => [
-      ...prev,
-      toRow({
-        id: '',
-        label: '',
-        description: '',
-        target: { providerId: '', modelId: '' },
-      }),
-    ]);
+  const handleEdit = (row: TierRow) => {
     setSaveError(null);
+    setFormError(null);
+    setForm({ mode: 'edit', row });
   };
 
   const handleDelete = (clientKey: string) => {
@@ -184,20 +286,60 @@ export function RoutingTiersPanel() {
     setSaveError(null);
   };
 
-  const handleSave = async () => {
+  /** PUT the whole table; the outcome routes errors to the right surface. */
+  const persist = async (
+    next: TierRow[],
+  ): Promise<
+    | { status: 'ok' }
+    | { status: 'conflict'; error: SaveError }
+    | { status: 'error'; error: SaveError }
+  > => {
     try {
-      await saveRoutingTiers(toWire(rows));
-      setSaved(rows);
-      setSaveError(null);
+      await saveRoutingTiers(toWire(next));
+      setSaved(next);
+      return { status: 'ok' };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (err instanceof ApiError && err.status === 409) {
-        setRows((prev) => restoreRefusedRemovals(prev, saved));
-        setSaveError({ message, ...readConflict(err.body) });
-      } else {
-        setSaveError({ message, references: [], skipped: [] });
+        setRows(restoreRefusedRemovals(next, saved));
+        return {
+          status: 'conflict',
+          error: { message, ...readConflict(err.body) },
+        };
       }
+      return {
+        status: 'error',
+        error: { message, references: [], skipped: [] },
+      };
     }
+  };
+
+  const handleSave = async () => {
+    const outcome = await persist(rows);
+    setSaveError(outcome.status === 'ok' ? null : outcome.error);
+  };
+
+  const handleFormSubmit = async (data: TierFormData) => {
+    setSaveError(null);
+    const editing = form?.mode === 'edit' ? form : null;
+    const next: TierRow[] = editing
+      ? rows.map((row) =>
+          row.clientKey === editing.row.clientKey
+            ? { ...row, ...data, clientKey: row.clientKey }
+            : row,
+        )
+      : [...rows, toRow(data)];
+    const outcome = await persist(next);
+    if (outcome.status === 'error') {
+      // A fixable rejection (shape/resolve 400) keeps the form open so the
+      // fix lands where the fields are; only the whole-table conflict is a
+      // list concern (its restore touches rows the form cannot show).
+      setFormError(outcome.error.message);
+      return;
+    }
+    setForm(null);
+    setFormError(null);
+    if (outcome.status === 'conflict') setSaveError(outcome.error);
   };
 
   if (status === 'loading') {
@@ -225,6 +367,33 @@ export function RoutingTiersPanel() {
     );
   }
 
+  if (form) {
+    return (
+      <div className="space-y-2">
+        <TierForm
+          key={form.mode === 'edit' ? form.row.clientKey : 'create'}
+          initial={
+            form.mode === 'edit'
+              ? {
+                  id: form.row.id,
+                  label: form.row.label,
+                  description: form.row.description,
+                  target: form.row.target,
+                  reasoningEffort: form.row.reasoningEffort ?? undefined,
+                }
+              : null
+          }
+          onSubmit={handleFormSubmit}
+          onCancel={() => {
+            setForm(null);
+            setFormError(null);
+          }}
+          error={formError}
+        />
+      </div>
+    );
+  }
+
   const blockingRefs = (saveError?.references ?? []).filter(
     (ref) => ref.scope !== 'plugin',
   );
@@ -232,6 +401,18 @@ export function RoutingTiersPanel() {
     (ref) => ref.scope === 'plugin',
   );
   const blockingText = `被 ${blockingRefs.map((ref) => ref.name).join('、')} 引用，无法删除`;
+
+  /** Resolve a tier target against the provider registry for display. */
+  const findTargetModel = (target: RoutingTier['target']) => {
+    if (!target) return null;
+    const provider = providers.find((p) => p.id === target.providerId);
+    if (!provider) return null;
+    return (
+      providerModels(provider, catalogProviders).find(
+        (m) => m.id === target.modelId,
+      ) ?? null
+    );
+  };
 
   return (
     <div className="space-y-2">
@@ -272,12 +453,14 @@ export function RoutingTiersPanel() {
         <p className="text-muted-foreground text-sm">还没有模型路由档位。</p>
       ) : (
         rows.map((row, index) => {
-          const provider = providers.find((p) => p.id === row.target.providerId);
-          // Model options come from the store's own projection (catalog kinds
-          // included) — never recomputed here.
-          const models = provider
-            ? providerModels(provider, catalogProviders)
-            : [];
+          const model = findTargetModel(row.target);
+          const targetText = model?.name ?? (row.target ? '模型已失效' : '未配置模型');
+          const effortText =
+            row.reasoningEffort == null || row.reasoningEffort === ''
+              ? null
+              : (model?.reasoning?.efforts.find(
+                  (e) => e.id === row.reasoningEffort,
+                )?.name ?? row.reasoningEffort);
           return (
             <div
               key={row.clientKey}
@@ -285,129 +468,25 @@ export function RoutingTiersPanel() {
               data-tier-id={row.id}
               className="space-y-1.5 rounded-md border p-2.5 text-sm"
             >
-              <div className="flex flex-wrap items-end gap-2">
-                <Field className="min-w-24 flex-1">
-                  <FieldLabel htmlFor={`${row.clientKey}-id`}>id</FieldLabel>
-                  <Input
-                    id={`${row.clientKey}-id`}
-                    className="h-8 font-mono text-xs"
-                    value={row.id}
-                    onChange={(e) =>
-                      updateRow(row.clientKey, { id: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="min-w-24 flex-1">
-                  <FieldLabel htmlFor={`${row.clientKey}-label`}>
-                    label
-                  </FieldLabel>
-                  <Input
-                    id={`${row.clientKey}-label`}
-                    className="h-8"
-                    value={row.label}
-                    onChange={(e) =>
-                      updateRow(row.clientKey, { label: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="min-w-32 flex-1">
-                  <FieldLabel htmlFor={`${row.clientKey}-description`}>
-                    description
-                  </FieldLabel>
-                  <Input
-                    id={`${row.clientKey}-description`}
-                    className="h-8"
-                    value={row.description}
-                    onChange={(e) =>
-                      updateRow(row.clientKey, {
-                        description: e.target.value,
-                      })
-                    }
-                  />
-                </Field>
-              </div>
-
-              <div className="flex flex-wrap items-end gap-2">
-                <Field className="min-w-32">
-                  <FieldLabel htmlFor={`${row.clientKey}-provider`}>
-                    provider
-                  </FieldLabel>
-                  <Select
-                    items={providers.map((p) => ({
-                      value: p.id,
-                      label: p.name,
-                    }))}
-                    value={row.target.providerId || null}
-                    onValueChange={(next) => {
-                      // A model belongs to exactly one provider's list, so
-                      // switching provider invalidates the old target.
-                      updateRow(row.clientKey, {
-                        target: {
-                          providerId: String(next),
-                          modelId: '',
-                        },
-                      });
-                    }}
-                  >
-                    <SelectTrigger
-                      id={`${row.clientKey}-provider`}
-                      size="sm"
-                      className="w-full"
-                    >
-                      <SelectValue placeholder="选择 provider" />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        {providers.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-
-                <Field className="min-w-32">
-                  <FieldLabel htmlFor={`${row.clientKey}-model`}>
-                    model
-                  </FieldLabel>
-                  <Select
-                    items={models.map((m) => ({
-                      value: m.id,
-                      label: m.name,
-                    }))}
-                    value={row.target.modelId || null}
-                    disabled={provider === undefined}
-                    onValueChange={(next) =>
-                      updateRow(row.clientKey, {
-                        target: {
-                          providerId: row.target.providerId,
-                          modelId: String(next),
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      id={`${row.clientKey}-model`}
-                      size="sm"
-                      className="w-full"
-                    >
-                      <SelectValue placeholder="选择模型" />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        {models.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-
-                <div className="ml-auto flex items-center">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="font-medium truncate">{row.id}</span>
+                {row.label && (
+                  <span className="text-muted-foreground truncate">
+                    {row.label}
+                  </span>
+                )}
+                {/* Target shown in the ModelSettingsPicker trigger shape,
+                    but display-only: editing happens through the form. */}
+                <span className="flex h-7 items-center gap-1.5 rounded-[min(var(--radius-md),10px)] px-2.5 text-sm whitespace-nowrap">
+                  <Cpu className="text-primary/80 h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate font-mono">{targetText}</span>
+                </span>
+                {effortText && (
+                  <span className="text-muted-foreground font-mono text-xs">
+                    {effortText}
+                  </span>
+                )}
+                <div className="ml-auto flex shrink-0 gap-1">
                   {/* Order is part of the draft: moving a row only reorders
                       the local array; the save button PUTs the new order. */}
                   <Button
@@ -433,6 +512,15 @@ export function RoutingTiersPanel() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    data-action="edit"
+                    aria-label={`编辑 ${row.id || row.label || '新档位'}`}
+                    onClick={() => handleEdit(row)}
+                  >
+                    <Pencil />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     data-action="delete"
                     aria-label={`删除 ${row.id || row.label || '新档位'}`}
                     onClick={() => handleDelete(row.clientKey)}
@@ -441,6 +529,11 @@ export function RoutingTiersPanel() {
                   </Button>
                 </div>
               </div>
+              {row.description && (
+                <p className="text-muted-foreground line-clamp-2 text-xs">
+                  {row.description}
+                </p>
+              )}
             </div>
           );
         })

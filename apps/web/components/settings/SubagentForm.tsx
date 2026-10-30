@@ -124,7 +124,13 @@ export function SubagentForm({
     ...(staleModel
       ? [{ value: staleModel, label: `已失效档位:${staleModel}`, disabled: true }]
       : []),
-    ...(tiers?.map((tier) => ({ value: tier.id, label: tier.label })) ?? []),
+    // Unassigned tiers stay selectable: the D5 degrade path falls back to
+    // the parent model at dispatch time, so the suffix is a heads-up, not
+    // a block.
+    ...(tiers?.map((tier) => ({
+      value: tier.id,
+      label: tier.target ? tier.label : `${tier.label}（未配置模型）`,
+    })) ?? []),
   ];
 
   const toggleTool = (toolName: string) => {

@@ -17,7 +17,18 @@ export interface RoutingTier {
   id: string;
   label: string;
   description: string;
-  target: { providerId: string; modelId: string };
+  /**
+   * Dispatch target, or `null` for "unassigned" (spec v2 D7/D8): a legal
+   * state, not an error — such a tier degrades to the parent model at
+   * dispatch time and skips the provider-registry lookup on submit.
+   */
+  target: { providerId: string; modelId: string } | null;
+  /**
+   * Optional reasoning effort carried on the tier. `null`/absent means
+   * "inherit"; the value is opaque here — only its JSON shape matters to
+   * the gateway, the per-call gate validates it at dispatch.
+   */
+  reasoningEffort?: string | null;
 }
 
 /** One agent definition whose `model:` references a tier being removed. */

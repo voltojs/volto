@@ -83,6 +83,25 @@ describe("SubagentForm", () => {
     ]);
   });
 
+  it("suffixes an unassigned tier's label with （未配置模型）and keeps it selectable", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const tiers: RoutingTier[] = [
+      ...TIERS,
+      { id: "draft", label: "草稿", description: "待定", target: null },
+    ];
+    render(<SubagentForm mode="create" tools={TOOLS} tiers={tiers} onSubmit={onSubmit} onCancel={vi.fn()} />);
+    await user.type(screen.getByLabelText("名称"), "x");
+    await user.click(screen.getByRole("combobox", { name: MODEL_LABEL }));
+    // Unassigned tiers say so in their label but stay selectable: the D5
+    // degrade path falls back to the parent model at dispatch time.
+    const option = await screen.findByRole("option", { name: "草稿（未配置模型）" });
+    await user.click(option);
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0].spec.model).toBe("draft");
+  });
+
   it("submits the selected tier id as spec.model", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
