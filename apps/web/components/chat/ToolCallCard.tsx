@@ -88,7 +88,13 @@ export const ToolCallCard = memo(function ToolCallCard({
     <Collapsible
       open={open}
       onOpenChange={setManualOpen}
-      className="group/tool"
+      className={cn(
+        // Header and body share one soft panel while open, so the row reads as
+        // a single unit; the panel reaches into the chevron gutter so the body
+        // text can line up with the header text.
+        'group/tool -ml-5 w-[calc(100%+1.25rem)] rounded-md transition-colors',
+        open && 'bg-muted/30',
+      )}
     >
       {/* A log line, not a card: no frame, no surface, no padding box. The
           row reads as an annotation on the answer — mono label, muted summary,
@@ -98,7 +104,7 @@ export const ToolCallCard = memo(function ToolCallCard({
         className={cn(
           // The chevron lives in the gutter so the row's text starts on the
           // same left edge as the prose above and below it.
-          'group relative -ml-5 flex w-[calc(100%_+_1.25rem)] items-center gap-1.5 rounded py-[2px] pr-1 pl-5',
+          'group relative flex w-full items-center gap-1.5 rounded-md py-[2px] pr-1 pl-5',
           'text-left text-[13px] leading-[18px] transition-colors',
           'hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
         )}
@@ -126,16 +132,16 @@ export const ToolCallCard = memo(function ToolCallCard({
       </CollapsibleTrigger>
 
       {denialNote && (
-        <div className="text-muted-foreground/80 py-0.5 text-[11px]">{denialNote}</div>
+        <div className="text-muted-foreground/80 py-0.5 pl-5 pr-2 text-[11px]">{denialNote}</div>
       )}
 
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
-        <div className="mt-0.5 mb-1 space-y-1.5 pl-5">
+        <div className="space-y-1.5 pt-0.5 pr-2 pb-2 pl-5">
           <div>
             <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
               参数
             </div>
-            <pre className="bg-muted/40 text-muted-foreground overflow-x-auto rounded px-2 py-1.5 font-mono text-[11px] leading-relaxed">
+            <pre className="text-muted-foreground overflow-x-auto font-mono text-[11px] leading-relaxed">
               {JSON.stringify(call.args, null, 2)}
             </pre>
           </div>
@@ -153,10 +159,8 @@ export const ToolCallCard = memo(function ToolCallCard({
                   text, never JSON.stringify'd metadata. */}
               <pre
                 className={cn(
-                  'rounded px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap',
-                  call.isError
-                    ? 'text-destructive/80 bg-destructive/5'
-                    : 'text-muted-foreground bg-muted/40',
+                  'font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap',
+                  call.isError ? 'text-destructive/80' : 'text-muted-foreground',
                 )}
               >
                 {call.result}
