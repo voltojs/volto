@@ -102,9 +102,9 @@ body
     expect(result).toHaveProperty("error");
   });
 
-  it("rejects a wrong-typed tools value that is not an array", () => {
+  it("rejects a wrong-typed tools value that is not an array or comma list", () => {
     const result = parseAgentFile(
-      "---\nname: x\ntools: read_file\n---\nbody",
+      "---\nname: x\ntools: { read_file: true }\n---\nbody",
       "/p/g.md",
     );
     expect(result).toHaveProperty("error");
@@ -276,5 +276,43 @@ describe("parseAgentFile — command permission rules", () => {
       "/p/cmd-l.md",
     );
     expect(parsed).toHaveProperty("error");
+  });
+
+  it("accepts a comma-separated tools list (Claude Code style)", () => {
+    const parsed = parseAgentFile(
+      "---\nname: comma-tools\ndescription: d\ntools: read_file, grep, run_bash_command\n---\nbody",
+      "/p/comma-tools.md",
+    );
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.tools).toEqual(["read_file", "grep", "run_bash_command"]);
+  });
+
+  it("keeps a multi-line description with example list items", () => {
+    const raw = `---
+name: planner
+description: Plan development work.
+
+Examples:
+- <example>
+  Context: user asks for a plan
+  assistant: "I'll use the planner"
+  <commentary>
+  Planning work belongs here.
+  </commentary>
+</example>
+
+tools: Read, Grep
+color: purple
+---
+
+body
+`;
+    const parsed = parseAgentFile(raw, "/p/planner.md");
+    if ("error" in parsed) throw new Error(`unexpected error: ${parsed.error}`);
+    expect(parsed.spec.name).toBe("planner");
+    expect(parsed.spec.description).toBe("Plan development work.");
+    expect(parsed.spec.tools).toEqual(["Read", "Grep"]);
+    expect(parsed.unknownKeys["color"]).toBe("purple");
+    expect(String(parsed.unknownKeys["Examples"])).toContain("<example>");
   });
 });

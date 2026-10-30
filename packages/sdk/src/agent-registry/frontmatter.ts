@@ -188,22 +188,35 @@ function parseValue(raw: string): unknown {
 }
 
 /**
- * Parses the `key: value` lines of a frontmatter block into a map of
- * typed values. One key per line; no multi-line nested indentation (agent
- * files use inline objects/arrays instead).
+ * Parses the `key: value` lines of a frontmatter block into a map of typed
+ * values. One key per line for structured fields (inline arrays/objects), but
+ * continuation lines are folded into the previous scalar: Claude Code agent
+ * files routinely write a multi-line description as a bare `Examples:`
+ * heading followed by `- <example>` list items, and rejecting those would
+ * silently drop otherwise valid definitions.
  */
 function parseYamlSubset(frontmatter: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
+  let lastKey: string | undefined;
   for (const line of frontmatter.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     if (trimmed.startsWith("#")) continue;
+    const indented = /^\s/.test(line);
+    const listItem = /^-\s/.test(trimmed);
     const idx = trimmed.indexOf(":");
-    if (idx < 0) throw new Error(`malformed line: ${line}`);
+    if (indented || listItem || idx < 0) {
+      if (lastKey === undefined) throw new Error(`malformed line: ${line}`);
+      const prev = result[lastKey];
+      if (typeof prev !== "string") throw new Error(`malformed line: ${line}`);
+      result[lastKey] = prev.length === 0 ? trimmed : `${prev}\n${trimmed}`;
+      continue;
+    }
     const key = trimmed.slice(0, idx).trim();
     if (key.length === 0) throw new Error(`empty key: ${line}`);
     const rawValue = stripInlineComment(trimmed.slice(idx + 1).trim());
     result[key] = parseValue(rawValue);
+    lastKey = key;
   }
   return result;
 }
@@ -417,6 +430,16 @@ export function parseAgentFile(
   const name = front["name"];
   if (typeof name !== "string" || name.trim() === "") {
     return { error: `${filePath}: "name" is required` };
+  }
+
+  // Claude Code agent files write `tools` as a comma-separated scalar. The
+  // same tool list means the same thing either way, so normalize it before
+  // type validation instead of rejecting an otherwise valid definition.
+  if (typeof front["tools"] === "string") {
+    front["tools"] = front["tools"]
+      .split(",")
+      .map((tool) => tool.trim())
+      .filter((tool) => tool.length > 0);
   }
 
   // Present-but-invalid policy fails the file; absent policy is fine.
