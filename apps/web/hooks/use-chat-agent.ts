@@ -12,6 +12,7 @@ import {
 import { useChatStore } from '@/stores/chat-store';
 import { deltaChildId, eventChildId } from '@/lib/subagent-routing';
 import { tierNoticeFromEvent } from '@/lib/tier-notice';
+import { titleFromSessionMeta } from '@/lib/session-title';
 import { useSessionStore } from '@/stores/session-store';
 
 type SSEClient = ReturnType<typeof createSSEClient>;
@@ -97,6 +98,14 @@ export function useChatAgent(): UseChatAgentReturn {
           return;
         }
         chat.pushEvent(event);
+        // The gateway owns titles: it writes `session_meta` and mirrors the
+        // same record onto this channel, so the header and the sidebar follow
+        // a rename (derived, model-written, or a second client's) without a
+        // reload.
+        const title = titleFromSessionMeta(event);
+        if (title !== null) {
+          useSessionStore.getState().updateSessionTitle(sessionId, title);
+        }
         // Tier-fallback frames (routing tiers D5) ride the main feed
         // un-tagged. The raw event stays in the durable buffer above; the
         // user-facing degradation note additionally becomes a trailing

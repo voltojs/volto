@@ -17,7 +17,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { revealPath } from '@/lib/config-api';
-import { cancelPendingTitleWriteBack, runManualRename } from '@/lib/session-title';
+import { runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
 import { Button } from '@/components/ui/button';
 import {
@@ -100,7 +100,6 @@ export function ProjectList() {
       deleteServer: deleteServerSession,
       deleteLocal: (id) => useSessionStore.getState().deleteSession(id),
       setError,
-      cancelTitleWriteBack: cancelPendingTitleWriteBack,
     });
   };
 
@@ -311,11 +310,9 @@ export function ProjectList() {
                     onFinishEdit={() => {
                       const title = editingTitle.trim();
                       if (title) {
-                        // Cancel any in-flight derived title write-back for
-                        // this session before sending the manual rename, so
-                        // a slow derived PATCH can never land after (and
-                        // silently overwrite) the title the user just set.
-                        cancelPendingTitleWriteBack(session.id);
+                        // The server ranks title sources, so nothing needs
+                        // cancelling here: a generated title that lands later
+                        // cannot overwrite the name sent below.
                         // Ordering, the single delayed retry, and the
                         // rollback-on-final-failure live in `runManualRename`
                         // so they're unit-testable without rendering this

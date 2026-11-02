@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sun } from 'lucide-react';
+import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react';
 import {
   Item,
   ItemActions,
@@ -23,6 +23,7 @@ import { PermissionPicker } from '@/components/chat/PermissionPicker';
 import type { PermissionMode } from '@/stores/session-store';
 import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { providerModels, useConfigStore } from '@/stores/config-store';
 import { isPermissionMode } from '@/lib/permission-mode';
 
 const THEME_OPTIONS: Array<{ value: string; label: string }> = [
@@ -36,6 +37,38 @@ const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
   { value: 'concise', label: '简约' },
 ];
 
+
+
+/**
+ * Option value for one model. Providers mint their own model ids, so the same
+ * id can appear under two providers — the pair is the identity, joined by a
+ * character no provider or model id can contain.
+ */
+const TITLE_MODEL_SEPARATOR = '\u0000';
+
+/** The value stored for "no title model": the gateway truncates instead. */
+const NO_TITLE_MODEL = '';
+
+interface TitleModelOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Every configured model as a select option, grouped by provider name so two
+ * "MiMo" entries under different providers stay distinguishable.
+ */
+function titleModelOptions(
+  providers: ReturnType<typeof useConfigStore.getState>['providers'],
+  catalogProviders: ReturnType<typeof useConfigStore.getState>['catalogProviders'],
+): TitleModelOption[] {
+  return providers.flatMap((provider) =>
+    providerModels(provider, catalogProviders).map((model) => ({
+      value: `${provider.id}${TITLE_MODEL_SEPARATOR}${model.id}`,
+      label: `${provider.name} / ${model.name}`,
+    })),
+  );
+}
 
 /** 通用设置 Tab：主题与信息流密度。 */
 export function GeneralPanel() {
@@ -51,6 +84,36 @@ export function GeneralPanel() {
     isPermissionMode(defaultPermission) && defaultPermission !== 'plan'
       ? defaultPermission
       : 'ask';
+  const titleProviderId = usePreferencesStore((s) => s.preferences.titleProviderId);
+  const titleModelId = usePreferencesStore((s) => s.preferences.titleModelId);
+  const providers = useConfigStore((s) => s.providers);
+  const catalogProviders = useConfigStore((s) => s.catalogProviders);
+
+  const storedTitleModel =
+    titleProviderId && titleModelId
+      ? `${titleProviderId}${TITLE_MODEL_SEPARATOR}${titleModelId}`
+      : NO_TITLE_MODEL;
+  const modelOptions = titleModelOptions(providers, catalogProviders);
+  // A stored model the user has since deleted has no option to select, and a
+  // Select would render the raw joined id. Say what actually happened instead.
+  const titleModelItems: TitleModelOption[] = [
+    { value: NO_TITLE_MODEL, label: '不使用' },
+    ...modelOptions,
+    ...(storedTitleModel !== NO_TITLE_MODEL &&
+    !modelOptions.some((option) => option.value === storedTitleModel)
+      ? [{ value: storedTitleModel, label: '已失效，请重选' }]
+      : []),
+  ];
+
+  const handleTitleModelChange = (next: string): void => {
+    if (next === NO_TITLE_MODEL) {
+      usePreferencesStore.getState().save({ titleProviderId: '', titleModelId: '' });
+      return;
+    }
+    const [providerId, modelId] = next.split(TITLE_MODEL_SEPARATOR);
+    if (!providerId || !modelId) return;
+    usePreferencesStore.getState().save({ titleProviderId: providerId, titleModelId: modelId });
+  };
 
   return (
     <ItemGroup>
@@ -145,6 +208,42 @@ export function GeneralPanel() {
             variant="default"
             triggerClassName="w-32"
           />
+        </ItemActions>
+      </Item>
+
+      <Item variant="outline">
+        <ItemMedia variant="icon">
+          <Sparkles className="opacity-60" />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle>标题模型</ItemTitle>
+          <ItemDescription>
+            用一个模型给新会话起名；不选则直接截取首条消息作为标题。
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <Select
+            items={titleModelItems}
+            value={storedTitleModel}
+            onValueChange={(next) => handleTitleModelChange(String(next))}
+          >
+            <SelectTrigger size="sm" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            {/* `width="content"` lets the popup grow to its longest
+                "provider / model" row instead of clipping every one of them
+                to the trigger's width; `align="end"` keeps that wider popup
+                inside the dialog instead of running off its right edge. */}
+            <SelectContent width="content" align="end" alignItemWithTrigger={false}>
+              <SelectGroup>
+                {titleModelItems.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </ItemActions>
       </Item>
     </ItemGroup>

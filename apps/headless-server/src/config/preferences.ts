@@ -23,6 +23,12 @@ export interface Preferences {
   lastModelId?: string;
   /** Last reasoning-effort id, for the model above. */
   lastReasoningEffort?: string;
+  /**
+   * Model used to name new sessions. Absent/empty = truncate the first
+   * message instead. Stored as strings so this domain stays all-flat.
+   */
+  titleProviderId?: string;
+  titleModelId?: string;
 }
 
 export interface PreferencesStore {
@@ -52,6 +58,8 @@ function normalizePreferences(raw: unknown): Preferences {
   str("lastProviderId");
   str("lastModelId");
   str("lastReasoningEffort");
+  str("titleProviderId");
+  str("titleModelId");
   return out;
 }
 

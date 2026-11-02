@@ -1112,6 +1112,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           "lastProviderId",
           "lastModelId",
           "lastReasoningEffort",
+          "titleProviderId",
+          "titleModelId",
         ]) {
           if (typeof body?.[key] === "string") patch[key] = body[key];
         }
@@ -1626,34 +1628,44 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     }
 
     // PATCH /sessions/:id — rename. Titles are session_meta (last-wins), so a
-    // rename is an appended meta event, not an in-place edit of the log.
+    // rename is an appended meta event, not an in-place edit of the log. The
+    // write itself goes through the registry's ranked writer: a client that
+    // tries to bury a name the user typed gets a 409 instead of a silent
+    // 204, and every writer (route, derived title, model title) shares one
+    // rule about who outranks whom.
     if (req.method === "PATCH" && url.pathname.startsWith("/sessions/")) {
       const id = decodeURIComponent(url.pathname.slice("/sessions/".length));
       try {
-        const record = await chatStore.readSession(id);
-        if (!record) {
-          jsonResponse(res, 404, { error: `Unknown session: ${id}` });
-          return;
-        }
-        const body = JSON.parse(await readBody(req)) as { title?: unknown };
+        const body = JSON.parse(await readBody(req)) as { title?: unknown; source?: unknown };
         const title = typeof body.title === "string" ? body.title.trim() : "";
         if (title.length === 0 || title.length > 200) {
           jsonResponse(res, 400, { error: "title must be 1-200 characters" });
           return;
         }
+        const source = body.source ?? "user";
+        if (source !== "user" && source !== "model" && source !== "heuristic") {
+          jsonResponse(res, 400, {
+            error: 'source must be one of "user", "model", "heuristic"',
+          });
+          return;
+        }
         // workspacePath is only consulted to place a *new* file; this session
-        // already has one (readSession above found it), so resolveWritePath
-        // reuses that existing path regardless of what is passed here. This is
-        // safe only because there is no concurrent delete between readSession and
-        // this appendEvents call — if a delete occurred between them, resolveWritePath
-        // would write to a fresh top-level file for a session that was just removed.
-        await chatStore.appendEvents(null, id, [
-          {
-            time: Date.now(),
-            type: "session_meta",
-            data: { ...record.meta, title },
-          },
-        ]);
+        // already has one (the writer reads it), so resolveWritePath reuses
+        // that existing path regardless of what is passed here. This is safe
+        // only because there is no concurrent delete between the read and the
+        // append — if a delete occurred between them, resolveWritePath would
+        // write to a fresh top-level file for a session that was just removed.
+        const result = await registry.writeTitle(id, title, source);
+        if (result === "missing") {
+          jsonResponse(res, 404, { error: `Unknown session: ${id}` });
+          return;
+        }
+        if (result === "outranked") {
+          jsonResponse(res, 409, {
+            error: "a higher-priority title source owns this session",
+          });
+          return;
+        }
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {

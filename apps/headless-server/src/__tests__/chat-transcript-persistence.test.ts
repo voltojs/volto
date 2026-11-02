@@ -48,6 +48,18 @@ function makeFakeChatStore(): JsonlSessionStore & {
   };
 }
 
+/** Appends that are not the derived session title — the recording contract under test. */
+function nonTitleAppends(
+  chatStore: ReturnType<typeof makeFakeChatStore>,
+): Array<{ workspacePath: string | null; sessionId: string; events: readonly TranscriptEventInput[] }> {
+  // The gateway names every session from its first message before the turn
+  // starts, so a turn that fails to resolve its own config still leaves one
+  // `session_meta` behind. These tests are about the failure recording.
+  return chatStore.appendCalls.filter((call) =>
+    call.events.some((event) => event.type !== "session_meta"),
+  );
+}
+
 /** Agent stub reporting a growing message history across turns; captures every options object it was built with. */
 function makeFactory() {
   const builds: Array<Record<string, unknown>> = [];
@@ -405,9 +417,9 @@ describe("chat transcript wiring (jsonl)", () => {
     await registry.runTurn("s1", "one", { projectId: "p1" });
 
     expect(builds).toHaveLength(0);
-    expect(chatStore.appendCalls).toHaveLength(1);
-    expect(chatStore.appendCalls[0]!.events[0]!.type).toBe("error");
-    expect((chatStore.appendCalls[0]!.events[0]!.data as { message: string }).message).toContain(
+    expect(nonTitleAppends(chatStore)).toHaveLength(1);
+    expect(nonTitleAppends(chatStore)[0]!.events[0]!.type).toBe("error");
+    expect((nonTitleAppends(chatStore)[0]!.events[0]!.data as { message: string }).message).toContain(
       "Project store is not configured",
     );
   });
@@ -421,7 +433,7 @@ describe("chat transcript wiring (jsonl)", () => {
     // from here on, exactly like a session that has already run N turns.
     await registry.runTurn("s1", "one", config);
     expect(builds).toHaveLength(1);
-    expect(chatStore.appendCalls).toHaveLength(0);
+    expect(nonTitleAppends(chatStore)).toHaveLength(0);
 
     // Second turn's requested config is incomplete (no projectId), so
     // resolveConfig() throws before stream() is ever reached — the agent
@@ -429,9 +441,9 @@ describe("chat transcript wiring (jsonl)", () => {
     // failure, since stream() is never entered on this turn either.
     await registry.runTurn("s1", "two", {});
 
-    expect(chatStore.appendCalls).toHaveLength(1);
-    expect(chatStore.appendCalls[0]!.events[0]!.type).toBe("error");
-    expect((chatStore.appendCalls[0]!.events[0]!.data as { message: string }).message).toContain(
+    expect(nonTitleAppends(chatStore)).toHaveLength(1);
+    expect(nonTitleAppends(chatStore)[0]!.events[0]!.type).toBe("error");
+    expect((nonTitleAppends(chatStore)[0]!.events[0]!.data as { message: string }).message).toContain(
       "projectId is required",
     );
   });
@@ -448,8 +460,8 @@ describe("chat transcript wiring (jsonl)", () => {
     // mirroring what createAgent() really does internally — sessions.ts has
     // no append call of its own left to double-write it.
     expect(builds).toHaveLength(1);
-    expect(chatStore.appendCalls).toHaveLength(1);
-    expect(chatStore.appendCalls[0]!.sessionId).toBe("s1");
+    expect(nonTitleAppends(chatStore)).toHaveLength(1);
+    expect(nonTitleAppends(chatStore)[0]!.sessionId).toBe("s1");
   });
 
   it("continues turn numbering across a hot-process rebuild (config change), not just a cold start", async () => {

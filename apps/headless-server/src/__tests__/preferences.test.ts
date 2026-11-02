@@ -79,6 +79,40 @@ describe("preferences", () => {
     });
   });
 
+  it("round-trips the title model pair", async () => {
+    const put = await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ titleProviderId: "p2", titleModelId: "small" }),
+    });
+    expect(put.status).toBe(200);
+
+    const read = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    expect(await read.json()).toMatchObject({
+      titleProviderId: "p2",
+      titleModelId: "small",
+    });
+  });
+
+  it("clears the title model when patched with empty strings", async () => {
+    const before = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    // Precondition: the pair from the previous test is still there, so the
+    // removal asserted below is a real removal and not a never-written key.
+    expect(await before.json()).toMatchObject({ titleProviderId: "p2" });
+
+    const put = await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ titleProviderId: "", titleModelId: "" }),
+    });
+    expect(put.status).toBe(200);
+
+    const read = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    const body = (await read.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("titleProviderId");
+    expect(body).not.toHaveProperty("titleModelId");
+  });
+
   it("writes the defaults to config.json", async () => {
     const raw = await fs.readFile(path.join(dir, "config.json"), "utf8");
     expect(JSON.parse(raw).preferences).toMatchObject({ defaultPermissionMode: "auto" });

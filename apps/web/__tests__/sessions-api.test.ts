@@ -242,7 +242,7 @@ describe('fetchSessionEvents', () => {
 });
 
 describe('renameServerSession', () => {
-  it('PATCHes the title', async () => {
+  it('PATCHes the title as a user rename by default', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -251,7 +251,23 @@ describe('renameServerSession', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toMatch(/\/sessions\/s1$/);
     expect((init as RequestInit).method).toBe('PATCH');
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ title: '新标题' });
+    // The server ranks title sources: a client that omits the source would
+    // still be treated as a user rename, but saying so makes the intent
+    // explicit instead of riding a default.
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      title: '新标题',
+      source: 'user',
+    });
+  });
+
+  it('sends an explicit source when asked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renameServerSession('s1', '系统标题', { source: 'model' });
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({ title: '系统标题', source: 'model' });
   });
 
   it('throws on a non-ok response', async () => {

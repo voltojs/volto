@@ -16,6 +16,7 @@ import type { ModelPort, ModelRequest, ToolDefinition } from "@volto/core";
 import type { AgentSpec } from "@volto/sdk";
 import { createStore } from "@volto/store-jsonl";
 import { createServer, type HeadlessServer } from "../server.js";
+import type { SessionRegistryOptions } from "../sessions.js";
 
 /** Minimal model port that immediately ends the turn. */
 const IDLE_MODEL: ModelPort = {
@@ -72,6 +73,12 @@ export interface TestServer {
   captureMessages: () => Promise<TranscriptMessage[]>;
   /** Number of `turn_start` frames seen since the stream opened. */
   turnCount: () => number;
+  /**
+   * Every `event` frame's payload seen since the channel (re)opened, in
+   * arrival order — for tests that assert an out-of-band push (a title
+   * change) rather than a turn's transcript.
+   */
+  events: () => FrameEventPayload[];
   /** Shut down the server and clean up the temp config dir. */
   close: () => Promise<void>;
 }
@@ -96,7 +103,7 @@ function parseFrames(raw: string): EventFrame[] {
 }
 
 /** Payload shape of an `event` frame: a stamped TranscriptEventInput. */
-interface FrameEventPayload {
+export interface FrameEventPayload {
   type: string;
   data: Record<string, unknown>;
   time: number;
@@ -112,6 +119,10 @@ function isEventPayload(data: unknown): data is FrameEventPayload {
   );
 }
 
+type SessionRegistryTitlePortFactory = NonNullable<
+  SessionRegistryOptions["titleModelPortFactory"]
+>;
+
 export interface StartTestServerOptions {
   /**
    * Model port the gateway hands to createAgent. Defaults to IDLE_MODEL;
@@ -119,6 +130,11 @@ export interface StartTestServerOptions {
    * capturing port here.
    */
   modelPort?: ModelPort;
+  /**
+   * Builds the ModelPort used to name a session. Tests inject a fake because
+   * the title write is a background task with no observation point otherwise.
+   */
+  titleModelPortFactory?: SessionRegistryTitlePortFactory;
 }
 
 export async function startTestServer(opts: StartTestServerOptions = {}): Promise<TestServer> {
@@ -129,6 +145,9 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     port: 0,
     modelPort: opts.modelPort ?? IDLE_MODEL,
     chatStore: createStore({ directory: configDir }),
+    ...(opts.titleModelPortFactory !== undefined
+      ? { titleModelPortFactory: opts.titleModelPortFactory }
+      : {}),
   });
 
   await new Promise<void>((resolve) => server.on("listening", resolve));
@@ -282,6 +301,7 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     openEvents,
     captureMessages,
     turnCount,
+    events: eventPayloads,
     close: async () => {
       if (settleTimer) clearTimeout(settleTimer);
       eventsReq?.destroy();
