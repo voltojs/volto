@@ -227,10 +227,14 @@ export function GeneralPanel() {
             value={storedTitleModel}
             onValueChange={(next) => handleTitleModelChange(String(next))}
           >
-            <SelectTrigger size="sm" className="w-48">
+            <SelectTrigger size="sm" className="w-56">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
+            {/* `width="content"` lets the popup grow to its longest
+                "provider / model" row instead of clipping every one of them
+                to the trigger's width; `align="end"` keeps that wider popup
+                inside the dialog instead of running off its right edge. */}
+            <SelectContent width="content" align="end" alignItemWithTrigger={false}>
               <SelectGroup>
                 {titleModelItems.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
