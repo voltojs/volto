@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function CatalogProviderSection({
 }: {
   providers: Provider[];
 }) {
+  const t = useTranslations('settings');
   const [catalog, setCatalog] = useState<CatalogProvider[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -43,7 +45,7 @@ export function CatalogProviderSection({
       .catch((err) => {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error ? err.message : '加载内置 Provider 目录失败',
+            err instanceof Error ? err.message : t('providers.builtinCatalogFailed'),
           );
         }
       });
@@ -65,7 +67,7 @@ export function CatalogProviderSection({
   return (
     <div className="space-y-2">
       <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-        内置 Provider
+        {t('providers.builtin')}
       </div>
 
       {catalogProviders.map((provider) => (
@@ -83,7 +85,7 @@ export function CatalogProviderSection({
       ))}
       {catalogProviders.length === 0 && !adding && (
         <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
-          还没有配置内置供应商
+          {t('providers.builtinEmpty')}
         </div>
       )}
 
@@ -104,8 +106,8 @@ export function CatalogProviderSection({
         >
           <Plus className="h-4 w-4" />
           {catalog && available.length === 0
-            ? '内置 Provider 已全部配置'
-            : '新增内置 Provider'}
+            ? t('providers.builtinAllConfigured')
+            : t('providers.builtinAdd')}
         </Button>
       )}
     </div>
@@ -120,6 +122,7 @@ function CatalogAddForm({
   catalog: CatalogProvider[];
   onDone: () => void;
 }) {
+  const t = useTranslations('settings');
   const addProvider = useConfigStore((s) => s.addProvider);
   const [piProvider, setPiProvider] = useState(catalog[0]?.id ?? '');
   const [name, setName] = useState(catalog[0]?.name ?? '');
@@ -162,7 +165,7 @@ function CatalogAddForm({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '新增供应商失败');
+      setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -187,7 +190,7 @@ function CatalogAddForm({
             }}
           >
             <SelectTrigger className="h-8 w-full">
-              <SelectValue placeholder="选择内置 Provider" />
+              <SelectValue placeholder={t('providers.builtinPick')} />
             </SelectTrigger>
             <SelectContent width="content">
               {catalog.map((c) => (
@@ -199,12 +202,12 @@ function CatalogAddForm({
           </Select>
         </label>
         <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">展示名称</span>
+          <span className="text-muted-foreground text-[11px]">{t('providers.displayName')}</span>
           <Input
             className="h-8"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="展示名称"
+            placeholder={t('providers.displayName')}
           />
         </label>
       </div>
@@ -216,7 +219,7 @@ function CatalogAddForm({
             className="h-8 font-mono text-xs"
             value={baseURL}
             onChange={(e) => setBaseURL(e.target.value)}
-            placeholder={selected?.baseUrl ?? '留空使用内置地址'}
+            placeholder={selected?.baseUrl ?? t('providers.baseUrlBuiltin')}
           />
         </label>
         <label className="space-y-1">
@@ -233,13 +236,13 @@ function CatalogAddForm({
 
       <div className="space-y-1.5">
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-          模型
+          {t('providers.modelsLabel')}
         </div>
         <ModelTable
           models={models}
           onChange={setModels}
           codeListId="catalog-models-new"
-          emptyHint="点击「新增模型」，模型 ID 可从该 Provider 的目录中自动补全"
+          emptyHint={t('providers.modelsEmptyHint')}
           {...(selected ? { codeOptions: selected.models } : {})}
         />
       </div>
@@ -253,10 +256,10 @@ function CatalogAddForm({
           disabled={saving || !piProvider}
           className="flex-1"
         >
-          {saving ? '创建中…' : '创建'}
+          {saving ? t('providers.creating') : t('providers.create')}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDone}>
-          取消
+          {t('providers.cancel')}
         </Button>
       </div>
     </div>
@@ -275,6 +278,7 @@ function CatalogProviderCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useTranslations('settings');
   const editProvider = useConfigStore((s) => s.editProvider);
   const removeProvider = useConfigStore((s) => s.removeProvider);
 
@@ -302,7 +306,7 @@ function CatalogProviderCard({
     try {
       await removeProvider(provider.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除供应商失败');
+      setError(err instanceof Error ? err.message : t('providers.deleteFailed'));
     }
   };
 
@@ -341,7 +345,7 @@ function CatalogProviderCard({
       setApiKey('');
       setDirty(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -356,7 +360,7 @@ function CatalogProviderCard({
             {provider.piProvider}
           </Badge>
           <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {provider.models.length} 个模型
+            {t('providers.modelCount', { count: provider.models.length })}
           </Badge>
           {provider.apiKeyMasked && (
             <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
@@ -379,7 +383,7 @@ function CatalogProviderCard({
               setDirty(true);
               setBaseURL(e.target.value);
             }}
-            placeholder={catalogEntry?.baseUrl ?? '留空使用内置地址'}
+            placeholder={catalogEntry?.baseUrl ?? t('providers.baseUrlBuiltin')}
           />
         </label>
         <label className="space-y-1">
@@ -388,7 +392,7 @@ function CatalogProviderCard({
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={provider.apiKeyMasked ? '留空则不修改' : 'apiKey'}
+            placeholder={provider.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')}
             className="h-8 font-mono text-xs"
           />
         </label>
@@ -396,7 +400,7 @@ function CatalogProviderCard({
 
       <div className="space-y-1.5">
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-          模型
+          {t('providers.modelsLabel')}
         </div>
         {/* Model codes come from pi-ai's catalog, offered as autocomplete
             rather than a fixed list: a code this build's catalog doesn't know
@@ -422,7 +426,7 @@ function CatalogProviderCard({
         disabled={saving}
         className="w-full"
       >
-        {saving ? '保存中…' : '保存'}
+        {saving ? t('providers.saving') : t('providers.save')}
       </Button>
     </ProviderShell>
   );

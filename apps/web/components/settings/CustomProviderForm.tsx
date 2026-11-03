@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { ModelTable, toDraftModels, type DraftModel } from './ModelTable';
 
 /** 自定义 Provider 区块：现有的“新增供应商”入口 + 各自定义 provider 的折叠行。 */
 export function CustomProviderSection({ providers }: { providers: Provider[] }) {
+  const t = useTranslations('settings');
   const addProvider = useConfigStore((s) => s.addProvider);
   const [error, setError] = useState<string | null>(null);
   /** Id of the provider just created, so it opens straight into its form. */
@@ -21,7 +23,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
     try {
       const created = await addProvider({
         kind: 'custom',
-        name: '新供应商',
+        name: t('providers.customNameDefault'),
         baseURL: null,
         apiKey: null,
         models: [],
@@ -30,7 +32,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
       // hide the only thing the user came here to do.
       if (created) setOpenId(created.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '新增供应商失败');
+      setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     }
   };
 
@@ -41,7 +43,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
   return (
     <div className="space-y-2">
       <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-        自定义 Provider
+        {t('providers.custom')}
       </div>
 
       {customProviders.map((provider) => (
@@ -58,7 +60,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
       ))}
       {customProviders.length === 0 && (
         <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
-          还没有配置自定义供应商
+          {t('providers.customEmpty')}
         </div>
       )}
 
@@ -70,7 +72,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
         onClick={() => void handleAdd()}
       >
         <Plus className="h-4 w-4" />
-        新增自定义 Provider
+        {t('providers.customAdd')}
       </Button>
     </div>
   );
@@ -86,6 +88,7 @@ function CustomProviderCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useTranslations('settings');
   const editProvider = useConfigStore((s) => s.editProvider);
   const removeProvider = useConfigStore((s) => s.removeProvider);
 
@@ -119,7 +122,7 @@ function CustomProviderCard({
     try {
       await removeProvider(provider.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除供应商失败');
+      setError(err instanceof Error ? err.message : t('providers.deleteFailed'));
     }
   };
 
@@ -151,7 +154,7 @@ function CustomProviderCard({
       setApiKey('');
       setDirty(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -166,7 +169,7 @@ function CustomProviderCard({
       badges={
         <>
           <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {provider.models.length} 个模型
+            {t('providers.modelCount', { count: provider.models.length })}
           </Badge>
           {provider.apiKeyMasked && (
             <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
@@ -181,7 +184,7 @@ function CustomProviderCard({
     >
       <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">名称</span>
+          <span className="text-muted-foreground text-[11px]">{t('providers.name')}</span>
           <Input
             className="h-8"
             value={name}
@@ -189,7 +192,7 @@ function CustomProviderCard({
               setDirty(true);
               setName(e.target.value);
             }}
-            placeholder="供应商名称"
+            placeholder={t('providers.namePlaceholder')}
           />
         </label>
         <label className="space-y-1">
@@ -201,7 +204,7 @@ function CustomProviderCard({
               setDirty(true);
               setBaseURL(e.target.value);
             }}
-            placeholder="留空使用默认地址"
+            placeholder={t('providers.baseUrlDefault')}
           />
         </label>
         <label className="space-y-1">
@@ -215,7 +218,7 @@ function CustomProviderCard({
               setApiKey(e.target.value);
             }}
             placeholder={
-              provider.apiKeyMasked ? '留空则不修改' : 'apiKey'
+              provider.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')
             }
           />
         </label>
@@ -237,7 +240,7 @@ function CustomProviderCard({
         disabled={saving}
         className="w-full"
       >
-        {saving ? '保存中…' : '保存'}
+        {saving ? t('providers.saving') : t('providers.save')}
       </Button>
     </ProviderShell>
   );

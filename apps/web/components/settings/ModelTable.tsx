@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronRight, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -92,6 +93,7 @@ function parsePositiveInt(raw: string): number | undefined {
 /** 只拼实际存在的字段；全部缺失返回 undefined（调用方据此隐藏分组）。 */
 function formatInputLimits(
   limits: ModelInputLimits | undefined,
+  t: (key: string, params?: Record<string, string | number>) => string,
 ): string | undefined {
   const resize = limits?.images?.resize;
   const parts: string[] = [];
@@ -104,14 +106,16 @@ function formatInputLimits(
   if (resize?.jpegQuality !== undefined)
     parts.push(`JPEG ${resize.jpegQuality}`);
   if (limits?.images?.maxPerMessage !== undefined) {
-    parts.push(`单条 ≤${limits.images.maxPerMessage} 张`);
+    parts.push(t('models.limitPerMessage', { count: limits.images.maxPerMessage }));
   }
   if (limits?.images?.maxPerRequest !== undefined) {
-    parts.push(`单请求 ≤${limits.images.maxPerRequest} 张`);
+    parts.push(t('models.limitPerRequest', { count: limits.images.maxPerRequest }));
   }
   if (limits?.maxRequestBytes !== undefined) {
     parts.push(
-      `请求 ≤${(limits.maxRequestBytes / (1024 * 1024)).toFixed(1)}MB`,
+      t('models.limitRequest', {
+        mb: (limits.maxRequestBytes / (1024 * 1024)).toFixed(1),
+      }),
     );
   }
   return parts.length > 0 ? parts.join(' · ') : undefined;
@@ -160,6 +164,7 @@ export function ModelTable({
   /** Shown in place of the default empty-state line. */
   emptyHint?: string;
 }) {
+  const t = useTranslations('settings');
   const patch = (index: number, next: Partial<DraftModel>) =>
     onChange(models.map((m, i) => (i === index ? { ...m, ...next } : m)));
 
@@ -188,11 +193,11 @@ export function ModelTable({
         <div
           className={`${GRID} text-muted-foreground px-1 text-[10px] font-medium tracking-wider uppercase`}
         >
-          <span>模型 ID</span>
-          <span>显示名称</span>
-          <span>上下文窗口</span>
-          <span>最大输出</span>
-          <span className="text-center">推理</span>
+          <span>{t('models.colId')}</span>
+          <span>{t('models.colName')}</span>
+          <span>{t('models.colContext')}</span>
+          <span>{t('models.colMaxOutput')}</span>
+          <span className="text-center">{t('models.colReasoning')}</span>
           <span />
           <span />
         </div>
@@ -207,7 +212,7 @@ export function ModelTable({
                 className="h-8 font-mono text-xs"
                 value={model.code}
                 placeholder="model-id"
-                aria-label={`模型 ID ${index + 1}`}
+                aria-label={t('models.ariaId', { n: index + 1 })}
                 list={codeOptions ? codeListId : undefined}
                 onChange={(e) => {
                   const code = e.target.value;
@@ -231,8 +236,8 @@ export function ModelTable({
               <Input
                 className="h-8 text-xs"
                 value={model.name}
-                placeholder={inherited?.name ?? '展示名'}
-                aria-label={`显示名称 ${index + 1}`}
+                placeholder={inherited?.name ?? t('models.fieldName')}
+                aria-label={t('models.ariaName', { n: index + 1 })}
                 onChange={(e) => patch(index, { name: e.target.value })}
               />
               {/* Both caps are optional: empty means "use the provider's own
@@ -243,10 +248,10 @@ export function ModelTable({
                 value={model.contextWindow ?? ''}
                 placeholder={
                   inherited?.contextWindow === undefined
-                    ? '默认'
+                    ? t('models.default')
                     : String(inherited.contextWindow)
                 }
-                aria-label={`上下文窗口 ${index + 1}`}
+                aria-label={t('models.ariaContext', { n: index + 1 })}
                 onChange={(e) =>
                   patch(index, {
                     contextWindow: parsePositiveInt(e.target.value),
@@ -259,10 +264,10 @@ export function ModelTable({
                 value={model.maxOutputTokens ?? ''}
                 placeholder={
                   inherited?.maxOutputTokens === undefined
-                    ? '默认'
+                    ? t('models.default')
                     : String(inherited.maxOutputTokens)
                 }
-                aria-label={`最大输出 Token ${index + 1}`}
+                aria-label={t('models.ariaMaxOutput', { n: index + 1 })}
                 onChange={(e) =>
                   patch(index, {
                     maxOutputTokens: parsePositiveInt(e.target.value),
@@ -272,7 +277,7 @@ export function ModelTable({
               <div className="flex justify-center">
                 <Checkbox
                   checked={model.reasoning}
-                  aria-label={`支持推理 ${index + 1}`}
+                  aria-label={t('models.ariaReasoning', { n: index + 1 })}
                   onCheckedChange={(checked) =>
                     patch(index, { reasoning: checked === true })
                   }
@@ -282,7 +287,7 @@ export function ModelTable({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`展开模型 ${index + 1}`}
+                  aria-label={t('models.ariaExpand', { n: index + 1 })}
                   onClick={() => toggleOpen(model.clientKey)}
                 >
                   <ChevronRight
@@ -295,7 +300,7 @@ export function ModelTable({
                 size="icon-sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 onClick={() => onChange(models.filter((_, i) => i !== index))}
-                aria-label={`删除模型 ${index + 1}`}
+                aria-label={t('models.ariaDelete', { n: index + 1 })}
               >
                 <Trash2 className="h-3 w-3" />
               </Button>
@@ -304,21 +309,21 @@ export function ModelTable({
               <div className="border-muted-foreground/30 col-span-full space-y-2 border-l py-2 pl-3">
                 <div className="space-y-1.5">
                   <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
-                    输入类型
+                    {t('models.inputTypes')}
                   </div>
                   <div className="flex items-center gap-4">
                     <label className="flex cursor-not-allowed items-center gap-1.5 text-xs opacity-70">
                       <Checkbox
                         checked
                         disabled
-                        aria-label={`输入-文本 ${index + 1}`}
+                        aria-label={t('models.ariaInputText', { n: index + 1 })}
                       />
-                      文本
+                      {t('models.inputText')}
                     </label>
                     <label className="flex cursor-pointer items-center gap-1.5 text-xs">
                       <Checkbox
                         checked={model.input?.includes('image') ?? true}
-                        aria-label={`输入-图片 ${index + 1}`}
+                        aria-label={t('models.ariaInputImage', { n: index + 1 })}
                         onCheckedChange={(checked) =>
                           patch(index, {
                             input:
@@ -326,21 +331,21 @@ export function ModelTable({
                           })
                         }
                       />
-                      图片
+                      {t('models.inputImage')}
                     </label>
                   </div>
                   {/* D3: 文本恒在；未声明(UNKNOWN)按有效行为(放行)显示为勾上，切换才产生显式声明。 */}
                 </div>
-                {formatInputLimits(model.inputLimits) !== undefined && (
+                {formatInputLimits(model.inputLimits, t) !== undefined && (
                   <div className="space-y-1.5">
                     <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
-                      输入限制
+                      {t('models.inputLimits')}
                     </div>
                     <p
                       className="text-muted-foreground font-mono text-xs"
-                      aria-label="输入限制"
+                      aria-label={t('models.ariaInputLimits')}
                     >
-                      {formatInputLimits(model.inputLimits)}
+                      {formatInputLimits(model.inputLimits, t)}
                     </p>
                   </div>
                 )}
@@ -352,7 +357,7 @@ export function ModelTable({
 
       {models.length === 0 && (
         <p className="text-muted-foreground py-2 text-xs">
-          {emptyHint ?? '还没有添加模型'}
+          {emptyHint ?? t('models.empty')}
         </p>
       )}
 
@@ -364,7 +369,7 @@ export function ModelTable({
           onClick={() => onChange([...models, emptyDraftModel()])}
         >
           <Plus className="h-3 w-3" />
-          新增模型
+          {t('models.add')}
         </Button>
         {codeOptions && codeOptions.length > 0 && (
           <Button
@@ -374,7 +379,7 @@ export function ModelTable({
             onClick={() => setPickerOpen(true)}
           >
             <ListPlus className="h-3 w-3" />
-            获取可用模型
+            {t('models.fetch')}
           </Button>
         )}
       </div>

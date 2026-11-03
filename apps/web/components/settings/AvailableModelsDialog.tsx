@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -43,6 +44,7 @@ export function AvailableModelsDialog({
   selectedCodes: string[];
   onAdd: (codes: string[]) => void;
 }) {
+  const t = useTranslations('settings');
   const [query, setQuery] = useState('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
 
@@ -96,9 +98,9 @@ export function AvailableModelsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>获取可用模型</DialogTitle>
+          <DialogTitle>{t('models.catalogTitle')}</DialogTitle>
           <DialogDescription>
-            从该 Provider 的目录中勾选尚未添加的模型。
+            {t('models.catalogHint')}
           </DialogDescription>
         </DialogHeader>
 
@@ -106,10 +108,10 @@ export function AvailableModelsDialog({
           <Search className="text-muted-foreground absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
           <Input
             className="h-8 pl-8 text-xs"
-            placeholder="搜索 code 或名称"
+            placeholder={t('models.catalogSearch')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="搜索可用模型"
+            aria-label={t('models.catalogSearchAria')}
           />
         </div>
 
@@ -117,8 +119,8 @@ export function AvailableModelsDialog({
           {visible.length === 0 && (
             <p className="text-muted-foreground py-4 text-center text-xs">
               {options.every((o) => selected.has(o.code))
-                ? '目录中的模型已全部添加'
-                : '没有匹配的模型'}
+                ? t('models.catalogAllAdded')
+                : t('models.catalogNoMatch')}
             </p>
           )}
           {visible.map((o) => (
@@ -135,7 +137,7 @@ export function AvailableModelsDialog({
               <Checkbox
                 checked={checked.has(o.code)}
                 onCheckedChange={() => toggle(o.code)}
-                aria-label={`选择 ${o.code}`}
+                aria-label={t('models.catalogSelect', { code: o.code })}
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-mono text-xs">
@@ -143,7 +145,7 @@ export function AvailableModelsDialog({
                 </span>
                 <span className="text-muted-foreground block truncate text-[11px]">
                   {o.name}
-                  {o.reasoning ? ' · 推理' : ''}
+                  {o.reasoning ? t('models.catalogReasoning') : ''}
                 </span>
               </span>
             </label>
@@ -156,10 +158,10 @@ export function AvailableModelsDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
           >
-            取消
+            {t('models.cancel')}
           </Button>
           <Button size="sm" onClick={confirm} disabled={checked.size === 0}>
-            添加 {checked.size > 0 ? checked.size : ''} 个
+            {t('models.addCount', { count: checked.size })}
           </Button>
         </DialogFooter>
       </DialogContent>
