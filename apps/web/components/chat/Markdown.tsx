@@ -6,13 +6,8 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  parseFileRef,
-  parseLinkRef,
-  resolveFileRef,
-  type FileRef,
-} from '@/lib/file-reference';
-import { openFileRef } from '@/lib/open-file-ref';
+import { parseFileRef, parseLinkRef, resolveFileRef } from '@/lib/file-reference';
+import { FileRefChip } from './FileRefChip';
 
 /**
  * One fenced code block, with a language chip and a copy button.
@@ -82,41 +77,6 @@ interface FileLinkContext {
   projectId?: string | null;
   /** Directory (project-relative) that link hrefs resolve against. */
   linkBase: string;
-  openLabel: (path: string) => string;
-}
-
-/**
- * A project file reference rendered as a click target that opens the file in
- * the right pane's preview tab.
- */
-function FileRefButton({
-  target,
-  ctx,
-  variant,
-  children,
-}: {
-  target: FileRef;
-  ctx: FileLinkContext;
-  variant: 'code' | 'link';
-  children?: ReactNode;
-}) {
-  const label = ctx.openLabel(target.path);
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={() => openFileRef(target, ctx.projectId)}
-      className={cn(
-        'cursor-pointer underline-offset-2 hover:underline',
-        variant === 'code'
-          ? 'text-primary bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]'
-          : 'text-primary',
-      )}
-    >
-      {children}
-    </button>
-  );
 }
 
 const baseComponents: Components = {
@@ -166,9 +126,9 @@ function buildComponents(ctx: FileLinkContext): Components {
       const target = inline ? parseFileRef(text) : null;
       if (target !== null && ctx.projectId !== null) {
         return (
-          <FileRefButton target={target} ctx={ctx} variant="code">
+          <FileRefChip target={target} projectId={ctx.projectId} variant="code">
             {children}
-          </FileRefButton>
+          </FileRefChip>
         );
       }
       return (
@@ -190,9 +150,9 @@ function buildComponents(ctx: FileLinkContext): Components {
         // Never fall through to <a>: a project path opened as a browser
         // navigation is a 404, not a link.
         return ctx.projectId !== null ? (
-          <FileRefButton target={target} ctx={ctx} variant="link">
+          <FileRefChip target={target} projectId={ctx.projectId} variant="link">
             {children}
-          </FileRefButton>
+          </FileRefChip>
         ) : (
           <span className={className}>{children}</span>
         );
@@ -230,16 +190,11 @@ export const Markdown = memo(function Markdown({
   projectId,
   linkBase = '',
 }: MarkdownProps) {
-  const t = useTranslations('chat');
   return (
     <div className={cn('text-sm', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={buildComponents({
-          projectId,
-          linkBase,
-          openLabel: (path) => t('fileLink.openInPane', { path }),
-        })}
+        components={buildComponents({ projectId, linkBase })}
       >
         {content}
       </ReactMarkdown>

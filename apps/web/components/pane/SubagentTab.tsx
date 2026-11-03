@@ -163,6 +163,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               <MessageList
                 entries={feed.entries}
                 sessionId={childId}
+                fileProjectId={parent?.projectId ?? null}
                 isGenerating={running}
                 density={streamDensity}
               />
@@ -172,6 +173,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               <MessageList
                 entries={feed.entries}
                 sessionId={childId}
+                fileProjectId={parent?.projectId ?? null}
                 isGenerating={running}
                 density={streamDensity}
               />

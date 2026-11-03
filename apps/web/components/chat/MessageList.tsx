@@ -31,6 +31,7 @@ export function MessageList({
   entries,
   onOpenSubagent,
   sessionId,
+  fileProjectId,
   isGenerating = false,
   density,
   scrollable = true,
@@ -41,6 +42,11 @@ export function MessageList({
   density?: StreamDensity;
   /** Session for resolving image attachment refs; omitted → images stay as placeholders. */
   sessionId?: string | null;
+  /**
+   * Project the content belongs to (undefined → current session at click
+   * time). Sub-agent feeds pass their parent's project explicitly.
+   */
+  fileProjectId?: string | null;
   /** Round in flight for this feed — shows the bottom wave indicator. */
   isGenerating?: boolean;
   /**
@@ -81,6 +87,7 @@ export function MessageList({
                 blocks={row.blocks}
                 sessionId={sessionId}
                 footer={row.footer}
+                fileProjectId={fileProjectId}
               />
             );
           }
@@ -91,6 +98,7 @@ export function MessageList({
                   blocks={row.blocks}
                   density={effectiveDensity}
                   onOpenSubagent={onOpenSubagent}
+                  fileProjectId={fileProjectId}
                 />
                 {row.footer !== null && <MessageFooter message={row.footer} />}
               </div>
