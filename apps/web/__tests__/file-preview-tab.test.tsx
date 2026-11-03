@@ -18,7 +18,7 @@ describe('FilePreviewTab', () => {
     const { container } = render(<FilePreviewTab tab={tab('src/a.ts')} />);
     // highlight.js 拆分 keyword span，两行 `const` 产生多个匹配——断言非空而非单一元素
     expect((await screen.findAllByText(/const/)).length).toBeGreaterThan(0);
-    expect(container.querySelector('pre[aria-hidden]')).not.toBeNull(); // 行号槽
+    expect(container.querySelectorAll('[data-line]').length).toBe(3); // per-line gutter rows
   });
 
   it('renders markdown with a rendered/raw toggle', async () => {

@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
+import { splitHighlightedLines } from '@/lib/split-code-lines';
+import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';
 
 const LANG_BY_EXT: Readonly<Record<string, string>> = {
@@ -40,16 +42,46 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
   if (tab.kind !== 'file-preview') return null;
   // key=projectId:path：切换两个已打开的 file-preview 标签时重挂载，旧文件的
   // payload / error / 重试视图不得残留到新文件的加载期（同 FileTreeTab 的 key 模式）。
-  return <FilePreview key={`${tab.projectId}:${tab.path}`} projectId={tab.projectId} path={tab.path} />;
+  // line/endLine 不进 key：同行号切换只改目标行，不重挂载。
+  return (
+    <FilePreview
+      key={`${tab.projectId}:${tab.path}`}
+      projectId={tab.projectId}
+      path={tab.path}
+      line={tab.line}
+      endLine={tab.endLine}
+    />
+  );
 }
 
-function FilePreview({ projectId, path }: { projectId: string; path: string }) {
+function FilePreview({
+  projectId,
+  path,
+  line,
+  endLine,
+}: {
+  projectId: string;
+  path: string;
+  line?: number;
+  endLine?: number;
+}) {
   const t = useTranslations('pane');
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<{ payload: FsFilePayload | null; error: string | null }>({
     payload: null,
     error: null,
   });
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Bring the line target into view once the file is loaded, and again when a
+  // new click re-targets another line of the same open file. Anchors live in
+  // the code rows (`data-line`); markdown previews and images have none and
+  // simply stay put.
+  useEffect(() => {
+    if (state.payload === null || line === undefined) return;
+    const el = bodyRef.current?.querySelector(`[data-line="${line}"]`);
+    el?.scrollIntoView?.({ block: 'center' });
+  }, [state.payload, line, endLine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,7 +138,7 @@ function FilePreview({ projectId, path }: { projectId: string; path: string }) {
   const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
   const isMarkdown = MARKDOWN_EXTS.has(ext);
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
       {payload.truncated && (
         <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
           {t('filePreview.tooLarge', { size: payload.size })}
@@ -115,7 +147,7 @@ function FilePreview({ projectId, path }: { projectId: string; path: string }) {
       {isMarkdown ? (
         <MarkdownBody content={payload.content} />
       ) : (
-        <CodeBody code={payload.content} ext={ext} />
+        <CodeBody code={payload.content} ext={ext} line={line} endLine={endLine} />
       )}
     </div>
   );
@@ -142,22 +174,48 @@ function MarkdownBody({ content }: { content: string }) {
   );
 }
 
-function CodeBody({ code, ext }: { code: string; ext: string }) {
-  const t = useTranslations('pane');
+function CodeBody({
+  code,
+  ext,
+  line,
+  endLine,
+}: {
+  code: string;
+  ext: string;
+  line?: number;
+  endLine?: number;
+}) {
   const html = highlight(code, ext);
-  const lines = code.split('\n');
+  const lineHtml = html === null ? null : splitHighlightedLines(html);
+  const rawLines = code.split('\n');
   return (
-    <div className="flex min-h-0 flex-1 overflow-auto">
-      <pre aria-hidden className="bg-muted/40 text-muted-foreground/60 select-none px-2 py-2 text-right font-mono text-[11px] leading-5">
-        {lines.map((_, i) => `${i + 1}\n`).join('')}
-      </pre>
-      <pre className="flex-1 overflow-x-auto px-2 py-2 font-mono text-xs leading-5">
-        {html === null ? (
-          <code>{code}</code>
-        ) : (
-          <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
-        )}
-      </pre>
+    <div className="min-h-0 flex-1 overflow-auto py-1">
+      {rawLines.map((raw, i) => {
+        const n = i + 1;
+        const highlighted = line !== undefined && n >= line && n <= (endLine ?? line);
+        return (
+          <div
+            key={n}
+            data-line={n}
+            className={cn('flex w-max min-w-full', highlighted && 'bg-primary/10')}
+          >
+            <span
+              aria-hidden
+              className="text-muted-foreground/60 sticky left-0 z-[1] w-10 shrink-0 bg-inherit px-2 text-right font-mono text-[11px] leading-5 select-none"
+            >
+              {n}
+            </span>
+            {lineHtml === null ? (
+              <code className="flex-1 px-2 font-mono text-xs leading-5 whitespace-pre">{raw}</code>
+            ) : (
+              <code
+                className="hljs flex-1 px-2 font-mono text-xs leading-5 whitespace-pre"
+                dangerouslySetInnerHTML={{ __html: lineHtml[i] ?? '' }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
