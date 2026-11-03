@@ -7,12 +7,17 @@ vi.mock('next-themes', () => ({
 }));
 
 import { GeneralPanel } from '../GeneralPanel';
-import { readStreamDensity } from '@/lib/stream-density';
 import { usePreferencesStore } from '@/stores/preferences-store';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 describe('GeneralPanel', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200 }),
+    );
     usePreferencesStore.setState({ preferences: {}, loaded: true });
     vi.restoreAllMocks();
   });
@@ -22,12 +27,12 @@ describe('GeneralPanel', () => {
     render(<GeneralPanel />);
     expect(screen.getByText('显示模式')).toBeInTheDocument();
 
-    // Theme, density, default permission — density is the second one.
+    // Language, theme, density, default permission — density is the third.
     const selects = screen.getAllByRole('combobox');
-    await user.click(selects[1]!);
+    await user.click(selects[2]!);
     await user.click(await screen.findByRole('option', { name: '简约' }));
 
-    expect(readStreamDensity()).toBe('concise');
+    expect(usePreferencesStore.getState().preferences.streamDensity).toBe('concise');
   });
 
   it('persists the default permission for new sessions', async () => {
@@ -39,7 +44,7 @@ describe('GeneralPanel', () => {
     expect(screen.getByText('新会话默认权限')).toBeInTheDocument();
 
     const selects = screen.getAllByRole('combobox');
-    await user.click(selects[2]!);
+    await user.click(selects[3]!);
     await user.click(await screen.findByRole('option', { name: /自动/ }));
 
     expect(usePreferencesStore.getState().preferences.defaultPermissionMode).toBe('auto');

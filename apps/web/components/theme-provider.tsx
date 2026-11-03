@@ -2,23 +2,49 @@
 
 import * as React from 'react';
 import { ThemeProvider as NextThemesProvider, useTheme } from 'next-themes';
+import { usePreferencesStore } from '@/stores/preferences-store';
+
+/** Cookie cache of the stored theme, so the first server render is right. */
+export const THEME_COOKIE = 'volto_theme';
 
 function ThemeProvider({
   children,
+  initialTheme = 'system',
   ...props
-}: React.ComponentProps<typeof NextThemesProvider>) {
+}: React.ComponentProps<typeof NextThemesProvider> & {
+  /** Preference snapshot handed in by the server render (cookie cache). */
+  initialTheme?: 'light' | 'dark' | 'system';
+}) {
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
+      defaultTheme={initialTheme}
       enableSystem
       disableTransitionOnChange
       {...props}
     >
+      <ThemePreferenceSync />
       <ThemeHotkey />
       {children}
     </NextThemesProvider>
   );
+}
+
+/**
+ * The gateway preference is the source of truth; next-themes only keeps the
+ * rendered class in step. Once the preferences arrive (Sidebar loads them),
+ * a value that disagrees with the cached one wins.
+ */
+function ThemePreferenceSync() {
+  const { theme, setTheme } = useTheme();
+  const stored = usePreferencesStore((s) => s.preferences.theme);
+
+  React.useEffect(() => {
+    if (stored === undefined || stored === theme) return;
+    setTheme(stored);
+  }, [stored, theme, setTheme]);
+
+  return null;
 }
 
 function isTypingTarget(target: EventTarget | null) {

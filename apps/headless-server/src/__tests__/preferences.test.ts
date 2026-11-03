@@ -135,6 +135,27 @@ describe("preferences", () => {
     expect(await after.json()).toMatchObject({ locale: "en" });
   });
 
+  it("keeps display preferences and drops unsupported values", async () => {
+    const put = await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: "dark", streamDensity: "concise" }),
+    });
+    expect(put.status).toBe(200);
+
+    const read = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    expect(await read.json()).toMatchObject({ theme: "dark", streamDensity: "concise" });
+
+    // Unknown enum values are ignored rather than stored.
+    await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: "neon", streamDensity: "verbose" }),
+    });
+    const after = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    expect(await after.json()).toMatchObject({ theme: "dark", streamDensity: "concise" });
+  });
+
   it("writes the defaults to config.json", async () => {
     const raw = await fs.readFile(path.join(dir, "config.json"), "utf8");
     expect(JSON.parse(raw).preferences).toMatchObject({ defaultPermissionMode: "auto" });

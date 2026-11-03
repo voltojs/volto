@@ -1,11 +1,12 @@
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 
 import './globals.css';
-import { ThemeProvider } from '@/components/theme-provider';
+import { ThemeProvider, THEME_COOKIE } from '@/components/theme-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { NextIntlClientProvider } from 'next-intl';
+import { cookies } from 'next/headers';
 import { getLocale, getTranslations } from 'next-intl/server';
 
 // Fraunces carries the display headings — a warm, characterful serif with
@@ -40,6 +41,10 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getLocale();
+  const cookieStore = await cookies();
+  const cookieTheme = cookieStore.get(THEME_COOKIE)?.value;
+  const initialTheme =
+    cookieTheme === 'light' || cookieTheme === 'dark' ? cookieTheme : 'system';
   return (
     <html
       lang={locale === 'en' ? 'en' : 'zh-CN'}
@@ -54,7 +59,7 @@ export default async function RootLayout({
     >
       <body>
         <NextIntlClientProvider>
-          <ThemeProvider>
+          <ThemeProvider initialTheme={initialTheme}>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster />
           </ThemeProvider>

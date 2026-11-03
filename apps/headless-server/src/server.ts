@@ -1110,6 +1110,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         const patch: Record<string, unknown> = {};
         for (const key of [
           "locale",
+          "theme",
+          "streamDensity",
           "defaultPermissionMode",
           "lastProviderId",
           "lastModelId",

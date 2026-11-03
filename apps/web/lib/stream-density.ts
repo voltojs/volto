@@ -7,66 +7,35 @@
  *   reasoning is visible.
  * - `concise`: one line per tool call, reasoning hidden.
  *
- * Browser-local on purpose, like `reasoning-preferences.ts`: this is a
- * display preference, not part of a session's configuration, so it must not
- * travel with the transcript or diverge between a saved session and the
- * current one.
+ * The value is a user preference stored by the gateway (`preferences`
+ * section of `config.json`), like the theme and the UI language: it is a
+ * display choice that should follow the user across browsers and machines,
+ * not something the transcript carries. The store is therefore the only
+ * source — this module holds the type, the default and the hook.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useCallback } from 'react';
+import { usePreferencesStore } from '@/stores/preferences-store';
 
 export type StreamDensity = 'detailed' | 'concise';
 
 export const DEFAULT_STREAM_DENSITY: StreamDensity = 'detailed';
 
-const STORAGE_KEY = 'volto.stream-density.v1';
-
-/** Notified after every write so every subscribed component re-reads. */
-const listeners = new Set<() => void>();
-
-function isDensity(value: unknown): value is StreamDensity {
+/** Narrows an arbitrary stored value. */
+export function isStreamDensity(value: unknown): value is StreamDensity {
   return value === 'detailed' || value === 'concise';
 }
 
-/**
- * Reads the stored preference. Anything unparseable or unknown falls back to
- * the default rather than throwing — a hand-edited or stale value must not
- * break rendering.
- */
-export function readStreamDensity(): StreamDensity {
-  if (typeof window === 'undefined') return DEFAULT_STREAM_DENSITY;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return isDensity(raw) ? raw : DEFAULT_STREAM_DENSITY;
-  } catch {
-    return DEFAULT_STREAM_DENSITY;
-  }
-}
-
-/** Records an explicit choice. Storage failures (private mode, quota) are ignored. */
-export function writeStreamDensity(next: StreamDensity): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // A preference that cannot be saved is not worth failing a render over.
-  }
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 /** Current density plus the setter, shared across every chat surface. */
-export function useStreamDensity(): readonly [StreamDensity, (next: StreamDensity) => void] {
-  const density = useSyncExternalStore(
-    subscribe,
-    readStreamDensity,
-    () => DEFAULT_STREAM_DENSITY,
+export function useStreamDensity(): readonly [
+  StreamDensity,
+  (next: StreamDensity) => void,
+] {
+  const stored = usePreferencesStore((s) => s.preferences.streamDensity);
+  const save = usePreferencesStore((s) => s.save);
+  const set = useCallback(
+    (next: StreamDensity) => save({ streamDensity: next }),
+    [save],
   );
-  return [density, writeStreamDensity] as const;
+  return [isStreamDensity(stored) ? stored : DEFAULT_STREAM_DENSITY, set] as const;
 }

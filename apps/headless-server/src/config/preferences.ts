@@ -18,6 +18,22 @@ import { DEFAULT_LOCALE, isLocale, type Locale } from "@volto/i18n";
 export { isLocale };
 export type { Locale };
 
+/** Color scheme the Web shell renders in; "system" follows the OS. */
+export const THEMES = ["light", "dark", "system"] as const;
+export type Theme = (typeof THEMES)[number];
+
+/** How much execution detail the chat feed shows. */
+export const STREAM_DENSITIES = ["detailed", "concise"] as const;
+export type StreamDensity = (typeof STREAM_DENSITIES)[number];
+
+function isTheme(value: unknown): value is Theme {
+  return typeof value === "string" && (THEMES as readonly string[]).includes(value);
+}
+
+function isStreamDensity(value: unknown): value is StreamDensity {
+  return typeof value === "string" && (STREAM_DENSITIES as readonly string[]).includes(value);
+}
+
 /** Opaque ids: the server never interprets them, only hands them back. */
 export interface Preferences {
   /**
@@ -26,6 +42,10 @@ export interface Preferences {
    * Accept-Language, then "zh".
    */
   locale?: Locale;
+  /** Color scheme for the Web shell. Absent = follow the OS. */
+  theme?: Theme;
+  /** Execution-detail level for the chat feed. Absent = "detailed". */
+  streamDensity?: StreamDensity;
   /** Permission tier for a new session ("ask", "read-only", …). */
   defaultPermissionMode?: string;
   /** Last provider/model the user picked, applied to a new session. */
@@ -52,7 +72,7 @@ export function preferencesPath(dir: string = getConfigDir()): string {
 }
 
 /** The opaque-string preferences; `locale` is the one field with a domain. */
-type StringPreferenceKey = Exclude<keyof Preferences, "locale">;
+type StringPreferenceKey = Exclude<keyof Preferences, "locale" | "theme" | "streamDensity">;
 
 /**
  * Keeps only the fields this domain owns and only values it can honour: the
@@ -76,6 +96,10 @@ function normalizePreferences(raw: unknown): Preferences {
   str("titleModelId");
   const locale = record["locale"];
   if (isLocale(locale)) out.locale = locale;
+  const theme = record["theme"];
+  if (isTheme(theme)) out.theme = theme;
+  const density = record["streamDensity"];
+  if (isStreamDensity(density)) out.streamDensity = density;
   return out;
 }
 
@@ -102,6 +126,8 @@ export async function patchPreferences(
       // An unsupported value is ignored, not written: dropping it here keeps
       // the previously stored value instead of normalize() erasing the key.
       if (key === "locale" && !isLocale(value)) continue;
+      if (key === "theme" && !isTheme(value)) continue;
+      if (key === "streamDensity" && !isStreamDensity(value)) continue;
       if (key in current || value !== undefined) {
         (next as Record<string, unknown>)[key] = value;
       }

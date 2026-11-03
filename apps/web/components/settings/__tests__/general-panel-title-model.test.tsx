@@ -16,6 +16,10 @@ import { GeneralPanel } from '../GeneralPanel';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 // jsdom lacks the pointer-capture / scroll APIs Base UI's Select uses.
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};

@@ -1,6 +1,8 @@
 'use client';
 
 import { useTheme } from 'next-themes';
+import { useRouter } from 'next/navigation';
+import { Languages } from 'lucide-react';
 import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react';
 import {
   Item,
@@ -23,6 +25,7 @@ import { PermissionPicker } from '@/components/chat/PermissionPicker';
 import type { PermissionMode } from '@/stores/session-store';
 import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { LOCALE_COOKIE } from '@/i18n/locale';
 import { providerModels, useConfigStore } from '@/stores/config-store';
 import { isPermissionMode } from '@/lib/permission-mode';
 
@@ -30,6 +33,11 @@ const THEME_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'light', label: '浅色' },
   { value: 'dark', label: '深色' },
   { value: 'system', label: '跟随系统' },
+];
+
+const LANGUAGE_OPTIONS: Array<{ value: 'zh' | 'en'; label: string }> = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: 'English' },
 ];
 
 const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
@@ -76,6 +84,9 @@ export function GeneralPanel() {
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const { theme, setTheme } = useTheme();
   const [density, setDensity] = useStreamDensity();
+  const router = useRouter();
+  const savePreference = usePreferencesStore((s) => s.save);
+  const locale = usePreferencesStore((s) => s.preferences.locale) ?? 'zh';
   const defaultPermission = usePreferencesStore((s) => s.preferences.defaultPermissionMode);
   // 'plan' is not a choosable preset (it is entered via /plan), so a stored
   // value of 'plan' falls back to the picker's default rather than rendering
@@ -119,6 +130,41 @@ export function GeneralPanel() {
     <ItemGroup>
       <Item variant="outline">
         <ItemMedia variant="icon">
+          <Languages className="opacity-60" />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle>语言</ItemTitle>
+          <ItemDescription>界面与通知文案的语言。</ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <Select
+            items={LANGUAGE_OPTIONS}
+            value={locale}
+            onValueChange={(next) => {
+              const value = next === 'en' ? 'en' : 'zh';
+              savePreference({ locale: value });
+              document.cookie = `${LOCALE_COOKIE}=${value}; path=/; max-age=31536000; samesite=lax`;
+              router.refresh();
+            }}
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </ItemActions>
+      </Item>
+
+      <Item variant="outline">
+        <ItemMedia variant="icon">
           {/* Driven by the `.dark` class rather than a JS check: next-themes
               only knows the real theme after its blocking init script runs,
               so branching in JS here would flash the wrong icon. */}
@@ -135,7 +181,14 @@ export function GeneralPanel() {
           <Select
             items={THEME_OPTIONS}
             value={theme ?? 'system'}
-            onValueChange={(next) => setTheme(String(next))}
+            onValueChange={(next) => {
+              const value = String(next);
+              setTheme(value);
+              savePreference({ theme: value as 'light' | 'dark' | 'system' });
+              // Render cache for the next server render; the preference above
+              // stays the source of truth.
+              document.cookie = `volto_theme=${value}; path=/; max-age=31536000; samesite=lax`;
+            }}
           >
             <SelectTrigger size="sm" className="w-32">
               <SelectValue />
