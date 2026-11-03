@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
-import { usePaneStore } from '@/stores/pane-store';
+import { openFilePreview } from '@/stores/pane-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PaneTab } from '@/stores/pane-store';
@@ -105,12 +105,7 @@ function FileTree({ projectId }: { projectId: string }) {
   );
 
   const openPreview = useCallback((path: string) => {
-    usePaneStore.getState().openTab({
-      kind: 'file-preview',
-      id: `preview:${projectId}:${path}`,
-      projectId,
-      path,
-    });
+    openFilePreview(projectId, path);
   }, [projectId]);
 
   /** Exit search mode and reveal `dir` in the tree (expand every ancestor). */
