@@ -1,0 +1,46 @@
+{
+  "connection": {
+    "connected": "已连接 agent 服务",
+    "connecting": "正在连接 agent 服务…",
+    "disconnected": "未连接 agent 服务",
+    "failed": "无法连接 agent 服务：{error}",
+    "credentialsTitle": "会话凭据缺失或已失效。请在启动网关的终端里找到",
+    "credentialsAction": "那一行，打开它重新认证。"
+  },
+  "newSession": "新会话",
+  "workspaces": "工作区",
+  "addWorkspace": "添加工作区",
+  "waitingDialog": "正在等待系统对话框…",
+  "settings": "设置",
+  "toggle": {
+    "collapse": "收起侧栏",
+    "expand": "展开侧栏"
+  },
+  "project": {
+    "empty": "暂无项目",
+    "emptyHintPrefix": "点击右上角",
+    "emptyHintAction": "添加一个目录",
+    "menuAria": "工作区菜单",
+    "reveal": "在 Finder 中显示",
+    "revealUnsupported": "无法在文件管理器中显示",
+    "copyPath": "复制工作目录",
+    "copied": "已复制工作目录",
+    "copyFailed": "复制失败",
+    "delete": "删除工作区",
+    "deleteFailed": "删除项目失败",
+    "deleteConfirm": "确定删除工作区「{name}」吗？此操作无法撤销。",
+    "deleteConfirmWithSessions": "确定删除工作区「{name}」吗？其下的 {count} 个会话也将从侧栏消失，且无法恢复。",
+    "newConversation": "新建对话",
+    "noSessions": "暂无会话"
+  },
+  "session": {
+    "untitled": "未命名会话",
+    "rename": "重命名",
+    "delete": "删除会话",
+    "deleteBlocked": "会话正在生成中，无法删除",
+    "updatedAt": "更新于 {time}",
+    "deleteConfirm": "确定删除会话「{title}」吗？此操作无法撤销。"
+  },
+  "cancel": "取消",
+  "delete": "删除"
+}

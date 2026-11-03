@@ -16,9 +16,16 @@ afterEach(cleanup);
 // The layout-level Provider wiring is covered by the RSC render itself.
 import { vi } from 'vitest';
 import zhChat from './messages/zh/chat.json';
+import zhSidebar from './messages/zh/sidebar.json';
+import zhPane from './messages/zh/pane.json';
 import zhCommon from './messages/zh/common.json';
 
-const CATALOGS: Record<string, unknown> = { chat: zhChat, common: zhCommon };
+const CATALOGS: Record<string, unknown> = {
+  chat: zhChat,
+  common: zhCommon,
+  sidebar: zhSidebar,
+  pane: zhPane,
+};
 
 function lookup(namespace: string, key: string): unknown {
   let node: unknown = CATALOGS[namespace];

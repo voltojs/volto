@@ -1,0 +1,46 @@
+{
+  "connection": {
+    "connected": "Connected to the agent service",
+    "connecting": "Connecting to the agent service…",
+    "disconnected": "Not connected to the agent service",
+    "failed": "Cannot reach the agent service: {error}",
+    "credentialsTitle": "The session credential is missing or expired. In the terminal running the gateway, find",
+    "credentialsAction": "and open it to authenticate again."
+  },
+  "newSession": "New session",
+  "workspaces": "Workspaces",
+  "addWorkspace": "Add workspace",
+  "waitingDialog": "Waiting for the system dialog…",
+  "settings": "Settings",
+  "toggle": {
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
+  },
+  "project": {
+    "empty": "No projects yet",
+    "emptyHintPrefix": "Use the button at the top right to",
+    "emptyHintAction": "add a directory",
+    "menuAria": "Workspace menu",
+    "reveal": "Show in Finder",
+    "revealUnsupported": "Cannot reveal in the file manager",
+    "copyPath": "Copy working directory",
+    "copied": "Working directory copied",
+    "copyFailed": "Copy failed",
+    "delete": "Delete workspace",
+    "deleteFailed": "Could not delete the project",
+    "deleteConfirm": "Delete workspace “{name}”? This cannot be undone.",
+    "deleteConfirmWithSessions": "Delete workspace “{name}”? Its {count} sessions will also disappear from the sidebar, and cannot be recovered.",
+    "newConversation": "New conversation",
+    "noSessions": "No sessions yet"
+  },
+  "session": {
+    "untitled": "Untitled session",
+    "rename": "Rename",
+    "delete": "Delete session",
+    "deleteBlocked": "Generating — cannot delete",
+    "updatedAt": "Updated {time}",
+    "deleteConfirm": "Delete session “{title}”? This cannot be undone."
+  },
+  "cancel": "Cancel",
+  "delete": "Delete"
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ export function ConfirmDeleteDialog({
   description,
   onConfirm,
 }: ConfirmDeleteDialogProps) {
+  const t = useTranslations('sidebar');
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       {/* React portals still bubble events through the React tree, so without
@@ -47,7 +49,7 @@ export function ConfirmDeleteDialog({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
             onClick={() => {
@@ -55,7 +57,7 @@ export function ConfirmDeleteDialog({
               onConfirm();
             }}
           >
-            删除
+            {t('delete')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

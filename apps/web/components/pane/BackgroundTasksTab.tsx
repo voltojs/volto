@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import { useBackgroundTasks } from '@/hooks/use-background-tasks';
 import { usePaneStore, type PaneTab } from '@/stores/pane-store';
@@ -18,9 +19,11 @@ function openSubagentChat(childSessionId: string): void {
 }
 
 function TaskRow({ item }: { item: BackgroundTaskItem }) {
+  const t = useTranslations('pane');
   const isRunning = item.status === 'running';
   const [now, setNow] = useState<number | undefined>(undefined);
   useEffect(() => {
+  const t = useTranslations('pane');
     if (!isRunning) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -36,7 +39,7 @@ function TaskRow({ item }: { item: BackgroundTaskItem }) {
   return (
     <button
       type="button"
-      aria-label={item.title ? item.title : `子智能体 ${item.childSessionId.slice(-6)}`}
+      aria-label={item.title ? item.title : t('background.subagent', { suffix: item.childSessionId.slice(-6) })}
       onClick={() => openSubagentChat(item.childSessionId)}
       className={cn(
         'bg-card/60 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-md border px-2.5 py-2 text-left text-xs',
@@ -50,7 +53,7 @@ function TaskRow({ item }: { item: BackgroundTaskItem }) {
           {isRunning ? (
             <>
               <LoaderCircle className="h-3 w-3 animate-spin" />
-              <span>运行中</span>
+              <span>{t('background.running')}</span>
               {elapsed && <span>{elapsed}</span>}
             </>
           ) : (
@@ -73,12 +76,13 @@ function TaskRow({ item }: { item: BackgroundTaskItem }) {
 }
 
 export function BackgroundTasksTab({ tab }: { tab: PaneTab }) {
+  const t = useTranslations('pane');
   const tasks = useBackgroundTasks();
   if (tab.kind !== 'tasks') return null;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-3">
       {tasks.length === 0 ? (
-        <p className="text-muted-foreground p-2 text-sm">当前对话暂无后台任务</p>
+        <p className="text-muted-foreground p-2 text-sm">{t('background.empty')}</p>
       ) : (
         tasks.map((item) => <TaskRow key={item.id} item={item} />)
       )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
 import { usePaneStore } from '@/stores/pane-store';
@@ -22,6 +23,7 @@ export function FileTreeTab({ tab }: { tab: PaneTab }) {
 }
 
 function FileTree({ projectId }: { projectId: string }) {
+  const t = useTranslations('pane');
   const [tree, setTree] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
@@ -35,6 +37,7 @@ function FileTree({ projectId }: { projectId: string }) {
     (rel: string) =>
       fetchFsTree(projectId, rel)
         .then((result) => {
+  const t = useTranslations('pane');
           setTree((t) => ({ ...t, [rel]: result.entries }));
         })
         .catch((err: unknown) => {
@@ -141,7 +144,7 @@ function FileTree({ projectId }: { projectId: string }) {
       <div className="flex flex-col items-start gap-3 p-4">
         <p className="text-destructive text-sm">{error}</p>
         <Button variant="outline" size="sm" onClick={reload}>
-          重试
+          {t('fileTree.retry')}
         </Button>
       </div>
     );
@@ -163,10 +166,10 @@ function FileTree({ projectId }: { projectId: string }) {
               setSearching(true);
             }
           }}
-          placeholder="搜索文件或目录"
+          placeholder={t('fileTree.search')}
           className="h-7 text-xs"
         />
-        <Button variant="ghost" size="icon" aria-label="刷新" className="h-7 w-7 shrink-0"
+        <Button variant="ghost" size="icon" aria-label={t('fileTree.refresh')} className="h-7 w-7 shrink-0"
           onClick={reload}>
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
@@ -174,9 +177,9 @@ function FileTree({ projectId }: { projectId: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm">
         {matches !== null ? (
           searching ? (
-            <p className="text-muted-foreground p-2 text-xs">搜索中…</p>
+            <p className="text-muted-foreground p-2 text-xs">{t('fileTree.searching')}</p>
           ) : matches.length === 0 ? (
-            <p className="text-muted-foreground p-2 text-xs">无匹配文件或目录</p>
+            <p className="text-muted-foreground p-2 text-xs">{t('fileTree.noMatch')}</p>
           ) : (
             matches.map((m) => (
               <button
@@ -219,11 +222,12 @@ interface TreeNodesProps {
 }
 
 function TreeNodes({ rel, entries, tree, expanded, onToggle, onOpen }: TreeNodesProps) {
+  const t = useTranslations('pane');
   if (entries === undefined) {
-    return <p className="text-muted-foreground p-2 text-xs">加载中…</p>;
+    return <p className="text-muted-foreground p-2 text-xs">{t('fileTree.loading')}</p>;
   }
   if (entries.length === 0) {
-    return <p className="text-muted-foreground p-2 text-xs">空目录</p>;
+    return <p className="text-muted-foreground p-2 text-xs">{t('fileTree.emptyDir')}</p>;
   }
   return (
     <ul>

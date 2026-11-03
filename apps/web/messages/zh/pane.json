@@ -1,0 +1,65 @@
+{
+  "tabs": {
+    "files": "文件",
+    "tasks": "任务",
+    "gitGraph": "Git 图谱",
+    "plan": "计划",
+    "subagent": "子代理 …{suffix}",
+    "add": "添加面板",
+    "close": "关闭 {title}"
+  },
+  "overview": {
+    "open": "打开一个面板"
+  },
+  "background": {
+    "running": "运行中",
+    "empty": "当前对话暂无后台任务",
+    "subagent": "子智能体 {suffix}"
+  },
+  "filePreview": {
+    "loading": "加载文件…",
+    "retry": "重试",
+    "binary": "不支持预览二进制文件（{size} 字节）",
+    "tooLarge": "文件过大，仅显示前 512 KB（完整 {size} 字节）",
+    "render": "渲染",
+    "raw": "原文"
+  },
+  "fileTree": {
+    "retry": "重试",
+    "search": "搜索文件或目录",
+    "refresh": "刷新",
+    "searching": "搜索中…",
+    "noMatch": "无匹配文件或目录",
+    "loading": "加载中…",
+    "emptyDir": "空目录"
+  },
+  "gitGraph": {
+    "retry": "重试",
+    "loading": "加载图谱…",
+    "commits": "{count} 个提交",
+    "truncated": "（已截断）",
+    "refresh": "刷新",
+    "empty": "无提交",
+    "selectCommit": "选择一个提交查看详情",
+    "loadingDetail": "加载详情…",
+    "parents": "父提交: {parents}"
+  },
+  "plan": {
+    "execute": "按计划执行",
+    "loading": "加载计划…",
+    "empty": "尚无计划文档"
+  },
+  "subagent": {
+    "running": "执行中",
+    "done": "已完成",
+    "doneDuration": "已完成 · {duration}",
+    "failed": "失败",
+    "chat": "对话",
+    "trajectory": "轨迹",
+    "loading": "加载执行记录…",
+    "empty": "无执行记录",
+    "retry": "重试",
+    "runningHint": "子代理执行中，结束后可继续对话",
+    "missingHint": "父会话不可用或缺少项目或模型绑定"
+  }
+}

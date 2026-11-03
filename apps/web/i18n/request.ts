@@ -10,12 +10,16 @@ import { cookies, headers } from 'next/headers';
 import { LOCALE_COOKIE, resolveLocale } from './locale';
 import zhCommon from '../messages/zh/common.json';
 import zhChat from '../messages/zh/chat.json';
+import zhSidebar from '../messages/zh/sidebar.json';
+import zhPane from '../messages/zh/pane.json';
 import enCommon from '../messages/en/common.json';
 import enChat from '../messages/en/chat.json';
+import enSidebar from '../messages/en/sidebar.json';
+import enPane from '../messages/en/pane.json';
 
 const MESSAGES = {
-  zh: { common: zhCommon, chat: zhChat },
-  en: { common: enCommon, chat: enChat },
+  zh: { common: zhCommon, chat: zhChat, sidebar: zhSidebar, pane: zhPane },
+  en: { common: enCommon, chat: enChat, sidebar: enSidebar, pane: enPane },
 } as const;
 
 export default getRequestConfig(async () => {

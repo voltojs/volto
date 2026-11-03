@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +27,7 @@ export function GitGraphTab({ tab }: { tab: PaneTab }) {
 }
 
 function GitGraphView({ projectId }: { projectId: string }) {
+  const t = useTranslations('pane');
   const [nonce, setNonce] = useState(0);
   const [graph, setGraph] = useState<{
     payload: GitGraph | null;
@@ -42,6 +44,7 @@ function GitGraphView({ projectId }: { projectId: string }) {
   // a remount race) must not overwrite the current view. setState only lands
   // in the promise callbacks — never synchronously in the effect body.
   useEffect(() => {
+  const t = useTranslations('pane');
     let cancelled = false;
     fetchGitGraph(projectId, GRAPH_LIMIT).then(
       (payload) => {
@@ -106,7 +109,7 @@ function GitGraphView({ projectId }: { projectId: string }) {
       <div className="flex flex-col items-start gap-3 p-4">
         <p className="text-destructive text-sm">{graph.error}</p>
         <Button variant="outline" size="sm" onClick={reload}>
-          重试
+          {t('gitGraph.retry')}
         </Button>
       </div>
     );
@@ -114,20 +117,20 @@ function GitGraphView({ projectId }: { projectId: string }) {
 
   const payload = graph.payload;
   if (payload === null) {
-    return <div className="text-muted-foreground p-4 text-sm">加载图谱…</div>;
+    return <div className="text-muted-foreground p-4 text-sm">{t('gitGraph.loading')}</div>;
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <p className="text-muted-foreground text-xs">
-          {payload.nodes.length} 个提交
-          {payload.truncated ? '（已截断）' : ''}
+          {t('gitGraph.commits', { count: payload.nodes.length })}
+          {payload.truncated ? t('gitGraph.truncated') : ''}
         </p>
         <Button
           variant="ghost"
           size="icon"
-          aria-label="刷新"
+          aria-label={t('gitGraph.refresh')}
           className="h-7 w-7 shrink-0"
           onClick={reload}
         >
@@ -135,7 +138,7 @@ function GitGraphView({ projectId }: { projectId: string }) {
         </Button>
       </div>
       {payload.nodes.length === 0 ? (
-        <p className="text-muted-foreground p-4 text-sm">无提交</p>
+        <p className="text-muted-foreground p-4 text-sm">{t('gitGraph.empty')}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* overflow-x-hidden: long ref badges must not create a horizontal
@@ -236,14 +239,15 @@ function CommitDetail({
     loading: boolean;
   };
 }) {
+  const t = useTranslations('pane');
   return (
     <div className={`min-h-0 overflow-y-auto p-3 ${className}`}>
       {selectedHash === null ? (
-        <p className="text-muted-foreground text-sm">选择一个提交查看详情</p>
+        <p className="text-muted-foreground text-sm">{t('gitGraph.selectCommit')}</p>
       ) : detail.error !== null ? (
         <p className="text-destructive text-sm">{detail.error}</p>
       ) : detail.loading || detail.payload === null ? (
-        <p className="text-muted-foreground text-sm">加载详情…</p>
+        <p className="text-muted-foreground text-sm">{t('gitGraph.loadingDetail')}</p>
       ) : (
         <CommitDetailBody detail={detail.payload} />
       )}
@@ -252,6 +256,7 @@ function CommitDetail({
 }
 
 function CommitDetailBody({ detail }: { detail: GitCommitDetail }) {
+  const t = useTranslations('pane');
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="font-mono text-xs break-all">{detail.hash}</p>
@@ -266,7 +271,7 @@ function CommitDetailBody({ detail }: { detail: GitCommitDetail }) {
       )}
       {detail.parents.length > 0 && (
         <p className="text-muted-foreground font-mono text-[11px]">
-          父提交: {detail.parents.map((p) => p.slice(0, 7)).join(' ')}
+          {t('gitGraph.parents', { parents: detail.parents.map((p) => p.slice(0, 7)).join(' ') })}
         </p>
       )}
       {detail.files.length > 0 && (

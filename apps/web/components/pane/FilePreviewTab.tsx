@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
@@ -43,6 +44,7 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
 }
 
 function FilePreview({ projectId, path }: { projectId: string; path: string }) {
+  const t = useTranslations('pane');
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<{ payload: FsFilePayload | null; error: string | null }>({
     payload: null,
@@ -78,19 +80,19 @@ function FilePreview({ projectId, path }: { projectId: string; path: string }) {
             setNonce((n) => n + 1);
           }}
         >
-          重试
+          {t('filePreview.retry')}
         </Button>
       </div>
     );
   }
   const payload = state.payload;
   if (payload === null) {
-    return <div className="text-muted-foreground p-4 text-sm">加载文件…</div>;
+    return <div className="text-muted-foreground p-4 text-sm">{t('filePreview.loading')}</div>;
   }
   if (payload.kind === 'binary') {
     return (
       <div className="text-muted-foreground p-4 text-sm">
-        不支持预览二进制文件（{payload.size} 字节）
+        {t('filePreview.binary', { size: payload.size })}
       </div>
     );
   }
@@ -107,7 +109,7 @@ function FilePreview({ projectId, path }: { projectId: string; path: string }) {
     <div className="flex min-h-0 flex-1 flex-col">
       {payload.truncated && (
         <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
-          文件过大，仅显示前 512 KB（完整 {payload.size} 字节）
+          {t('filePreview.tooLarge', { size: payload.size })}
         </div>
       )}
       {isMarkdown ? (
@@ -120,12 +122,13 @@ function FilePreview({ projectId, path }: { projectId: string; path: string }) {
 }
 
 function MarkdownBody({ content }: { content: string }) {
+  const t = useTranslations('pane');
   const [raw, setRaw] = useState(false);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 justify-end border-b px-3 py-1">
         <Button variant="ghost" size="sm" onClick={() => setRaw((r) => !r)}>
-          {raw ? '渲染' : '原文'}
+          {raw ? t('filePreview.render') : t('filePreview.raw')}
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -140,6 +143,7 @@ function MarkdownBody({ content }: { content: string }) {
 }
 
 function CodeBody({ code, ext }: { code: string; ext: string }) {
+  const t = useTranslations('pane');
   const html = highlight(code, ext);
   const lines = code.split('\n');
   return (

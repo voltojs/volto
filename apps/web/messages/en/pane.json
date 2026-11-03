@@ -1,0 +1,65 @@
+{
+  "tabs": {
+    "files": "Files",
+    "tasks": "Tasks",
+    "gitGraph": "Git graph",
+    "plan": "Plan",
+    "subagent": "Subagent …{suffix}",
+    "add": "Add panel",
+    "close": "Close {title}"
+  },
+  "overview": {
+    "open": "Open a panel"
+  },
+  "background": {
+    "running": "Running",
+    "empty": "No background tasks in this conversation",
+    "subagent": "Subagent {suffix}"
+  },
+  "filePreview": {
+    "loading": "Loading file…",
+    "retry": "Retry",
+    "binary": "Binary files cannot be previewed ({size} bytes)",
+    "tooLarge": "File too large — showing the first 512 KB (of {size} bytes)",
+    "render": "Rendered",
+    "raw": "Raw"
+  },
+  "fileTree": {
+    "retry": "Retry",
+    "search": "Search files or directories",
+    "refresh": "Refresh",
+    "searching": "Searching…",
+    "noMatch": "No matching files or directories",
+    "loading": "Loading…",
+    "emptyDir": "Empty directory"
+  },
+  "gitGraph": {
+    "retry": "Retry",
+    "loading": "Loading graph…",
+    "commits": "{count} commits",
+    "truncated": " (truncated)",
+    "refresh": "Refresh",
+    "empty": "No commits",
+    "selectCommit": "Select a commit to see its details",
+    "loadingDetail": "Loading details…",
+    "parents": "Parents: {parents}"
+  },
+  "plan": {
+    "execute": "Execute the plan",
+    "loading": "Loading plan…",
+    "empty": "No plan document yet"
+  },
+  "subagent": {
+    "running": "Running",
+    "done": "Done",
+    "doneDuration": "Done · {duration}",
+    "failed": "Failed",
+    "chat": "Chat",
+    "trajectory": "Trace",
+    "loading": "Loading the execution record…",
+    "empty": "No execution record",
+    "retry": "Retry",
+    "runningHint": "The subagent is still running; you can continue the conversation when it finishes",
+    "missingHint": "The parent session is unavailable or lacks a project or model binding"
+  }
+}

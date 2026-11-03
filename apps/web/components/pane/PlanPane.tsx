@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Markdown } from '@/components/chat/Markdown';
 import { Button } from '@/components/ui/button';
 import { fetchPlan } from '@/lib/sessions-api';
@@ -27,6 +28,7 @@ export function PlanPane({
   canExecute,
   onExecute,
 }: PlanPaneProps) {
+  const t = useTranslations('pane');
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
@@ -38,7 +40,7 @@ export function PlanPane({
       </div>
       <div className="border-t p-3">
         <Button className="w-full" disabled={!canExecute} onClick={onExecute}>
-          按计划执行
+          {t('plan.execute')}
         </Button>
       </div>
     </div>
@@ -66,6 +68,7 @@ export function PlanTab({
   tab: PaneTab;
   onExecutePlan?: (sessionId: string) => void;
 }) {
+  const t = useTranslations('pane');
   // hooks 无条件调用（rules-of-hooks）：kind 窄化走三元派生，非本类标签
   // 在渲染处返回 null。tab.kind 对同一挂载实例恒定（换 kind 即换组件类型
   // → remount），钩子顺序稳定。
@@ -123,7 +126,7 @@ export function PlanTab({
   if (planState.status !== 'ready') {
     return (
       <div className="text-muted-foreground p-4 text-sm">
-        {planState.status === 'loading' ? '加载计划…' : '尚无计划文档'}
+        {planState.status === 'loading' ? t('plan.loading') : t('plan.empty')}
       </div>
     );
   }

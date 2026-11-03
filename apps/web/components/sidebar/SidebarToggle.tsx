@@ -1,6 +1,7 @@
 'use client';
 
 import { useSessionStore } from '@/stores/session-store';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -11,6 +12,7 @@ import { Kbd } from '@/components/ui/kbd';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 
 export function SidebarToggle() {
+  const t = useTranslations('sidebar');
   const { sidebarOpen, toggleSidebar } = useSessionStore();
 
   return (
@@ -21,7 +23,7 @@ export function SidebarToggle() {
             variant="ghost"
             size="icon"
             onClick={toggleSidebar}
-            aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
+            aria-label={sidebarOpen ? t('toggle.collapse') : t('toggle.expand')}
           />
         }
       >
@@ -32,7 +34,7 @@ export function SidebarToggle() {
         )}
       </TooltipTrigger>
       <TooltipContent>
-        {sidebarOpen ? '收起侧栏' : '展开侧栏'} <Kbd>⌘B</Kbd>
+        {sidebarOpen ? t('toggle.collapse') : t('toggle.expand')} <Kbd>⌘B</Kbd>
       </TooltipContent>
     </Tooltip>
   );

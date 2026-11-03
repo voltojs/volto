@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ComponentType, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Bot,
@@ -91,20 +92,21 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
   }
 }
 
-function tabTitle(tab: PaneTab): string {
+/** Catalog key for a pane tab's label; file previews show the file name. */
+function tabTitleKey(tab: PaneTab): string {
   switch (tab.kind) {
     case 'subagent':
-      return `子代理 …${tab.childSessionId.slice(-6)}`;
+      return 'tabs.subagent';
     case 'files':
-      return '文件';
+      return 'tabs.files';
     case 'git-graph':
-      return 'Git 图谱';
+      return 'tabs.gitGraph';
     case 'tasks':
-      return '任务';
+      return 'tabs.tasks';
     case 'plan':
-      return '计划';
+      return 'tabs.plan';
     case 'file-preview':
-      return tab.path.split('/').at(-1) ?? tab.path;
+      return '';
   }
 }
 
@@ -118,6 +120,7 @@ function ActiveTabBody({
 }
 
 function PlusMenu({ projectId }: { projectId: string }) {
+  const t = useTranslations('pane');
   const [open, setOpen] = useState(false);
   return (
     <Popover
@@ -127,7 +130,7 @@ function PlusMenu({ projectId }: { projectId: string }) {
       }}
     >
       <PopoverTrigger
-        aria-label="添加面板"
+        aria-label={t('tabs.add')}
         className="hover:bg-muted text-muted-foreground hover:text-foreground ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded"
       >
         <Plus className="h-3.5 w-3.5" />
@@ -153,6 +156,7 @@ interface RightPaneProps {
 }
 
 export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
+  const t = useTranslations('pane');
   const tabs = usePaneStore((s) => s.tabs);
   const activeTabId = usePaneStore((s) => s.activeTabId);
   const open = usePaneStore((s) => s.open);
@@ -214,7 +218,10 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
           <div className="flex shrink-0 items-center overflow-x-auto border-b">
             {tabs.map((tab) => {
               const Icon = tabIcon(tab);
-              const title = tabTitle(tab);
+              const title =
+                tab.kind === 'file-preview'
+                  ? (tab.path.split('/').at(-1) ?? tab.path)
+                  : t(tabTitleKey(tab), { suffix: tab.kind === 'subagent' ? tab.childSessionId.slice(-6) : '' });
               const active = tab.id === activeTab.id;
               return (
                 <div
@@ -236,7 +243,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
                   </button>
                   <button
                     type="button"
-                    aria-label={`关闭 ${title}`}
+                    aria-label={t('tabs.close', { title })}
                     onClick={() => closeTab(tab.id)}
                     className="hover:bg-muted hover:text-foreground rounded p-0.5"
                   >

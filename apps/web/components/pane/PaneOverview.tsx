@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ComponentType } from 'react';
 import { ClipboardList, FolderTree, GitBranch, ListTodo } from 'lucide-react';
 import { fetchGitSummary, type GitSummary } from '@/lib/git-api';
@@ -52,6 +53,7 @@ function PaneCategoryItemsInner({
   projectId: string;
   onSelected?: () => void;
 }) {
+  const t = useTranslations('pane');
   const [summary, setSummary] = useState<GitSummary | null>(null);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const [hasPlan, setHasPlan] = useState(false);
@@ -101,7 +103,7 @@ function PaneCategoryItemsInner({
     <div className="flex flex-col gap-0.5">
       <CategoryButton
         icon={FolderTree}
-        label="文件"
+        label={t('tabs.files')}
         onClick={() => {
           openPaneCategory(projectId, 'files');
           onSelected?.();
@@ -109,7 +111,7 @@ function PaneCategoryItemsInner({
       />
       <CategoryButton
         icon={ListTodo}
-        label="任务"
+        label={t('tabs.tasks')}
         onClick={() => {
           openTasksTab();
           onSelected?.();
@@ -118,7 +120,7 @@ function PaneCategoryItemsInner({
       {summary?.isGit === true && (
         <CategoryButton
           icon={GitBranch}
-          label="Git 图谱"
+          label={t('tabs.gitGraph')}
           onClick={() => {
             openPaneCategory(projectId, 'git-graph');
             onSelected?.();
@@ -130,7 +132,7 @@ function PaneCategoryItemsInner({
         // 的标签同 id（openTab 按 id 去重，重开等于激活）。
         <CategoryButton
           icon={ClipboardList}
-          label="计划"
+          label={t('tabs.plan')}
           onClick={() => {
             usePaneStore.getState().openTab({
               kind: 'plan',
@@ -171,9 +173,10 @@ function CategoryButton({
  * same categories as the "+" menu so the user can pick a first panel.
  */
 export function PaneOverview({ projectId }: { projectId: string }) {
+  const t = useTranslations('pane');
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-      <p className="text-muted-foreground text-xs">打开一个面板</p>
+      <p className="text-muted-foreground text-xs">{t('overview.open')}</p>
       <PaneCategoryItems projectId={projectId} />
     </div>
   );

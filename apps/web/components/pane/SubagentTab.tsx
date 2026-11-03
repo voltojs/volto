@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useChatStore } from '@/stores/chat-store';
 import {
   useSessionStore,
@@ -39,6 +40,7 @@ import type { PaneTab } from '@/stores/pane-store';
  * 关闭职责归 RightPane 标签栏，本组件不渲染关闭按钮。
  */
 export function SubagentTab({ tab }: { tab: PaneTab }) {
+  const t = useTranslations('pane');
   // hooks 无条件调用（rules-of-hooks）：kind 窄化走三元派生，非本类标签
   // 在渲染处返回 null。tab.kind 对同一挂载实例恒定（换 kind 即换组件类型
   // → remount），钩子顺序稳定。
@@ -121,12 +123,12 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
       <div className="flex items-center gap-2 border-b px-3 py-2 text-xs">
         <span className="text-foreground/90 font-mono">task</span>
         <span className="text-muted-foreground">
-          {bucket?.status === 'running' && '执行中'}
+          {bucket?.status === 'running' && t('subagent.running')}
           {bucket?.status === 'done' &&
             (bucket.durationMs !== undefined
-              ? `已完成 · ${formatDuration(bucket.durationMs)}`
-              : '已完成')}
-          {bucket?.status === 'error' && <span className="text-destructive">失败</span>}
+              ? t('subagent.doneDuration', { duration: formatDuration(bucket.durationMs) ?? '' })
+              : t('subagent.done'))}
+          {bucket?.status === 'error' && <span className="text-destructive">{t('subagent.failed')}</span>}
         </span>
         <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[10px]">
           {childId}
@@ -142,19 +144,19 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <TabsList className="mx-3 mt-2">
-          <TabsTrigger value="chat">对话</TabsTrigger>
-          <TabsTrigger value="trajectory">轨迹</TabsTrigger>
+          <TabsTrigger value="chat">{t('subagent.chat')}</TabsTrigger>
+          <TabsTrigger value="trajectory">{t('subagent.trajectory')}</TabsTrigger>
         </TabsList>
         {/* 对话：keepMounted 保滚动；行为矩阵逐行平移自旧版独立执行分栏。 */}
         <TabsContent value="chat" keepMounted className="flex min-h-0 flex-1 flex-col">
           <ConversationColumn>
             {feed.isLoading ? (
-              <div className="text-muted-foreground p-4 text-sm">加载执行记录…</div>
+              <div className="text-muted-foreground p-4 text-sm">{t('subagent.loading')}</div>
             ) : feed.error !== null ? (
               <div className="flex flex-col items-start gap-3 p-4">
                 <p className="text-destructive text-sm">{feed.error}</p>
                 <Button variant="outline" size="sm" onClick={feed.retry}>
-                  重试
+                  {t('subagent.retry')}
                 </Button>
               </div>
             ) : bucket?.status === 'running' ? (
@@ -165,7 +167,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 density={streamDensity}
               />
             ) : feed.entries.length === 0 ? (
-              <div className="text-muted-foreground p-4 text-sm">无执行记录</div>
+              <div className="text-muted-foreground p-4 text-sm">{t('subagent.empty')}</div>
             ) : (
               <MessageList
                 entries={feed.entries}
@@ -193,9 +195,9 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
             projectId={parent?.projectId ?? null}
             placeholder={
               running
-                ? '子代理执行中，结束后可继续对话'
+                ? t('subagent.runningHint')
                 : missing
-                  ? '父会话不可用或缺少项目或模型绑定'
+                  ? t('subagent.missingHint')
                   : undefined
             }
             toolbar={
@@ -244,6 +246,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
  * 行详情——抽屉由主轨迹面板渲染，这里只负责写入行快照。
  */
 function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
+  const t = useTranslations('pane');
   const stored = useStoredRows(sessionId);
   if (stored.error !== null) {
     return (
@@ -259,7 +262,7 @@ function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
         </p>
         {stored.error.kind === 'network' && (
           <Button variant="outline" size="sm" onClick={stored.retry}>
-            重试
+            {t('subagent.retry')}
           </Button>
         )}
       </div>

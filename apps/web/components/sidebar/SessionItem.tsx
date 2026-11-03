@@ -1,6 +1,7 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,6 +57,7 @@ export function SessionItem({
   onClick,
   onDelete,
 }: SessionItemProps) {
+  const t = useTranslations('sidebar');
   const [showActions, setShowActions] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const titleRef = useRef<HTMLSpanElement>(null);
@@ -157,7 +159,7 @@ export function SessionItem({
                     : undefined
                 }
               >
-                {session.title || '未命名会话'}
+                {session.title || t('session.untitled')}
               </span>
             </span>
           )}
@@ -174,7 +176,7 @@ export function SessionItem({
                   e.stopPropagation();
                   onStartEdit();
                 }}
-                aria-label="重命名"
+                aria-label={t('session.rename')}
               >
                 <Pencil className="h-3 w-3" />
               </Button>
@@ -187,8 +189,8 @@ export function SessionItem({
                   setConfirmOpen(true);
                 }}
                 disabled={isGenerating}
-                aria-label={isGenerating ? '会话正在生成中，无法删除' : '删除会话'}
-                title={isGenerating ? '会话正在生成中，无法删除' : undefined}
+                aria-label={isGenerating ? t('session.deleteBlocked') : t('session.delete')}
+                title={isGenerating ? t('session.deleteBlocked') : undefined}
               >
                 <Trash2 className="h-3 w-3" />
               </Button>
@@ -198,10 +200,10 @@ export function SessionItem({
         <TooltipContent side="right" align="start">
           <span className="flex flex-col gap-1">
             <span className="font-medium">
-              {session.title || '未命名会话'}
+              {session.title || t('session.untitled')}
             </span>
             <span className="opacity-70">
-              更新于 {updatedFormatter.format(session.updatedAt)}
+              {t('session.updatedAt', { time: updatedFormatter.format(session.updatedAt) })}
             </span>
           </span>
         </TooltipContent>
@@ -213,8 +215,8 @@ export function SessionItem({
       <ConfirmDeleteDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="删除会话"
-        description={`确定删除会话「${session.title || '未命名会话'}」吗？此操作无法撤销。`}
+        title={t('session.delete')}
+        description={t('session.deleteConfirm', { title: session.title || t('session.untitled') })}
         onConfirm={onDelete}
       />
     </>

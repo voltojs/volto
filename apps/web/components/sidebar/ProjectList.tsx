@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   ChevronRight,
   Copy,
@@ -37,6 +38,7 @@ import { SessionItem } from './SessionItem';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 
 export function ProjectList() {
+  const t = useTranslations('sidebar');
   const projects = useConfigStore((s) => s.projects);
   const removeProject = useConfigStore((s) => s.removeProject);
   const sessions = useSessionStore((s) => s.sessions);
@@ -82,7 +84,7 @@ export function ProjectList() {
     try {
       await removeProject(projectId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除项目失败');
+      setError(err instanceof Error ? err.message : t('project.deleteFailed'));
     }
   };
 
@@ -122,10 +124,10 @@ export function ProjectList() {
   if (projects.length === 0) {
     return (
       <div className="border-sidebar-border text-muted-foreground mx-1 mt-2 rounded-md border border-dashed px-3 py-6 text-center text-xs">
-        暂无项目
+        {t('project.empty')}
         <br />
-        点击右上角 <FolderGit2 className="inline h-3 w-3 align-[-1px]" />{' '}
-        添加一个目录
+        {t('project.emptyHintPrefix')} <FolderGit2 className="inline h-3 w-3 align-[-1px]" />{' '}
+        {t('project.emptyHintAction')}
       </div>
     );
   }
@@ -211,7 +213,7 @@ export function ProjectList() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        aria-label="工作区菜单"
+                        aria-label={t('project.menuAria')}
                         onClick={(e) => e.stopPropagation()}
                       />
                     }
@@ -230,25 +232,25 @@ export function ProjectList() {
                           toast.error(
                             err instanceof Error
                               ? err.message
-                              : '无法在文件管理器中显示',
+                              : t('project.revealUnsupported'),
                           );
                         }
                       }}
                     >
-                      <FolderOpen />在 Finder 中显示
+                      <FolderOpen />{t('project.reveal')}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(project.path);
-                          toast.success('已复制工作目录');
+                          toast.success(t('project.copied'));
                         } catch {
-                          toast.error('复制失败');
+                          toast.error(t('project.copyFailed'));
                         }
                       }}
                     >
                       <Copy />
-                      复制工作目录
+                      {t('project.copyPath')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -262,7 +264,7 @@ export function ProjectList() {
                       }}
                     >
                       <Trash2 />
-                      删除工作区
+                      {t('project.delete')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -276,13 +278,13 @@ export function ProjectList() {
                           e.stopPropagation();
                           startSessionForProject(project.id);
                         }}
-                        aria-label="新建对话"
+                        aria-label={t('project.newConversation')}
                       />
                     }
                   >
                     <Plus className="h-3 w-3" />
                   </TooltipTrigger>
-                  <TooltipContent side="top">新建对话</TooltipContent>
+                  <TooltipContent side="top">{t('project.newConversation')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -291,7 +293,7 @@ export function ProjectList() {
               <div className="border-sidebar-border/70 ml-2.5 space-y-0.5 border-l py-0.5 pl-2.5">
                 {projectSessions.length === 0 && (
                   <div className="text-muted-foreground px-2 py-1.5 text-xs italic">
-                    暂无会话
+                    {t('project.noSessions')}
                   </div>
                 )}
                 {projectSessions.map((session) => (
@@ -352,13 +354,16 @@ export function ProjectList() {
         onOpenChange={(open) => {
           if (!open) setProjectPendingDelete(null);
         }}
-        title="删除工作区"
+        title={t('project.delete')}
         description={
           projectPendingDelete === null
             ? ''
             : projectPendingDelete.sessionCount > 0
-              ? `确定删除工作区「${projectPendingDelete.name}」吗？其下的 ${projectPendingDelete.sessionCount} 个会话也将从侧栏消失，且无法恢复。`
-              : `确定删除工作区「${projectPendingDelete.name}」吗？此操作无法撤销。`
+              ? t('project.deleteConfirmWithSessions', {
+                  name: projectPendingDelete.name,
+                  count: projectPendingDelete.sessionCount,
+                })
+              : t('project.deleteConfirm', { name: projectPendingDelete.name })
         }
         onConfirm={() => {
           if (projectPendingDelete) {
