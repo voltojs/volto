@@ -1,5 +1,7 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+
 /**
  * The feed's one loading affordance: a row of dots waving at the bottom of
  * the message list for the whole round. Replaces every per-bubble caret —
@@ -7,10 +9,11 @@
  * first token lands.
  */
 export function WaveLoading() {
+  const t = useTranslations('chat');
   return (
     <div
       role="status"
-      aria-label="正在生成"
+      aria-label={t('common.generating')}
       data-testid="wave-loading"
       className="flex items-end justify-center gap-1.5 py-3"
     >

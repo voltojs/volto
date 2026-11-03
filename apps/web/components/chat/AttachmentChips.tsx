@@ -12,6 +12,7 @@
  */
 
 import { X, RotateCw, FileText } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import type { PendingAttachmentItem } from '@/hooks/use-attachments';
 
 export interface AttachmentChipsProps {
@@ -21,6 +22,7 @@ export interface AttachmentChipsProps {
 }
 
 export function AttachmentChips({ items, onRemove, onRetry }: AttachmentChipsProps) {
+  const t = useTranslations('chat');
   if (items.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-2 px-3.5 pt-2">
@@ -48,7 +50,7 @@ export function AttachmentChips({ items, onRemove, onRetry }: AttachmentChipsPro
             <button
               type="button"
               data-testid="attachment-chip-retry"
-              aria-label="重试上传"
+              aria-label={t('common.retryUpload')}
               className="text-muted-foreground hover:text-foreground rounded p-0.5"
               onClick={() => onRetry(item.localId)}
             >
@@ -58,7 +60,7 @@ export function AttachmentChips({ items, onRemove, onRetry }: AttachmentChipsPro
           <button
             type="button"
             data-testid="attachment-chip-remove"
-            aria-label="移除附件"
+            aria-label={t('common.removeAttachment')}
             className="text-muted-foreground hover:text-foreground rounded p-0.5"
             onClick={() => onRemove(item.localId)}
           >

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Check, ChevronDown, Circle, ListTodo, LoaderCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { countTodos, type TodoItem } from '@/lib/todos-model';
@@ -39,6 +40,7 @@ function StatusIcon({ status }: { status: TodoItem['status'] }) {
  * height with internal scroll. Empty list renders nothing.
  */
 export const TodoDock = memo(function TodoDock({ todos }: TodoDockProps) {
+  const t = useTranslations('chat');
   const [collapsed, setCollapsed] = useState(false);
   if (todos.length === 0) return null;
 
@@ -54,12 +56,12 @@ export const TodoDock = memo(function TodoDock({ todos }: TodoDockProps) {
         className="hover:bg-muted/40 focus-visible:ring-ring flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors focus-visible:ring-1 focus-visible:outline-none"
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
-        aria-label={collapsed ? '展开任务列表' : '折叠任务列表'}
+        aria-label={collapsed ? t('todo.expand') : t('todo.collapse')}
       >
         <ListTodo className="text-muted-foreground h-4 w-4 shrink-0" />
-        <span className="text-foreground/90 font-medium">任务</span>
+        <span className="text-foreground/90 font-medium">{t('todo.title')}</span>
         <span className="text-muted-foreground text-xs">
-          {completed} / {total} 已完成
+          {t('todo.progress', { completed, total })}
         </span>
         <ChevronDown
           className={cn(

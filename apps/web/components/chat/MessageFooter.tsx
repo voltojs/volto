@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Check, Copy } from 'lucide-react';
 import type { ConversationMessage } from '@volto/sdk/sse';
 import { TurnUsageChip } from './TurnUsageChip';
@@ -15,6 +16,7 @@ import { formatTimestamp } from '@/lib/time-format';
  * trace that such a round happened.
  */
 export function MessageFooter({ message }: { message: ConversationMessage }) {
+  const t = useTranslations('chat');
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -35,7 +37,7 @@ export function MessageFooter({ message }: { message: ConversationMessage }) {
         <button
           type="button"
           onClick={() => void copy()}
-          aria-label="复制"
+          aria-label={t('common.copyAria')}
           className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center rounded px-1 py-0.5"
         >
           {copied ? <Check className="text-success h-3 w-3" /> : <Copy className="h-3 w-3" />}

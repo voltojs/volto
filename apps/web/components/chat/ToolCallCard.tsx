@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
@@ -53,6 +54,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   call,
   label,
 }: ToolCallCardProps) {
+  const t = useTranslations('chat');
   const failed = call.isError === true || call.approval?.decision === 'deny';
   // Failures open in both densities: a collapsed failure is a failure the user
   // has to hunt for. Controlled rather than `defaultOpen`, because in a live
@@ -79,7 +81,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     >
       <div>
         <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
-          参数
+          {t('tool.params')}
         </div>
         <pre className="text-muted-foreground overflow-x-auto font-mono text-[11px] leading-relaxed">
           {JSON.stringify(call.args, null, 2)}
@@ -88,7 +90,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       {call.result !== undefined && (
         <div>
           <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
-            {call.isError ? '执行失败' : '输出'}
+            {call.isError ? t('tool.failed') : t('tool.output')}
           </div>
           {/* The protocol carries the tool's real output — render it as text,
               never JSON.stringify'd metadata. */}

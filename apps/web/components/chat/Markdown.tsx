@@ -1,6 +1,7 @@
 'use client';
 
 import { isValidElement, memo, useState, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils';
  * block this renders. Revisit if that trade stops being the right one.
  */
 function CodeBlock({ children }: { children?: ReactNode }) {
+  const t = useTranslations('chat');
   const [copied, setCopied] = useState(false);
 
   const codeElement = Array.isArray(children) ? children[0] : children;
@@ -50,11 +52,11 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         >
           {copied ? (
             <>
-              <Check className="text-success h-3 w-3" /> 已复制
+              <Check className="text-success h-3 w-3" /> {t('common.copied')}
             </>
           ) : (
             <>
-              <Copy className="h-3 w-3" /> 复制
+              <Copy className="h-3 w-3" /> {t('common.copy')}
             </>
           )}
         </button>
@@ -140,6 +142,7 @@ export const Markdown = memo(function Markdown({
   content,
   className,
 }: MarkdownProps) {
+  const t = useTranslations('chat');
   return (
     <div className={cn('text-sm', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
@@ -44,6 +45,7 @@ export const SubagentCard = memo(function SubagentCard({
   call,
   onOpenSubagent,
 }: SubagentCardProps) {
+  const t = useTranslations('chat');
   // While the delegation is still running (no result yet) a live elapsed
   // counter ticks next to the spinner; once the result lands, durationMs
   // takes over and the interval is torn down.
@@ -86,7 +88,7 @@ export const SubagentCard = memo(function SubagentCard({
         )
       }
       onActivate={() => onOpenSubagent?.(call.childSessionId ?? '')}
-      ariaLabel={`子智能体 ${title}`.trim()}
+      ariaLabel={t('common.subagent', { title }).trim()}
     />
   );
 }, subagentCardComparator);

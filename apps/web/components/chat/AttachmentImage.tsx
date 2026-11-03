@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { ConversationBlock } from '@volto/sdk/sse';
 import { SERVER_URL } from '@/lib/agent-config';
 
@@ -22,12 +23,13 @@ export function AttachmentImage({
   block: ImageBlock;
   sessionId?: string | null;
 }) {
+  const t = useTranslations('chat');
   const [failed, setFailed] = useState(false);
 
   if (!sessionId || failed) {
     return (
       <div className="text-muted-foreground rounded-md border border-dashed px-2 py-1 text-xs">
-        {failed ? '图片已不可用' : '[image]'}（{block.mediaType ?? 'image'} ·{' '}
+        {failed ? t('common.imageUnavailable') : t('common.imageBlock')}（{block.mediaType ?? 'image'} ·{' '}
         {block.attachmentId}）
       </div>
     );
