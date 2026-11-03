@@ -2,6 +2,7 @@
 'use client';
 
 import { forwardRef, useImperativeHandle, useMemo, Fragment, useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useSlashCommandItems } from '@/hooks/use-slash-command-items';
@@ -24,6 +25,7 @@ export interface SlashPanelHandle {
  */
 export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
   function SlashPanel({ query, projectId, onSelect }, ref) {
+    const t = useTranslations('chat');
     const { items, isLoading, error, retry } = useSlashCommandItems(projectId);
     const filtered = useMemo(() => filterCommandItems(items, query), [items, query]);
     const grouped = useMemo(() => groupCommandItems(filtered), [filtered]);
@@ -71,18 +73,18 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
         className="bg-popover z-50 max-h-64 w-96 max-w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
       >
         {isLoading ? (
-          <div className="text-muted-foreground px-2 py-1.5">加载命令…</div>
+          <div className="text-muted-foreground px-2 py-1.5">{t('common.loadingCommands')}</div>
         ) : error ? (
           <div className="text-destructive flex items-center gap-2 px-2 py-1.5">
             <span className="truncate">{error}</span>
             <Button variant="ghost" size="sm" className="h-6 shrink-0" onClick={retry}>
-              重试
+              {t('common.retry')}
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-muted-foreground px-2 py-1.5">无匹配命令</div>
+          <div className="text-muted-foreground px-2 py-1.5">{t('common.noCommands')}</div>
         ) : (
-          <div role="listbox" aria-label="斜杠命令">
+          <div role="listbox" aria-label={t('common.slashCommands')}>
             {(['builtin', 'skills'] as const).map((groupKey) => {
               const group = grouped[groupKey];
               if (group.length === 0) return null;
@@ -90,7 +92,7 @@ export const SlashPanel = forwardRef<SlashPanelHandle, SlashPanelProps>(
               return (
                 <Fragment key={groupKey}>
                   <div className="text-muted-foreground px-2 pt-1.5 pb-1 text-xs">
-                    {groupKey === 'builtin' ? '系统内置' : 'SKILLS'}
+                    {groupKey === 'builtin' ? t('common.builtin') : 'SKILLS'}
                   </div>
                   {group.map((item, i) => {
                     const index = offset + i;

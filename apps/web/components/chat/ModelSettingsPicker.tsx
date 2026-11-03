@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Cpu } from 'lucide-react';
 import {
   Popover,
@@ -67,6 +68,7 @@ export function ModelSettingsPicker({
   side = 'bottom',
   zIndexClassName,
 }: ModelSettingsPickerProps) {
+  const t = useTranslations('chat');
   const providers = useConfigStore((s) => s.providers);
   const catalogProviders = useConfigStore((s) => s.catalogProviders);
   const findModel = useConfigStore((s) => s.findModel);
@@ -89,7 +91,7 @@ export function ModelSettingsPicker({
     >
       <PopoverTrigger
         className="hover:bg-muted flex h-7 max-w-80 items-center gap-1.5 rounded-[min(var(--radius-md),10px)] px-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none"
-        aria-label="模型与推理等级"
+        aria-label={t('picker.modelAria')}
       >
         <Cpu className="text-primary/80 h-3.5 w-3.5 shrink-0" />
         {/* A session can reference a model that was since deleted; say so
@@ -97,8 +99,8 @@ export function ModelSettingsPicker({
         <span className="truncate font-mono">
           {model?.name ??
             (providerId
-              ? '模型已失效，请重选'
-              : (triggerFallback ?? '选择模型'))}
+              ? t('picker.modelInvalid')
+              : (triggerFallback ?? t('picker.selectModel')))}
         </span>
         {effortName && (
           <span className="text-muted-foreground shrink-0 font-mono text-xs">
@@ -116,8 +118,8 @@ export function ModelSettingsPicker({
         {pane === 'root' && (
           <>
             <Row
-              label="模型"
-              value={model?.name ?? '未选择'}
+              label={t('picker.model')}
+              value={model?.name ?? t('picker.noModel')}
               onClick={() => setPane('model')}
             />
             {/* A model with no reasoning capability offers nothing to
@@ -125,8 +127,8 @@ export function ModelSettingsPicker({
                 disabled shell. */}
             {efforts.length > 0 && (
               <Row
-                label="推理等级"
-                value={effortName ?? '默认'}
+                label={t('picker.effort')}
+                value={effortName ?? t('picker.effortDefault')}
                 onClick={() => setPane('reasoning')}
               />
             )}
@@ -135,7 +137,7 @@ export function ModelSettingsPicker({
 
         {pane === 'model' && (
           <>
-            <BackRow label="模型" onClick={() => setPane('root')} />
+            <BackRow label={t('picker.model')} onClick={() => setPane('root')} />
             <div className="max-h-72 overflow-y-auto">
               {providers.map((provider) => {
                 const models = providerModels(provider, catalogProviders);
@@ -167,7 +169,7 @@ export function ModelSettingsPicker({
 
         {pane === 'reasoning' && (
           <>
-            <BackRow label="推理等级" onClick={() => setPane('root')} />
+            <BackRow label={t('picker.effort')} onClick={() => setPane('root')} />
             <div className="max-h-72 overflow-y-auto">
               {efforts.map((e) => (
                 <Option

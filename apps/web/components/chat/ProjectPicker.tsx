@@ -1,6 +1,7 @@
 'use client';
 
 import { Folder, FolderPlus, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   Select,
   SelectContent,
@@ -22,6 +23,7 @@ interface ProjectPickerProps {
 const ADD_PROJECT_VALUE = '__add_project__';
 
 export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
+  const t = useTranslations('chat');
   const projects = useConfigStore((s) => s.projects);
   const { run: addProjectViaPicker, pending } = useAddProject();
   const items = projects.map((p) => ({ value: p.id, label: p.name }));
@@ -42,7 +44,7 @@ export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
     <Select items={items} value={value} onValueChange={handleValueChange}>
       <SelectTrigger size="sm" variant="ghost" className="font-mono">
         <Folder className="text-primary/80 h-3.5 w-3.5" />
-        <SelectValue placeholder="选择工作区" />
+        <SelectValue placeholder={t('picker.selectWorkspace')} />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
@@ -58,7 +60,7 @@ export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
             ) : (
               <FolderPlus className="text-muted-foreground h-3.5 w-3.5" />
             )}
-            {pending ? '正在等待系统对话框…' : '添加工作区'}
+            {pending ? t('workspace.waitingDialog') : t('workspace.add')}
           </SelectItem>
         </SelectGroup>
       </SelectContent>

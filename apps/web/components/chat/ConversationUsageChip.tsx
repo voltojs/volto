@@ -74,7 +74,7 @@ export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
         </ul>
         {usage.missingUsageCalls > 0 && (
           <p className="text-muted-foreground mt-2 border-t pt-2 text-[10px]">
-            全部对话另有 {usage.missingUsageCalls} 次模型调用未返回用量，未计入
+            {t('usage.missingCallsConversation', { count: usage.missingUsageCalls })}
           </p>
         )}
       </PopoverContent>

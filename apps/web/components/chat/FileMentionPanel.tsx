@@ -2,6 +2,7 @@
 'use client';
 
 import { forwardRef, useImperativeHandle, useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { Folder, File as FileIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
@@ -26,6 +27,7 @@ export interface FileMentionPanelHandle {
  *  Enter 在目录/文件上 = 选中插入 mention（目录也可直接被引用）。 */
 export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPanelProps>(
   function FileMentionPanel({ query, projectId, onSelect, onDrill }, ref) {
+    const t = useTranslations('chat');
     const { entries, status, retry } = useFileMentionItems(projectId, query);
     const nav = useMenuNavigation({
       itemCount: entries.length,
@@ -78,18 +80,18 @@ export const FileMentionPanel = forwardRef<FileMentionPanelHandle, FileMentionPa
         className="bg-popover z-50 max-h-64 w-80 overflow-y-auto rounded-lg border p-1 text-sm shadow-md"
       >
         {status === 'loading' ? (
-          <div className="text-muted-foreground px-2 py-1.5">加载文件…</div>
+          <div className="text-muted-foreground px-2 py-1.5">{t('common.loadingFiles')}</div>
         ) : status === 'error' ? (
           <div className="text-destructive flex items-center gap-2 px-2 py-1.5">
-            <span className="truncate">文件列表加载失败</span>
+            <span className="truncate">{t('common.filesFailed')}</span>
             <Button variant="ghost" size="sm" className="h-6 shrink-0" onClick={retry}>
-              重试
+              {t('common.retry')}
             </Button>
           </div>
         ) : entries.length === 0 ? (
-          <div className="text-muted-foreground px-2 py-1.5">无匹配文件</div>
+          <div className="text-muted-foreground px-2 py-1.5">{t('common.noFiles')}</div>
         ) : (
-          <div role="listbox" aria-label="项目文件">
+          <div role="listbox" aria-label={t('common.projectFiles')}>
             {entries.map((entry, i) => {
               const active = i === nav.activeIndex;
               const isDir = entry.type === 'dir';

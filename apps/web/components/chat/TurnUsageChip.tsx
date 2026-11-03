@@ -37,7 +37,7 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
         aria-label={t('usage.turnUsage')}
         className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1 py-0.5 font-mono text-[10px]"
       >
-        用量 {formatCompactTokens(usage.totalTokens)} tok
+        {t('usage.turnSummary', { tokens: formatCompactTokens(usage.totalTokens) })}
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -63,7 +63,7 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
         </ul>
         {usage.missingUsageCalls > 0 && (
           <p className="text-muted-foreground mt-2 border-t pt-2 text-[10px]">
-            本轮另有 {usage.missingUsageCalls} 次模型调用未返回用量，未计入
+            {t('usage.missingCallsTurn', { count: usage.missingUsageCalls })}
           </p>
         )}
       </PopoverContent>

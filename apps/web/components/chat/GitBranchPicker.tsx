@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronDown, GitBranch as GitBranchIcon, Plus } from 'lucide-react';
 import {
   Popover,
@@ -56,6 +57,7 @@ function GitBranchPickerView({
   projectId,
   onGitAvailabilityChange,
 }: GitBranchPickerProps) {
+  const t = useTranslations('chat');
   const [summary, setSummary] = useState<GitSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -211,7 +213,7 @@ function GitBranchPickerView({
       >
         <PopoverTrigger
           className="hover:bg-muted flex h-7 max-w-56 items-center gap-1.5 rounded-[min(var(--radius-md),10px)] px-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none"
-          aria-label="当前分支"
+          aria-label={t('picker.branchAria')}
           disabled={mutating}
         >
           <GitBranchIcon className="text-primary/80 h-3.5 w-3.5 shrink-0" />
@@ -223,8 +225,8 @@ function GitBranchPickerView({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索分支"
-            aria-label="搜索分支"
+            placeholder={t('picker.branchSearch')}
+            aria-label={t('picker.branchSearch')}
             className="h-8"
           />
 
@@ -241,7 +243,7 @@ function GitBranchPickerView({
             {localBranches.length > 0 && (
               <div>
                 <div className="text-muted-foreground px-1 py-1 text-xs">
-                  本地分支
+                  {t('picker.localBranches')}
                 </div>
                 {localBranches.map((branch) => (
                   <BranchRow
@@ -257,7 +259,7 @@ function GitBranchPickerView({
             {remoteBranches.length > 0 && (
               <div>
                 <div className="text-muted-foreground px-1 py-1 text-xs">
-                  远端分支
+                  {t('picker.remoteBranches')}
                 </div>
                 {remoteBranches.map((branch) => (
                   <BranchRow
@@ -274,12 +276,12 @@ function GitBranchPickerView({
               localBranches.length === 0 &&
               remoteBranches.length === 0 && (
                 <div className="text-muted-foreground px-1 py-2 text-xs">
-                  没有匹配的分支
+                  {t('picker.noBranches')}
                 </div>
               )}
             {list?.truncated && (
               <div className="text-muted-foreground px-1 py-1 text-xs">
-                结果已截断，请细化搜索
+                {t('picker.truncated')}
               </div>
             )}
           </div>
@@ -294,7 +296,7 @@ function GitBranchPickerView({
             >
               <Plus className="h-3.5 w-3.5" />
               <span className="truncate font-mono">
-                创建分支 “{query.trim()}”
+                {t('picker.createBranch', { name: query.trim() })}
               </span>
             </Button>
           )}
@@ -315,6 +317,7 @@ function BranchRow({
   disabled: boolean;
   onClick: () => void;
 }) {
+  const t = useTranslations('chat');
   return (
     <button
       type="button"
@@ -328,7 +331,7 @@ function BranchRow({
       <span className="flex-1 truncate font-mono text-xs">{branch.name}</span>
       {current && (
         <span className="text-muted-foreground shrink-0 text-[10px]">
-          当前
+          {t('picker.current')}
         </span>
       )}
     </button>

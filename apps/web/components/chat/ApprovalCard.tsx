@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { CircleHelp, ShieldAlert } from 'lucide-react';
 import { classifyCommandRisk } from '@volto/sdk/sse';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,7 @@ function AskUserForm({
   onSubmit: (answer: string[]) => void;
   onSkip: () => void;
 }) {
+  const t = useTranslations('chat');
   const [selected, setSelected] = useState<string[]>([]);
   const [freeText, setFreeText] = useState('');
   const options = approval.options ?? [];
@@ -129,7 +131,7 @@ function AskUserForm({
         type="text"
         value={freeText}
         onChange={(e) => setFreeText(e.target.value)}
-        placeholder="其他（自由输入）"
+        placeholder={t('approval.freeformPlaceholder')}
         className="border-input bg-background/60 focus-visible:border-ring focus-visible:ring-ring/30 mt-2 w-full rounded border px-2.5 py-1.5 text-sm outline-none focus-visible:ring-3"
       />
       <div className="mt-3 flex gap-2">
@@ -138,10 +140,10 @@ function AskUserForm({
           disabled={busy || answer.length === 0}
           onClick={() => onSubmit(answer)}
         >
-          提交回答
+          {t('approval.submit')}
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={onSkip}>
-          跳过
+          {t('approval.skip')}
         </Button>
       </div>
     </div>
@@ -154,6 +156,7 @@ function AskUserForm({
  * modal covers exactly that.
  */
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
+  const t = useTranslations('chat');
   const [busy, setBusy] = useState(false);
   const [rememberSize, setRememberSize] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<ApprovalOutcome | null>(null);
@@ -180,7 +183,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       <div className="border-border bg-muted/40 rounded-lg border p-3">
         <div className="flex items-center gap-2 text-sm">
           <CircleHelp className="text-primary/80 h-4 w-4 shrink-0" />
-          <span>Agent 需要你的回答</span>
+          <span>{t('approval.needsAnswer')}</span>
         </div>
         <AskUserForm
           approval={approval}
@@ -199,7 +202,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       <div className="flex items-center gap-2 text-sm">
         <ShieldAlert className="text-destructive/80 h-4 w-4 shrink-0" />
         <span>
-          需要你的批准：
+          {t('approval.needsApproval')}
           <code className="font-mono">{approval.toolName}</code>
           <span className="text-muted-foreground ml-1 text-xs">
             ({approval.riskTier})
@@ -212,7 +215,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
         </pre>
       ) : (
         <p className="text-muted-foreground mt-2 text-xs">
-          （该调用的参数已不在回放缓冲区内，无法显示）
+          {t('approval.paramsMissing')}
         </p>
       )}
       {riskNotes.length > 0 ? (
@@ -230,7 +233,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
         const selectedPrefix = prefixes.find((p) => p.length === selected);
         return (
           <fieldset className="mt-3 rounded border border-border/60 p-2">
-            <legend className="px-1 text-xs">始终允许…</legend>
+            <legend className="px-1 text-xs">{t('approval.alwaysAllow')}</legend>
             <div className="space-y-1">
               {prefixes.map((prefix) => (
                 <label key={prefix.join(' ')} className="flex items-center gap-2 font-mono text-xs">
@@ -246,9 +249,9 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
               ))}
             </div>
             <p className="text-muted-foreground mt-2 text-xs">
-              将写入 <code>~/.volto/permissions.json</code>：
+              {t('approval.willWrite')} <code>~/.volto/permissions.json</code>：
               <code className="ml-1">{JSON.stringify({ toolName: 'bash', commandPrefix: selectedPrefix, decision: 'allow' })}</code>
-              （用户级，对所有项目生效；下一轮生效）
+              {t('approval.userLevel')}
             </p>
             <Button
               size="sm"
@@ -257,7 +260,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
               className="mt-2"
               onClick={() => void decide('allow', undefined, { prefixTokens: selected })}
             >
-              记住并允许
+              {t('approval.remember')}
             </Button>
           </fieldset>
         );
@@ -265,7 +268,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
 
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={busy} onClick={() => void decide('allow')}>
-          允许一次
+          {t('approval.allowOnce')}
         </Button>
         <Button
           size="sm"
@@ -273,19 +276,19 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           disabled={busy}
           onClick={() => void decide('deny')}
         >
-          拒绝
+          {t('approval.deny')}
         </Button>
       </div>
 
       {receipt?.remembered ? (
         <p className="text-muted-foreground mt-2 text-xs">
-          已保存：<code>{JSON.stringify(receipt.remembered.rule)}</code>
-          {receipt.remembered.outcome === 'covered' ? '（已被现有更宽规则覆盖，未重复写入）' : ''}
-          ，下一轮生效。
+          {t('approval.saved')}<code>{JSON.stringify(receipt.remembered.rule)}</code>
+          {receipt.remembered.outcome === 'covered' ? t('approval.covered') : ''}
+          {t('approval.nextTurn')}
         </p>
       ) : null}
       {receipt?.rememberError ? (
-        <p className="text-destructive/90 mt-2 text-xs">未能保存规则：{receipt.rememberError}</p>
+        <p className="text-destructive/90 mt-2 text-xs">{t('approval.saveFailed', { error: receipt.rememberError })}</p>
       ) : null}
     </div>
   );
