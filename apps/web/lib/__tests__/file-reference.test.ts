@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseFileRef, toolCallFileRef } from '../file-reference';
+import {
+  parentDir,
+  parseFileRef,
+  parseLinkRef,
+  resolveFileRef,
+  toolCallFileRef,
+} from '../file-reference';
 
 describe('parseFileRef', () => {
   it('parses a plain project-relative path', () => {
@@ -121,5 +127,56 @@ describe('toolCallFileRef', () => {
     expect(toolCallFileRef('bash', { command: 'cat src/a.ts' })).toBeNull();
     expect(toolCallFileRef('grep', { pattern: 'foo', path: 'src' })).toBeNull();
     expect(toolCallFileRef('glob', { pattern: 'src/**/*.ts' })).toBeNull();
+  });
+});
+
+describe('parseLinkRef', () => {
+  it('accepts relative link forms that parseFileRef rejects', () => {
+    expect(parseLinkRef('./other.md')).toEqual({ path: './other.md' });
+    expect(parseLinkRef('../x.md')).toEqual({ path: '../x.md' });
+    // An intentional markdown link may target an extensionless file.
+    expect(parseLinkRef('other')).toEqual({ path: 'other' });
+  });
+
+  it('keeps line suffixes and the rejection rules', () => {
+    expect(parseLinkRef('src/foo.ts:42')).toEqual({ path: 'src/foo.ts', line: 42 });
+    expect(parseLinkRef('https://example.com')).toBeNull();
+    expect(parseLinkRef('#anchor')).toBeNull();
+    expect(parseLinkRef('a b.md')).toBeNull();
+  });
+});
+
+describe('resolveFileRef', () => {
+  it('resolves against the base directory', () => {
+    expect(resolveFileRef('docs', { path: './other.md' })).toEqual({ path: 'docs/other.md' });
+    expect(resolveFileRef('docs', { path: '../root.ts' })).toEqual({ path: 'root.ts' });
+    expect(resolveFileRef('', { path: 'src/a.ts' })).toEqual({ path: 'src/a.ts' });
+    expect(resolveFileRef('', { path: './a.ts' })).toEqual({ path: 'a.ts' });
+  });
+
+  it('normalizes inner dot segments', () => {
+    expect(resolveFileRef('docs', { path: 'a/./b/../c.ts' })).toEqual({ path: 'docs/a/c.ts' });
+  });
+
+  it('rejects paths that escape the project root', () => {
+    expect(resolveFileRef('', { path: '../up.ts' })).toBeNull();
+    expect(resolveFileRef('docs', { path: '../../up.ts' })).toBeNull();
+    expect(resolveFileRef('docs', { path: '../' })).toBeNull();
+  });
+
+  it('keeps line targets', () => {
+    expect(resolveFileRef('docs', { path: 'x.md', line: 3, endLine: 4 })).toEqual({
+      path: 'docs/x.md',
+      line: 3,
+      endLine: 4,
+    });
+  });
+});
+
+describe('parentDir', () => {
+  it('returns the containing directory', () => {
+    expect(parentDir('docs/guide.md')).toBe('docs');
+    expect(parentDir('docs/a/b.md')).toBe('docs/a');
+    expect(parentDir('README.md')).toBe('');
   });
 });

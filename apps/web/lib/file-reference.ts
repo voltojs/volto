@@ -56,10 +56,12 @@ interface PathCheck {
   normalized: string;
 }
 
-function checkPath(raw: string): PathCheck {
+function checkPath(raw: string, allowDots: boolean): PathCheck {
   if (raw === '' || /\s/.test(raw)) return { ok: false, normalized: raw };
   let p = raw;
-  while (p.startsWith('./')) p = p.slice(2);
+  if (!allowDots) {
+    while (p.startsWith('./')) p = p.slice(2);
+  }
   if (p === '' || p.startsWith('/') || p.startsWith('~') || p.startsWith('www.')) {
     return { ok: false, normalized: p };
   }
@@ -67,13 +69,21 @@ function checkPath(raw: string): PathCheck {
     return { ok: false, normalized: p };
   }
   const segments = p.split('/');
-  if (segments.some((seg) => seg === '' || seg === '.' || seg === '..' || !SEGMENT_RE.test(seg))) {
-    return { ok: false, normalized: p };
+  for (const seg of segments) {
+    if (seg === '') return { ok: false, normalized: p };
+    // `.` / `..` segments are only meaningful in link refs, where
+    // resolveFileRef normalizes them against a base directory.
+    if (seg === '.' || seg === '..') {
+      if (allowDots) continue;
+      return { ok: false, normalized: p };
+    }
+    if (!SEGMENT_RE.test(seg)) return { ok: false, normalized: p };
   }
-  const last = segments[segments.length - 1] ?? '';
   // A bare word without a slash is only file-like with a real extension or as
-  // a dotfile — this is what keeps "e.g." / "i.e." / "Yes" out.
-  if (!p.includes('/')) {
+  // a dotfile — this is what keeps "e.g." / "i.e." / "Yes" out. Link hrefs are
+  // intentional and skip this check (LICENSE, Makefile… are valid targets).
+  if (!allowDots && !p.includes('/')) {
+    const last = segments[segments.length - 1] ?? '';
     const dot = last.lastIndexOf('.');
     const fileLike = DOTFILE_RE.test(last) || (dot > 0 && last.length - dot - 1 >= 2);
     if (!fileLike) return { ok: false, normalized: p };
@@ -87,9 +97,24 @@ function checkPath(raw: string): PathCheck {
  * Accepts `path`, `path:42`, `path:42:7`, `path:10-20`, `path#L42`,
  * `path#L42-L50`, optionally wrapped in quotes/brackets and followed by
  * sentence punctuation. Returns null for anything that is not a plausible
- * project-relative file.
+ * project-relative file. Strict form: rejects `.`/`..` segments and bare
+ * words without a real extension.
  */
 export function parseFileRef(text: string): FileRef | null {
+  return parseRefInternal(text, false);
+}
+
+/**
+ * Parse a markdown link href as a file reference. Lenient where intentional
+ * links allow it: `./` / `../` segments survive (resolveFileRef normalizes
+ * them) and an extensionless target counts. URLs, anchors and anything with
+ * whitespace still return null.
+ */
+export function parseLinkRef(text: string): FileRef | null {
+  return parseRefInternal(text, true);
+}
+
+function parseRefInternal(text: string, allowDots: boolean): FileRef | null {
   if (typeof text !== 'string') return null;
   const cleaned = stripTrailingPunct(stripWrapping(text.trim()));
   if (cleaned === '') return null;
@@ -126,7 +151,7 @@ export function parseFileRef(text: string): FileRef | null {
     if (!ok) return null;
   }
 
-  const check = checkPath(path);
+  const check = checkPath(path, allowDots);
   if (!check.ok) return null;
   const ref: FileRef = { path: check.normalized };
   if (line !== undefined) ref.line = line;
@@ -148,4 +173,32 @@ export function toolCallFileRef(
   const raw = args['path'] ?? args['file_path'];
   if (typeof raw !== 'string') return null;
   return parseFileRef(raw);
+}
+
+/**
+ * Resolve a parsed ref against a project-relative base directory (the
+ * directory of the containing file for previewed markdown; `''` at the chat
+ * surface). Normalizes `.`/`..` segments and returns null when the target
+ * escapes the project root.
+ */
+export function resolveFileRef(baseDir: string, ref: FileRef): FileRef | null {
+  const base = baseDir === '' ? [] : baseDir.split('/');
+  const stack: string[] = [];
+  for (const part of [...base, ...ref.path.split('/')]) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (stack.length === 0) return null;
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  if (stack.length === 0) return null;
+  return { ...ref, path: stack.join('/') };
+}
+
+/** Project-relative parent directory of a path; '' at the root. */
+export function parentDir(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i === -1 ? '' : path.slice(0, i);
 }

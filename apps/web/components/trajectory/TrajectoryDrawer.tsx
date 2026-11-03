@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Markdown } from '@/components/chat/Markdown';
+import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { cn } from '@/lib/utils';
 import {
@@ -189,6 +190,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
 
 function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
   const t = useTranslations('trajectory');
+  const fileProjectId = useTrajectoryDrawerStore((s) => s.projectId);
   const locale = useLocale();
   switch (tab) {
     case 'overview':
@@ -205,7 +207,11 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
           </div>
         );
       }
-      return row.outputDetail ? <Markdown content={row.outputDetail} /> : <Cell text={row.outputDetail} />;
+      return row.outputDetail ? (
+        <Markdown content={row.outputDetail} projectId={fileProjectId} />
+      ) : (
+        <Cell text={row.outputDetail} />
+      );
     }
     case 'schema':
       return <Code text={row.schemaDetail ?? ''} />;

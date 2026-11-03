@@ -7,6 +7,7 @@ import { TrajectoryList } from './TrajectoryList';
 import { TrajectoryDrawer } from './TrajectoryDrawer';
 import { useTrajectory } from '@/hooks/use-trajectory';
 import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
+import { projectIdForSession } from '@/lib/open-file-ref';
 
 interface TrajectoryPanelProps {
   /** 当前会话 id（根层级）。 */
@@ -59,7 +60,7 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
             rows={feed.rows}
             streamingRowId={feed.streamingRowId}
             selectedId={drawerRow?.id ?? null}
-            onSelect={openDrawer}
+            onSelect={(row) => openDrawer(row, projectIdForSession(sessionId))}
           />
         </div>
       )}

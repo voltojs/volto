@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Markdown } from '@/components/chat/Markdown';
+import { projectIdForSession } from '@/lib/open-file-ref';
 import { Button } from '@/components/ui/button';
 import { fetchPlan } from '@/lib/sessions-api';
 import { selectLastTurnEnd } from '@/lib/todos-model';
@@ -36,7 +37,7 @@ export function PlanPane({
         data-testid="plan-doc"
         data-session-id={sessionId}
       >
-        <Markdown content={content} />
+        <Markdown content={content} projectId={projectIdForSession(sessionId)} />
       </div>
       <div className="border-t p-3">
         <Button className="w-full" disabled={!canExecute} onClick={onExecute}>

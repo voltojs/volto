@@ -6,6 +6,13 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  parseFileRef,
+  parseLinkRef,
+  resolveFileRef,
+  type FileRef,
+} from '@/lib/file-reference';
+import { openFileRef } from '@/lib/open-file-ref';
 
 /**
  * One fenced code block, with a language chip and a copy button.
@@ -66,47 +73,61 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-const components: Components = {
-  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-  code: ({ className, children, ...props }) => (
-    <code
+interface FileLinkContext {
+  /**
+   * Project the content belongs to. `undefined` resolves to the current
+   * session at click time (main chat feed); `null` means the owner is
+   * unknown — refs render inert instead of guessing a project.
+   */
+  projectId?: string | null;
+  /** Directory (project-relative) that link hrefs resolve against. */
+  linkBase: string;
+  openLabel: (path: string) => string;
+}
+
+/**
+ * A project file reference rendered as a click target that opens the file in
+ * the right pane's preview tab.
+ */
+function FileRefButton({
+  target,
+  ctx,
+  variant,
+  children,
+}: {
+  target: FileRef;
+  ctx: FileLinkContext;
+  variant: 'code' | 'link';
+  children?: ReactNode;
+}) {
+  const label = ctx.openLabel(target.path);
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={() => openFileRef(target, ctx.projectId)}
       className={cn(
-        'bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]',
-        className,
+        'cursor-pointer underline-offset-2 hover:underline',
+        variant === 'code'
+          ? 'text-primary bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]'
+          : 'text-primary',
       )}
-      {...props}
     >
       {children}
-    </code>
-  ),
-  a: ({ className, ...props }) => (
-    <a
-      className={cn(
-        'text-primary underline-offset-2 hover:underline',
-        className,
-      )}
-      target="_blank"
-      rel="noreferrer noopener"
-      {...props}
-    />
-  ),
+    </button>
+  );
+}
+
+const baseComponents: Components = {
   ul: ({ className, ...props }) => (
-    <ul
-      className={cn('my-1 ml-4 list-disc space-y-0.5', className)}
-      {...props}
-    />
+    <ul className={cn('my-1 ml-4 list-disc space-y-0.5', className)} {...props} />
   ),
   ol: ({ className, ...props }) => (
-    <ol
-      className={cn('my-1 ml-4 list-decimal space-y-0.5', className)}
-      {...props}
-    />
+    <ol className={cn('my-1 ml-4 list-decimal space-y-0.5', className)} {...props} />
   ),
   p: ({ className, ...props }) => (
-    <p
-      className={cn('leading-relaxed [&:not(:first-child)]:mt-2', className)}
-      {...props}
-    />
+    <p className={cn('leading-relaxed [&:not(:first-child)]:mt-2', className)} {...props} />
   ),
   table: ({ className, ...props }) => (
     <div className="my-2 overflow-x-auto rounded-md border">
@@ -133,19 +154,93 @@ const components: Components = {
   ),
 };
 
+function buildComponents(ctx: FileLinkContext): Components {
+  return {
+    ...baseComponents,
+    pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+    code: ({ className, children, ...props }) => {
+      const text = typeof children === 'string' ? children : '';
+      // Fenced blocks carry a `language-*` class or span multiple lines;
+      // anything else is inline code and may name a project file.
+      const inline = className === undefined && !text.includes('\n');
+      const target = inline ? parseFileRef(text) : null;
+      if (target !== null && ctx.projectId !== null) {
+        return (
+          <FileRefButton target={target} ctx={ctx} variant="code">
+            {children}
+          </FileRefButton>
+        );
+      }
+      return (
+        <code
+          className={cn(
+            'bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]',
+            className,
+          )}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    },
+    a: ({ className, href, children, ...props }) => {
+      const parsed = typeof href === 'string' ? parseLinkRef(href) : null;
+      const target = parsed === null ? null : resolveFileRef(ctx.linkBase, parsed);
+      if (target !== null) {
+        // Never fall through to <a>: a project path opened as a browser
+        // navigation is a 404, not a link.
+        return ctx.projectId !== null ? (
+          <FileRefButton target={target} ctx={ctx} variant="link">
+            {children}
+          </FileRefButton>
+        ) : (
+          <span className={className}>{children}</span>
+        );
+      }
+      return (
+        <a
+          className={cn(
+            'text-primary underline-offset-2 hover:underline',
+            className,
+          )}
+          target="_blank"
+          rel="noreferrer noopener"
+          href={href}
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    },
+  };
+}
+
 interface MarkdownProps {
   content: string;
   className?: string;
+  /** Project the content belongs to; omitted → current session at click time. */
+  projectId?: string | null;
+  /** Base directory (project-relative) for resolving link hrefs. */
+  linkBase?: string;
 }
 
 export const Markdown = memo(function Markdown({
   content,
   className,
+  projectId,
+  linkBase = '',
 }: MarkdownProps) {
   const t = useTranslations('chat');
   return (
     <div className={cn('text-sm', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={buildComponents({
+          projectId,
+          linkBase,
+          openLabel: (path) => t('fileLink.openInPane', { path }),
+        })}
+      >
         {content}
       </ReactMarkdown>
     </div>

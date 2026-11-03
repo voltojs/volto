@@ -6,6 +6,7 @@ import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
+import { parentDir } from '@/lib/file-reference';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';
@@ -145,7 +146,11 @@ function FilePreview({
         </div>
       )}
       {isMarkdown ? (
-        <MarkdownBody content={payload.content} />
+        <MarkdownBody
+          content={payload.content}
+          projectId={projectId}
+          linkBase={parentDir(path)}
+        />
       ) : (
         <CodeBody code={payload.content} ext={ext} line={line} endLine={endLine} />
       )}
@@ -153,7 +158,15 @@ function FilePreview({
   );
 }
 
-function MarkdownBody({ content }: { content: string }) {
+function MarkdownBody({
+  content,
+  projectId,
+  linkBase,
+}: {
+  content: string;
+  projectId: string;
+  linkBase: string;
+}) {
   const t = useTranslations('pane');
   const [raw, setRaw] = useState(false);
   return (
@@ -167,7 +180,7 @@ function MarkdownBody({ content }: { content: string }) {
         {raw ? (
           <pre className="text-foreground/90 whitespace-pre-wrap break-words font-mono text-xs">{content}</pre>
         ) : (
-          <Markdown content={content} />
+          <Markdown content={content} projectId={projectId} linkBase={linkBase} />
         )}
       </div>
     </div>

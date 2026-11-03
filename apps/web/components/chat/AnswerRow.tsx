@@ -16,11 +16,17 @@ export function AnswerRow({
   blocks,
   sessionId,
   footer,
+  fileProjectId,
 }: {
   blocks: Array<Extract<ConversationBlock, { type: 'text' | 'image' }>>;
   sessionId?: string | null;
   /** The message this row ends, when it is that message's last row. */
   footer?: ConversationMessage | null;
+  /**
+   * Project the content belongs to (undefined → current session at click
+   * time). Sub-agent feeds pass their parent's project explicitly.
+   */
+  fileProjectId?: string | null;
 }) {
   return (
     <div className="animate-in-stagger py-0.5">
@@ -30,7 +36,7 @@ export function AnswerRow({
             block.type === 'image' ? (
               <AttachmentImage key={index} block={block} sessionId={sessionId} />
             ) : (
-              <Markdown key={index} content={block.text} />
+              <Markdown key={index} content={block.text} projectId={fileProjectId} />
             ),
           )}
         </div>

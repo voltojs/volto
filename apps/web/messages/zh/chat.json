@@ -250,5 +250,8 @@
   "tier": {
     "fallback": "模型档位 \"{tierId}\" 未配置或已失效，本次子代理已回退使用主对话模型"
   },
-  "close": "关闭"
+  "close": "关闭",
+  "fileLink": {
+    "openInPane": "在右侧面板打开 {path}"
+  }
 }

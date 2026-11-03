@@ -9,12 +9,18 @@ import type { TrajectoryRow } from '@volto/sdk/sse';
 interface TrajectoryDrawerState {
   /** 当前抽屉展示的行快照；null = 关闭。 */
   row: TrajectoryRow | null;
-  open: (row: TrajectoryRow) => void;
+  /**
+   * Project the row's content belongs to, stamped at open time. File refs
+   * in the drawer resolve against it, not whichever session is current.
+   */
+  projectId: string | null | undefined;
+  open: (row: TrajectoryRow, projectId?: string | null) => void;
   close: () => void;
 }
 
 export const useTrajectoryDrawerStore = create<TrajectoryDrawerState>((set) => ({
   row: null,
-  open: (row) => set({ row }),
-  close: () => set({ row: null }),
+  projectId: undefined,
+  open: (row, projectId) => set({ row, projectId }),
+  close: () => set({ row: null, projectId: undefined }),
 }));
