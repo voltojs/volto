@@ -38,8 +38,8 @@ describe("process output ring buffer", () => {
     expect(r.overflowed).toBe(true);
     expect(r.droppedBytes).toBe(10);
     expect(r.text).toContain("bbbbbbbbbb");
-    expect(r.text).toContain("更早的输出已丢弃");
-    expect(r.text).not.toContain("a");
+    expect(r.text).toContain("Earlier output was dropped");
+    expect(r.text).not.toContain("aaaaaaaaaa");
   });
 
   it("prefixes overflowed reads with a discard note", () => {
@@ -47,7 +47,7 @@ describe("process output ring buffer", () => {
     buf.append("0123456789ABCDEF");
     const r = buf.read();
     expect(r.overflowed).toBe(true);
-    expect(r.text).toContain("更早的输出已丢弃");
+    expect(r.text).toContain("Earlier output was dropped");
     expect(r.text).toContain(String(r.droppedBytes));
   });
 
@@ -72,7 +72,7 @@ describe("process output ring buffer", () => {
     // missed nothing, so overflowed must be false.
     expect(delta.overflowed).toBe(false);
     expect(delta.text).toBe("cccc");
-    expect(delta.text).not.toContain("更早的输出已丢弃");
+    expect(delta.text).not.toContain("Earlier output was dropped");
   });
 
   it("stale cursor outside the window reports overflowed with the note", () => {
@@ -83,7 +83,7 @@ describe("process output ring buffer", () => {
     // consumed was dropped, so this read must disclose the gap.
     const r = buf.read("5");
     expect(r.overflowed).toBe(true);
-    expect(r.text).toContain("更早的输出已丢弃");
+    expect(r.text).toContain("Earlier output was dropped");
     expect(r.text).toContain("bbbbbbbbbb");
   });
 });

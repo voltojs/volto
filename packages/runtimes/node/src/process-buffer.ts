@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 
 export const DEFAULT_PROCESS_BUFFER_BYTES = 256 * 1024;
 
-const OVERFLOW_NOTE_PREFIX = "更早的输出已丢弃（共 ";
+const OVERFLOW_NOTE_PREFIX = "Earlier output was dropped (";
 
 export interface ProcessBufferRead {
   text: string;
@@ -90,7 +90,7 @@ export function createProcessOutputBuffer(
     const overflowed =
       missedWindow || (fromCursor === undefined && droppedBytes > 0);
     const note = overflowed
-      ? `${OVERFLOW_NOTE_PREFIX}${droppedBytes} 字节）\n`
+      ? `${OVERFLOW_NOTE_PREFIX}${droppedBytes} bytes)\n`
       : "";
     return {
       text: note + text,

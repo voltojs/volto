@@ -225,7 +225,7 @@ describe("bounded output retention", () => {
     expect(r.stateResetReason).toBeUndefined();
     // Retention bounded: cap + disclosure-note slack, never the full 590KB.
     expect(r.stdout.length).toBeLessThan(CAP + 500);
-    expect(r.stdout).toMatch(/更早的输出已丢弃/);
+    expect(r.stdout).toMatch(/Earlier output was dropped/);
     // The tail (last line) must still be there — it is what the model needs.
     expect(r.stdout).toContain("100000");
   });
@@ -236,7 +236,7 @@ describe("bounded output retention", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stateResetReason).toBeUndefined();
     expect(r.stderr.length).toBeLessThan(CAP + 500);
-    expect(r.stderr).toMatch(/更早的输出已丢弃/);
+    expect(r.stderr).toMatch(/Earlier output was dropped/);
   });
 
   it("keeps normal small commands byte-identical with no disclosure note", async () => {
@@ -244,7 +244,7 @@ describe("bounded output retention", () => {
     const r = await s.run("echo small-output");
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("small-output");
-    expect(r.stdout).not.toMatch(/更早的输出已丢弃/);
+    expect(r.stdout).not.toMatch(/Earlier output was dropped/);
   });
 });
 

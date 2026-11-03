@@ -38,10 +38,10 @@ export interface PersistentSessionOptions {
 
 export const DEFAULT_SESSION_BUFFER_CHARS = 256 * 1024;
 
-const DROPPED_NOTE_PREFIX = "更早的输出已丢弃（共 ";
+const DROPPED_NOTE_PREFIX = "Earlier output was dropped (";
 
 function droppedNote(dropped: number): string {
-  return dropped > 0 ? `${DROPPED_NOTE_PREFIX}${dropped} 字符）\n` : "";
+  return dropped > 0 ? `${DROPPED_NOTE_PREFIX}${dropped} chars)\n` : "";
 }
 
 export interface PersistentSession {

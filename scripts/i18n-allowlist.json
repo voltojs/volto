@@ -1,0 +1,10 @@
+{
+  "comment": "Paths where CJK text is intentional: translation catalogs, fixtures, regex ranges, and language self-names.",
+  "paths": [
+    "packages/i18n/src/messages/",
+    "packages/eval/scripts/",
+    "packages/memories/common/src/score.ts",
+    "apps/web/components/settings/GeneralPanel.tsx:40",
+    "apps/web/messages/"
+  ]
+}

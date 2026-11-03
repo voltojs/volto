@@ -2,7 +2,7 @@
   "name": "volto",
   "version": "0.0.1",
   "private": true,
-  "description": "Pure agent core — zero I/O, zero env coupling, capability injection",
+  "description": "Pure agent core \u2014 zero I/O, zero env coupling, capability injection",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -13,7 +13,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "dev:web": "turbo run dev --filter @volto/headless-server --filter @volto/web",
-    "check:core-deps": "node scripts/check-core-zero-deps.mjs"
+    "check:core-deps": "node scripts/check-core-zero-deps.mjs",
+    "check:i18n": "node scripts/check-i18n-hardcoded.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

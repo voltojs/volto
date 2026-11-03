@@ -9,7 +9,7 @@
  * Usage: node scripts/check-i18n-hardcoded.mjs [rootDir ...]
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CJK = /[\u4e00-\u9fff]/;
@@ -31,6 +31,26 @@ const IGNORED_FILE_PATTERNS = [
 ];
 
 const SOURCE_EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+
+/** Intentional CJK, from `scripts/i18n-allowlist.json`: paths, or `path:line`. */
+function loadAllowlist() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  try {
+    const raw = JSON.parse(readFileSync(join(here, 'i18n-allowlist.json'), 'utf8'));
+    return Array.isArray(raw.paths) ? raw.paths : [];
+  } catch {
+    return [];
+  }
+}
+
+function isAllowed(file, line, allowlist) {
+  const normalized = relative(process.cwd(), file).split(sep).join('/');
+  return allowlist.some((entry) => {
+    const [path, lineNumber] = entry.split(':');
+    if (!normalized.includes(path)) return false;
+    return lineNumber === undefined || Number(lineNumber) === line;
+  });
+}
 
 /** Strips line and block comments while leaving string contents intact. */
 export function stripComments(source) {
@@ -130,12 +150,14 @@ export function checkI18nHardcoded(roots) {
     if (stat.isDirectory()) collect(root, files);
     else files.push(root);
   }
+  const allowlist = loadAllowlist();
   const hits = [];
   for (const file of files) {
     if (IGNORED_FILE_PATTERNS.some((pattern) => pattern.test(file))) continue;
     const stripped = stripComments(readFileSync(file, 'utf8'));
     stripped.split('\n').forEach((line, index) => {
       if (!CJK.test(line)) return;
+      if (isAllowed(file, index + 1, allowlist)) return;
       hits.push({
         file: relative(process.cwd(), file).split(sep).join('/'),
         line: index + 1,
