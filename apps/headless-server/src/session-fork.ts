@@ -15,14 +15,17 @@ import type {
   TranscriptEventInput,
 } from "@volto/core";
 import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
+import { DEFAULT_LOCALE, isLocale, t, type Locale } from "@volto/i18n";
 
 export interface ForkOptions {
   /** Copy through the last completed turn at or before this event seq. */
   throughSeq?: number;
   /** Copy exactly this completed turn (1-based). */
   throughTurn?: number;
-  /** New title; defaults to `<source title>（分支）`. */
+  /** New title; defaults to the source title plus the branch marker. */
   title?: string;
+  /** Locale for the branch marker; the caller's UI language. */
+  locale?: Locale;
 }
 
 export interface ForkDependencies {
@@ -38,6 +41,8 @@ export interface ForkDependencies {
 export interface ForkResult {
   id: string;
   title: string;
+  /** Marker appended to the title, as a stable token the UI can re-render. */
+  titleSuffix: "branch";
   parentSessionId: string;
 }
 
@@ -205,7 +210,12 @@ export async function forkSession(
     }));
 
   const baseTitle = source.meta.title ?? "";
-  const title = opts.title ?? (baseTitle === "" ? "分支" : `${baseTitle}（分支）`);
+  const locale = isLocale(opts.locale) ? opts.locale : DEFAULT_LOCALE;
+  const title =
+    opts.title ??
+    (baseTitle === ""
+      ? t(locale, "server.fork.branchName")
+      : `${baseTitle}${t(locale, "server.fork.branchSuffix")}`);
   rewriteMeta(prefix, source, title);
 
   await deps.chatStore.appendEvents(deps.projectPath, deps.newId, prefix);
@@ -230,5 +240,5 @@ export async function forkSession(
     }
   }
 
-  return { id: deps.newId, title, parentSessionId: source.sessionId };
+  return { id: deps.newId, title, titleSuffix: "branch", parentSessionId: source.sessionId };
 }

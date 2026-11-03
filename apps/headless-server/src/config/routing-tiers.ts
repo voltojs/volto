@@ -20,6 +20,7 @@ import type { AgentEntry, AgentSpec } from "@volto/sdk";
 import { scanAgentEntries } from "../agents/routes.js";
 import { getConfigDir } from "./paths.js";
 import { getConfigStore } from "./store.js";
+import { t, type Locale } from "@volto/i18n";
 
 export interface RoutingTierRecord {
   id: string;
@@ -46,26 +47,31 @@ export interface RoutingTierRecord {
  * the user's own table and the presets stop applying (a present file, even
  * an empty one, is returned verbatim). Every target is `null` (unassigned).
  */
-export const DEFAULT_TIER_TEMPLATES: readonly RoutingTierRecord[] = [
-  {
-    id: "premium",
-    label: "高级",
-    description: "最强能力，复杂任务与深度推理",
-    target: null,
-  },
-  {
-    id: "fast",
-    label: "快速",
-    description: "低延迟，简单问答与快速检索",
-    target: null,
-  },
-  {
-    id: "economy",
-    label: "经济",
-    description: "省成本，批量与低风险子任务",
-    target: null,
-  },
-];
+export function defaultTierTemplates(locale: Locale): RoutingTierRecord[] {
+  return [
+    {
+      id: "premium",
+      label: t(locale, "server.routingTier.advanced.label"),
+      description: t(locale, "server.routingTier.advanced.description"),
+      target: null,
+    },
+    {
+      id: "fast",
+      label: t(locale, "server.routingTier.fast.label"),
+      description: t(locale, "server.routingTier.fast.description"),
+      target: null,
+    },
+    {
+      id: "economy",
+      label: t(locale, "server.routingTier.economy.label"),
+      description: t(locale, "server.routingTier.economy.description"),
+      target: null,
+    },
+  ];
+}
+
+/** Presets in the default locale, for callers with no request locale. */
+export const DEFAULT_TIER_TEMPLATES: readonly RoutingTierRecord[] = defaultTierTemplates("zh");
 
 /**
  * Sentinel the web agent form uses for "inherit the parent model"
@@ -174,7 +180,7 @@ export function validateTierRecords(input: unknown): RoutingTierRecord[] {
 }
 
 export function createRoutingTierStore(dir: string = getConfigDir()): {
-  list(): Promise<RoutingTierRecord[]>;
+  list(locale?: Locale): Promise<RoutingTierRecord[]>;
   replace(tiers: RoutingTierRecord[]): Promise<void>;
 } {
   const store = getConfigStore(dir);
@@ -185,14 +191,14 @@ export function createRoutingTierStore(dir: string = getConfigDir()): {
     // `replace()` is what makes the table user-owned. A present section is
     // returned verbatim (even `[]`, so the template can never override user
     // data); a corrupt document throws instead — see config/store.ts.
-    async list(): Promise<RoutingTierRecord[]> {
+    async list(locale: Locale = "zh"): Promise<RoutingTierRecord[]> {
       const stored = (await store.read())["routingTiers"] as
         | RoutingTierRecord[]
         | undefined;
       if (stored !== undefined) return stored;
       // Fresh copies so a caller mutating the result cannot poison the
       // presets for the next read.
-      return DEFAULT_TIER_TEMPLATES.map((tier) => ({ ...tier }));
+      return defaultTierTemplates(locale);
     },
 
     async replace(tiers: RoutingTierRecord[]): Promise<void> {

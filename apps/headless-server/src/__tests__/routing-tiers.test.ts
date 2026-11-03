@@ -68,6 +68,12 @@ describe("createRoutingTierStore", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it("renders the factory template in the requested locale", async () => {
+    const english = await createRoutingTierStore(dir).list("en");
+    expect(english[0]).toMatchObject({ id: "premium", label: "Advanced" });
+    expect(english[1]).toMatchObject({ id: "fast", label: "Fast" });
+  });
+
   it("returns the factory template when no config file exists", async () => {
     // First-run state (spec v2 D7/D8): the presets are visible without being
     // persisted — listing must not create the config file either.

@@ -13,17 +13,10 @@ import * as path from "node:path";
 import { getConfigDir } from "./paths.js";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "@volto/i18n";
 
-/** The UI languages the gateway and its clients agree on. */
-export const LOCALES = ["zh", "en"] as const;
-
-/** A locale the product ships translations for. */
-export type Locale = (typeof LOCALES)[number];
-
-/** Narrows an arbitrary value (config file, request body) to a shipped locale. */
-export function isLocale(value: unknown): value is Locale {
-  return typeof value === "string" && (LOCALES as readonly string[]).includes(value);
-}
+export { isLocale };
+export type { Locale };
 
 /** Opaque ids: the server never interprets them, only hands them back. */
 export interface Preferences {
@@ -115,4 +108,12 @@ export async function patchPreferences(
     }
     return normalizePreferences(next);
   });
+}
+
+/** The locale the server renders its own copy in: the stored preference, else
+ * the product default. One read per request keeps a language switch immediate
+ * without caching a value that can go stale. */
+export async function activeLocale(dir: string = getConfigDir()): Promise<Locale> {
+  const preferences = await readPreferences(dir);
+  return preferences.locale ?? DEFAULT_LOCALE;
 }

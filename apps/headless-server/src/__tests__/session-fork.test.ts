@@ -64,10 +64,21 @@ function deps(newId: string) {
 }
 
 describe("forkSession", () => {
+  it("renders the branch marker in the requested locale", async () => {
+    const source = await seed();
+    const result = await forkSession(source, { locale: "en" }, deps("fork-en"));
+    expect(result.title).toBe("Source (branch)");
+  });
+
   it("copies the whole completed history, rewrites meta and copies attachments/plan", async () => {
     const source = await seed();
     const result = await forkSession(source, {}, deps("fork-1"));
-    expect(result).toEqual({ id: "fork-1", title: "Source（分支）", parentSessionId: "src" });
+    expect(result).toMatchObject({
+      id: "fork-1",
+      title: "Source（分支）",
+      parentSessionId: "src",
+      titleSuffix: "branch",
+    });
 
     const forked = await store.readSession("fork-1");
     expect(forked).toBeDefined();

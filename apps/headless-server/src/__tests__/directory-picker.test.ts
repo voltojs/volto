@@ -161,4 +161,17 @@ describe("createDirectoryPicker", () => {
     expect(picker.pick).toHaveLength(0);
     expect(capturedArgs).toEqual(["-e", 'POSIX path of (choose folder with prompt "选择项目目录")']);
   });
+
+  it("renders the dialog prompt in the requested locale", async () => {
+    let capturedArgs: string[] = [];
+    const { runner } = stubRunner(async (_command, args) => {
+      capturedArgs = args;
+      return "/Users/leo/demo";
+    });
+    const picker = createDirectoryPicker({ runner, platform: "darwin", locale: "en" });
+
+    await picker.pick();
+
+    expect(capturedArgs[1]).toContain("Choose a project folder");
+  });
 });

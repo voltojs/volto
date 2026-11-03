@@ -52,7 +52,7 @@ import {
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
-import { BUILT_IN_COMMANDS } from "./commands.js";
+import { BUILT_IN_COMMANDS, builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
@@ -69,7 +69,7 @@ import { createProviderStore, type PublicProvider } from "./config/providers.js"
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
 import { ensureConfigMigrated } from "./config/store.js";
-import { patchPreferences, readPreferences } from "./config/preferences.js";
+import { activeLocale, patchPreferences, readPreferences } from "./config/preferences.js";
 import { createPlanStore } from "./config/plan-store.js";
 import {
   collectTierReferences,
@@ -471,7 +471,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const cwd = agentOpts.cwd ?? process.cwd();
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
-  const directoryPicker = opts.directoryPicker ?? createDirectoryPicker();
+  const directoryPicker =
+    opts.directoryPicker ?? createDirectoryPicker({ locale: await activeLocale() });
   const pathRevealer = opts.pathRevealer ?? createPathRevealer();
   const chatStore = opts.chatStore ?? createJsonlStore({ directory: path.join(getConfigDir(), "sessions") });
   // Attachment root lives under the config dir (~/.volto/attachments by
@@ -1192,7 +1193,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // never drift from what resolveInput actually expands.
     if (req.method === "GET" && url.pathname === "/commands") {
       jsonResponse(res, 200, {
-        commands: BUILT_IN_COMMANDS.map((c) => ({
+        commands: builtInCommands(await activeLocale()).map((c) => ({
           name: c.name,
           description: c.description ?? "",
           args: c.args,
@@ -1398,7 +1399,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       // plain model references.
       if (req.method === "GET") {
         try {
-          jsonResponse(res, 200, { tiers: await tierStore.list() });
+          jsonResponse(res, 200, { tiers: await tierStore.list(await activeLocale()) });
         } catch (err: unknown) {
           jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
         }
@@ -1792,6 +1793,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               ...(typeof body.throughSeq === "number" ? { throughSeq: body.throughSeq } : {}),
               ...(typeof body.throughTurn === "number" ? { throughTurn: body.throughTurn } : {}),
               ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
+              locale: await activeLocale(),
             },
             {
               chatStore,

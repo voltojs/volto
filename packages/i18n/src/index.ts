@@ -69,3 +69,24 @@ export function t(locale: Locale, key: string, params?: TextParams): string {
     return value === undefined ? placeholder : String(value);
   });
 }
+
+/**
+ * Narrows an untrusted value to a `TextRef`. Used where a client or a config
+ * file may submit copy (routing-tier labels): a bare string is rejected so
+ * every stored label carries either a key or an explicit fallback.
+ */
+export function isTextRef(value: unknown): value is TextRef {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record["key"] !== "string" || record["key"].length === 0) return false;
+  const params = record["params"];
+  if (params !== undefined) {
+    if (typeof params !== "object" || params === null || Array.isArray(params)) return false;
+    for (const entry of Object.values(params as Record<string, unknown>)) {
+      if (typeof entry !== "string" && typeof entry !== "number") return false;
+    }
+  }
+  const fallback = record["fallback"];
+  if (fallback !== undefined && typeof fallback !== "string") return false;
+  return true;
+}

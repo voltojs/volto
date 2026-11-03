@@ -10,17 +10,28 @@
  * switch).
  */
 import type { SlashCommand } from "@volto/sdk";
+import { t, type Locale } from "@volto/i18n";
 
-export const BUILT_IN_COMMANDS: SlashCommand[] = [
-  {
-    name: "review",
-    description: "按严重程度审查代码改动",
-    template:
-      "请审查 {{0}} 的代码改动，按严重程度列出问题与修复建议；未指定范围时，审查当前项目最近未提交的改动。",
-  },
-  {
-    name: "explain",
-    description: "解释指定目标的实现",
-    template: "请解释 {{0}} 的实现原理与关键代码路径。",
-  },
-];
+const REVIEW_TEMPLATE =
+  "请审查 {{0}} 的代码改动，按严重程度列出问题与修复建议；未指定范围时，审查当前项目最近未提交的改动。";
+const EXPLAIN_TEMPLATE = "请解释 {{0}} 的实现原理与关键代码路径。";
+
+/** The command menu's copy, rendered for `locale` (the templates are
+ * model-facing and stay language-independent of the UI). */
+export function builtInCommands(locale: Locale): SlashCommand[] {
+  return [
+    {
+      name: "review",
+      description: t(locale, "server.commands.review.description"),
+      template: REVIEW_TEMPLATE,
+    },
+    {
+      name: "explain",
+      description: t(locale, "server.commands.explain.description"),
+      template: EXPLAIN_TEMPLATE,
+    },
+  ];
+}
+
+/** Default-locale copy, for callers with no request locale at hand. */
+export const BUILT_IN_COMMANDS: SlashCommand[] = builtInCommands("zh");

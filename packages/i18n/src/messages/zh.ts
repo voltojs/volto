@@ -6,6 +6,7 @@
  * key string itself is what travels inside a `TextRef`.
  */
 export const zh = {
+  "server.fork.branchName": "分支",
   "server.fork.branchSuffix": "（分支）",
   "server.routingTier.advanced.label": "高级",
   "server.routingTier.advanced.description": "最强能力，复杂任务与深度推理",
@@ -15,5 +16,6 @@ export const zh = {
   "server.routingTier.economy.description": "省成本，批量与低风险子任务",
   "server.commands.review.description": "按严重程度审查代码改动",
   "server.commands.explain.description": "解释指定目标的实现",
+  "server.picker.chooseDirectory": "选择项目目录",
   "server.error.exportFailed": "导出会话失败",
 } as const;

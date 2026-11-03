@@ -1,5 +1,6 @@
 /** English counterpart of `zh.ts`; both files must carry the same key set. */
 export const en = {
+  "server.fork.branchName": "Branch",
   "server.fork.branchSuffix": " (branch)",
   "server.routingTier.advanced.label": "Advanced",
   "server.routingTier.advanced.description": "Most capable; complex tasks and deep reasoning",
@@ -9,5 +10,6 @@ export const en = {
   "server.routingTier.economy.description": "Cost-saving; batches and low-risk subtasks",
   "server.commands.review.description": "Review the current changes by severity",
   "server.commands.explain.description": "Explain how the target is implemented",
+  "server.picker.chooseDirectory": "Choose a project folder",
   "server.error.exportFailed": "Could not export the session",
 } as const;

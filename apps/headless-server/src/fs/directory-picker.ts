@@ -17,6 +17,7 @@
  * that branch below.
  */
 
+import { DEFAULT_LOCALE, t, type Locale } from "@volto/i18n";
 import {
   CommandFailedError,
   CommandNotFoundError,
@@ -33,43 +34,48 @@ export class PickerUnsupportedError extends Error {}
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * The dialog prompt is a constant on purpose. `osascript -e` evaluates its
- * argument as AppleScript, so any caller-controlled text here would be an
- * injection vector. `pick()` deliberately takes no parameters.
+ * The dialog prompt is catalog text, resolved at construction from the
+ * locale — never caller input. `osascript -e` evaluates its argument as
+ * AppleScript and the Windows branch interpolates into a PowerShell string,
+ * so `pick()` still takes no parameters: the only variable is the shipped
+ * translation.
  */
-const PROMPT = "选择项目目录";
+const PROMPT_KEY = "server.picker.chooseDirectory";
 
-const WINDOWS_SCRIPT = [
+const windowsScript = (prompt: string): string => [
   "Add-Type -AssemblyName System.Windows.Forms;",
   "$d = New-Object System.Windows.Forms.FolderBrowserDialog;",
-  // PROMPT is interpolated into a PowerShell single-quoted string literal: a
-  // future PROMPT containing `'` would break the script's syntax. Safe today
-  // because PROMPT is a module constant with no quote in it (see the comment
-  // on PROMPT above) — same constraint as the AppleScript branch below.
-  `$d.Description = '${PROMPT}';`,
+  // The prompt is interpolated into a PowerShell single-quoted string
+  // literal: a translation containing `'` would break the script's syntax.
+  // Catalog entries are trusted constants (no quotes) — same constraint as
+  // the AppleScript branch below.
+  `$d.Description = '${prompt}';`,
   "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
 ].join(" ");
 
 /** Candidate commands per platform, tried in order until one is installed. */
-function candidatesFor(platform: NodeJS.Platform): Array<{ command: string; args: string[] }> {
+function candidatesFor(
+  platform: NodeJS.Platform,
+  prompt: string,
+): Array<{ command: string; args: string[] }> {
   switch (platform) {
     case "darwin":
       return [
         {
           command: "osascript",
-          args: ["-e", `POSIX path of (choose folder with prompt "${PROMPT}")`],
+          args: ["-e", `POSIX path of (choose folder with prompt "${prompt}")`],
         },
       ];
     case "linux":
       return [
-        { command: "zenity", args: ["--file-selection", "--directory", `--title=${PROMPT}`] },
+        { command: "zenity", args: ["--file-selection", "--directory", `--title=${prompt}`] },
         { command: "kdialog", args: ["--getexistingdirectory", process.env["HOME"] ?? "/"] },
       ];
     case "win32":
       return [
         {
           command: "powershell",
-          args: ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCRIPT],
+          args: ["-NoProfile", "-NonInteractive", "-Command", windowsScript(prompt)],
         },
       ];
     default:
@@ -96,11 +102,15 @@ export function createDirectoryPicker(
     runner?: CommandRunner;
     platform?: NodeJS.Platform;
     timeoutMs?: number;
+    /** Locale of the dialog copy; the picker is constructed per process, and
+     * `pick()` stays argument-free so no caller text can reach the script. */
+    locale?: Locale;
   } = {},
 ) {
   const runner = opts.runner ?? execFileRunner;
   const platform = opts.platform ?? process.platform;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const prompt = t(opts.locale ?? DEFAULT_LOCALE, PROMPT_KEY);
 
   let open = false;
 
@@ -111,7 +121,7 @@ export function createDirectoryPicker(
         throw new PickerBusyError("A directory picker is already open");
       }
 
-      const candidates = candidatesFor(platform);
+      const candidates = candidatesFor(platform, prompt);
       if (candidates.length === 0) {
         throw new PickerUnsupportedError(
           `No native directory dialog is available on platform "${platform}"`,

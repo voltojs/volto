@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalog, DEFAULT_LOCALE, isLocale, LOCALES, t } from "../index.js";
+import { catalog, DEFAULT_LOCALE, isLocale, isTextRef, LOCALES, t } from "../index.js";
 import { en } from "../messages/en.js";
 import { zh } from "../messages/zh.js";
 
@@ -38,5 +38,19 @@ describe("shared catalog", () => {
   it("hands back a catalog object per locale", () => {
     expect(catalog("en")).toEqual(en);
     expect(catalog("zh")).toEqual(zh);
+  });
+});
+
+describe("isTextRef", () => {
+  it("accepts a key with optional params and fallback", () => {
+    expect(isTextRef({ key: "server.fork.branchSuffix" })).toBe(true);
+    expect(isTextRef({ key: "k", params: { n: 1, s: "x" }, fallback: "f" })).toBe(true);
+  });
+
+  it("rejects a bare string, an empty key and bad params", () => {
+    expect(isTextRef("自定义")).toBe(false);
+    expect(isTextRef({ key: "" })).toBe(false);
+    expect(isTextRef({ key: "k", params: { n: true } })).toBe(false);
+    expect(isTextRef(null)).toBe(false);
   });
 });

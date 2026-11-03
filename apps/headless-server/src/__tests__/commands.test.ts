@@ -5,7 +5,7 @@ import * as os from "node:os";
 import type { ModelPort } from "@volto/core";
 import { createStore } from "@volto/store-jsonl";
 import { createServer } from "../server.js";
-import { BUILT_IN_COMMANDS } from "../commands.js";
+import { BUILT_IN_COMMANDS, builtInCommands } from "../commands.js";
 import { renderCommand } from "@volto/sdk";
 
 const MODEL_PORT: ModelPort = {
@@ -64,5 +64,14 @@ describe("BUILT_IN_COMMANDS 与 GET /commands", () => {
     // /plan 由 web 客户端拦截（enter-plan action），到达服务端即按未知命令回包。
     expect(renderCommand(BUILT_IN_COMMANDS, "/plan 加一个深色模式")).toContain("Unknown command: /plan");
     expect(renderCommand(BUILT_IN_COMMANDS, "/nope")).toContain("Unknown command: /nope");
+  });
+});
+
+describe("builtInCommands", () => {
+  it("renders the menu copy in the requested locale", () => {
+    const english = builtInCommands("en").find((command) => command.name === "review");
+    expect(english?.description).toBe("Review the current changes by severity");
+    const chinese = builtInCommands("zh").find((command) => command.name === "review");
+    expect(chinese?.description).toBe("按严重程度审查代码改动");
   });
 });
