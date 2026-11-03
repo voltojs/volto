@@ -5,6 +5,8 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale, getTranslations } from 'next-intl/server';
 
 // Fraunces carries the display headings — a warm, characterful serif with
 // optical sizing, standing in for the generic sans-only look most AI chat
@@ -27,19 +29,20 @@ const mono = IBM_Plex_Mono({
   variable: '--font-mono',
 });
 
-export const metadata = {
-  title: 'Volto',
-  description: 'Volto — 项目级 AI Agent 对话控制台',
-};
+export async function generateMetadata() {
+  const t = await getTranslations('common');
+  return { title: 'Volto', description: t('meta.description') };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
   return (
     <html
-      lang="zh-CN"
+      lang={locale === 'en' ? 'en' : 'zh-CN'}
       suppressHydrationWarning
       className={cn(
         'antialiased',
@@ -50,10 +53,12 @@ export default function RootLayout({
       )}
     >
       <body>
-        <ThemeProvider>
-          <TooltipProvider>{children}</TooltipProvider>
-          <Toaster />
-        </ThemeProvider>
+        <NextIntlClientProvider>
+          <ThemeProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+            <Toaster />
+          </ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

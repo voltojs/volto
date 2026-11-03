@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "Volto",
+    "tagline": "让想法跑起来",
+    "intro": "我是 Volto，你的 AI 助手。有什么我可以帮助你的吗？"
+  },
+  "meta": {
+    "description": "Volto — 项目级 AI Agent 对话控制台"
+  }
+}

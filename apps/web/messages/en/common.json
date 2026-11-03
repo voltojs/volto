@@ -1,0 +1,10 @@
+{
+  "app": {
+    "name": "Volto",
+    "tagline": "Let your ideas run",
+    "intro": "I'm Volto, your AI assistant. What can I help you build?"
+  },
+  "meta": {
+    "description": "Volto — a console for project-level AI agents"
+  }
+}
