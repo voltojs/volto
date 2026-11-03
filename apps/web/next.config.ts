@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@volto/sdk'],
+  transpilePackages: ['@volto/sdk', '@volto/i18n'],
   async rewrites() {
     return [
       {

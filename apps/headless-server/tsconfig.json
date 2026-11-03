@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/i18n" },
     { "path": "../../packages/sdk" },
     { "path": "../../packages/providers/openai" },
     { "path": "../../packages/runtimes/node" },
