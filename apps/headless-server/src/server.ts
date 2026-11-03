@@ -1108,6 +1108,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
         const patch: Record<string, unknown> = {};
         for (const key of [
+          "locale",
           "defaultPermissionMode",
           "lastProviderId",
           "lastModelId",

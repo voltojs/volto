@@ -113,6 +113,28 @@ describe("preferences", () => {
     expect(body).not.toHaveProperty("titleModelId");
   });
 
+  it("keeps a supported locale and ignores an unsupported one", async () => {
+    const put = await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    expect(put.status).toBe(200);
+
+    const read = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    expect(await read.json()).toMatchObject({ locale: "en" });
+
+    // An unknown locale is dropped: it is neither stored nor allowed to clear
+    // the value already on disk.
+    await fetch(`${baseUrl}/preferences`, {
+      method: "PUT",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "jp" }),
+    });
+    const after = await fetch(`${baseUrl}/preferences`, { headers: auth() });
+    expect(await after.json()).toMatchObject({ locale: "en" });
+  });
+
   it("writes the defaults to config.json", async () => {
     const raw = await fs.readFile(path.join(dir, "config.json"), "utf8");
     expect(JSON.parse(raw).preferences).toMatchObject({ defaultPermissionMode: "auto" });

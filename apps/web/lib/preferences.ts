@@ -11,6 +11,8 @@
 import { SERVER_URL } from './agent-config';
 
 export interface Preferences {
+  /** UI language, shared with the gateway's own rendered copy. */
+  locale?: 'zh' | 'en';
   /** Permission tier a new session starts in ("ask", "read-only", …). */
   defaultPermissionMode?: string;
   /** Last provider/model picked, pre-selected for a new session. */

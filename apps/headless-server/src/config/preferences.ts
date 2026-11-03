@@ -14,8 +14,25 @@ import { getConfigDir } from "./paths.js";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
 
+/** The UI languages the gateway and its clients agree on. */
+export const LOCALES = ["zh", "en"] as const;
+
+/** A locale the product ships translations for. */
+export type Locale = (typeof LOCALES)[number];
+
+/** Narrows an arbitrary value (config file, request body) to a shipped locale. */
+export function isLocale(value: unknown): value is Locale {
+  return typeof value === "string" && (LOCALES as readonly string[]).includes(value);
+}
+
 /** Opaque ids: the server never interprets them, only hands them back. */
 export interface Preferences {
+  /**
+   * Language for user-facing copy, shared by the Web UI and the server's own
+   * rendered text (native dialogs, CLI). Absent = follow the client's
+   * Accept-Language, then "zh".
+   */
+  locale?: Locale;
   /** Permission tier for a new session ("ask", "read-only", …). */
   defaultPermissionMode?: string;
   /** Last provider/model the user picked, applied to a new session. */
@@ -41,16 +58,20 @@ export function preferencesPath(dir: string = getConfigDir()): string {
   return path.join(dir, "preferences.json");
 }
 
+/** The opaque-string preferences; `locale` is the one field with a domain. */
+type StringPreferenceKey = Exclude<keyof Preferences, "locale">;
+
 /**
- * Keeps only the string fields this domain owns. Unknown keys are dropped on
- * read, so a hand-edited document cannot smuggle arbitrary data into a later
- * write.
+ * Keeps only the fields this domain owns and only values it can honour: the
+ * opaque strings, plus a locale from `LOCALES`. Unknown keys and unsupported
+ * values are dropped on read *and* on write, so a hand-edited document or a
+ * bad request cannot smuggle them into a later write.
  */
 function normalizePreferences(raw: unknown): Preferences {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
   const record = raw as Record<string, unknown>;
   const out: Preferences = {};
-  const str = (key: keyof Preferences): void => {
+  const str = (key: StringPreferenceKey): void => {
     const value = record[key];
     if (typeof value === "string" && value.length > 0) out[key] = value;
   };
@@ -60,6 +81,8 @@ function normalizePreferences(raw: unknown): Preferences {
   str("lastReasoningEffort");
   str("titleProviderId");
   str("titleModelId");
+  const locale = record["locale"];
+  if (isLocale(locale)) out.locale = locale;
   return out;
 }
 
@@ -83,10 +106,13 @@ export async function patchPreferences(
     const current = normalizePreferences(stored);
     const next: Preferences = { ...current };
     for (const [key, value] of Object.entries(patch)) {
+      // An unsupported value is ignored, not written: dropping it here keeps
+      // the previously stored value instead of normalize() erasing the key.
+      if (key === "locale" && !isLocale(value)) continue;
       if (key in current || value !== undefined) {
         (next as Record<string, unknown>)[key] = value;
       }
     }
-    return next;
+    return normalizePreferences(next);
   });
 }
