@@ -23,7 +23,6 @@ function TaskRow({ item }: { item: BackgroundTaskItem }) {
   const isRunning = item.status === 'running';
   const [now, setNow] = useState<number | undefined>(undefined);
   useEffect(() => {
-  const t = useTranslations('pane');
     if (!isRunning) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);

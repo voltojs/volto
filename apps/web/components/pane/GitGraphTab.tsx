@@ -44,7 +44,6 @@ function GitGraphView({ projectId }: { projectId: string }) {
   // a remount race) must not overwrite the current view. setState only lands
   // in the promise callbacks — never synchronously in the effect body.
   useEffect(() => {
-  const t = useTranslations('pane');
     let cancelled = false;
     fetchGitGraph(projectId, GRAPH_LIMIT).then(
       (payload) => {

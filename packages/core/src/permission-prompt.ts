@@ -89,7 +89,7 @@ function ceilingLine(config: PermissionConfig): string | null {
 
   return (
     `- Operations classified ${refused.join(" / ")} are above this session's ceiling and are refused outright.\n` +
-    `- 优先级高于 ${ceiling} 的操作已从可用工具列表移除。`
+    `- Operations above the ${ceiling} ceiling were removed from the available tool list.`
   );
 }
 

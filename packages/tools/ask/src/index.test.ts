@@ -34,7 +34,7 @@ describe("ask_user v2", () => {
   it("reports a skipped question as plain text, not an error", async () => {
     const { tool } = harness({ decision: "deny" });
     const result = await tool.handler({ question: "存储？" });
-    expect(result.modelContent).toContain("未回答");
+    expect(result.modelContent).toContain("did not answer");
     expect(result.isError).toBeUndefined();
   });
 });

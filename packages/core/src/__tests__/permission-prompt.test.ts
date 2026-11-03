@@ -101,7 +101,7 @@ describe("buildPermissionReminder", () => {
 
   it("mentions visible-set removal for tiers above the ceiling", () => {
     const text = buildPermissionReminder(readOnly);
-    expect(text).toContain("已从可用工具列表移除");
+    expect(text).toContain("removed from the available tool list");
   });
 
   it("carries the no-routing-around rule in every config", () => {

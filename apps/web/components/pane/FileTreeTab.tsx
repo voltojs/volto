@@ -37,7 +37,6 @@ function FileTree({ projectId }: { projectId: string }) {
     (rel: string) =>
       fetchFsTree(projectId, rel)
         .then((result) => {
-  const t = useTranslations('pane');
           setTree((t) => ({ ...t, [rel]: result.entries }));
         })
         .catch((err: unknown) => {

@@ -27,12 +27,12 @@ describe("ask_user", () => {
     expect(sink.events.some((e) => e.type === "ask_user")).toBe(true);
   });
 
-  it("returns plain text '未回答' when gate returns deny", async () => {
+  it("returns plain text 'did not answer' when gate returns deny", async () => {
     const gate = createMockApprovalGate("deny");
     const sink = createMockEventSink();
     const tool = createAskUserTool({ approvalGate: gate, eventSink: sink });
     const result = await tool.handler({ question: "Proceed?" });
-    expect(result.modelContent).toContain("未回答");
+    expect(result.modelContent).toContain("did not answer");
     expect(result.isError).toBeFalsy();
   });
 
@@ -60,7 +60,7 @@ describe("ask_user", () => {
     const sink = createMockEventSink();
     const tool = createAskUserTool({ approvalGate: gate, eventSink: sink });
     const result = await tool.handler({ question: "Proceed?" });
-    expect(result.modelContent).toContain("未回答");
+    expect(result.modelContent).toContain("did not answer");
   });
 
   it("returns isError when gate throws (host unavailable)", async () => {

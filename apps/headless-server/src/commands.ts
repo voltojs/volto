@@ -13,8 +13,8 @@ import type { SlashCommand } from "@volto/sdk";
 import { t, type Locale } from "@volto/i18n";
 
 const REVIEW_TEMPLATE =
-  "请审查 {{0}} 的代码改动，按严重程度列出问题与修复建议；未指定范围时，审查当前项目最近未提交的改动。";
-const EXPLAIN_TEMPLATE = "请解释 {{0}} 的实现原理与关键代码路径。";
+  "Review the changes to {{0}} and list issues and fixes by severity; when no scope is given, review the current project's uncommitted changes.";
+const EXPLAIN_TEMPLATE = "Explain how {{0}} is implemented and walk through its key code paths.";
 
 /** The command menu's copy, rendered for `locale` (the templates are
  * model-facing and stay language-independent of the UI). */

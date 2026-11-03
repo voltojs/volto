@@ -323,7 +323,7 @@ describe("ask_user 端到端（网关接线）", () => {
           (e.data as { name?: string }).name === "ask_user",
       );
       expect(toolResult).toBeDefined();
-      expect(JSON.stringify(toolResult!.data)).toContain("用户回答：SQLite");
+      expect(JSON.stringify(toolResult!.data)).toContain("User answer: SQLite");
 
       // 回合继续：第二次模型调用的回复也到达（同一 turn 的收尾）。
       expect(
@@ -399,7 +399,7 @@ describe("ask_user 端到端（网关接线）", () => {
           (e.data as { name?: string }).name === "ask_user",
       )!;
       expect((toolResult.data as { isError?: boolean }).isError).toBe(false);
-      expect(JSON.stringify(toolResult.data)).toContain("用户未回答此问题");
+      expect(JSON.stringify(toolResult.data)).toContain("The user did not answer this question");
     } finally {
       channel.stop();
       await new Promise<void>((resolve) => server.close(() => resolve()));

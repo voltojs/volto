@@ -83,14 +83,14 @@ export function createAskUserTool(opts: AskUserOptions): Tool {
         const answer = typeof raw === "string" ? undefined : raw.answer;
 
         if (decision === "allow") {
-          const joined = (answer ?? []).join("；") || "yes";
+          const joined = (answer ?? []).join("; ") || "yes";
           return {
-            modelContent: `用户回答：${joined}`,
+            modelContent: `User answer: ${joined}`,
             displayMetadata: { question, answer },
           };
         }
         return {
-          modelContent: "用户未回答此问题。请基于已有信息继续，或稍后再问。",
+          modelContent: "The user did not answer this question. Continue with what you have, or ask again later.",
           displayMetadata: { question, answered: false },
         };
       } catch {

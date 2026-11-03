@@ -1589,7 +1589,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         await planStore.save(opts.chatSessionId ?? "default", opts.cwd ?? process.cwd(), content);
         return {
           modelContent:
-            "PLAN_SAVED\n计划已保存到 volto 存储，用户可在计划面板查看。请简短总结计划要点并等待用户批准。",
+            "PLAN_SAVED\nThe plan was saved to volto storage and the user can review it in the plan panel. Summarize its key points briefly and wait for the user to approve it.",
         };
       },
     });

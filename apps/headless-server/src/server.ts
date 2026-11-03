@@ -52,7 +52,7 @@ import {
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
-import { BUILT_IN_COMMANDS, builtInCommands } from "./commands.js";
+import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
