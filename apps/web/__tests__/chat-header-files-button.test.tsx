@@ -23,7 +23,7 @@ describe('ChatHeader 面板切换按钮', () => {
 
   it('is disabled when there is nothing to show or reopen', () => {
     render(
-      <ChatHeader title="探索未至之境" paneToggle={{ visible: false, disabled: true, onToggle: () => {} }} />,
+      <ChatHeader title="让想法跑起来" paneToggle={{ visible: false, disabled: true, onToggle: () => {} }} />,
     );
     expect((screen.getByRole('button', { name: '展开面板' }) as HTMLButtonElement).disabled).toBe(
       true,

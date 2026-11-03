@@ -447,7 +447,7 @@ export function ChatPanel() {
       ? expandStoredTitle(currentSession.title, currentSession.messages)
       : '') ||
     currentProject?.name ||
-    '探索未至之境';
+    '让想法跑起来';
 
   // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
   // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
@@ -762,7 +762,7 @@ export function ChatPanel() {
                   />
                 </svg>
                 <h2 className="font-display text-4xl font-semibold tracking-tight">
-                  探索未至之境
+                  让想法跑起来
                 </h2>
               </div>
               <p className="text-muted-foreground">
