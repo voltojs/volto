@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   fetchCommands,
   fetchSkills,
@@ -16,10 +17,17 @@ export function clearSlashCommandCache(): void {
   cache.clear();
 }
 
-function mergeItems(commands: CommandDescriptor[], skills: SkillDescriptor[]): CommandItem[] {
+function mergeItems(
+  commands: CommandDescriptor[],
+  skills: SkillDescriptor[],
+  t: (key: string) => string,
+): CommandItem[] {
   // 顺序 verbatim：action/template 相邻在前，skills 殿后——分组渲染靠 kind 切换插组头。
   return [
-    ...ACTION_COMMANDS,
+    ...ACTION_COMMANDS.map((command) => ({
+      ...command,
+      description: t(command.description.replace(/^chat\./, '')),
+    })),
     ...commands.map((c) => ({
       kind: 'template' as const,
       name: c.name,
@@ -33,6 +41,7 @@ function mergeItems(commands: CommandDescriptor[], skills: SkillDescriptor[]): C
 }
 
 export function useSlashCommandItems(projectId: string | null) {
+  const t = useTranslations('chat');
   const key = projectId ?? GLOBAL_KEY;
   const [items, setItems] = useState<CommandItem[]>(() => cache.get(key) ?? []);
   const [isLoading, setIsLoading] = useState<boolean>(() => !cache.has(key));
@@ -59,14 +68,14 @@ export function useSlashCommandItems(projectId: string | null) {
     void (async () => {
       try {
         const [commands, skills] = await Promise.all([fetchCommands(), fetchSkills(projectId)]);
-        const merged = mergeItems(commands, skills);
+        const merged = mergeItems(commands, skills, t);
         cache.set(key, merged);
         if (cancelled) return;
         setItems(merged);
         setIsLoading(false);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : '加载命令失败');
+        setError(err instanceof Error ? err.message : t('errors.loadCommandsFailed'));
         setIsLoading(false);
       }
     })();

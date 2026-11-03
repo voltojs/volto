@@ -25,11 +25,14 @@ const TIER_UNRESOLVED_EVENT = 'subagent_model_tier_unresolved';
  * `target`, future additions — is ignored, never validated away. A frame
  * without a string `tierId` has no copy to render and maps to `null`.
  */
-export function tierNoticeFromEvent(event: {
-  type: string;
-  time: number;
-  data: unknown;
-}): ChatNotice | null {
+export function tierNoticeFromEvent(
+  event: {
+    type: string;
+    time: number;
+    data: unknown;
+  },
+  t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
+): ChatNotice | null {
   if (event.type !== TIER_UNRESOLVED_EVENT) return null;
   const data = (event.data ?? {}) as { tierId?: unknown; childSessionId?: unknown };
   if (typeof data.tierId !== 'string') return null;
@@ -40,7 +43,7 @@ export function tierNoticeFromEvent(event: {
     typeof data.childSessionId === 'string' ? data.childSessionId : 'unknown';
   return {
     key: `tier-notice:${data.tierId}:${event.time}:${childKey}`,
-    text: `模型档位 "${data.tierId}" 未配置或已失效，本次子代理已回退使用主对话模型`,
+    text: t('tier.fallback', { tierId: data.tierId }),
     time: event.time,
   };
 }

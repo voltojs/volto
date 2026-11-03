@@ -1,6 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
+import { useTranslations } from 'next-intl';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,6 +12,7 @@ import {
 import { Kbd } from '@/components/ui/kbd';
 
 export function ThemeToggle() {
+  const t = useTranslations('chat');
   const { resolvedTheme, setTheme } = useTheme();
 
   return (
@@ -20,7 +22,7 @@ export function ThemeToggle() {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="切换主题"
+            aria-label={t('theme.toggle')}
             onClick={() =>
               setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
             }
@@ -37,7 +39,7 @@ export function ThemeToggle() {
         <Moon className="hidden h-4 w-4 dark:block" />
       </TooltipTrigger>
       <TooltipContent>
-        切换主题 <Kbd>D</Kbd>
+        {t('theme.toggle')} <Kbd>D</Kbd>
       </TooltipContent>
     </Tooltip>
   );

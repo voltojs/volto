@@ -107,7 +107,7 @@ describe('ensureSessionDetail', () => {
     expect(session.detailLoaded).toBe(false);
     // A failed fetch is a retryable error state, not a silent, permanent
     // skeleton — the message must be recorded on the session.
-    expect(session.detailError).toContain('offline');
+    expect(session.detailError).toBe('errors.sessionLoadFailed');
   });
 
   it('records a retryable error instead of a silent no-op on a 404', async () => {
@@ -129,7 +129,7 @@ describe('ensureSessionDetail', () => {
     await expect(ensureSessionDetail('a')).rejects.toBeInstanceOf(SessionDetailUnavailableError);
     const session = useSessionStore.getState().sessions[0]!;
     // Dedicated copy, not the raw "HTTP 410" the generic branch would produce.
-    expect(session.detailError).toBe('此会话由旧版本写入，无法读取');
+    expect(session.detailError).toBe('errors.legacySession');
     expect(session.detailErrorKind).toBe('legacy');
   });
 
@@ -141,7 +141,7 @@ describe('ensureSessionDetail', () => {
 
     await expect(ensureSessionDetail('a')).rejects.toBeInstanceOf(SessionDetailUnavailableError);
     const session = useSessionStore.getState().sessions[0]!;
-    expect(session.detailError).toContain('boom');
+    expect(session.detailError).toBe('errors.sessionLoadFailed');
     expect(session.detailErrorKind).toBe('network');
   });
 

@@ -111,7 +111,7 @@ describe('runManualRename', () => {
     expect(setTitle).toHaveBeenNthCalledWith(1, 's1', '新标题');
     expect(setTitle).toHaveBeenNthCalledWith(2, 's1', '旧标题');
     expect(setError).toHaveBeenLastCalledWith(
-      expect.stringContaining('重命名失败'),
+      expect.stringContaining('session.renameFailed'),
     );
   });
 });

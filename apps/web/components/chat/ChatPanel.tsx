@@ -172,7 +172,7 @@ export function ChatPanel() {
   // from becoming unhandled.
   useEffect(() => {
     if (currentSessionId) {
-      void ensureSessionDetail(currentSessionId).catch(() => {});
+      void ensureSessionDetail(currentSessionId, t).catch(() => {});
     }
   }, [currentSessionId]);
 
@@ -304,7 +304,7 @@ export function ChatPanel() {
             success: (message) => toast.success(message),
             error: (message) => toast.error(message),
           },
-        });
+        }, t);
         return;
       }
       if (action === 'enter-plan') {
@@ -522,7 +522,7 @@ export function ChatPanel() {
     // Switch first: opening the branch must not depend on the list refresh
     // succeeding — the session is already durable server-side.
     useSessionStore.getState().setCurrentSession(newId);
-    await ensureSessionDetail(newId);
+    await ensureSessionDetail(newId, t);
     try {
       await refreshServerSessions();
     } catch {
@@ -719,7 +719,7 @@ export function ChatPanel() {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    void ensureSessionDetail(currentSessionId).catch(() => {})
+                    void ensureSessionDetail(currentSessionId, t).catch(() => {})
                   }
                 >
                   {t('common.retry')}

@@ -44,6 +44,7 @@ export interface SessionDeleteParams {
  */
 export async function runSessionDelete(
   params: SessionDeleteParams,
+  t: (key: string) => string = (key) => key,
 ): Promise<void> {
   const {
     sessionId,
@@ -63,7 +64,7 @@ export async function runSessionDelete(
     await deleteServer(sessionId);
   } catch {
     // Keep the session in the list — the user can retry.
-    setError('删除失败，请重试');
+    setError(t('session.deleteFailed'));
     return;
   } finally {
     deletingIds.delete(sessionId);

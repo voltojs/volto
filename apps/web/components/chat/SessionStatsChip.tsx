@@ -42,12 +42,12 @@ export function SessionStatsChip({ stats }: { stats: SessionStats }) {
           {t('usage.sessionStats')}
         </div>
         <ul className="mt-2 space-y-1 text-xs">
-          <PopoverRow label={t('usage.modelTime')} value={formatLongDuration(stats.modelMs)} />
+          <PopoverRow label={t('usage.modelTime')} value={formatLongDuration(stats.modelMs, t)} />
           <PopoverRow
             label={t('usage.toolTime')}
-            value={formatLongDuration(stats.toolMs)}
+            value={formatLongDuration(stats.toolMs, t)}
           />
-          <PopoverRow label={t('usage.avgTtft')} value={formatTtft(stats.avgTtftMs)} />
+          <PopoverRow label={t('usage.avgTtft')} value={formatTtft(stats.avgTtftMs, t)} />
           <PopoverRow label={t('usage.outputSpeed')} value={formatTps(stats.tps) ?? '—'} />
         </ul>
       </PopoverContent>

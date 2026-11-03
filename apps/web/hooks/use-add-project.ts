@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { pickDirectory, ApiError } from '@/lib/config-api';
 import { deriveProjectName } from '@/lib/project-name';
@@ -20,6 +21,7 @@ import { useConfigStore, type Project } from '@/stores/config-store';
  * dialog left to show it in.
  */
 export function useAddProject() {
+  const t = useTranslations('chat');
   const addProject = useConfigStore((s) => s.addProject);
   const [pending, setPending] = useState(false);
   // The gateway has no cancel hook for an already-open native dialog, so an
@@ -39,16 +41,16 @@ export function useAddProject() {
         name: deriveProjectName(result.path),
         path: result.path,
       });
-      toast.success(`已添加工作区「${project.name}」`);
+      toast.success(t('workspace.added', { name: project.name }));
       return project;
     } catch (err) {
       if (attempt !== attemptRef.current) return null;
       const message =
         err instanceof ApiError && err.status === 409
-          ? '系统目录对话框已打开，请先完成或关闭它'
+          ? t('workspace.dialogBusy')
           : err instanceof Error
             ? err.message
-            : '添加工作区失败';
+            : t('workspace.addFailed');
       toast.error(message);
       return null;
     } finally {

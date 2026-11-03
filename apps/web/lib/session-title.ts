@@ -67,6 +67,7 @@ export interface ManualRenameParams {
  */
 export async function runManualRename(
   params: ManualRenameParams,
+  t: (key: string) => string = (key) => key,
 ): Promise<void> {
   const { sessionId, title, previousTitle, setTitle, rename, setError } =
     params;
@@ -86,7 +87,7 @@ export async function runManualRename(
     await rename(sessionId, title);
   } catch {
     setTitle(sessionId, previousTitle);
-    setError('重命名失败，已恢复为原标题');
+    setError(t('session.renameFailed'));
   }
 }
 

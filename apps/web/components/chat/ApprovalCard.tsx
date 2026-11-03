@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { CircleHelp, ShieldAlert } from 'lucide-react';
 import { classifyCommandRisk } from '@volto/sdk/sse';
 import { Button } from '@/components/ui/button';
-import { riskNoteFor, rememberablePrefixes } from '@/lib/approvals';
+import { riskNoteKeyFor, rememberablePrefixes } from '@/lib/approvals';
 import type { PendingApproval, ApprovalOutcome } from '@/lib/approvals';
 
 interface ApprovalCardProps {
@@ -56,7 +56,9 @@ function formatApprovalInput(input: Record<string, unknown>): string {
 export function riskNotesFor(input: Record<string, unknown> | undefined): string[] {
   if (!input) return [];
   const command = soleStringArg(input);
-  return command === undefined ? [] : classifyCommandRisk(command).map(riskNoteFor);
+  return command === undefined
+    ? []
+    : classifyCommandRisk(command).map(riskNoteKeyFor);
 }
 
 /**
@@ -220,8 +222,8 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       )}
       {riskNotes.length > 0 ? (
         <ul className="text-destructive/90 mt-2 space-y-0.5 text-xs">
-          {riskNotes.map((note) => (
-            <li key={note}>· {note}</li>
+          {riskNotes.map((noteKey) => (
+            <li key={noteKey}>· {t(noteKey)}</li>
           ))}
         </ul>
       ) : null}

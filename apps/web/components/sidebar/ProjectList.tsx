@@ -39,6 +39,7 @@ import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 
 export function ProjectList() {
   const t = useTranslations('sidebar');
+  const tc = useTranslations('chat');
   const projects = useConfigStore((s) => s.projects);
   const removeProject = useConfigStore((s) => s.removeProject);
   const sessions = useSessionStore((s) => s.sessions);
@@ -102,7 +103,7 @@ export function ProjectList() {
       deleteServer: deleteServerSession,
       deleteLocal: (id) => useSessionStore.getState().deleteSession(id),
       setError,
-    });
+    }, tc);
   };
 
   const openSession = (sessionId: string) => {
@@ -112,7 +113,7 @@ export function ProjectList() {
     // A failure is recorded on the session as a retryable `detailError`
     // (surfaced by ChatPanel); this `.catch()` only prevents an unhandled
     // rejection.
-    void ensureSessionDetail(sessionId).catch(() => {});
+    void ensureSessionDetail(sessionId, tc).catch(() => {});
   };
 
   const startSessionForProject = (projectId: string) => {
@@ -331,7 +332,7 @@ export function ProjectList() {
                               .updateSessionTitle(id, t),
                           rename: renameServerSession,
                           setError,
-                        });
+                        }, tc);
                       }
                       setEditingSessionId(null);
                     }}

@@ -18,7 +18,7 @@ import type { ConversationMessage } from '@volto/sdk/sse';
 /** The notice a `{ tierId: "ghost" }` degradation produces (copy is verbatim). */
 const TIER_NOTICE: ChatNotice = {
   key: 'tier-notice:ghost:500:unknown',
-  text: '模型档位 "ghost" 未配置或已失效，本次子代理已回退使用主对话模型',
+  text: 'tier.fallback',
   time: 500,
 };
 
@@ -85,7 +85,7 @@ describe('chat store notices', () => {
   it('appends pushed notices in arrival order', () => {
     const second: ChatNotice = {
       key: 'tier-notice:economy:600:w-sub-2',
-      text: '模型档位 "economy" 未配置或已失效，本次子代理已回退使用主对话模型',
+      text: 'tier.fallback',
       time: 600,
     };
     useChatStore.getState().pushNotice(TIER_NOTICE);
@@ -140,7 +140,7 @@ describe('tierNoticeFromEvent', () => {
     // only tierId is read, childSessionId merely refines the key.
     expect(notice).toEqual({
       key: 'tier-notice:ghost:500:w-sub-1',
-      text: '模型档位 "ghost" 未配置或已失效，本次子代理已回退使用主对话模型',
+      text: 'tier.fallback',
       time: 500,
     });
   });

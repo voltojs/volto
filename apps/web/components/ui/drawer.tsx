@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useTranslations } from 'next-intl';
 import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer';
 
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ function DrawerContent({
   title: string;
   description?: string;
 }) {
+  const t = useTranslations('chat');
   return (
     <DrawerPrimitive.Portal data-slot="drawer-portal">
       <DrawerPrimitive.Backdrop
@@ -66,7 +68,7 @@ function DrawerContent({
               render={<Button variant="ghost" size="icon-sm" />}
             >
               <XIcon />
-              <span className="sr-only">关闭</span>
+              <span className="sr-only">{t('close')}</span>
             </DrawerPrimitive.Close>
           </div>
           {children}

@@ -64,10 +64,12 @@ describe('groupCommandItems', () => {
 
 describe('ACTION_COMMANDS', () => {
   it('含 /plan、/clear 与 /compact', () => {
+    // Descriptions are catalog keys here; the slash panel's hook translates
+    // them before rendering (see use-slash-command-items).
     expect(ACTION_COMMANDS).toEqual([
-      { kind: 'action', name: 'plan', description: '进入计划模式：只读调研并对齐需求', action: 'enter-plan' },
-      { kind: 'action', name: 'clear', description: '新建会话', action: 'clear-session' },
-      { kind: 'action', name: 'compact', description: '压缩当前会话上下文', action: 'compact-session' },
+      { kind: 'action', name: 'plan', description: 'chat.commands.plan', action: 'enter-plan' },
+      { kind: 'action', name: 'clear', description: 'chat.commands.clear', action: 'clear-session' },
+      { kind: 'action', name: 'compact', description: 'chat.commands.compact', action: 'compact-session' },
     ]);
   });
 });

@@ -116,7 +116,7 @@ describe('runSessionCompact', () => {
     });
 
     expect(success).toHaveBeenCalledTimes(1);
-    expect(success.mock.calls[0]![0]).toMatch(/4/);
+    expect(success.mock.calls[0]![0]).toBe('compact.done');
     expect(error).not.toHaveBeenCalled();
   });
 
@@ -145,7 +145,7 @@ describe('runSessionCompact', () => {
     });
 
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![0]).toMatch(/忙|稍后/);
+    expect(error.mock.calls[0]![0]).toBe('compact.busy');
     expect(success).not.toHaveBeenCalled();
   });
 

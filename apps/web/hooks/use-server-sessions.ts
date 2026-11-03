@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   fetchServerSessions,
   fetchServerSessionDetail,
@@ -65,7 +66,10 @@ export function normalisePermissionMode(mode: string | null): PermissionMode {
  * silent, permanent skeleton. Non-404 failures also reject the returned
  * promise so callers don't need to poll the store to notice.
  */
-export async function ensureSessionDetail(id: string): Promise<void> {
+export async function ensureSessionDetail(
+  id: string,
+  t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
+): Promise<void> {
   const known = useSessionStore.getState().sessions.find((s) => s.id === id);
   if (known?.detailLoaded) return;
 
@@ -83,13 +87,13 @@ export async function ensureSessionDetail(id: string): Promise<void> {
       if (error instanceof SessionDetailUnavailableError && error.kind === 'legacy') {
         useSessionStore
           .getState()
-          .setSessionDetailError(id, '此会话由旧版本写入，无法读取', 'legacy');
+          .setSessionDetailError(id, t('errors.legacySession'), 'legacy');
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
       useSessionStore
         .getState()
-        .setSessionDetailError(id, `加载会话失败：${message}`, 'network');
+        .setSessionDetailError(id, t('errors.sessionLoadFailed', { message }), 'network');
       throw error;
     }
     if (!detail) {
@@ -98,7 +102,7 @@ export async function ensureSessionDetail(id: string): Promise<void> {
       // explicit, retryable error notice.
       useSessionStore
         .getState()
-        .setSessionDetailError(id, '会话不存在，可能已被删除');
+        .setSessionDetailError(id, t('errors.sessionMissing'));
       return;
     }
     useSessionStore.getState().applySessionDetail(id, {
@@ -190,6 +194,7 @@ export async function refreshServerSessions(): Promise<void> {
  * this replaces the list rather than merging into it.
  */
 export function useServerSessions(): void {
+  const t = useTranslations('chat');
   useEffect(() => {
     let cancelled = false;
 

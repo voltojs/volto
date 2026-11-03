@@ -116,16 +116,25 @@ export function conversationUsage(
  * reference: ms below a second, one-decimal seconds below a minute, then
  * minutes — never rolled into hours (the reference reads 61分4秒, not 1小时1分).
  */
-export function formatLongDuration(ms: number): string {
+export function formatLongDuration(
+  ms: number,
+  t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
+): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}秒`;
-  return `${Math.floor(ms / 60_000)}分${Math.floor((ms % 60_000) / 1000)}秒`;
+  if (ms < 60_000) return t('durations.seconds', { value: (ms / 1000).toFixed(1) });
+  return t('durations.minutes', {
+    minutes: Math.floor(ms / 60_000),
+    seconds: Math.floor((ms % 60_000) / 1000),
+  });
 }
 
 /** Average TTFT for the panel: '1.3秒'; null → '—' (no reported TTFT). */
-export function formatTtft(avgTtftMs: number | null): string {
+export function formatTtft(
+  avgTtftMs: number | null,
+  t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
+): string {
   if (avgTtftMs === null) return '—';
-  return formatLongDuration(avgTtftMs);
+  return formatLongDuration(avgTtftMs, t);
 }
 
 /** Whole number with unit for the summaries: '205 tok/s'; null → null. */

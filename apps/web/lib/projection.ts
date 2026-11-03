@@ -43,6 +43,7 @@ export function projectConversation(
   events: readonly TranscriptEventInput[],
   deltas: readonly TranscriptDelta[],
   prev?: readonly TurnRecord[],
+  t: (key: string) => string = (key) => key,
 ): ProjectedConversation {
   let records = buildTurnRecords(asStored(events), prev);
   for (const delta of deltas) records = applyPartial(records, delta);
@@ -121,6 +122,7 @@ export function composeChatEntries(
   messages: readonly ConversationMessage[],
   records: readonly TurnRecord[],
   notices: readonly ChatNotice[] = [],
+  t: (key: string) => string = (key) => key,
 ): ChatEntry[] {
   const stepErrorText = new Map<string, string>();
   for (const turn of records) {
@@ -128,7 +130,7 @@ export function composeChatEntries(
       if (!step.error || step.assistant !== undefined) continue;
       stepErrorText.set(
         `${turn.turn}:${step.step}`,
-        step.error.message || '执行失败',
+        step.error.message || t('projection.executionFailed'),
       );
     }
   }
@@ -188,7 +190,7 @@ export function composeChatEntries(
     });
   }
 
-  const composed = withCancelNotices(entries, records);
+  const composed = withCancelNotices(entries, records, t);
 
   // Session-level notices (model-tier fallback) trail the whole feed. They
   // deliberately differ from the cancel notice above: a cancelled turn has
@@ -227,6 +229,7 @@ function entryTurn(entry: ChatEntry): number {
 function withCancelNotices(
   entries: readonly ChatEntry[],
   records: readonly TurnRecord[],
+  t: (key: string) => string = (key) => key,
 ): ChatEntry[] {
   const cancelled = records.filter((t) => t.reason === 'cancelled');
   if (cancelled.length === 0) return entries as ChatEntry[];
@@ -234,7 +237,7 @@ function withCancelNotices(
   const noticeFor = (turn: TurnRecord): ChatEntry => ({
     kind: 'notice',
     key: `${turn.turn}:cancelled`,
-    text: '已中断本次生成',
+    text: t('projection.interrupted'),
     time: turn.endedAt ?? turn.startedAt,
   });
   const pending = new Map(cancelled.map((t) => [t.turn, t]));

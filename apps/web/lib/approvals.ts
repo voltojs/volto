@@ -12,35 +12,35 @@ import { isMatchableCommandToken, tokenizeCommand } from '@volto/sdk/sse';
  * saying so, and saying it can be retried, is the whole point of carrying
  * the reason.
  */
-export function denialNoteFor(reason?: ApprovalDenialReason): string {
+export function denialNoteKeyFor(reason?: ApprovalDenialReason): string {
   return reason === 'connection-lost'
-    ? '因连接中断被自动拒绝，可重新发送该请求'
+    ? 'approvals.denial.connectionLost'
     : reason === 'interrupted'
-      ? '因本轮被中断而拒绝'
-      : '你拒绝了该操作';
+      ? 'approvals.denial.interrupted'
+      : 'approvals.denial.denied';
 }
 
 /**
  * User-facing wording for a recognised command risk.
  *
  * The classifier lives in core and stays language-neutral, returning stable
- * kinds; the Chinese copy belongs here, the same split `denialNoteFor` uses.
+ * kinds; this module returns catalog keys, the same split `denialNoteKeyFor` uses.
  *
  * This is an explanation, not a warning gate: the command is already shown in
  * full above it, and nothing here changes what the buttons do.
  */
-export function riskNoteFor(kind: CommandRiskKind): string {
+export function riskNoteKeyFor(kind: CommandRiskKind): string {
   switch (kind) {
     case 'irreversible-push':
-      return '推送到远端，无法撤销';
+      return 'approvals.risk.irreversiblePush';
     case 'recursive-delete':
-      return '递归删除文件';
+      return 'approvals.risk.recursiveDelete';
     case 'remote-script-execution':
-      return '下载并执行远程脚本';
+      return 'approvals.risk.remoteScriptExecution';
     case 'public-publish':
-      return '发布到公共 registry';
+      return 'approvals.risk.publicPublish';
     case 'discards-uncommitted':
-      return '丢弃未提交的改动';
+      return 'approvals.risk.discardsUncommitted';
   }
 }
 

@@ -7,7 +7,10 @@
   },
   "workspace": {
     "waitingDialog": "Waiting for the system dialog…",
-    "add": "Add workspace"
+    "add": "Add workspace",
+    "added": "Added workspace “{name}”",
+    "dialogBusy": "A system directory dialog is already open; finish or close it first",
+    "addFailed": "Could not add the workspace"
   },
   "composer": {
     "placeholder": "Describe what you want to build…",
@@ -139,7 +142,8 @@
   "tool": {
     "params": "Arguments",
     "output": "Output",
-    "failed": "Failed"
+    "failed": "Failed",
+    "todoItems": "{count} items"
   },
   "todo": {
     "title": "Tasks",
@@ -182,5 +186,69 @@
     "covered": "(already covered by a broader rule; nothing new written)",
     "nextTurn": ", effective next turn.",
     "saveFailed": "Could not save the rule: {error}"
-  }
+  },
+  "approvals": {
+    "denial": {
+      "connectionLost": "Denied automatically because the connection dropped; you can send the request again",
+      "interrupted": "Denied because the turn was interrupted",
+      "denied": "You denied this action"
+    },
+    "risk": {
+      "irreversiblePush": "Pushes to a remote and cannot be undone",
+      "recursiveDelete": "Deletes files recursively",
+      "remoteScriptExecution": "Downloads and runs a remote script",
+      "publicPublish": "Publishes to a public registry",
+      "discardsUncommitted": "Discards uncommitted changes"
+    }
+  },
+  "commands": {
+    "plan": "Enter plan mode: read-only research and requirement alignment",
+    "clear": "Start a new session",
+    "compact": "Compact this session's context"
+  },
+  "projection": {
+    "executionFailed": "Execution failed",
+    "interrupted": "Generation interrupted"
+  },
+  "session": {
+    "untitled": "Untitled session",
+    "rename": "Rename",
+    "delete": "Delete session",
+    "deleteBlocked": "Generating — cannot delete",
+    "updatedAt": "Updated {time}",
+    "deleteConfirm": "Delete session “{title}”? This cannot be undone.",
+    "renameFailed": "Rename failed; the previous title was restored",
+    "deleteFailed": "Delete failed, please retry"
+  },
+  "durations": {
+    "seconds": "{value}s",
+    "minutes": "{minutes}m {seconds}s"
+  },
+  "compact": {
+    "busy": "The session is generating; try again shortly",
+    "notFound": "The session does not exist or has expired",
+    "failed": "Could not compact the context, please retry",
+    "done": "Context compacted: {count} messages replaced by a summary, about {tokens} tokens freed",
+    "nothing": "Nothing to compact right now"
+  },
+  "theme": {
+    "toggle": "Toggle theme"
+  },
+  "errors": {
+    "connectionTimeout": "Timed out connecting to the agent service; check that headless-server is running",
+    "missingBinding": "⚠️ This session has no project or model bound, so it cannot send. Create a session and finish the selection.",
+    "sendFailed": "Send failed, please retry",
+    "interruptFailed": "Could not interrupt, please retry",
+    "loadCommandsFailed": "Could not load commands",
+    "subagentStream": "Unknown error in the subagent stream",
+    "legacySession": "This session was written by an older version and cannot be read",
+    "sessionLoadFailed": "Could not load the session: {message}",
+    "sessionMissing": "The session does not exist; it may have been deleted",
+    "trajectoryLegacy": "This session was written by an older version; its trace cannot be read",
+    "trajectoryLoadFailed": "Could not load the trace: {message}"
+  },
+  "tier": {
+    "fallback": "Model tier \"{tierId}\" is unconfigured or expired; this subagent fell back to the main chat model"
+  },
+  "close": "Close"
 }

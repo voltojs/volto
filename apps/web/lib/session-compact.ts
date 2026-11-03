@@ -34,6 +34,7 @@ export interface SessionCompactParams {
  */
 export async function runSessionCompact(
   params: SessionCompactParams,
+  t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
 ): Promise<void> {
   const { sessionId, notify } = params;
   const compact = params.compact ?? defaultCompactSession;
@@ -42,23 +43,26 @@ export async function runSessionCompact(
     result = await compact(sessionId);
   } catch (err) {
     if (err instanceof CompactSessionError && err.kind === 'busy') {
-      notify.error('会话正在生成中，请稍后再试');
+      notify.error(t('compact.busy'));
       return;
     }
     if (err instanceof CompactSessionError && err.kind === 'notFound') {
-      notify.error('会话不存在或已失效');
+      notify.error(t('compact.notFound'));
       return;
     }
     notify.error(
-      err instanceof Error && err.message ? err.message : '压缩上下文失败，请重试',
+      err instanceof Error && err.message ? err.message : t('compact.failed'),
     );
     return;
   }
   if (result.compacted) {
     notify.success(
-      `已压缩上下文：${result.replacedCount} 条消息被摘要替换，约释放 ${result.tokensFreedEstimate} tokens`,
+      t('compact.done', {
+        count: result.replacedCount,
+        tokens: result.tokensFreedEstimate,
+      }),
     );
     return;
   }
-  notify.success('当前没有需要压缩的内容');
+  notify.success(t('compact.nothing'));
 }

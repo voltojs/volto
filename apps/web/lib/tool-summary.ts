@@ -29,7 +29,11 @@ function clip(value: string): string {
 }
 
 /** Human-facing one-liner for a call; never throws, never empty. */
-export function toolCallSummary(name: string, args: Record<string, unknown>): string {
+export function toolCallSummary(
+  name: string,
+  args: Record<string, unknown>,
+  t?: (key: string, params?: Record<string, string | number>) => string,
+): string {
   switch (name) {
     case 'bash': {
       const command = str(args, 'command');
@@ -57,7 +61,9 @@ export function toolCallSummary(name: string, args: Record<string, unknown>): st
     }
     case 'todo_write': {
       const todos = args['todos'];
-      return Array.isArray(todos) ? `${todos.length} 项` : name;
+      return Array.isArray(todos)
+        ? t?.('tool.todoItems', { count: todos.length }) ?? name
+        : name;
     }
     case 'web_fetch': {
       const url = str(args, 'url');

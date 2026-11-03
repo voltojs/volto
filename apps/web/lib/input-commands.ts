@@ -28,9 +28,9 @@ export type CommandItem = ActionCommandItem | TemplateCommandItem | SkillCommand
 
 /** Executed locally by InputBar on submit; never reaches the server. */
 export const ACTION_COMMANDS: readonly ActionCommandItem[] = [
-  { kind: 'action', name: 'plan', description: '进入计划模式：只读调研并对齐需求', action: 'enter-plan' },
-  { kind: 'action', name: 'clear', description: '新建会话', action: 'clear-session' },
-  { kind: 'action', name: 'compact', description: '压缩当前会话上下文', action: 'compact-session' },
+  { kind: 'action', name: 'plan', description: 'chat.commands.plan', action: 'enter-plan' },
+  { kind: 'action', name: 'clear', description: 'chat.commands.clear', action: 'clear-session' },
+  { kind: 'action', name: 'compact', description: 'chat.commands.compact', action: 'compact-session' },
 ];
 
 /**

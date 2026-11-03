@@ -63,7 +63,7 @@ describe('runSessionDelete', () => {
 
     expect(deleteServer).toHaveBeenCalledWith('s1');
     expect(deleteLocal).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith('删除失败，请重试');
+    expect(setError).toHaveBeenCalledWith('session.deleteFailed');
   });
 
   it('releases the in-flight guard after a failure, so a retry can go through', async () => {

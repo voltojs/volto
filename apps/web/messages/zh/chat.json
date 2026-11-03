@@ -7,7 +7,10 @@
   },
   "workspace": {
     "waitingDialog": "正在等待系统对话框…",
-    "add": "添加工作区"
+    "add": "添加工作区",
+    "added": "已添加工作区「{name}」",
+    "dialogBusy": "系统目录对话框已打开，请先完成或关闭它",
+    "addFailed": "添加工作区失败"
   },
   "composer": {
     "placeholder": "描述你想要构建的内容…",
@@ -139,7 +142,8 @@
   "tool": {
     "params": "参数",
     "output": "输出",
-    "failed": "执行失败"
+    "failed": "执行失败",
+    "todoItems": "{count} 项"
   },
   "todo": {
     "title": "任务",
@@ -182,5 +186,69 @@
     "covered": "（已被现有更宽规则覆盖，未重复写入）",
     "nextTurn": "，下一轮生效。",
     "saveFailed": "未能保存规则：{error}"
-  }
+  },
+  "approvals": {
+    "denial": {
+      "connectionLost": "因连接中断被自动拒绝，可重新发送该请求",
+      "interrupted": "因本轮被中断而拒绝",
+      "denied": "你拒绝了该操作"
+    },
+    "risk": {
+      "irreversiblePush": "推送到远端，无法撤销",
+      "recursiveDelete": "递归删除文件",
+      "remoteScriptExecution": "下载并执行远程脚本",
+      "publicPublish": "发布到公共 registry",
+      "discardsUncommitted": "丢弃未提交的改动"
+    }
+  },
+  "commands": {
+    "plan": "进入计划模式：只读调研并对齐需求",
+    "clear": "新建会话",
+    "compact": "压缩当前会话上下文"
+  },
+  "projection": {
+    "executionFailed": "执行失败",
+    "interrupted": "已中断本次生成"
+  },
+  "session": {
+    "untitled": "未命名会话",
+    "rename": "重命名",
+    "delete": "删除会话",
+    "deleteBlocked": "会话正在生成中，无法删除",
+    "updatedAt": "更新于 {time}",
+    "deleteConfirm": "确定删除会话「{title}」吗？此操作无法撤销。",
+    "renameFailed": "重命名失败，已恢复为原标题",
+    "deleteFailed": "删除失败，请重试"
+  },
+  "durations": {
+    "seconds": "{value}秒",
+    "minutes": "{minutes}分{seconds}秒"
+  },
+  "compact": {
+    "busy": "会话正在生成中，请稍后再试",
+    "notFound": "会话不存在或已失效",
+    "failed": "压缩上下文失败，请重试",
+    "done": "已压缩上下文：{count} 条消息被摘要替换，约释放 {tokens} tokens",
+    "nothing": "当前没有需要压缩的内容"
+  },
+  "theme": {
+    "toggle": "切换主题"
+  },
+  "errors": {
+    "connectionTimeout": "连接 agent 服务超时，请确认 headless-server 已启动",
+    "missingBinding": "⚠️ 此会话缺少绑定的项目或模型，无法发送消息。请新建会话并完成选择。",
+    "sendFailed": "发送失败，请稍后重试",
+    "interruptFailed": "中断失败，请稍后重试",
+    "loadCommandsFailed": "加载命令失败",
+    "subagentStream": "子会话流发生未知错误",
+    "legacySession": "此会话由旧版本写入，无法读取",
+    "sessionLoadFailed": "加载会话失败：{message}",
+    "sessionMissing": "会话不存在，可能已被删除",
+    "trajectoryLegacy": "此会话由旧版本写入，无法读取轨迹",
+    "trajectoryLoadFailed": "加载轨迹失败：{message}"
+  },
+  "tier": {
+    "fallback": "模型档位 \"{tierId}\" 未配置或已失效，本次子代理已回退使用主对话模型"
+  },
+  "close": "关闭"
 }

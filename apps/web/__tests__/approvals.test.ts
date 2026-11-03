@@ -1,27 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { denialNoteFor, riskNoteFor, selectPendingApprovals } from '@/lib/approvals';
+import { denialNoteKeyFor, riskNoteKeyFor, selectPendingApprovals } from '@/lib/approvals';
 import { riskNotesFor } from '@/components/chat/ApprovalCard';
 import type { TranscriptEventInput } from '@volto/core';
 
-describe('denialNoteFor', () => {
+describe('denialNoteKeyFor', () => {
   it('distinguishes a dropped connection from a user click', () => {
-    expect(denialNoteFor('connection-lost')).toBe(
-      '因连接中断被自动拒绝，可重新发送该请求',
+    expect(denialNoteKeyFor('connection-lost')).toBe(
+      'approvals.denial.connectionLost',
     );
-    expect(denialNoteFor('interrupted')).toBe('因本轮被中断而拒绝');
-    expect(denialNoteFor('user')).toBe('你拒绝了该操作');
+    expect(denialNoteKeyFor('interrupted')).toBe('approvals.denial.interrupted');
+    expect(denialNoteKeyFor('user')).toBe('approvals.denial.denied');
     // Legacy events carry no reason — fall back to the user wording.
-    expect(denialNoteFor(undefined)).toBe('你拒绝了该操作');
+    expect(denialNoteKeyFor(undefined)).toBe('approvals.denial.denied');
   });
 });
 
-describe('riskNoteFor', () => {
-  it('explains each recognised kind in Chinese', () => {
-    expect(riskNoteFor('irreversible-push')).toBe('推送到远端，无法撤销');
-    expect(riskNoteFor('recursive-delete')).toBe('递归删除文件');
-    expect(riskNoteFor('remote-script-execution')).toBe('下载并执行远程脚本');
-    expect(riskNoteFor('public-publish')).toBe('发布到公共 registry');
-    expect(riskNoteFor('discards-uncommitted')).toBe('丢弃未提交的改动');
+describe('riskNoteKeyFor', () => {
+  it('maps each recognised kind to a catalog key', () => {
+    expect(riskNoteKeyFor('irreversible-push')).toBe('approvals.risk.irreversiblePush');
+    expect(riskNoteKeyFor('recursive-delete')).toBe('approvals.risk.recursiveDelete');
+    expect(riskNoteKeyFor('remote-script-execution')).toBe(
+      'approvals.risk.remoteScriptExecution',
+    );
+    expect(riskNoteKeyFor('public-publish')).toBe('approvals.risk.publicPublish');
+    expect(riskNoteKeyFor('discards-uncommitted')).toBe(
+      'approvals.risk.discardsUncommitted',
+    );
   });
 });
 
@@ -38,7 +42,9 @@ describe('riskNotesFor', () => {
   });
 
   it('still yields notes for a single-string input', () => {
-    expect(riskNotesFor({ command: 'rm -rf build' })).toEqual(['递归删除文件']);
+    expect(riskNotesFor({ command: 'rm -rf build' })).toEqual([
+      'approvals.risk.recursiveDelete',
+    ]);
   });
 });
 

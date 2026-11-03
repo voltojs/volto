@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import {
@@ -60,6 +61,7 @@ export interface ConversationFeed {
  * sole durable copy.
  */
 export function useConversation(): ConversationFeed {
+  const t = useTranslations('chat');
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const currentSession = useSessionStore((s) =>
     s.sessions.find((session) => session.id === s.currentSessionId),
@@ -82,8 +84,8 @@ export function useConversation(): ConversationFeed {
   // closed turn from `prev`.
   const live = useMemo<ProjectedConversation>(() => {
     if (!bufferIsCurrent) return EMPTY_PROJECTED;
-    return projectConversation(events, deltas);
-  }, [events, deltas, bufferIsCurrent]);
+    return projectConversation(events, deltas, undefined, t);
+  }, [events, deltas, bufferIsCurrent, t]);
 
   // Context usage: the session's numbers-only snapshot seed (filled by
   // ensureSessionDetail from GET /sessions/:id) plus the live event buffer

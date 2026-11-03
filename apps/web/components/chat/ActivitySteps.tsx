@@ -55,7 +55,7 @@ export function ActivitySteps({
       <ToolCallCard
         key={block.call.id}
         call={block.call}
-        label={toolCallSummary(block.call.name, block.call.args)}
+        label={toolCallSummary(block.call.name, block.call.args, t)}
       />
     ),
   );
@@ -78,7 +78,7 @@ export function ActivitySteps({
     running !== undefined
       ? t('activity.running', {
           name: running.call.name,
-          summary: toolCallSummary(running.call.name, running.call.args),
+          summary: toolCallSummary(running.call.name, running.call.args, t),
         })
       : calls.length > 0
         ? failed

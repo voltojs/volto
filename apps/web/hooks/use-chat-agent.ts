@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   createGatewaySSEClient,
   createSSEClient,
@@ -62,6 +63,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
  * `user_message` event, so nothing is optimistically added on send.
  */
 export function useChatAgent(): UseChatAgentReturn {
+  const t = useTranslations('chat');
   const connectionRef = useRef<Connection | null>(null);
   // 连接状态入全局 store：Sidebar 底部的状态指示与 ChatPanel 共读一份。
   const connectionState = useChatStore((s) => s.connectionState);
@@ -110,7 +112,7 @@ export function useChatAgent(): UseChatAgentReturn {
         // un-tagged. The raw event stays in the durable buffer above; the
         // user-facing degradation note additionally becomes a trailing
         // session notice that the projection appends after the feed.
-        const tierNotice = tierNoticeFromEvent(event);
+        const tierNotice = tierNoticeFromEvent(event, t);
         if (tierNotice) chat.pushNotice(tierNotice);
         if (event.type === 'subagent_finished') {
           const data = event.data as {
@@ -154,7 +156,7 @@ export function useChatAgent(): UseChatAgentReturn {
         const timer = setTimeout(() => {
           unsubscribe();
           reject(
-            new Error('连接 agent 服务超时，请确认 headless-server 已启动'),
+            new Error(t('errors.connectionTimeout')),
           );
         }, CONNECT_TIMEOUT_MS);
 
@@ -223,7 +225,7 @@ export function useChatAgent(): UseChatAgentReturn {
           type: 'error',
           data: {
             message:
-              '⚠️ 此会话缺少绑定的项目或模型，无法发送消息。请新建会话并完成选择。',
+              t('errors.missingBinding'),
           },
         });
         return;
@@ -252,7 +254,7 @@ export function useChatAgent(): UseChatAgentReturn {
         );
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : '发送失败，请稍后重试';
+          error instanceof Error ? error.message : t('errors.sendFailed');
         useChatStore.getState().pushEvent({
           time: Date.now(),
           type: 'error',
@@ -279,7 +281,7 @@ export function useChatAgent(): UseChatAgentReturn {
       if (!interrupted) useChatStore.getState().cancelStreaming();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : '中断失败，请稍后重试';
+        error instanceof Error ? error.message : t('errors.interruptFailed');
       useChatStore.getState().pushEvent({
         time: Date.now(),
         type: 'error',

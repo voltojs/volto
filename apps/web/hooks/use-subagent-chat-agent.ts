@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   createGatewaySSEClient,
   eventsUrl,
@@ -53,6 +54,7 @@ export function useSubagentChatAgent(options: {
   stopGeneration: () => Promise<void>;
   isGenerating: boolean;
 } {
+  const t = useTranslations('chat');
   const { childSessionId, config } = options;
   const connectionRef = useRef<Connection | null>(null);
   // Read the latest config inside callbacks without re-binding them on every
@@ -129,7 +131,7 @@ export function useSubagentChatAgent(options: {
       const message =
         typeof data.message === 'string' && data.message.length > 0
           ? data.message
-          : '子会话流发生未知错误';
+          : t('errors.subagentStream');
       chat.pushSubagentEvent(sessionId, {
         time: Date.now(),
         type: 'error',
@@ -142,7 +144,7 @@ export function useSubagentChatAgent(options: {
       const timer = setTimeout(() => {
         unsubscribe();
         reject(
-          new Error('连接 agent 服务超时，请确认 headless-server 已启动'),
+          new Error(t('errors.connectionTimeout')),
         );
       }, CONNECT_TIMEOUT_MS);
 
@@ -199,7 +201,7 @@ export function useSubagentChatAgent(options: {
         });
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : '发送失败，请稍后重试';
+          error instanceof Error ? error.message : t('errors.sendFailed');
         useChatStore.getState().pushSubagentEvent(childSessionId, {
           time: Date.now(),
           type: 'error',

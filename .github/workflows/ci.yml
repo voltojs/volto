@@ -30,6 +30,11 @@ jobs:
       - name: Lint
         run: pnpm turbo run lint
 
+      # Web copy must come from the message catalogs (Task 11): the scanner
+      # strips comments and honours scripts/i18n-allowlist.json.
+      - name: Check hardcoded i18n copy
+        run: pnpm run check:i18n
+
       - name: Test
         run: pnpm turbo run test
 

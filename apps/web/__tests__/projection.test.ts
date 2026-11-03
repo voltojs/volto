@@ -437,7 +437,7 @@ describe('composeChatEntries', () => {
     ];
     const entries = composeChatEntries([emptyAssistant('1:1')], records);
     expect(entries).toEqual([
-      { kind: 'notice', key: '1:cancelled', text: '已中断本次生成', time: 300 },
+      { kind: 'notice', key: '1:cancelled', text: 'projection.interrupted', time: 300 },
     ]);
   });
 

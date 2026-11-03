@@ -151,10 +151,10 @@ describe('conversationUsage', () => {
 describe('long-duration formatting (status bar + panel)', () => {
   it('formats sub-second, seconds and minutes like the reference panel', () => {
     expect(formatLongDuration(500)).toBe('500ms');
-    expect(formatLongDuration(1300)).toBe('1.3秒');
-    expect(formatLongDuration(45_000)).toBe('45.0秒');
+    expect(formatLongDuration(1300)).toBe('durations.seconds');
+    expect(formatLongDuration(45_000)).toBe('durations.seconds');
     // The reference shows 61分4秒 — minutes are never rolled into hours.
-    expect(formatLongDuration(3_664_000)).toBe('61分4秒');
+    expect(formatLongDuration(3_664_000)).toBe('durations.minutes');
     expect(formatLongDuration(0)).toBe('0ms');
   });
 });

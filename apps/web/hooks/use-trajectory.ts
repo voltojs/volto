@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import { mergeStoredAndLiveRows, projectTrajectory } from '@/lib/projection';
@@ -40,6 +41,7 @@ const IDLE_STORED: StoredState = { rows: null, error: null, loading: false };
  * effect 只负责拉取这一外部交互，结果在异步回调里写回。
  */
 export function useStoredRows(sessionId: string | null): StoredState & { retry: () => void } {
+  const t = useTranslations('chat');
   const [nonce, setNonce] = useState(0);
   const retry = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -91,8 +93,8 @@ export function useStoredRows(sessionId: string | null): StoredState & { retry: 
                 kind: err.kind,
                 message:
                   err.kind === 'legacy'
-                    ? '此会话由旧版本写入，无法读取轨迹'
-                    : `加载轨迹失败：${err.message}`,
+                    ? t('errors.trajectoryLegacy')
+                    : t('errors.trajectoryLoadFailed', { message: err.message }),
               },
               loading: false,
             },
@@ -104,7 +106,9 @@ export function useStoredRows(sessionId: string | null): StoredState & { retry: 
               rows: null,
               error: {
                 kind: 'network',
-                message: `加载轨迹失败：${err instanceof Error ? err.message : String(err)}`,
+                message: t('errors.trajectoryLoadFailed', {
+                  message: err instanceof Error ? err.message : String(err),
+                }),
               },
               loading: false,
             },
@@ -121,6 +125,7 @@ export function useStoredRows(sessionId: string | null): StoredState & { retry: 
 }
 
 export function useTrajectory(): TrajectoryFeed {
+  const t = useTranslations('chat');
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const events = useChatStore((s) => s.events);
   const deltas = useChatStore((s) => s.deltas);
