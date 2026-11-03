@@ -84,7 +84,7 @@ export function useConversation(): ConversationFeed {
   // closed turn from `prev`.
   const live = useMemo<ProjectedConversation>(() => {
     if (!bufferIsCurrent) return EMPTY_PROJECTED;
-    return projectConversation(events, deltas, undefined, t);
+    return projectConversation(events, deltas);
   }, [events, deltas, bufferIsCurrent, t]);
 
   // Context usage: the session's numbers-only snapshot seed (filled by
@@ -103,8 +103,8 @@ export function useConversation(): ConversationFeed {
 
   const entries = useMemo(
     // Session notices (model-tier fallback) are appended to the feed's end.
-    () => composeChatEntries(messages, live.records, notices),
-    [messages, live, notices],
+    () => composeChatEntries(messages, live.records, notices, t),
+    [messages, live, notices, t],
   );
 
   // -- session switch bookkeeping ------------------------------------------

@@ -65,6 +65,16 @@ describe("BUILT_IN_COMMANDS 与 GET /commands", () => {
     expect(renderCommand(BUILT_IN_COMMANDS, "/plan 加一个深色模式")).toContain("Unknown command: /plan");
     expect(renderCommand(BUILT_IN_COMMANDS, "/nope")).toContain("Unknown command: /nope");
   });
+
+  it("follows Accept-Language when no preference is stored", async () => {
+    const english = await fetch(`${base}/commands`, {
+      headers: { Authorization: `Bearer ${launchToken}`, "Accept-Language": "en-US,en;q=0.9" },
+    });
+    const parsed = (await english.json()) as { commands: Array<{ name: string; description: string }> };
+    expect(parsed.commands.find((c) => c.name === "review")?.description).toBe(
+      "Review the current changes by severity",
+    );
+  });
 });
 
 describe("builtInCommands", () => {

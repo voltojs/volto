@@ -1,6 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { formatShortDateTime } from '@/lib/time-format';
+import { useLocale } from 'next-intl';
 import { useTranslations } from 'next-intl';
 
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
@@ -187,6 +189,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
 
 function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
   const t = useTranslations('trajectory');
+  const locale = useLocale();
   switch (tab) {
     case 'overview':
       return <OverviewTab row={row} />;
@@ -233,7 +236,7 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
       return (
         <div className="divide-y">
           <Field label={t('drawer.startTime')}>
-            <Cell text={new Date(row.startedAt).toLocaleString()} />
+            <Cell text={formatShortDateTime(row.startedAt, locale)} />
           </Field>
           <Field label={t('drawer.length')}>
             <Cell text={formatDuration(row.durationMs ?? row.metrics?.durationMs)} />

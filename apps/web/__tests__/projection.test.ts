@@ -435,9 +435,14 @@ describe('composeChatEntries', () => {
         steps: [],
       },
     ];
-    const entries = composeChatEntries([emptyAssistant('1:1')], records);
+    const entries = composeChatEntries(
+      [emptyAssistant('1:1')],
+      records,
+      [],
+      (key) => (key === 'projection.interrupted' ? '已中断本次生成' : key),
+    );
     expect(entries).toEqual([
-      { kind: 'notice', key: '1:cancelled', text: 'projection.interrupted', time: 300 },
+      { kind: 'notice', key: '1:cancelled', text: '已中断本次生成', time: 300 },
     ]);
   });
 
@@ -689,5 +694,27 @@ describe('mergeStoredAndLiveRows', () => {
       '1:header:5',
       '1:header:6',
     ]);
+  });
+});
+
+describe('legacy persisted error text', () => {
+  it('renders a stored message verbatim instead of a catalog key', () => {
+    // Older transcripts stored the already-rendered text; the projection must
+    // pass it through untouched (D6: no re-translation of persisted copy).
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        endedAt: 300,
+        reason: 'error' as const,
+        error: '连接 agent 服务失败',
+        userInput: [],
+        steps: [],
+      },
+    ];
+    const entries = composeChatEntries([], records, [], (key) => key);
+    const error = entries.find((entry) => entry.kind === 'error');
+    expect(error).toBeDefined();
+    expect((error as { text: string }).text).toBe('连接 agent 服务失败');
   });
 });

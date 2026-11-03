@@ -59,3 +59,24 @@ describe('useConversation session notices', () => {
     expect(screen.getByText(TIER_NOTICE.text)).toBeInTheDocument();
   });
 });
+
+describe('useConversation cancel notice', () => {
+  it('renders the translated cancel notice, not the catalog key', () => {
+    useChatStore.setState({
+      events: [
+        { time: 100, type: 'turn_start', data: {} },
+        { time: 300, type: 'turn_end', turn: 1, data: { reason: 'cancelled' } },
+      ] as never,
+      deltas: [],
+      isGenerating: false,
+      currentSessionId: 's1',
+      subagents: {},
+      notices: [],
+    });
+
+    const { result } = renderHook(() => useConversation());
+    const notice = result.current.entries.find((entry) => entry.kind === 'notice');
+    expect(notice).toBeDefined();
+    expect((notice as { text: string }).text).toBe('已中断本次生成');
+  });
+});

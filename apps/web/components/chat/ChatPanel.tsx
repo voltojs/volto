@@ -512,7 +512,7 @@ export function ChatPanel() {
                   success: (message) => toast.success(message),
                   error: (message) => toast.error(message),
                 },
-              });
+              }, t);
             },
           },
     [currentSessionId, isGenerating],

@@ -2,6 +2,7 @@ import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 
 import './globals.css';
 import { ThemeProvider, THEME_COOKIE } from '@/components/theme-provider';
+import { LocalePreferenceSync } from '@/components/locale-sync';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
@@ -59,6 +60,7 @@ export default async function RootLayout({
     >
       <body>
         <NextIntlClientProvider>
+          <LocalePreferenceSync />
           <ThemeProvider initialTheme={initialTheme}>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster />

@@ -90,3 +90,20 @@ export function isTextRef(value: unknown): value is TextRef {
   if (fallback !== undefined && typeof fallback !== "string") return false;
   return true;
 }
+
+/**
+ * First shipped locale named by an `Accept-Language` header, if any.
+ *
+ * Shared by the gateway (which has no client-side resolver) and the tests, so
+ * "no stored preference" degrades to the browser's language instead of always
+ * falling back to the default.
+ */
+export function localeFromAcceptLanguage(header: string | null | undefined): Locale | undefined {
+  if (typeof header !== "string") return undefined;
+  for (const part of header.split(",")) {
+    const tag = part.split(";")[0]?.trim().toLowerCase() ?? "";
+    const primary = tag.split("-")[0];
+    if (isLocale(primary)) return primary;
+  }
+  return undefined;
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useChatStore } from '@/stores/chat-store';
 import {
   composeChatEntries,
@@ -104,14 +105,15 @@ export function useSubagentConversation(childId: string | null): {
     () => mergeStoredAndLive(storedView?.view.messages ?? [], liveView?.view.messages ?? []),
     [storedView, liveView],
   );
+  const t = useTranslations('chat');
   const entries = useMemo(
     // Session notices (model-tier fallback) are main-feed rows: the tier
     // event is emitted un-tagged and never reaches a child bucket, so the
     // sub-agent pane renders none. Pass the empty list explicitly so the
     // choice stays visible at every call site instead of hiding behind the
     // parameter default.
-    () => composeChatEntries(messages, liveView?.records ?? [], []),
-    [messages, liveView],
+    () => composeChatEntries(messages, liveView?.records ?? [], [], t),
+    [messages, liveView, t],
   );
 
   // status：桶在场时桶状态胜出（done/error 括号、running）；桶缺席时由

@@ -1195,7 +1195,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // never drift from what resolveInput actually expands.
     if (req.method === "GET" && url.pathname === "/commands") {
       jsonResponse(res, 200, {
-        commands: builtInCommands(await activeLocale()).map((c) => ({
+        commands: builtInCommands(
+          await activeLocale(getConfigDir(), req.headers["accept-language"]),
+        ).map((c) => ({
           name: c.name,
           description: c.description ?? "",
           args: c.args,
@@ -1401,7 +1403,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       // plain model references.
       if (req.method === "GET") {
         try {
-          jsonResponse(res, 200, { tiers: await tierStore.list(await activeLocale()) });
+          jsonResponse(res, 200, {
+            tiers: await tierStore.list(
+              await activeLocale(getConfigDir(), req.headers["accept-language"]),
+            ),
+          });
         } catch (err: unknown) {
           jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
         }
@@ -1795,7 +1801,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               ...(typeof body.throughSeq === "number" ? { throughSeq: body.throughSeq } : {}),
               ...(typeof body.throughTurn === "number" ? { throughTurn: body.throughTurn } : {}),
               ...(typeof body.title === "string" ? { title: body.title.trim() } : {}),
-              locale: await activeLocale(),
+              locale: await activeLocale(getConfigDir(), req.headers["accept-language"]),
             },
             {
               chatStore,

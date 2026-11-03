@@ -15,3 +15,30 @@ export function formatTimestamp(ms: number): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
   );
 }
+
+/**
+ * Clock time (HH:mm) for a feed row's timestamp, in the reader's locale.
+ *
+ * The date part stays out: rows sit in one conversation where the day is
+ * obvious, and a locale-formatted date would change the row's width. Built
+ * from `Intl` here (not inline in each component) so the locale follows the
+ * UI language instead of a hardcoded `zh-CN`.
+ */
+export function formatClockTime(ms: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(ms);
+}
+
+/**
+ * Short date-time for a session row or a trace detail: date and time, in the
+ * reader's locale (was hardcoded `zh-CN`, which leaked the Chinese layout into
+ * the English UI).
+ */
+export function formatShortDateTime(ms: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(ms);
+}

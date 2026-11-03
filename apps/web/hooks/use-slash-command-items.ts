@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   fetchCommands,
   fetchSkills,
@@ -42,7 +42,10 @@ function mergeItems(
 
 export function useSlashCommandItems(projectId: string | null) {
   const t = useTranslations('chat');
-  const key = projectId ?? GLOBAL_KEY;
+  const locale = useLocale();
+  // The rendered descriptions are baked into the cache entry, so the locale is
+  // part of its identity: a language switch must not serve the old strings.
+  const key = `${projectId ?? GLOBAL_KEY}:${locale}`;
   const [items, setItems] = useState<CommandItem[]>(() => cache.get(key) ?? []);
   const [isLoading, setIsLoading] = useState<boolean>(() => !cache.has(key));
   const [error, setError] = useState<string | null>(null);

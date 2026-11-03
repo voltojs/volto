@@ -1,11 +1,10 @@
 'use client';
 
 import { CircleAlert } from 'lucide-react';
+import { formatClockTime } from '@/lib/time-format';
+import { useLocale } from 'next-intl';
 
-const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-});
+
 
 interface ErrorNoticeProps {
   text: string;
@@ -21,6 +20,7 @@ export function ErrorNotice({ text, time }: ErrorNoticeProps) {
   // Some producers already prefix the message with an emoji; the row's icon
   // makes that redundant.
   const clean = text.replace(/^⚠️\s*/, '');
+  const locale = useLocale();
   return (
     <div className="group py-2.5">
       <div className="mb-1.5 flex items-baseline gap-2">
@@ -28,7 +28,7 @@ export function ErrorNotice({ text, time }: ErrorNoticeProps) {
           <CircleAlert className="h-3 w-3" /> error
         </span>
         <span className="text-muted-foreground/70 font-mono text-[10px]">
-          {timeFormatter.format(time)}
+          {formatClockTime(time, locale)}
         </span>
       </div>
       <div className="text-destructive/90 bg-destructive/5 border-destructive/30 rounded-md border px-3 py-2 text-xs whitespace-pre-wrap">

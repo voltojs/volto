@@ -1,6 +1,8 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState } from 'react';
+import { formatShortDateTime } from '@/lib/time-format';
+import { useLocale } from 'next-intl';
 import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -35,11 +37,6 @@ interface SessionItemProps {
   onDelete: () => void;
 }
 
-const updatedFormatter = new Intl.DateTimeFormat('zh-CN', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
-
 /** Marquee travel speed — roughly reading pace, so long titles finish fast. */
 const MARQUEE_PX_PER_SECOND = 40;
 /** Extra travel past the last character, so the tail isn't clipped. */
@@ -58,6 +55,7 @@ export function SessionItem({
   onDelete,
 }: SessionItemProps) {
   const t = useTranslations('sidebar');
+  const locale = useLocale();
   const [showActions, setShowActions] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const titleRef = useRef<HTMLSpanElement>(null);
@@ -203,7 +201,7 @@ export function SessionItem({
               {session.title || t('session.untitled')}
             </span>
             <span className="opacity-70">
-              {t('session.updatedAt', { time: updatedFormatter.format(session.updatedAt) })}
+              {t('session.updatedAt', { time: formatShortDateTime(session.updatedAt, locale) })}
             </span>
           </span>
         </TooltipContent>

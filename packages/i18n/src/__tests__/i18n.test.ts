@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { catalog, DEFAULT_LOCALE, isLocale, isTextRef, LOCALES, t } from "../index.js";
+import {
+  catalog,
+  DEFAULT_LOCALE,
+  isLocale,
+  isTextRef,
+  LOCALES,
+  localeFromAcceptLanguage,
+  t,
+} from "../index.js";
 import { en } from "../messages/en.js";
 import { zh } from "../messages/zh.js";
 
@@ -52,5 +60,19 @@ describe("isTextRef", () => {
     expect(isTextRef({ key: "" })).toBe(false);
     expect(isTextRef({ key: "k", params: { n: true } })).toBe(false);
     expect(isTextRef(null)).toBe(false);
+  });
+});
+
+describe("localeFromAcceptLanguage", () => {
+  it("picks the first shipped language in the header", () => {
+    expect(localeFromAcceptLanguage("en-US,en;q=0.9")).toBe("en");
+    expect(localeFromAcceptLanguage("zh-CN,zh;q=0.9")).toBe("zh");
+    expect(localeFromAcceptLanguage("fr-FR,de;q=0.8,en;q=0.5")).toBe("en");
+  });
+
+  it("returns undefined when nothing shipped matches", () => {
+    expect(localeFromAcceptLanguage("fr-FR")).toBeUndefined();
+    expect(localeFromAcceptLanguage(undefined)).toBeUndefined();
+    expect(localeFromAcceptLanguage("")).toBeUndefined();
   });
 });

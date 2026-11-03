@@ -13,7 +13,12 @@ import * as path from "node:path";
 import { getConfigDir } from "./paths.js";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
-import { DEFAULT_LOCALE, isLocale, type Locale } from "@volto/i18n";
+import {
+  DEFAULT_LOCALE,
+  isLocale,
+  localeFromAcceptLanguage,
+  type Locale,
+} from "@volto/i18n";
 
 export { isLocale };
 export type { Locale };
@@ -139,7 +144,14 @@ export async function patchPreferences(
 /** The locale the server renders its own copy in: the stored preference, else
  * the product default. One read per request keeps a language switch immediate
  * without caching a value that can go stale. */
-export async function activeLocale(dir: string = getConfigDir()): Promise<Locale> {
+export async function activeLocale(
+  dir: string = getConfigDir(),
+  acceptLanguage?: string | null,
+): Promise<Locale> {
   const preferences = await readPreferences(dir);
-  return preferences.locale ?? DEFAULT_LOCALE;
+  return (
+    preferences.locale ??
+    localeFromAcceptLanguage(acceptLanguage) ??
+    DEFAULT_LOCALE
+  );
 }
