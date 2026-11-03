@@ -18,6 +18,8 @@ import { vi } from 'vitest';
 import zhChat from './messages/zh/chat.json';
 import zhSidebar from './messages/zh/sidebar.json';
 import zhPane from './messages/zh/pane.json';
+import zhSettings from './messages/zh/settings.json';
+import zhTrajectory from './messages/zh/trajectory.json';
 import zhCommon from './messages/zh/common.json';
 
 const CATALOGS: Record<string, unknown> = {
@@ -25,6 +27,8 @@ const CATALOGS: Record<string, unknown> = {
   common: zhCommon,
   sidebar: zhSidebar,
   pane: zhPane,
+  settings: zhSettings,
+  trajectory: zhTrajectory,
 };
 
 function lookup(namespace: string, key: string): unknown {

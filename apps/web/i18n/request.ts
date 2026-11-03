@@ -12,14 +12,18 @@ import zhCommon from '../messages/zh/common.json';
 import zhChat from '../messages/zh/chat.json';
 import zhSidebar from '../messages/zh/sidebar.json';
 import zhPane from '../messages/zh/pane.json';
+import zhSettings from '../messages/zh/settings.json';
+import zhTrajectory from '../messages/zh/trajectory.json';
 import enCommon from '../messages/en/common.json';
 import enChat from '../messages/en/chat.json';
 import enSidebar from '../messages/en/sidebar.json';
 import enPane from '../messages/en/pane.json';
+import enSettings from '../messages/en/settings.json';
+import enTrajectory from '../messages/en/trajectory.json';
 
 const MESSAGES = {
-  zh: { common: zhCommon, chat: zhChat, sidebar: zhSidebar, pane: zhPane },
-  en: { common: enCommon, chat: enChat, sidebar: enSidebar, pane: enPane },
+  zh: { common: zhCommon, chat: zhChat, sidebar: zhSidebar, pane: zhPane, settings: zhSettings, trajectory: zhTrajectory },
+  en: { common: enCommon, chat: enChat, sidebar: enSidebar, pane: enPane, settings: enSettings, trajectory: enTrajectory },
 } as const;
 
 export default getRequestConfig(async () => {

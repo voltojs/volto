@@ -1,6 +1,7 @@
 'use client';
 
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useTranslations } from 'next-intl';
 import { TrajectoryRowItem } from './TrajectoryRowItem';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -19,7 +20,7 @@ export function TrajectoryList({
   streamingRowId,
   selectedId,
   onSelect,
-  emptyHint = '本会话还没有可展示的事件',
+  emptyHint,
 }: TrajectoryListProps) {
   if (rows.length === 0) {
     return (

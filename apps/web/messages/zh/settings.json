@@ -1,0 +1,39 @@
+{
+  "dialog": {
+    "title": "设置",
+    "tabs": {
+      "general": "通用设置",
+      "models": "模型配置",
+      "routingTiers": "模型路由",
+      "subagents": "子代理",
+      "skills": "技能"
+    }
+  },
+  "general": {
+    "language": "语言",
+    "languageHint": "界面与通知文案的语言。",
+    "theme": "主题",
+    "themeHint": "浅色、深色，或跟随系统外观自动切换。",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "density": "显示模式",
+    "densityHint": "详细：工具调用逐个成卡，推理可见；简约：每个工具一行，点击看详情。",
+    "densityDetailed": "详细",
+    "densityConcise": "简约",
+    "permission": "新会话默认权限",
+    "permissionHint": "每开一个新对话，都从这个权限档位开始。已在进行的会话不受影响。",
+    "titleModel": "标题模型",
+    "titleModelHint": "用一个模型给新会话起名；不选则直接截取首条消息作为标题。",
+    "titleModelNone": "不使用",
+    "titleModelInvalid": "已失效，请重选"
+  },
+  "providers": {
+    "shellEdit": "编辑供应商",
+    "shellCollapse": "收起",
+    "delete": "删除供应商",
+    "secretNote": "供应商的 apiKey 加密保存在服务端",
+    "secretNotePath": "~/.volto",
+    "secretNoteTail": "，不会存入浏览器。"
+  }
+}

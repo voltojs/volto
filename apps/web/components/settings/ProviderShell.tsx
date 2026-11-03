@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronDown, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -29,6 +30,7 @@ export function ProviderShell({
   onRemove: () => void;
   children: ReactNode;
 }) {
+  const t = useTranslations('settings');
   return (
     <div className="bg-card/50 overflow-hidden rounded-lg border">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -52,7 +54,7 @@ export function ProviderShell({
           variant="ghost"
           size="icon-sm"
           onClick={onToggle}
-          aria-label={expanded ? '收起' : '编辑供应商'}
+          aria-label={expanded ? t('providers.shellCollapse') : t('providers.shellEdit')}
           className="shrink-0"
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -62,7 +64,7 @@ export function ProviderShell({
           size="icon-sm"
           className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
           onClick={onRemove}
-          aria-label="删除供应商"
+          aria-label={t('providers.delete')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

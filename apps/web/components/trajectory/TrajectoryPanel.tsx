@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { useTranslations } from 'next-intl';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TrajectoryList } from './TrajectoryList';
 import { TrajectoryDrawer } from './TrajectoryDrawer';

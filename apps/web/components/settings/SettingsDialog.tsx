@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Bot, KeyRound, Route, SlidersHorizontal, Sparkles } from 'lucide-react';
 import {
   Dialog,
@@ -30,22 +31,23 @@ interface SettingsDialogProps {
 }
 
 const TABS = [
-  { value: 'general', label: '通用设置', icon: SlidersHorizontal },
-  { value: 'models', label: '模型配置', icon: KeyRound },
-  { value: 'routing-tiers', label: '模型路由', icon: Route },
-  { value: 'subagents', label: '子代理', icon: Bot },
-  { value: 'skills', label: '技能', icon: Sparkles },
+  { value: 'general', labelKey: 'dialog.tabs.general', icon: SlidersHorizontal },
+  { value: 'models', labelKey: 'dialog.tabs.models', icon: KeyRound },
+  { value: 'routing-tiers', labelKey: 'dialog.tabs.routingTiers', icon: Route },
+  { value: 'subagents', labelKey: 'dialog.tabs.subagents', icon: Bot },
+  { value: 'skills', labelKey: 'dialog.tabs.skills', icon: Sparkles },
 ] as const;
 
 /** 设置面板：左侧 Tab 导航，右侧对应内容。 */
 export function SettingsDialog({ open, onOpenChange, projectId = null }: SettingsDialogProps) {
+  const t = useTranslations('settings');
   const [tab, setTab] = useState<string>('general');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>设置</DialogTitle>
+          <DialogTitle>{t('dialog.title')}</DialogTitle>
         </DialogHeader>
 
         {/* min-w-0: the dialog is a grid, so this Tabs (its grid item) defaults
@@ -58,14 +60,14 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
           className="flex min-h-[60vh] min-w-0 flex-row gap-4"
         >
           <TabsList className="h-auto w-40 shrink-0 flex-col items-stretch justify-start gap-0.5 self-start p-1">
-            {TABS.map(({ value, label, icon: Icon }) => (
+            {TABS.map(({ value, labelKey, icon: Icon }) => (
               <TabsTrigger
                 key={value}
                 value={value}
                 className="h-8 w-full flex-none justify-start gap-2"
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {t(labelKey)}
               </TabsTrigger>
             ))}
           </TabsList>

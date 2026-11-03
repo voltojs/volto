@@ -1,0 +1,39 @@
+{
+  "dialog": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "models": "Models",
+      "routingTiers": "Model routing",
+      "subagents": "Subagents",
+      "skills": "Skills"
+    }
+  },
+  "general": {
+    "language": "Language",
+    "languageHint": "Language used by the interface and notifications.",
+    "theme": "Theme",
+    "themeHint": "Light, dark, or follow the system appearance.",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "density": "Display mode",
+    "densityHint": "Detailed: one card per tool call with reasoning visible. Concise: one line per tool call, click for details.",
+    "densityDetailed": "Detailed",
+    "densityConcise": "Concise",
+    "permission": "Default permission for new sessions",
+    "permissionHint": "Every new conversation starts at this tier. Running sessions are unaffected.",
+    "titleModel": "Title model",
+    "titleModelHint": "A model that names new sessions; leave it unset to truncate the first message instead.",
+    "titleModelNone": "None",
+    "titleModelInvalid": "Removed — pick another"
+  },
+  "providers": {
+    "shellEdit": "Edit provider",
+    "shellCollapse": "Collapse",
+    "delete": "Delete provider",
+    "secretNote": "Provider apiKeys are encrypted on the server in",
+    "secretNotePath": "~/.volto",
+    "secretNoteTail": " and never stored in the browser."
+  }
+}

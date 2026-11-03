@@ -1,6 +1,7 @@
 'use client';
 
 import { useConfigStore } from '@/stores/config-store';
+import { useTranslations } from 'next-intl';
 import { CatalogProviderSection } from './CatalogProviderForm';
 import { CustomProviderSection } from './CustomProviderForm';
 
@@ -15,13 +16,14 @@ import { CustomProviderSection } from './CustomProviderForm';
  * deleting and recreating under the other section.
  */
 export function ProvidersPanel() {
+  const t = useTranslations('settings');
   const providers = useConfigStore((s) => s.providers);
 
   return (
     <div className="space-y-6">
       <p className="text-muted-foreground text-xs">
-        供应商的 apiKey 加密保存在服务端{' '}
-        <code className="font-mono">~/.volto</code>，不会存入浏览器。
+        {t('providers.secretNote')}{' '}
+        <code className="font-mono">~/.volto</code>{t('providers.secretNoteTail')}
       </p>
 
       <CatalogProviderSection providers={providers} />

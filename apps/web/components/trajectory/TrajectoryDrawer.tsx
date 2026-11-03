@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -53,16 +54,17 @@ function Code({ text }: { text: string }) {
 }
 
 function OverviewTab({ row }: { row: TrajectoryRow }) {
+  const t = useTranslations('trajectory');
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
   // 守卫保持原 truthiness 判断；落到 const 是因为属性收窄不带入 onClick 闭包。
   const childSessionId =
     row.kind === 'subagent' && row.childSessionId ? row.childSessionId : null;
   return (
     <div className="divide-y">
-      <Field label="层级">
+      <Field label={t('drawer.layer')}>
         <Cell text={locationLabel(row)} />
       </Field>
-      <Field label="类型">
+      <Field label={t('drawer.kind')}>
         <span
           className={cn(
             'inline-block rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
@@ -72,19 +74,19 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
           {KIND_LABELS[row.kind]}
         </span>
       </Field>
-      <Field label="状态">
+      <Field label={t('drawer.status')}>
         {row.isError ? (
-          <span className="text-destructive">失败</span>
+          <span className="text-destructive">{t('drawer.failed')}</span>
         ) : (
-          <span className="text-success">已完成</span>
+          <span className="text-success">{t('drawer.done')}</span>
         )}
       </Field>
-      <Field label="耗时">
+      <Field label={t('drawer.duration')}>
         <Cell text={duration} />
       </Field>
       {row.kind === 'assistant' && row.metrics?.usage && (
         <>
-          <Field label="输入 tokens">
+          <Field label={t('drawer.inputTokens')}>
             <Cell
               text={
                 row.metrics.usage.inputTokens !== undefined
@@ -93,7 +95,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
               }
             />
           </Field>
-          <Field label="输出 tokens">
+          <Field label={t('drawer.outputTokens')}>
             <Cell
               text={
                 row.metrics.usage.outputTokens !== undefined
@@ -103,14 +105,14 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
             />
           </Field>
           {(row.metrics.usage.cacheReadTokens ?? 0) > 0 && (
-            <Field label="缓存命中">
+            <Field label={t('drawer.cacheHit')}>
               <Cell text={String(row.metrics.usage.cacheReadTokens)} />
             </Field>
           )}
         </>
       )}
       {childSessionId !== null && (
-        <Field label="子会话">
+        <Field label={t('drawer.childSession')}>
           <div className="flex items-center justify-between gap-2">
             <code className="text-muted-foreground min-w-0 truncate font-mono text-[11px]">
               {childSessionId}
@@ -133,7 +135,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
         </Field>
       )}
       {row.reminderKind && (
-        <Field label="来源">
+        <Field label={t('drawer.source')}>
           <Cell text={REMINDER_KIND_LABELS[row.reminderKind]} />
         </Field>
       )}
@@ -142,10 +144,11 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
 }
 
 export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerProps) {
+  const t = useTranslations('trajectory');
   if (row === null) {
     return (
       <Drawer open={false} onOpenChange={onOpenChange}>
-        <DrawerContent title="轨迹详情" />
+        <DrawerContent title={t('drawer.title')} />
       </Drawer>
     );
   }
@@ -183,6 +186,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
 }
 
 function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
+  const t = useTranslations('trajectory');
   switch (tab) {
     case 'overview':
       return <OverviewTab row={row} />;
@@ -228,10 +232,10 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
     case 'timing':
       return (
         <div className="divide-y">
-          <Field label="开始时间">
-            <Cell text={new Date(row.startedAt).toLocaleString('zh-CN')} />
+          <Field label={t('drawer.startTime')}>
+            <Cell text={new Date(row.startedAt).toLocaleString()} />
           </Field>
-          <Field label="时长">
+          <Field label={t('drawer.length')}>
             <Cell text={formatDuration(row.durationMs ?? row.metrics?.durationMs)} />
           </Field>
           {row.metrics?.ttftMs !== undefined && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { Languages } from 'lucide-react';
 import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react';
@@ -29,10 +30,10 @@ import { LOCALE_COOKIE } from '@/i18n/locale';
 import { providerModels, useConfigStore } from '@/stores/config-store';
 import { isPermissionMode } from '@/lib/permission-mode';
 
-const THEME_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'light', label: '浅色' },
-  { value: 'dark', label: '深色' },
-  { value: 'system', label: '跟随系统' },
+const THEME_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: 'light', labelKey: 'general.themeLight' },
+  { value: 'dark', labelKey: 'general.themeDark' },
+  { value: 'system', labelKey: 'general.themeSystem' },
 ];
 
 const LANGUAGE_OPTIONS: Array<{ value: 'zh' | 'en'; label: string }> = [
@@ -40,9 +41,14 @@ const LANGUAGE_OPTIONS: Array<{ value: 'zh' | 'en'; label: string }> = [
   { value: 'en', label: 'English' },
 ];
 
-const DENSITY_OPTIONS: Array<{ value: StreamDensity; label: string }> = [
-  { value: 'detailed', label: '详细' },
-  { value: 'concise', label: '简约' },
+const DENSITY_LABEL_KEY: Record<StreamDensity, string> = {
+  detailed: 'general.densityDetailed',
+  concise: 'general.densityConcise',
+};
+
+const DENSITY_OPTIONS: Array<{ value: StreamDensity }> = [
+  { value: 'detailed' },
+  { value: 'concise' },
 ];
 
 
@@ -80,6 +86,7 @@ function titleModelOptions(
 
 /** 通用设置 Tab：主题与信息流密度。 */
 export function GeneralPanel() {
+  const t = useTranslations('settings');
   // `theme` (the stored preference) rather than `resolvedTheme`, so "跟随
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const { theme, setTheme } = useTheme();
@@ -108,11 +115,11 @@ export function GeneralPanel() {
   // A stored model the user has since deleted has no option to select, and a
   // Select would render the raw joined id. Say what actually happened instead.
   const titleModelItems: TitleModelOption[] = [
-    { value: NO_TITLE_MODEL, label: '不使用' },
+    { value: NO_TITLE_MODEL, label: t('general.titleModelNone') },
     ...modelOptions,
     ...(storedTitleModel !== NO_TITLE_MODEL &&
     !modelOptions.some((option) => option.value === storedTitleModel)
-      ? [{ value: storedTitleModel, label: '已失效，请重选' }]
+      ? [{ value: storedTitleModel, label: t('general.titleModelInvalid') }]
       : []),
   ];
 
@@ -133,8 +140,8 @@ export function GeneralPanel() {
           <Languages className="opacity-60" />
         </ItemMedia>
         <ItemContent>
-          <ItemTitle>语言</ItemTitle>
-          <ItemDescription>界面与通知文案的语言。</ItemDescription>
+          <ItemTitle>{t('general.language')}</ItemTitle>
+          <ItemDescription>{t('general.languageHint')}</ItemDescription>
         </ItemContent>
         <ItemActions>
           <Select
@@ -172,14 +179,14 @@ export function GeneralPanel() {
           <Moon className="hidden dark:block" />
         </ItemMedia>
         <ItemContent>
-          <ItemTitle>主题</ItemTitle>
+          <ItemTitle>{t('general.theme')}</ItemTitle>
           <ItemDescription>
-            浅色、深色，或跟随系统外观自动切换。
+            {t('general.themeHint')}
           </ItemDescription>
         </ItemContent>
         <ItemActions>
           <Select
-            items={THEME_OPTIONS}
+            items={THEME_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
             value={theme ?? 'system'}
             onValueChange={(next) => {
               const value = String(next);
@@ -200,7 +207,7 @@ export function GeneralPanel() {
                     {option.value === 'light' && <Sun />}
                     {option.value === 'dark' && <Moon />}
                     {option.value === 'system' && <Monitor />}
-                    {option.label}
+                    {t(option.labelKey)}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -215,14 +222,14 @@ export function GeneralPanel() {
           <List className="opacity-60 dark:hidden" />
         </ItemMedia>
         <ItemContent>
-          <ItemTitle>显示模式</ItemTitle>
+          <ItemTitle>{t('general.density')}</ItemTitle>
           <ItemDescription>
-            详细：工具调用逐个成卡，推理可见；简约：每个工具一行，点击看详情。
+            {t('general.densityHint')}
           </ItemDescription>
         </ItemContent>
         <ItemActions>
           <Select
-            items={DENSITY_OPTIONS}
+            items={DENSITY_OPTIONS.map((option) => ({ value: option.value, label: t(DENSITY_LABEL_KEY[option.value]) }))}
             value={density}
             onValueChange={(next) => setDensity(next as StreamDensity)}
           >
@@ -233,7 +240,7 @@ export function GeneralPanel() {
               <SelectGroup>
                 {DENSITY_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(DENSITY_LABEL_KEY[option.value])}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -247,9 +254,9 @@ export function GeneralPanel() {
           <ShieldCheck className="opacity-60" />
         </ItemMedia>
         <ItemContent>
-          <ItemTitle>新会话默认权限</ItemTitle>
+          <ItemTitle>{t('general.permission')}</ItemTitle>
           <ItemDescription>
-            每开一个新对话，都从这个权限档位开始。已在进行的会话不受影响。
+            {t('general.permissionHint')}
           </ItemDescription>
         </ItemContent>
         <ItemActions>
@@ -269,9 +276,9 @@ export function GeneralPanel() {
           <Sparkles className="opacity-60" />
         </ItemMedia>
         <ItemContent>
-          <ItemTitle>标题模型</ItemTitle>
+          <ItemTitle>{t('general.titleModel')}</ItemTitle>
           <ItemDescription>
-            用一个模型给新会话起名；不选则直接截取首条消息作为标题。
+            {t('general.titleModelHint')}
           </ItemDescription>
         </ItemContent>
         <ItemActions>

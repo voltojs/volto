@@ -1,0 +1,26 @@
+{
+  "drawer": {
+    "layer": "Layer",
+    "kind": "Kind",
+    "status": "Status",
+    "failed": "Failed",
+    "done": "Done",
+    "duration": "Duration",
+    "inputTokens": "Input tokens",
+    "outputTokens": "Output tokens",
+    "cacheHit": "Cache hit",
+    "childSession": "Child session",
+    "viewProcess": "View the execution →",
+    "source": "Source",
+    "title": "Trace details",
+    "startTime": "Started at",
+    "length": "Length"
+  },
+  "panel": {
+    "empty": "Select a session to see its trace",
+    "retry": "Retry"
+  },
+  "list": {
+    "empty": "This session has no displayable events yet"
+  }
+}
