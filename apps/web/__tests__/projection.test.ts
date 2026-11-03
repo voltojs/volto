@@ -442,7 +442,7 @@ describe('composeChatEntries', () => {
       (key) => (key === 'projection.interrupted' ? '已中断本次生成' : key),
     );
     expect(entries).toEqual([
-      { kind: 'notice', key: '1:cancelled', text: '已中断本次生成', time: 300 },
+      { kind: 'notice', key: '1:cancelled:0', text: '已中断本次生成', time: 300 },
     ]);
   });
 
@@ -464,7 +464,7 @@ describe('composeChatEntries', () => {
     );
     expect(entries.map((e) => (e.kind === 'message' ? e.message.id : e.key))).toEqual([
       '1:u0',
-      '1:cancelled',
+      '1:cancelled:0',
       '2:u0',
     ]);
   });
@@ -716,5 +716,33 @@ describe('legacy persisted error text', () => {
     const error = entries.find((entry) => entry.kind === 'error');
     expect(error).toBeDefined();
     expect((error as { text: string }).text).toBe('连接 agent 服务失败');
+  });
+});
+
+describe('cancel notice keys', () => {
+  it('keeps keys unique when the same turn is cancelled twice', () => {
+    const records = [
+      {
+        turn: 1,
+        startedAt: 100,
+        endedAt: 200,
+        reason: 'cancelled' as const,
+        userInput: [],
+        steps: [],
+      },
+      {
+        turn: 1,
+        startedAt: 300,
+        endedAt: 400,
+        reason: 'cancelled' as const,
+        userInput: [],
+        steps: [],
+      },
+    ];
+    const entries = composeChatEntries([], records, [], (key) => key);
+    const keys = entries.map((entry) =>
+      entry.kind === 'message' ? entry.message.id : entry.key,
+    );
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });

@@ -906,7 +906,7 @@ export function ChatPanel() {
           onValueChange={(value) =>
             setActiveTab(value as 'chat' | 'trajectory')
           }
-          className="flex min-h-0 min-w-full flex-1 flex-col"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
           <TabsList className="mx-4 mt-2">
             <TabsTrigger value="chat">{t('tabs.chat')}</TabsTrigger>

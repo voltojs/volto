@@ -47,13 +47,13 @@ export function ActivitySteps({
       </div>
     ) : block.call.childSessionId !== undefined ? (
       <SubagentCard
-        key={block.call.id}
+        key={`s-${index}-${block.call.id}`}
         call={block.call}
         onOpenSubagent={onOpenSubagent}
       />
     ) : (
       <ToolCallCard
-        key={block.call.id}
+        key={`c-${index}-${block.call.id}`}
         call={block.call}
         label={toolCallSummary(block.call.name, block.call.args, t)}
       />

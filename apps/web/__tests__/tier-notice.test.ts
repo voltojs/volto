@@ -65,7 +65,7 @@ describe('composeChatEntries session notices', () => {
     // tier notice trails the whole feed instead of being spliced into a turn.
     expect(
       entries.map((e) => (e.kind === 'message' ? e.message.id : e.key)),
-    ).toEqual(['1:u0', '1:cancelled', '2:u0', TIER_NOTICE.key]);
+    ).toEqual(['1:u0', '1:cancelled:0', '2:u0', TIER_NOTICE.key]);
   });
 
   it('renders no notice rows when none are passed', () => {

@@ -236,10 +236,18 @@ function withCancelNotices(
 
   const noticeFor = (turn: TurnRecord): ChatEntry => ({
     kind: 'notice',
-    key: `${turn.turn}:cancelled`,
+    key: noticeKey(turn),
     text: t('projection.interrupted'),
     time: turn.endedAt ?? turn.startedAt,
   });
+  // A turn can be cancelled more than once (stop, continue, stop again): the
+  // same turn number then repeats, so the notice key carries its own counter.
+  const seenTurns = new Map<number, number>();
+  const noticeKey = (turn: TurnRecord): string => {
+    const seen = seenTurns.get(turn.turn) ?? 0;
+    seenTurns.set(turn.turn, seen + 1);
+    return `${turn.turn}:cancelled:${seen}`;
+  };
   const pending = new Map(cancelled.map((t) => [t.turn, t]));
 
   const result: ChatEntry[] = [];
