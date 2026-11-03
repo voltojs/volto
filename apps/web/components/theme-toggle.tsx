@@ -1,6 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
+import { useThemePreference } from '@/components/theme-provider';
 import { useTranslations } from 'next-intl';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,8 @@ import { Kbd } from '@/components/ui/kbd';
 
 export function ThemeToggle() {
   const t = useTranslations('chat');
-  const { resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
+  const [, setThemePreference] = useThemePreference();
 
   return (
     <Tooltip>
@@ -24,7 +26,7 @@ export function ThemeToggle() {
             size="icon"
             aria-label={t('theme.toggle')}
             onClick={() =>
-              setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+              setThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark')
             }
           />
         }

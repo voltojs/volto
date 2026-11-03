@@ -1,6 +1,6 @@
 'use client';
 
-import { useTheme } from 'next-themes';
+import { useThemePreference } from '@/components/theme-provider';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { Languages } from 'lucide-react';
@@ -89,7 +89,7 @@ export function GeneralPanel() {
   const t = useTranslations('settings');
   // `theme` (the stored preference) rather than `resolvedTheme`, so "跟随
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
-  const { theme, setTheme } = useTheme();
+  const [theme, setThemePreference] = useThemePreference();
   const [density, setDensity] = useStreamDensity();
   const router = useRouter();
   const savePreference = usePreferencesStore((s) => s.save);
@@ -189,12 +189,9 @@ export function GeneralPanel() {
             items={THEME_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
             value={theme ?? 'system'}
             onValueChange={(next) => {
-              const value = String(next);
-              setTheme(value);
-              savePreference({ theme: value as 'light' | 'dark' | 'system' });
-              // Render cache for the next server render; the preference above
-              // stays the source of truth.
-              document.cookie = `volto_theme=${value}; path=/; max-age=31536000; samesite=lax`;
+              setThemePreference(
+                String(next) as 'light' | 'dark' | 'system',
+              );
             }}
           >
             <SelectTrigger size="sm" className="w-32">
