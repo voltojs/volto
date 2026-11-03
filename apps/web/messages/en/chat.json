@@ -120,7 +120,14 @@
     "contextEstimateOnly": "The model reported no usage, so these numbers are estimates, not measurements.",
     "breakdown": "Breakdown (estimated)",
     "systemLayers": "System layers (estimated)",
-    "unused": "Unused"
+    "unused": "Unused",
+    "sessionStatsSummary": "{turns} turns · {steps} steps",
+    "conversationSummary": "{tokens} tok · cache hit {rate}",
+    "segment": {
+      "system": "System prompt",
+      "tools": "Tools",
+      "messages": "Messages"
+    }
   },
   "activity": {
     "running": "Running · {name} · {summary}",

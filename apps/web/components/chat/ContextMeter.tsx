@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ContextUsageView } from '@volto/sdk/sse';
@@ -54,6 +55,7 @@ interface ContextMeterProps {
 }
 
 export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessage }: ContextMeterProps) {
+  const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
   if (!usage) return null;
 
@@ -66,7 +68,7 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label="上下文用量"
+        aria-label={t('usage.contextUsage')}
         className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11px] font-medium"
       >
         <svg
@@ -93,30 +95,33 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
       <PopoverContent className="w-72">
         {gray ? (
           <>
-            <p className="text-sm font-medium">上下文窗口未设置</p>
+            <p className="text-sm font-medium">{t('usage.contextUnset')}</p>
             <p className="text-muted-foreground mt-1 text-xs">
-              在「模型配置」中为当前模型添加上下文窗口（tokens）后，这里会显示上下文占用百分比与构成明细。
+              {t('usage.contextUnsetHint')}
             </p>
           </>
         ) : (
           <>
             <p className="text-sm font-medium">
-              上下文已用 {percent}%{usage.anchored ? '' : '（估算）'}
+              {t('usage.contextUsed', { percent })}
+              {usage.anchored ? '' : t('usage.contextEstimated')}
             </p>
             <p className="text-muted-foreground mt-0.5 font-mono text-xs">
               {usage.anchored ? '' : '~'}
               {formatCompactTokens(usage.projectedTokens)} / {formatCompactTokens(contextWindow!)} tokens
             </p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              剩余 {remaining === null ? '—' : `~${formatCompactTokens(remaining)}`}
+              {t('usage.contextRemaining', {
+                tokens: remaining === null ? '—' : `~${formatCompactTokens(remaining)}`,
+              })}
             </p>
             {shouldShowUnanchoredHint(usage, hasCompletedAssistantMessage) && (
               <p className="text-muted-foreground mt-1 text-xs">
-                当前模型未返回用量数据，以上数字为纯估算，非实际测量值。
+                {t('usage.contextEstimateOnly')}
               </p>
             )}
             <p className="text-muted-foreground mt-2 text-[10px] font-medium tracking-widest uppercase">
-              构成（估算）
+              {t('usage.breakdown')}
             </p>
             {/* The bar spans the whole window, so its trailing slice is the
                 capacity still unused — not just the three buckets' share. */}
@@ -130,7 +135,7 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
                 <li key={s.key} className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <span className={cn('inline-block h-2 w-2 rounded-full', SEGMENT_BG[s.key])} />
-                    {s.label}
+                    {t(s.labelKey)}
                   </span>
                   <span className="font-mono">{formatCompactTokens(usage.breakdown[s.key])}</span>
                 </li>
@@ -138,7 +143,7 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
               <li className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
                   <span className={cn('inline-block h-2 w-2 rounded-full', COMPOSITION_BG.free)} />
-                  未使用
+                  {t('usage.unused')}
                 </span>
                 <span className="font-mono">
                   {remaining === null ? '—' : formatCompactTokens(remaining)}
@@ -148,7 +153,7 @@ export function ContextMeter({ usage, contextWindow, hasCompletedAssistantMessag
             {usage.layers.length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
-                  系统分层（估算）
+                  {t('usage.systemLayers')}
                 </p>
                 <ul className="mt-1 space-y-1 text-xs">
                   {usage.layers.map((layer) => (

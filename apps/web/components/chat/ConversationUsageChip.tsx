@@ -1,6 +1,7 @@
 'use client';
 
 import { Database } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   Popover,
   PopoverContent,
@@ -22,14 +23,16 @@ import { PopoverRow } from './PopoverRow';
  * conversationUsage) — no route row: one conversation can span models.
  */
 export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
-  const summary = `${formatCompactTokens(usage.totalTokens)} tok · 缓存命中 ${formatCacheHitRate(
-    cacheHitRate(usage),
-  )}`;
+  const t = useTranslations('chat');
+  const summary = t('usage.conversationSummary', {
+    tokens: formatCompactTokens(usage.totalTokens),
+    rate: formatCacheHitRate(cacheHitRate(usage)),
+  });
 
   return (
     <Popover>
       <PopoverTrigger
-        aria-label="整个对话用量"
+        aria-label={t('usage.conversationUsage')}
         className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 rounded px-1.5 py-0.5 font-mono text-[10px]"
       >
         <Database className="h-3 w-3" aria-hidden />
@@ -41,7 +44,7 @@ export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
         <div className="flex items-center justify-between gap-3 border-b pb-2">
           <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium">
             <Database className="h-3.5 w-3.5" aria-hidden />
-            整个对话用量
+            {t('usage.conversationUsage')}
           </span>
           <span className="shrink-0 whitespace-nowrap font-mono text-xs font-medium">
             {formatExactTokens(usage.totalTokens)} tok
@@ -49,23 +52,23 @@ export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
         </div>
         <ul className="mt-2 space-y-1 text-xs">
           <PopoverRow
-            label="缓存命中"
+            label={t('usage.cacheHit')}
             value={formatCacheHitRate(cacheHitRate(usage))}
           />
           <PopoverRow
-            label="未缓存输入"
+            label={t('usage.uncachedInput')}
             value={`${formatExactTokens(usage.inputTokens)} tok`}
           />
           <PopoverRow
-            label="缓存读取"
+            label={t('usage.cacheRead')}
             value={`${formatExactTokens(usage.cacheReadTokens)} tok`}
           />
           <PopoverRow
-            label="缓存写入"
+            label={t('usage.cacheWrite')}
             value={`${formatExactTokens(usage.cacheWriteTokens)} tok`}
           />
           <PopoverRow
-            label="输出"
+            label={t('usage.output')}
             value={`${formatExactTokens(usage.outputTokens)} tok`}
           />
         </ul>

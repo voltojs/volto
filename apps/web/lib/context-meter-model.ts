@@ -7,9 +7,9 @@
 import type { ContextUsageView } from '@volto/sdk/sse';
 
 export const CONTEXT_METER_SEGMENTS = [
-  { key: 'system', label: '系统提示词' },
-  { key: 'tools', label: '工具' },
-  { key: 'messages', label: '消息' },
+  { key: 'system', labelKey: 'usage.segment.system' },
+  { key: 'tools', labelKey: 'usage.segment.tools' },
+  { key: 'messages', labelKey: 'usage.segment.messages' },
 ] as const;
 
 export type SegmentKey = (typeof CONTEXT_METER_SEGMENTS)[number]['key'];

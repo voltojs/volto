@@ -120,7 +120,14 @@
     "contextEstimateOnly": "当前模型未返回用量数据，以上数字为纯估算，非实际测量值。",
     "breakdown": "构成（估算）",
     "systemLayers": "系统分层（估算）",
-    "unused": "未使用"
+    "unused": "未使用",
+    "sessionStatsSummary": "{turns} 轮 {steps} 步",
+    "conversationSummary": "{tokens} tok · 缓存命中 {rate}",
+    "segment": {
+      "system": "系统提示词",
+      "tools": "工具",
+      "messages": "消息"
+    }
   },
   "activity": {
     "running": "执行中 · {name} · {summary}",

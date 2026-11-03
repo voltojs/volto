@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Brain, ListChecks, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationBlock } from '@volto/sdk/sse';
 import type { StreamDensity } from '@/lib/stream-density';
@@ -30,6 +31,7 @@ export function ActivitySteps({
   density: StreamDensity;
   onOpenSubagent?: (childSessionId: string) => void;
 }) {
+  const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
   const rows = blocks.map((block, index) =>
     block.type === 'reasoning' ? (
@@ -74,10 +76,15 @@ export function ActivitySteps({
   const failed = failedCalls.length > 0;
   const label =
     running !== undefined
-      ? `执行中 · ${running.call.name} · ${toolCallSummary(running.call.name, running.call.args)}`
+      ? t('activity.running', {
+          name: running.call.name,
+          summary: toolCallSummary(running.call.name, running.call.args),
+        })
       : calls.length > 0
-        ? `已执行 ${calls.length} 步${failed ? ` · ${failedCalls.length} 步失败` : ''}`
-        : `思考 ${reasoningCount} 段`;
+        ? failed
+          ? t('activity.doneFailed', { count: calls.length, failed: failedCalls.length })
+          : t('activity.done', { count: calls.length })
+        : t('activity.reasoning', { count: reasoningCount });
 
   return (
     <TraceRow
@@ -108,12 +115,13 @@ export function ActivitySteps({
  * it is not part of the answer.
  */
 function ReasoningRow({ text }: { text: string }) {
+  const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
   const preview = (text.split('\n')[0] ?? '').trim();
   return (
     <TraceRow
       icon={Brain}
-      label="思考"
+      label={t('activity.thinking')}
       detail={preview === '' ? undefined : preview}
       open={open}
       onOpenChange={setOpen}

@@ -1,6 +1,7 @@
 'use client';
 
 import { Database } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import type { TurnUsage } from '@volto/sdk/sse';
 import {
   Popover,
@@ -23,6 +24,7 @@ import {
  * hover（用户知道它在那儿），这个不行。
  */
 export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
+  const t = useTranslations('chat');
   // Config supplies display names for the route row; the store is read here
   // (not passed in) because every footer renders its own chip.
   const providers = useConfigStore((s) => s.providers);
@@ -32,7 +34,7 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
   return (
     <Popover>
       <PopoverTrigger
-        aria-label="本轮用量"
+        aria-label={t('usage.turnUsage')}
         className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1 py-0.5 font-mono text-[10px]"
       >
         用量 {formatCompactTokens(usage.totalTokens)} tok
@@ -45,19 +47,19 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
         <div className="flex items-center justify-between border-b pb-1.5">
           <span className="flex items-center gap-1.5 text-xs font-medium">
             <Database className="h-3.5 w-3.5" aria-hidden />
-            本轮用量
+            {t('usage.turnUsage')}
           </span>
           <span className="font-mono text-xs font-medium">
             {formatExactTokens(usage.totalTokens)} tok
           </span>
         </div>
         <ul className="mt-2 space-y-1 text-xs">
-          <PopoverRow label="提供方 / 模型" value={route} />
-          <PopoverRow label="缓存命中" value={formatCacheHitRate(cacheHitRate(usage))} />
-          <PopoverRow label="未缓存输入" value={`${formatExactTokens(usage.inputTokens)} tok`} />
-          <PopoverRow label="缓存读取" value={`${formatExactTokens(usage.cacheReadTokens)} tok`} />
-          <PopoverRow label="缓存写入" value={`${formatExactTokens(usage.cacheWriteTokens)} tok`} />
-          <PopoverRow label="输出" value={`${formatExactTokens(usage.outputTokens)} tok`} />
+          <PopoverRow label={t('usage.providerModel')} value={route} />
+          <PopoverRow label={t('usage.cacheHit')} value={formatCacheHitRate(cacheHitRate(usage))} />
+          <PopoverRow label={t('usage.uncachedInput')} value={`${formatExactTokens(usage.inputTokens)} tok`} />
+          <PopoverRow label={t('usage.cacheRead')} value={`${formatExactTokens(usage.cacheReadTokens)} tok`} />
+          <PopoverRow label={t('usage.cacheWrite')} value={`${formatExactTokens(usage.cacheWriteTokens)} tok`} />
+          <PopoverRow label={t('usage.output')} value={`${formatExactTokens(usage.outputTokens)} tok`} />
         </ul>
         {usage.missingUsageCalls > 0 && (
           <p className="text-muted-foreground mt-2 border-t pt-2 text-[10px]">
