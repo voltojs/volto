@@ -2,16 +2,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FilePreviewTab } from '@/components/pane/FilePreviewTab';
-import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
+import { fetchFsFile, fetchFsTree, type FsFilePayload } from '@/lib/fs-api';
+import { usePaneStore } from '@/stores/pane-store';
 import type { PaneTab } from '@/stores/pane-store';
 
-vi.mock('@/lib/fs-api', () => ({ fetchFsFile: vi.fn() }));
+vi.mock('@/lib/fs-api', () => ({ fetchFsFile: vi.fn(), fetchFsTree: vi.fn() }));
 const fileMock = vi.mocked(fetchFsFile);
+const treeMock = vi.mocked(fetchFsTree);
 
 const tab = (path: string) =>
   ({ kind: 'file-preview', id: `preview:p1:${path}`, projectId: 'p1', path }) as const;
 
-beforeEach(() => fileMock.mockReset());
+beforeEach(() => {
+  fileMock.mockReset();
+  treeMock.mockReset();
+  // Pivot probes run on every failed preview; default "not a directory".
+  treeMock.mockRejectedValue(new Error('Not a directory'));
+  usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true, treeReveal: null });
+});
 
 describe('FilePreviewTab', () => {
   it('renders highlighted text with line numbers', async () => {
@@ -158,5 +166,36 @@ describe('FilePreviewTab line targeting', () => {
       );
       expect(highlighted.map((el) => el.getAttribute('data-line'))).toEqual(['7']);
     });
+  });
+});
+
+describe('FilePreviewTab directory pivot', () => {
+  it('pivots a failed preview into a file-tree reveal when the path is a directory', async () => {
+    fileMock.mockRejectedValueOnce(new Error('Not found'));
+    treeMock.mockResolvedValueOnce({ path: 'packages/core', entries: [] });
+    usePaneStore.setState({
+      tabs: [tab('packages/core')],
+      activeTabId: 'preview:p1:packages/core',
+    });
+    render(<FilePreviewTab tab={tab('packages/core')} />);
+    await waitFor(() => {
+      const s = usePaneStore.getState();
+      expect(s.tabs.some((t) => t.kind === 'files')).toBe(true);
+    });
+    // The broken preview tab is withdrawn; only the files tab remains.
+    expect(usePaneStore.getState().tabs.map((t) => t.kind)).toEqual(['files']);
+    expect(usePaneStore.getState().treeReveal).toMatchObject({
+      projectId: 'p1',
+      dir: 'packages/core',
+    });
+  });
+
+  it('shows the error state when neither the file nor a dir resolves', async () => {
+    fileMock.mockRejectedValueOnce(new Error('Not found'));
+    treeMock.mockRejectedValueOnce(new Error('Not a directory'));
+    render(<FilePreviewTab tab={tab('missing.ts')} />);
+    expect(await screen.findByText('Not found')).toBeDefined();
+    expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
+    expect(usePaneStore.getState().tabs.some((t) => t.kind === 'files')).toBe(false);
   });
 });

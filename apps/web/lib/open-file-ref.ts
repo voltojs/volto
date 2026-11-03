@@ -4,7 +4,7 @@
  * stores and commands the right pane.
  */
 
-import { openFilePreview } from '@/stores/pane-store';
+import { openFilePreview, revealInTree } from '@/stores/pane-store';
 import { useSessionStore } from '@/stores/session-store';
 import type { FileRef } from './file-reference';
 
@@ -31,5 +31,10 @@ export function currentProjectId(): string | null {
 export function openFileRef(ref: FileRef, projectId?: string | null): void {
   const pid = projectId === undefined ? currentProjectId() : projectId;
   if (pid === null) return;
+  // Directory refs belong in the file tree, not a broken file preview.
+  if (ref.kind === 'dir') {
+    revealInTree(pid, ref.path);
+    return;
+  }
   openFilePreview(pid, ref.path, { line: ref.line, endLine: ref.endLine });
 }

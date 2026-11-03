@@ -180,3 +180,31 @@ describe('parentDir', () => {
     expect(parentDir('README.md')).toBe('');
   });
 });
+
+describe('directory and package-name refs', () => {
+  it('rejects npm-scope and alias refs — they name packages, not files', () => {
+    expect(parseFileRef('@volto/core')).toBeNull();
+    expect(parseFileRef('`@/lib/utils`'.slice(1, -1))).toBeNull();
+    expect(parseLinkRef('@volto/core')).toBeNull();
+  });
+
+  it('parses a trailing-slash ref as a directory', () => {
+    expect(parseFileRef('packages/tools/')).toEqual({
+      path: 'packages/tools',
+      kind: 'dir',
+    });
+    expect(parseFileRef('providers/')).toEqual({ path: 'providers', kind: 'dir' });
+  });
+
+  it('keeps ordinary refs as files', () => {
+    expect(parseFileRef('packages/core')).toEqual({ path: 'packages/core' });
+    expect(parseFileRef('src/foo.ts')).toEqual({ path: 'src/foo.ts' });
+  });
+
+  it('resolves directory refs against a base like file refs', () => {
+    expect(resolveFileRef('docs', { path: './api/', kind: 'dir' })).toEqual({
+      path: 'docs/api',
+      kind: 'dir',
+    });
+  });
+});

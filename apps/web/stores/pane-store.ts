@@ -71,6 +71,11 @@ interface PaneState {
   open: boolean;
   /** 面板折叠：标签保留，仅隐藏渲染——Header 的切换按钮负责翻转。 */
   hidden: boolean;
+  /**
+   * Latest "reveal this directory in the file tree" request. FileTreeTab
+   * consumes it and expands/scrolls to the dir; `nonce` re-arms the same dir.
+   */
+  treeReveal: { projectId: string; dir: string; nonce: number } | null;
   openTab: (tab: PaneTab) => void;
   /** Open the pane shell with zero tabs (empty-state overview). */
   openPane: () => void;
@@ -94,6 +99,7 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     width: loadWidth(),
     open: false,
     hidden: false,
+    treeReveal: null,
     openTab: (tab) =>
       set((state) => {
         const existing = state.tabs.find((t) => t.id === tab.id);
@@ -236,6 +242,22 @@ export function openFilePreview(
     ...(ref?.line !== undefined ? { line: ref.line } : {}),
     ...(ref?.endLine !== undefined ? { endLine: ref.endLine } : {}),
   });
+}
+
+/**
+ * Reveal a directory in the project's file tree: open (or activate) the
+ * files tab and arm a reveal request that FileTreeTab picks up — expanding
+ * every ancestor and scrolling the dir row into view.
+ */
+export function revealInTree(projectId: string, dir: string): void {
+  usePaneStore.getState().openTab({
+    kind: 'files',
+    id: `files:${projectId}`,
+    projectId,
+  });
+  usePaneStore.setState((s) => ({
+    treeReveal: { projectId, dir, nonce: (s.treeReveal?.nonce ?? 0) + 1 },
+  }));
 }
 
 /**

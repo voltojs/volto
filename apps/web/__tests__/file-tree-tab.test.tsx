@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FileTreeTab } from '@/components/pane/FileTreeTab';
 import { usePaneStore } from '@/stores/pane-store';
 import { fetchFsTree, searchFsFiles } from '@/lib/fs-api';
@@ -135,5 +135,29 @@ describe('FileTreeTab', () => {
     fireEvent.click(await screen.findByText('src'));
     expect(await screen.findByText('p2-child.ts')).toBeDefined();
     expect(treeMock).toHaveBeenLastCalledWith('p2', 'src');
+  });
+});
+
+describe('FileTreeTab reveal', () => {
+  it('expands the revealed dir and scrolls its row into view', async () => {
+    treeMock.mockResolvedValueOnce({
+      path: '',
+      entries: [{ name: 'src', type: 'dir', size: 0 }],
+    });
+    treeMock.mockResolvedValue({
+      path: 'src',
+      entries: [{ name: 'a.ts', type: 'file', size: 3 }],
+    });
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    usePaneStore.setState({
+      treeReveal: { projectId: 'p1', dir: 'src', nonce: 1 },
+    });
+    render(<FileTreeTab tab={tab} />);
+    // The dir expands: its child row renders.
+    expect(await screen.findByText('a.ts')).toBeDefined();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.contexts.at(-1) as Element;
+    expect(target.getAttribute('data-tree-path')).toBe('src');
   });
 });

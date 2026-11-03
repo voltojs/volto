@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
-import { openFilePreview } from '@/stores/pane-store';
+import { openFilePreview, usePaneStore } from '@/stores/pane-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PaneTab } from '@/stores/pane-store';
@@ -133,6 +133,35 @@ function FileTree({ projectId }: { projectId: string }) {
     [loadDir, tree],
   );
 
+  // Reveal requests from message dir refs (lib/open-file-ref): expand every
+  // ancestor, then scroll the dir row into view. Consumed once per request
+  // (nonce); the scroll waits until the parent listing has loaded, because
+  // the row only exists after its parent's entries render.
+  const treeReveal = usePaneStore((s) => s.treeReveal);
+  const revealedNonce = useRef(0);
+  const scrolledNonce = useRef(0);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (treeReveal === null || treeReveal.projectId !== projectId) return;
+    if (revealedNonce.current === treeReveal.nonce) return;
+    revealedNonce.current = treeReveal.nonce;
+    revealDir(treeReveal.dir);
+  }, [treeReveal, projectId, revealDir]);
+
+  useEffect(() => {
+    if (treeReveal === null || treeReveal.projectId !== projectId) return;
+    if (scrolledNonce.current === treeReveal.nonce) return;
+    const parentKey = treeReveal.dir.includes('/')
+      ? treeReveal.dir.slice(0, treeReveal.dir.lastIndexOf('/'))
+      : '';
+    if (tree[parentKey] === undefined) return;
+    const el = listRef.current?.querySelector(`[data-tree-path="${treeReveal.dir}"]`);
+    if (el === undefined || el === null) return;
+    scrolledNonce.current = treeReveal.nonce;
+    el.scrollIntoView?.({ block: 'center' });
+  }, [tree, treeReveal, projectId]);
+
   if (error !== null) {
     return (
       <div className="flex flex-col items-start gap-3 p-4">
@@ -168,7 +197,7 @@ function FileTree({ projectId }: { projectId: string }) {
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1 text-sm">
         {matches !== null ? (
           searching ? (
             <p className="text-muted-foreground p-2 text-xs">{t('fileTree.searching')}</p>
@@ -232,6 +261,7 @@ function TreeNodes({ rel, entries, tree, expanded, onToggle, onOpen }: TreeNodes
           return (
             <li key={childRel}>
               <button type="button" onClick={() => onToggle(childRel)}
+                data-tree-path={childRel}
                 className="hover:bg-muted flex w-full items-center gap-1 rounded px-2 py-1 text-left">
                 {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                 {isOpen ? <FolderOpen className="h-3.5 w-3.5 shrink-0" /> : <Folder className="h-3.5 w-3.5 shrink-0" />}
@@ -249,6 +279,7 @@ function TreeNodes({ rel, entries, tree, expanded, onToggle, onOpen }: TreeNodes
         return (
           <li key={childRel}>
             <button type="button" onClick={() => onOpen(childRel)}
+              data-tree-path={childRel}
               className="hover:bg-muted flex w-full items-center gap-1 rounded px-2 py-1 pl-6 text-left">
               <FileIcon className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{entry.name}</span>

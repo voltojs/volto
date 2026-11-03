@@ -5,8 +5,9 @@ import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
-import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
+import { fetchFsFile, fetchFsTree, type FsFilePayload } from '@/lib/fs-api';
 import { parentDir } from '@/lib/file-reference';
+import { revealInTree, usePaneStore } from '@/stores/pane-store';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';
@@ -47,6 +48,7 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
   return (
     <FilePreview
       key={`${tab.projectId}:${tab.path}`}
+      tabId={tab.id}
       projectId={tab.projectId}
       path={tab.path}
       line={tab.line}
@@ -56,11 +58,13 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
 }
 
 function FilePreview({
+  tabId,
   projectId,
   path,
   line,
   endLine,
 }: {
+  tabId: string;
   projectId: string;
   path: string;
   line?: number;
@@ -91,13 +95,26 @@ function FilePreview({
         if (!cancelled) setState({ payload, error: null });
       },
       (err: unknown) => {
-        if (!cancelled) setState({ payload: null, error: err instanceof Error ? err.message : String(err) });
+        const message = err instanceof Error ? err.message : String(err);
+        // A failed preview often means the path is a directory. The tree
+        // endpoint answers only for directories, so probe it and pivot to a
+        // tree reveal instead of parking on a broken preview tab.
+        fetchFsTree(projectId, path).then(
+          () => {
+            if (cancelled) return;
+            revealInTree(projectId, path);
+            usePaneStore.getState().closeTab(tabId);
+          },
+          () => {
+            if (!cancelled) setState({ payload: null, error: message });
+          },
+        );
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [projectId, path, nonce]);
+  }, [projectId, path, nonce, tabId]);
 
   if (state.error !== null) {
     return (
