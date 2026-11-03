@@ -1,8 +1,9 @@
 /**
- * ChatPanel layout contract: the conversation-mode InputBar lives inside the
- * chat TabsContent column (with MessageList / ApprovalCards), not as a page
- * footer sibling of the row that holds Tabs + RightPane. Trajectory tab must
- * not host the main input.
+ * ChatPanel layout contract: the conversation-mode InputBar lives outside the
+ * thread scroller (which the panel owes a full-width layer) but inside the
+ * chat TabsContent panel as its own column, not as a page footer sibling of
+ * the row that holds Tabs + RightPane. Trajectory tab must not host the main
+ * input.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -169,12 +170,24 @@ describe('ChatPanel input layout', () => {
       expect(panel.contains(editor!)).toBe(false);
     }
 
-    // Same column as MessageList: the chat panel's first flex-col child.
-    const chatColumn = editorPanel!.querySelector(
-      '.flex.min-h-0.min-w-0.flex-1.flex-col',
-    );
-    expect(chatColumn).not.toBeNull();
-    expect(chatColumn!.contains(editor!)).toBe(true);
+    // The thread scrolls in a full-width layer, and the widened column sits
+    // inside it: a scrollbar on the column itself would straddle the column
+    // edge instead of the pane edge.
+    const scroll = editorPanel!.querySelector('[data-testid="chat-scroll"]');
+    expect(scroll).not.toBeNull();
+    expect(scroll!.className).toContain('overflow-y-auto');
+
+    // The composer column is the scroller's sibling, so the input never
+    // scrolls away with the thread.
+    expect(scroll!.contains(editor!)).toBe(false);
+
+    // Both columns share one width class (no per-surface max widths).
+    const threadColumn = scroll!.querySelector('.max-w-7xl');
+    const composerColumn = editor!.closest('.max-w-7xl');
+    expect(threadColumn).not.toBeNull();
+    expect(composerColumn).not.toBeNull();
+    expect(composerColumn).not.toBe(threadColumn);
+    expect(composerColumn!.className).toBe(threadColumn!.className);
   });
 
   it('hosts the three-module status bar right under the input', () => {

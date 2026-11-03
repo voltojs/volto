@@ -904,7 +904,7 @@ export function ChatPanel() {
           onValueChange={(value) =>
             setActiveTab(value as 'chat' | 'trajectory')
           }
-          className="flex min-h-0 flex-1 flex-col"
+          className="flex min-h-0 min-w-full flex-1 flex-col"
         >
           <TabsList className="mx-4 mt-2">
             <TabsTrigger value="chat">对话</TabsTrigger>
@@ -913,32 +913,46 @@ export function ChatPanel() {
           <TabsContent
             value="chat"
             keepMounted
-            className="flex min-h-0 flex-1 flex-row"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <ConversationColumn>
-              <MessageList
-                entries={entries}
-                onOpenSubagent={openSubagent}
-                sessionId={currentSessionId}
-                isGenerating={isGenerating}
-                density={streamDensity}
-              />
-              {pendingApprovals.length > 0 && (
-                <div className="space-y-2 pb-3">
-                  {pendingApprovals.map((approval) => (
-                    <ApprovalCard
-                      key={approval.callId}
-                      approval={approval}
-                      onDecide={handleDecide}
-                    />
-                  ))}
-                </div>
-              )}
-              {todos && todos.length > 0 && (
-                <div>
-                  <TodoDock todos={todos} />
-                </div>
-              )}
+            {/* The scrollbar belongs to this full-width layer, not to the
+                widened column: with the column at max-w-7xl a bar scrolled
+                inside it would float at the column edge instead of hugging
+                the chat pane. The input stack stays below this layer, so it
+                keeps its place while the thread scrolls. */}
+            <div
+              data-testid="chat-scroll"
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            >
+              <ConversationColumn className="max-w-7xl flex-none">
+                <MessageList
+                  entries={entries}
+                  onOpenSubagent={openSubagent}
+                  sessionId={currentSessionId}
+                  isGenerating={isGenerating}
+                  density={streamDensity}
+                  scrollable={false}
+                />
+                {pendingApprovals.length > 0 && (
+                  <div className="space-y-2 pb-3">
+                    {pendingApprovals.map((approval) => (
+                      <ApprovalCard
+                        key={approval.callId}
+                        approval={approval}
+                        onDecide={handleDecide}
+                      />
+                    ))}
+                  </div>
+                )}
+                {todos && todos.length > 0 && (
+                  <div>
+                    <TodoDock todos={todos} />
+                  </div>
+                )}
+              </ConversationColumn>
+            </div>
+            {/* Same width as the thread, pinned below the scroller. */}
+            <ConversationColumn className="max-w-7xl flex-none">
               <InputBar
                 onSend={handleSubmit}
                 sessionId={currentSessionId}

@@ -12,6 +12,7 @@ import { MessageFooter } from './MessageFooter';
 import { groupFeedEntries } from '@/lib/feed-groups';
 import { useStreamDensity } from '@/lib/stream-density';
 import type { StreamDensity } from '@/lib/stream-density';
+import { cn } from '@/lib/utils';
 
 function renderEntry(entry: ChatEntry, sessionId?: string | null) {
   switch (entry.kind) {
@@ -32,6 +33,7 @@ export function MessageList({
   sessionId,
   isGenerating = false,
   density,
+  scrollable = true,
 }: {
   entries: ChatEntry[];
   onOpenSubagent?: (childSessionId: string) => void;
@@ -41,6 +43,14 @@ export function MessageList({
   sessionId?: string | null;
   /** Round in flight for this feed — shows the bottom wave indicator. */
   isGenerating?: boolean;
+  /**
+   * Whether the feed owns its scrolling. A host that keeps the scrollbar
+   * outside the widened conversation column (ChatPanel) passes `false` and
+   * scrolls the whole thread itself, so the bar sits on the pane edge rather
+   * than on the max-width column's edge. `scrollIntoView` still reaches the
+   * host's scroller because it walks the nearest scrollable ancestor.
+   */
+  scrollable?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   // Grouped rows need the density value itself; bubbles can fall back to the
@@ -54,7 +64,7 @@ export function MessageList({
   }, [entries]);
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className={cn(scrollable ? 'flex-1 overflow-y-auto' : 'shrink-0')}>
       {/* No dividers between entries: user turns are right-aligned bubbles and
           agent turns flow on the left, so the thread reads as one continuous
           conversation rather than a list of separated rows. */}
