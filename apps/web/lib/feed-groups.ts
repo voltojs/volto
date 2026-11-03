@@ -52,6 +52,9 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   }
 
   const rows: FeedRow[] = [];
+  // One message can carry several execution runs (`tool → text → tool`); the
+  // message id alone would repeat as the row key, so each run gets a counter.
+  let activityRun = 0;
   let open: { key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null } | null = null;
 
   const flush = (): void => {
@@ -86,7 +89,7 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
     segments.forEach((segment, index) => {
       const isLast = index === segments.length - 1;
       if (segment.kind === 'activity') {
-        open ??= { key: `activity-${message.id}`, blocks: [], footer: null };
+        open ??= { key: `activity-${message.id}-${activityRun++}`, blocks: [], footer: null };
         open.blocks.push(...segment.blocks);
         // The tail of a message may sit inside a run that keeps growing; the
         // last message to end in activity owns the footer of that run.

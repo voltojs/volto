@@ -103,3 +103,25 @@ describe('groupFeedEntries', () => {
     expect(footerOf(rows[0]!)?.id).toBe('m1');
   });
 });
+
+describe('row keys', () => {
+  it('gives each activity run its own key inside one message', () => {
+    // A single assistant message can carry `tool → text → tool`: the second
+    // run starts a new row while the message id stays the same.
+    const rows = groupFeedEntries([
+      assistant('1:1', [reasoning('a'), tool('t1'), text('中间'), tool('t2')]),
+    ]);
+    const activityKeys = rows.filter((r) => r.kind === 'activity').map((r) => r.key);
+    expect(activityKeys).toHaveLength(2);
+    expect(new Set(activityKeys).size).toBe(2);
+  });
+
+  it('keeps every row key unique across the whole feed', () => {
+    const rows = groupFeedEntries([
+      assistant('1:1', [tool('t1'), text('一'), tool('t2')]),
+      assistant('1:2', [tool('t3'), text('二')]),
+    ]);
+    const keys = rows.map((r) => r.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
