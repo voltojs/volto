@@ -1,11 +1,12 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { useTranslations } from 'next-intl';
 import {
   KIND_BADGE_CLASS,
-  KIND_LABELS,
+  KIND_LABEL_KEYS,
   formatDuration,
-  locationLabel,
+  locationTextRef,
 } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow } from '@volto/sdk/sse';
 
@@ -18,6 +19,7 @@ interface TrajectoryRowItemProps {
 }
 
 export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: TrajectoryRowItemProps) {
+  const t = useTranslations('trajectory');
   const duration = formatDuration(row.durationMs);
   return (
     <button
@@ -38,14 +40,14 @@ export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: Traj
           KIND_BADGE_CLASS[row.kind],
         )}
       >
-        {KIND_LABELS[row.kind]}
+        {t(KIND_LABEL_KEYS[row.kind])}
       </span>
       <span className="text-foreground/90 min-w-0 flex-1 truncate">{row.summary}</span>
       {streaming && (
         <span className="bg-primary/70 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" />
       )}
       <span className="text-muted-foreground/60 shrink-0 font-mono text-[10px]">
-        {locationLabel(row)}
+        {t(locationTextRef(row).key, locationTextRef(row).params)}
       </span>
       {duration && (
         <span className="text-muted-foreground/60 w-14 shrink-0 text-right font-mono text-[10px]">

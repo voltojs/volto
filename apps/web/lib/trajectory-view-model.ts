@@ -5,17 +5,18 @@
 
 import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
 
-export const EMPTY_CELL = '（无）';
-
-export const KIND_LABELS: Record<TrajectoryRow['kind'], string> = {
-  user: '用户',
-  context: '上下文',
-  assistant: '助手',
-  tool: '工具',
-  subagent: '子agent',
-  compaction: '压缩',
-  error: '错误',
-  reminder: '提醒',
+/** Catalog key per row kind; components translate it with the `trajectory`
+ * namespace. Keeping keys here (not rendered text) lets the label follow the
+ * UI language without the projection depending on i18n. */
+export const KIND_LABEL_KEYS: Record<TrajectoryRow['kind'], string> = {
+  user: 'kind.user',
+  context: 'kind.context',
+  assistant: 'kind.assistant',
+  tool: 'kind.tool',
+  subagent: 'kind.subagent',
+  compaction: 'kind.compaction',
+  error: 'kind.error',
+  reminder: 'kind.reminder',
 };
 
 export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
@@ -29,15 +30,15 @@ export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
   reminder: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
 };
 
-export const REMINDER_KIND_LABELS: Record<ContextReminderKind, string> = {
-  permission_boundary: '权限边界',
-  self_correction: '自我纠正',
-  loop_reminder: '循环提醒',
-  loop_intervention: '循环干预',
-  retrieval: '检索片段',
-  todo_list: '任务清单',
-  background_task: '后台任务',
-  workflow_mode: '工作流模式',
+export const REMINDER_KIND_LABEL_KEYS: Record<ContextReminderKind, string> = {
+  permission_boundary: 'reminder.permission_boundary',
+  self_correction: 'reminder.self_correction',
+  loop_reminder: 'reminder.loop_reminder',
+  loop_intervention: 'reminder.loop_intervention',
+  retrieval: 'reminder.retrieval',
+  todo_list: 'reminder.todo_list',
+  background_task: 'reminder.background_task',
+  workflow_mode: 'reminder.workflow_mode',
 };
 
 /** 无耗时返回 null（调用方渲染 EMPTY_CELL）；<1s 用 ms，其余一位小数秒。 */
@@ -47,9 +48,14 @@ export function formatDuration(ms: number | undefined): string | null {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** 行的轮次/步骤定位标签；列表行与详情抽屉共用同一实现。 */
-export function locationLabel(row: TrajectoryRow): string {
-  return row.step !== undefined ? `第${row.turn}轮 · 步骤${row.step}` : `第${row.turn}轮`;
+/** Row location as a catalog key plus its parameters; list and drawer share it. */
+export function locationTextRef(row: TrajectoryRow): {
+  key: string;
+  params: Record<string, number>;
+} {
+  return row.step !== undefined
+    ? { key: 'location.step', params: { turn: row.turn, step: row.step } }
+    : { key: 'location.turn', params: { turn: row.turn } };
 }
 
 export type DrawerTabKey =
@@ -61,14 +67,14 @@ export type DrawerTabKey =
   | 'layers'
   | 'timing';
 
-export const TAB_LABELS: Record<DrawerTabKey, string> = {
-  overview: '概述',
-  input: '参数',
-  output: '结果',
-  schema: 'Schema',
-  thinking: '思考',
-  layers: '系统层',
-  timing: '计时',
+export const TAB_LABEL_KEYS: Record<DrawerTabKey, string> = {
+  overview: 'tab.overview',
+  input: 'tab.input',
+  output: 'tab.output',
+  schema: 'tab.schema',
+  thinking: 'tab.thinking',
+  layers: 'tab.layers',
+  timing: 'tab.timing',
 };
 
 const TOOL_TABS: readonly DrawerTabKey[] = ['overview', 'input', 'output', 'schema', 'timing'];

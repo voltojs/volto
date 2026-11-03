@@ -9,14 +9,13 @@ import { Markdown } from '@/components/chat/Markdown';
 import { usePaneStore } from '@/stores/pane-store';
 import { cn } from '@/lib/utils';
 import {
-  EMPTY_CELL,
   KIND_BADGE_CLASS,
-  KIND_LABELS,
-  REMINDER_KIND_LABELS,
-  TAB_LABELS,
+  KIND_LABEL_KEYS,
+  REMINDER_KIND_LABEL_KEYS,
+  TAB_LABEL_KEYS,
   drawerTabsFor,
   formatDuration,
-  locationLabel,
+  locationTextRef,
   parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
@@ -38,10 +37,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Cell({ text }: { text: string | null | undefined }) {
+  const t = useTranslations('trajectory');
   return text ? (
     <div className="text-foreground/90 whitespace-pre-wrap break-words">{text}</div>
   ) : (
-    <span className="text-muted-foreground/60">{EMPTY_CELL}</span>
+    <span className="text-muted-foreground/60">{t('common.empty')}</span>
   );
 }
 
@@ -62,7 +62,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
   return (
     <div className="divide-y">
       <Field label={t('drawer.layer')}>
-        <Cell text={locationLabel(row)} />
+        <Cell text={t(locationTextRef(row).key, locationTextRef(row).params)} />
       </Field>
       <Field label={t('drawer.kind')}>
         <span
@@ -71,7 +71,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
             KIND_BADGE_CLASS[row.kind],
           )}
         >
-          {KIND_LABELS[row.kind]}
+          {t(KIND_LABEL_KEYS[row.kind])}
         </span>
       </Field>
       <Field label={t('drawer.status')}>
@@ -136,7 +136,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
       )}
       {row.reminderKind && (
         <Field label={t('drawer.source')}>
-          <Cell text={REMINDER_KIND_LABELS[row.reminderKind]} />
+          <Cell text={t(REMINDER_KIND_LABEL_KEYS[row.reminderKind])} />
         </Field>
       )}
     </div>
@@ -158,7 +158,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
-        title={`${KIND_LABELS[row.kind]} · ${locationLabel(row)}`}
+        title={`${t(KIND_LABEL_KEYS[row.kind])} · ${t(locationTextRef(row).key, locationTextRef(row).params)}`}
         description={row.summary}
       >
         {/* key 随行重挂：抽屉开着换行（store.open 另一行）时，内部受控
@@ -167,7 +167,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
           <TabsList className="mx-4 mt-3">
             {tabs.map((key) => (
               <TabsTrigger key={key} value={key}>
-                {TAB_LABELS[key]}
+                {t(TAB_LABEL_KEYS[key])}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -191,7 +191,7 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
     case 'overview':
       return <OverviewTab row={row} />;
     case 'input':
-      return <Code text={row.inputDetail ?? EMPTY_CELL} />;
+      return <Code text={row.inputDetail ?? ''} />;
     case 'output': {
       // 错误行：整体红显、原样文本（含空 → 「（无）」）；正常行非空走 Markdown，
       // 空结果渲染占位而非空白 Markdown。
@@ -205,12 +205,12 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
       return row.outputDetail ? <Markdown content={row.outputDetail} /> : <Cell text={row.outputDetail} />;
     }
     case 'schema':
-      return <Code text={row.schemaDetail ?? EMPTY_CELL} />;
+      return <Code text={row.schemaDetail ?? ''} />;
     case 'thinking':
       return <Cell text={row.thinkingDetail} />;
     case 'layers': {
       const layers = parseSystemLayers(row.inputDetail ?? '');
-      if (layers.length === 0) return <Code text={row.inputDetail ?? EMPTY_CELL} />;
+      if (layers.length === 0) return <Code text={row.inputDetail ?? ''} />;
       return (
         <div className="space-y-3">
           {layers.map((layer) => (

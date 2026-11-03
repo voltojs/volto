@@ -22,5 +22,41 @@
   },
   "list": {
     "empty": "This session has no displayable events yet"
+  },
+  "kind": {
+    "user": "User",
+    "context": "Context",
+    "assistant": "Assistant",
+    "tool": "Tool",
+    "subagent": "Subagent",
+    "compaction": "Compaction",
+    "error": "Error",
+    "reminder": "Reminder"
+  },
+  "reminder": {
+    "permission_boundary": "Permission boundary",
+    "self_correction": "Self correction",
+    "loop_reminder": "Loop reminder",
+    "loop_intervention": "Loop intervention",
+    "retrieval": "Retrieval",
+    "todo_list": "Todo list",
+    "background_task": "Background task",
+    "workflow_mode": "Workflow mode"
+  },
+  "tab": {
+    "overview": "Overview",
+    "input": "Input",
+    "output": "Output",
+    "schema": "Schema",
+    "thinking": "Thinking",
+    "layers": "System layers",
+    "timing": "Timing"
+  },
+  "location": {
+    "turn": "Turn {turn}",
+    "step": "Turn {turn} · step {step}"
+  },
+  "common": {
+    "empty": "(none)"
   }
 }

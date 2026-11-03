@@ -3,7 +3,7 @@
  *
  *  (a) turn-end 且 plan 态 → 拉取计划文档 → 打开 plan 标签（404/非 plan 态不动面板）；
  *  (b) 「按计划执行」派发 → setSessionPermissionMode(sid, planPreviousMode ?? 'ask')
- *      + 发送「按已批准的计划开始执行」。
+ *      + sends the approval message.
  *
  * 取舍（最小侵入）：不 mock 整个组件树、也不把 effect 抽成纯函数——直接渲染
  * ChatPanel 本体，只 mock 掉网络型 hooks（use-chat-agent / use-conversation /
@@ -186,7 +186,7 @@ describe('ChatPanel — 「按计划执行」派发', () => {
     render(<ChatPanel />);
     fireEvent.click(screen.getByTestId('stub-execute-plan'));
 
-    expect(mocks.sendMessage).toHaveBeenCalledWith('按已批准的计划开始执行');
+    expect(mocks.sendMessage).toHaveBeenCalledWith('The plan is approved — start executing it.');
     const mode = useSessionStore
       .getState()
       .sessions.find((s) => s.id === 'session-1')?.permissionMode;
@@ -200,7 +200,7 @@ describe('ChatPanel — 「按计划执行」派发', () => {
     render(<ChatPanel />);
     fireEvent.click(screen.getByTestId('stub-execute-plan'));
 
-    expect(mocks.sendMessage).toHaveBeenCalledWith('按已批准的计划开始执行');
+    expect(mocks.sendMessage).toHaveBeenCalledWith('The plan is approved — start executing it.');
     const mode = useSessionStore
       .getState()
       .sessions.find((s) => s.id === 'session-1')?.permissionMode;

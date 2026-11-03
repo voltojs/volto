@@ -1,26 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import {
-  KIND_LABELS,
+  KIND_LABEL_KEYS,
   KIND_BADGE_CLASS,
   formatDuration,
   drawerTabsFor,
-  TAB_LABELS,
-  EMPTY_CELL,
-  locationLabel,
+  TAB_LABEL_KEYS,
+  locationTextRef,
   parseSystemLayers,
-  REMINDER_KIND_LABELS,
+  REMINDER_KIND_LABEL_KEYS,
 } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
 
-describe('KIND_LABELS / KIND_BADGE_CLASS', () => {
-  it('covers every row kind with a zh label and badge classes', () => {
+describe('KIND_LABEL_KEYS / KIND_BADGE_CLASS', () => {
+  it('covers every row kind with a catalog key and badge classes', () => {
     const kinds = ['user', 'context', 'assistant', 'tool', 'subagent', 'compaction', 'error', 'reminder'] as const;
     for (const kind of kinds) {
-      expect(KIND_LABELS[kind]).toBeTruthy();
+      expect(KIND_LABEL_KEYS[kind]).toBeTruthy();
       expect(KIND_BADGE_CLASS[kind]).toBeTruthy();
     }
-    expect(KIND_LABELS.user).toBe('用户');
-    expect(KIND_LABELS.error).toBe('错误');
+    expect(KIND_LABEL_KEYS.user).toBe('kind.user');
+    expect(KIND_LABEL_KEYS.error).toBe('kind.error');
     expect(KIND_BADGE_CLASS.error).toContain('destructive');
   });
 });
@@ -49,8 +48,14 @@ describe('locationLabel', () => {
     }) as TrajectoryRow;
 
   it('includes the step when present and falls back to the turn alone', () => {
-    expect(locationLabel(row(3))).toBe('第2轮 · 步骤3');
-    expect(locationLabel(row())).toBe('第2轮');
+    expect(locationTextRef(row(3))).toEqual({
+      key: 'location.step',
+      params: { turn: 2, step: 3 },
+    });
+    expect(locationTextRef(row())).toEqual({
+      key: 'location.turn',
+      params: { turn: 2 },
+    });
   });
 });
 
@@ -73,15 +78,14 @@ describe('drawerTabsFor', () => {
     expect(drawerTabsFor('reminder')).toEqual(['overview', 'output']);
     expect(drawerTabsFor('compaction')).toEqual(['overview', 'output']);
   });
-  it('labels every tab key in zh', () => {
-    expect(TAB_LABELS.overview).toBe('概述');
-    expect(TAB_LABELS.input).toBe('参数');
-    expect(TAB_LABELS.output).toBe('结果');
-    expect(TAB_LABELS.schema).toBe('Schema');
-    expect(TAB_LABELS.thinking).toBe('思考');
-    expect(TAB_LABELS.layers).toBe('系统层');
-    expect(TAB_LABELS.timing).toBe('计时');
-    expect(EMPTY_CELL).toBe('（无）');
+  it('maps every tab key to a catalog key', () => {
+    expect(TAB_LABEL_KEYS.overview).toBe('tab.overview');
+    expect(TAB_LABEL_KEYS.input).toBe('tab.input');
+    expect(TAB_LABEL_KEYS.output).toBe('tab.output');
+    expect(TAB_LABEL_KEYS.schema).toBe('tab.schema');
+    expect(TAB_LABEL_KEYS.thinking).toBe('tab.thinking');
+    expect(TAB_LABEL_KEYS.layers).toBe('tab.layers');
+    expect(TAB_LABEL_KEYS.timing).toBe('tab.timing');
   });
 });
 
@@ -123,12 +127,14 @@ describe('parseSystemLayers', () => {
   });
 });
 
-describe('REMINDER_KIND_LABELS', () => {
-  it('covers every ContextReminderKind with a zh label', () => {
+describe('REMINDER_KIND_LABEL_KEYS', () => {
+  it('covers every ContextReminderKind with a catalog key', () => {
     const kinds: ContextReminderKind[] = ['permission_boundary', 'self_correction', 'retrieval'];
     for (const kind of kinds) {
-      expect(REMINDER_KIND_LABELS[kind]).toBeTruthy();
+      expect(REMINDER_KIND_LABEL_KEYS[kind]).toBeTruthy();
     }
-    expect(REMINDER_KIND_LABELS.permission_boundary).toBe('权限边界');
+    expect(REMINDER_KIND_LABEL_KEYS.permission_boundary).toBe(
+      'reminder.permission_boundary',
+    );
   });
 });

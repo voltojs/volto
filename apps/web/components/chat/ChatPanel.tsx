@@ -438,7 +438,7 @@ export function ChatPanel() {
     (sessionId: string) => {
       const store = useSessionStore.getState();
       store.setSessionPermissionMode(sessionId, store.planPreviousMode ?? 'ask');
-      void sendMessage('按已批准的计划开始执行');
+      void sendMessage('The plan is approved — start executing it.');
     },
     [sendMessage],
   );

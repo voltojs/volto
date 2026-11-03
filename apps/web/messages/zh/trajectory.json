@@ -22,5 +22,41 @@
   },
   "list": {
     "empty": "本会话还没有可展示的事件"
+  },
+  "kind": {
+    "user": "用户",
+    "context": "上下文",
+    "assistant": "助手",
+    "tool": "工具",
+    "subagent": "子agent",
+    "compaction": "压缩",
+    "error": "错误",
+    "reminder": "提醒"
+  },
+  "reminder": {
+    "permission_boundary": "权限边界",
+    "self_correction": "自我纠正",
+    "loop_reminder": "循环提醒",
+    "loop_intervention": "循环干预",
+    "retrieval": "检索片段",
+    "todo_list": "任务清单",
+    "background_task": "后台任务",
+    "workflow_mode": "工作流模式"
+  },
+  "tab": {
+    "overview": "概述",
+    "input": "参数",
+    "output": "结果",
+    "schema": "Schema",
+    "thinking": "思考",
+    "layers": "系统层",
+    "timing": "计时"
+  },
+  "location": {
+    "turn": "第{turn}轮",
+    "step": "第{turn}轮 · 步骤{step}"
+  },
+  "common": {
+    "empty": "（无）"
   }
 }
