@@ -9,11 +9,13 @@ import { getRequestConfig } from 'next-intl/server';
 import { cookies, headers } from 'next/headers';
 import { LOCALE_COOKIE, resolveLocale } from './locale';
 import zhCommon from '../messages/zh/common.json';
+import zhChat from '../messages/zh/chat.json';
 import enCommon from '../messages/en/common.json';
+import enChat from '../messages/en/chat.json';
 
 const MESSAGES = {
-  zh: { common: zhCommon },
-  en: { common: enCommon },
+  zh: { common: zhCommon, chat: zhChat },
+  en: { common: enCommon, chat: enChat },
 } as const;
 
 export default getRequestConfig(async () => {

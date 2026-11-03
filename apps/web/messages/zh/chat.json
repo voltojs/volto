@@ -1,0 +1,80 @@
+{
+  "welcome": {
+    "tagline": "让想法跑起来",
+    "intro": "我是 Volto，你的 AI 助手。有什么我可以帮助你的吗？",
+    "noWorkspace": "还没有工作区，添加一个开始吧",
+    "noProviders": "请先在「设置」中添加供应商与模型"
+  },
+  "workspace": {
+    "waitingDialog": "正在等待系统对话框…",
+    "add": "添加工作区"
+  },
+  "composer": {
+    "placeholder": "描述你想要构建的内容…",
+    "waitingApproval": "等待你的审批",
+    "noWorkspace": "请先选择工作区",
+    "missingBinding": "此会话缺少绑定的项目或模型，无法发送消息",
+    "addImage": "添加图片",
+    "imageUnsupported": "当前模型不支持图片输入",
+    "stop": "中断生成",
+    "send": "发送"
+  },
+  "connection": {
+    "connecting": "正在连接 agent 服务…",
+    "offline": "未连接 agent 服务，请确认 headless-server 已在 {url} 启动"
+  },
+  "tabs": {
+    "chat": "对话",
+    "trajectory": "轨迹"
+  },
+  "header": {
+    "forkAria": "分支会话",
+    "fork": "从此会话创建分支",
+    "forkDisabled": "会话生成中，暂不可分支",
+    "rewindAria": "从某一轮重新开始",
+    "rewind": "从某一轮重新开始（创建分支）",
+    "rewindDisabled": "会话生成中，暂不可回退",
+    "exportAria": "导出会话",
+    "exportTooltip": "导出为 Markdown",
+    "compactAria": "压缩上下文",
+    "compact": "压缩上下文（摘要旧消息，释放 token）",
+    "compactDisabled": "会话生成中，暂不可压缩",
+    "paneCollapse": "收起面板",
+    "paneExpand": "展开面板"
+  },
+  "rewind": {
+    "title": "从某一轮重新开始",
+    "description": "选择一轮已完成对话，创建一个从该轮继续的新分支；原会话保持不变。",
+    "empty": "这个会话还没有已完成的轮次。",
+    "noSummary": "（无摘要）"
+  },
+  "toast": {
+    "forked": "已创建分支会话",
+    "rewound": "已从第 {turn} 轮创建分支",
+    "approvalFailed": "提交审批失败，请重试"
+  },
+  "permission": {
+    "readOnly": "只读",
+    "readOnlyHint": "读取放行，任何写入一律拒绝",
+    "ask": "询问",
+    "askHint": "工作区内小改动放行，高风险操作先问你",
+    "auto": "自动",
+    "autoHint": "工作区内全放行，不可逆操作仍拒绝",
+    "full": "完全",
+    "fullHint": "不加限制，不再询问",
+    "planTitle": "计划模式：批准计划后执行，悬停可手动退出",
+    "planActive": "计划中",
+    "planExit": "退出计划模式",
+    "fullConfirmTitle": "开启「完全」权限？",
+    "fullConfirmBody": "将关闭沙箱与审批拦截，Agent 可执行任意命令、任意读写文件，且不会再向你确认。仅在你完全信任当前任务时开启。",
+    "cancel": "取消",
+    "confirm": "确认开启"
+  },
+  "common": {
+    "retry": "重试",
+    "cancel": "取消"
+  },
+  "status": {
+    "loadingSession": "加载会话…"
+  }
+}

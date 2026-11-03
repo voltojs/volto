@@ -1,6 +1,7 @@
 'use client';
 
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
+import { useTranslations } from 'next-intl';
 import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
@@ -49,6 +50,7 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
+  const t = useTranslations('chat');
   return (
     <header className="flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5">
       <SidebarToggle />
@@ -69,7 +71,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               render={
                 <button
                   type="button"
-                  aria-label="分支会话"
+                  aria-label={t('header.forkAria')}
                   onClick={forkAction.onFork}
                   disabled={forkAction.disabled}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
@@ -79,7 +81,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               <GitBranch className="h-4 w-4" />
             </TooltipTrigger>
             <TooltipContent>
-              {forkAction.disabled ? '会话生成中，暂不可分支' : '从此会话创建分支'}
+              {forkAction.disabled ? t('header.forkDisabled') : t('header.fork')}
             </TooltipContent>
           </Tooltip>
         )}
@@ -89,7 +91,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               render={
                 <button
                   type="button"
-                  aria-label="从某一轮重新开始"
+                  aria-label={t('header.rewindAria')}
                   onClick={rewindAction.onRewind}
                   disabled={rewindAction.disabled}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
@@ -99,7 +101,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               <History className="h-4 w-4" />
             </TooltipTrigger>
             <TooltipContent>
-              {rewindAction.disabled ? '会话生成中，暂不可回退' : '从某一轮重新开始（创建分支）'}
+              {rewindAction.disabled ? t('header.rewindDisabled') : t('header.rewind')}
             </TooltipContent>
           </Tooltip>
         )}
@@ -109,7 +111,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               render={
                 <button
                   type="button"
-                  aria-label="导出会话"
+                  aria-label={t('header.exportAria')}
                   onClick={exportAction.onExport}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
                 />
@@ -117,7 +119,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
             >
               <Download className="h-4 w-4" />
             </TooltipTrigger>
-            <TooltipContent>导出为 Markdown</TooltipContent>
+            <TooltipContent>{t('header.exportTooltip')}</TooltipContent>
           </Tooltip>
         )}
         {compactAction && (
@@ -126,7 +128,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               render={
                 <button
                   type="button"
-                  aria-label="压缩上下文"
+                  aria-label={t('header.compactAria')}
                   onClick={compactAction.onCompact}
                   disabled={compactAction.disabled}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
@@ -137,8 +139,8 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
             </TooltipTrigger>
             <TooltipContent>
               {compactAction.disabled
-                ? '会话生成中，暂不可压缩'
-                : '压缩上下文（摘要旧消息，释放 token）'}
+                ? t('header.compactDisabled')
+                : t('header.compact')}
             </TooltipContent>
           </Tooltip>
         )}
@@ -148,7 +150,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               render={
                 <button
                   type="button"
-                  aria-label={paneToggle.visible ? '收起面板' : '展开面板'}
+                  aria-label={paneToggle.visible ? t('header.paneCollapse') : t('header.paneExpand')}
                   onClick={paneToggle.onToggle}
                   disabled={paneToggle.disabled}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
@@ -162,7 +164,7 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
               )}
             </TooltipTrigger>
             <TooltipContent>
-              {paneToggle.visible ? '收起面板' : '展开面板'}
+              {paneToggle.visible ? t('header.paneCollapse') : t('header.paneExpand')}
             </TooltipContent>
           </Tooltip>
         )}

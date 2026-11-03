@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Shield, ShieldAlert, ShieldCheck, ShieldOff, X } from 'lucide-react';
 import {
   Select,
@@ -49,33 +50,34 @@ interface PermissionPickerProps {
  */
 const OPTIONS: Array<{
   value: PermissionMode;
-  label: string;
-  hint: string;
+  /** Catalog keys, resolved at render so the menu follows the UI language. */
+  labelKey: string;
+  hintKey: string;
   Icon: typeof Shield;
   danger?: boolean;
 }> = [
   {
     value: 'read-only',
-    label: '只读',
-    hint: '读取放行，任何写入一律拒绝',
+    labelKey: 'permission.readOnly',
+    hintKey: 'permission.readOnlyHint',
     Icon: ShieldOff,
   },
   {
     value: 'ask',
-    label: '询问',
-    hint: '工作区内小改动放行，高风险操作先问你',
+    labelKey: 'permission.ask',
+    hintKey: 'permission.askHint',
     Icon: ShieldCheck,
   },
   {
     value: 'auto',
-    label: '自动',
-    hint: '工作区内全放行，不可逆操作仍拒绝',
+    labelKey: 'permission.auto',
+    hintKey: 'permission.autoHint',
     Icon: Shield,
   },
   {
     value: 'full',
-    label: '完全',
-    hint: '不加限制，不再询问',
+    labelKey: 'permission.full',
+    hintKey: 'permission.fullHint',
     Icon: ShieldAlert,
     danger: true,
   },
@@ -102,6 +104,7 @@ export function PermissionPicker({
   variant = 'ghost',
   triggerClassName,
 }: PermissionPickerProps) {
+  const t = useTranslations('chat');
   const [confirmFull, setConfirmFull] = useState(false);
   if (value === 'plan') {
     return (
@@ -109,14 +112,14 @@ export function PermissionPicker({
       // 辅助技术与自动化工具把该按钮一并视为禁用（浏览器不拦点击，语义却
       // 撒谎）。"不可切换档位"的语义由 title 承载。
       <span
-        title="计划模式：批准计划后执行，悬停可手动退出"
+        title={t('permission.planTitle')}
         className="group text-muted-foreground border-border bg-muted/50 inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 font-mono text-xs select-none"
       >
-        计划中
+        {t('permission.planActive')}
         {onExitPlan && (
           <button
             type="button"
-            aria-label="退出计划模式"
+            aria-label={t('permission.planExit')}
             onClick={onExitPlan}
             className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
           >
@@ -132,7 +135,7 @@ export function PermissionPicker({
   return (
     <>
       <Select
-        items={OPTIONS}
+        items={OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
         value={value}
         onValueChange={(next) => {
           const mode = next as PermissionMode;
@@ -175,10 +178,10 @@ export function PermissionPicker({
                     <span
                       className={option.danger ? 'text-destructive' : undefined}
                     >
-                      {option.label}
+                      {t(option.labelKey)}
                     </span>
                     <span className="text-muted-foreground text-xs">
-                      {option.hint}
+                      {t(option.hintKey)}
                     </span>
                   </div>
                 </div>
@@ -194,14 +197,13 @@ export function PermissionPicker({
             <AlertDialogMedia>
               <ShieldAlert className="text-destructive" />
             </AlertDialogMedia>
-            <AlertDialogTitle>开启「完全」权限？</AlertDialogTitle>
+            <AlertDialogTitle>{t('permission.fullConfirmTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              将关闭沙箱与审批拦截，Agent
-              可执行任意命令、任意读写文件，且不会再向你确认。仅在你完全信任当前任务时开启。
+              {t('permission.fullConfirmBody')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
@@ -209,7 +211,7 @@ export function PermissionPicker({
                 onChange('full');
               }}
             >
-              确认开启
+              {t('permission.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

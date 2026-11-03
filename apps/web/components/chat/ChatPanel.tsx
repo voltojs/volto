@@ -29,6 +29,7 @@ import { usePaneStore } from '@/stores/pane-store';
 import { RightPane } from '@/components/pane/RightPane';
 import { useConversation } from '@/hooks/use-conversation';
 import { useTrajectory } from '@/hooks/use-trajectory';
+import { useTranslations } from 'next-intl';
 import {
   conversationUsage,
   sessionStats,
@@ -49,6 +50,7 @@ import { selectPendingApprovals, type ApprovalOutcome } from '@/lib/approvals';
 import { cn } from '@/lib/utils';
 
 export function ChatPanel() {
+  const t = useTranslations('chat');
   const isGenerating = useChatStore((s) => s.isGenerating);
   const chatEvents = useChatStore((s) => s.events);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
@@ -377,7 +379,7 @@ export function ChatPanel() {
         );
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : '提交审批失败，请重试';
+          error instanceof Error ? error.message : t('toast.approvalFailed');
         useChatStore.getState().pushEvent({
           time: Date.now(),
           type: 'error',
@@ -447,7 +449,7 @@ export function ChatPanel() {
       ? expandStoredTitle(currentSession.title, currentSession.messages)
       : '') ||
     currentProject?.name ||
-    '让想法跑起来';
+    t('welcome.tagline');
 
   // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
   // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
@@ -536,7 +538,7 @@ export function ChatPanel() {
     setForking(true);
     try {
       const result = await forkSession(currentSessionId);
-      toast.success('已创建分支会话');
+      toast.success(t('toast.forked'));
       await afterFork(result.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -576,7 +578,7 @@ export function ChatPanel() {
       // request would strand a branch that exists nowhere in the UI, and the
       // user would click again to create a second one.
       setRewindOpen(false);
-      toast.success(`已从第 ${turn} 轮创建分支`);
+      toast.success(t('toast.rewound', { turn }));
       await afterFork(result.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -720,12 +722,12 @@ export function ChatPanel() {
                     void ensureSessionDetail(currentSessionId).catch(() => {})
                   }
                 >
-                  重试
+                  {t('common.retry')}
                 </Button>
               )}
             </>
           ) : (
-            <div className="text-muted-foreground text-sm">加载会话…</div>
+            <div className="text-muted-foreground text-sm">{t('status.loadingSession')}</div>
           )}
         </div>
       </div>
@@ -762,11 +764,11 @@ export function ChatPanel() {
                   />
                 </svg>
                 <h2 className="font-display text-4xl font-semibold tracking-tight">
-                  让想法跑起来
+                  {t('welcome.tagline')}
                 </h2>
               </div>
               <p className="text-muted-foreground">
-                我是 Volto，你的 AI 助手。有什么我可以帮助你的吗？
+                {t('welcome.intro')}
               </p>
             </div>
 
@@ -774,7 +776,7 @@ export function ChatPanel() {
               {projects.length === 0 ? (
                 <div className="flex flex-col items-center gap-3">
                   <p className="text-muted-foreground text-sm">
-                    还没有工作区，添加一个开始吧
+                    {t('welcome.noWorkspace')}
                   </p>
                   <Button
                     onClick={() =>
@@ -790,12 +792,12 @@ export function ChatPanel() {
                     ) : (
                       <FolderPlus className="h-4 w-4" />
                     )}
-                    {addingProject ? '正在等待系统对话框…' : '添加工作区'}
+                    {addingProject ? t('workspace.waitingDialog') : t('workspace.add')}
                   </Button>
                 </div>
               ) : !hasModel ? (
                 <p className="text-muted-foreground text-center text-sm">
-                  请先在「设置」中添加供应商与模型
+                  {t('welcome.noProviders')}
                 </p>
               ) : (
                 <>
@@ -826,10 +828,10 @@ export function ChatPanel() {
                     }
                     placeholder={
                       pendingApprovals.length > 0
-                        ? '等待你的审批'
+                        ? t('composer.waitingApproval')
                         : pendingProjectId
-                          ? '描述你想要构建的内容…'
-                          : '请先选择工作区'
+                          ? t('composer.placeholder')
+                          : t('composer.noWorkspace')
                     }
                     toolbar={
                       <PermissionPicker
@@ -892,8 +894,8 @@ export function ChatPanel() {
           )}
         >
           {connectionState === 'connecting'
-            ? '正在连接 agent 服务…'
-            : '未连接 agent 服务，请确认 headless-server 已在 http://localhost:3100 启动'}
+            ? t('connection.connecting')
+            : t('connection.offline', { url: 'http://localhost:3100' })}
         </div>
       )}
       {/* Tabs (chat column: messages + TodoDock + input) + RightPane 同排。
@@ -907,8 +909,8 @@ export function ChatPanel() {
           className="flex min-h-0 min-w-full flex-1 flex-col"
         >
           <TabsList className="mx-4 mt-2">
-            <TabsTrigger value="chat">对话</TabsTrigger>
-            <TabsTrigger value="trajectory">轨迹</TabsTrigger>
+            <TabsTrigger value="chat">{t('tabs.chat')}</TabsTrigger>
+            <TabsTrigger value="trajectory">{t('tabs.trajectory')}</TabsTrigger>
           </TabsList>
           <TabsContent
             value="chat"
@@ -969,9 +971,9 @@ export function ChatPanel() {
                 onStop={() => void stopGeneration()}
                 placeholder={
                   pendingApprovals.length > 0
-                    ? '等待你的审批'
+                    ? t('composer.waitingApproval')
                     : missingBinding
-                      ? '此会话缺少绑定的项目或模型，无法发送消息'
+                      ? t('composer.missingBinding')
                       : undefined
                 }
                 toolbar={
@@ -1072,14 +1074,14 @@ export function ChatPanel() {
         <Dialog open={rewindOpen} onOpenChange={setRewindOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>从某一轮重新开始</DialogTitle>
+              <DialogTitle>{t('rewind.title')}</DialogTitle>
               <DialogDescription>
-                选择一轮已完成对话，创建一个从该轮继续的新分支；原会话保持不变。
+                {t('rewind.description')}
               </DialogDescription>
             </DialogHeader>
             <div className="max-h-72 space-y-1 overflow-y-auto">
               {rewindTurns.length === 0 ? (
-                <p className="text-muted-foreground text-sm">这个会话还没有已完成的轮次。</p>
+                <p className="text-muted-foreground text-sm">{t('rewind.empty')}</p>
               ) : (
                 rewindTurns.map((turn) => (
                   <button
@@ -1092,7 +1094,7 @@ export function ChatPanel() {
                     <span className="text-muted-foreground shrink-0 font-mono text-xs">
                       #{turn.turn}
                     </span>
-                    <span className="truncate">{turn.label || '（无摘要）'}</span>
+                    <span className="truncate">{turn.label || t('rewind.noSummary')}</span>
                   </button>
                 ))
               )}

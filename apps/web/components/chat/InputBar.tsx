@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ArrowUp, Square, Paperclip } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import { Document } from '@tiptap/extension-document';
@@ -108,6 +109,7 @@ export function InputBar({
   ensureSessionId,
   imageInput,
 }: InputBarProps) {
+  const t = useTranslations('chat');
   const [isEmpty, setIsEmpty] = useState(true);
 
   // Attachments are entry-gated only by session availability: a welcome
@@ -447,7 +449,7 @@ export function InputBar({
       // react-hooks/refs 无法识别该时序，此处 scoped 豁免。
       // eslint-disable-next-line react-hooks/refs
       Placeholder.configure({
-        placeholder: () => placeholderRef.current ?? '描述你想要构建的内容…',
+        placeholder: () => placeholderRef.current ?? t('composer.placeholder'),
       }),
     ],
     editable: !(disabled ?? false),
@@ -577,7 +579,7 @@ export function InputBar({
                 size="icon"
                 variant="ghost"
                 className="text-muted-foreground h-8 w-8 shrink-0 rounded-full"
-                aria-label="添加图片"
+                aria-label={t('composer.addImage')}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="h-4 w-4" />
@@ -587,7 +589,7 @@ export function InputBar({
           {/* Reason line (spec D5): the entry stays open for text/PDF, but
               the user is told why image files are refused. */}
           {imageBlocked && (
-            <span className="text-muted-foreground text-xs">当前模型不支持图片输入</span>
+            <span className="text-muted-foreground text-xs">{t('composer.imageUnsupported')}</span>
           )}
           {toolbar}
           <div className="ml-auto flex items-center gap-1">
@@ -602,7 +604,7 @@ export function InputBar({
                 variant="destructive"
                 className="h-8 w-8 shrink-0 rounded-full"
                 onClick={onStop}
-                aria-label="中断生成"
+                aria-label={t('composer.stop')}
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
               </Button>
@@ -613,7 +615,7 @@ export function InputBar({
                 data-testid="composer-send"
                 className="h-8 w-8 shrink-0 rounded-full"
                 disabled={isEmpty || disabled || hasUploading}
-                aria-label="发送"
+                aria-label={t('composer.send')}
               >
                 <ArrowUp className="h-4 w-4" />
               </Button>

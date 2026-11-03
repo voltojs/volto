@@ -1,0 +1,80 @@
+{
+  "welcome": {
+    "tagline": "Let your ideas run",
+    "intro": "I'm Volto, your AI assistant. What can I help you build?",
+    "noWorkspace": "No workspace yet — add one to get started",
+    "noProviders": "Add a provider and a model in Settings first"
+  },
+  "workspace": {
+    "waitingDialog": "Waiting for the system dialog…",
+    "add": "Add workspace"
+  },
+  "composer": {
+    "placeholder": "Describe what you want to build…",
+    "waitingApproval": "Waiting for your approval",
+    "noWorkspace": "Choose a workspace first",
+    "missingBinding": "This session has no project or model bound, so it cannot send",
+    "addImage": "Add image",
+    "imageUnsupported": "The current model does not accept images",
+    "stop": "Stop generating",
+    "send": "Send"
+  },
+  "connection": {
+    "connecting": "Connecting to the agent service…",
+    "offline": "Not connected to the agent service; check that headless-server is running at {url}"
+  },
+  "tabs": {
+    "chat": "Chat",
+    "trajectory": "Trace"
+  },
+  "header": {
+    "forkAria": "Branch session",
+    "fork": "Create a branch from this session",
+    "forkDisabled": "Generating — cannot branch yet",
+    "rewindAria": "Restart from a turn",
+    "rewind": "Restart from a turn (creates a branch)",
+    "rewindDisabled": "Generating — cannot rewind yet",
+    "exportAria": "Export session",
+    "exportTooltip": "Export as Markdown",
+    "compactAria": "Compact context",
+    "compact": "Compact context (summarize old messages, free tokens)",
+    "compactDisabled": "Generating — cannot compact yet",
+    "paneCollapse": "Collapse pane",
+    "paneExpand": "Expand pane"
+  },
+  "rewind": {
+    "title": "Restart from a turn",
+    "description": "Pick a completed turn to start a new branch from it; the original session stays untouched.",
+    "empty": "This session has no completed turns yet.",
+    "noSummary": "(no summary)"
+  },
+  "toast": {
+    "forked": "Branch session created",
+    "rewound": "Branched from turn {turn}",
+    "approvalFailed": "Could not submit the approval, please retry"
+  },
+  "permission": {
+    "readOnly": "Read-only",
+    "readOnlyHint": "Reads allowed, every write denied",
+    "ask": "Ask",
+    "askHint": "Small in-workspace edits allowed; risky actions ask first",
+    "auto": "Auto",
+    "autoHint": "Everything inside the workspace allowed; irreversible actions still denied",
+    "full": "Full",
+    "fullHint": "No limits, no prompts",
+    "planTitle": "Plan mode: executes after you approve; hover to exit manually",
+    "planActive": "Planning",
+    "planExit": "Exit plan mode",
+    "fullConfirmTitle": "Enable \"Full\" permission?",
+    "fullConfirmBody": "This turns off the sandbox and approval gate: the agent can run any command and read or write any file without asking again. Only enable it for a task you fully trust.",
+    "cancel": "Cancel",
+    "confirm": "Enable"
+  },
+  "common": {
+    "retry": "Retry",
+    "cancel": "Cancel"
+  },
+  "status": {
+    "loadingSession": "Loading session…"
+  }
+}
