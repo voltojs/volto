@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -48,11 +49,11 @@ type SubagentFormProps = {
 );
 
 const SANDBOX_OPTIONS = [
-  { value: 'read-only', label: '只读' },
-  // Labels avoid the words used by the two required notes below (工作区 /
-  // 项目级): getByText(/工作区/) must resolve to exactly one element.
-  { value: 'workspace-write', label: '项目内可读写' },
-  { value: 'danger-full-access', label: '完全放开' },
+  { value: 'read-only', labelKey: 'subagentForm.permissionReadOnly' },
+  // Labels avoid the words used by the two required notes below (workspace /
+  // project scope): getByText(/工作区/) must resolve to exactly one element.
+  { value: 'workspace-write', labelKey: 'subagentForm.permissionWorkspace' },
+  { value: 'danger-full-access', labelKey: 'subagentForm.permissionFull' },
 ] as const;
 
 type SandboxMode = (typeof SANDBOX_OPTIONS)[number]['value'];
@@ -63,7 +64,7 @@ type SandboxMode = (typeof SANDBOX_OPTIONS)[number]['value'];
  * on submit — the wire semantics stay "absent field = inherit".
  */
 const MODEL_INHERIT_VALUE = '__inherit__';
-const MODEL_INHERIT_LABEL = '继承主对话';
+
 
 type ModelOption = { value: string; label: string; disabled?: boolean };
 
@@ -86,6 +87,7 @@ export function SubagentForm({
   onDelete,
   startConfirmingDelete = false,
 }: SubagentFormProps) {
+  const t = useTranslations('settings');
   const spec = entry?.spec;
   const [name, setName] = useState(spec?.name ?? '');
   const [description, setDescription] = useState(spec?.description ?? '');
@@ -120,16 +122,18 @@ export function SubagentForm({
       ? spec.model
       : undefined;
   const modelOptions: ModelOption[] = [
-    { value: MODEL_INHERIT_VALUE, label: MODEL_INHERIT_LABEL },
+    { value: MODEL_INHERIT_VALUE, label: t('subagentForm.inheritModel') },
     ...(staleModel
-      ? [{ value: staleModel, label: `已失效档位:${staleModel}`, disabled: true }]
+      ? [{ value: staleModel, label: t('subagentForm.staleTier', { model: staleModel }), disabled: true }]
       : []),
     // Unassigned tiers stay selectable: the D5 degrade path falls back to
     // the parent model at dispatch time, so the suffix is a heads-up, not
     // a block.
     ...(tiers?.map((tier) => ({
       value: tier.id,
-      label: tier.target ? tier.label : `${tier.label}（未配置模型）`,
+      label: tier.target
+        ? tier.label
+        : t('subagentForm.unconfiguredTier', { label: tier.label }),
     })) ?? []),
   ];
 
@@ -176,7 +180,7 @@ export function SubagentForm({
         await onSubmit({ mode: 'edit', id: entry.id, spec: nextSpec });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      setError(err instanceof Error ? err.message : t('subagentForm.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -186,31 +190,31 @@ export function SubagentForm({
     <form onSubmit={(e) => void handleSubmit(e)} data-agent-form="">
       <FieldGroup>
         <Field orientation="vertical">
-          <FieldLabel htmlFor="agent-name">名称</FieldLabel>
+          <FieldLabel htmlFor="agent-name">{t('subagentForm.name')}</FieldLabel>
           <Input
             id="agent-name"
             className="h-8"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="唯一名称，如 searcher"
+            placeholder={t('subagentForm.namePlaceholder')}
             required
           />
         </Field>
 
         <Field orientation="vertical">
-          <FieldLabel htmlFor="agent-description">描述</FieldLabel>
+          <FieldLabel htmlFor="agent-description">{t('subagentForm.description')}</FieldLabel>
           <Textarea
             id="agent-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="一句话说明用途（进入 task 工具描述）"
+            placeholder={t('subagentForm.descriptionPlaceholder')}
             rows={2}
           />
         </Field>
 
         {mode === 'create' && (
-          <FieldSet aria-label="作用范围">
-            <FieldLegend>作用范围</FieldLegend>
+          <FieldSet aria-label={t('subagentForm.scope')}>
+            <FieldLegend>{t('subagentForm.scope')}</FieldLegend>
             <RadioGroup
               value={scope}
               onValueChange={(value) => setScope(value as 'project' | 'user')}
@@ -223,13 +227,13 @@ export function SubagentForm({
                   htmlFor="agent-scope-project"
                   id="agent-scope-project-label"
                 >
-                  项目级
+                  {t('subagentForm.scopeProject')}
                 </FieldLabel>
               </Field>
               <Field orientation="horizontal">
                 <RadioGroupItem value="user" id="agent-scope-user" />
                 <FieldLabel htmlFor="agent-scope-user" id="agent-scope-user-label">
-                  用户级
+                  {t('subagentForm.scopeUser')}
                 </FieldLabel>
               </Field>
             </RadioGroup>
@@ -239,17 +243,17 @@ export function SubagentForm({
               // change the user did not make in their editor. Wording avoids
               // 「项目级」 so the scope radio labels stay unique matches.
               <FieldDescription className="text-amber-600 dark:text-amber-500">
-                写入 .volto/agents/ 的定义保存后会在工作区产生 git 变更。
+                {t('subagentForm.writeHint')}
               </FieldDescription>
             )}
           </FieldSet>
         )}
 
-        <FieldSet aria-label="工具">
-          <FieldLegend>工具</FieldLegend>
+        <FieldSet aria-label={t('subagentForm.tools')}>
+          <FieldLegend>{t('subagentForm.tools')}</FieldLegend>
           {tools.length === 0 && (
             <FieldDescription>
-              工具目录为空，暂无可勾选的工具。
+              {t('subagentForm.toolsEmpty')}
             </FieldDescription>
           )}
           {/* Compact grid rather than a vertical stack: the catalogue has a
@@ -277,7 +281,7 @@ export function SubagentForm({
         </FieldSet>
 
         <Field orientation="vertical">
-          <FieldLabel htmlFor="agent-model">model（可选）</FieldLabel>
+          <FieldLabel htmlFor="agent-model">{t('subagentForm.model')}</FieldLabel>
           <Select
             items={modelOptions}
             value={model}
@@ -301,7 +305,10 @@ export function SubagentForm({
         <Field orientation="vertical">
           <FieldLabel htmlFor="agent-sandbox">sandbox</FieldLabel>
           <Select
-            items={SANDBOX_OPTIONS}
+            items={SANDBOX_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
             value={sandbox}
             onValueChange={(value) => setSandbox(value as SandboxMode)}
           >
@@ -312,7 +319,7 @@ export function SubagentForm({
               <SelectGroup>
                 {SANDBOX_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -322,7 +329,7 @@ export function SubagentForm({
               sandbox, so a wider choice here reads as broken rather than
               narrowed unless the form says so up front. */}
           <FieldDescription>
-            sandbox 只能收窄：子代理的权限比父会话更宽时不会生效。
+            {t('subagentForm.sandboxHint')}
           </FieldDescription>
         </Field>
 
@@ -332,7 +339,7 @@ export function SubagentForm({
             id="agent-system-prompt"
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="子代理的系统提示词"
+            placeholder={t('subagentForm.promptPlaceholder')}
             rows={4}
           />
         </Field>
@@ -348,11 +355,11 @@ export function SubagentForm({
                 "are you sure?" does not tell the user what disappears. Wording
                 avoids 「确认删除」 so the confirm button stays a unique match. */}
             <p className="text-sm">
-              删除「{entry.name}」将移除文件{' '}
+              {t('subagentForm.deleteTitle', { name: entry.name })}{' '}
               <code className="font-mono text-xs">
                 {entry.filePath ?? entry.id}
               </code>
-              ，此操作不可撤销。
+              {t('subagentForm.deleteUndoable')}
             </p>
             <div className="flex gap-2">
               <Button
@@ -361,7 +368,7 @@ export function SubagentForm({
                 size="sm"
                 onClick={() => void onDelete?.()}
               >
-                确认删除
+                {t('subagentForm.confirmDelete')}
               </Button>
               <Button
                 type="button"
@@ -369,17 +376,21 @@ export function SubagentForm({
                 size="sm"
                 onClick={() => setConfirmingDelete(false)}
               >
-                取消
+                {t('subagentForm.cancel')}
               </Button>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" size="sm" disabled={saving || !name.trim()}>
-              {saving ? '保存中…' : mode === 'create' ? '创建' : '保存'}
+              {saving
+                ? t('subagentForm.saving')
+                : mode === 'create'
+                  ? t('subagentForm.creating')
+                  : t('subagentForm.save')}
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-              取消
+              {t('subagentForm.cancel')}
             </Button>
             {mode === 'edit' && onDelete && (
               <Button
@@ -389,7 +400,7 @@ export function SubagentForm({
                 className="text-destructive"
                 onClick={() => setConfirmingDelete(true)}
               >
-                删除
+                {t('subagentForm.delete')}
               </Button>
             )}
           </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   AlertCircle,
   ChevronDown,
@@ -132,6 +133,7 @@ function TierForm({
   onCancel: () => void;
   error: string | null;
 }) {
+  const t = useTranslations('settings');
   const [id, setId] = useState(initial?.id ?? '');
   const [label, setLabel] = useState(initial?.label ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
@@ -189,7 +191,7 @@ function TierForm({
         efforts={reasoning?.efforts ?? []}
         effort={reasoningEffort}
         onEffortChange={setReasoningEffort}
-        triggerFallback="未配置模型"
+        triggerFallback={t('routing.unconfigured')}
         // The trigger sits right above the submit row: open upward so the
         // popup covers form fields (harmless) and never 保存/取消. This
         // form is hosted inside the modal settings dialog (z-50), so the
@@ -205,10 +207,10 @@ function TierForm({
       )}
       <div className="flex gap-2">
         <Button type="submit" size="sm">
-          保存
+          {t('routing.save')}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          取消
+          {t('routing.cancel')}
         </Button>
       </div>
     </form>
@@ -226,6 +228,7 @@ function TierForm({
  * as "无法删除", plugin references as hints only — without losing the list.
  */
 export function RoutingTiersPanel() {
+  const t = useTranslations('settings');
   const providers = useConfigStore((s) => s.providers);
   const catalogProviders = useConfigStore((s) => s.catalogProviders);
   const [rows, setRows] = useState<TierRow[]>([]);
@@ -355,7 +358,7 @@ export function RoutingTiersPanel() {
 
   if (status === 'loading') {
     return (
-      <p className="text-muted-foreground text-sm">正在加载模型路由档位…</p>
+      <p className="text-muted-foreground text-sm">{t('routing.loading')}</p>
     );
   }
 
@@ -363,7 +366,7 @@ export function RoutingTiersPanel() {
     return (
       <div className="flex items-center gap-2 text-sm" role="alert">
         <AlertCircle className="text-destructive h-4 w-4" />
-        <span>无法加载模型路由档位。</span>
+        <span>{t('routing.loadFailed')}</span>
         <Button
           variant="outline"
           size="sm"
@@ -372,7 +375,7 @@ export function RoutingTiersPanel() {
             void load();
           }}
         >
-          重试
+          {t('routing.retry')}
         </Button>
       </div>
     );
@@ -411,7 +414,9 @@ export function RoutingTiersPanel() {
   const pluginRefs = (saveError?.references ?? []).filter(
     (ref) => ref.scope === 'plugin',
   );
-  const blockingText = `被 ${blockingRefs.map((ref) => ref.name).join('、')} 引用，无法删除`;
+  const blockingText = t('routing.blockedBy', {
+    names: blockingRefs.map((ref) => ref.name).join(', '),
+  });
 
   // The save button retires unless the draft's row ORDER diverges from the
   // saved one. Compared as clientKey sequences: row CONTENT edits are the
@@ -444,14 +449,16 @@ export function RoutingTiersPanel() {
           </p>
           {pluginRefs.length > 0 && (
             <p className="text-xs text-amber-600 dark:text-amber-500">
-              {`插件定义 ${pluginRefs.map((ref) => ref.name).join('、')} 也在引用该档位（仅提示，不阻塞删除）。`}
+              {t('routing.pluginRefs', { names: pluginRefs.map((ref) => ref.name).join(', ') })}
             </p>
           )}
           {saveError.skipped.length > 0 && (
             <p className="text-muted-foreground text-xs">
-              {`以下项目未能完成引用扫描：${saveError.skipped
-                .map((skip) => `${skip.projectPath}（${skip.reason}）`)
-                .join('、')}`}
+              {t('routing.skipped', {
+                list: saveError.skipped
+                  .map((skip) => `${skip.projectPath} (${skip.reason})`)
+                  .join(', '),
+              })}
             </p>
           )}
         </div>
@@ -460,7 +467,7 @@ export function RoutingTiersPanel() {
       <div className="flex justify-end gap-1">
         <Button variant="outline" size="sm" onClick={handleAdd}>
           <Plus />
-          新增档位
+          {t('routing.add')}
         </Button>
         <Button
           size="sm"
@@ -468,16 +475,16 @@ export function RoutingTiersPanel() {
           onClick={() => void handleSave()}
         >
           <Save />
-          保存
+          {t('routing.save')}
         </Button>
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-muted-foreground text-sm">还没有模型路由档位。</p>
+        <p className="text-muted-foreground text-sm">{t('routing.empty')}</p>
       ) : (
         rows.map((row, index) => {
           const model = findTargetModel(row.target);
-          const targetText = model?.name ?? (row.target ? '模型已失效' : '未配置模型');
+          const targetText = model?.name ?? (row.target ? t('routing.modelInvalid') : t('routing.unconfigured'));
           const effortText =
             row.reasoningEffort == null || row.reasoningEffort === ''
               ? null
@@ -516,7 +523,7 @@ export function RoutingTiersPanel() {
                     variant="ghost"
                     size="icon-sm"
                     data-action="move-up"
-                    aria-label={`上移 ${row.id}`}
+                    aria-label={t('routing.ariaMoveUp', { id: row.id })}
                     disabled={index === 0}
                     onClick={() => handleMove(index, -1)}
                   >
@@ -526,7 +533,7 @@ export function RoutingTiersPanel() {
                     variant="ghost"
                     size="icon-sm"
                     data-action="move-down"
-                    aria-label={`下移 ${row.id}`}
+                    aria-label={t('routing.ariaMoveDown', { id: row.id })}
                     disabled={index === rows.length - 1}
                     onClick={() => handleMove(index, 1)}
                   >
@@ -536,7 +543,7 @@ export function RoutingTiersPanel() {
                     variant="ghost"
                     size="icon-sm"
                     data-action="edit"
-                    aria-label={`编辑 ${row.id || row.label || '新档位'}`}
+                    aria-label={t('routing.ariaEdit', { name: row.id || row.label || t('routing.newTier') })}
                     onClick={() => handleEdit(row)}
                   >
                     <Pencil />
@@ -545,7 +552,7 @@ export function RoutingTiersPanel() {
                     variant="ghost"
                     size="icon-sm"
                     data-action="delete"
-                    aria-label={`删除 ${row.id || row.label || '新档位'}`}
+                    aria-label={t('routing.ariaDelete', { name: row.id || row.label || t('routing.newTier') })}
                     onClick={() => handleDelete(row.clientKey)}
                   >
                     <Trash2 />

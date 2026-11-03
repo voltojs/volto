@@ -14,6 +14,7 @@ interface TrajectoryPanelProps {
 }
 
 export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
+  const t = useTranslations('trajectory');
   const feed = useTrajectory();
   // 行详情抽屉为全局状态：主轨迹面板与子代理详情的轨迹子视图打开同一
   // 个抽屉；本列表的行高亮跟随抽屉当前行。
@@ -24,7 +25,7 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
   if (sessionId === null) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-        选择一个会话后查看轨迹
+        {t('panel.empty')}
       </div>
     );
   }
@@ -42,7 +43,7 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
           </p>
           {feed.error.kind === 'network' && (
             <Button variant="outline" size="sm" onClick={feed.retry}>
-              重试
+              {t('panel.retry')}
             </Button>
           )}
         </div>

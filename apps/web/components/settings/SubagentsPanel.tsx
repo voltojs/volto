@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,10 +29,10 @@ interface SubagentsPanelProps {
   projectId: string | null;
 }
 
-const SCOPE_LABEL: Record<AgentEntry['scope'], string> = {
-  project: '项目',
-  user: '用户',
-  plugin: '插件',
+const SCOPE_LABEL_KEY: Record<AgentEntry['scope'], string> = {
+  project: 'subagents.scopeProject',
+  user: 'subagents.scopeUser',
+  plugin: 'subagents.scopePlugin',
 };
 
 /** Which form, if any, currently replaces the list. */
@@ -102,17 +103,20 @@ function ModelBadge({
   providers: readonly Provider[];
   catalogProviders: readonly CatalogProvider[];
 }) {
-  if (!model) return <Badge variant="secondary">继承主对话</Badge>;
+  const t = useTranslations('settings');
+  if (!model) return <Badge variant="secondary">{t('subagents.inherit')}</Badge>;
   const tier = tiers?.find((candidate) => candidate.id === model);
   if (tier === undefined) {
     return (
       <Badge variant="outline">
-        {tiers === null ? `路由：${model}` : `已失效档位:${model}`}
+        {tiers === null
+          ? t('subagents.route', { model })
+          : t('subagents.routeStale', { model })}
       </Badge>
     );
   }
   if (!tier.target) {
-    return <Badge variant="outline">路由：{tier.label}（未配置模型）</Badge>;
+    return <Badge variant="outline">{t('subagents.routeUnconfigured', { label: tier.label })}</Badge>;
   }
   // Prefer the user-facing names; fall back to the raw ids when the provider
   // list has not loaded, the provider was deleted, or the model is gone.
@@ -130,16 +134,19 @@ function ModelBadge({
     tier.reasoningEffort;
   return (
     <Tooltip>
-      <TooltipTrigger render={<Badge variant="outline">路由：{tier.label}</Badge>} />
+      <TooltipTrigger
+        render={<Badge variant="outline">{t('subagents.route', { model: tier.label })}</Badge>}
+      />
       <TooltipContent>
         {providerName} / {modelName}
-        {effortName ? ` · 推理：${effortName}` : ''}
+        {effortName ? t('subagents.inference', { effort: effortName }) : ''}
       </TooltipContent>
     </Tooltip>
   );
 }
 
 export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
+  const t = useTranslations('settings');
   const { agents, tools, status, refresh, mutate } = useAgents(projectId);
   const [form, setForm] = useState<FormState>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -186,13 +193,13 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
       setForm(null);
       setActionError(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : '删除失败');
+      setActionError(err instanceof Error ? err.message : t('subagents.deleteFailed'));
     }
   };
 
   if (status === 'loading') {
     return (
-      <p className="text-muted-foreground text-sm">正在加载子代理定义…</p>
+      <p className="text-muted-foreground text-sm">{t('subagents.loading')}</p>
     );
   }
 
@@ -200,9 +207,9 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
     return (
       <div className="flex items-center gap-2 text-sm" role="alert">
         <AlertCircle className="text-destructive h-4 w-4" />
-        <span>无法加载子代理定义。</span>
+        <span>{t('subagents.loadFailed')}</span>
         <Button variant="outline" size="sm" onClick={() => void refresh()}>
-          重试
+          {t('subagents.retry')}
         </Button>
       </div>
     );
@@ -267,16 +274,16 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
           }}
         >
           <Plus />
-          新建子代理
+          {t('subagents.create')}
         </Button>
       </div>
 
       {agents.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          还没有子代理定义。在用户级{' '}
-          <code className="font-mono">~/.volto/agents</code> 或项目级{' '}
+          {t('subagents.emptyBefore')}{' '}
+          <code className="font-mono">~/.volto/agents</code> {t('subagents.emptyOr')}{' '}
           <code className="font-mono">.volto/agents</code>{' '}
-          下添加 Markdown 文件后会自动出现。
+          {t('subagents.emptyAfter')}
         </p>
       ) : (
         agents.map((agent) => (
@@ -294,7 +301,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
               <span className="font-medium truncate">
                 {agent.shadowed ? `${agent.name}（shadowed）` : agent.name}
               </span>
-              <Badge variant="secondary">{SCOPE_LABEL[agent.scope]}</Badge>
+              <Badge variant="secondary">{t(SCOPE_LABEL_KEY[agent.scope])}</Badge>
               <ModelBadge
                 model={agent.spec.model}
                 tiers={tiers}
@@ -308,7 +315,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                   size="icon-sm"
                   data-action="edit"
                   disabled={agent.readOnly}
-                  aria-label={`编辑 ${agent.name}`}
+                  aria-label={t('subagents.ariaEdit', { name: agent.name })}
                   onClick={() => {
                     setActionError(null);
                     setForm({ mode: 'edit', entry: agent });
@@ -321,7 +328,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                   size="icon-sm"
                   data-action="delete"
                   disabled={agent.readOnly}
-                  aria-label={`删除 ${agent.name}`}
+                  aria-label={t('subagents.ariaDelete', { name: agent.name })}
                   onClick={() => {
                     setActionError(null);
                     setForm({
@@ -346,7 +353,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
               // Single text node: nested markup would let the same warning
               // match two elements under getByText's direct-text extraction.
               <p className="text-xs text-amber-600 dark:text-amber-500">
-                此定义已被更高优先级的同名定义覆盖，不生效——编辑它不会改变子代理的实际行为。
+                {t('subagents.overridden')}
               </p>
             )}
 

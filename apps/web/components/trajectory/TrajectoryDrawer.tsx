@@ -129,7 +129,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
               }
               className="text-primary hover:bg-primary/10 shrink-0 rounded px-2 py-1 text-xs font-medium"
             >
-              查看执行过程 →
+              {t('drawer.viewProcess')}
             </button>
           </div>
         </Field>
