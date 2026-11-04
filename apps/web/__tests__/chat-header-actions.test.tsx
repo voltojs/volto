@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatHeader } from '@/components/chat/ChatHeader';
+import { useSessionStore } from '@/stores/session-store';
+import { useChatStore } from '@/stores/chat-store';
 
 const LONG_TITLE = 'a very long session title that must never wrap across lines in the header';
 
@@ -57,5 +59,25 @@ describe('ChatHeader title', () => {
     expect(title.className).toContain('truncate');
     // Hover tooltip target carries the full text as its content.
     expect(title.closest('[data-slot="tooltip-trigger"]')).not.toBeNull();
+  });
+});
+
+describe('ChatHeader sidebar affordances', () => {
+  it('shows no left buttons while the sidebar is open', () => {
+    useSessionStore.setState({ sidebarOpen: true });
+    renderHeader();
+    expect(screen.queryByRole('button', { name: '展开侧栏' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '新建对话' })).toBeNull();
+  });
+
+  it('shows expand and new-conversation buttons when the sidebar is collapsed', () => {
+    useSessionStore.setState({ sidebarOpen: false, currentSessionId: 's9' });
+    useChatStore.setState({ events: [{ time: 1, type: 'turn_end', data: { turn: 1, reason: 'end_turn' } }] });
+    renderHeader();
+    fireEvent.click(screen.getByRole('button', { name: '新建对话' }));
+    expect(useSessionStore.getState().currentSessionId).toBeNull();
+    expect(useChatStore.getState().events).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: '展开侧栏' }));
+    expect(useSessionStore.getState().sidebarOpen).toBe(true);
   });
 });

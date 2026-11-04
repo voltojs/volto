@@ -19,6 +19,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 import { ProjectList } from './ProjectList';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 
 /** SSE 连接状态指示（原 ChatHeader 顶栏的状态点，随状态/主题移入侧栏底部行）。 */
 const CONNECTION_LABEL_KEY: Record<string, string> = {
@@ -124,9 +125,14 @@ export function Sidebar() {
           <span className="font-display text-lg font-semibold tracking-tight">
             Volto
           </span>
-          <span className="text-muted-foreground ml-auto font-mono text-[10px] tracking-widest uppercase">
-            control
-          </span>
+          {/* Only while the sidebar is visible: when collapsed the ChatHeader
+              owns the expand control, and a hidden duplicate would stay
+              focusable inside the zero-width container. */}
+          {sidebarOpen && (
+            <div className="ml-auto">
+              <SidebarToggle />
+            </div>
+          )}
         </div>
 
         <div className="px-3 pb-3">

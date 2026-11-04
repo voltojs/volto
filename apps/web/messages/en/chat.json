@@ -44,7 +44,8 @@
     "compactDisabled": "Generating — cannot compact yet",
     "paneCollapse": "Collapse pane",
     "paneExpand": "Expand pane",
-    "moreAria": "More actions"
+    "moreAria": "More actions",
+    "newSession": "New conversation"
   },
   "rewind": {
     "title": "Restart from a turn",

@@ -2,7 +2,8 @@
 
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 import { useTranslations } from 'next-intl';
-import { Separator } from '@/components/ui/separator';
+import { startNewSession } from '@/lib/new-session';
+import { useSessionStore } from '@/stores/session-store';
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +23,7 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from 'lucide-react';
 
 interface ChatHeaderProps {
@@ -65,10 +67,32 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
   const t = useTranslations('chat');
+  const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   return (
     <header className="flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5">
-      <SidebarToggle />
-      <Separator orientation="vertical" className="h-5 !self-center" />
+      {/* The collapse toggle lives in the sidebar nameplate; when the sidebar
+          is collapsed its expand control and the new-conversation entry move
+          here, next to the title. */}
+      {!sidebarOpen && (
+        <div className="flex shrink-0 items-center gap-1">
+          <SidebarToggle />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={t('header.newSession')}
+                  onClick={startNewSession}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
+                />
+              }
+            >
+              <Plus className="h-4 w-4" />
+            </TooltipTrigger>
+            <TooltipContent>{t('header.newSession')}</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
 
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {/* One line, clipped: the hover tooltip carries the full title. */}
