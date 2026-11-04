@@ -747,9 +747,10 @@ export function ChatPanel() {
   // session, or no session selected at all).
   if (entries.length === 0) {
     return (
-      <div className="flex h-full flex-col">
-        {/* 欢迎页：选中工作区后 Header 面板按钮可用，右侧展示文件 / Git
-            图谱总览；未选项目时禁用。 */}
+      <div className="flex h-full min-h-0 flex-row">
+        {/* Content column owns the title bar; the right pane is a sibling
+            column of equal standing (welcome state). */}
+        <div className="flex min-w-0 flex-1 flex-col">
         <ChatHeader
           title={headerTitle}
           paneToggle={paneToggle}
@@ -881,17 +882,21 @@ export function ChatPanel() {
               )}
             </div>
           </div>
-          <RightPane
-            projectId={pendingProjectId}
-            onExecutePlan={handleExecutePlan}
-          />
         </div>
+        </div>
+        <RightPane
+          projectId={pendingProjectId}
+          onExecutePlan={handleExecutePlan}
+        />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-row">
+      {/* Content column owns the title bar; the right pane is a sibling
+          column of equal standing — its tab strip shares the header row. */}
+      <div className="flex min-w-0 flex-1 flex-col">
       <ChatHeader title={headerTitle} paneToggle={paneToggle} forkAction={forkAction} rewindAction={rewindAction} exportAction={exportAction} />
       {showOffline && (
         <div
@@ -907,9 +912,9 @@ export function ChatPanel() {
             : t('connection.offline', { url: 'http://localhost:3100' })}
         </div>
       )}
-      {/* Tabs (chat column: messages + TodoDock + input) + RightPane 同排。
-          InputBar 仅住在 chat TabsContent，轨迹页不承载主输入框。 */}
-      <div className="flex min-h-0 flex-1 flex-row">
+      {/* Tabs host: the chat column (messages + TodoDock + input) and the
+          trajectory panel. The input lives only in the chat TabsContent. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         <Tabs
           value={activeTab}
           onValueChange={(value) =>
@@ -1076,10 +1081,6 @@ export function ChatPanel() {
             <TrajectoryPanel sessionId={currentSessionId} />
           </TabsContent>
         </Tabs>
-        <RightPane
-          projectId={currentProject?.id ?? null}
-          onExecutePlan={handleExecutePlan}
-        />
         <Dialog open={rewindOpen} onOpenChange={setRewindOpen}>
           <DialogContent>
             <DialogHeader>
@@ -1111,6 +1112,11 @@ export function ChatPanel() {
           </DialogContent>
         </Dialog>
       </div>
+      </div>
+      <RightPane
+        projectId={currentProject?.id ?? null}
+        onExecutePlan={handleExecutePlan}
+      />
     </div>
   );
 }

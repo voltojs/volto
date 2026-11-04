@@ -190,6 +190,18 @@ describe('ChatPanel input layout', () => {
     expect(composerColumn!.className).toBe(threadColumn!.className);
   });
 
+  it('places the right pane at equal standing with the content column', () => {
+    const { container } = render(<ChatPanel />);
+    const pane = container.querySelector('[data-testid="right-pane"]');
+    const header = container.querySelector('header');
+    expect(pane).not.toBeNull();
+    expect(header).not.toBeNull();
+    // Both columns hang off the same top-level row: the pane is a sibling of
+    // the content column that owns the title bar — not stacked below a
+    // full-width header.
+    expect(header!.parentElement?.parentElement).toBe(pane!.parentElement);
+  });
+
   it('hosts the three-module status bar right under the input', () => {
     const { container } = render(<ChatPanel />);
 

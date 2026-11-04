@@ -224,7 +224,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
       />
       <div className="flex min-w-0 flex-1 flex-col border-l">
         {activeTab !== null && (
-          <div ref={stripRef} className="flex shrink-0 items-center overflow-x-auto border-b">
+          <div ref={stripRef} className="flex min-h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1.5">
             {tabs.map((tab) => {
               const Icon = tabIcon(tab);
               const title =
