@@ -187,11 +187,13 @@ export function parseLinkRef(text: string): FileRef | null {
 }
 
 /**
- * Parse a structured tool-call path argument. Lenient on purpose: the arg
- * names a file the model actually operated on, so unusual extensions
- * (`Makefile`, `record.events`) are real files here, unlike in prose.
+ * Parse a path as an annotation candidate or a structured tool-call
+ * argument. Lenient on purpose: identity comes from the resolver (on-disk
+ * stat or a unique session-fact match), so unusual names (`Makefile`,
+ * `go.mod`, `record.events`) are legitimate candidates here — the prose
+ * whitelist gate would wrongly screen them out before identity is checked.
  */
-function parseToolRef(text: string): FileRef | null {
+export function parseAnnotationRef(text: string): FileRef | null {
   return parseRefInternal(text, { allowDots: false, fileShaped: false });
 }
 
@@ -208,7 +210,7 @@ export function toolCallFileRef(
   if (!FILE_TOOLS.has(name)) return null;
   const raw = args['path'] ?? args['file_path'];
   if (typeof raw !== 'string') return null;
-  return parseToolRef(raw);
+  return parseAnnotationRef(raw);
 }
 
 /**

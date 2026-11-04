@@ -18,6 +18,8 @@ export class UnknownSessionError extends Error {}
 export interface FileRefsSessionSnapshot {
   events: readonly TranscriptEventInput[];
   messages: readonly ConversationMessage[];
+  /** The session's own project binding (ChatSessionMeta.projectId). */
+  projectId?: string | null;
 }
 
 export interface FileRefsServiceOptions {
@@ -35,6 +37,8 @@ export interface FileRefsService {
  * keys match the `${turn}` head of message ids so same-turn locality lines
  * up with the row fold.
  */
+const TOUCHED_FILE_TOOLS = new Set(["read_file", "write_file", "edit_file"]);
+
 export function collectTouchedFiles(
   events: readonly TranscriptEventInput[],
   projectRoot: string,
@@ -44,7 +48,11 @@ export function collectTouchedFiles(
   const root = projectRoot.replace(/[/\\]+$/, "");
   for (const event of events) {
     if (event.type !== "tool_call") continue;
-    const data = event.data as { input?: Record<string, unknown> };
+    const data = event.data as { name?: string; input?: Record<string, unknown> };
+    // Only the file tools touch files: grep/glob path args are directory
+    // scopes, and a directory in the touched set can only produce chips
+    // that open onto error previews.
+    if (data.name === undefined || !TOUCHED_FILE_TOOLS.has(data.name)) continue;
     const raw = data.input?.["path"] ?? data.input?.["file_path"];
     if (typeof raw !== "string" || raw === "") continue;
     let rel: string;
@@ -53,7 +61,8 @@ export function collectTouchedFiles(
       if (resolved === "" || resolved.startsWith("..") || nodePath.isAbsolute(resolved)) continue;
       rel = resolved.split(nodePath.sep).join("/");
     } else {
-      rel = raw;
+      rel = raw.replace(/^(?:\.\/)+/, "");
+      if (rel === "" || rel.startsWith("..")) continue;
     }
     all.add(rel);
     const key = String(event.turn ?? "");
@@ -78,10 +87,14 @@ export function createFileRefsService(opts: FileRefsServiceOptions): FileRefsSer
     async getRefs(projectId: string, sessionId: string): Promise<RowRefSet[]> {
       const snapshot = await opts.sessionFor(sessionId);
       if (snapshot === undefined) throw new UnknownSessionError(sessionId);
-      const projectRoot = await opts.projectRootFor(projectId);
-      if (projectRoot === undefined) throw new UnknownProjectError(projectId);
+      // The session's own project binding wins over the request's projectId:
+      // a mismatched pair must never resolve under someone else's root.
+      const owningProjectId = snapshot.projectId ?? projectId;
+      const projectRoot = await opts.projectRootFor(owningProjectId);
+      if (projectRoot === undefined) throw new UnknownProjectError(owningProjectId);
 
-      const cached = cache.get(sessionId);
+      const cacheKey = `${owningProjectId}:${sessionId}`;
+      const cached = cache.get(cacheKey);
       if (cached !== undefined && cached.events === snapshot.events.length) return cached.refs;
 
       const rows: Array<{ rowKey: string; turn: string; blocks: string[] }> = [];
@@ -113,7 +126,7 @@ export function createFileRefsService(opts: FileRefsServiceOptions): FileRefsSer
           }
         },
       });
-      cache.set(sessionId, { events: snapshot.events.length, refs });
+      cache.set(cacheKey, { events: snapshot.events.length, refs });
       return refs;
     },
   };

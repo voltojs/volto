@@ -512,7 +512,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       const record = await chatStore.readSession(sessionId);
       if (!record) return undefined;
       const view = await readConversation(asTranscriptReader(chatStore), sessionId);
-      return { events: record.events, messages: view.messages };
+      return { events: record.events, messages: view.messages, projectId: record.meta.projectId ?? null };
     },
   });
   const registry = createSessionRegistry({

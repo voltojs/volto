@@ -6,7 +6,7 @@
  * plain code.
  */
 
-import { parseFileRef } from "./parse.js";
+import { parseAnnotationRef } from "./parse.js";
 import type { RefAnnotation, RowRefSet } from "./types.js";
 
 export interface InlineCodeSpan {
@@ -75,7 +75,7 @@ export async function resolveMessageRefs(input: ResolveRefsInput): Promise<RowRe
     for (const block of row.blocks) {
       const refs: RefAnnotation[] = [];
       for (const span of collectInlineCodeSpans(block)) {
-        const parsed = parseFileRef(span.text);
+        const parsed = parseAnnotationRef(span.text);
         if (parsed === null) continue;
         const base: RefAnnotation = {
           start: span.start,

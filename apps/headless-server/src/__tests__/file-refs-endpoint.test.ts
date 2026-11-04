@@ -145,3 +145,49 @@ describe("GET /file-refs", () => {
     expect((await get(`/file-refs?projectId=${projectId}&sessionId=nope`)).status).toBe(404);
   });
 });
+
+describe("createFileRefsService project ownership", () => {
+  it("resolves under the session's own project even when the request names another", async () => {
+    const rootOwn = await fs.mkdtemp(path.join(os.tmpdir(), "file-refs-own-"));
+    await fs.mkdir(path.join(rootOwn, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootOwn, "src", "a.ts"), "export {};");
+    const rootOther = await fs.mkdtemp(path.join(os.tmpdir(), "file-refs-other-"));
+    const { createFileRefsService } = await import("../file-refs.js");
+    const { collectTouchedFiles } = await import("../file-refs.js");
+    const service = createFileRefsService({
+      projectRootFor: async (projectId) =>
+        projectId === "pOwn" ? rootOwn : projectId === "pOther" ? rootOther : undefined,
+      sessionFor: async () => ({
+        projectId: "pOwn",
+        events: [
+          ev("tool_call", { callId: "c1", name: "read_file", input: { path: path.join(rootOwn, "src", "a.ts") } }, 1, 1),
+        ],
+        messages: [
+          {
+            id: "1:1",
+            role: "assistant",
+            blocks: [{ type: "text", text: "see `a.ts`" }],
+          },
+        ] as never,
+      }),
+    });
+    // The request names pOther; the session's own project must win.
+    const refs = await service.getRefs("pOther", "s1");
+    expect(refs[0]?.blockRefs[0]?.[0]).toMatchObject({ path: "src/a.ts", source: "session" });
+    void collectTouchedFiles;
+  });
+
+  it("ignores directory-scoped tool args and normalizes relative paths", async () => {
+    const { collectTouchedFiles } = await import("../file-refs.js");
+    const result = collectTouchedFiles(
+      [
+        ev("tool_call", { callId: "c1", name: "grep", input: { pattern: "x", path: "src" } }, 1, 1),
+        ev("tool_call", { callId: "c2", name: "read_file", input: { path: "./src/a.ts" } }, 1, 1),
+        ev("tool_call", { callId: "c3", name: "glob", input: { pattern: "src/**" } }, 1, 1),
+      ],
+      "/root",
+    );
+    expect(result.all).toEqual(["src/a.ts"]);
+    expect(result.byTurn.get("1")).toEqual(["src/a.ts"]);
+  });
+});

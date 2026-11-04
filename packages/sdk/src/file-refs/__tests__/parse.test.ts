@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseAnnotationRef,
   parentDir,
   parseFileRef,
   parseLinkRef,
@@ -195,5 +196,19 @@ describe('package-name and directory refs stay plain text', () => {
 
   it('keeps ordinary file refs clickable', () => {
     expect(parseFileRef('src/foo.ts')).toEqual({ path: 'src/foo.ts' });
+  });
+});
+
+describe('parseAnnotationRef', () => {
+  it('accepts extensionless project files the prompt contract produces', () => {
+    expect(parseAnnotationRef('Makefile')).toEqual({ path: 'Makefile' });
+    expect(parseAnnotationRef('go.mod')).toEqual({ path: 'go.mod' });
+    expect(parseAnnotationRef('src/step.ts:42')).toEqual({ path: 'src/step.ts', line: 42 });
+  });
+
+  it('still rejects non-paths', () => {
+    expect(parseAnnotationRef('@volto/core')).toBeNull();
+    expect(parseAnnotationRef('main...88b0e98')).toBeNull();
+    expect(parseAnnotationRef('/abs/x.ts')).toBeNull();
   });
 });

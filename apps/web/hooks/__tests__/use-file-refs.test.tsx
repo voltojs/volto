@@ -19,7 +19,7 @@ function stubFetch(body: unknown): ReturnType<typeof vi.fn> {
 
 beforeEach(() => {
   useFileRefsStore.setState({ bySession: {} });
-  useChatStore.setState({ events: [] });
+  useChatStore.setState({ events: [], subagents: {} });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -70,6 +70,33 @@ describe('useFileRefs', () => {
           ...useChatStore.getState().events,
           { time: 1, type: 'turn_end', data: { turn: 1, reason: 'end_turn' } },
         ],
+      });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('useFileRefs sub-agent settle signal', () => {
+  it('refetches when a sub-agent turn ends', async () => {
+    const fetchMock = stubFetch({ refs: REFS });
+    useChatStore.setState({
+      subagents: { sChild: { events: [], deltas: [], status: 'running' } },
+    });
+    renderHook(() => useFileRefs('p1', 'sChild'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    act(() => {
+      const state = useChatStore.getState();
+      useChatStore.setState({
+        subagents: {
+          ...state.subagents,
+          sChild: {
+            ...(state.subagents['sChild'] ?? { events: [], deltas: [], status: 'running' as const }),
+            events: [
+              ...(state.subagents['sChild']?.events ?? []),
+              { time: 1, type: 'turn_end', data: { turn: 1, reason: 'end_turn' } },
+            ],
+          },
+        },
       });
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));

@@ -14,7 +14,11 @@ import { useFileRefsStore } from '@/stores/file-refs-store';
  * text — annotations are decoration, never an error path.
  */
 export function useFileRefs(projectId: string | null, sessionId: string | null): void {
-  const lastTurnEnd = useChatStore((s) => selectLastTurnEnd(s.events));
+  // The settle signal is per feed: sub-agent turns land in their own bucket,
+  // so a child's turn_end must re-fetch the child's annotations too.
+  const lastTurnEnd = useChatStore((s) =>
+    selectLastTurnEnd(s.subagents[sessionId ?? '']?.events ?? s.events),
+  );
   useEffect(() => {
     if (projectId === null || sessionId === null) return;
     let cancelled = false;

@@ -90,3 +90,18 @@ describe('resolveMessageRefs', () => {
     expect(result).toEqual([{ rowKey: '1:a0', blockRefs: [[]] }]);
   });
 });
+
+describe('resolveMessageRefs annotation refs', () => {
+  it('annotates extensionless files that exist (prompt-contract output)', async () => {
+    const result = await resolveMessageRefs({
+      rows: [{ rowKey: '1:a0', turn: '1', blocks: ['see `go.mod`'] }],
+      touchedByTurn: new Map(),
+      touchedAll: [],
+      exists: async (path) => path === 'go.mod',
+    });
+    expect(result[0]?.blockRefs[0]?.[0]).toMatchObject({
+      path: 'go.mod',
+      source: 'exact',
+    });
+  });
+});
