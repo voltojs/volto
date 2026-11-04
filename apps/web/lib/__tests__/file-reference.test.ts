@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chooseRefMatch,
   parentDir,
   parseFileRef,
   parseLinkRef,
@@ -206,5 +207,59 @@ describe('directory and package-name refs', () => {
       path: 'docs/api',
       kind: 'dir',
     });
+  });
+});
+
+describe('chooseRefMatch (fallback resolution)', () => {
+  const file = (path: string) => ({ path, type: 'file' as const });
+  const dir = (path: string) => ({ path, type: 'dir' as const });
+
+  it('prefers a unique path-suffix match and keeps the line target', () => {
+    expect(
+      chooseRefMatch({ path: 'core/src/step.ts', line: 42 }, [file('packages/core/src/step.ts')]),
+    ).toEqual({ kind: 'unique', target: file('packages/core/src/step.ts'), withLine: true });
+  });
+
+  it('treats an exact-path hit that just failed as not resolvable', () => {
+    expect(chooseRefMatch({ path: 'x.ts' }, [file('x.ts')])).toEqual({ kind: 'none' });
+  });
+
+  it('reports ambiguity when several paths share the ref suffix', () => {
+    expect(
+      chooseRefMatch({ path: 'src/a.ts' }, [file('x/src/a.ts'), file('y/src/a.ts')]),
+    ).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('treats a bare name as a path-suffix match and keeps the line target', () => {
+    expect(
+      chooseRefMatch({ path: 'file-reference.ts', line: 3 }, [file('packages/x/file-reference.ts')]),
+    ).toEqual({ kind: 'unique', target: file('packages/x/file-reference.ts'), withLine: true });
+  });
+
+  it('drops the line target when only a basename matches', () => {
+    expect(
+      chooseRefMatch({ path: 'src/a.ts', line: 5 }, [file('x/y/a.ts')]),
+    ).toEqual({ kind: 'unique', target: file('x/y/a.ts'), withLine: false });
+  });
+
+  it('requires basename equality, not substring', () => {
+    expect(chooseRefMatch({ path: 'a.ts' }, [file('x/my-a.ts')])).toEqual({ kind: 'none' });
+  });
+
+  it('reports ambiguity when several basenames match', () => {
+    expect(
+      chooseRefMatch({ path: 'providers' }, [dir('a/providers'), dir('b/providers')]),
+    ).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('resolves a directory shorthand to its unique deeper location', () => {
+    expect(
+      chooseRefMatch({ path: 'providers', kind: 'dir' }, [dir('packages/providers')]),
+    ).toEqual({ kind: 'unique', target: dir('packages/providers'), withLine: true });
+  });
+
+  it('finds nothing from empty or unrelated matches', () => {
+    expect(chooseRefMatch({ path: 'a.ts' }, [])).toEqual({ kind: 'none' });
+    expect(chooseRefMatch({ path: 'a.ts' }, [file('b/c.ts')])).toEqual({ kind: 'none' });
   });
 });

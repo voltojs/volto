@@ -4,6 +4,7 @@ import {
   filePreviewTabId,
   openFilePreview,
   revealInTree,
+  revealSearch,
   usePaneStore,
   PANE_WIDTH_MIN,
   PANE_WIDTH_MAX,
@@ -319,5 +320,24 @@ describe('revealInTree', () => {
     revealInTree('p1', 'b');
     const s = usePaneStore.getState();
     expect(s.tabs.filter((t) => t.kind === 'files')).toHaveLength(1);
+  });
+});
+
+describe('revealSearch', () => {
+  it('opens the files tab and pre-fills the tree search', () => {
+    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true, treeSearch: null });
+    revealSearch('p1', 'providers');
+    const s = usePaneStore.getState();
+    expect(s.tabs).toEqual([{ kind: 'files', id: 'files:p1', projectId: 'p1' }]);
+    expect(s.activeTabId).toBe('files:p1');
+    expect(s.open).toBe(true);
+    expect(s.treeSearch).toEqual({ projectId: 'p1', query: 'providers', nonce: expect.any(Number) });
+  });
+
+  it('bumps the nonce so the same query can be re-armed', () => {
+    usePaneStore.setState({ treeSearch: null });
+    revealSearch('p1', 'a');
+    revealSearch('p1', 'a');
+    expect(usePaneStore.getState().treeSearch?.nonce).toBe(2);
   });
 });

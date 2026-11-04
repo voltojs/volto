@@ -76,6 +76,11 @@ interface PaneState {
    * consumes it and expands/scrolls to the dir; `nonce` re-arms the same dir.
    */
   treeReveal: { projectId: string; dir: string; nonce: number } | null;
+  /**
+   * Latest "pre-fill the file tree search" request, the ambiguity fallback
+   * for refs that resolve to several candidates. FileTreeTab consumes it.
+   */
+  treeSearch: { projectId: string; query: string; nonce: number } | null;
   openTab: (tab: PaneTab) => void;
   /** Open the pane shell with zero tabs (empty-state overview). */
   openPane: () => void;
@@ -100,6 +105,7 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     open: false,
     hidden: false,
     treeReveal: null,
+    treeSearch: null,
     openTab: (tab) =>
       set((state) => {
         const existing = state.tabs.find((t) => t.id === tab.id);
@@ -257,6 +263,22 @@ export function revealInTree(projectId: string, dir: string): void {
   });
   usePaneStore.setState((s) => ({
     treeReveal: { projectId, dir, nonce: (s.treeReveal?.nonce ?? 0) + 1 },
+  }));
+}
+
+/**
+ * Open the file tree with its search pre-filled — the fallback for a ref
+ * that resolved to several candidates: the tree lists them and the user
+ * picks. Same files-tab dedupe as revealInTree.
+ */
+export function revealSearch(projectId: string, query: string): void {
+  usePaneStore.getState().openTab({
+    kind: 'files',
+    id: `files:${projectId}`,
+    projectId,
+  });
+  usePaneStore.setState((s) => ({
+    treeSearch: { projectId, query, nonce: (s.treeSearch?.nonce ?? 0) + 1 },
   }));
 }
 

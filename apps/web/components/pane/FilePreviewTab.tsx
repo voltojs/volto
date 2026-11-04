@@ -8,6 +8,7 @@ import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, fetchFsTree, type FsFilePayload } from '@/lib/fs-api';
 import { parentDir } from '@/lib/file-reference';
 import { revealInTree, usePaneStore } from '@/stores/pane-store';
+import { resolveRefFallback } from '@/lib/open-file-ref';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';
@@ -77,6 +78,13 @@ function FilePreview({
     error: null,
   });
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Latest line target for the fetch-failure fallback: the ref keeps the
+  // fetch effect free of line deps so re-targeting a line never refetches
+  // the file. Updated in an effect — refs are not touched during render.
+  const lineTargetRef = useRef({ line, endLine });
+  useEffect(() => {
+    lineTargetRef.current = { line, endLine };
+  }, [line, endLine]);
 
   // Bring the line target into view once the file is loaded, and again when a
   // new click re-targets another line of the same open file. Anchors live in
@@ -106,7 +114,18 @@ function FilePreview({
             usePaneStore.getState().closeTab(tabId);
           },
           () => {
-            if (!cancelled) setState({ payload: null, error: message });
+            // Neither a readable file nor a directory: the path may be a
+            // shorthand. Resolve fuzzy (a unique pick navigates, a tie opens
+            // the tree search) and keep the error state only when nothing
+            // resolves — the self-match is never a fallback target.
+            resolveRefFallback(projectId, { path, ...lineTargetRef.current }).then((result) => {
+              if (cancelled) return;
+              if (result.kind === 'none') {
+                setState({ payload: null, error: message });
+                return;
+              }
+              usePaneStore.getState().closeTab(tabId);
+            });
           },
         );
       },

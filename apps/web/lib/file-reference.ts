@@ -217,3 +217,46 @@ export function parentDir(path: string): string {
   const i = path.lastIndexOf('/');
   return i === -1 ? '' : path.slice(0, i);
 }
+
+/** Shape of an `/fs/search` hit, structurally matched to avoid a store import. */
+export interface FsMatchLike {
+  path: string;
+  type: 'dir' | 'file';
+}
+
+export type RefMatch =
+  | { kind: 'unique'; target: FsMatchLike; withLine: boolean }
+  | { kind: 'ambiguous' }
+  | { kind: 'none' };
+
+/**
+ * Fallback resolution for a ref whose exact target failed to open: pick from
+ * the name-search candidates. A hit on the ref's own path is the thing that
+ * just broke and never an answer. Suffix matches keep the line target;
+ * basename-only matches drop it — too weak to trust for line data. Any
+ * ambiguity defers to the user instead of guessing.
+ */
+export function chooseRefMatch(ref: FileRef, matches: readonly FsMatchLike[]): RefMatch {
+  const suffix = matches.filter(
+    (m) => m.path === ref.path || m.path.endsWith(`/${ref.path}`),
+  );
+  if (suffix.length === 1) {
+    const only = suffix[0];
+    return only !== undefined && only.path !== ref.path
+      ? { kind: 'unique', target: only, withLine: true }
+      : { kind: 'none' };
+  }
+  if (suffix.length > 1) return { kind: 'ambiguous' };
+  const base = ref.path.slice(ref.path.lastIndexOf('/') + 1);
+  const named = matches.filter(
+    (m) => m.path.slice(m.path.lastIndexOf('/') + 1) === base,
+  );
+  if (named.length === 1) {
+    const only = named[0];
+    return only === undefined
+      ? { kind: 'none' }
+      : { kind: 'unique', target: only, withLine: false };
+  }
+  if (named.length > 1) return { kind: 'ambiguous' };
+  return { kind: 'none' };
+}

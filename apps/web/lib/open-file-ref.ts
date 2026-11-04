@@ -4,9 +4,10 @@
  * stores and commands the right pane.
  */
 
-import { openFilePreview, revealInTree } from '@/stores/pane-store';
+import { openFilePreview, revealInTree, revealSearch } from '@/stores/pane-store';
 import { useSessionStore } from '@/stores/session-store';
-import type { FileRef } from './file-reference';
+import { searchFsFiles } from '@/lib/fs-api';
+import { chooseRefMatch, type FileRef, type FsMatchLike } from './file-reference';
 
 /** Project that owns a session's content; null when the session is unknown. */
 export function projectIdForSession(sessionId: string): string | null {
@@ -37,4 +38,45 @@ export function openFileRef(ref: FileRef, projectId?: string | null): void {
     return;
   }
   openFilePreview(pid, ref.path, { line: ref.line, endLine: ref.endLine });
+}
+
+/**
+ * Fallback navigation for a ref whose exact target failed to open (missing
+ * preview, unfindable tree row). Candidates come from the name search; only
+ * a unique pick navigates, any tie defers to the tree search so the user
+ * chooses, and nothing usable means the caller keeps its own failure UI.
+ */
+export type RefFallbackResult =
+  | { kind: 'resolved'; target: FsMatchLike }
+  | { kind: 'search' }
+  | { kind: 'none' };
+
+export async function resolveRefFallback(
+  projectId: string,
+  ref: FileRef,
+): Promise<RefFallbackResult> {
+  const base = ref.path.slice(ref.path.lastIndexOf('/') + 1);
+  let matches: readonly FsMatchLike[];
+  try {
+    matches = (await searchFsFiles(projectId, base)).matches;
+  } catch {
+    return { kind: 'none' };
+  }
+  const choice = chooseRefMatch(ref, matches);
+  if (choice.kind === 'ambiguous') {
+    revealSearch(projectId, base);
+    return { kind: 'search' };
+  }
+  if (choice.kind === 'none') return { kind: 'none' };
+  const { target, withLine } = choice;
+  if (target.type === 'dir') {
+    revealInTree(projectId, target.path);
+  } else {
+    openFilePreview(
+      projectId,
+      target.path,
+      withLine ? { line: ref.line, endLine: ref.endLine } : undefined,
+    );
+  }
+  return { kind: 'resolved', target };
 }
