@@ -540,7 +540,7 @@ describe("projectMessages", () => {
         step: 1,
       },
       // Steering arrives DURING tool execution — lower seq than the result.
-      { time: 4, type: "steering_queued", data: { content: "actually wait" }, turn: 1, step: 1 },
+      { time: 4, type: "steering_queued", data: { id: "steer-1", content: "actually wait" }, turn: 1, step: 1 },
       {
         time: 5,
         type: "tool_result",
@@ -1010,7 +1010,7 @@ describe("projectMessageEntries", () => {
         turn: 1,
         step: 1,
       },
-      { time: 30, type: "steering_queued", data: { content: "wait" }, turn: 1, step: 1 },
+      { time: 30, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
       {
         time: 40,
         type: "tool_result",

@@ -320,7 +320,7 @@ describe("buildTurnRecords", () => {
       { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
       { time: 110, type: "user_message", data: { content: "start" }, turn: 1 },
       { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
-      { time: 130, type: "steering_queued", data: { content: "wait" }, turn: 1, step: 1 },
+      { time: 130, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
     ]);
 
     expect(buildTurnRecords(events)[0]!.userInput).toEqual([

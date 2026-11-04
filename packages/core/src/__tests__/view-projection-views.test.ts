@@ -71,7 +71,7 @@ const STEERED_LOG = log([
   },
   { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: { path: "a.txt" } }, turn: 1, step: 1 },
   // Steering arrives BEFORE the result — smaller seq, later position.
-  { time: 150, type: "steering_queued", data: { content: "actually wait" }, turn: 1, step: 1 },
+  { time: 150, type: "steering_queued", data: { id: "steer-1", content: "actually wait" }, turn: 1, step: 1 },
   {
     time: 160,
     type: "tool_result",
@@ -169,7 +169,7 @@ describe("toConversationView", () => {
         step: 1,
       },
       { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
-      { time: 150, type: "steering_queued", data: { content: "one more thing" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { id: "steer-1", content: "one more thing" }, turn: 1, step: 1 },
       {
         time: 160,
         type: "tool_result",

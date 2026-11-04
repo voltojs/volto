@@ -976,8 +976,8 @@ export function createRunner(opts: RunnerOptions): Runner {
    *   - model_done → assistant_message
    *   - tool_use_complete → tool_call
    *   - tool_result → tool_result (transcript shape)
-   *   - budget_exceeded / steering_queued / context_reminder → same-name
-   *     transcript events
+   *   - budget_exceeded / steering_queued / steering_delivered /
+   *     context_reminder → same-name transcript events
    *   - user_message (only ever emitted for the initial idle feed) → covered
    *     by the runner-originated record at run(), which now streams too
    * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
@@ -1018,9 +1018,20 @@ export function createRunner(opts: RunnerOptions): Runner {
           // observe directly: whether a mid-turn user_message is queued or
           // starts a new turn is decided inside the reducer. Duplicating that
           // branch here would drift; intercepting the event keeps the reducer
-          // the single source.
+          // the single source. The stamped id rides along so projections can
+          // match the entry to its steering_delivered.
           recorder.record("steering_queued", {
-            content: event.data["content"] as string,
+            id: event.data["id"] as string,
+            content: event.data["content"] as TranscriptEventMap["steering_queued"]["content"],
+          });
+          continue;
+
+        case "steering_delivered":
+          // Queue drained at a turn boundary: record the delivered ids the
+          // same way as steering_queued — recorder.record double-writes to
+          // the EventSink, so the live SSE path and the durable log match.
+          recorder.record("steering_delivered", {
+            ids: event.data["ids"] as string[],
           });
           continue;
 

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { step, createInitialState } from "../reducer.js";
+import { step, createInitialState, formatFileChangedNotice } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
 import type { AgentInput } from "../input.js";
 import type { Effect } from "../effect.js";
@@ -76,6 +76,19 @@ function reachExecutingTools(): AgentInput[] {
   ];
 }
 
+/** StepContext with an Id port so stamped message ids are real and distinct. */
+function ctxWithIds(): StepContext {
+  let n = 0;
+  return { ...ctx, id: { next: () => `msg-${++n}` } };
+}
+
+/** Data of every emit effect of the given event type, in effects order. */
+function emitData(effects: Effect[], type: string): Array<Record<string, unknown>> {
+  return effects
+    .filter((e): e is Extract<Effect, { type: "emit" }> => e.type === "emit" && e.event.type === type)
+    .map((e) => e.event.data);
+}
+
 // ──────────────────────────────────────────────
 // Tests
 // ──────────────────────────────────────────────
@@ -96,6 +109,20 @@ describe("Phase 3 — steering", () => {
 
       // Should emit a steering_queued event
       expect(result.effects.some((e) => e.type === "emit" && e.event.type === "steering_queued")).toBe(true);
+    });
+
+    it("queued user_message emits steering_queued carrying the stamped message id", () => {
+      const context = ctxWithIds();
+      const setup = drive(reachCallingModel(), context);
+      const callingState = setup[setup.length - 1]!.state;
+
+      const result = step(callingState, { type: "user_message", content: "Actually, also check bar.ts" }, context);
+
+      const queued = result.state.queuedUserInputs[0]!;
+      expect(queued.id).not.toBe("");
+      expect(emitData(result.effects, "steering_queued")).toEqual([
+        { id: queued.id, content: "Actually, also check bar.ts" },
+      ]);
     });
 
     it("should queue multiple user messages", () => {
@@ -123,6 +150,27 @@ describe("Phase 3 — steering", () => {
       expect(result.state.status).toBe("executing_tools"); // Not changed
       expect(result.state.queuedUserInputs).toHaveLength(1);
       expect(result.state.pendingTools).toHaveLength(1); // Pending tool still there
+    });
+  });
+
+  describe("file_changed queued mid-turn", () => {
+    it("queued file_changed notice emits steering_queued carrying the stamped message id", () => {
+      const context = ctxWithIds();
+      const setup = drive(reachCallingModel(), context);
+      const callingState = setup[setup.length - 1]!.state;
+
+      const input: Extract<AgentInput, { type: "file_changed" }> = {
+        type: "file_changed",
+        watchId: "watch-0",
+        events: [{ type: "change", path: "src/app.ts" }],
+      };
+      const result = step(callingState, input, context);
+
+      const queued = result.state.queuedUserInputs[0]!;
+      expect(queued.id).not.toBe("");
+      expect(emitData(result.effects, "steering_queued")).toEqual([
+        { id: queued.id, content: formatFileChangedNotice(input) },
+      ]);
     });
   });
 
@@ -182,6 +230,76 @@ describe("Phase 3 — steering", () => {
       expect(lastThree[1]!.content).toBe("First queued");
       expect(lastThree[2]!.role).toBe("user");
       expect(lastThree[2]!.content).toBe("Second queued");
+    });
+
+    it("tool-batch flush emits steering_delivered with drained ids in FIFO order", () => {
+      const context = ctxWithIds();
+      const setup = drive(reachExecutingTools(), context);
+      const execState = setup[setup.length - 1]!.state;
+
+      const q1 = step(execState, { type: "user_message", content: "First queued" }, context);
+      const q2 = step(q1.state, { type: "user_message", content: "Second queued" }, context);
+      const id1 = q2.state.queuedUserInputs[0]!.id;
+      const id2 = q2.state.queuedUserInputs[1]!.id;
+      expect(id1).not.toBe("");
+      expect(id2).not.toBe("");
+
+      const afterTool = step(
+        q2.state,
+        {
+          type: "tool_result",
+          toolCallId: "call_1",
+          toolName: "read_file",
+          result: { modelContent: "file content" },
+        },
+        context,
+      );
+
+      expect(emitData(afterTool.effects, "steering_delivered")).toEqual([{ ids: [id1, id2] }]);
+    });
+
+    it("approval flush emits steering_delivered with drained ids", () => {
+      const context = ctxWithIds();
+      const setup = drive(reachExecutingTools(), context);
+      const execState = setup[setup.length - 1]!.state;
+
+      const q1 = step(execState, { type: "user_message", content: "First queued" }, context);
+      const q2 = step(q1.state, { type: "user_message", content: "Second queued" }, context);
+      const id1 = q2.state.queuedUserInputs[0]!.id;
+      const id2 = q2.state.queuedUserInputs[1]!.id;
+      expect(id1).not.toBe("");
+      expect(id2).not.toBe("");
+
+      const approval = step(q2.state, { type: "request_approval", toolCallId: "call_1" }, context);
+      expect(approval.state.status).toBe("waiting_for_approval");
+
+      const denied = step(
+        approval.state,
+        { type: "approval_decision", toolCallId: "call_1", decision: "deny" },
+        context,
+      );
+
+      expect(emitData(denied.effects, "steering_delivered")).toEqual([{ ids: [id1, id2] }]);
+    });
+
+    it("flush with an empty queue emits no steering_delivered", () => {
+      const context = ctxWithIds();
+      const setup = drive(reachExecutingTools(), context);
+      const execState = setup[setup.length - 1]!.state;
+      expect(execState.queuedUserInputs).toHaveLength(0);
+
+      const afterTool = step(
+        execState,
+        {
+          type: "tool_result",
+          toolCallId: "call_1",
+          toolName: "read_file",
+          result: { modelContent: "file content" },
+        },
+        context,
+      );
+
+      expect(emitData(afterTool.effects, "steering_delivered")).toEqual([]);
     });
   });
 

@@ -984,7 +984,12 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
-      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
+      effects: [
+        {
+          type: "emit",
+          event: { type: "steering_queued", data: { id: userMsg.id, content: input.content } },
+        },
+      ],
     };
   }
 
@@ -1098,7 +1103,15 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       .map((t) => newBuffer[t.id])
       .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
-    // Drain steering queue: inject queued user messages at the turn boundary
+    // Drain steering queue: inject queued user messages at the turn boundary.
+    // The delivered signal names every drained id (FIFO) so projections can
+    // finalize the queued entries; an empty queue drains nothing, so it
+    // emits nothing.
+    const drainedIds = state.queuedUserInputs.map((m) => m.id);
+    const deliveredEffects: Effect[] =
+      drainedIds.length > 0
+        ? [{ type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } }]
+        : [];
     const drainedMessages: Message[] = [
       ...state.messages,
       ...orderedResultMsgs,
@@ -1121,6 +1134,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       effects: [
         resultEmit,
         ...todoEmit,
+        ...deliveredEffects,
         buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ],
     };
@@ -1161,7 +1175,12 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
-      effects: [{ type: "emit", event: { type: "steering_queued", data: { content: input.content } } }],
+      effects: [
+        {
+          type: "emit",
+          event: { type: "steering_queued", data: { id: userMsg.id, content: input.content } },
+        },
+      ],
     };
   }
 
@@ -1278,7 +1297,13 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       .map((t) => newBuffer[t.id])
       .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
-    // Drain steering queue at turn boundary
+    // Drain steering queue at turn boundary; same non-empty rule as the
+    // tool-batch flush in handleExecutingTools.
+    const drainedIds = state.queuedUserInputs.map((m) => m.id);
+    const deliveredEffects: Effect[] =
+      drainedIds.length > 0
+        ? [{ type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } }]
+        : [];
     const drainedMessages: Message[] = [
       ...state.messages,
       ...orderedResultMsgs,
@@ -1296,6 +1321,7 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
         status: "calling_model",
       },
       effects: [
+        ...deliveredEffects,
         buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx, state.todos),
       ],
     };
@@ -1397,11 +1423,20 @@ function handleFileChanged(
     // Anthropic reject a request where a user message splits that pair.
     // Queuing defers the notice to the turn boundary (drained alongside
     // queuedUserInputs once every pending tool result has flushed) instead
-    // of appending it into messages mid-turn.
+    // of appending it into messages mid-turn. The notice is announced like
+    // any other queued message — steering_queued carries its stamped id, so
+    // the steering_delivered at the drain keeps a matching queued event for
+    // every id it delivers.
     const noticeMsg = stamp({ id: "", role: "user" as const, content: notice }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, noticeMsg] },
-      effects: [fileChangedEmit],
+      effects: [
+        fileChangedEmit,
+        {
+          type: "emit",
+          event: { type: "steering_queued", data: { id: noticeMsg.id, content: notice } },
+        },
+      ],
     };
   }
 

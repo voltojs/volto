@@ -92,7 +92,7 @@ describe("contextUsageView", () => {
       tokenizer,
     );
     fold = foldContextUsageEvent(fold, event("tool_result", { callId: "c1", content: "abcdefgh", isError: false, orderInBatch: 0 }), tokenizer);
-    fold = foldContextUsageEvent(fold, event("steering_queued", { content: "abcdefgh" }), tokenizer);
+    fold = foldContextUsageEvent(fold, event("steering_queued", { id: "steer-1", content: "abcdefgh" }), tokenizer);
     // 锚 100+10=110；tool_result "abcdefgh"→2+BLOCK_OVERHEAD(4)=6，
     // steering "abcdefgh"→2+BLOCK_OVERHEAD(4)+ROLE_OVERHEAD(4)=10，合计 110+6+10=126
     expect(contextUsageView(fold, tokenizer)!.projectedTokens).toBe(126);

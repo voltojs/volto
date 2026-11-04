@@ -487,6 +487,113 @@ describe("Runner transcript capture", () => {
     expect(typesOf(events)).toContain("steering_queued");
   });
 
+  it("records steering_queued with id", async () => {
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [textDelta("done"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+    let n = 0;
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY",
+          },
+        ],
+        model: "test-model",
+        id: { next: () => `msg-${++n}` },
+      },
+      toolExecutor: async () => {
+        runner.send({ type: "user_message", content: "wait" });
+        return { modelContent: "ok" };
+      },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const queued = firstOf<{ id: string; content: string }>(events, "steering_queued");
+    expect(queued).toBeDefined();
+    expect(queued!.content).toBe("wait");
+
+    // The recorded id must be the stamp on the queued message that later
+    // lands in the history — not an invented or empty placeholder.
+    const deliveredMsg = runner.getState().messages.find((m) => m.role === "user" && m.content === "wait");
+    expect(deliveredMsg).toBeDefined();
+    expect(deliveredMsg!.id).not.toBe("");
+    expect(queued!.id).toBe(deliveredMsg!.id);
+  });
+
+  it("records and streams steering_delivered", async () => {
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [textDelta("done"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+    const sinkEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
+    let n = 0;
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY",
+          },
+        ],
+        model: "test-model",
+        id: { next: () => `msg-${++n}` },
+      },
+      toolExecutor: async () => {
+        runner.send({ type: "user_message", content: "wait" });
+        return { modelContent: "ok" };
+      },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+      eventSink: {
+        emit(event) {
+          sinkEvents.push(event);
+        },
+      },
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const queuedId = firstOf<{ id: string }>(events, "steering_queued")!.id;
+
+    // Durable record: the transcript log carries the delivered ids.
+    const recorded = firstOf<{ ids: string[] }>(events, "steering_delivered");
+    expect(recorded).toBeDefined();
+    expect(recorded!.ids).toEqual([queuedId]);
+
+    // Live stream: the EventSink sees the same event (recorder double write).
+    const streamed = sinkEvents.find((e) => e.type === "steering_delivered");
+    expect(streamed).toBeDefined();
+    expect(streamed!.data).toEqual({ ids: [queuedId] });
+  });
+
   it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
     // Real providers (packages/providers/anthropic|openai's model-port.ts)
     // yield {type:"error"} for non-2xx responses, aborts, and empty bodies —

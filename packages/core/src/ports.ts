@@ -593,8 +593,14 @@ export interface TranscriptEventMap {
 
   // ── Input ──
   user_message: { content: string | ContentBlock[] };
-  /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event. */
-  steering_queued: { content: string | ContentBlock[] };
+  /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event.
+   *  `id` is stamped at enqueue time (Id port) so projections can match the
+   *  queued entry to its delivery. */
+  steering_queued: { id: string; content: string | ContentBlock[] };
+  /** Steering — queued messages injected at a turn boundary. `ids` carries
+   *  every drained message id in FIFO order; emitted only when the drained
+   *  queue is non-empty. */
+  steering_delivered: { ids: string[] };
   /** A debounced FileWatcher batch injected as AgentInput. Paths only — never file content. */
   file_changed: {
     watchId: string;
