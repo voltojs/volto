@@ -53,8 +53,9 @@ export interface InputBarProps {
   trailing?: ReactNode;
   /**
    * True while a turn is streaming: the send button becomes a stop button.
-   * Note this is independent of `disabled` — the stop button stays clickable
-   * while the editor is locked.
+   * Note this is independent of `disabled` — generating no longer locks the
+   * editor, and the stop button stays clickable even when some other gate
+   * does lock it.
    */
   isGenerating?: boolean;
   /** Invoked by the stop button. Omit to keep the send button while generating. */
@@ -595,9 +596,9 @@ export function InputBar({
           <div className="ml-auto flex items-center gap-1">
             {trailing}
             {showStop ? (
-              // Deliberately not gated on `disabled`: the editor is locked
-              // while a turn streams, but stopping that turn is exactly what
-              // the user needs to be able to do then.
+              // Deliberately not gated on `disabled`: generating no longer
+              // locks the editor, and stopping the turn must stay reachable
+              // even when some other gate (e.g. missing binding) locks it.
               <Button
                 type="button"
                 size="icon"

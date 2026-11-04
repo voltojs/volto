@@ -365,4 +365,27 @@ describe('InputBar gate during generation and approvals (ChatPanel)', () => {
     fireEvent.click(stop);
     await waitFor(() => expect(transport.interruptTurn).toHaveBeenCalledWith('s1'));
   });
+
+  it('a failed send during generation does not clear isGenerating', async () => {
+    useChatStore.setState({ isGenerating: true });
+    transport.postMessage.mockRejectedValueOnce(new Error('steer POST failed'));
+    render(<ChatPanel />);
+
+    const editor = screen.getByTestId('input-editor');
+    fireEvent.paste(editor, { clipboardData: { getData: () => 'steer that fails' } });
+    fireEvent.keyDown(editor, { key: 'Enter', bubbles: true, cancelable: true });
+
+    // The catch has run by the time the error event lands; only then is it
+    // safe to assert the flag was not rolled back by this send.
+    await waitFor(() => {
+      expect(transport.postMessage).toHaveBeenCalled();
+      expect(
+        useChatStore.getState().events.some((e) => e.type === 'error'),
+      ).toBe(true);
+    });
+    // The main turn still owns `isGenerating`: a failed steer POST must not
+    // take Stop / the wave away before turn_end.
+    expect(useChatStore.getState().isGenerating).toBe(true);
+    expect(screen.getByRole('button', { name: '中断生成' })).toBeInTheDocument();
+  });
 });

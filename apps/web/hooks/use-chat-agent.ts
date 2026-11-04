@@ -194,9 +194,9 @@ export function useChatAgent(): UseChatAgentReturn {
       // Tearing down the channel (session switch or unmount) can happen
       // mid-turn. `client.destroy()` above only disconnects — it never emits
       // a terminal frame — so without this, `isGenerating` would stay true
-      // forever and (since chat-store is a global singleton) disable the
-      // input box in every session, not just this one. Idempotent: a no-op
-      // when the turn already finished normally via turn_end.
+      // forever and (since chat-store is a global singleton) pin every
+      // session's UI to the generating state, not just this one. Idempotent:
+      // a no-op when the turn already finished normally via turn_end.
       useChatStore.getState().cancelStreaming();
     };
   }, [currentSessionId, ensureConnection]);
@@ -231,6 +231,11 @@ export function useChatAgent(): UseChatAgentReturn {
         return;
       }
 
+      // A send while a turn streams is a steer: that turn already owns the
+      // flag, so this send must not release it on failure — only turn_end
+      // (or an interrupt) may. The first-message path owns the flag itself
+      // and rolls it back on failure as before.
+      const alreadyGenerating = useChatStore.getState().isGenerating;
       useChatStore.getState().setGenerating(true);
       // No optimistic copy of the user message: the server echoes it back as
       // a user_message event on the channel.
@@ -260,7 +265,7 @@ export function useChatAgent(): UseChatAgentReturn {
           type: 'error',
           data: { message },
         });
-        useChatStore.getState().setGenerating(false);
+        if (!alreadyGenerating) useChatStore.getState().setGenerating(false);
       }
     },
     [ensureConnection],
