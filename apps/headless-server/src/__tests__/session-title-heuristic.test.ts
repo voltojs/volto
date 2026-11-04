@@ -123,13 +123,13 @@ describe("heuristic session title", () => {
     expect(await storedTitle(server)).toBe("这张截图里的报错怎么修");
   });
 
-  it("caps a long first message at 200 codepoints plus an ellipsis", async () => {
+  it("caps a long first message at 60 codepoints plus an ellipsis", async () => {
     const server = await boot();
     await runTurn(server, "长".repeat(260));
 
     const title = await storedTitle(server);
     expect(title.endsWith("…")).toBe(true);
-    expect(Array.from(title)).toHaveLength(201);
+    expect(Array.from(title)).toHaveLength(61);
   });
 
   it("does not retitle on a later turn", async () => {
