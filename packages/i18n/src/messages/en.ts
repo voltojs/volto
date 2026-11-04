@@ -18,4 +18,5 @@ export const en = {
   "server.queue.gone":
     "That queued message is no longer available — it may have already been delivered",
   "server.queue.emptyContent": "Message content cannot be empty",
+  "server.queue.persistFailed": "Could not save the queue change; no changes were made — try again",
 } as const;

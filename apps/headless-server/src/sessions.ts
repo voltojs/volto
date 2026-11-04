@@ -505,6 +505,25 @@ function contextLayersFromHeader(
   return undefined;
 }
 
+/**
+ * True when the agent has no state source at all: `getState()` throws iff
+ * `lastRunner` and `lastFinalState` are both null — precisely the
+ * precondition of `updateQueue`'s seed branch (create-agent.ts), and
+ * `steerTarget` is only ever set alongside `lastRunner` (cleared first at a
+ * turn claim), so a throwing instance can never take the runner branch
+ * either. Purely synchronous (no awaits) — safe to pair with a same-span
+ * seed-membership check for persist-first ordering.
+ */
+function isSeedPhase(agent: { getState(): unknown }): boolean {
+  try {
+    agent.getState();
+    return false;
+  } catch {
+    // "No active session. Run a turn first." — the documented never-ran throw.
+    return true;
+  }
+}
+
 interface Connection {
   res: http.ServerResponse;
   heartbeat: ReturnType<typeof setInterval>;
@@ -542,6 +561,15 @@ export type TitleWriteResult = "written" | "outranked" | "missing";
 interface Session {
   id: string;
   agent: Awaited<ReturnType<typeof createWiredAgent>> | null;
+  /**
+   * The seed queue array handed to the current agent as `initialQueuedInputs`
+   * — createAgent holds THIS reference as its `seedQueuedInputs` and mutates
+   * it in place on the seed path. Set by rebuild() alongside `agent`, so
+   * `agent !== null` implies a stash; updateQueuedMessage reads it for the
+   * synchronous seed-membership check BEFORE persisting (persist-first
+   * ordering, fix round 1).
+   */
+  queueSeed: UserMessage[] | null;
   config: ResolvedConfig | null;
   history: Message[];
   mapper: ReturnType<typeof sse.createEventMapper>;
@@ -740,6 +768,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       session = {
         id: sessionId,
         agent: null,
+        queueSeed: null,
         config: null,
         history: [],
         mapper: sse.createEventMapper(),
@@ -1495,6 +1524,11 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           }
         : {}),
     });
+    // Stash the seed array beside the instance that holds it (fix round 1):
+    // same reference as createAgent's seedQueuedInputs, set in the same
+    // synchronous block as the agent assignment so a queue edit can check
+    // seed membership without reaching into the SDK.
+    session.queueSeed = queueSeed;
     // D13 rebuild-window race: a steer that landed on the OUTGOING instance
     // while buildAgent was awaiting records its steering_queued through that
     // instance's recorder, whose flush is fire-and-forget — the fold above
@@ -1543,9 +1577,16 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    *   persist NOTHING here (double-writing would fork the event log).
    * - `"seed"` — first-construction seed hit: no Runner exists, so no
    *   recorder will ever fire — the gateway appends the event to the
-   *   chatStore itself, before this function returns.
+   *   chatStore itself. Persist-FIRST (fix round 1): the append lands
+   *   BEFORE updateQueue touches the seed array, so a refused write leaves
+   *   memory exactly as it was and retrying after storage recovers is
+   *   completely safe — memory and the durable log never diverge.
    * - `"missing"` — unknown or already delivered (delivery wins); state
    *   untouched, nothing persisted — the route answers 409.
+   * - `"persist-failed"` — the seed append was refused by storage; the seed
+   *   array was NOT mutated (persist-first order), so the route answers an
+   *   honest 500 (`server.queue.persistFailed`) and the client may simply
+   *   retry — never a validation-shaped 400 with a raw store message.
    *
    * A session with no agent instance is rebuilt first (Task 10's event fold
    * hands the new instance the pending queue), which is what makes the
@@ -1555,7 +1596,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     sessionId: string,
     id: string,
     action: QueuedMessageAction,
-  ): Promise<"live" | "seed" | "missing"> {
+  ): Promise<"live" | "seed" | "missing" | "persist-failed"> {
     const session = get(sessionId);
     // D10 cold window: a first turn owns the latch but its agent has not
     // materialized yet — wait bounded for THAT turn's rebuild instead of
@@ -1568,29 +1609,54 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     }
     // Rebuild-first for a genuinely cold session (no instance ever built):
     // rebuild()'s event fold seeds the queue, which is what makes the
-    // "seed" outcome reachable below. Read-then-deliver stays one
-    // synchronous span — no await executes between the agent reference and
-    // updateQueue() when an instance already exists.
+    // "seed" outcome reachable below. rebuild() stashes that same array on
+    // the Session (agent and queueSeed are assigned in one synchronous
+    // block), so `agent exists` implies the stash matches the instance's
+    // own seedQueuedInputs — the membership check below is exact.
     const agent = session.agent ?? (await ensureAgent(sessionId));
     const input: SteeringEditInput | SteeringRemoveInput =
       action.kind === "edit"
         ? { type: "steering_edit", id, content: action.content }
         : { type: "steering_remove", id };
-    const outcome = agent.updateQueue(input);
-    if (outcome === "seed" && chatStore) {
-      // No recorder exists on the seed path — the gateway owns the durable
-      // event (task-7 report §十). Only "seed": "live" already lands through
-      // the Runner's recorder and must not be written twice. Same write
-      // shape and workspace resolution as runTurn's pre-stream error record
-      // below; a store-less server degrades exactly like every other
-      // transcript write (no durable record, sessions still work).
+
+    // Persist-first on the seed path (fix round 1). The prediction is
+    // synchronous and exact, not a guess:
+    //   - isSeedPhase(agent) ⟺ getState() throws ⟺ lastRunner and
+    //     lastFinalState are both null ⟺ updateQueue's seed-branch
+    //     precondition (steerTarget is always paired with lastRunner, so a
+    //     throwing instance cannot reach the runner branch either), and
+    //   - session.queueSeed IS the instance's seedQueuedInputs (same
+    //     reference, passed as initialQueuedInputs), so membership here is
+    //     membership there.
+    // Prediction false ⟹ updateQueue cannot answer "seed" (its branch needs
+    // the same two conditions), so live/missing paths are untouched: their
+    // persistence stays with the Runner's recorder or nothing at all.
+    const willSeed =
+      isSeedPhase(agent) && (session.queueSeed?.some((queued) => queued.id === id) ?? false);
+    if (willSeed && chatStore) {
       const event: TranscriptEventInput =
         action.kind === "edit"
           ? { time: Date.now(), type: "steering_edited", data: { id, content: action.content } }
           : { time: Date.now(), type: "steering_removed", data: { id } };
-      await chatStore.appendEvents(session.config?.projectPath ?? null, sessionId, [event]);
+      try {
+        // Append BEFORE the mutation: only a durable event licenses touching
+        // the seed array (same write shape/workspace resolution as runTurn's
+        // pre-stream error record below).
+        await chatStore.appendEvents(session.config?.projectPath ?? null, sessionId, [event]);
+      } catch {
+        // updateQueue has not run — the seed array is untouched, so memory
+        // and log agree. Report the storage failure as its own outcome; the
+        // route renders 500 + i18n instead of this catch-all's 400.
+        return "persist-failed";
+      }
     }
-    return outcome;
+    // Store-less server degrades as before (no durable record, session works).
+    // A concurrent same-session mutation during the append above can flip the
+    // answer to "live"/"missing"; the already-written event is fold-idempotent
+    // (repeated edits replace with the same content, repeated removes are
+    // no-ops), so the fold never diverges — updateQueue's outcome stays
+    // authoritative for the response.
+    return agent.updateQueue(input);
   }
 
   /**

@@ -185,6 +185,91 @@ function parseEvents(text: string): Array<{ type: string; data: Record<string, u
   return events;
 }
 
+/**
+ * Phase 1 shared by the seed-persistence tests: park turn 1, queue a message,
+ * cancel with the queue hidden from the settle read (so nothing delivers),
+ * then copy the durable transcript under a FRESH session id — an idle session
+ * whose agent has never run, the only state where updateQueue can answer
+ * "seed". Returns the server, the cold session id, and the queued id.
+ */
+async function bootColdSeedSession(
+  extra: Parameters<typeof startTestServer>[0] = {},
+): Promise<{ server: TestServer; coldId: string; queuedId: string }> {
+  let queueInvisible = false;
+  const requests: ModelRequest[] = [];
+  let warmupStreaming!: () => void;
+  const warmupStarted = new Promise<void>((resolve) => {
+    warmupStreaming = resolve;
+  });
+  const server = await boot({
+    ...extra,
+    modelPort: {
+      async *stream(request: ModelRequest) {
+        requests.push(request);
+        if (requests.length === 1) {
+          yield { type: "text_delta", text: "thinking…" };
+          warmupStreaming();
+          // Park until the cancel signal unwinds the turn — the way a
+          // provider rejects its in-flight request when abort fires.
+          await new Promise<void>((resolve) => {
+            const signal = request.abortSignal;
+            if (!signal) return; // never resolves — the test would time out, as it should
+            if (signal.aborted) resolve();
+            else signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          yield { type: "done", stopReason: "end_turn" };
+          return;
+        }
+        yield { type: "text_delta", text: "ok" };
+        yield { type: "done", stopReason: "end_turn" };
+      },
+    },
+    agentFactory: async (opts) => {
+      const agent = await createWiredAgent(opts);
+      // Hide the queue from the gateway's settle-time read (the documented
+      // "state omits the queue field -> nothing provably queued" stance):
+      // the message then survives to idle for the copy below to pick up.
+      const realGetState = agent.getState.bind(agent);
+      agent.getState = () => {
+        const state = realGetState();
+        if (!queueInvisible) return state;
+        const hidden = { ...state } as { queuedUserInputs?: UserMessage[] };
+        delete hidden.queuedUserInputs;
+        return hidden as typeof state;
+      };
+      return agent;
+    },
+  });
+
+  await server.openEvents();
+  const first = await postMessage(server, "warmup message");
+  expect(first.status).toBe(202);
+  await warmupStarted;
+
+  const second = await postMessage(server, "queued for seed persistence");
+  expect(second.status).toBe(202);
+  expect((await second.json()) as unknown).toEqual({ queued: true });
+  await waitFor(
+    () => sawSteeringQueued(server, "queued for seed persistence"),
+    "steering_queued frame",
+  );
+  const queuedId = queuedIdFor(server, "queued for seed persistence");
+  expect(typeof queuedId).toBe("string");
+
+  queueInvisible = true;
+  const cancel = await interrupt(server);
+  expect(cancel.status).toBe(202);
+  await server.captureMessages();
+  await waitForTurnDurable(server);
+  queueInvisible = false;
+
+  const source = await findTranscript(server.configDir, "queued for seed persistence");
+  expect(source).not.toBeNull();
+  const coldId = "cold-seed-session";
+  await fs.copyFile(source!, path.join(server.configDir, `${coldId}.jsonl`));
+  return { server, coldId, queuedId: queuedId! };
+}
+
 describe("POST /messages/queue (D14/D15)", () => {
   it("edit on a queued message updates content and persists steering_edited", async () => {
     // Turn 1 parks mid-model so a follow-up queues behind the held latch.
@@ -510,5 +595,86 @@ describe("POST /messages/queue (D14/D15)", () => {
     expect((await res.json()) as unknown).toEqual({
       error: t(DEFAULT_LOCALE, "server.queue.emptyContent"),
     });
+  });
+
+  it("seed remove success answers 200 and persists exactly one steering_removed", async () => {
+    // Fix round 1, test (a): the seed-path REMOVE branch had no coverage —
+    // pin that a cold session's remove lands 200 and the gateway's own
+    // append writes exactly one steering_removed{id} (no recorder exists to
+    // write it a second time, and none to write steering_edited at all).
+    const { server, coldId, queuedId } = await bootColdSeedSession();
+
+    const res = await postQueue(server, {
+      sessionId: coldId,
+      id: queuedId,
+      action: { kind: "remove" },
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown).toEqual({ ok: true });
+
+    const events = parseEvents(
+      await fs.readFile(path.join(server.configDir, `${coldId}.jsonl`), "utf8"),
+    );
+    const removals = events.filter((event) => event.type === "steering_removed");
+    expect(removals).toHaveLength(1);
+    expect(removals[0]!.data).toEqual({ id: queuedId });
+    expect(events.filter((event) => event.type === "steering_edited")).toEqual([]);
+  });
+
+  it("seed append failure answers 500 persistFailed, leaves memory untouched, retries clean", async () => {
+    // Fix round 1, test (b): the reviewed failure path — storage refuses the
+    // seed append. Persist-before-mutate means: honest 500 + decided i18n
+    // copy (never 400 + raw store message), the seed array still holds the
+    // id (a mutated memory would make THIS second attempt answer 409, not
+    // 500), nothing durable written, and after storage recovers the retry
+    // lands 200 with exactly one event.
+    const gate = { failing: false };
+    const { server, coldId, queuedId } = await bootColdSeedSession({
+      appendEventsFailure: gate,
+    });
+    const coldPath = path.join(server.configDir, `${coldId}.jsonl`);
+    const storedRemovals = async () =>
+      parseEvents(await fs.readFile(coldPath, "utf8")).filter(
+        (event) => event.type === "steering_removed",
+      );
+
+    gate.failing = true;
+    const first = await postQueue(server, {
+      sessionId: coldId,
+      id: queuedId,
+      action: { kind: "remove" },
+    });
+    expect(first.status).toBe(500);
+    expect((await first.json()) as unknown).toEqual({
+      error: t(DEFAULT_LOCALE, "server.queue.persistFailed"),
+    });
+    expect(await storedRemovals()).toEqual([]);
+
+    // Storage still down: the id must STILL be in the seed array — had the
+    // first attempt mutated memory (the reviewed bug), updateQueue would now
+    // answer "missing" → 409 instead of failing on the write again.
+    const second = await postQueue(server, {
+      sessionId: coldId,
+      id: queuedId,
+      action: { kind: "remove" },
+    });
+    expect(second.status).toBe(500);
+    expect((await second.json()) as unknown).toEqual({
+      error: t(DEFAULT_LOCALE, "server.queue.persistFailed"),
+    });
+    expect(await storedRemovals()).toEqual([]);
+
+    // Storage recovers → the retry applies once, end to end.
+    gate.failing = false;
+    const retry = await postQueue(server, {
+      sessionId: coldId,
+      id: queuedId,
+      action: { kind: "remove" },
+    });
+    expect(retry.status).toBe(200);
+    expect((await retry.json()) as unknown).toEqual({ ok: true });
+    const removals = await storedRemovals();
+    expect(removals).toHaveLength(1);
+    expect(removals[0]!.data).toEqual({ id: queuedId });
   });
 });

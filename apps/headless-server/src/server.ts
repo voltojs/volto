@@ -902,8 +902,22 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // "live"/"seed" mutated the queue (their persistence split — the
         // Runner's recorder vs. this gateway's own append — lives in
         // updateQueuedMessage); "missing" means unknown or already
-        // delivered, where delivery wins and state was left untouched.
+        // delivered, where delivery wins and state was left untouched;
+        // "persist-failed" means storage refused the seed append BEFORE
+        // anything mutated (persist-first order), so a retry is safe.
         const outcome = await registry.updateQueuedMessage(sessionId, body.id, action);
+        if (outcome === "persist-failed") {
+          // Honest 500 with the decided copy — never the catch-all's 400
+          // with a raw store message: nothing was modified, so the client
+          // may simply retry once storage recovers.
+          jsonResponse(res, 500, {
+            error: t(
+              await activeLocale(getConfigDir(), req.headers["accept-language"]),
+              "server.queue.persistFailed",
+            ),
+          });
+          return;
+        }
         if (outcome === "missing") {
           // 409 rather than a silent 200: the id is gone — the client's
           // queued bubble is stale and can be surfaced instead of pretending

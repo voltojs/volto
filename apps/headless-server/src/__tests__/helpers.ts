@@ -155,6 +155,32 @@ export interface StartTestServerOptions {
    * message while the settle window is still open (spec scenario D).
    */
   appendEventsDelayMs?: number;
+  /**
+   * Fault-injection gate: while `.failing` is true every `appendEvents` call
+   * rejects, simulating a storage fault; flip it back to false to recover
+   * mid-test (the queue-route "retry after storage recovers" case). Reads are
+   * never affected. Absent → an ordinary store, so existing tests are
+   * untouched.
+   */
+  appendEventsFailure?: { failing: boolean };
+}
+
+/** Rejects every append while `gate.failing`; delegates reads verbatim. */
+function withFailableAppendEvents(
+  inner: JsonlSessionStore,
+  gate: { failing: boolean },
+): JsonlSessionStore {
+  return {
+    appendEvents: async (workspacePath, sessionId, events) => {
+      if (gate.failing) throw new Error("injected appendEvents failure");
+      await inner.appendEvents(workspacePath, sessionId, events);
+    },
+    readEvents: (sessionId) => inner.readEvents(sessionId),
+    readSession: (sessionId) => inner.readSession(sessionId),
+    listSessions: () => inner.listSessions(),
+    deleteSession: (sessionId) => inner.deleteSession(sessionId),
+    searchSessions: (query, opts) => inner.searchSessions(query, opts),
+  };
 }
 
 /** Delegates to `inner`, holding every transcript append for `delayMs`. */
@@ -176,12 +202,21 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
   process.env["VOLTO_CONFIG_DIR"] = configDir;
 
+  // Store seams compose outermost-last: the delay wrapper goes on first and
+  // the fault gate wraps it, so a failing append rejects immediately instead
+  // of waiting out the delay seam. No current test enables both at once.
+  let storeImpl: JsonlSessionStore = createStore({ directory: configDir });
+  if (opts.appendEventsDelayMs) {
+    storeImpl = withDelayedAppendEvents(storeImpl, opts.appendEventsDelayMs);
+  }
+  if (opts.appendEventsFailure) {
+    storeImpl = withFailableAppendEvents(storeImpl, opts.appendEventsFailure);
+  }
+
   const server: HeadlessServer = await createServer({
     port: 0,
     modelPort: opts.modelPort ?? IDLE_MODEL,
-    chatStore: opts.appendEventsDelayMs
-      ? withDelayedAppendEvents(createStore({ directory: configDir }), opts.appendEventsDelayMs)
-      : createStore({ directory: configDir }),
+    chatStore: storeImpl,
     ...(opts.titleModelPortFactory !== undefined
       ? { titleModelPortFactory: opts.titleModelPortFactory }
       : {}),

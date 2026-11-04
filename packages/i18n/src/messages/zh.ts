@@ -22,4 +22,5 @@ export const zh = {
   "server.steer.autoTurnLimit": "自动续轮已达 50 轮上限，部分排队消息仍未送达",
   "server.queue.gone": "该排队消息已不可用，可能已送达",
   "server.queue.emptyContent": "消息内容不能为空",
+  "server.queue.persistFailed": "排队消息变更保存失败，未做任何修改——请重试",
 } as const;
