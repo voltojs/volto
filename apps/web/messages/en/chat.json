@@ -253,6 +253,7 @@
   "close": "Close",
   "queuedBadge": "Queued",
   "queuedEdit": "Edit",
+  "queuedSave": "Save",
   "queuedRemove": "Retract",
   "queuedEmptyError": "Message content cannot be empty",
   "queuedGoneNotice": "That queued message is no longer available — it may have already been delivered"

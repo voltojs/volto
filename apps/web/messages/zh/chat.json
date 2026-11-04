@@ -253,6 +253,7 @@
   "close": "关闭",
   "queuedBadge": "排队中",
   "queuedEdit": "编辑",
+  "queuedSave": "保存",
   "queuedRemove": "撤回",
   "queuedEmptyError": "消息内容不能为空",
   "queuedGoneNotice": "该排队消息已不可用，可能已送达"

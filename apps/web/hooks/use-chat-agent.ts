@@ -8,6 +8,7 @@ import {
   eventsUrl,
   interruptTurn,
   postMessage,
+  SERVER_URL,
   type ConnectionState,
 } from '@/lib/agent-config';
 import { useChatStore } from '@/stores/chat-store';
@@ -46,6 +47,67 @@ interface UseChatAgentReturn {
 
 /** How long to wait for the SSE channel before giving up on a send. */
 const CONNECT_TIMEOUT_MS = 10_000;
+
+/** One action on a queued (not yet delivered) message — spec D14/D15. */
+export type QueuedMessageAction =
+  | { kind: 'edit'; content: string }
+  | { kind: 'remove' };
+
+/**
+ * Outcome of `POST /messages/queue`, mapped off the status code alone:
+ * `gone` is the 409 QUEUE_ITEM_GONE (delivered or already gone — the
+ * server's "delivery wins" answer), `invalid` the 400 (empty content), and
+ * `failed` everything else (500 persist failure, network), carrying the
+ * gateway's own message when it sent one.
+ */
+export type QueueUpdateOutcome =
+  | { status: 'ok' }
+  | { status: 'gone' }
+  | { status: 'invalid' }
+  | { status: 'failed'; message: string };
+
+/**
+ * Edit or retract one queued message by its steering id.
+ *
+ * Cookie auth only, mirroring `postMessage` for `POST /messages`: the
+ * gateway's global auth guard covers this route the same way (the
+ * per-connection approval token is for `POST /approvals`' second gate, which
+ * this route does not have). No local state is touched — the caller waits
+ * for the `steering_edited` / `steering_removed` receipt to converge the
+ * feed, so a stale bubble can never pretend the edit landed.
+ */
+export async function updateQueue(
+  id: string,
+  action: QueuedMessageAction,
+): Promise<QueueUpdateOutcome> {
+  const sessionId = useSessionStore.getState().currentSessionId;
+  if (!sessionId) {
+    return { status: 'failed', message: 'No active session' };
+  }
+  try {
+    const response = await fetch(`${SERVER_URL}/messages/queue`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, id, action }),
+    });
+    if (response.ok) return { status: 'ok' };
+    if (response.status === 409) return { status: 'gone' };
+    if (response.status === 400) return { status: 'invalid' };
+    const detail = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    return {
+      status: 'failed',
+      message: detail?.error ?? `Request failed with HTTP ${response.status}`,
+    };
+  } catch (error) {
+    return {
+      status: 'failed',
+      message: error instanceof Error ? error.message : 'Queue update failed',
+    };
+  }
+}
 
 /**
  * Hook that drives the agent conversation.

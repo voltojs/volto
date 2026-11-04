@@ -9,6 +9,7 @@ import { WaveLoading } from './WaveLoading';
 import { ActivitySteps } from './ActivitySteps';
 import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
+import { QueuedMessageActions } from './QueuedMessageActions';
 import { groupFeedEntries } from '@/lib/feed-groups';
 import { useStreamDensity } from '@/lib/stream-density';
 import type { StreamDensity } from '@/lib/stream-density';
@@ -19,6 +20,20 @@ function renderEntry(entry: ChatEntry, sessionId?: string | null) {
     case 'message':
       // Assistant messages never reach here — the feed splits them into answer
       // rows and execution groups; only human turns stay whole bubbles.
+      // Edit/retract exist only while the message is still queued: delivery
+      // wins, so a `queued: false` bubble (or one that never went through the
+      // queue) renders without actions by design.
+      if (entry.message.queued === true) {
+        return (
+          <div key={entry.message.id} className="group relative">
+            <MessageBubble message={entry.message} sessionId={sessionId} />
+            <QueuedMessageActions
+              id={entry.message.id}
+              content={entry.message.content}
+            />
+          </div>
+        );
+      }
       return <MessageBubble key={entry.message.id} message={entry.message} sessionId={sessionId} />;
     case 'error':
       return <ErrorNotice key={entry.key} text={entry.text} time={entry.time} />;
