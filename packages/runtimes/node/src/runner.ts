@@ -2880,6 +2880,11 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
 
         recorder.record("turn_start", { turn: opts.turn ?? 0 });
+        // Only a user_message input opens the turn with a transcript
+        // user_message. A steering_flush turn must record NO user_message:
+        // the queued content already rode its steering_queued records and is
+        // realized by steering_delivered — recording it again here would
+        // double-cover the same content.
         if (initialInput.type === "user_message") {
           recorder.record("user_message", { content: initialInput.content });
         }

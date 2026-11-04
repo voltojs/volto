@@ -32,6 +32,7 @@ export type {
   UserMessageInput,
   SteeringEditInput,
   SteeringRemoveInput,
+  SteeringFlushInput,
   ModelChunkInput,
   ModelDoneInput,
   ModelErrorInput,

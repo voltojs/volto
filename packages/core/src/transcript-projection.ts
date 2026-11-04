@@ -15,12 +15,12 @@
  *    and deny). `orderInBatch` is therefore NOT a sort key — an approval can
  *    leave two entries carrying the same value — only a signal that a result
  *    the reducer could not have flushed (`-1`) must be dropped.
- * 2. The steering queue (`queuedUserInputs`) is turn-scoped: it flushes at
- *    exactly one point — the next tool batch completing — and lands after
- *    that batch's tool results. If the turn ends before any batch completes,
- *    `resetTurnForNextInput` (reducer.ts:123) discards it silently, and the
- *    projection must too: an unflushed queue is DROPPED, never appended at
- *    end-of-log or at end-of-turn.
+ * 2. The steering queue (`queuedUserInputs`) flushes at exactly one point —
+ *    the next tool batch completing — and lands after that batch's tool
+ *    results. If the turn ends before any batch completes, the reducer KEEPS
+ *    the queue for the host auto-run (`resetTurnForNextInput` preserves it,
+ *    D11) while the projection drops it: an unflushed queue is DROPPED,
+ *    never appended at end-of-log or at end-of-turn.
  *
  * Termination pairing (D12): a turn that ends while a batch is still in
  * flight no longer leaves it discarded whole. The reducer answers every
@@ -187,10 +187,12 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
     switch (event.type) {
       case "user_message": {
         // A new turn starts. Anything still unresolved from the previous
-        // turn (an incomplete batch, unflushed steering) is discarded here,
-        // exactly as resetTurnForNextInput (reducer.ts:113) clears
-        // pendingTools / _toolResultBuffer / queuedUserInputs before the
-        // next user_message is admitted.
+        // turn (an incomplete batch, unflushed steering) is discarded here.
+        // The batch half matches resetTurnForNextInput clearing pendingTools
+        // / _toolResultBuffer before the next user_message is admitted; the
+        // steering half is this projection's drop rule — the reducer keeps
+        // an un-delivered queue alive across turns (D11), this fold never
+        // appends it.
         batch = undefined;
         steering = [];
 

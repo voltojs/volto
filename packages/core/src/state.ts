@@ -229,9 +229,11 @@ export interface AgentState {
   /** Tool call pending HITL approval (serialized for checkpoint/resume) */
   pendingApprovalTool?: PendingToolCall;
   /**
-   * Steering queue — user messages received mid-turn (during calling_model or
-   * executing_tools). Injected into messages at the next turn boundary
-   * (all tools complete → calling_model). Serializable for checkpoint/resume.
+   * Steering queue — user messages received while a turn is in flight (any
+   * non-idle status). Injected into messages at the next turn boundary, or
+   * across turns by the idle flush / `steering_flush` (D11: the queue is
+   * cross-turn state and survives `resetTurnForNextInput`, like `messages`).
+   * Serializable for checkpoint/resume.
    */
   queuedUserInputs: UserMessage[];
   /** Cumulative tool calls dispatched this turn. Enforced against maxToolCalls. */

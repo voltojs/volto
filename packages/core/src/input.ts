@@ -37,6 +37,20 @@ export interface SteeringRemoveInput {
   id: string;
 }
 
+/**
+ * Open a turn that delivers the whole steering queue (spec 2026-11-04 D11).
+ * Accepted ONLY in `idle` — the gateway feeds this at the turn boundary to
+ * auto-run a turn when the previous one settled with un-delivered queued
+ * messages. The queued messages open the turn in FIFO order with their
+ * ORIGINAL ids (never re-stamped) and are realized by `steering_delivered`;
+ * no `user_message` event is emitted — the content already reached the
+ * transcript as `steering_queued`. An empty queue yields
+ * `errorResult("steering_flush: no queued messages")`.
+ */
+export interface SteeringFlushInput {
+  type: "steering_flush";
+}
+
 /** Streaming chunk from the model (partial text or tool_use delta) */
 export interface ModelChunkInput {
   type: "model_chunk";
@@ -301,6 +315,7 @@ export type AgentInput =
   | UserMessageInput
   | SteeringEditInput
   | SteeringRemoveInput
+  | SteeringFlushInput
   | ModelChunkInput
   | ModelDoneInput
   | ModelErrorInput

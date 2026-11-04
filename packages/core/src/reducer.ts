@@ -172,9 +172,12 @@ export function createInitialState(overrides?: Partial<AgentState>): ReducerStat
  * leaking accumulator state from the previous turn.
  *
  * Preserves cross-turn state (`messages`, `readFiles`, `tokenBudget`,
- * `maxIterations`) and clears: pending tools, pending approval, iteration /
- * token counters and the reducer's internal streaming accumulators. The result
- * is in `status: "idle"` and is ready to receive a new user message.
+ * `maxIterations`, and `queuedUserInputs` — an un-delivered steering queue
+ * outlives the turn exactly like `messages`, D11) and clears: pending tools,
+ * pending approval, iteration / token counters and the reducer's internal
+ * streaming accumulators. The result is in `status: "idle"` and is ready to
+ * receive a new user message (or a `steering_flush` that delivers the
+ * preserved queue).
  *
  * SDK / Runner callers should use this instead of hand-crafting partial
  * overrides — the set of internal accumulator fields is reducer-private and
@@ -192,7 +195,6 @@ export function resetTurnForNextInput(state: ReducerState): ReducerState {
     selfCorrectionCount: 0,
     loopInterventionCount: 0,
     loopRemindedCount: 0,
-    queuedUserInputs: [],
     _accumulatedText: "",
     _accumulatedReasoning: "",
     _accumulatedToolCalls: [],
@@ -635,6 +637,30 @@ export function step(
 // ──────────────────────────────────────────────
 
 function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
+  if (input.type === "steering_flush") {
+    // D11 — the gateway's turn-boundary auto-run delivers the whole queue
+    // as this turn's opening input. Only idle accepts it; the queued
+    // messages keep their ORIGINAL ids (never re-stamped) and are realized
+    // by `steering_delivered` — there is NO user_message emit, the content
+    // already reached the transcript as `steering_queued`.
+    if (state.queuedUserInputs.length === 0) {
+      return errorResult(state, "steering_flush: no queued messages");
+    }
+    const flushed = appendQueuedAndClear(state, state.messages);
+    const newState: ReducerState = {
+      ...flushed.state,
+      status: "calling_model",
+      iterationCount: 0,
+    };
+    return {
+      state: newState,
+      effects: [
+        ...flushed.delivered,
+        buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
+      ],
+    };
+  }
+
   if (input.type === "user_message") {
     const userMsg: UserMessage = {
       id: "",
@@ -694,9 +720,15 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       announcedWorkflow = ctx.workflowReminder.key;
     }
 
+    // D11b — a queue that survived into idle is older than the opening
+    // message: flush it first ([...olderQueue, newUserMsg]) and announce
+    // only the flushed older entries with steering_delivered. The new
+    // message is the turn input — never queued, so it gets no delivered
+    // event of its own.
+    const flushed = appendQueuedAndClear(state, [...state.messages, ...announcements]);
     const newState: ReducerState = {
-      ...state,
-      messages: [...state.messages, ...announcements, stamp(userMsg, ctx)],
+      ...flushed.state,
+      messages: [...flushed.state.messages, stamp(userMsg, ctx)],
       status: "calling_model",
       iterationCount: 0,
       _announcedPermission: announced,
@@ -704,6 +736,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       _announcedWorkflowMode: announcedWorkflow,
     };
     const effects: Effect[] = [
+      ...flushed.delivered,
       buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ...emittedReminders,
       {
@@ -1012,20 +1045,17 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     // ...queuedUserInputs], clear the queue, emit steering_delivered with the
     // drained ids before the re-issued call_model.
     if (state.queuedUserInputs.length > 0) {
-      const drainedIds = state.queuedUserInputs.map((m) => m.id);
-      const drainedMessages: Message[] = [...baseState.messages, ...state.queuedUserInputs];
+      const flushed = appendQueuedAndClear(baseState, baseState.messages);
       const continuedState: ReducerState = {
-        ...baseState,
-        messages: drainedMessages,
-        queuedUserInputs: [],
+        ...flushed.state,
         status: "calling_model",
       };
       return {
         state: continuedState,
         effects: [
           emitEffect,
-          { type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } },
-          buildCallModelEffect(drainedMessages, baseState.pinnedMessageIds, ctx, baseState.todos),
+          ...flushed.delivered,
+          buildCallModelEffect(continuedState.messages, baseState.pinnedMessageIds, ctx, baseState.todos),
         ],
       };
     }
@@ -1203,24 +1233,13 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
     // Drain steering queue: inject queued user messages at the turn boundary.
     // The delivered signal names every drained id (FIFO) so projections can
     // finalize the queued entries; an empty queue drains nothing, so it
-    // emits nothing.
-    const drainedIds = state.queuedUserInputs.map((m) => m.id);
-    const deliveredEffects: Effect[] =
-      drainedIds.length > 0
-        ? [{ type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } }]
-        : [];
-    const drainedMessages: Message[] = [
-      ...state.messages,
-      ...orderedResultMsgs,
-      ...state.queuedUserInputs,
-    ];
+    // emits nothing. Shared drain primitive (D11).
+    const flushed = appendQueuedAndClear(state, [...state.messages, ...orderedResultMsgs]);
 
     const newState: ReducerState = {
-      ...state,
-      messages: drainedMessages,
+      ...flushed.state,
       pendingTools: [],
       _toolResultBuffer: {},
-      queuedUserInputs: [],
       readFiles,
       todos,
       status: "calling_model",
@@ -1231,7 +1250,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
       effects: [
         resultEmit,
         ...todoEmit,
-        ...deliveredEffects,
+        ...flushed.delivered,
         buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ],
     };
@@ -1461,31 +1480,20 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
       .filter((msg): msg is ToolResultMessage => msg !== undefined);
 
     // Drain steering queue at turn boundary; same non-empty rule as the
-    // tool-batch flush in handleExecutingTools.
-    const drainedIds = state.queuedUserInputs.map((m) => m.id);
-    const deliveredEffects: Effect[] =
-      drainedIds.length > 0
-        ? [{ type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } }]
-        : [];
-    const drainedMessages: Message[] = [
-      ...state.messages,
-      ...orderedResultMsgs,
-      ...state.queuedUserInputs,
-    ];
+    // tool-batch flush in handleExecutingTools. Shared drain primitive (D11).
+    const flushed = appendQueuedAndClear(state, [...state.messages, ...orderedResultMsgs]);
 
     return {
       state: {
-        ...state,
-        messages: drainedMessages,
+        ...flushed.state,
         pendingTools: [],
         _toolResultBuffer: {},
-        queuedUserInputs: [],
         pendingApprovalTool: undefined,
         status: "calling_model",
       },
       effects: [
-        ...deliveredEffects,
-        buildCallModelEffect(drainedMessages, state.pinnedMessageIds, ctx, state.todos),
+        ...flushed.delivered,
+        buildCallModelEffect(flushed.state.messages, state.pinnedMessageIds, ctx, state.todos),
       ],
     };
   }
@@ -1664,6 +1672,35 @@ function handleFileChanged(
 function stamp<T extends Message>(msg: T, ctx: StepContext): T {
   if (!ctx.id) return msg;
   return { ...msg, id: ctx.id.next() };
+}
+
+/**
+ * D11 — the shared queue-drain primitive behind every flush / turn-boundary
+ * drain site (idle user_message flush, steering_flush, tool-batch flush,
+ * approval-batch flush, end_turn continuation). Appends the queued user
+ * inputs to `messages` in FIFO order — ORIGINAL ids preserved, delivery
+ * never re-stamps — and returns the state with `queuedUserInputs` cleared,
+ * plus the delivered ids and the matching `steering_delivered` emit. An
+ * empty queue drains nothing: `ids` and `delivered` are empty (drains emit
+ * nothing) and `messages` passes through untouched.
+ */
+function appendQueuedAndClear(
+  state: ReducerState,
+  messages: readonly Message[],
+): { state: ReducerState; ids: string[]; delivered: Effect[] } {
+  const ids = state.queuedUserInputs.map((m) => m.id);
+  return {
+    state: {
+      ...state,
+      messages: [...messages, ...state.queuedUserInputs],
+      queuedUserInputs: [],
+    },
+    ids,
+    delivered:
+      ids.length > 0
+        ? [{ type: "emit", event: { type: "steering_delivered", data: { ids } } }]
+        : [],
+  };
 }
 
 /**

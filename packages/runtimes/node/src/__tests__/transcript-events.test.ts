@@ -14,6 +14,7 @@ import {
   toolUseDelta,
   modelDone,
   createDefaultPermissionConfig,
+  resetTurnForNextInput,
 } from "@volto/core";
 import type {
   TranscriptEventInput,
@@ -671,6 +672,65 @@ describe("Runner transcript capture", () => {
     expect(delivered).toBeDefined();
     expect(delivered!.id).toBe(firstId);
     expect(runner.getState().messages.some((m) => m.role === "user" && m.content === "drop me")).toBe(false);
+  });
+
+  it("a steering_flush turn records no duplicate user_message", async () => {
+    const { store, events } = fakeChatStore();
+    let n = 0;
+    const stepContext: StepContext = {
+      tools: [],
+      model: "test-model",
+      id: { next: () => `msg-${++n}` },
+    };
+
+    // Turn 1: a steer arrives while the model call is in flight (queued —
+    // its content is recorded ONCE, as steering_queued) and the provider
+    // then fails non-retriably, so the turn terminates with the queue intact.
+    const runner1 = createRunner({
+      modelPort: createMockModelPort([
+        [textDelta("thinking"), { type: "error", error: "HTTP 500", retriable: false }],
+      ]),
+      stepContext,
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+      eventSink: {
+        emit(event) {
+          if (event.type === "text_delta" && runner1.getState().queuedUserInputs.length === 0) {
+            runner1.send({ type: "user_message", content: "late steer" });
+          }
+        },
+      },
+    });
+    await runner1.run({ type: "user_message", content: "hi" });
+    const queuedId = runner1.getState().queuedUserInputs[0]!.id;
+    expect(firstOf<{ id: string; content: string }>(events, "steering_queued")).toEqual({
+      id: queuedId,
+      content: "late steer",
+    });
+
+    // Turn 2 — the gateway's auto-run delivers the queue via steering_flush
+    // (the cross-turn reset keeps the queue, D11a).
+    const runner2 = createRunner({
+      modelPort: createMockModelPort([[textDelta("on it"), { type: "done", stopReason: "end_turn" }]]),
+      stepContext,
+      initialState: resetTurnForNextInput(runner1.getState()),
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 2,
+      clock: steppingClock(),
+    });
+    await runner2.run({ type: "steering_flush" });
+
+    // The flush turn realizes the queued content via steering_delivered ...
+    expect(firstOf<{ ids: string[] }>(events, "steering_delivered")).toEqual({ ids: [queuedId] });
+    // ... and records NO user_message: the content already rode the
+    // steering_queued record, so a user_message here would double-cover it.
+    expect(events.filter((e) => e.turn === 2 && e.type === "user_message")).toEqual([]);
+    // The queued content reached the log exactly once, via steering_queued.
+    const userMessages = events.filter((e) => e.type === "user_message");
+    expect(userMessages.map((e) => (e.data as { content: unknown }).content)).toEqual(["hi"]);
   });
 
   it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
