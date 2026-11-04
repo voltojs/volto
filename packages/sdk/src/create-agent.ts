@@ -2493,7 +2493,15 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           // turn's opening input — never lost, never reordered ahead of it).
           drainPendingSteerInputs(runner);
           const finalState = await runner.run(agentInput);
-          return commitFinalState(finalState);
+          commitFinalState(finalState);
+          // Re-absorb a delivery that landed inside run()'s own finally — the
+          // settle window where the `return state` snapshot bound by run() is
+          // already fixed but its promise has not resolved yet (spec D3, the
+          // gateway's turn_end → latch-release window). Without this the
+          // delivery lives only in the Runner's live state: invisible to
+          // getState() and dropped from the next turn's carry-forward.
+          commitLateDelivery();
+          return lastFinalState!;
         } catch (err: unknown) {
           if (runner) recordTurnError(err);
           else recordTurnEndError(err);
@@ -2551,6 +2559,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         const runPromise = runner.run(agentInput).then(
           async (finalState) => {
             commitFinalState(finalState);
+            // Same settle-window re-absorb as run() above: a steer landing
+            // inside runner.run()'s own finally updated only the Runner's
+            // live state, which the snapshot bound by `return state` predates.
+            commitLateDelivery();
             channel.done();
           },
           async (err) => {
@@ -2661,7 +2673,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         drainPendingSteerInputs(lastRunner);
         try {
           const finalState = await lastRunner.resume(sessionId, decision);
-          return commitFinalState(finalState);
+          commitFinalState(finalState);
+          // Same settle-window re-absorb as run()/stream(): a steer landing
+          // inside resume()'s own finally (recordTurnEnd → awaited flush)
+          // updated only the Runner's live state, which the snapshot bound
+          // by `return state` predates.
+          commitLateDelivery();
+          return lastFinalState!;
         } catch {
           // Runner doesn't have this session — fall through to store-based resume
         }
@@ -2752,7 +2770,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       steerTarget = resumeRunner;
       drainPendingSteerInputs(resumeRunner);
       const finalState = await resumeRunner.resume(sessionId, decision);
-      return commitFinalState(finalState);
+      commitFinalState(finalState);
+      // Same settle-window re-absorb as the in-memory resume path above.
+      commitLateDelivery();
+      return lastFinalState!;
     },
 
     async compactNow(): Promise<CompactNowResult | null> {

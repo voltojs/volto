@@ -16,6 +16,7 @@ import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableComm
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { t } from "@volto/i18n";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
@@ -23,7 +24,7 @@ import type { createProviderStore } from "./config/providers.js";
 import { createApprovalRegistry, type ApprovalDecision, type ApprovalRegistry, type ApprovalRegistryHooks } from "./approval-gate.js";
 import { createRoutingTierStore } from "./config/routing-tiers.js";
 import { deriveHeuristicTitle, firstUserMessageText, generateTitle, messageText } from "./session-title.js";
-import { readPreferences } from "./config/preferences.js";
+import { activeLocale, readPreferences } from "./config/preferences.js";
 import { getConfigDir, getConfigDirRealPath } from "./config/paths.js";
 import { savePermissionRule } from "./config/permissions.js";
 import type { StoreFor } from "./attachments/store.js";
@@ -632,6 +633,15 @@ function asTranscriptEvent(event: ChannelEvent): TranscriptEventInput | null {
   if (typeof event.time !== "number") return null;
   return event as TranscriptEventInput;
 }
+
+/**
+ * Hard cap on the settle-time auto-flush loop in `runTurn`'s finally (spec
+ * D2/D3). Each round delivers the whole queue as one `steering_flush` turn's
+ * opening input, so reaching this cap means messages kept arriving faster
+ * than turns could drain them — stop and report (`server.steer.autoTurnLimit`)
+ * rather than hold the session latch forever.
+ */
+const AUTO_FLUSH_MAX_ROUNDS = 50;
 
 export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   const {
@@ -1540,6 +1550,39 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     let turnReachedStream = false;
     /** Why this turn's stream closed, if it reached `turn_end` at all. */
     let turnEndReason: string | undefined;
+
+    /**
+     * Stream one turn onto the session's SSE channel, then capture its
+     * history and hand off title finalization. Shared verbatim by the user's
+     * own turn and by every settle-time auto-flush round below, so both get
+     * identical framing (turn_start/turn_end), history capture and title
+     * logic — a flush round is a normal turn whose opening input is
+     * `{ type: "steering_flush" }` (Task 5).
+     */
+    async function streamTurn(input: string | AgentInput): Promise<void> {
+      const abort = new AbortController();
+      session.abort = abort;
+      for await (const event of session.agent!.stream(input, { signal: abort.signal })) {
+        push(session, frame(session, event));
+        if (event.type === "turn_end") turnEndReason = String(event.data["reason"] ?? "");
+      }
+      await captureHistory();
+      // Naming comes last and off the turn's critical path: the model call it
+      // makes can take seconds, and it must not hold `session.running` — a
+      // follow-up message should never wait on naming. Only the turn that
+      // wrote the heuristic title reaches here with the flag set, and the
+      // once-only guard keeps a session named exactly once.
+      if (
+        session.titleWrittenThisTurn &&
+        !session.titleGenerationStarted &&
+        turnEndReason === "done"
+      ) {
+        session.titleWrittenThisTurn = false;
+        session.titleGenerationStarted = true;
+        void finalizeTitle(session);
+      }
+    }
+
     try {
       // Cold start (server restart, or first turn after this Session object
       // was just created by get()): the in-memory history is empty, but a
@@ -1568,27 +1611,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
 
       turnReachedStream = true;
-      const abort = new AbortController();
-      session.abort = abort;
-      for await (const event of session.agent!.stream(message, { signal: abort.signal })) {
-        push(session, frame(session, event));
-        if (event.type === "turn_end") turnEndReason = String(event.data["reason"] ?? "");
-      }
-      await captureHistory();
-      // Naming comes last and off the turn's critical path: the model call it
-      // makes can take seconds, and it must not hold `session.running` — a
-      // follow-up message should never wait on naming. Only the turn that
-      // wrote the heuristic title reaches here with the flag set, and the
-      // once-only guard keeps a session named exactly once.
-      if (
-        session.titleWrittenThisTurn &&
-        !session.titleGenerationStarted &&
-        turnEndReason === "done"
-      ) {
-        session.titleWrittenThisTurn = false;
-        session.titleGenerationStarted = true;
-        void finalizeTitle(session);
-      }
+      await streamTurn(message);
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
@@ -1625,6 +1648,48 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // the transcript is caught up.
       await captureHistory();
     } finally {
+      // D2/D3 — settle-time auto-flush: a turn that settles with messages
+      // still queued must deliver them before the latch releases, as a
+      // follow-up `steering_flush` turn, rather than leaving them for the
+      // user's next message. The loop runs while `session.running` is still
+      // true, so a POST /messages landing here is steered into the queue and
+      // picked up by the next condition check; the last condition evaluation
+      // and the release below form one synchronous span — no await in
+      // between — so a steer arriving after the release routes as a normal
+      // new turn instead (the same atomicity rule as the pre-latch re-check
+      // at the top of this function).
+      const agent = session.agent;
+      const queuedCount = (): number => {
+        try {
+          // A state that omits the queue field (a host test stub) reads as
+          // empty, and a rebuilt-but-never-run agent has no state at all
+          // (getState throws) — same "keep what we had" stance as
+          // captureHistory above: nothing provably queued, nothing to flush.
+          return agent?.getState().queuedUserInputs?.length ?? 0;
+        } catch {
+          return 0;
+        }
+      };
+      if (queuedCount() > 0) {
+        try {
+          // Resolved BEFORE the loop: the cap report below must render
+          // without an await between the loop's exit and the latch release.
+          const locale = await activeLocale(getConfigDir());
+          let rounds = 0;
+          while (queuedCount() > 0 && rounds < AUTO_FLUSH_MAX_ROUNDS) {
+            rounds += 1;
+            await streamTurn({ type: "steering_flush" });
+          }
+          if (rounds >= AUTO_FLUSH_MAX_ROUNDS && queuedCount() > 0) {
+            push(session, session.mapper.error(t(locale, "server.steer.autoTurnLimit")));
+          }
+        } catch (err: unknown) {
+          // A drain that fails must never reject runTurn — the latch still
+          // releases below, and the client learns of it as a protocol error
+          // event, exactly like the main turn's own failure above.
+          push(session, session.mapper.error(err instanceof Error ? err.message : String(err)));
+        }
+      }
       session.running = false;
       session.abort = null;
     }

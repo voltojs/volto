@@ -13,4 +13,6 @@ export const en = {
   "server.picker.chooseDirectory": "Choose a project folder",
   "server.error.exportFailed": "Could not export the session",
   "server.error.agentStarting": "The session's agent is still starting; try again in a moment",
+  "server.steer.autoTurnLimit":
+    "Stopped auto-running turns after 50 rounds; some queued messages are still undelivered",
 } as const;

@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
   ToolResult,
   ApprovalGate,
+  TranscriptEventInput,
 } from "@volto/core";
 import type { Tool } from "@volto/tools-common";
 
@@ -152,5 +153,66 @@ describe("SDK resume() — positive paths", () => {
     expect(lastText).toContain("resumed in a brand new agent");
 
     void dangling1;
+  });
+});
+
+describe("SDK resume() — settle-window steering", () => {
+  it("a steer landing inside resume()'s settle window stays visible to getState", async () => {
+    // The resumed turn's `return state` snapshot binds BEFORE resume()'s own
+    // finally (recordTurnEnd → awaited recorder flush), so a steer landing
+    // in that window reaches only the Runner's live state until the
+    // end-of-turn commit re-absorbs it — otherwise the message vanishes from
+    // getState() AND from the next turn's carry-forward (the same never-lost
+    // invariant as run()/stream()'s settle window).
+    const mockModel = createMockModelPort([
+      toolCallScript("c1", "dangerous_op", "{}"),
+      textScript("done after approval"),
+    ]);
+    const gate: ApprovalGate = {
+      ask: () => new Promise<"allow" | "deny">(() => {}),
+    };
+
+    const sessionStore = createMemoryStore();
+    let steered = false;
+    const agent: ReturnType<typeof createAgent> = createAgent({
+      modelPort: mockModel,
+      tools: [makeDangerousTool()],
+      capabilities: new Set(["test:danger"]),
+      approvalGate: gate,
+      sessionStore,
+      permissionConfig: { sandbox: "workspace-write", approval: "ask" },
+      chatStore: {
+        // The turn_end flush runs inside resume()'s finally — between the
+        // `return state` snapshot and the end-of-turn commit — so a steer
+        // issued here lands pre-commit, exactly like the gateway's
+        // turn_end → latch-release window.
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          if (!steered && batch.some((event) => event.type === "turn_end")) {
+            steered = true;
+            agent.steer("late resume steer");
+          }
+        },
+      },
+      chatSessionId: "chat-resume-settle",
+    });
+
+    const runPromise = agent.run("do it");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const saved = await sessionStore.list();
+    expect(saved.length).toBeGreaterThanOrEqual(1);
+    const sessionId = saved[0]!.id;
+
+    const finalState = await agent.resume(sessionId, "allow");
+    // The steer must actually have landed inside resume()'s settle window.
+    expect(steered).toBe(true);
+    expect(finalState.status).toBe("done");
+
+    // The queue must be visible through getState() — the same lastFinalState
+    // the next turn's carry-forward reads, so this pins never-lost too.
+    const queued = agent.getState().queuedUserInputs;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.content).toBe("late resume steer");
+
+    void runPromise;
   });
 });

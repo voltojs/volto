@@ -19,4 +19,5 @@ export const zh = {
   "server.picker.chooseDirectory": "选择项目目录",
   "server.error.exportFailed": "导出会话失败",
   "server.error.agentStarting": "会话代理仍在启动，请稍后重试",
+  "server.steer.autoTurnLimit": "自动续轮已达 50 轮上限，部分排队消息仍未送达",
 } as const;
