@@ -6,7 +6,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseFileRef, parseLinkRef, resolveFileRef } from '@volto/sdk/file-refs';
+import { parseLinkRef, resolveFileRef, type RefAnnotation } from '@volto/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 
 /**
@@ -77,6 +77,10 @@ interface FileLinkContext {
   projectId?: string | null;
   /** Directory (project-relative) that link hrefs resolve against. */
   linkBase: string;
+  /** Host-confirmed ref annotations for this block (character offsets). */
+  refs?: RefAnnotation[];
+  /** The block's own text — offsets in `refs` index into it. */
+  text: string;
 }
 
 const baseComponents: Components = {
@@ -118,13 +122,25 @@ function buildComponents(ctx: FileLinkContext): Components {
   return {
     ...baseComponents,
     pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-    code: ({ className, children, ...props }) => {
+    code: ({ node, className, children, ...props }) => {
       const text = typeof children === 'string' ? children : '';
       // Fenced blocks carry a `language-*` class or span multiple lines;
-      // anything else is inline code and may name a project file.
+      // anything else is inline code. Prose refs are annotation-driven: a
+      // chip exists only where the host confirmed a file identity — the
+      // renderer never guesses from the code text itself.
       const inline = className === undefined && !text.includes('\n');
-      const target = inline ? parseFileRef(text) : null;
-      if (target !== null && ctx.projectId !== null) {
+      let target: RefAnnotation | undefined;
+      if (inline && ctx.refs !== undefined && node?.position != null) {
+        const { start, end } = node.position;
+        const from = start.offset ?? 0;
+        const to = end.offset ?? 0;
+        // mdast inlineCode positions include the backtick delimiters; the
+        // annotations delimit the content, so trim the delimiter run.
+        const raw = ctx.text.slice(from, to);
+        const delim = raw.length - raw.replace(/^`+/, '').length;
+        target = ctx.refs.find((r) => r.start === from + delim && r.end === to - delim);
+      }
+      if (target !== undefined && ctx.projectId !== null) {
         return (
           <FileRefChip target={target} projectId={ctx.projectId} variant="code">
             {children}
@@ -187,6 +203,8 @@ interface MarkdownProps {
   projectId?: string | null;
   /** Base directory (project-relative) for resolving link hrefs. */
   linkBase?: string;
+  /** Host-confirmed file ref annotations for this block; absent = no chips. */
+  refs?: RefAnnotation[];
 }
 
 export const Markdown = memo(function Markdown({
@@ -194,12 +212,13 @@ export const Markdown = memo(function Markdown({
   className,
   projectId,
   linkBase = '',
+  refs,
 }: MarkdownProps) {
   return (
     <div className={cn('text-sm', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={buildComponents({ projectId, linkBase })}
+        components={buildComponents({ projectId, linkBase, refs, text: content })}
       >
         {content}
       </ReactMarkdown>

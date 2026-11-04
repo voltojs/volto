@@ -10,6 +10,7 @@ import {
 import { useConfigStore } from '@/stores/config-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
+import { useFileRefs } from '@/hooks/use-file-refs';
 import { useSubagentConversation } from '@/hooks/use-subagent-conversation';
 import { useSubagentChatAgent } from '@/hooks/use-subagent-chat-agent';
 import { useSubagentContextUsage } from '@/hooks/use-subagent-context-usage';
@@ -104,6 +105,9 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
       permissionMode: parent?.permissionMode,
     },
   });
+
+  // Sub-agent prose refs resolve under the child session's own annotations.
+  useFileRefs(parent?.projectId ?? null, childId ?? null);
 
   if (tab.kind !== 'subagent') return null;
   // 闭包窄化：TS 不把判别联合的窄化带进回调，先提取本类标签引用再展开。

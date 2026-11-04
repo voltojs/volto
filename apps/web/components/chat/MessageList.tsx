@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ChatEntry } from '@/lib/projection';
 import { MessageBubble } from './MessageBubble';
 import { ErrorNotice } from './ErrorNotice';
@@ -11,6 +11,7 @@ import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
 import { groupFeedEntries } from '@/lib/feed-groups';
 import { useStreamDensity } from '@/lib/stream-density';
+import { useFileRefsStore } from '@/stores/file-refs-store';
 import type { StreamDensity } from '@/lib/stream-density';
 import { cn } from '@/lib/utils';
 
@@ -64,6 +65,15 @@ export function MessageList({
   const [storedDensity] = useStreamDensity();
   const effectiveDensity = density ?? storedDensity;
   const rows = groupFeedEntries(entries);
+  // Annotations arrive per session (row-keyed); slice them per answer row so
+  // chips render only where the host confirmed a file identity.
+  const fileRefs = useFileRefsStore((s) =>
+    sessionId != null ? s.bySession[sessionId] : undefined,
+  );
+  const refsByKey = useMemo(
+    () => new Map((fileRefs ?? []).map((r) => [r.rowKey, r.blockRefs])),
+    [fileRefs],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,6 +98,7 @@ export function MessageList({
                 sessionId={sessionId}
                 footer={row.footer}
                 fileProjectId={fileProjectId}
+                blockRefs={refsByKey.get(row.key)}
               />
             );
           }

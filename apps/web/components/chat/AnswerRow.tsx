@@ -1,6 +1,7 @@
 'use client';
 
 import type { ConversationBlock, ConversationMessage } from '@volto/sdk/sse';
+import type { RefAnnotation } from '@volto/sdk/file-refs';
 import { AttachmentImage } from './AttachmentImage';
 import { Markdown } from './Markdown';
 import { MessageFooter } from './MessageFooter';
@@ -17,6 +18,7 @@ export function AnswerRow({
   sessionId,
   footer,
   fileProjectId,
+  blockRefs,
 }: {
   blocks: Array<Extract<ConversationBlock, { type: 'text' | 'image' }>>;
   sessionId?: string | null;
@@ -27,6 +29,8 @@ export function AnswerRow({
    * time). Sub-agent feeds pass their parent's project explicitly.
    */
   fileProjectId?: string | null;
+  /** Per-block ref annotations from the host (index-aligned with blocks). */
+  blockRefs?: RefAnnotation[][];
 }) {
   return (
     <div className="animate-in-stagger py-0.5">
@@ -36,7 +40,12 @@ export function AnswerRow({
             block.type === 'image' ? (
               <AttachmentImage key={index} block={block} sessionId={sessionId} />
             ) : (
-              <Markdown key={index} content={block.text} projectId={fileProjectId} />
+              <Markdown
+                key={index}
+                content={block.text}
+                projectId={fileProjectId}
+                refs={blockRefs?.[index]}
+              />
             ),
           )}
         </div>
