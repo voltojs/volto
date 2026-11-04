@@ -41,6 +41,7 @@ import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
 import { exportSessionUrl, fetchPlan, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
 import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
+import { useFileRefs } from '@/hooks/use-file-refs';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail, refreshServerSessions } from '@/hooks/use-server-sessions';
@@ -54,6 +55,14 @@ export function ChatPanel() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const chatEvents = useChatStore((s) => s.events);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  // File reference annotations: refetched on session change and after each
+  // settled turn (turn_end identity), so prose refs gain chips post-settle.
+  const fileProjectId = useSessionStore((s) =>
+    s.currentSessionId === null
+      ? null
+      : (s.sessions.find((x) => x.id === s.currentSessionId)?.projectId ?? null),
+  );
+  useFileRefs(fileProjectId, currentSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const { sendMessage, stopGeneration, connectionState, getApprovalToken } =
     useChatAgent();
