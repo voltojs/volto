@@ -733,6 +733,35 @@ describe("Runner transcript capture", () => {
     expect(userMessages.map((e) => (e.data as { content: unknown }).content)).toEqual(["hi"]);
   });
 
+  it("send() after the turn settles still persists steering_queued", async () => {
+    const model = createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]);
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    await runner.run({ type: "user_message", content: "hello" });
+
+    // A steering send landing AFTER the run loop ended (the settle window:
+    // the host still treats the turn as live and routes steer() to send())
+    // records into a recorder whose turn-end flush has already run. Without
+    // a send()-boundary flush the record would sit in the buffer forever and
+    // never reach the durable transcript — losing the queued entry for the
+    // downstream queue-rebuild fold.
+    runner.send({ type: "user_message", content: "steered late" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const queued = firstOf<{ id: string; content: unknown }>(events, "steering_queued");
+    expect(queued).toBeDefined();
+    expect(queued!.content).toBe("steered late");
+    expect(queued!.id).toBe(runner.getState().queuedUserInputs[0]!.id);
+  });
+
   it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
     // Real providers (packages/providers/anthropic|openai's model-port.ts)
     // yield {type:"error"} for non-2xx responses, aborts, and empty bodies —

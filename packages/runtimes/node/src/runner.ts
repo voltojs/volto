@@ -687,6 +687,10 @@ export function createRunner(opts: RunnerOptions): Runner {
   // specific turn_end reason than "error", checked first when both could
   // apply (the budget check can fire after a turn has already seen an error).
   let turnHadBudgetExceeded = false;
+  // True only while runLoop() is executing (run()/resume() bracket it). A
+  // send() landing outside that span has no loop left to flush the recorder
+  // for it — see the flush guard in send().
+  let runLoopActive = false;
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
   // Retry state for retriable model errors
@@ -2890,7 +2894,12 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
 
         forwardEmit(feed(initialInput));
-        await runLoop();
+        runLoopActive = true;
+        try {
+          await runLoop();
+        } finally {
+          runLoopActive = false;
+        }
         return state;
       } catch (err) {
         // An exception escaping the loop is not a normal error path (those
@@ -2929,6 +2938,15 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     send(input: AgentInput): void {
       forwardEmit(feed(input));
+      // A steering send can land after this turn's run loop ended — the
+      // settle window where the host still treats the turn as live and
+      // routes steer()/updateQueue() here. The turn's own flush has already
+      // run by then, so the record would sit in the buffer forever and
+      // never reach the durable transcript (the queue-rebuild fold would
+      // lose the entry). When no run loop is active, flush fire-and-forget;
+      // during a loop the periodic and turn-end flushes already cover the
+      // buffer.
+      if (!runLoopActive) void recorder.flush();
     },
 
     async compactNow(): Promise<CompactNowResult | null> {
@@ -3019,7 +3037,12 @@ export function createRunner(opts: RunnerOptions): Runner {
         // valid step anyway (ports.ts documents step as 1-based). Omitting it
         // is correct, not just a fallback.
         recorder.record("approval_decision", { callId: approvedId, decision });
-        await runLoop();
+        runLoopActive = true;
+        try {
+          await runLoop();
+        } finally {
+          runLoopActive = false;
+        }
         return state;
       } catch (err) {
         // Same discipline as run(): an exception escaping the resumed loop

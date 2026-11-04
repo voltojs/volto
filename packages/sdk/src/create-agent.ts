@@ -19,12 +19,15 @@ import type {
   PermissionConfig,
   ToolResult,
   AgentInput,
+  SteeringEditInput,
+  SteeringRemoveInput,
   PendingToolCall,
   ReadFileRecord,
   FileSystem,
   Shell,
   Network,
   Message,
+  UserMessage,
   CompactionConfig,
   ApprovalGate,
   ToolSource,
@@ -505,6 +508,20 @@ export interface CreateAgentOptions {
    * 对话历史重新灌入，让上下文不因实例重建而丢失。
    */
   initialMessages?: Message[];
+
+  /**
+   * Seeds ReducerState.queuedUserInputs — the not-yet-delivered steering
+   * queue a host rebuilds from its durable transcript (the D13 event fold)
+   * after a process/config rebuild. Entries ride into the first turn's
+   * initial state and are delivered through the normal queue-drain path
+   * (original ids preserved, `steering_delivered` announced).
+   *
+   * The array is held BY REFERENCE and is the authoritative queue while no
+   * Runner exists: `updateQueue`'s `"seed"` result mutates it in place
+   * (there is no recorder yet to persist the mutation — the host persists
+   * the event itself). Once a Runner exists its state queue takes over.
+   */
+  initialQueuedInputs?: UserMessage[];
 
   /**
    * Workflow-mode announcement for the reducer (spec 2026-09-25). Passed
@@ -1102,6 +1119,46 @@ export interface AgentInstance {
   ): AsyncGenerator<{ type: string; data: Record<string, unknown> }>;
 
   /**
+   * Steer the conversation with a user message while it is running, or open
+   * a normal turn when the agent is idle.
+   *
+   * - A turn is in flight → the message is delivered to that turn's Runner
+   *   via `send()`, where the reducer decides what happens for the current
+   *   status (typically queued with `steering_queued`; never rejected). No
+   *   new turn is opened and the in-flight model call is not disturbed.
+   * - No turn in flight → opens a normal turn through `run()`, with the
+   *   auto-wake error discipline: a rejected run surfaces as an `error`
+   *   emit, never an unhandled rejection.
+   *
+   * Fire-and-forget by design (`void`) — the state and the event stream are
+   * how callers observe the outcome. A string input is queued verbatim as a
+   * user message; slash-command resolution only applies to `run()` /
+   * `stream()` turn openings (it can await the skill registry, this call
+   * cannot).
+   */
+  steer(input: string | AgentInput): void;
+
+  /**
+   * Edit or withdraw a queued (not yet delivered) steering message by id
+   * (spec 2026-11-04 D14/D15). Membership check and delivery happen in one
+   * synchronous span (no await between them).
+   *
+   * Returns where the id was found:
+   * - `"live"` — in the last Runner's `queuedUserInputs`: delivered via
+   *   `send()`, so the Runner's recorder persists the `steering_edited` /
+   *   `steering_removed` event and the reducer mutates the queue in place
+   *   (same id, same position).
+   * - `"seed"` — no Runner exists yet and the id is in the
+   *   `initialQueuedInputs` seed array, which is mutated in place. There is
+   *   no recorder yet — the host persists the event itself.
+   * - `"missing"` — unknown, or already delivered ("delivery wins": a sent
+   *   message can never be edited or withdrawn). State is untouched.
+   */
+  updateQueue(
+    input: SteeringEditInput | SteeringRemoveInput,
+  ): "live" | "seed" | "missing";
+
+  /**
    * Resume a HITL-paused session.
    * Tries the in-memory runner first; falls back to loading from the session store.
    */
@@ -1470,7 +1527,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
   }
 
-  async function runAutoWake(input: AgentInput): Promise<void> {
+  async function runAutoWake(input: string | AgentInput): Promise<void> {
     if (!agentRun) return;
     try {
       await agentRun(input);
@@ -1955,6 +2012,16 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     seedMessages.push(...opts.initialMessages);
   }
 
+  // ── Steering queue seed (spec 2026-11-04 D13 rebuild) ──
+  // The not-yet-delivered steering queue a host rebuilds from its durable
+  // transcript. Held BY REFERENCE (the host's array when one was passed):
+  // it is the authoritative queue while no Runner exists, and updateQueue's
+  // "seed" path mutates it in place so the next construction sees the
+  // mutation. Once a Runner exists, its state queue takes over as the
+  // membership source and this array goes dormant — which is why a
+  // delivered id can never fall back to a "seed" hit here.
+  const seedQueuedInputs: UserMessage[] = opts.initialQueuedInputs ?? [];
+
   // ── M9: Cost meter (created per-run via wrapping EventSink) ──
   const costMeter = opts.pricing
     ? createCostMeter({ pricing: opts.pricing, eventSink: opts.eventSink ?? defaultEventSink, telemetry: resolvedPorts.telemetry })
@@ -2208,6 +2275,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ...(resolvedMaxTokensPerTurn !== undefined ? { maxTokensPerTurn: resolvedMaxTokensPerTurn } : {}),
       ...(resolvedMaxWallclockMs !== undefined ? { maxWallclockMs: resolvedMaxWallclockMs } : {}),
       ...(seedMessages.length > 0 ? { messages: [...seedMessages] } : {}),
+      // Rebuild seed for the undelivered steering queue (D13). Copied into
+      // the state so the reducer's own copy-on-write never aliases the seed
+      // array. Deliberately NOT wired into the sub-agent's createInitialState
+      // below: a sub-agent is a separate conversation and must never see the
+      // parent's queued steering messages (its own steering_delivered would
+      // also desynchronize the parent's queue-rebuild fold).
+      ...(seedQueuedInputs.length > 0 ? { queuedUserInputs: [...seedQueuedInputs] } : {}),
       contextLayers: layers,
       ...(opts.initialAnnouncedWorkflowMode !== undefined
         ? { _announcedWorkflowMode: opts.initialAnnouncedWorkflowMode }
@@ -2235,6 +2309,21 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         : finalState;
     lastFinalState = committed;
     return committed;
+  }
+
+  /**
+   * Steer/updateQueue deliveries can land after the turn's final state was
+   * committed — the settle window, or a live queue mutation on a settled
+   * turn. The reducer then produces a NEW state object inside the Runner,
+   * so `lastFinalState` would keep pointing at the pre-delivery snapshot:
+   * the queue would be invisible to getState() AND to the next turn's
+   * carry-forward (which reads `lastFinalState`), losing the message across
+   * the turn boundary. Re-commit the Runner's state after such a delivery.
+   * Mid-turn the commit target is still null (createNextRunner clears it
+   * for the duration of the turn), so this is a no-op there.
+   */
+  function commitLateDelivery(): void {
+    if (lastFinalState && lastRunner) commitFinalState(lastRunner.getState());
   }
 
   /**
@@ -2447,6 +2536,55 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         turnInFlight = false;
         drainPendingFileInputs();
       }
+    },
+
+    steer(input: string | AgentInput): void {
+      const agentInput = normalizeInput(input);
+      if (turnInFlight) {
+        // Deliver into the turn currently in flight — the reducer queues it
+        // for the current status (D4 never rejects a user_message). The
+        // membership-free check and the delivery are one synchronous span.
+        // `?.` covers the turn-claim gap where run()/stream() has claimed
+        // the turn but its Runner is not constructed yet: out of the
+        // one-turn-at-a-time contract (see the concurrency note above
+        // `let lastRunner`), but never a crash into the host.
+        lastRunner?.send(agentInput);
+        commitLateDelivery();
+        return;
+      }
+      // Idle: open a normal turn through the auto-wake pattern so a
+      // rejected run surfaces as an error emit instead of an unhandled
+      // rejection. run()'s resolveInput() still applies (slash commands,
+      // skill gestures) — this call itself may not await.
+      void runAutoWake(input);
+    },
+
+    updateQueue(input: SteeringEditInput | SteeringRemoveInput): "live" | "seed" | "missing" {
+      // Membership check and delivery are one synchronous span (no await
+      // between them): a yielding check could observe a queue that changed
+      // under it and mis-deliver the mutation. A live Runner's state queue
+      // is authoritative once it exists — the seed array goes dormant, so a
+      // delivered id correctly reports "missing" instead of reviving.
+      const runner = lastRunner;
+      if (runner) {
+        const queued = runner.getState().queuedUserInputs;
+        if (!queued.some((m) => m.id === input.id)) return "missing";
+        runner.send(input);
+        commitLateDelivery();
+        return "live";
+      }
+      // No Runner yet — the seed array is the queue. Mutated IN PLACE (an
+      // edit keeps the id and position, like the reducer's own) so the next
+      // construction picks the change up; there is no recorder yet, so the
+      // host persists the event itself.
+      const idx = seedQueuedInputs.findIndex((m) => m.id === input.id);
+      if (idx === -1) return "missing";
+      if (input.type === "steering_edit") {
+        seedQueuedInputs[idx] = { ...seedQueuedInputs[idx]!, content: input.content };
+      } else {
+        seedQueuedInputs.splice(idx, 1);
+      }
+      return "seed";
     },
 
     async resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
