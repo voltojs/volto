@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,21 @@ function highlight(code: string, ext: string): string | null {
 }
 
 const MARKDOWN_EXTS = new Set(['.md', '.mdx']);
+
+/**
+ * One shared header row for every preview: the file's full project path on
+ * the left, kind-specific actions (the markdown raw toggle) on the right.
+ */
+function PreviewHeader({ path, children }: { path: string; children?: ReactNode }) {
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1">
+      <span className="text-muted-foreground truncate font-mono text-[11px]" title={path}>
+        {path}
+      </span>
+      {children}
+    </div>
+  );
+}
 
 /**
  * RightPane 的文件预览标签：图片 base64、Markdown 渲染（可切原文）、
@@ -101,9 +116,13 @@ function FilePreview({
     };
   }, [projectId, path, nonce]);
 
+  const [raw, setRaw] = useState(false);
+
   if (state.error !== null) {
     return (
-      <div className="flex flex-col items-start gap-3 p-4">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <PreviewHeader path={path} />
+        <div className="flex flex-col items-start gap-3 p-4">
         <p className="text-destructive text-sm">{state.error}</p>
         {/* 清空旧状态 + 重拉放在事件回调而非 nonce 触发的 effect——
             react-hooks/set-state-in-effect 禁止在 effect 体内同步 setState（同 FileTreeTab reload）。 */}
@@ -117,24 +136,36 @@ function FilePreview({
         >
           {t('filePreview.retry')}
         </Button>
+        </div>
       </div>
     );
   }
   const payload = state.payload;
   if (payload === null) {
-    return <div className="text-muted-foreground p-4 text-sm">{t('filePreview.loading')}</div>;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <PreviewHeader path={path} />
+        <div className="text-muted-foreground p-4 text-sm">{t('filePreview.loading')}</div>
+      </div>
+    );
   }
   if (payload.kind === 'binary') {
     return (
-      <div className="text-muted-foreground p-4 text-sm">
-        {t('filePreview.binary', { size: payload.size })}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <PreviewHeader path={path} />
+        <div className="text-muted-foreground p-4 text-sm">
+          {t('filePreview.binary', { size: payload.size })}
+        </div>
       </div>
     );
   }
   if (payload.kind === 'image') {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-        <img src={`data:${payload.mediaType};base64,${payload.base64}`} alt={path} className="max-h-full max-w-full object-contain" />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <PreviewHeader path={path} />
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+          <img src={`data:${payload.mediaType};base64,${payload.base64}`} alt={path} className="max-h-full max-w-full object-contain" />
+        </div>
       </div>
     );
   }
@@ -142,6 +173,13 @@ function FilePreview({
   const isMarkdown = MARKDOWN_EXTS.has(ext);
   return (
     <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
+      <PreviewHeader path={path}>
+        {isMarkdown && (
+          <Button variant="ghost" size="sm" onClick={() => setRaw((r) => !r)}>
+            {raw ? t('filePreview.render') : t('filePreview.raw')}
+          </Button>
+        )}
+      </PreviewHeader>
       {payload.truncated && (
         <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
           {t('filePreview.tooLarge', { size: payload.size })}
@@ -152,6 +190,7 @@ function FilePreview({
           content={payload.content}
           projectId={projectId}
           linkBase={parentDir(path)}
+          raw={raw}
         />
       ) : (
         <CodeBody code={payload.content} ext={ext} line={line} endLine={endLine} />
@@ -164,20 +203,15 @@ function MarkdownBody({
   content,
   projectId,
   linkBase,
+  raw,
 }: {
   content: string;
   projectId: string;
   linkBase: string;
+  raw: boolean;
 }) {
-  const t = useTranslations('pane');
-  const [raw, setRaw] = useState(false);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 justify-end border-b px-3 py-1">
-        <Button variant="ghost" size="sm" onClick={() => setRaw((r) => !r)}>
-          {raw ? t('filePreview.render') : t('filePreview.raw')}
-        </Button>
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {raw ? (
           <pre className="text-foreground/90 whitespace-pre-wrap break-words font-mono text-xs">{content}</pre>

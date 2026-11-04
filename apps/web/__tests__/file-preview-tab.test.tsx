@@ -177,3 +177,28 @@ describe('FilePreviewTab failure stays put', () => {
     expect(usePaneStore.getState().tabs.map((t) => t.id)).toEqual(['preview:p1:missing.ts']);
   });
 });
+
+describe('FilePreviewTab header row', () => {
+  it('shows the full project path in the preview header', async () => {
+    fileMock.mockResolvedValue(textPayload('hello'));
+    render(<FilePreviewTab tab={tab('apps/web/lib/fs-api.ts')} />);
+    await screen.findByText('hello');
+    const header = screen.getByText('apps/web/lib/fs-api.ts');
+    expect(header).toHaveAttribute('title', 'apps/web/lib/fs-api.ts');
+  });
+
+  it('keeps the raw toggle in the markdown header row', async () => {
+    fileMock.mockResolvedValue(textPayload('# Title'));
+    render(<FilePreviewTab tab={tab('docs/readme.md')} />);
+    await screen.findByRole('heading', { level: 1, name: 'Title' });
+    expect(screen.getByText('docs/readme.md')).toBeDefined();
+    expect(screen.getByRole('button', { name: '原文' })).toBeDefined();
+  });
+
+  it('shows the path header for image previews too', async () => {
+    fileMock.mockResolvedValue({ kind: 'image', base64: 'aGk=', mediaType: 'image/png', size: 2 });
+    render(<FilePreviewTab tab={tab('assets/pic.png')} />);
+    await screen.findByRole('img');
+    expect(screen.getByText('assets/pic.png')).toBeDefined();
+  });
+});

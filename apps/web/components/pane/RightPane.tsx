@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ComponentType, PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -166,6 +166,15 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
   const closeTab = usePaneStore((s) => s.closeTab);
   const setWidth = usePaneStore((s) => s.setWidth);
 
+  // Keep the active tab visible: openings land at the strip's end and a
+  // switch can target a tab outside the horizontally scrolled viewport.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (activeTabId === null) return;
+    const el = stripRef.current?.querySelector(`[data-tab-id="${activeTabId}"]`);
+    el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId]);
+
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     drag.current = {
@@ -215,7 +224,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
       />
       <div className="flex min-w-0 flex-1 flex-col border-l">
         {activeTab !== null && (
-          <div className="flex shrink-0 items-center overflow-x-auto border-b">
+          <div ref={stripRef} className="flex shrink-0 items-center overflow-x-auto border-b">
             {tabs.map((tab) => {
               const Icon = tabIcon(tab);
               const title =
@@ -226,6 +235,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
               return (
                 <div
                   key={tab.id}
+                  data-tab-id={tab.id}
                   className={`flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-xs ${
                     active
                       ? 'border-primary text-foreground'
