@@ -4,9 +4,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FilePreviewTab } from '@/components/pane/FilePreviewTab';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
 import { usePaneStore } from '@/stores/pane-store';
+import { useConfigStore } from '@/stores/config-store';
+import { revealPath } from '@/lib/config-api';
 import type { PaneTab } from '@/stores/pane-store';
 
 vi.mock('@/lib/fs-api', () => ({ fetchFsFile: vi.fn() }));
+vi.mock('@/lib/config-api', () => ({ revealPath: vi.fn().mockResolvedValue({ ok: true }) }));
 const fileMock = vi.mocked(fetchFsFile);
 
 const tab = (path: string) =>
@@ -200,5 +203,33 @@ describe('FilePreviewTab header row', () => {
     render(<FilePreviewTab tab={tab('assets/pic.png')} />);
     await screen.findByRole('img');
     expect(screen.getByText('assets/pic.png')).toBeDefined();
+  });
+});
+
+describe('FilePreviewTab header actions', () => {
+  it('copies the file content from the header action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    fileMock.mockResolvedValue(textPayload('copy me'));
+    render(<FilePreviewTab tab={tab('a.ts')} />);
+    await screen.findByText('copy me');
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('copy me'));
+  });
+
+  it('reveals the file in the OS file manager', async () => {
+    useConfigStore.setState({
+      projects: [{ id: 'p1', name: 'proj', path: '/proj', createdAt: 0 }],
+    });
+    fileMock.mockResolvedValue(textPayload('hello'));
+    render(<FilePreviewTab tab={tab('apps/web/lib/fs-api.ts')} />);
+    await screen.findByText('hello');
+    fireEvent.click(screen.getByRole('button', { name: '在 Finder 中显示' }));
+    await waitFor(() =>
+      expect(revealPath).toHaveBeenCalledWith('/proj/apps/web/lib/fs-api.ts'),
+    );
   });
 });

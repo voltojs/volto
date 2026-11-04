@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
+import { Check, Code, Copy, Eye, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
+import { revealPath } from '@/lib/config-api';
+import { useConfigStore } from '@/stores/config-store';
 import { parentDir } from '@volto/sdk/file-refs';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
@@ -117,11 +120,66 @@ function FilePreview({
   }, [projectId, path, nonce]);
 
   const [raw, setRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+  const isMarkdown = MARKDOWN_EXTS.has(ext);
+
+  // Header actions: copy the loaded text, reveal the file in the OS file
+  // manager (absolute path joined from the project root), and the markdown
+  // raw/rendered toggle. Small icon buttons with i18n tooltips.
+  const copyContent = state.payload?.kind === 'text' ? state.payload.content : null;
+  const headerActions = (
+    <>
+      {copyContent !== null && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          title={copied ? t('filePreview.copied') : t('filePreview.copy')}
+          aria-label={copied ? t('filePreview.copied') : t('filePreview.copy')}
+          onClick={() => {
+            if (copyContent === null) return;
+            void navigator.clipboard.writeText(copyContent).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          {copied ? <Check className="text-success h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        title={t('filePreview.reveal')}
+        aria-label={t('filePreview.reveal')}
+        onClick={() => {
+          const project = useConfigStore.getState().projects.find((p) => p.id === projectId);
+          if (project !== undefined) void revealPath(`${project.path}/${path}`);
+        }}
+      >
+        <FolderOpen className="h-3.5 w-3.5" />
+      </Button>
+      {isMarkdown && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          title={raw ? t('filePreview.render') : t('filePreview.raw')}
+          aria-label={raw ? t('filePreview.render') : t('filePreview.raw')}
+          onClick={() => setRaw((r) => !r)}
+        >
+          {raw ? <Eye className="h-3.5 w-3.5" /> : <Code className="h-3.5 w-3.5" />}
+        </Button>
+      )}
+    </>
+  );
 
   if (state.error !== null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PreviewHeader path={path} />
+        <PreviewHeader path={path}>{headerActions}</PreviewHeader>
         <div className="flex flex-col items-start gap-3 p-4">
         <p className="text-destructive text-sm">{state.error}</p>
         {/* 清空旧状态 + 重拉放在事件回调而非 nonce 触发的 effect——
@@ -144,7 +202,7 @@ function FilePreview({
   if (payload === null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PreviewHeader path={path} />
+        <PreviewHeader path={path}>{headerActions}</PreviewHeader>
         <div className="text-muted-foreground p-4 text-sm">{t('filePreview.loading')}</div>
       </div>
     );
@@ -152,7 +210,7 @@ function FilePreview({
   if (payload.kind === 'binary') {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PreviewHeader path={path} />
+        <PreviewHeader path={path}>{headerActions}</PreviewHeader>
         <div className="text-muted-foreground p-4 text-sm">
           {t('filePreview.binary', { size: payload.size })}
         </div>
@@ -162,24 +220,16 @@ function FilePreview({
   if (payload.kind === 'image') {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PreviewHeader path={path} />
+        <PreviewHeader path={path}>{headerActions}</PreviewHeader>
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
           <img src={`data:${payload.mediaType};base64,${payload.base64}`} alt={path} className="max-h-full max-w-full object-contain" />
         </div>
       </div>
     );
   }
-  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
-  const isMarkdown = MARKDOWN_EXTS.has(ext);
   return (
     <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
-      <PreviewHeader path={path}>
-        {isMarkdown && (
-          <Button variant="ghost" size="sm" onClick={() => setRaw((r) => !r)}>
-            {raw ? t('filePreview.render') : t('filePreview.raw')}
-          </Button>
-        )}
-      </PreviewHeader>
+      <PreviewHeader path={path}>{headerActions}</PreviewHeader>
       {payload.truncated && (
         <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
           {t('filePreview.tooLarge', { size: payload.size })}

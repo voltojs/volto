@@ -22,7 +22,10 @@
     "binary": "不支持预览二进制文件（{size} 字节）",
     "tooLarge": "文件过大，仅显示前 512 KB（完整 {size} 字节）",
     "render": "渲染",
-    "raw": "原文"
+    "raw": "原文",
+    "copy": "复制",
+    "copied": "已复制",
+    "reveal": "在 Finder 中显示"
   },
   "fileTree": {
     "retry": "重试",

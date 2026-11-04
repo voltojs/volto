@@ -22,7 +22,10 @@
     "binary": "Binary files cannot be previewed ({size} bytes)",
     "tooLarge": "File too large — showing the first 512 KB (of {size} bytes)",
     "render": "Rendered",
-    "raw": "Raw"
+    "raw": "Raw",
+    "copy": "Copy",
+    "copied": "Copied",
+    "reveal": "Reveal in Finder"
   },
   "fileTree": {
     "retry": "Retry",
