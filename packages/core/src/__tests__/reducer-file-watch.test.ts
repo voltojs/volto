@@ -247,7 +247,9 @@ describe("file_changed — cancelling / done drop (F-010..F-011)", () => {
 
   it("other inputs on done still hit the existing done invariant", () => {
     const done = reachDone();
-    const result = step(done, { type: "user_message", content: "hello" }, ctx);
+    // `user_message` is no longer "other": D4 queues it instead of erroring
+    // (see steering-cross-status.test.ts). Model-turn inputs still reject.
+    const result = step(done, { type: "model_chunk", chunk: { type: "text_delta", text: "hello" } }, ctx);
     const errors = emitEvents(result.effects, "error");
     expect(errors).toHaveLength(1);
     expect(String(errors[0]!.error)).toContain("step() called on done state");

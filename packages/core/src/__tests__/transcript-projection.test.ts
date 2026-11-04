@@ -257,16 +257,21 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
     expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user"]);
   });
 
-  it("5. a turn ends end_turn with an unflushed steering queue", () => {
+  it("5. a turn cancelled mid-batch leaves an unflushed steering queue", () => {
     const { events, finalState } = driveAndRecord([
       { type: "user_message", content: "go" },
-      { type: "user_message", content: "wait" }, // steering: status is calling_model
-      { type: "model_chunk", chunk: { type: "text_delta", text: "hello" } },
-      { type: "model_done", stopReason: "end_turn" },
+      toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+      { type: "model_done", stopReason: "tool_use" },
+      { type: "user_message", content: "wait" }, // steering: status is executing_tools
+      { type: "cancel", reason: "user" },
+      { type: "cancel", reason: "user" }, // cancelling → done
     ]);
 
-    // resetTurnForNextInput would discard queuedUserInputs before the next
-    // turn — the reducer never flushes it into messages on its own.
+    // A turn that dies before its batch flushes never writes the queued
+    // steering into messages: the reducer keeps it in queuedUserInputs (the
+    // host auto-run delivers it) and the projection drops it at end-of-log
+    // too. end_turn itself no longer leaves an unflushed queue — D3 drains
+    // it in-turn (see steering-cross-status.test.ts).
     expect(finalState.queuedUserInputs).toHaveLength(1);
     expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
     expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant"]);

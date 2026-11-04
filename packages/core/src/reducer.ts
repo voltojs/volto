@@ -565,10 +565,15 @@ export function step(
     case "waiting_for_approval":
       return handleWaitingForApproval(state, input, ctx);
     case "waiting_for_input":
-      return handleWaitingForInput(state, input);
+      return handleWaitingForInput(state, input, ctx);
     case "cancelling":
-      return handleCancelling(state, input);
+      return handleCancelling(state, input, ctx);
     case "done":
+      // D4: user_message is never rejected — even a completed turn queues it
+      // for the host-side auto-run. Every other input keeps the rejection.
+      if (input.type === "user_message") {
+        return queueUserMessage(state, input, ctx);
+      }
       return errorResult(state, "step() called on done state — turn is already complete");
     default:
       return errorResult(state, `Unknown status: ${state.status}`);
@@ -923,7 +928,32 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       };
     }
 
-    // end_turn or pure text → done
+    // end_turn or pure text → continue the turn when steering is queued,
+    // otherwise done. A non-empty queue means the user steered mid-answer:
+    // draining it here (same turn, not a new one) is what makes the model
+    // actually answer the late message. Mirrors the turn-boundary drains in
+    // handleExecutingTools / handleWaitingForApproval: [...messages,
+    // ...queuedUserInputs], clear the queue, emit steering_delivered with the
+    // drained ids before the re-issued call_model.
+    if (state.queuedUserInputs.length > 0) {
+      const drainedIds = state.queuedUserInputs.map((m) => m.id);
+      const drainedMessages: Message[] = [...baseState.messages, ...state.queuedUserInputs];
+      const continuedState: ReducerState = {
+        ...baseState,
+        messages: drainedMessages,
+        queuedUserInputs: [],
+        status: "calling_model",
+      };
+      return {
+        state: continuedState,
+        effects: [
+          emitEffect,
+          { type: "emit", event: { type: "steering_delivered", data: { ids: drainedIds } } },
+          buildCallModelEffect(drainedMessages, baseState.pinnedMessageIds, ctx, baseState.todos),
+        ],
+      };
+    }
+
     return {
       state: { ...baseState, status: "done" },
       effects: [emitEffect, { type: "done" }],
@@ -981,16 +1011,7 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
 
   if (input.type === "user_message") {
     // Steering: queue for injection at next turn boundary
-    const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
-    return {
-      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
-      effects: [
-        {
-          type: "emit",
-          event: { type: "steering_queued", data: { id: userMsg.id, content: input.content } },
-        },
-      ],
-    };
+    return queueUserMessage(state, input, ctx);
   }
 
   return errorResult(state, `calling_model: unexpected input type "${input.type}"`);
@@ -1172,16 +1193,7 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
 
   if (input.type === "user_message") {
     // Steering: queue for injection at next turn boundary
-    const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
-    return {
-      state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
-      effects: [
-        {
-          type: "emit",
-          event: { type: "steering_queued", data: { id: userMsg.id, content: input.content } },
-        },
-      ],
-    };
+    return queueUserMessage(state, input, ctx);
   }
 
   return errorResult(state, `executing_tools: unexpected input type "${input.type}"`);
@@ -1334,26 +1346,46 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
     };
   }
 
+  if (input.type === "user_message") {
+    // D4: user_message is never rejected — it queues while the approval is
+    // pending and rides into the drain when the decision resolves the batch.
+    return queueUserMessage(state, input, ctx);
+  }
+
   return errorResult(state, `waiting_for_approval: unexpected input type "${input.type}"`);
 }
 
-function handleWaitingForInput(state: ReducerState, input: AgentInput): StepResult {
+function handleWaitingForInput(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "cancel") {
     return {
       state: { ...state, status: "cancelling" },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
     };
   }
+
+  if (input.type === "user_message") {
+    // D4: queue instead of erroring — the suspended state must not swallow
+    // user input; the queue drains at the next turn boundary.
+    return queueUserMessage(state, input, ctx);
+  }
+
   return errorResult(state, `waiting_for_input: unexpected input type "${input.type}"`);
 }
 
-function handleCancelling(state: ReducerState, input: AgentInput): StepResult {
+function handleCancelling(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
   if (input.type === "cancel") {
     return {
       state: { ...state, status: "done" },
       effects: [{ type: "done" }],
     };
   }
+
+  if (input.type === "user_message") {
+    // D4: queue instead of erroring — a message racing the turn teardown is
+    // kept for the host-side auto-run rather than dropped.
+    return queueUserMessage(state, input, ctx);
+  }
+
   return errorResult(state, `cancelling: unexpected input type "${input.type}"`);
 }
 
@@ -1470,6 +1502,30 @@ function handleFileChanged(
 function stamp<T extends Message>(msg: T, ctx: StepContext): T {
   if (!ctx.id) return msg;
   return { ...msg, id: ctx.id.next() };
+}
+
+/**
+ * D4 — the single queue site for user messages. Every status except idle
+ * routes `user_message` here: the message is stamped with its id (Id port),
+ * appended to `queuedUserInputs` (FIFO), and announced with `steering_queued`
+ * so projections can match the queued entry to its later delivery. Never
+ * rejects, never changes status, never touches anything else in state.
+ */
+function queueUserMessage(
+  state: ReducerState,
+  input: Extract<AgentInput, { type: "user_message" }>,
+  ctx: StepContext,
+): StepResult {
+  const userMsg = stamp({ id: "", role: "user" as const, content: input.content }, ctx);
+  return {
+    state: { ...state, queuedUserInputs: [...state.queuedUserInputs, userMsg] },
+    effects: [
+      {
+        type: "emit",
+        event: { type: "steering_queued", data: { id: userMsg.id, content: input.content } },
+      },
+    ],
+  };
 }
 
 /**
