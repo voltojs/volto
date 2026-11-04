@@ -43,7 +43,8 @@
     "compact": "Compact context (summarize old messages, free tokens)",
     "compactDisabled": "Generating — cannot compact yet",
     "paneCollapse": "Collapse pane",
-    "paneExpand": "Expand pane"
+    "paneExpand": "Expand pane",
+    "moreAria": "More actions"
   },
   "rewind": {
     "title": "Restart from a turn",

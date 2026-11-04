@@ -43,7 +43,8 @@
     "compact": "压缩上下文（摘要旧消息，释放 token）",
     "compactDisabled": "会话生成中，暂不可压缩",
     "paneCollapse": "收起面板",
-    "paneExpand": "展开面板"
+    "paneExpand": "展开面板",
+    "moreAria": "更多操作"
   },
   "rewind": {
     "title": "从某一轮重新开始",
