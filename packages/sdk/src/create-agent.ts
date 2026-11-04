@@ -1146,16 +1146,22 @@ export interface AgentInstance {
    * (spec 2026-11-04 D14/D15). Membership check and delivery happen in one
    * synchronous span (no await between them).
    *
-   * Returns where the id was found:
-   * - `"live"` — in the last Runner's `queuedUserInputs`: delivered via
-   *   `send()`, so the Runner's recorder persists the `steering_edited` /
-   *   `steering_removed` event and the reducer mutates the queue in place
-   *   (same id, same position).
-   * - `"seed"` — no Runner exists yet and the id is in the
-   *   `initialQueuedInputs` seed array, which is mutated in place. There is
-   *   no recorder yet — the host persists the event itself.
+   * Returns where the id was found (the host's persistence duty is part of
+   * the contract):
+   * - `"live"` — in the live queue (the delivery target's `queuedUserInputs`,
+   *   or the carried state's while a turn claim is between "claimed" and
+   *   "Runner materialized"). Delivered via `send()` immediately, or
+   *   buffered and poured into the Runner at materialization — either way
+   *   the Runner's recorder persists the `steering_edited` /
+   *   `steering_removed` event exactly once and the reducer mutates the
+   *   queue in place (same id, same position). The host persists NOTHING.
+   * - `"seed"` — no state source exists yet (before the first Runner
+   *   construction) and the id is in the `initialQueuedInputs` seed array,
+   *   which is mutated in place. There is no recorder yet — the HOST
+   *   persists the event itself.
    * - `"missing"` — unknown, or already delivered ("delivery wins": a sent
-   *   message can never be edited or withdrawn). State is untouched.
+   *   message can never be edited or withdrawn). State is untouched; the
+   *   host should surface an error.
    */
   updateQueue(
     input: SteeringEditInput | SteeringRemoveInput,
@@ -2603,12 +2609,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     updateQueue(input: SteeringEditInput | SteeringRemoveInput): "live" | "seed" | "missing" {
       // Membership check and delivery are one synchronous span (no await
       // between them): a yielding check could observe a queue that changed
-      // under it and mis-deliver the mutation. The delivery target's state
-      // queue is authoritative once one exists — the seed array goes
-      // dormant, so a delivered id correctly reports "missing" instead of
-      // reviving. While steering input is still buffered (no target), the
-      // seed stays the membership source: a seed id reports "seed", never
-      // "missing".
+      // under it and mis-deliver the mutation.
       const runner = steerTarget;
       if (runner) {
         const queued = runner.getState().queuedUserInputs;
@@ -2617,18 +2618,38 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         commitLateDelivery();
         return "live";
       }
-      // No Runner yet — the seed array is the queue. Mutated IN PLACE (an
-      // edit keeps the id and position, like the reducer's own) so the next
-      // construction picks the change up; there is no recorder yet, so the
-      // host persists the event itself.
-      const idx = seedQueuedInputs.findIndex((m) => m.id === input.id);
-      if (idx === -1) return "missing";
-      if (input.type === "steering_edit") {
-        seedQueuedInputs[idx] = { ...seedQueuedInputs[idx]!, content: input.content };
-      } else {
-        seedQueuedInputs.splice(idx, 1);
+      // No delivery target — a turn claim (or resume) is between "claimed"
+      // and "Runner materialized". The carried state still holds the live
+      // queue: an id found there is deliverable and must never report
+      // "missing" (the gateway would fail a valid edit while the message is
+      // delivered anyway). The mutation is buffered and poured into the
+      // Runner at materialization, whose recorder persists the
+      // steering_edited / steering_removed event exactly once — the same
+      // "live" contract as an immediate send.
+      if (lastFinalState?.queuedUserInputs.some((m) => m.id === input.id)) {
+        pendingSteerInputs.push(input);
+        return "live";
       }
-      return "seed";
+      // The seed array is authoritative ONLY while no state source exists
+      // at all (before the first Runner construction). Once a state source
+      // exists the seed is dormant: its entries were copied into state at
+      // construction and are either delivered ("missing" — delivery wins)
+      // or live in a queue checked above. Reviving the seed here would
+      // ghost-edit the host's array for an already-delivered id.
+      if (lastRunner === null && lastFinalState === null) {
+        // Mutated IN PLACE (an edit keeps the id and position, like the
+        // reducer's own) so the next construction picks the change up; there
+        // is no recorder yet, so the host persists the event itself.
+        const idx = seedQueuedInputs.findIndex((m) => m.id === input.id);
+        if (idx === -1) return "missing";
+        if (input.type === "steering_edit") {
+          seedQueuedInputs[idx] = { ...seedQueuedInputs[idx]!, content: input.content };
+        } else {
+          seedQueuedInputs.splice(idx, 1);
+        }
+        return "seed";
+      }
+      return "missing";
     },
 
     async resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {

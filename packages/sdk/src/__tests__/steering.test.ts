@@ -166,6 +166,101 @@ describe("createAgent steering", () => {
     expect(final.queuedUserInputs).toHaveLength(0);
   });
 
+  it("updateQueue resolves a carried-forward id during the claim gap instead of reporting missing", async () => {
+    const model = createGatedModel([
+      [modelDone("max_tokens")],
+      [textDelta("ok"), modelDone("end_turn")],
+    ]);
+    const agent = createAgent({ modelPort: model, maxIterations: 1 });
+
+    // Turn one closes at the iteration cap with the steered entry still
+    // queued — it rides into turn two via the carry-forward.
+    const turn1 = agent.run("hi");
+    await waitUntil(() => model.callCount === 1, "model call in flight");
+    agent.steer("steered in turn one");
+    const carriedId = agent.getState().queuedUserInputs[0]!.id;
+    model.openGate();
+    await turn1;
+    expect(agent.getState().queuedUserInputs.map((m) => m.id)).toEqual([carriedId]);
+
+    const turn2 = agent.run("second");
+    // Claim gap: the carried queue is the live source. A deliverable id
+    // must never report "missing" — the gateway would fail a valid edit
+    // while the message is delivered anyway.
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: carriedId, content: "edited" }),
+    ).toBe("live");
+    const final = await turn2;
+    // The buffered edit landed before the opening flush delivered the entry.
+    expect(final.messages.find((m) => m.id === carriedId)?.content).toBe("edited");
+  });
+
+  it("updateQueue reports missing for a delivered seed id during the claim gap without mutating the seed", async () => {
+    const seeded: UserMessage[] = [{ id: "s1", role: "user", content: "seeded" }];
+    const model = createMockModelPort([
+      [textDelta("one"), modelDone("end_turn")],
+      [textDelta("two"), modelDone("end_turn")],
+    ]);
+    const agent = createAgent({ modelPort: model, initialQueuedInputs: seeded });
+    // The opening flush delivers s1 — the seed array is dormant from here on.
+    await agent.run("hi");
+    expect(agent.getState().messages.some((m) => m.id === "s1")).toBe(true);
+
+    const turn2 = agent.run("second");
+    // Claim gap: s1 is already delivered ("delivery wins") — reporting
+    // "seed" would ghost-edit the host's seed array.
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "s1", content: "ghost" }),
+    ).toBe("missing");
+    expect(seeded).toEqual([{ id: "s1", role: "user", content: "seeded" }]);
+    await turn2;
+  });
+
+  it("a buffered claim-gap edit/remove is delivered by id and recorded exactly once", async () => {
+    const events: TranscriptEventInput[] = [];
+    const model = createMockModelPort([
+      [modelDone("max_tokens")],
+      [textDelta("ok"), modelDone("end_turn")],
+    ]);
+    const seeded: UserMessage[] = [
+      { id: "s1", role: "user", content: "keep" },
+      { id: "s2", role: "user", content: "drop" },
+    ];
+    const agent = createAgent({
+      modelPort: model,
+      initialQueuedInputs: seeded,
+      maxIterations: 1,
+      chatStore: {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      },
+      chatSessionId: "chat-1",
+    });
+    // Turn one closes at the iteration cap with the queue intact.
+    await agent.run({
+      type: "file_changed",
+      watchId: "w1",
+      events: [{ type: "change", path: "a.ts" }],
+    });
+
+    const turn2 = agent.run("hi");
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "s1", content: "kept (edited)" }),
+    ).toBe("live");
+    expect(agent.updateQueue({ type: "steering_remove", id: "s2" })).toBe("live");
+    const final = await turn2;
+
+    // Delivered by id at the opening: the edit's content, the removal gone.
+    expect(final.messages.find((m) => m.id === "s1")?.content).toBe("kept (edited)");
+    expect(final.messages.some((m) => m.id === "s2")).toBe(false);
+    // Exactly one durable record each — the Runner's recorder persists the
+    // buffered mutations at materialization (Task 11: "live" = the gateway
+    // persists nothing).
+    expect(events.filter((e) => e.type === "steering_edited")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "steering_removed")).toHaveLength(1);
+  });
+
   it("initialQueuedInputs seeds queuedUserInputs and survives resetTurnForNextInput", async () => {
     const seeded: UserMessage[] = [
       { id: "s1", role: "user", content: "seeded one" },
