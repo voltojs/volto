@@ -23,9 +23,10 @@
     "tooLarge": "File too large — showing the first 512 KB (of {size} bytes)",
     "render": "Rendered",
     "raw": "Raw",
-    "copy": "Copy",
+    "copy": "Copy full path",
     "copied": "Copied",
-    "reveal": "Reveal in Finder"
+    "reveal": "Reveal in Finder",
+    "copyContent": "Copy file contents"
   },
   "fileTree": {
     "retry": "Retry",

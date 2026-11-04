@@ -207,7 +207,25 @@ describe('FilePreviewTab header row', () => {
 });
 
 describe('FilePreviewTab header actions', () => {
-  it('copies the file content from the header action', async () => {
+  it('copies the full system path from the header action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    useConfigStore.setState({
+      projects: [{ id: 'p1', name: 'proj', path: '/proj', createdAt: 0 }],
+    });
+    fileMock.mockResolvedValue(textPayload('copy me'));
+    render(<FilePreviewTab tab={tab('apps/web/lib/fs-api.ts')} />);
+    await screen.findByText('copy me');
+    fireEvent.click(screen.getByRole('button', { name: '复制完整路径' }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('/proj/apps/web/lib/fs-api.ts'),
+    );
+  });
+
+  it('copies the file content from the display area action', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
@@ -216,7 +234,7 @@ describe('FilePreviewTab header actions', () => {
     fileMock.mockResolvedValue(textPayload('copy me'));
     render(<FilePreviewTab tab={tab('a.ts')} />);
     await screen.findByText('copy me');
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制文件内容' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('copy me'));
   });
 

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
-import { Check, Code, Copy, Eye, FolderOpen } from 'lucide-react';
+import { Check, ClipboardCopy, Code, Copy, Eye, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
 import { revealPath } from '@/lib/config-api';
@@ -44,12 +45,45 @@ const MARKDOWN_EXTS = new Set(['.md', '.mdx']);
  */
 function PreviewHeader({ path, children }: { path: string; children?: ReactNode }) {
   return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1">
-      <span className="text-muted-foreground truncate font-mono text-[11px]" title={path}>
+    <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1">
+      <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]" title={path}>
         {path}
       </span>
-      {children}
+      <div className="flex shrink-0 items-center gap-0.5">{children}</div>
     </div>
+  );
+}
+
+/** Small icon action with a hover tooltip (title kept as the native fallback). */
+function ActionButton({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('h-6 w-6', className)}
+            aria-label={label}
+            title={label}
+            onClick={onClick}
+          >
+            {children}
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -120,58 +154,54 @@ function FilePreview({
   }, [projectId, path, nonce]);
 
   const [raw, setRaw] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
+  const [contentCopied, setContentCopied] = useState(false);
   const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
   const isMarkdown = MARKDOWN_EXTS.has(ext);
-
-  // Header actions: copy the loaded text, reveal the file in the OS file
-  // manager (absolute path joined from the project root), and the markdown
-  // raw/rendered toggle. Small icon buttons with i18n tooltips.
   const copyContent = state.payload?.kind === 'text' ? state.payload.content : null;
+
+  // Header actions: copy the full system path (project root + project-relative
+  // path), reveal the file in the OS file manager, and the markdown raw/render
+  // toggle. The file content copy lives at the display area's top-right.
+  const copyFullPath = (): void => {
+    const project = useConfigStore.getState().projects.find((p) => p.id === projectId);
+    if (project === undefined) return;
+    void navigator.clipboard.writeText(`${project.path}/${path}`).then(() => {
+      setPathCopied(true);
+      setTimeout(() => setPathCopied(false), 1500);
+    });
+  };
+  const copyFileContent = (): void => {
+    if (copyContent === null) return;
+    void navigator.clipboard.writeText(copyContent).then(() => {
+      setContentCopied(true);
+      setTimeout(() => setContentCopied(false), 1500);
+    });
+  };
   const headerActions = (
     <>
-      {copyContent !== null && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          title={copied ? t('filePreview.copied') : t('filePreview.copy')}
-          aria-label={copied ? t('filePreview.copied') : t('filePreview.copy')}
-          onClick={() => {
-            if (copyContent === null) return;
-            void navigator.clipboard.writeText(copyContent).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            });
-          }}
-        >
-          {copied ? <Check className="text-success h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        title={t('filePreview.reveal')}
-        aria-label={t('filePreview.reveal')}
+      <ActionButton
+        label={pathCopied ? t('filePreview.copied') : t('filePreview.copy')}
+        onClick={copyFullPath}
+      >
+        {pathCopied ? <Check className="text-success h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </ActionButton>
+      <ActionButton
+        label={t('filePreview.reveal')}
         onClick={() => {
           const project = useConfigStore.getState().projects.find((p) => p.id === projectId);
           if (project !== undefined) void revealPath(`${project.path}/${path}`);
         }}
       >
         <FolderOpen className="h-3.5 w-3.5" />
-      </Button>
+      </ActionButton>
       {isMarkdown && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          title={raw ? t('filePreview.render') : t('filePreview.raw')}
-          aria-label={raw ? t('filePreview.render') : t('filePreview.raw')}
+        <ActionButton
+          label={raw ? t('filePreview.render') : t('filePreview.raw')}
           onClick={() => setRaw((r) => !r)}
         >
           {raw ? <Eye className="h-3.5 w-3.5" /> : <Code className="h-3.5 w-3.5" />}
-        </Button>
+        </ActionButton>
       )}
     </>
   );
@@ -230,21 +260,36 @@ function FilePreview({
   return (
     <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
       <PreviewHeader path={path}>{headerActions}</PreviewHeader>
-      {payload.truncated && (
-        <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
-          {t('filePreview.tooLarge', { size: payload.size })}
-        </div>
-      )}
-      {isMarkdown ? (
-        <MarkdownBody
-          content={payload.content}
-          projectId={projectId}
-          linkBase={parentDir(path)}
-          raw={raw}
-        />
-      ) : (
-        <CodeBody code={payload.content} ext={ext} line={line} endLine={endLine} />
-      )}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {copyContent !== null && (
+          <ActionButton
+            label={contentCopied ? t('filePreview.copied') : t('filePreview.copyContent')}
+            onClick={copyFileContent}
+            className="absolute top-1.5 right-1.5 z-[1]"
+          >
+            {contentCopied ? (
+              <Check className="text-success h-3.5 w-3.5" />
+            ) : (
+              <ClipboardCopy className="h-3.5 w-3.5" />
+            )}
+          </ActionButton>
+        )}
+        {payload.truncated && (
+          <div className="bg-muted/60 text-muted-foreground border-b px-3 py-1.5 text-xs">
+            {t('filePreview.tooLarge', { size: payload.size })}
+          </div>
+        )}
+        {isMarkdown ? (
+          <MarkdownBody
+            content={payload.content}
+            projectId={projectId}
+            linkBase={parentDir(path)}
+            raw={raw}
+          />
+        ) : (
+          <CodeBody code={payload.content} ext={ext} line={line} endLine={endLine} />
+        )}
+      </div>
     </div>
   );
 }
