@@ -762,6 +762,38 @@ describe("Runner transcript capture", () => {
     expect(queued!.id).toBe(runner.getState().queuedUserInputs[0]!.id);
   });
 
+  it("send() before run() queues after the opening input instead of opening the turn", async () => {
+    const model = createMockModelPort([
+      [textDelta("one"), { type: "done", stopReason: "end_turn" }],
+      [textDelta("two"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+    });
+    // A steering send landing before the turn opens must not open the turn
+    // itself (the idle handler would, scrambling the order against the real
+    // opening input) — it waits and queues right after the open.
+    runner.send({ type: "user_message", content: "steered first" });
+    await runner.run({ type: "user_message", content: "opens the turn" });
+
+    const texts = runner
+      .getState()
+      .messages.map((m) => (typeof m.content === "string" ? m.content : ""));
+    expect(texts.indexOf("opens the turn")).toBeLessThan(texts.indexOf("steered first"));
+    expect(runner.getState().queuedUserInputs).toHaveLength(0);
+    // Transcript order matches: the opening user_message records first, the
+    // queued entry only after (steering_queued at its drain).
+    const types = typesOf(events);
+    expect(types.indexOf("user_message")).toBeLessThan(types.indexOf("steering_queued"));
+  });
+
   it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
     // Real providers (packages/providers/anthropic|openai's model-port.ts)
     // yield {type:"error"} for non-2xx responses, aborts, and empty bodies —

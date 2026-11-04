@@ -84,19 +84,86 @@ describe("createAgent steering", () => {
     ]);
   });
 
-  it("steer when idle opens a normal turn", async () => {
+  it("steer when idle queues into the settled state without opening a new turn", async () => {
     const model = createMockModelPort([[textDelta("answer"), modelDone("end_turn")]]);
     const agent = createAgent({ modelPort: model });
-
-    agent.steer("hello from idle");
-    await waitUntil(() => model.callCount === 1, "model called");
-    await waitUntil(() => agent.getState().status === "done", "turn completed");
-
+    await agent.run("first turn");
     expect(model.callCount).toBe(1);
+
+    // steer NEVER opens a turn (fix-round contract): with no turn in flight
+    // the message is queued into the settled state and waits for the host's
+    // turn-boundary drain (steering_flush / the next turn's opening flush).
+    agent.steer("queued while idle");
+    expect(model.callCount).toBe(1);
+    expect(agent.getState().status).toBe("done");
+    expect(agent.getState().queuedUserInputs).toHaveLength(1);
+    expect(agent.getState().queuedUserInputs[0]!.content).toBe("queued while idle");
+  });
+
+  it("a steer landing after the turn settles stays visible to getState", async () => {
+    // Task 9's settle-flush loop drains exactly via getState().
+    // queuedUserInputs + steering_flush turns, so the queued entry must
+    // survive the final-state commit (commitLateDelivery).
+    const model = createMockModelPort([
+      [textDelta("answer"), modelDone("end_turn")],
+      [textDelta("flushed"), modelDone("end_turn")],
+    ]);
+    const agent = createAgent({ modelPort: model });
+    await agent.run("first turn");
+
+    agent.steer("late steer");
+    const queued = agent.getState().queuedUserInputs;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.content).toBe("late steer");
+
+    // The drain loop's steering_flush turn delivers it with its id intact.
+    const final = await agent.run({ type: "steering_flush" });
     expect(
-      agent.getState().messages.some((m) => m.content === "hello from idle"),
+      final.messages.some((m) => m.id === queued[0]!.id && m.content === "late steer"),
     ).toBe(true);
-    expect(agent.getState().queuedUserInputs).toHaveLength(0);
+    expect(final.queuedUserInputs).toHaveLength(0);
+  });
+
+  it("a steer sent during the claim gap is buffered into the turn's queue instead of being lost", async () => {
+    const model = createGatedModel([
+      [textDelta("first"), modelDone("end_turn")],
+      [textDelta("second"), modelDone("end_turn")],
+    ]);
+    const seeded: UserMessage[] = [{ id: "s1", role: "user", content: "seeded" }];
+    const agent = createAgent({ modelPort: model, initialQueuedInputs: seeded });
+
+    const runPromise = agent.run("hi");
+    // Same synchronous span as the turn claim: no Runner exists yet, so the
+    // steer is buffered (never dropped, never opened as its own turn).
+    agent.steer("steered during the claim gap");
+    // The seed/missing judgment stays consistent while buffering is active:
+    // a seed id still resolves to "seed" and lands in the seed array.
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "s1", content: "edited" }),
+    ).toBe("seed");
+    expect(seeded[0]!.content).toBe("edited");
+
+    await waitUntil(() => model.callCount === 1, "model call in flight");
+    // The buffered steer materialized into the turn's queue (the edited
+    // seed rode the opening flush ahead of "hi"), and is targetable as
+    // "live" — a just-materialized entry is never "missing".
+    const queued = agent.getState().queuedUserInputs;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.content).toBe("steered during the claim gap");
+    expect(
+      agent.updateQueue({
+        type: "steering_edit",
+        id: queued[0]!.id,
+        content: "rewritten",
+      }),
+    ).toBe("live");
+    expect(agent.getState().queuedUserInputs[0]!.content).toBe("rewritten");
+
+    model.openGate();
+    const final = await runPromise;
+    const texts = final.messages.map((m) => (typeof m.content === "string" ? m.content : ""));
+    expect(texts.indexOf("edited")).toBeLessThan(texts.indexOf("hi"));
+    expect(final.queuedUserInputs).toHaveLength(0);
   });
 
   it("initialQueuedInputs seeds queuedUserInputs and survives resetTurnForNextInput", async () => {

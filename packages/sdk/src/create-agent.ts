@@ -1119,22 +1119,25 @@ export interface AgentInstance {
   ): AsyncGenerator<{ type: string; data: Record<string, unknown> }>;
 
   /**
-   * Steer the conversation with a user message while it is running, or open
-   * a normal turn when the agent is idle.
+   * Steer the conversation with a user message. NEVER opens a turn and
+   * never calls `run()` / `stream()`:
    *
-   * - A turn is in flight → the message is delivered to that turn's Runner
-   *   via `send()`, where the reducer decides what happens for the current
-   *   status (typically queued with `steering_queued`; never rejected). No
-   *   new turn is opened and the in-flight model call is not disturbed.
-   * - No turn in flight → opens a normal turn through `run()`, with the
-   *   auto-wake error discipline: a rejected run surfaces as an `error`
-   *   emit, never an unhandled rejection.
+   * - A delivery target exists (a turn in flight, or the settled state
+   *   after one) → the message goes to that Runner via `send()`, where the
+   *   reducer decides what happens for the current status (D4 queues it in
+   *   every non-idle state — the settled "done" state included — with
+   *   `steering_queued`; never rejected). The in-flight model call is not
+   *   disturbed; the host's turn-boundary drain (steering_flush / the next
+   *   turn's opening flush) delivers the queue.
+   * - No delivery target (a turn claim in progress, or a cold instance
+   *   before its first turn) → the input is buffered and poured into the
+   *   Runner's queue the moment one materializes. Never dropped, never
+   *   reordered ahead of the turn's opening input.
    *
    * Fire-and-forget by design (`void`) — the state and the event stream are
    * how callers observe the outcome. A string input is queued verbatim as a
-   * user message; slash-command resolution only applies to `run()` /
-   * `stream()` turn openings (it can await the skill registry, this call
-   * cannot).
+   * user message (no slash-command resolution — that applies to `run()` /
+   * `stream()` turn openings, which can await the skill registry).
    */
   steer(input: string | AgentInput): void;
 
@@ -1527,7 +1530,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
   }
 
-  async function runAutoWake(input: string | AgentInput): Promise<void> {
+  async function runAutoWake(input: AgentInput): Promise<void> {
     if (!agentRun) return;
     try {
       await agentRun(input);
@@ -2022,6 +2025,32 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // delivered id can never fall back to a "seed" hit here.
   const seedQueuedInputs: UserMessage[] = opts.initialQueuedInputs ?? [];
 
+  // ── Steering delivery target + claim-gap buffer ──
+  /**
+   * The Runner steer()/updateQueue() deliver to. Cleared at run()/stream()
+   * turn claim so a steer landing in the claim gap can never hit the
+   * PREVIOUS turn's Runner (its state is about to be replaced by the
+   * carry-forward snapshot — a send there would vanish from the state);
+   * set again the moment the new Runner materializes. It deliberately
+   * outlives the turn: a steer after the settle must still queue into the
+   * settled state for the host's turn-boundary drain to deliver.
+   */
+  let steerTarget: Runner | null = null;
+  /**
+   * Steering inputs that arrived while no delivery target existed (a turn
+   * claim in progress, or a cold instance before its first turn). Mirrors
+   * pendingFileInputs: buffered instead of dropped, poured into the Runner's
+   * queue at materialization — the Runner orders pre-open sends right after
+   * the turn's opening input. Never lost, never opened as their own turn.
+   */
+  const pendingSteerInputs: AgentInput[] = [];
+
+  function drainPendingSteerInputs(runner: Runner): void {
+    while (pendingSteerInputs.length > 0) {
+      runner.send(pendingSteerInputs.shift()!);
+    }
+  }
+
   // ── M9: Cost meter (created per-run via wrapping EventSink) ──
   const costMeter = opts.pricing
     ? createCostMeter({ pricing: opts.pricing, eventSink: opts.eventSink ?? defaultEventSink, telemetry: resolvedPorts.telemetry })
@@ -2429,6 +2458,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
     async run(input: string | AgentInput): Promise<ReducerState> {
       turnInFlight = true;
+      // Turn claim: invalidate the steering delivery target until this
+      // turn's Runner materializes — steer()/updateQueue() must never hit
+      // the previous turn's Runner mid-claim (see the steerTarget note).
+      steerTarget = null;
       try {
         await initToolSources();
         const agentInput = await resolveInput(input);
@@ -2448,6 +2481,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
             extractInputText(agentInput),
           );
           lastRunner = runner;
+          steerTarget = runner;
+          // Steering input buffered during the claim gap pours into the
+          // Runner's queue (the Runner orders pre-open sends right after the
+          // turn's opening input — never lost, never reordered ahead of it).
+          drainPendingSteerInputs(runner);
           const finalState = await runner.run(agentInput);
           return commitFinalState(finalState);
         } catch (err: unknown) {
@@ -2466,6 +2504,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       streamOpts?: { signal?: AbortSignal },
     ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
       turnInFlight = true;
+      // Same turn-claim invalidation as run(): see the steerTarget note.
+      steerTarget = null;
       try {
         await initToolSources();
         const agentInput = await resolveInput(input);
@@ -2498,6 +2538,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           throw err;
         }
         lastRunner = runner;
+        steerTarget = runner;
+        drainPendingSteerInputs(runner);
 
         let runError: unknown;
         const runPromise = runner.run(agentInput).then(
@@ -2540,32 +2582,34 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
 
     steer(input: string | AgentInput): void {
       const agentInput = normalizeInput(input);
-      if (turnInFlight) {
-        // Deliver into the turn currently in flight — the reducer queues it
-        // for the current status (D4 never rejects a user_message). The
-        // membership-free check and the delivery are one synchronous span.
-        // `?.` covers the turn-claim gap where run()/stream() has claimed
-        // the turn but its Runner is not constructed yet: out of the
-        // one-turn-at-a-time contract (see the concurrency note above
-        // `let lastRunner`), but never a crash into the host.
-        lastRunner?.send(agentInput);
+      // steer NEVER opens a turn and never calls run()/stream(): dispatch is
+      // purely "is there a delivery target", check + delivery in one
+      // synchronous span (no await in between).
+      const target = steerTarget;
+      if (target) {
+        // The reducer decides what happens for the current status — D4
+        // queues a user_message in every non-idle state (the settled "done"
+        // state included) and the host's turn-boundary drain delivers it.
+        target.send(agentInput);
         commitLateDelivery();
         return;
       }
-      // Idle: open a normal turn through the auto-wake pattern so a
-      // rejected run surfaces as an error emit instead of an unhandled
-      // rejection. run()'s resolveInput() still applies (slash commands,
-      // skill gestures) — this call itself may not await.
-      void runAutoWake(input);
+      // No delivery target (a turn claim in progress, or nothing has run
+      // yet): buffer and pour into the Runner's queue at materialization —
+      // never dropped, never a TypeError into the host.
+      pendingSteerInputs.push(agentInput);
     },
 
     updateQueue(input: SteeringEditInput | SteeringRemoveInput): "live" | "seed" | "missing" {
       // Membership check and delivery are one synchronous span (no await
       // between them): a yielding check could observe a queue that changed
-      // under it and mis-deliver the mutation. A live Runner's state queue
-      // is authoritative once it exists — the seed array goes dormant, so a
-      // delivered id correctly reports "missing" instead of reviving.
-      const runner = lastRunner;
+      // under it and mis-deliver the mutation. The delivery target's state
+      // queue is authoritative once one exists — the seed array goes
+      // dormant, so a delivered id correctly reports "missing" instead of
+      // reviving. While steering input is still buffered (no target), the
+      // seed stays the membership source: a seed id reports "seed", never
+      // "missing".
+      const runner = steerTarget;
       if (runner) {
         const queued = runner.getState().queuedUserInputs;
         if (!queued.some((m) => m.id === input.id)) return "missing";
@@ -2590,6 +2634,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     async resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState> {
       // Try the in-memory runner first (same-process resume)
       if (lastRunner) {
+        // Restore the steering delivery target (a failed turn claim may have
+        // invalidated it) and pour in anything buffered meanwhile.
+        steerTarget = lastRunner;
+        drainPendingSteerInputs(lastRunner);
         try {
           const finalState = await lastRunner.resume(sessionId, decision);
           return commitFinalState(finalState);
@@ -2680,6 +2728,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       });
 
       lastRunner = resumeRunner;
+      steerTarget = resumeRunner;
+      drainPendingSteerInputs(resumeRunner);
       const finalState = await resumeRunner.resume(sessionId, decision);
       return commitFinalState(finalState);
     },

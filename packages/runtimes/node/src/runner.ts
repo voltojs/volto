@@ -508,6 +508,16 @@ export interface Runner {
    * queuing it and emitting steering_queued); an input that makes no sense
    * for the current status is normalized to an error emit like any other
    * invalid input, never thrown.
+   *
+   * Two boundary behaviors:
+   * - Sent before the turn opened (run() has not fed its initial input yet):
+   *   a turn-opening input (user_message / steering_flush / file_changed) is
+   *   held and fed right after the open, so it queues behind the opening
+   *   input instead of opening the turn itself. steering_edit /
+   *   steering_remove pass through immediately (they never open a turn and
+   *   must beat the opening flush).
+   * - Sent after the run loop ended: the recorder is flushed
+   *   fire-and-forget so the record still reaches the durable transcript.
    */
   send(input: AgentInput): void;
   /**
@@ -691,6 +701,21 @@ export function createRunner(opts: RunnerOptions): Runner {
   // send() landing outside that span has no loop left to flush the recorder
   // for it — see the flush guard in send().
   let runLoopActive = false;
+  // True once the turn is open (run() has fed its initial input, or resume()
+  // continued the paused turn). Inputs sent before that would hit the
+  // reducer's idle handler and OPEN the turn themselves (scrambling the
+  // order against the real opening input), so send() holds them in
+  // preOpenQueue until the open drains them — right after the opening feed,
+  // where the reducer queues them (D4) instead.
+  let turnOpened = false;
+  const preOpenQueue: AgentInput[] = [];
+
+  /** Feed everything send() buffered before the turn opened (FIFO). */
+  function drainPreOpenQueue(): void {
+    while (preOpenQueue.length > 0) {
+      forwardEmit(feed(preOpenQueue.shift()!));
+    }
+  }
   // M12 Phase 4: checkpoint history sequence counter
   let checkpointSeq = 0;
   // Retry state for retriable model errors
@@ -2879,6 +2904,11 @@ export function createRunner(opts: RunnerOptions): Runner {
             };
             recorder.record("turn_start", { turn: opts.turn ?? 0 });
             recorder.record("user_message", { content: rejectionText });
+            // The turn closed without opening — buffered steering input must
+            // still land (queued into the done state) instead of dying in
+            // the buffer.
+            turnOpened = true;
+            drainPreOpenQueue();
             return state;
           }
         }
@@ -2894,6 +2924,10 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
 
         forwardEmit(feed(initialInput));
+        turnOpened = true;
+        // Steering input buffered before the open queues right after the
+        // opening message (D4) — never opening the turn itself, never lost.
+        drainPreOpenQueue();
         runLoopActive = true;
         try {
           await runLoop();
@@ -2937,6 +2971,20 @@ export function createRunner(opts: RunnerOptions): Runner {
     },
 
     send(input: AgentInput): void {
+      // Before the turn opens, an input the idle state would turn into a
+      // turn opener (user_message / steering_flush / file_changed) is held
+      // until the open — it must queue behind the real opening input, not
+      // replace it. Everything else passes through immediately: a
+      // steering_edit / steering_remove never opens a turn and must land
+      // before the opening flush delivers its target ("delivery wins").
+      const opensFromIdle =
+        input.type === "user_message" ||
+        input.type === "steering_flush" ||
+        input.type === "file_changed";
+      if (!turnOpened && opensFromIdle) {
+        preOpenQueue.push(input);
+        return;
+      }
       forwardEmit(feed(input));
       // A steering send can land after this turn's run loop ended — the
       // settle window where the host still treats the turn as live and
@@ -3002,6 +3050,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       // The validation throws above deliberately sit OUTSIDE the bracket — no
       // turn ran in this runner yet, so there is nothing to close.
       try {
+        // The paused turn is already open: anything send() buffered before
+        // this resume lands in its queue (waiting_for_approval queues, D4).
+        turnOpened = true;
+        drainPreOpenQueue();
         // Pre-authorize (or pre-deny) the re-queued tool so runLoop's partition
         // loop does not re-classify it into a fresh approval ask — mirrors the
         // allow/deny bookkeeping in interpretEffects's own request_approval
