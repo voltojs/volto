@@ -56,6 +56,11 @@ import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
+import {
+  createFileRefsService,
+  UnknownProjectError,
+  UnknownSessionError,
+} from "./file-refs.js";
 import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
 import { forkSession, ForkError } from "./session-fork.js";
 import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
@@ -499,6 +504,17 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // the very root wiring.ts hands every agent instance, so a plan the
   // save_plan tool wrote is the plan these routes serve.
   const planStore = createPlanStore();
+  // Settle-time file reference annotations (GET /file-refs): session memory,
+  // recomputed from the durable log whenever it grows — nothing persisted.
+  const fileRefs = createFileRefsService({
+    projectRootFor: (projectId) => resolveProjectPath(projectStore, projectId),
+    sessionFor: async (sessionId) => {
+      const record = await chatStore.readSession(sessionId);
+      if (!record) return undefined;
+      const view = await readConversation(asTranscriptReader(chatStore), sessionId);
+      return { events: record.events, messages: view.messages };
+    },
+  });
   const registry = createSessionRegistry({
     ...opts,
     projectStore,
@@ -1999,6 +2015,31 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       } catch (err: unknown) {
         const mapped = fsErrorStatus(err);
         jsonResponse(res, mapped?.status ?? 500, { error: mapped?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // GET /file-refs — settle-time file reference annotations for one session.
+    // Ambiguous or unknown refs carry no annotation and render as plain text.
+    if (req.method === "GET" && url.pathname === "/file-refs") {
+      const projectId = url.searchParams.get("projectId");
+      const sessionId = url.searchParams.get("sessionId");
+      if (projectId === null || projectId === "" || sessionId === null || sessionId === "") {
+        jsonResponse(res, 400, { error: "projectId and sessionId are required" });
+        return;
+      }
+      try {
+        jsonResponse(res, 200, { refs: await fileRefs.getRefs(projectId, sessionId) });
+      } catch (err: unknown) {
+        if (err instanceof UnknownProjectError) {
+          jsonResponse(res, 404, { error: unknownProjectMessage(projectId) });
+          return;
+        }
+        if (err instanceof UnknownSessionError) {
+          jsonResponse(res, 404, { error: `Unknown session: ${sessionId}` });
+          return;
+        }
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
