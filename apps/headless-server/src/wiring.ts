@@ -40,7 +40,7 @@ import {
   renderInstructionLayers,
   type ContextLayer,
 } from "@volto/core";
-import type { AttachmentStore, Hook, MemoryStore, ModelPort, PermissionConfig, SandboxMode, Message, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
+import type { AttachmentStore, Hook, MemoryStore, ModelPort, PermissionConfig, SandboxMode, Message, UserMessage, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
@@ -223,6 +223,15 @@ export interface WiringOptions {
   maxInstructionBytes?: number;
   /** Conversation history to seed when rebuilding an instance. */
   initialMessages?: Message[];
+  /**
+   * Undelivered steering queue seed (D13): folded from the durable
+   * transcript by the session registry's rebuild / cold start and forwarded
+   * verbatim to createAgent's `initialQueuedInputs`. Held by reference
+   * downstream — the array stays the live seed until the first Runner
+   * materializes, which is also what lets a rebuild push late-landing
+   * entries into it after construction.
+   */
+  initialQueuedInputs?: UserMessage[];
   /** Durable transcript/trajectory store, already scoped to this workspace via scopeToWorkspace(). */
   chatStore?: TranscriptStore;
   /** The chatStore's stable, whole-conversation session id. */
@@ -729,6 +738,12 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.eventSink ? { eventSink: opts.eventSink } : {}),
     ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
+    // Always forwarded, even when empty: createAgent holds the array by
+    // reference as its seed (Task 7), and a rebuild may push entries into
+    // it after construction (the D13 post-build reconcile).
+    ...(opts.initialQueuedInputs !== undefined
+      ? { initialQueuedInputs: opts.initialQueuedInputs }
+      : {}),
     ...(opts.chatStore ? { chatStore: opts.chatStore } : {}),
     ...(opts.chatSessionId ? { chatSessionId: opts.chatSessionId } : {}),
     ...(opts.attachmentStore ? { attachmentStore: opts.attachmentStore } : {}),

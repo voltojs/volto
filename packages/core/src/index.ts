@@ -171,6 +171,9 @@ export { projectMessages, projectMessageEntries, collectAttachmentIds } from "./
 export type { ProjectedMessage } from "./transcript-projection.js";
 export { renderSessionMarkdown, renderSessionJsonl } from "./transcript-export.js";
 
+// D13 queue rebuild — event log → undelivered steering queue for rebuild/cold start
+export { pendingSteeredMessages } from "./steering-rebuild.js";
+
 // View projection — event log → turn/step records for the trajectory UI
 export { buildTurnRecords } from "./view-projection.js";
 export type {

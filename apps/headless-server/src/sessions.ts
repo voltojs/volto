@@ -11,8 +11,8 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue } from "@volto/core";
-import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken } from "@volto/core";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage } from "@volto/core";
+import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
 import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
@@ -1322,22 +1322,38 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     session: Session,
     config: ResolvedConfig,
     credentials: ResolvedCredentials | null,
+    /**
+     * The D13 queue fold a cold start's own hydration read produced (same
+     * persisted-event source as its history seed). Passed in so that read
+     * serves double duty; every other rebuild folds from its own read below.
+     */
+    coldStartQueue?: UserMessage[],
   ): Promise<void> {
     const initialTurn = await resolveInitialTurn(session.id);
     // Same freshness discipline as resolveInitialTurn: recover the once-
     // resolved workspace layers from the transcript so a rebuild never
-    // re-reads instruction files mid-conversation.
-    const initialContextLayers = await (async () => {
+    // re-reads instruction files mid-conversation. One read serves this AND
+    // the D13 queue fold below — the log is append-only, so a single fresh
+    // snapshot is all either seed needs (no second store read).
+    const persistedEvents = await (async (): Promise<TranscriptEvent[] | undefined> => {
       if (!chatStore) return undefined;
       const persisted = await chatStore.readSession(session.id).catch(() => undefined);
-      if (!persisted) return undefined;
-      return contextLayersFromHeader(persisted.events);
+      return persisted?.events;
     })();
+    const initialContextLayers =
+      persistedEvents !== undefined ? contextLayersFromHeader(persistedEvents) : undefined;
     // The paused turn a cross-process resume continues is the last turn —
     // exactly the one initialTurn names — so its step seed is looked up
     // against that ordinal. Only consumed by the SDK's cross-process resume
     // fallback Runner; ordinary new turns ignore it entirely.
     const initialStep = initialTurn !== undefined ? await resolveInitialStep(session.id, initialTurn) : undefined;
+    // D13: the undelivered steering queue, folded from the transcript read
+    // above (a cold start hands in the fold its hydration read produced —
+    // same source, same result). Held BY REFERENCE as the new instance's
+    // seed: createAgent keeps `initialQueuedInputs` as the live queue until
+    // its first Runner materializes, which is also what lets the
+    // post-construction reconcile below push into it.
+    const queueSeed = coldStartQueue ?? pendingSteeredMessages(persistedEvents ?? []);
     // Real path of the credential dir, denied to the sandbox on both the
     // shell and fs sides. Resolved here (async context) rather than inside
     // buildSandboxConfigs, which stays synchronous.
@@ -1446,6 +1462,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       },
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       ...(seeded.length > 0 ? { initialMessages: seeded } : {}),
+      // D13: always passed, even when empty — createAgent holds this array
+      // by reference as its seed (Task 7), so the post-construction
+      // reconcile below can push late-landing entries into it.
+      initialQueuedInputs: queueSeed,
       ...(initialTurn !== undefined ? { initialTurn } : {}),
       ...(initialContextLayers !== undefined ? { initialContextLayers } : {}),
       ...(session.announcedWorkflowMode !== undefined
@@ -1466,6 +1486,24 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           }
         : {}),
     });
+    // D13 rebuild-window race: a steer that landed on the OUTGOING instance
+    // while buildAgent was awaiting records its steering_queued through that
+    // instance's recorder, whose flush is fire-and-forget — the fold above
+    // may have read the transcript before that write landed. Re-read now
+    // that the new instance exists and push anything missed into the SAME
+    // array the new instance holds by reference (Task 7's in-place seed
+    // contract), before this turn claims the queue. Residual: a steer whose
+    // flush lands after this re-read is still missed — closing that would
+    // need the outgoing runner's outstanding flush to be awaitable across
+    // instances, which no API exposes.
+    if (chatStore) {
+      const fresh = await chatStore.readSession(session.id).catch(() => undefined);
+      if (fresh) {
+        for (const message of pendingSteeredMessages(fresh.events)) {
+          if (!queueSeed.some((queued) => queued.id === message.id)) queueSeed.push(message);
+        }
+      }
+    }
     session.config = config;
     session.permissionsDirty = false;
     await disposeAgent(outgoing);
@@ -1591,9 +1629,16 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // even though it was recorded on disk. Idempotent and harmless to run
       // while another turn is in flight. It awaits, so it runs AFTER the
       // latch claim above — the claim itself must stay synchronous.
+      let coldStartQueue: UserMessage[] | undefined;
       if (chatStore && session.history.length === 0) {
         const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-        if (persisted) session.history = projectMessages(persisted.events);
+        if (persisted) {
+          session.history = projectMessages(persisted.events);
+          // D13: the SAME read feeds the queue fold — an undelivered
+          // steering message from a prior process rides into this turn's
+          // rebuilt instance instead of waiting for a second store read.
+          coldStartQueue = pendingSteeredMessages(persisted.events);
+        }
       }
 
       // Title first, model second: this runs before the turn's first token so
@@ -1607,7 +1652,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
 
       const { config, credentials } = await resolveConfig(requested);
       if (!session.agent || !sameConfig(session.config, config) || session.permissionsDirty) {
-        await rebuild(session, config, credentials);
+        await rebuild(session, config, credentials, coldStartQueue);
       }
 
       turnReachedStream = true;
