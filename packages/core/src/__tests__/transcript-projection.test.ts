@@ -72,8 +72,11 @@ function toolUseDelta(toolCallId: string, toolCallName: string, args: string): A
  *  - an `approval_decision` INPUT -> the Runner logs this event itself before
  *    feeding the decision back to step() — the reducer's own deny/allow
  *    transition never emits one (see fix-round-1 finding 2).
- *  - a `cancelled` emit -> a `turn_end` event with reason "cancelled" (a
- *    log-only event either way; recorded for realism, not correctness).
+ *  - a `cancelled` emit -> a `turn_end` event with reason "cancelled". This
+ *    is the projection's termination-pairing trigger (not log-only): the
+ *    real Runner derives one `turn_end` at end-of-run for EVERY termination
+ *    (done / error / cancelled / budget_exceeded, runner.ts recordTurnEnd);
+ *    the harness only needs it for the cancel paths exercised below.
  * Streaming-only signals (text_delta, tool_use_delta, tool_use_complete,
  * reasoning_delta) are not persisted, matching real transcript granularity.
  */
@@ -267,14 +270,24 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
       { type: "cancel", reason: "user" }, // cancelling → done
     ]);
 
-    // A turn that dies before its batch flushes never writes the queued
-    // steering into messages: the reducer keeps it in queuedUserInputs (the
-    // host auto-run delivers it) and the projection drops it at end-of-log
-    // too. end_turn itself no longer leaves an unflushed queue — D3 drains
-    // it in-turn (see steering-cross-status.test.ts).
+    // The cancelled batch now pairs its tool_use in history (a synthesized
+    // interrupted result — providers reject un-paired tool_use outright),
+    // but the queued steering is still NOT delivered: the reducer keeps it
+    // in queuedUserInputs (the host auto-run delivers it) and the projection
+    // drops it at end-of-log too. end_turn itself no longer leaves an
+    // unflushed queue — D3 drains it in-turn (see steering-cross-status.test.ts).
     expect(finalState.queuedUserInputs).toHaveLength(1);
     expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
-    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    // The projected wording is byte-identical to the reducer's synthesis.
+    const synthesized = (finalState.messages.at(-1)! as { content: ToolResultContent[] }).content[0]!;
+    expect(synthesized.content).toEqual([
+      {
+        type: "text",
+        text: 'Tool "read_file" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+      },
+    ]);
+    expect(synthesized.isError).toBe(true);
   });
 
   it("6. a denied tool call", () => {
@@ -304,9 +317,22 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
       { type: "cancel", reason: "user" },
     ]);
 
-    // The reducer clears _toolResultBuffer on cancel without ever flushing
-    // it — c1's already-arrived result must not appear in history.
-    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    // A cancel no longer drops a partially-reported batch on the floor:
+    // c1's already-arrived result is kept as-is and the missing sibling gets
+    // a synthesized interrupted result — roster order, every tool_use paired.
+    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "tool"]);
+    const toolBlocks = finalState.messages
+      .filter((m): m is Extract<typeof m, { role: "tool" }> => m.role === "tool")
+      .map((m) => m.content[0]!);
+    expect(toolBlocks.map((b) => b.toolUseId)).toEqual(["c1", "c2"]);
+    expect(toolBlocks[0]!.content).toEqual([{ type: "text", text: "file contents" }]);
+    expect(toolBlocks[1]!.content).toEqual([
+      {
+        type: "text",
+        text: 'Tool "list_dir" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+      },
+    ]);
+    expect(toolBlocks[1]!.isError).toBe(true);
     expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
   });
 
@@ -743,6 +769,156 @@ describe("projectMessages", () => {
 
   it("returns an empty array for an empty log", () => {
     expect(stripIds(projectMessages([]))).toEqual([]);
+  });
+});
+
+describe("projectMessages — interrupted tool results (termination pairing)", () => {
+  it("pairs every un-fulfilled tool_use at a cancelled turn_end, approval-pending call last", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "go" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: {
+          content: [
+            { type: "tool_use", id: "c1", name: "bash", input: {} },
+            { type: "tool_use", id: "c2", name: "read_file", input: {} },
+          ],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      // c1 is pulled out of the batch for approval and the turn dies before
+      // any decision: the reducer pairs in roster order — the still-executing
+      // sibling first, the approval-pending call last (the decision would
+      // have appended it back at the end).
+      { time: 3, type: "approval_asked", data: { callId: "c1", name: "bash", riskTier: "WRITE_HIGH" }, turn: 1, step: 1 },
+      { time: 4, type: "turn_end", data: { turn: 1, reason: "cancelled" }, turn: 1 },
+    ]);
+
+    expect(stripIds(projectMessages(events).slice(2))).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "c2",
+            content: [
+              {
+                type: "text",
+                text: 'Tool "read_file" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+              },
+            ],
+            isError: true,
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "c1",
+            content: [
+              {
+                type: "text",
+                text: 'Tool "bash" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+              },
+            ],
+            isError: true,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("uses the limit wording when the turn ends on a safety limit", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "go" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 3,
+        type: "turn_end",
+        data: { turn: 1, reason: "budget_exceeded", error: "Cost budget exceeded" },
+        turn: 1,
+      },
+    ]);
+
+    expect(stripIds(projectMessages(events).slice(2))).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "c1",
+            content: [
+              {
+                type: "text",
+                text: 'Tool "read_file" was interrupted: the turn was terminated by a safety limit before it finished.',
+              },
+            ],
+            isError: true,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a real result that arrived before the termination and synthesizes only the missing ones", () => {
+    const events = log([
+      { time: 1, type: "user_message", data: { content: "go" }, turn: 1 },
+      {
+        time: 2,
+        type: "assistant_message",
+        data: {
+          content: [
+            { type: "tool_use", id: "c1", name: "read_file", input: {} },
+            { type: "tool_use", id: "c2", name: "list_dir", input: {} },
+          ],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 3,
+        type: "tool_result",
+        data: { callId: "c1", name: "read_file", content: "file contents", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 4,
+        type: "turn_end",
+        data: { turn: 1, reason: "error", error: "Maximum iterations reached" },
+        turn: 1,
+      },
+    ]);
+
+    const toolViews = projectMessages(events).slice(2).map((m) => ({
+      toolUseId: (m.content as ToolResultContent[])[0]!.toolUseId,
+      text: ((m.content as ToolResultContent[])[0]!.content as Array<{ text: string }>)[0]!.text,
+    }));
+    expect(toolViews).toEqual([
+      { toolUseId: "c1", text: "file contents" },
+      {
+        toolUseId: "c2",
+        text: 'Tool "list_dir" was interrupted: the turn was terminated by a safety limit before it finished.',
+      },
+    ]);
   });
 });
 

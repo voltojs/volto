@@ -211,12 +211,17 @@ export function step(
   ctx: StepContext,
 ): StepResult {
   // Unified budget_exceeded handler — applies in all active states.
-  // Terminates the turn with a clear reason; no exception.
+  // Terminates the turn with a clear reason; no exception. Any tool call
+  // still on the roster is paired before the teardown (limit tier), so the
+  // history never ends on an un-paired tool_use block.
   if (input.type === "budget_exceeded" && state.status !== "done" && state.status !== "idle") {
+    const interrupted = synthesizeInterruptedResults(state, ctx, "limit");
     return {
       state: {
         ...state,
+        messages: [...state.messages, ...interrupted],
         pendingTools: [],
+        pendingApprovalTool: undefined,
         _toolResultBuffer: {},
         status: "done",
       },
@@ -810,8 +815,21 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
       const baseWithToolCount = { ...baseState, toolCallCount: newToolCallCount };
       const limit2 = limitReached(baseWithToolCount);
       if (limit2) {
+        // The assistant message just appended carries the new tool_use
+        // blocks and none of them will ever execute — pair them (limit tier)
+        // before the teardown, or the next request is malformed.
+        const interrupted = synthesizeInterruptedResults(
+          { ...baseWithToolCount, pendingTools: toolCalls },
+          ctx,
+          "limit",
+        );
         return {
-          state: { ...baseWithToolCount, pendingTools: [], status: "done" },
+          state: {
+            ...baseWithToolCount,
+            messages: [...baseWithToolCount.messages, ...interrupted],
+            pendingTools: [],
+            status: "done",
+          },
           effects: [
             emitEffect,
             { type: "emit", event: { type: "error", data: { error: limit2 } } },
@@ -863,8 +881,21 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
             const maxLoopInterventions = ctx.maxLoopInterventions ?? 2;
             if (state.loopInterventionCount >= maxLoopInterventions) {
               const loopError = `Loop detected: tool "${loopResult.toolName}" has been called ${consecutiveCount} times with identical input and returned errors`;
+              // Same pairing rule as the runaway guard above: the new calls
+              // in the just-finalized assistant message will never execute,
+              // so answer them (limit tier) before the teardown.
+              const interrupted = synthesizeInterruptedResults(
+                { ...baseWithToolCount, pendingTools: toolCalls },
+                ctx,
+                "limit",
+              );
               return {
-                state: { ...baseWithToolCount, pendingTools: [], status: "done" },
+                state: {
+                  ...baseWithToolCount,
+                  messages: [...baseWithToolCount.messages, ...interrupted],
+                  pendingTools: [],
+                  status: "done",
+                },
                 effects: [
                   emitEffect,
                   { type: "emit", event: { type: "error", data: { error: loopError } } },
@@ -1185,8 +1216,16 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
   }
 
   if (input.type === "cancel") {
+    // Pair every pending tool_use before the teardown (cancel tier): the
+    // already-buffered real results are kept, the missing ones synthesized.
     return {
-      state: { ...state, status: "cancelling", pendingTools: [], _toolResultBuffer: {} },
+      state: {
+        ...state,
+        messages: [...state.messages, ...synthesizeInterruptedResults(state, ctx, "cancel")],
+        status: "cancelling",
+        pendingTools: [],
+        _toolResultBuffer: {},
+      },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
     };
   }
@@ -1229,6 +1268,73 @@ function denialMessageFor(toolName: string, reason?: ApprovalDenialReason): stri
     default:
       return userDenialMessage(toolName);
   }
+}
+
+/**
+ * The tool result an interrupted call reports back to the MODEL.
+ *
+ * Every termination path that clears the tool roster pairs each un-fulfilled
+ * `tool_use` with an `isError: true` tool_result — providers reject a request
+ * whose tail assistant message carries un-paired `tool_use` entries outright.
+ * The tier wording says what happened without attributing judgement:
+ * "cancel" for a user-initiated abort, "limit" for a safety-limit teardown
+ * (budget / iteration cap / loop hard-kill).
+ *
+ * Exported because transcript-projection.ts synthesizes the same text from
+ * `turn_end`, so a resumed session's history matches the live one byte for
+ * byte — same sharing rule as `userDenialMessage` above.
+ */
+export function interruptionMessageFor(toolName: string, tier: "cancel" | "limit"): string {
+  switch (tier) {
+    case "cancel":
+      return (
+        `Tool "${toolName}" was interrupted: the user cancelled the turn before it finished. ` +
+        `The call was not judged either way.`
+      );
+    case "limit":
+      return `Tool "${toolName}" was interrupted: the turn was terminated by a safety limit before it finished.`;
+  }
+}
+
+/**
+ * Pair every tool_use on the roster when a termination path tears the batch
+ * down: an id whose result already arrived (`_toolResultBuffer`) keeps that
+ * real result — flushing it is more truthful than replacing it — and every
+ * missing one is synthesized with the tier's wording and `isError: true`.
+ * Roster order (`pendingTools`, then `pendingApprovalTool`), matching the
+ * flush order of a completed batch.
+ *
+ * Idempotent by construction: once the roster is cleared the walk is empty,
+ * so the cancelling → done hop never double-synthesizes.
+ */
+function synthesizeInterruptedResults(
+  state: ReducerState,
+  ctx: StepContext,
+  tier: "cancel" | "limit",
+): ToolResultMessage[] {
+  const roster = [
+    ...state.pendingTools,
+    ...(state.pendingApprovalTool !== undefined ? [state.pendingApprovalTool] : []),
+  ];
+  return roster.map((tool) => {
+    const buffered = state._toolResultBuffer[tool.id];
+    if (buffered !== undefined) return buffered;
+    return stamp(
+      {
+        id: "",
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: tool.id,
+            content: normalizeToolResultContent(interruptionMessageFor(tool.name, tier)),
+            isError: true,
+          },
+        ],
+      },
+      ctx,
+    );
+  });
 }
 
 function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: StepContext): StepResult {
@@ -1340,8 +1446,19 @@ function handleWaitingForApproval(state: ReducerState, input: AgentInput, ctx: S
   }
 
   if (input.type === "cancel") {
+    // Pair every pending tool_use before the teardown (cancel tier) — the
+    // approval-pending call is on the roster too and must be answered.
+    // Clearing the whole roster keeps the cancelling → done hop from
+    // synthesizing a second time.
     return {
-      state: { ...state, status: "cancelling", pendingTools: [] },
+      state: {
+        ...state,
+        messages: [...state.messages, ...synthesizeInterruptedResults(state, ctx, "cancel")],
+        status: "cancelling",
+        pendingTools: [],
+        pendingApprovalTool: undefined,
+        _toolResultBuffer: {},
+      },
       effects: [{ type: "emit", event: { type: "cancelled", data: { reason: input.reason } } }],
     };
   }

@@ -22,10 +22,17 @@
  *    projection must too: an unflushed queue is DROPPED, never appended at
  *    end-of-log or at end-of-turn.
  *
- * A batch that never fully resolves (every `tool_use` id in the triggering
- * assistant message accounted for) is discarded whole, matching the buffer
- * clear on cancel (reducer.ts:610-615) — a partial flush never happens in the
- * reducer, so the projection must never invent one either.
+ * Termination pairing (D12): a turn that ends while a batch is still in
+ * flight no longer leaves it discarded whole. The reducer answers every
+ * un-fulfilled `tool_use` on teardown — a synthesized `isError` tool_result,
+ * keeping an already-buffered real result where one arrived — and the
+ * `turn_end` case below mirrors that synthesis byte for byte (providers
+ * reject un-paired `tool_use` outright, so a resumed session must rebuild
+ * exactly what the live reducer wrote). Only a log that never reaches
+ * `turn_end` (a crash mid-turn) leaves the batch unresolved, and THAT is
+ * discarded whole at the next `user_message`, matching
+ * `resetTurnForNextInput` clearing `pendingTools` / `_toolResultBuffer`
+ * without ever flushing them.
  *
  * Compaction write-back (Task 2): a `compaction` event carrying
  * `replacedIds`/`summaryId` rewrites the projected list the same way the
@@ -45,6 +52,7 @@ import type { Message, ToolResultContent, ToolUseContent, ContentBlock } from ".
 import { normalizeToolResultContent } from "./state.js";
 import type { TranscriptEvent, TranscriptEventMap } from "./ports.js";
 import { userDenialMessage } from "./permission-policy.js";
+import { interruptionMessageFor } from "./reducer.js";
 import { renderImagePreservedMarker } from "./compaction-image-offload.js";
 
 /** A projected message paired with the time of the event that produced it. */
@@ -89,11 +97,15 @@ function startBatch(ids: readonly string[]): PendingBatch {
 
 /**
  * Mirrors what an approval does to `pendingTools`: `request_approval` pulls
- * the tool out (reducer.ts:594) and the decision puts it back at the end —
- * the allow branch to be executed, the deny branch already resolved. The net
- * effect either way is "move this id to the end of the roster", which is
- * derivable from `approval_decision` alone; `approval_asked` is not needed
- * and, unlike the decision, is not guaranteed to be in the log.
+ * the tool out (reducer.ts) and the decision puts it back at the end — the
+ * allow branch to be executed, the deny branch already resolved. The net
+ * effect either way is "move this id to the end of the roster", derived from
+ * BOTH `approval_asked` and `approval_decision` (idempotent — the second
+ * move is a no-op). Moving at ask time matters when the turn dies before a
+ * decision ever arrives: the termination pairing flushes the
+ * approval-pending call LAST, exactly as the reducer's roster orders it.
+ * A legacy log without `approval_asked` still works — the decision alone
+ * moves the id before anything flushes.
  */
 function moveToRosterEnd(batch: PendingBatch, id: string): void {
   const at = batch.roster.indexOf(id);
@@ -232,6 +244,11 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
       case "approval_asked": {
         const data = event.data as TranscriptEventMap["approval_asked"];
         toolNamesById.set(data.callId, data.name);
+        // request_approval pulls the tool out of pendingTools and the
+        // decision appends it back at the end — reflect that re-ordering at
+        // ask time so a mid-approval termination flushes in the reducer's
+        // roster order (see moveToRosterEnd).
+        if (batch) moveToRosterEnd(batch, data.callId);
         break;
       }
 
@@ -268,6 +285,45 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
         steering.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
+        break;
+      }
+
+      case "turn_end": {
+        // Termination pairing (D12) — mirrors synthesizeInterruptedResults
+        // (reducer.ts): a turn that ends with a batch still in flight pairs
+        // every un-fulfilled tool_use before the history is reused. The
+        // resolved entries ARE the reducer's `_toolResultBuffer` (every
+        // buffered result produced a tool_result event), so they ship
+        // as-is; only the missing ids get the interrupted placeholder, in
+        // roster order. Steering is NOT drained here: the reducer leaves
+        // queuedUserInputs for the host auto-run, and the projection drops
+        // it at end-of-log (below).
+        if (batch) {
+          const end = event.data as TranscriptEventMap["turn_end"];
+          const tier = end.reason === "cancelled" ? "cancel" : "limit";
+          for (const id of batch.roster) {
+            const resolved = batch.resolved.get(id);
+            // A buffered result ships as-is whatever its arrival-time order:
+            // the reducer's synthesis reads the buffer by id, unconditionally.
+            if (resolved !== undefined) {
+              messages.push(resolved.entry);
+              continue;
+            }
+            const block: ToolResultContent = {
+              type: "tool_result",
+              toolUseId: id,
+              content: normalizeToolResultContent(
+                interruptionMessageFor(toolNamesById.get(id) ?? "tool", tier),
+              ),
+              isError: true,
+            };
+            messages.push({
+              message: { id: nextProjId(), role: "tool", content: [block] },
+              time: event.time,
+            });
+          }
+          batch = undefined;
+        }
         break;
       }
 
@@ -358,10 +414,13 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
     }
   }
 
-  // No trailing flush: an incomplete batch or an unflushed steering queue at
-  // end-of-log mirrors what the reducer does on cancel / an end_turn with a
-  // non-empty queuedUserInputs — both are silently dropped, never written to
-  // `state.messages`. Flushing here would resurrect exactly that content.
+  // No trailing flush: an incomplete batch at end-of-log means the log never
+  // reached `turn_end` — a crash mid-turn, where the reducer likewise never
+  // processed a termination input and `resetTurnForNextInput` cleared the
+  // roster silently. (A turn that DID end pairs its batch at `turn_end`,
+  // above.) An unflushed steering queue is dropped for the same reason as
+  // ever: the reducer keeps it in `queuedUserInputs` for the host auto-run,
+  // never in `messages`. Flushing here would resurrect exactly that content.
   return messages;
 }
 

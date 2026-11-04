@@ -242,7 +242,7 @@ describe("Phase 2 — deterministic result merging", () => {
   });
 
   describe("cancel during executing_tools", () => {
-    it("should clear buffer on cancel", () => {
+    it("should pair every pending tool_use on cancel, keeping buffered results in roster order", () => {
       const setup = buildMultiToolSetup();
       const setupTrace = drive(setup, ctx);
       const afterSetup = setupTrace[setupTrace.length - 1]!.state;
@@ -261,7 +261,37 @@ describe("Phase 2 — deterministic result merging", () => {
       const afterCancel = step(afterPartial.state, { type: "cancel", reason: "user" }, ctx);
       expect(afterCancel.state.status).toBe("cancelling");
       expect(afterCancel.state.pendingTools).toEqual([]);
-      expect(afterCancel.state._toolResultBuffer).toEqual({});
+
+      // A cancel no longer drops the batch on the floor: every pending
+      // tool_use is paired in history. The already-buffered result is kept
+      // as-is (flushing it is more truthful than replacing it) and the
+      // missing ones are synthesized as isError — all in roster order,
+      // so nothing is lost and the next request is well-formed.
+      const toolMsgs = afterCancel.state.messages.filter((m) => m.role === "tool");
+      expect(toolMsgs.map((m) => (m.content as ToolResultContent[])[0]!.toolUseId)).toEqual([
+        "call_A",
+        "call_B",
+        "call_C",
+      ]);
+
+      const [blockA, blockB, blockC] = toolMsgs.map((m) => (m.content as ToolResultContent[])[0]!);
+      // Buffered content preserved verbatim.
+      expect(blockA!.content).toEqual([{ type: "text", text: "partial" }]);
+      // Synthesized ones carry the cancel tier's wording, marked isError.
+      expect(blockB!.content).toEqual([
+        {
+          type: "text",
+          text: 'Tool "search" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+        },
+      ]);
+      expect(blockB!.isError).toBe(true);
+      expect(blockC!.content).toEqual([
+        {
+          type: "text",
+          text: 'Tool "bash" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+        },
+      ]);
+      expect(blockC!.isError).toBe(true);
     });
   });
 });

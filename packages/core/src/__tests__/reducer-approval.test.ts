@@ -189,6 +189,22 @@ describe("reducer: request_approval flow", () => {
 
     const r2 = step(state, { type: "cancel", reason: "user abort" }, ctx);
     expect(r2.state.status).toBe("cancelling");
+
+    // The approval-pending call is on the roster too: its tool_use is paired
+    // with a synthesized interrupted result (isError, cancel tier wording)
+    // instead of being left unanswered for the next request to trip over.
+    expect(toolResultIds(r2.state)).toEqual(["t1"]);
+    const lastMsg = r2.state.messages[r2.state.messages.length - 1]!;
+    expect(lastMsg.role).toBe("tool");
+    const block = (lastMsg as { content: Array<{ content: Array<{ type: string; text: string }>; isError?: boolean }> }).content[0]!;
+    expect(block.content.map((b) => b.text).join("\n")).toBe(
+      'Tool "edit_file" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+    );
+    expect(block.isError).toBe(true);
+
+    // Roster fully cleared so the cancelling -> done hop cannot re-synthesize.
+    expect(r2.state.pendingTools).toEqual([]);
+    expect(r2.state.pendingApprovalTool).toBeUndefined();
   });
 });
 
