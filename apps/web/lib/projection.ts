@@ -13,6 +13,7 @@ import {
   toTrajectoryView,
 } from '@volto/sdk/sse';
 import type {
+  ConversationBlock,
   ConversationMessage,
   ConversationView,
   TranscriptDelta,
@@ -33,11 +34,185 @@ export interface ProjectedConversation {
   records: TurnRecord[];
 }
 
+// ---------------------------------------------------------------------------
+// Steering queue fold (spec 2026-11-04 §4.6)
+// ---------------------------------------------------------------------------
+//
+// The web renders a message queued mid-turn at its SEND position with a
+// `queued` badge, deliberately differing from core's record fold, whose
+// semantics are the delivery point — the semantics the GET view, the
+// trajectory, and the server-side session detail keep. One event must not be
+// rendered twice, so the id-carrying steering events are folded here and
+// kept out of the record fold.
+
+/**
+ * Steering events the web's own queue fold owns. A legacy `steering_queued`
+ * without an `id` has no stable identity to fold by; it keeps core's
+ * pre-id placement instead of disappearing from the feed.
+ */
+function ownedBySteeringFold(event: TranscriptEventInput): boolean {
+  switch (event.type) {
+    case 'steering_queued':
+      return typeof (event.data as { id?: unknown }).id === 'string';
+    case 'steering_edited':
+    case 'steering_removed':
+    case 'steering_delivered':
+      // These only ever target stamped ids, i.e. inputs core never saw
+      // (their queued counterparts are filtered above), so core treats them
+      // as no-ops either way.
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Content shape of a `steering_queued` event (string or content blocks). */
+type SteeringContent = TranscriptEventInput<'steering_queued'>['data']['content'];
+
+/** One queued user bubble, folded from the steering events. */
+interface QueuedEntry {
+  /** Stamped at enqueue time — the entry's identity and React key. */
+  id: string;
+  content: SteeringContent;
+  /** The `steering_queued` event's clock time — the send-position anchor. */
+  time: number;
+  queued: boolean;
+}
+
+/**
+ * Folds the steering queue in event order (FIFO): `steering_queued` creates
+ * the entry, `steering_edited` rewrites its content in place,
+ * `steering_removed` drops it entirely, and `steering_delivered` flips
+ * `queued` to false without moving it. Pure — folding the live-accumulated
+ * buffer and re-folding the same stored log produce the same entries.
+ */
+function foldSteeringQueue(events: readonly TranscriptEventInput[]): QueuedEntry[] {
+  const byId = new Map<string, QueuedEntry>();
+  const sendOrder: string[] = [];
+  for (const event of events) {
+    switch (event.type) {
+      case 'steering_queued': {
+        const data = event.data as { id?: unknown; content: SteeringContent };
+        if (typeof data.id !== 'string') break;
+        // Idempotent: a repeated queue event keeps the first send position.
+        if (byId.has(data.id)) break;
+        byId.set(data.id, {
+          id: data.id,
+          content: data.content,
+          time: event.time,
+          queued: true,
+        });
+        sendOrder.push(data.id);
+        break;
+      }
+      case 'steering_edited': {
+        const data = event.data as { id: string; content: SteeringContent };
+        const entry = byId.get(data.id);
+        if (entry) entry.content = data.content;
+        break;
+      }
+      case 'steering_removed': {
+        const data = event.data as { id: string };
+        byId.delete(data.id);
+        break;
+      }
+      case 'steering_delivered': {
+        const data = event.data as { ids: string[] };
+        for (const id of data.ids) {
+          const entry = byId.get(id);
+          if (entry) entry.queued = false;
+        }
+        break;
+      }
+    }
+  }
+  return sendOrder.flatMap((id) => {
+    const entry = byId.get(id);
+    return entry ? [entry] : [];
+  });
+}
+
+/** Mirrors core's private `textOf`: the copy-to-clipboard text surface. */
+function contentText(content: SteeringContent): string {
+  if (typeof content === 'string') return content;
+  let text = '';
+  for (const block of content) {
+    if (block.type === 'text' || block.type === 'structured') text += block.text;
+  }
+  return text;
+}
+
+/** Mirrors core's private `userConversationBlocks` for a queued input. */
+function queuedBlocks(content: SteeringContent): ConversationBlock[] {
+  if (typeof content === 'string') {
+    return content ? [{ type: 'text', text: content }] : [];
+  }
+  const blocks: ConversationBlock[] = [];
+  for (const block of content) {
+    if (block.type === 'text') {
+      if (block.text) blocks.push({ type: 'text', text: block.text });
+    } else if (block.type === 'structured') {
+      // No dedicated chat shape; the required text projection is the exit.
+      if (block.text) blocks.push({ type: 'text', text: block.text });
+    } else if (block.type === 'image') {
+      blocks.push({
+        type: 'image',
+        attachmentId: block.source.id,
+        mediaType: block.source.mediaType,
+        ...(block.width !== undefined ? { width: block.width } : {}),
+        ...(block.height !== undefined ? { height: block.height } : {}),
+      });
+    }
+  }
+  return blocks;
+}
+
+function toFeedMessage(entry: QueuedEntry): FeedMessage {
+  return {
+    id: entry.id,
+    role: 'user',
+    blocks: queuedBlocks(entry.content),
+    content: contentText(entry.content),
+    timestamp: entry.time,
+    queued: entry.queued,
+  };
+}
+
+/**
+ * Places folded entries at their send positions: after every message that
+ * was already folded when the message was queued, before everything that
+ * arrived later — the feed tail at send time, stable as the turn continues.
+ * Equal timestamps keep the already-folded message first (a sub-millisecond
+ * tie the event array order alone cannot break here).
+ */
+function insertQueuedMessages(
+  messages: readonly ConversationMessage[],
+  queued: readonly QueuedEntry[],
+): FeedMessage[] {
+  const merged: FeedMessage[] = [];
+  let next = 0;
+  for (const message of messages) {
+    while (next < queued.length && queued[next]!.time < message.timestamp) {
+      merged.push(toFeedMessage(queued[next]!));
+      next += 1;
+    }
+    merged.push(message);
+  }
+  while (next < queued.length) {
+    merged.push(toFeedMessage(queued[next]!));
+    next += 1;
+  }
+  return merged;
+}
+
 /**
  * Builds the chat feed from durable events plus whatever is still streaming.
  *
  * `prev` lets closed turns keep their object identity across rebuilds, so a
  * memoising row component re-renders only the turn in flight.
+ *
+ * Steering queue events are excluded from the record fold and folded into
+ * the message list here instead (send positions + `queued` badge, spec §4.6).
  */
 export function projectConversation(
   events: readonly TranscriptEventInput[],
@@ -45,9 +220,14 @@ export function projectConversation(
   prev?: readonly TurnRecord[],
   t: (key: string) => string = (key) => key,
 ): ProjectedConversation {
-  let records = buildTurnRecords(asStored(events), prev);
+  const recordEvents = events.filter((event) => !ownedBySteeringFold(event));
+  let records = buildTurnRecords(asStored(recordEvents), prev);
   for (const delta of deltas) records = applyPartial(records, delta);
-  return { view: toConversationView(records), records };
+  const view = toConversationView(records);
+  return {
+    view: { messages: insertQueuedMessages(view.messages, foldSteeringQueue(events)) },
+    records,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -93,9 +273,18 @@ export interface ChatNotice {
 
 /** One rendered row of the conversation: a chat bubble, an error, or a notice. */
 export type ChatEntry =
-  | { kind: 'message'; message: ConversationMessage }
+  | { kind: 'message'; message: FeedMessage }
   | { kind: 'error'; key: string; text: string; time: number }
   | ({ kind: 'notice' } & ChatNotice);
+
+/**
+ * A conversation message as the web renders it. A user entry queued
+ * mid-turn carries `queued`: true while it waits for delivery, false once a
+ * `steering_delivered` named it — the badge state only; the entry never
+ * moves (spec §4.6). Absent on every message that never went through the
+ * queue.
+ */
+export type FeedMessage = ConversationMessage & { queued?: boolean };
 
 /**
  * Composes the feed a UI renders from a merged message list plus the live
@@ -253,7 +442,12 @@ function withCancelNotices(
   const result: ChatEntry[] = [];
   let openTurn: number | null = null;
   for (const entry of entries) {
-    const turn = entryTurn(entry);
+    const parsed = entryTurn(entry);
+    // A queued bubble's id is its stamped steering id — no `${turn}:` prefix.
+    // It belongs to the turn it was queued in, so an unparseable id must not
+    // read as a turn boundary (that would splice the cancel notice ahead of
+    // the rest of its own turn); the open turn carries forward instead.
+    const turn: number = Number.isNaN(parsed) ? openTurn ?? parsed : parsed;
     if (openTurn !== null && turn !== openTurn) {
       const done = pending.get(openTurn);
       if (done) {
