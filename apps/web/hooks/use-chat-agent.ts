@@ -203,8 +203,8 @@ export function useChatAgent(): UseChatAgentReturn {
 
   const sendMessage = useCallback(
     async (content: string, attachments?: string[]) => {
-      if (useChatStore.getState().isGenerating) return;
-
+      // No isGenerating guard: a send during a turn is a steer — the gateway
+      // answers 202 and the queued entry folds back through steering_queued.
       const sessionStore = useSessionStore.getState();
       const sessionId = sessionStore.currentSessionId;
       if (!sessionId) {

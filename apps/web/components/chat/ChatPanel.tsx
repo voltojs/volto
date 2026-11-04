@@ -821,11 +821,7 @@ export function ChatPanel() {
                     // 与会话内分支的 currentModel?.input 三态语义一致。
                     imageInput={welcomeModel?.input}
                     onInputAction={handleInputAction}
-                    disabled={
-                      isGenerating ||
-                      !pendingProjectId ||
-                      pendingApprovals.length > 0
-                    }
+                    disabled={!pendingProjectId}
                     placeholder={
                       pendingApprovals.length > 0
                         ? t('composer.waitingApproval')
@@ -964,9 +960,7 @@ export function ChatPanel() {
                 // text-only list disables it and says why.
                 imageInput={currentModel?.input}
                 onInputAction={handleInputAction}
-                disabled={
-                  isGenerating || missingBinding || pendingApprovals.length > 0
-                }
+                disabled={missingBinding}
                 isGenerating={isGenerating}
                 onStop={() => void stopGeneration()}
                 placeholder={

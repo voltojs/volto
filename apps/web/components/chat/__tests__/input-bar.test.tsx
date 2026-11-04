@@ -1,7 +1,70 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
+import type { TranscriptEventInput } from '@volto/sdk/sse';
 import { InputBar, type InputBarProps } from '../InputBar';
+import { ChatPanel } from '../ChatPanel';
+import { useSessionStore } from '@/stores/session-store';
+import { useChatStore } from '@/stores/chat-store';
+import { usePaneStore, PANE_WIDTH_DEFAULT } from '@/stores/pane-store';
+import { useConfigStore, type Provider } from '@/stores/config-store';
+
+// Transport doubles for the ChatPanel-gate cases below: the composer must
+// actually reach `POST /messages` (steer routing) and `POST /interrupt`
+// through the real use-chat-agent hook, so only the network layer is stubbed.
+const transport = vi.hoisted(() => ({
+  postMessage: vi.fn(async () => {}),
+  interruptTurn: vi.fn(async () => true),
+}));
+
+vi.mock('@/lib/agent-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agent-config')>();
+  return {
+    ...actual,
+    createGatewaySSEClient: () => {
+      const stateHandlers: Array<(state: string) => void> = [];
+      return {
+        onStateChange: (cb: (state: string) => void) => {
+          stateHandlers.push(cb);
+          return () => {};
+        },
+        onEvent: vi.fn(),
+        onDelta: vi.fn(),
+        onError: vi.fn(),
+        destroy: vi.fn(),
+        setEventSourceFactory: vi.fn(),
+        getConnectionToken: () => null,
+        connect: () => {
+          for (const cb of stateHandlers) cb('connected');
+        },
+      };
+    },
+    postMessage: transport.postMessage,
+    interruptTurn: transport.interruptTurn,
+  };
+});
+
+vi.mock('@/lib/sessions-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/sessions-api')>()),
+  fetchSessionEvents: vi.fn().mockResolvedValue({ sessionId: 's1', events: [] }),
+  fetchServerSessionDetail: vi.fn().mockResolvedValue({
+    messages: [],
+    contextUsage: null,
+    projectId: 'p1',
+    providerId: 'v1',
+    modelId: 'm1',
+    permissionMode: 'ask',
+  }),
+  renameServerSession: vi.fn().mockResolvedValue({}),
+  // The bottom status bar folds trajectory rows; keep tests offline.
+  fetchServerTrajectory: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('@/lib/git-api', () => ({
+  fetchGitSummary: vi
+    .fn()
+    .mockResolvedValue({ isGit: false, branch: null, head: null }),
+}));
 
 // jsdom 未实现 Range.getClientRects / Range.getBoundingClientRect（真实浏览器
 // 都有）。tiptap 的 focus() 命令在 requestAnimationFrame 里才执行
@@ -17,6 +80,9 @@ if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
   Range.prototype.getClientRects = () => emptyRectList;
   Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
 }
+// Same no-op stubs chat-panel-layout.test.tsx needs to mount ChatPanel.
+Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.setPointerCapture ??= () => {};
 
 function setup(props: Partial<InputBarProps> = {}) {
   const onSubmit = vi.fn();
@@ -156,5 +222,147 @@ describe('InputBar（tiptap 底座）', () => {
     });
     fireEvent.click(sendButton());
     expect(onSubmit).toHaveBeenCalledWith('加粗 正文');
+  });
+});
+
+// ── Task 13: the composer stays usable during generation / approvals ────────
+// These cases render the full ChatPanel, not a bare InputBar: the `disabled`
+// gate is computed by ChatPanel, so only the assembled panel can prove that
+// the box is really editable and that Enter really reaches POST /messages.
+
+const PROVIDER: Provider = {
+  kind: 'custom',
+  id: 'v1',
+  name: 'Xiaomi',
+  baseURL: 'https://example.com/v1',
+  apiKeyMasked: null,
+  models: [{ id: 'm1', name: 'MiMo', code: 'mimo' }],
+};
+
+function seedConversation() {
+  window.localStorage.clear();
+  useChatStore.setState({
+    events: [],
+    deltas: [],
+    isGenerating: false,
+    subagents: {},
+    currentSessionId: 's1',
+    connectionState: 'connected',
+  });
+  usePaneStore.setState({
+    tabs: [],
+    activeTabId: null,
+    width: PANE_WIDTH_DEFAULT,
+    open: true,
+    hidden: false,
+  });
+  useConfigStore.setState({
+    projects: [{ id: 'p1', path: '/tmp/p1', name: 'p1', createdAt: 0 }],
+    providers: [PROVIDER],
+    catalogProviders: [],
+    loaded: true,
+    error: null,
+  });
+  useSessionStore.setState({
+    currentSessionId: 's1',
+    sidebarOpen: false,
+    pendingProjectId: null,
+    sessions: [
+      {
+        id: 's1',
+        title: 't',
+        // One stored message so the conversation branch (not welcome /
+        // skeleton) renders the main InputBar.
+        messages: [
+          {
+            id: 'um1',
+            role: 'user',
+            blocks: [{ type: 'text', text: 'hello' }],
+            content: 'hello',
+            timestamp: 0,
+          },
+        ],
+        messageCount: 1,
+        detailLoaded: true,
+        projectId: 'p1',
+        providerId: 'v1',
+        modelId: 'm1',
+        permissionMode: 'ask',
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ],
+  });
+}
+
+describe('InputBar gate during generation and approvals (ChatPanel)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedConversation();
+  });
+
+  it('InputBar is editable while isGenerating', async () => {
+    useChatStore.setState({ isGenerating: true });
+    render(<ChatPanel />);
+
+    const editor = screen.getByTestId('input-editor');
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+
+    fireEvent.paste(editor, { clipboardData: { getData: () => 'steer this turn' } });
+    expect(editor).toHaveTextContent('steer this turn');
+
+    fireEvent.keyDown(editor, { key: 'Enter', bubbles: true, cancelable: true });
+    await waitFor(() =>
+      expect(transport.postMessage).toHaveBeenCalledWith(
+        's1',
+        'steer this turn',
+        expect.objectContaining({ projectId: 'p1', providerId: 'v1', modelId: 'm1' }),
+        [],
+      ),
+    );
+  });
+
+  it('InputBar is editable while approvals are pending', async () => {
+    useChatStore.setState({
+      events: [
+        {
+          time: 1,
+          type: 'approval_asked',
+          data: { callId: 'call-1', name: 'bash', riskTier: 'WRITE_HIGH' },
+        },
+      ] as TranscriptEventInput[],
+    });
+    render(<ChatPanel />);
+
+    // Sanity: the approval really is pending, so this case cannot go green
+    // with the gate condition absent.
+    expect(screen.getByText(/需要你的批准/)).toBeInTheDocument();
+
+    const editor = screen.getByTestId('input-editor');
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+
+    fireEvent.paste(editor, { clipboardData: { getData: () => 'steer during approval' } });
+    expect(editor).toHaveTextContent('steer during approval');
+
+    fireEvent.keyDown(editor, { key: 'Enter', bubbles: true, cancelable: true });
+    await waitFor(() =>
+      expect(transport.postMessage).toHaveBeenCalledWith(
+        's1',
+        'steer during approval',
+        expect.objectContaining({ projectId: 'p1' }),
+        [],
+      ),
+    );
+  });
+
+  it('stop button remains available while generating', async () => {
+    useChatStore.setState({ isGenerating: true });
+    render(<ChatPanel />);
+
+    const stop = screen.getByRole('button', { name: '中断生成' });
+    expect(stop).toBeEnabled();
+
+    fireEvent.click(stop);
+    await waitFor(() => expect(transport.interruptTurn).toHaveBeenCalledWith('s1'));
   });
 });

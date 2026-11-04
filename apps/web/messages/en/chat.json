@@ -250,5 +250,10 @@
   "tier": {
     "fallback": "Model tier \"{tierId}\" is unconfigured or expired; this subagent fell back to the main chat model"
   },
-  "close": "Close"
+  "close": "Close",
+  "queuedBadge": "Queued",
+  "queuedEdit": "Edit",
+  "queuedRemove": "Retract",
+  "queuedEmptyError": "Message content cannot be empty",
+  "queuedGoneNotice": "That queued message is no longer available — it may have already been delivered"
 }
