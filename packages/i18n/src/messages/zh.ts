@@ -18,4 +18,5 @@ export const zh = {
   "server.commands.explain.description": "解释指定目标的实现",
   "server.picker.chooseDirectory": "选择项目目录",
   "server.error.exportFailed": "导出会话失败",
+  "server.error.agentStarting": "会话代理仍在启动，请稍后重试",
 } as const;

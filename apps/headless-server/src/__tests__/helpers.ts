@@ -14,8 +14,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ModelPort, ModelRequest, ToolDefinition } from "@volto/core";
 import type { AgentSpec } from "@volto/sdk";
-import { createStore } from "@volto/store-jsonl";
-import { createServer, type HeadlessServer } from "../server.js";
+import { createStore, type JsonlSessionStore } from "@volto/store-jsonl";
+import { createServer, type HeadlessServer, type ServerOptions } from "../server.js";
 import type { SessionRegistryOptions } from "../sessions.js";
 
 /** Minimal model port that immediately ends the turn. */
@@ -27,7 +27,7 @@ const IDLE_MODEL: ModelPort = {
 };
 
 /** One parsed SSE frame from the /events channel. */
-interface EventFrame {
+export interface EventFrame {
   id: string;
   event: string;
   data: unknown;
@@ -79,6 +79,13 @@ export interface TestServer {
    * change) rather than a turn's transcript.
    */
   events: () => FrameEventPayload[];
+  /**
+   * Every parsed SSE frame of any `event:` name (`connected`, `event`,
+   * `delta`, `error`, …) since the channel opened. Protocol frames such as
+   * `error` never reach `events()`, so "no error frame arrived" assertions
+   * must look here.
+   */
+  rawFrames: () => EventFrame[];
   /** Shut down the server and clean up the temp config dir. */
   close: () => Promise<void>;
 }
@@ -135,6 +142,34 @@ export interface StartTestServerOptions {
    * the title write is a background task with no observation point otherwise.
    */
   titleModelPortFactory?: SessionRegistryTitlePortFactory;
+  /**
+   * Overridable per-session agent constructor (mirrors
+   * `ServerOptions.agentFactory`). The cold-window steering test gates
+   * construction through it to hold a session in `running=true, agent=null`.
+   */
+  agentFactory?: ServerOptions["agentFactory"];
+  /**
+   * Delay every transcript `appendEvents` by this many milliseconds. The
+   * recorder's awaited final flush runs between the `turn_end` emit and the
+   * latch release, so widening it lets a test deterministically POST a
+   * message while the settle window is still open (spec scenario D).
+   */
+  appendEventsDelayMs?: number;
+}
+
+/** Delegates to `inner`, holding every transcript append for `delayMs`. */
+function withDelayedAppendEvents(inner: JsonlSessionStore, delayMs: number): JsonlSessionStore {
+  return {
+    appendEvents: async (workspacePath, sessionId, events) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      await inner.appendEvents(workspacePath, sessionId, events);
+    },
+    readEvents: (sessionId) => inner.readEvents(sessionId),
+    readSession: (sessionId) => inner.readSession(sessionId),
+    listSessions: () => inner.listSessions(),
+    deleteSession: (sessionId) => inner.deleteSession(sessionId),
+    searchSessions: (query, opts) => inner.searchSessions(query, opts),
+  };
 }
 
 export async function startTestServer(opts: StartTestServerOptions = {}): Promise<TestServer> {
@@ -144,10 +179,13 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
   const server: HeadlessServer = await createServer({
     port: 0,
     modelPort: opts.modelPort ?? IDLE_MODEL,
-    chatStore: createStore({ directory: configDir }),
+    chatStore: opts.appendEventsDelayMs
+      ? withDelayedAppendEvents(createStore({ directory: configDir }), opts.appendEventsDelayMs)
+      : createStore({ directory: configDir }),
     ...(opts.titleModelPortFactory !== undefined
       ? { titleModelPortFactory: opts.titleModelPortFactory }
       : {}),
+    ...(opts.agentFactory !== undefined ? { agentFactory: opts.agentFactory } : {}),
   });
 
   await new Promise<void>((resolve) => server.on("listening", resolve));
@@ -302,6 +340,7 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     captureMessages,
     turnCount,
     events: eventPayloads,
+    rawFrames: () => frames,
     close: async () => {
       if (settleTimer) clearTimeout(settleTimer);
       eventsReq?.destroy();

@@ -51,12 +51,13 @@ import {
   type ChatSessionMeta,
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
+import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
 import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
-import { createSessionRegistry, type ApprovalDecisionOutcome } from "./sessions.js";
+import { createSessionRegistry, STEER_AGENT_WAIT_MS, type ApprovalDecisionOutcome } from "./sessions.js";
 import { forkSession, ForkError } from "./session-fork.js";
 import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
 import {
@@ -803,8 +804,43 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               }
             : body.message;
 
+        // D10 — a message landing while this session's turn latch is held is
+        // STEERED into the owning turn and acked as queued: never a mid-turn
+        // rejection, never a second concurrent run. The latch read, the agent
+        // reference and the steer() delivery form one synchronous span — no
+        // await may sit between them, so a rebuild in flight in another
+        // task's await span cannot slip a stale instance in between (spec
+        // D10's single-threaded atomicity rule). Attachment blocks were
+        // already resolved above, so `turnInput` is final here.
+        const session = registry.get(sessionId);
+        const steerDeadline = Date.now() + STEER_AGENT_WAIT_MS;
+        for (;;) {
+          if (session.running && session.agent) {
+            session.agent.steer(turnInput);
+            jsonResponse(res, 202, { queued: true });
+            return;
+          }
+          if (!session.running) break; // idle — start a normal turn below
+          // Cold window: the first turn owns the latch but its agent has not
+          // been built yet. Wait, bounded, for the delivery target to exist —
+          // a 202 here would ack a message the gateway could not deliver.
+          if (Date.now() >= steerDeadline) {
+            jsonResponse(res, 503, {
+              error: t(
+                await activeLocale(getConfigDir(), req.headers["accept-language"]),
+                "server.error.agentStarting",
+              ),
+            });
+            return;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+
         // Ack immediately; the turn streams over SSE. runTurn never rejects —
         // failures are delivered to the client as protocol `error` events.
+        // The idle check above and this claim share one synchronous span, so
+        // a concurrent POST cannot slip between them; runTurn re-checks the
+        // latch itself before claiming it.
         jsonResponse(res, 202, { sessionId, accepted: true });
         void registry.runTurn(sessionId, turnInput, turnConfig);
       } catch (err: unknown) {

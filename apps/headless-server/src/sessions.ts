@@ -155,12 +155,14 @@ export type ResolvedCredentials =
  * supplied no preference on a route that cannot ask a human.
  */
 /**
- * How long runTurn waits for a PREVIOUS turn's settling window (turn_end
- * already pushed, `running` latch not yet released through captureHistory /
- * stream teardown) before answering BUSY. Generous for bookkeeping, short
- * enough that a genuinely overlapping turn still fails fast.
+ * How long POST /messages may hold a request waiting for a first turn's
+ * agent to materialize — the session's latch is already held but rebuild()
+ * has not finished building the instance a steer() would deliver to. Bounded
+ * so a stuck build answers with a defined retryable error instead of hanging
+ * the request, and never a 202 for a message that was not delivered (D10's
+ * "never silently lost" rule). Generous enough to cover a cold rebuild.
  */
-const SETTLE_GRACE_MS = 2000;
+export const STEER_AGENT_WAIT_MS = 2000;
 
 const EMPTY_CONFIG: ResolvedConfig = {
   projectPath: undefined,
@@ -1494,42 +1496,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   ): Promise<void> {
     const session = get(sessionId);
 
-    // Cold start (server restart, or first turn after this Session object was
-    // just created by get()): the in-memory history is empty, but a durable
-    // transcript from a prior process may still exist. Without this, a
-    // restart silently truncates multi-turn context back to zero even though
-    // it was recorded on disk. Idempotent and harmless to run while another
-    // turn is in flight, so it goes before the running gate below.
-    if (chatStore && session.history.length === 0) {
-      const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-      if (persisted) session.history = projectMessages(persisted.events);
-    }
-
-    // Settling-window grace: `turn_end` is pushed from INSIDE the stream
-    // loop, but `running` is only released in finally — after captureHistory
-    // and stream teardown. A client that reacts to turn_end (the web composer
-    // re-enabling, a script chaining turns) lands in that window, and an
-    // instant BUSY would silently drop its message behind the 202 ack —
-    // server bookkeeping the client cannot observe or avoid. Wait the window
-    // out; only a turn that is genuinely still streaming answers BUSY, after
-    // the grace expires. Regression test: "waits out a settling previous
-    // turn" in session-rebuild.test.ts; observed in the wild as the remember
-    // e2e failing under suite load only.
-    //
-    // Invariant: no await between the final `session.running` check below and
-    // `session.running = true` — two waiters released on the same tick must
-    // not both slip through (the cold-start read above is the last await).
+    // D10 latch re-check — synchronous, before any await: claim the latch or
+    // deliver into the turn that owns it. POST /messages routes mid-turn
+    // messages to steering itself and only calls runTurn while the latch is
+    // free; this pre-claim re-check is what keeps that claim race-proof for
+    // direct callers too (two callers on the same tick must never both start
+    // a turn — spec D10's pre-latch re-check). A message delivered here is
+    // queued by the agent, never rejected and never dropped: the route's
+    // bounded cold-window wait guarantees an agent exists before it ever
+    // reaches this function with the latch held.
     if (session.running) {
-      const settleDeadline = Date.now() + SETTLE_GRACE_MS;
-      while (session.running && Date.now() < settleDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      if (session.running) {
-        push(session, session.mapper.error("A turn is already running for this session", "BUSY", true));
-        return;
-      }
+      session.agent?.steer(message);
+      return;
     }
-
     session.running = true;
 
     // Captures whatever history this turn produced (success or failure)
@@ -1562,6 +1541,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     /** Why this turn's stream closed, if it reached `turn_end` at all. */
     let turnEndReason: string | undefined;
     try {
+      // Cold start (server restart, or first turn after this Session object
+      // was just created by get()): the in-memory history is empty, but a
+      // durable transcript from a prior process may still exist. Without
+      // this, a restart silently truncates multi-turn context back to zero
+      // even though it was recorded on disk. Idempotent and harmless to run
+      // while another turn is in flight. It awaits, so it runs AFTER the
+      // latch claim above — the claim itself must stay synchronous.
+      if (chatStore && session.history.length === 0) {
+        const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
+        if (persisted) session.history = projectMessages(persisted.events);
+      }
+
       // Title first, model second: this runs before the turn's first token so
       // the client never shows an untitled conversation, and the heuristic it
       // writes is what a later model title improves on. Best-effort — every
@@ -1585,8 +1576,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
       await captureHistory();
       // Naming comes last and off the turn's critical path: the model call it
-      // makes can take seconds, and `session.running` must be released first
-      // so the next message is not answered with BUSY. Only the turn that
+      // makes can take seconds, and it must not hold `session.running` — a
+      // follow-up message should never wait on naming. Only the turn that
       // wrote the heuristic title reaches here with the flag set, and the
       // once-only guard keeps a session named exactly once.
       if (

@@ -12,4 +12,5 @@ export const en = {
   "server.commands.explain.description": "Explain how the target is implemented",
   "server.picker.chooseDirectory": "Choose a project folder",
   "server.error.exportFailed": "Could not export the session",
+  "server.error.agentStarting": "The session's agent is still starting; try again in a moment",
 } as const;

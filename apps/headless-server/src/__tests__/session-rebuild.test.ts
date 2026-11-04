@@ -20,6 +20,7 @@ afterEach(async () => {
 function makeFactory() {
   const builds: Array<Record<string, unknown>> = [];
   const cumulative: Array<{ id: string; role: string; content: string }> = [];
+  const steered: unknown[] = [];
   const factory = (opts: Record<string, unknown>) => {
     builds.push(opts);
     return {
@@ -28,9 +29,14 @@ function makeFactory() {
         yield { type: "text_delta", data: { text: "hi" } };
       },
       getState: () => ({ messages: [...cumulative] }) as unknown as ReducerState,
+      // D10: mid-turn / settling-window messages are delivered here instead
+      // of being rejected with BUSY. The stub records the delivery.
+      steer: (input: unknown) => {
+        steered.push(input);
+      },
     };
   };
-  return { builds, factory };
+  return { builds, factory, steered };
 }
 
 /**
@@ -70,6 +76,8 @@ function makeFlakyFactory() {
         // call === 3: the flaky reset to a smaller build-time seed.
         return { messages: [{ id: "m5", role: "assistant", content: "m3" }] } as unknown as ReducerState;
       },
+      // D10 delivery target required by runTurn's latch gate (see makeFactory).
+      steer: () => {},
     };
   };
   return { builds, factory };
@@ -316,18 +324,16 @@ describe("session agent lifecycle", () => {
     expect(written.some((chunk) => chunk.includes("event: done"))).toBe(false);
   });
 
-  it("waits out a settling previous turn instead of dropping the next message as BUSY", async () => {
+  it("routes a message from the settling window to steering instead of dropping it", async () => {
     // Regression (intermittent under suite load, diagnosed via breadcrumbs):
     // `turn_end` is pushed from INSIDE the stream loop, but session.running
     // is only released in finally — after captureHistory() and stream
     // teardown. A client that reacts to turn_end immediately (POST the next
-    // message) lands in that settling window. It used to get an instant
-    // BUSY rejection — a silent drop behind the 202 ack — even though, from
-    // the client's side, the previous turn was already over. The window is
-    // server bookkeeping the client cannot observe or avoid, so runTurn
-    // must wait it out; only a turn that is genuinely still streaming may
-    // answer BUSY (after the grace window).
-    const { factory } = makeFactory();
+    // message) lands in that settling window. D10 abolished the BUSY
+    // rejection that used to drop it there: the message is delivered as
+    // steering into the settled agent — queued, never lost, never a second
+    // concurrent stream.
+    const { factory, steered } = makeFactory();
     const config = { projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" as const };
     let streams = 0;
     const countingFactory = (opts: Record<string, unknown>) => {
@@ -350,11 +356,16 @@ describe("session agent lifecycle", () => {
       registry.get("s1").running = false;
     }, 100);
 
-    // The second message must run (after the release), not bounce as BUSY.
+    // D10: steered into the owning turn — no second stream, no BUSY frame.
     await registry.runTurn("s1", "two", config);
 
-    expect(streams).toBe(2);
+    expect(streams).toBe(1);
+    expect(steered).toContain("two");
     expect(written.some((chunk) => chunk.includes("BUSY"))).toBe(false);
+    // The gate must not release a latch it does not own; the settling turn's
+    // own teardown still does.
+    expect(registry.get("s1").running).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     expect(registry.get("s1").running).toBe(false);
   });
 
