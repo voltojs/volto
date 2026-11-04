@@ -4,6 +4,7 @@
  * Protocol routes (consumed by apps/web via `@volto/sdk/sse`):
  *   GET  /events?sessionId=   — long-lived SSE channel for one chat session
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
+ *   POST /messages/queue      — { sessionId, id, action } edits/withdraws a queued message
  *   POST /approvals           — { sessionId, callId, decision, answer? } settles one approval
  *
  * Input-command & workspace routes (consumed by apps/web input bar / panes):
@@ -57,7 +58,7 @@ import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
 import { createSseEventSink, createWsEventSink } from "./event-sinks.js";
-import { createSessionRegistry, STEER_AGENT_WAIT_MS, type ApprovalDecisionOutcome } from "./sessions.js";
+import { createSessionRegistry, STEER_AGENT_WAIT_MS, type ApprovalDecisionOutcome, type QueuedMessageAction } from "./sessions.js";
 import { forkSession, ForkError } from "./session-fork.js";
 import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
 import {
@@ -843,6 +844,80 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // latch itself before claiming it.
         jsonResponse(res, 202, { sessionId, accepted: true });
         void registry.runTurn(sessionId, turnInput, turnConfig);
+      } catch (err: unknown) {
+        if (respondBodyError(err)) return;
+        const message = err instanceof Error ? err.message : String(err);
+        jsonResponse(res, 400, { error: message });
+      }
+      return;
+    }
+
+    // POST /messages/queue — edit or withdraw a QUEUED (not yet delivered)
+    // message by id (spec D14/D15). Same wrapping as POST /approvals: the
+    // global auth guard above already covers the route, and every body-shape
+    // check runs BEFORE the queue is touched — a malformed body must never
+    // mutate state. `id` is the queue item's id stamped by `steering_queued`.
+    if (req.method === "POST" && url.pathname === "/messages/queue") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          sessionId?: string;
+          id?: string;
+          action?: { kind?: string; content?: unknown };
+        };
+        const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
+
+        if (!body.id) {
+          jsonResponse(res, 400, { error: "id is required" });
+          return;
+        }
+        const rawAction = body.action;
+        if (!rawAction || (rawAction.kind !== "edit" && rawAction.kind !== "remove")) {
+          jsonResponse(res, 400, { error: `Unsupported action: ${String(rawAction?.kind)}` });
+          return;
+        }
+
+        let action: QueuedMessageAction;
+        if (rawAction.kind === "edit") {
+          const content = rawAction.content;
+          if (typeof content !== "string") {
+            jsonResponse(res, 400, { error: "content must be a string" });
+            return;
+          }
+          // D14: plain text only, never blank — a whitespace-only edit would
+          // wipe the message, so it is refused before anything is touched.
+          if (content.trim() === "") {
+            jsonResponse(res, 400, {
+              error: t(
+                await activeLocale(getConfigDir(), req.headers["accept-language"]),
+                "server.queue.emptyContent",
+              ),
+            });
+            return;
+          }
+          action = { kind: "edit", content };
+        } else {
+          action = { kind: "remove" };
+        }
+
+        // "live"/"seed" mutated the queue (their persistence split — the
+        // Runner's recorder vs. this gateway's own append — lives in
+        // updateQueuedMessage); "missing" means unknown or already
+        // delivered, where delivery wins and state was left untouched.
+        const outcome = await registry.updateQueuedMessage(sessionId, body.id, action);
+        if (outcome === "missing") {
+          // 409 rather than a silent 200: the id is gone — the client's
+          // queued bubble is stale and can be surfaced instead of pretending
+          // the edit landed. `code` is the machine-readable half.
+          jsonResponse(res, 409, {
+            error: t(
+              await activeLocale(getConfigDir(), req.headers["accept-language"]),
+              "server.queue.gone",
+            ),
+            code: "QUEUE_ITEM_GONE",
+          });
+          return;
+        }
+        jsonResponse(res, 200, { ok: true });
       } catch (err: unknown) {
         if (respondBodyError(err)) return;
         const message = err instanceof Error ? err.message : String(err);

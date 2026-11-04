@@ -20,4 +20,6 @@ export const zh = {
   "server.error.exportFailed": "导出会话失败",
   "server.error.agentStarting": "会话代理仍在启动，请稍后重试",
   "server.steer.autoTurnLimit": "自动续轮已达 50 轮上限，部分排队消息仍未送达",
+  "server.queue.gone": "该排队消息已不可用，可能已送达",
+  "server.queue.emptyContent": "消息内容不能为空",
 } as const;

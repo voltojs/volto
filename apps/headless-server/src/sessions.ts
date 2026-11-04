@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage } from "@volto/core";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -437,6 +437,15 @@ export type ApprovalDecisionOutcome =
   | { status: "forbidden" }
   | { status: "unknown" }
   | { status: "ok"; remembered?: RememberedRule; rememberError?: string };
+
+/**
+ * One action on a queued (not yet delivered) message — `POST /messages/queue`'s
+ * `action` field: edit keeps the id and replaces the content (D14), remove is
+ * a hard delete (D15).
+ */
+export type QueuedMessageAction =
+  | { kind: "edit"; content: string }
+  | { kind: "remove" };
 
 /**
  * Highest `turn` ordinal among a session's `turn_start` events, or
@@ -1524,6 +1533,67 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   }
 
   /**
+   * Edit or withdraw a queued (not yet delivered) message by id (D14/D15).
+   *
+   * Delegates membership and mutation to `AgentInstance.updateQueue` (the
+   * synchronous check+deliver span) and owns the outcome-to-persistence split
+   * of the task-7 contract (task-7 report §十, authoritative):
+   * - `"live"` — delivered through the Runner; its recorder persists
+   *   `steering_edited` / `steering_removed` exactly once. The gateway must
+   *   persist NOTHING here (double-writing would fork the event log).
+   * - `"seed"` — first-construction seed hit: no Runner exists, so no
+   *   recorder will ever fire — the gateway appends the event to the
+   *   chatStore itself, before this function returns.
+   * - `"missing"` — unknown or already delivered (delivery wins); state
+   *   untouched, nothing persisted — the route answers 409.
+   *
+   * A session with no agent instance is rebuilt first (Task 10's event fold
+   * hands the new instance the pending queue), which is what makes the
+   * `"seed"` path reachable for a cold start.
+   */
+  async function updateQueuedMessage(
+    sessionId: string,
+    id: string,
+    action: QueuedMessageAction,
+  ): Promise<"live" | "seed" | "missing"> {
+    const session = get(sessionId);
+    // D10 cold window: a first turn owns the latch but its agent has not
+    // materialized yet — wait bounded for THAT turn's rebuild instead of
+    // racing a second rebuild into the same Session (the exact rule POST
+    // /messages applies before steer()). Idle-without-an-agent falls
+    // straight through to the rebuild below.
+    const deadline = Date.now() + STEER_AGENT_WAIT_MS;
+    while (session.running && !session.agent && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    // Rebuild-first for a genuinely cold session (no instance ever built):
+    // rebuild()'s event fold seeds the queue, which is what makes the
+    // "seed" outcome reachable below. Read-then-deliver stays one
+    // synchronous span — no await executes between the agent reference and
+    // updateQueue() when an instance already exists.
+    const agent = session.agent ?? (await ensureAgent(sessionId));
+    const input: SteeringEditInput | SteeringRemoveInput =
+      action.kind === "edit"
+        ? { type: "steering_edit", id, content: action.content }
+        : { type: "steering_remove", id };
+    const outcome = agent.updateQueue(input);
+    if (outcome === "seed" && chatStore) {
+      // No recorder exists on the seed path — the gateway owns the durable
+      // event (task-7 report §十). Only "seed": "live" already lands through
+      // the Runner's recorder and must not be written twice. Same write
+      // shape and workspace resolution as runTurn's pre-stream error record
+      // below; a store-less server degrades exactly like every other
+      // transcript write (no durable record, sessions still work).
+      const event: TranscriptEventInput =
+        action.kind === "edit"
+          ? { time: Date.now(), type: "steering_edited", data: { id, content: action.content } }
+          : { time: Date.now(), type: "steering_removed", data: { id } };
+      await chatStore.appendEvents(session.config?.projectPath ?? null, sessionId, [event]);
+    }
+    return outcome;
+  }
+
+  /**
    * Run one turn for a session, streaming every event onto its SSE channel.
    *
    * `message` is a plain string for a text-only turn, or a `user_message`
@@ -1904,6 +1974,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     interrupt,
     decideApproval,
     ensureAgent,
+    /**
+     * Edit or withdraw a queued (not yet delivered) message by id — the
+     * `POST /messages/queue` backend. Returns where `updateQueue` found the
+     * id; the persistence split ("live" → nothing, "seed" → gateway appends)
+     * is documented on the function itself.
+     */
+    updateQueuedMessage,
     closeAll,
     size: () => sessions.size,
     /**

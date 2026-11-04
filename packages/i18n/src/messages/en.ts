@@ -15,4 +15,7 @@ export const en = {
   "server.error.agentStarting": "The session's agent is still starting; try again in a moment",
   "server.steer.autoTurnLimit":
     "Stopped auto-running turns after 50 rounds; some queued messages are still undelivered",
+  "server.queue.gone":
+    "That queued message is no longer available — it may have already been delivered",
+  "server.queue.emptyContent": "Message content cannot be empty",
 } as const;
