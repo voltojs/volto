@@ -173,6 +173,16 @@ export function foldContextUsageEvent(
           : countMessage(data.content, tokenizer);
       return { ...fold, pendingTokens: fold.pendingTokens + added, messageTokens: fold.messageTokens + added };
     }
+    // Queue realization and mutations (D11/D14/D15): explicit no-ops. The
+    // entry was priced once at steering_queued — realizing, editing or
+    // removing it must never double-count (or un-count) anything; the edit's
+    // content delta is a bounded error, ignored by design. These arms exist
+    // so a future case added to this switch cannot silently drift these
+    // events into a counting path.
+    case "steering_delivered":
+    case "steering_edited":
+    case "steering_removed":
+      return fold;
     case "compaction": {
       const data = event.data as TranscriptEventMap["compaction"];
       // Compaction replaces the surface with a summary: both counters restart

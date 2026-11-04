@@ -15,12 +15,23 @@
  *    and deny). `orderInBatch` is therefore NOT a sort key — an approval can
  *    leave two entries carrying the same value — only a signal that a result
  *    the reducer could not have flushed (`-1`) must be dropped.
- * 2. The steering queue (`queuedUserInputs`) flushes at exactly one point —
- *    the next tool batch completing — and lands after that batch's tool
- *    results. If the turn ends before any batch completes, the reducer KEEPS
- *    the queue for the host auto-run (`resetTurnForNextInput` preserves it,
- *    D11) while the projection drops it: an unflushed queue is DROPPED,
- *    never appended at end-of-log or at end-of-turn.
+ * 2. The steering queue (`queuedUserInputs`) drains at several points —
+ *    tool-batch flush, approval flush, end_turn continuation, the idle
+ *    pre-flush before a new turn's opening message (D11b), and a
+ *    `steering_flush` turn open (D11) — and every drain announces the
+ *    drained ids with `steering_delivered`. This fold REALIZES an id-tracked
+ *    queued entry at that event: it renders exactly once, at the delivery
+ *    point, carrying `steering_edited` content and never anything
+ *    `steering_removed`. A cross-turn realization (the idle pre-flush)
+ *    anchors at the turn's OPENING — before that turn's `user_message`
+ *    entry — because the runner records the opening input before the drain's
+ *    effects even though the reducer renders [...olderQueue, newUserMsg].
+ *    Entries a log never delivers keep the pre-feature structural behavior
+ *    (flushed after the batch's tool results at the next batch completion,
+ *    otherwise dropped — D11 keeps the reducer's queue alive for the host
+ *    auto-run; this fold never appends an undelivered queue at end-of-log or
+ *    end-of-turn). Legacy `steering_queued` events without an id carry no
+ *    realization signal and always take that structural path.
  *
  * Termination pairing (D12): a turn that ends while a batch is still in
  * flight no longer leaves it discarded whole. The reducer answers every
@@ -93,6 +104,19 @@ interface PendingBatch {
 
 function startBatch(ids: readonly string[]): PendingBatch {
   return { expected: new Set(ids), roster: [...ids], resolved: new Map() };
+}
+
+/**
+ * One id-tracked steering entry awaiting realization (Task 6).
+ *
+ * `openSeq` records how many `user_message` events had opened a turn when
+ * the entry was queued: an entry queued before the current turn's opening
+ * message is a CROSS-TURN realization and must anchor at that opening, not
+ * at the delivered event's own position (see `steering_delivered` below).
+ */
+interface QueuedSteering {
+  entry: ProjectedMessage;
+  openSeq: number;
 }
 
 /**
@@ -171,8 +195,32 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
   /** The tool batch currently being collected, if any. */
   let batch: PendingBatch | undefined;
-  /** Steering messages queued since the last batch flush (turn-scoped). */
+  /**
+   * Queued steering awaiting the next batch flush (turn-scoped). This is the
+   * LEGACY structural path: it also carries id-tracked entries until their
+   * `steering_delivered` realizes them, so a log that never delivers an
+   * entry keeps the pre-feature placement.
+   */
   let steering: ProjectedMessage[] = [];
+  /**
+   * Id-tracked queued entries awaiting realization, FIFO per id. Ids are
+   * stamped unique in production; a legacy log can hold several unstamped
+   * entries under `""`, so each id maps to a FIFO list.
+   */
+  const queuedById = new Map<string, QueuedSteering[]>();
+  /** How many `user_message` events have opened a turn so far. */
+  let openSeq = 0;
+  /** The projected entry of the current turn's opening `user_message`, if any. */
+  let turnOpenEntry: ProjectedMessage | undefined;
+  /** Last entry a cross-turn realization anchored at the turn's opening. */
+  let openingAnchor: ProjectedMessage | undefined;
+  /**
+   * Non-anchor messages appended since `turnOpenEntry`. A cross-turn
+   * realization anchors at the opening only while the opening is still the
+   * tail of what the next model step will see — once other messages landed
+   * after it, the reducer's own placement is the drain point.
+   */
+  let messagesSinceTurnOpen = 0;
   /** callId -> tool name, from `assistant_message` tool_use blocks and `approval_asked`. */
   const toolNamesById = new Map<string, string>();
   /**
@@ -183,6 +231,25 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
   let projSeq = 0;
   const nextProjId = (): string => `proj-${++projSeq}`;
 
+  /** Registers an id-tracked queued entry (FIFO per id). */
+  const registerQueued = (id: string, entry: ProjectedMessage): void => {
+    const list = queuedById.get(id);
+    const item: QueuedSteering = { entry, openSeq };
+    if (list) list.push(item);
+    else queuedById.set(id, [item]);
+  };
+
+  /** The first still-queued entry for an id — the reducer's findIndex. */
+  const firstQueued = (id: string): QueuedSteering | undefined => queuedById.get(id)?.[0];
+
+  /** Removes and returns the first still-queued entry for an id. */
+  const claimQueued = (id: string): QueuedSteering | undefined => {
+    const list = queuedById.get(id);
+    const item = list?.shift();
+    if (list !== undefined && list.length === 0) queuedById.delete(id);
+    return item;
+  };
+
   for (const event of events) {
     switch (event.type) {
       case "user_message": {
@@ -190,14 +257,25 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         // turn (an incomplete batch, unflushed steering) is discarded here.
         // The batch half matches resetTurnForNextInput clearing pendingTools
         // / _toolResultBuffer before the next user_message is admitted; the
-        // steering half is this projection's drop rule — the reducer keeps
-        // an un-delivered queue alive across turns (D11), this fold never
-        // appends it.
+        // steering half is this projection's drop rule for entries no event
+        // ever delivers — the reducer keeps an un-delivered queue alive
+        // across turns (D11), this fold never appends it. Id-tracked entries
+        // stay in `queuedById` (only the structural buffer is cleared): the
+        // D11b idle pre-flush records this opening input BEFORE the drain's
+        // `steering_delivered`, so the realization event still follows.
         batch = undefined;
         steering = [];
 
         const data = event.data as TranscriptEventMap["user_message"];
-        messages.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
+        const entry: ProjectedMessage = {
+          message: { id: nextProjId(), role: "user", content: data.content },
+          time: event.time,
+        };
+        messages.push(entry);
+        openSeq += 1;
+        turnOpenEntry = entry;
+        openingAnchor = undefined;
+        messagesSinceTurnOpen = 0;
         break;
       }
 
@@ -214,6 +292,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           },
           time: event.time,
         });
+        messagesSinceTurnOpen += 1;
 
         const toolUseBlocks = data.content.filter((c): c is ToolUseContent => c.type === "tool_use");
         for (const b of toolUseBlocks) toolNamesById.set(b.id, b.name);
@@ -239,6 +318,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           flushBatch(batch, steering, messages);
           batch = undefined;
           steering = [];
+          messagesSinceTurnOpen += 1;
         }
         break;
       }
@@ -280,13 +360,91 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           flushBatch(batch, steering, messages);
           batch = undefined;
           steering = [];
+          messagesSinceTurnOpen += 1;
         }
         break;
       }
 
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
-        steering.push({ message: { id: nextProjId(), role: "user", content: data.content }, time: event.time });
+        const entry: ProjectedMessage = {
+          message: { id: nextProjId(), role: "user", content: data.content },
+          time: event.time,
+        };
+        // Both paths at once: the structural buffer keeps the pre-feature
+        // placement for entries no event ever delivers, while the id index
+        // lets steering_edited / steering_removed / steering_delivered fold
+        // the entry. Legacy events carry no id — buffer only, never throw.
+        steering.push(entry);
+        const id: unknown = (data as { id?: unknown }).id;
+        if (typeof id === "string") registerQueued(id, entry);
+        break;
+      }
+
+      case "steering_edited": {
+        const data = event.data as TranscriptEventMap["steering_edited"];
+        const target = firstQueued(data.id);
+        if (target) {
+          // Same id, same position, new content — mirrors the reducer's
+          // in-place queue edit. The entry object is shared with the
+          // structural buffer and `messages`, so wherever the entry has
+          // already landed it now renders the edited content too. The
+          // queued entry is always a user message.
+          const previous = target.entry.message;
+          target.entry.message = { id: previous.id, role: "user", content: data.content };
+        }
+        break;
+      }
+
+      case "steering_removed": {
+        const data = event.data as TranscriptEventMap["steering_removed"];
+        const target = claimQueued(data.id);
+        if (target) {
+          // Hard delete — no residue anywhere: out of the structural buffer,
+          // and (defensively) out of the projected list if some path already
+          // rendered it. Delivery wins: an id no longer queued is a no-op.
+          const buffered = steering.indexOf(target.entry);
+          if (buffered >= 0) steering.splice(buffered, 1);
+          const rendered = messages.indexOf(target.entry);
+          if (rendered >= 0) messages.splice(rendered, 1);
+        }
+        break;
+      }
+
+      case "steering_delivered": {
+        const data = event.data as TranscriptEventMap["steering_delivered"];
+        // Realization: each drained id renders exactly once, at the delivery
+        // point. An entry the structural buffer already flushed sits at the
+        // batch-drain position the reducer wrote — leave it there (delivery
+        // wins by rendering in place, never twice).
+        const anchored: ProjectedMessage[] = [];
+        for (const id of data.ids) {
+          const target = claimQueued(id);
+          if (!target) continue;
+          if (messages.indexOf(target.entry) >= 0) continue;
+          const buffered = steering.indexOf(target.entry);
+          if (buffered >= 0) steering.splice(buffered, 1);
+          if (target.openSeq < openSeq && messagesSinceTurnOpen === 0) {
+            // Cross-turn realization (the D11b idle pre-flush): the durable
+            // log records the opening `user_message` BEFORE this event, but
+            // the reducer renders [...olderQueue, newUserMsg] — anchor the
+            // older entries at the turn's opening instead of inverting them.
+            anchored.push(target.entry);
+          } else {
+            messages.push(target.entry);
+            messagesSinceTurnOpen += 1;
+          }
+        }
+        if (anchored.length > 0) {
+          // FIFO among anchored runs: after the previous run if any, else
+          // before the turn's opening user_message, else at the tail.
+          const anchor = openingAnchor ?? turnOpenEntry;
+          let at = anchor !== undefined ? messages.indexOf(anchor) : -1;
+          if (at === -1) at = messages.length;
+          else if (openingAnchor !== undefined) at += 1;
+          messages.splice(at, 0, ...anchored);
+          openingAnchor = anchored[anchored.length - 1]!;
+        }
         break;
       }
 
@@ -325,6 +483,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
             });
           }
           batch = undefined;
+          messagesSinceTurnOpen += 1;
         }
         break;
       }
@@ -399,6 +558,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           ...(imagesEntry !== undefined ? [imagesEntry] : []),
           ...kept.slice(insertAt),
         );
+        messagesSinceTurnOpen += 1;
         break;
       }
 

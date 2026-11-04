@@ -701,3 +701,56 @@ describe("toTrajectoryView", () => {
     expect(rows.some((r) => r.id === "c1")).toBe(true);
   });
 });
+
+describe("toConversationView — steering realization", () => {
+  it("an entry queued in turn N and delivered in turn N+1 renders exactly once, in the delivering turn", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
+      { time: 160, type: "turn_end", data: { turn: 1, reason: "cancelled" }, turn: 1 },
+      // The durable log records the opening input BEFORE the drain's
+      // steering_delivered — the fold must still anchor the older entry at
+      // the delivering turn's opening, before "again".
+      { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+      { time: 210, type: "user_message", data: { content: "again" }, turn: 2 },
+      { time: 220, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 2 },
+      { time: 230, type: "model_call_start", data: { headerHash: "h1" }, turn: 2, step: 1 },
+      {
+        time: 240,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "two" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 250, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+    ]);
+
+    const view = toConversationView(buildTurnRecords(events));
+    // Exactly once, in the delivering turn, at its opening — before "again",
+    // matching the reducer's [...olderQueue, newUserMsg]. The message ids
+    // carry the TURN prefix, which is what "in the delivering turn" pins:
+    // the entry renders as turn 2's input ("2:…"), never as turn 1's.
+    expect(view.messages.map((m) => [m.id, m.role, m.content])).toEqual([
+      ["1:u0", "user", "go"],
+      ["1:1", "assistant", ""],
+      ["2:u0", "user", "wait"],
+      ["2:u1", "user", "again"],
+      ["2:1", "assistant", "two"],
+    ]);
+    expect(view.messages.filter((m) => m.content === "wait")).toHaveLength(1);
+  });
+});

@@ -66,7 +66,8 @@ function toolUseDelta(toolCallId: string, toolCallName: string, args: string): A
  *  - `model_done`'s emitted `message` -> an `assistant_message` event.
  *  - `tool_result`'s emit -> a `tool_result` event (`toolCallId` renamed to
  *    `callId`, `content` / `displayMetadata` / `orderInBatch` passed through).
- *  - `steering_queued` / `user_message` emits -> pass through unchanged.
+ *  - `steering_queued` / `steering_delivered` / `steering_edited` /
+ *    `steering_removed` / `user_message` emits -> pass through unchanged.
  *  - the `request_approval` effect -> an `approval_asked` event (this is not
  *    an `emit` effect, but the Runner logs it when it asks the ApprovalGate).
  *  - an `approval_decision` INPUT -> the Runner logs this event itself before
@@ -119,6 +120,15 @@ function driveAndRecord(
           break;
         case "steering_queued":
           push("steering_queued", event.data as TranscriptEventMap["steering_queued"]);
+          break;
+        case "steering_delivered":
+          push("steering_delivered", event.data as TranscriptEventMap["steering_delivered"]);
+          break;
+        case "steering_edited":
+          push("steering_edited", event.data as TranscriptEventMap["steering_edited"]);
+          break;
+        case "steering_removed":
+          push("steering_removed", event.data as TranscriptEventMap["steering_removed"]);
           break;
         case "model_done": {
           const data = event.data as { stopReason?: AssistantMessage["stopReason"]; usage?: TokenUsage; message: AssistantMessage };
@@ -488,6 +498,37 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
       { type: "text", text: "[image preserved from compressed conversation: 640x480 image/png]" },
       img as unknown as ContentBlock,
     ]);
+  });
+
+  it("13. an edited queued entry reaches history with its edited content", () => {
+    const { events, finalState } = driveAndRecord([
+      { type: "user_message", content: "go" },
+      toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+      { type: "model_done", stopReason: "tool_use" },
+      { type: "user_message", content: "first wording" }, // steering: status is executing_tools
+      { type: "steering_edit", id: "", content: "reworded" },
+      { type: "tool_result", toolCallId: "c1", toolName: "read_file", result: { modelContent: "file contents" } },
+    ]);
+
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+    const projected = projectMessages(events);
+    expect(projected.at(-1)).toMatchObject({ role: "user", content: "reworded" });
+    expect(JSON.stringify(projected)).not.toContain("first wording");
+  });
+
+  it("14. a removed queued entry leaves no residue in the projected history", () => {
+    const { events, finalState } = driveAndRecord([
+      { type: "user_message", content: "go" },
+      toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+      { type: "model_done", stopReason: "tool_use" },
+      { type: "user_message", content: "withdraw me" }, // steering: status is executing_tools
+      { type: "steering_remove", id: "" },
+      { type: "tool_result", toolCallId: "c1", toolName: "read_file", result: { modelContent: "file contents" } },
+    ]);
+
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+    expect(JSON.stringify(projectMessages(events))).not.toContain("withdraw me");
+    expect(finalState.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
   });
 });
 
@@ -1206,5 +1247,428 @@ describe("projectMessageEntries", () => {
     // Steering sits after the tool result, so its time runs backwards here —
     // that is correct: position follows the reducer, not the clock.
     expect(entries.map((e) => e.time)).toEqual([10, 20, 40, 30]);
+  });
+});
+
+import { buildTurnRecords, toConversationView } from "../view-projection.js";
+
+// ──────────────────────────────────────────────────────────────────────────
+// Steering queue realization (Task 6). `steering_delivered{ids}` realizes
+// queued entries at the delivery point; `steering_edited` / `steering_removed`
+// mutate the queued entry before it is ever realized; legacy `steering_queued`
+// events without an `id` keep the pre-feature structural placement.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Turn 1 dies before any drain; turn 2 opens with the D11b idle pre-flush. */
+const CROSS_TURN_LOG = log([
+  { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+  { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+  { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+  {
+    time: 130,
+    type: "assistant_message",
+    data: {
+      content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+      stopReason: "tool_use",
+      durationMs: 5,
+    },
+    turn: 1,
+    step: 1,
+  },
+  { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
+  { time: 150, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
+  { time: 160, type: "turn_end", data: { turn: 1, reason: "cancelled" }, turn: 1 },
+  // run() records the opening input BEFORE the drain's steering_delivered, so
+  // the durable order is [user_message, steering_delivered] — but the
+  // reducer's message order is [...olderQueue, newUserMsg].
+  { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+  { time: 210, type: "user_message", data: { content: "again" }, turn: 2 },
+  { time: 220, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 2 },
+  { time: 230, type: "model_call_start", data: { headerHash: "h1" }, turn: 2, step: 1 },
+  {
+    time: 240,
+    type: "assistant_message",
+    data: { content: [{ type: "text", text: "two" }], stopReason: "end_turn", durationMs: 5 },
+    turn: 2,
+    step: 1,
+  },
+  { time: 250, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+]);
+
+describe("projectMessages — steering queue realization", () => {
+  it("edited queued entry renders the edited content at its delivery position", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "steering_queued", data: { id: "steer-1", content: "first wording" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_edited", data: { id: "steer-1", content: "reworded" }, turn: 1, step: 1 },
+      {
+        time: 160,
+        type: "tool_result",
+        data: { callId: "c1", name: "read_file", content: "text", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 170, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 1 },
+      { time: 180, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+      {
+        time: 190,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 2,
+      },
+      { time: 200, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+    ]);
+
+    // The entry renders exactly once, at the delivery point (after the
+    // batch's tool result, before the next model step) — with the EDITED
+    // content; the original wording is nowhere in the history.
+    expect(stripIds(projectMessages(events))).toEqual([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+        stopReason: "tool_use",
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", toolUseId: "c1", content: [{ type: "text", text: "text" }], isError: false }],
+      },
+      { role: "user", content: "reworded" },
+      { role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "end_turn" },
+    ]);
+    expect(JSON.stringify(projectMessages(events))).not.toContain("first wording");
+
+    // The view renders the edited content at the same delivery position:
+    // between step 1 (whose tool result is folded in) and step 2.
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "go"],
+      ["assistant", ""],
+      ["user", "reworded"],
+      ["assistant", "ok"],
+    ]);
+    expect(JSON.stringify(view.messages)).not.toContain("first wording");
+  });
+
+  it("removed queued entry leaves no residue in transcript or view", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "steering_queued", data: { id: "steer-1", content: "withdraw me" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_removed", data: { id: "steer-1" }, turn: 1, step: 1 },
+      {
+        time: 160,
+        type: "tool_result",
+        data: { callId: "c1", name: "read_file", content: "text", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      // The queue is empty at the drain, so no steering_delivered is emitted.
+      { time: 180, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+      {
+        time: 190,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 2,
+      },
+      { time: 200, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+    ]);
+
+    const messages = projectMessages(events);
+    expect(stripIds(messages).map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+    expect(JSON.stringify(messages)).not.toContain("withdraw me");
+
+    const records = buildTurnRecords(events);
+    expect(records[0]!.userInput).toEqual([{ origin: "direct", content: "go", time: 110 }]);
+    const view = toConversationView(records);
+    expect(view.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "go"],
+      ["assistant", ""],
+      ["assistant", "ok"],
+    ]);
+  });
+
+  it("an entry queued in turn N and delivered in turn N+1 renders exactly once, in the delivering turn", () => {
+    const messages = projectMessages(CROSS_TURN_LOG);
+
+    // Anchored at the delivering turn's OPENING — before "again", matching
+    // the reducer's [...olderQueue, newUserMsg] byte for byte — and exactly
+    // once, in the delivering turn only.
+    expect(stripIds(messages)).toEqual([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+        stopReason: "tool_use",
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "c1",
+            content: [
+              {
+                type: "text",
+                text: 'Tool "read_file" was interrupted: the user cancelled the turn before it finished. The call was not judged either way.',
+              },
+            ],
+            isError: true,
+          },
+        ],
+      },
+      { role: "user", content: "wait" },
+      { role: "user", content: "again" },
+      { role: "assistant", content: [{ type: "text", text: "two" }], stopReason: "end_turn" },
+    ]);
+    expect(messages.filter((m) => JSON.stringify(m.content).includes('"wait"') || m.content === "wait")).toHaveLength(1);
+  });
+
+  it("an unrealized entry stays at its turn end in view and is dropped from transcript", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: {} }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { id: "steer-1", content: "one more thing" }, turn: 1, step: 1 },
+      // The turn dies before any drain — no steering_delivered ever names
+      // the entry.
+      { time: 160, type: "turn_end", data: { turn: 1, reason: "cancelled" }, turn: 1 },
+    ]);
+
+    // Transcript: a queue that never reached a drain point is dropped —
+    // never appended at end-of-log or end-of-turn.
+    expect(JSON.stringify(projectMessages(events))).not.toContain("one more thing");
+
+    // View: the same entry stays visible at its turn's end.
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "go"],
+      ["assistant", ""],
+      ["user", "one more thing"],
+    ]);
+  });
+
+  it("legacy steering_queued without id falls back to structural placement without throwing", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      // Pre-feature transcript: the queued event carries no id.
+      {
+        time: 140,
+        type: "steering_queued",
+        data: { content: "legacy steer" } as unknown as { id: string; content: string },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 150,
+        type: "tool_result",
+        data: { callId: "c1", name: "read_file", content: "text", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 180, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+      {
+        time: 190,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c2", name: "list_dir", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 2,
+      },
+      // A modern id-carrying entry alongside — realized by its own event.
+      { time: 230, type: "steering_queued", data: { id: "steer-1", content: "modern steer" }, turn: 1, step: 2 },
+      {
+        time: 250,
+        type: "tool_result",
+        data: { callId: "c2", name: "list_dir", content: "a,b", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 2,
+      },
+      { time: 260, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 1 },
+      { time: 280, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 3 },
+      {
+        time: 290,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "done" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 3,
+      },
+      { time: 300, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+    ]);
+
+    expect(() => projectMessages(events)).not.toThrow();
+    // The legacy entry keeps its structural slot (after batch 1's results);
+    // the modern one lands at its delivered point (after batch 2's).
+    expect(stripIds(projectMessages(events)).map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "user",
+      "assistant",
+      "tool",
+      "user",
+      "assistant",
+    ]);
+    expect(projectMessages(events).filter((m) => m.role === "user").map((m) => m.content)).toEqual([
+      "go",
+      "legacy steer",
+      "modern steer",
+    ]);
+
+    // The view keeps the legacy time heuristic for the id-less entry and the
+    // delivered anchor for the modern one — same visible order.
+    expect(() => buildTurnRecords(events)).not.toThrow();
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.filter((m) => m.role === "user").map((m) => m.content)).toEqual([
+      "go",
+      "legacy steer",
+      "modern steer",
+    ]);
+  });
+
+  it("a steering_flush turn realizes the queue at its opening, before any user_message", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 130, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
+      { time: 140, type: "model_error", data: { error: "boom", retriable: false }, turn: 1, step: 1 },
+      { time: 150, type: "turn_end", data: { turn: 1, reason: "error", error: "boom" }, turn: 1 },
+      // steering_flush opens turn 2: the whole queue is realized with NO
+      // user_message event at all.
+      { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+      { time: 210, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 2 },
+      { time: 230, type: "model_call_start", data: { headerHash: "h1" }, turn: 2, step: 1 },
+      {
+        time: 240,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "two" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 250, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+    ]);
+
+    expect(projectMessages(events).map((m) => [m.role, m.content])).toEqual([
+      ["user", "go"],
+      ["user", "wait"],
+      ["assistant", [{ type: "text", text: "two" }]],
+    ]);
+
+    // View: the entry moved into the delivering turn as a DIRECT input — the
+    // turn's opening — exactly once.
+    const [turn1, turn2] = buildTurnRecords(events);
+    expect(turn1!.userInput).toEqual([{ origin: "direct", content: "go", time: 110 }]);
+    expect(turn2!.userInput).toEqual([{ origin: "direct", content: "wait", time: 130 }]);
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "go"],
+      // Turn 1's errored step still renders its (empty) assistant row.
+      ["assistant", ""],
+      ["user", "wait"],
+      ["assistant", "two"],
+    ]);
+  });
+});
+
+describe("projectMessages — steering queue realization (FIFO)", () => {
+  it("realizes a multi-entry cross-turn drain in FIFO order at the turn opening", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 130, type: "steering_queued", data: { id: "steer-1", content: "first steer" }, turn: 1, step: 1 },
+      { time: 140, type: "steering_queued", data: { id: "steer-2", content: "second steer" }, turn: 1, step: 1 },
+      { time: 150, type: "model_error", data: { error: "boom", retriable: false }, turn: 1, step: 1 },
+      { time: 160, type: "turn_end", data: { turn: 1, reason: "error", error: "boom" }, turn: 1 },
+      { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+      { time: 210, type: "user_message", data: { content: "again" }, turn: 2 },
+      { time: 220, type: "steering_delivered", data: { ids: ["steer-1", "steer-2"] }, turn: 2 },
+      { time: 230, type: "model_call_start", data: { headerHash: "h1" }, turn: 2, step: 1 },
+      {
+        time: 240,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "two" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 250, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+    ]);
+
+    // Both anchors runs keep the drain's FIFO order, still ahead of "again".
+    expect(projectMessages(events).map((m) => m.content)).toEqual([
+      "go",
+      "first steer",
+      "second steer",
+      "again",
+      [{ type: "text", text: "two" }],
+    ]);
+    const [, turn2] = buildTurnRecords(events);
+    expect(turn2!.userInput.map((u) => u.content)).toEqual(["first steer", "second steer", "again"]);
+    const view = toConversationView(buildTurnRecords(events));
+    expect(view.messages.map((m) => [m.id, m.content])).toEqual([
+      ["1:u0", "go"],
+      // Turn 1's errored step still renders its (empty) assistant row.
+      ["1:1", ""],
+      ["2:u0", "first steer"],
+      ["2:u1", "second steer"],
+      ["2:u2", "again"],
+      ["2:1", "two"],
+    ]);
   });
 });

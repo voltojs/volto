@@ -436,3 +436,94 @@ describe("buildTurnRecords", () => {
     expect(buildTurnRecords([])).toEqual([]);
   });
 });
+
+describe("buildTurnRecords — steering queue realization", () => {
+  it("folds steering_edited and steering_removed into the queued input records", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "start" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 130, type: "steering_queued", data: { id: "steer-1", content: "first wording" }, turn: 1, step: 1 },
+      { time: 140, type: "steering_edited", data: { id: "steer-1", content: "reworded" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { id: "steer-2", content: "withdraw me" }, turn: 1, step: 1 },
+      { time: 160, type: "steering_removed", data: { id: "steer-2" }, turn: 1, step: 1 },
+    ]);
+
+    expect(buildTurnRecords(events)[0]!.userInput).toEqual([
+      { origin: "direct", content: "start", time: 110 },
+      { origin: "queued", content: "reworded", time: 130 },
+    ]);
+  });
+
+  it("anchors a same-turn realized input before the step its drain fed", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: {} }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
+      {
+        time: 150,
+        type: "tool_result",
+        data: { callId: "c1", name: "read_file", content: "text", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 160, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 1 },
+      { time: 170, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 2 },
+      {
+        time: 180,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 1,
+        step: 2,
+      },
+    ]);
+
+    expect(buildTurnRecords(events)[0]!.userInput).toEqual([
+      { origin: "direct", content: "go", time: 110 },
+      { origin: "queued", content: "wait", time: 140, deliveredBeforeStep: 2 },
+    ]);
+  });
+
+  it("moves a cross-turn realized input into the delivering turn as direct input", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      { time: 150, type: "steering_queued", data: { id: "steer-1", content: "wait" }, turn: 1, step: 1 },
+      { time: 160, type: "turn_end", data: { turn: 1, reason: "error", error: "boom" }, turn: 1 },
+      { time: 200, type: "turn_start", data: { turn: 2 }, turn: 2 },
+      { time: 210, type: "user_message", data: { content: "again" }, turn: 2 },
+      { time: 220, type: "steering_delivered", data: { ids: ["steer-1"] }, turn: 2 },
+      { time: 230, type: "model_call_start", data: { headerHash: "h1" }, turn: 2, step: 1 },
+      {
+        time: 240,
+        type: "assistant_message",
+        data: { content: [{ type: "text", text: "two" }], stopReason: "end_turn", durationMs: 5 },
+        turn: 2,
+        step: 1,
+      },
+      { time: 250, type: "turn_end", data: { turn: 2, reason: "done" }, turn: 2 },
+    ]);
+
+    const [turn1, turn2] = buildTurnRecords(events);
+    // Removed from its own turn, dropped into the delivering turn's OPENING
+    // (before that turn's user_message record), origin queued → direct.
+    expect(turn1!.userInput).toEqual([{ origin: "direct", content: "go", time: 110 }]);
+    expect(turn2!.userInput).toEqual([
+      { origin: "direct", content: "wait", time: 150 },
+      { origin: "direct", content: "again", time: 210 },
+    ]);
+  });
+});

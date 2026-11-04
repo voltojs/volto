@@ -30,6 +30,15 @@ export interface UserInputRecord {
   origin: "direct" | "queued";
   content: string | ContentBlock[];
   time: number;
+  /**
+   * Realization anchor (Task 6): set when a `steering_delivered` event
+   * realized this queued input in its own turn — the input renders
+   * immediately before the step with this number, i.e. the model call its
+   * drain fed. Absent means no delivery event ever named it: the legacy
+   * rules apply (the time heuristic in `toConversationView`, or turn start
+   * for direct inputs).
+   */
+  deliveredBeforeStep?: number;
 }
 
 /** 一次模型调用的路由来源：宿主的 provider 配置 id + 模型 id。 */
@@ -202,6 +211,49 @@ export function buildTurnRecords(
   const turns: MutableTurn[] = [];
   let current: MutableTurn | undefined;
 
+  /**
+   * Queued steering inputs by id (FIFO per id), pending realization
+   * (Task 6). Ids are stamped unique in production; a legacy log can carry
+   * several unstamped entries under `""`, so each id maps to a FIFO list —
+   * the first entry is the reducer's findIndex match.
+   */
+  const queuedInputs = new Map<string, Array<{ record: UserInputRecord; turn: MutableTurn }>>();
+  /**
+   * Records realized by a `steering_delivered` in their own turn, waiting
+   * for the model call their drain fed — the next step created in that turn
+   * anchors them (every drain re-issues call_model).
+   */
+  const pendingDeliveryAnchors = new Map<number, UserInputRecord[]>();
+  /**
+   * Per-turn opening bookkeeping for cross-turn realizations: the record the
+   * turn's `user_message` opened with, and the last entry moved into that
+   * opening (FIFO stacking ahead of it).
+   */
+  const turnOpenings = new Map<number, { userMessage?: UserInputRecord; lastMoved?: UserInputRecord }>();
+
+  const registerQueuedInput = (id: string, record: UserInputRecord, turn: MutableTurn): void => {
+    const list = queuedInputs.get(id);
+    const item = { record, turn };
+    if (list) list.push(item);
+    else queuedInputs.set(id, [item]);
+  };
+  const firstQueuedInput = (id: string): { record: UserInputRecord; turn: MutableTurn } | undefined =>
+    queuedInputs.get(id)?.[0];
+  const claimQueuedInput = (id: string): { record: UserInputRecord; turn: MutableTurn } | undefined => {
+    const list = queuedInputs.get(id);
+    const item = list?.shift();
+    if (list !== undefined && list.length === 0) queuedInputs.delete(id);
+    return item;
+  };
+
+  /** Anchors every pending realized input on the step their drain fed. */
+  const resolveDeliveryAnchors = (turn: MutableTurn, stepNo: number): void => {
+    const pending = pendingDeliveryAnchors.get(turn.turn);
+    if (!pending || pending.length === 0) return;
+    for (const record of pending) record.deliveredBeforeStep = stepNo;
+    pendingDeliveryAnchors.delete(turn.turn);
+  };
+
   /** The step an event belongs to, created on demand for out-of-order logs. */
   const stepFor = (turn: MutableTurn, step: number | undefined, time: number): MutableStep | undefined => {
     if (step === undefined) return undefined;
@@ -209,6 +261,7 @@ export function buildTurnRecords(
     if (!found) {
       found = newStep(step, time, "");
       turn.steps.push(found);
+      resolveDeliveryAnchors(turn, step);
     }
     return found;
   };
@@ -296,13 +349,85 @@ export function buildTurnRecords(
 
       case "user_message": {
         const data = event.data as TranscriptEventMap["user_message"];
-        turnFor(event).userInput.push({ origin: "direct", content: data.content, time: event.time });
+        const turn = turnFor(event);
+        const record: UserInputRecord = { origin: "direct", content: data.content, time: event.time };
+        turn.userInput.push(record);
+        const opening = turnOpenings.get(turn.turn) ?? {};
+        opening.userMessage = record;
+        turnOpenings.set(turn.turn, opening);
         break;
       }
 
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
-        turnFor(event).userInput.push({ origin: "queued", content: data.content, time: event.time });
+        const turn = turnFor(event);
+        const record: UserInputRecord = { origin: "queued", content: data.content, time: event.time };
+        turn.userInput.push(record);
+        // Legacy events carry no id: they have no realization signal and
+        // keep the pre-feature placement rules.
+        const id: unknown = (data as { id?: unknown }).id;
+        if (typeof id === "string") registerQueuedInput(id, record, turn);
+        break;
+      }
+
+      case "steering_edited": {
+        const data = event.data as TranscriptEventMap["steering_edited"];
+        // Same id, same position, new content — mirrors the reducer's
+        // in-place queue edit. Delivery wins: an id no longer queued is a
+        // no-op.
+        const target = firstQueuedInput(data.id);
+        if (target) target.record.content = data.content;
+        break;
+      }
+
+      case "steering_removed": {
+        const data = event.data as TranscriptEventMap["steering_removed"];
+        // Hard delete — no residue anywhere: the record leaves its turn's
+        // userInput entirely.
+        const target = claimQueuedInput(data.id);
+        if (target) {
+          const at = target.turn.userInput.indexOf(target.record);
+          if (at >= 0) target.turn.userInput.splice(at, 1);
+        }
+        break;
+      }
+
+      case "steering_delivered": {
+        const data = event.data as TranscriptEventMap["steering_delivered"];
+        const delivering = turnFor(event);
+        for (const id of data.ids) {
+          const target = claimQueuedInput(id);
+          if (!target) continue;
+          if (target.turn === delivering) {
+            // Realized in its own turn: it renders at the delivery point —
+            // immediately before the model call its drain fed.
+            const pending = pendingDeliveryAnchors.get(delivering.turn) ?? [];
+            pending.push(target.record);
+            pendingDeliveryAnchors.set(delivering.turn, pending);
+            continue;
+          }
+          // Cross-turn realization: removed from its own turn and dropped
+          // into the delivering turn's OPENING — ahead of that turn's
+          // user_message record — as a direct input. The reducer renders
+          // [...olderQueue, newUserMsg] even though the durable log records
+          // the opening input first (D11b), and a steering_flush turn opens
+          // with no user_message at all (D11).
+          const at = target.turn.userInput.indexOf(target.record);
+          if (at >= 0) target.turn.userInput.splice(at, 1);
+          target.record.origin = "direct";
+          const opening = turnOpenings.get(delivering.turn) ?? {};
+          let insertAt = 0;
+          if (opening.lastMoved !== undefined) {
+            const idx = delivering.userInput.indexOf(opening.lastMoved);
+            insertAt = idx === -1 ? 0 : idx + 1;
+          } else if (opening.userMessage !== undefined) {
+            const idx = delivering.userInput.indexOf(opening.userMessage);
+            insertAt = idx === -1 ? 0 : idx;
+          }
+          delivering.userInput.splice(insertAt, 0, target.record);
+          opening.lastMoved = target.record;
+          turnOpenings.set(delivering.turn, opening);
+        }
         break;
       }
 
@@ -311,6 +436,7 @@ export function buildTurnRecords(
         const turn = turnFor(event);
         const step = newStep(event.step ?? turn.steps.length + 1, event.time, data.headerHash);
         turn.steps.push(step);
+        resolveDeliveryAnchors(turn, step.step);
         break;
       }
 
@@ -742,13 +868,16 @@ function userConversationBlocks(content: string | ContentBlock[]): ConversationB
  * assistant block that called it rather than becoming its own entry, so a
  * call renders where it actually happened in the reply.
  *
- * A queued (steering) input renders before the first step whose `startedAt`
- * is greater than the input's `time` — the reducer drains the queue after a
- * batch's results and before the next model call
- * (`[...results, ...queuedUserInputs]`), so that is where the model actually
- * saw it. Ordering by raw event time instead would show the user a history
- * the model never saw. A queued input with no such step (the turn ended
- * before the queue drained) stays at the end of the turn.
+ * A queued (steering) input named by a `steering_delivered` event renders at
+ * its delivery point — immediately before the model call its drain fed (the
+ * reducer drains the queue after a batch's results and before the next model
+ * call, `[...results, ...queuedUserInputs]`, so that is where the model
+ * actually saw it). An input no delivery event ever named — a legacy log, or
+ * a turn that ended before the queue drained — falls back to the structural
+ * rule: before the first step whose `startedAt` is greater than the input's
+ * `time`, or, with no such step (the turn ended before the queue drained),
+ * at the end of the turn. Ordering by raw event time instead would show the
+ * user a history the model never saw.
  */
 export function toConversationView(records: readonly TurnRecord[]): ConversationView {
   const messages: ConversationMessage[] = [];
@@ -860,15 +989,26 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
 
     direct.forEach((input, i) => emitUser(input, `${turn.turn}:u${i}`));
 
-    // Steering slots between steps: each queued input is emitted before the
-    // first step that started after it was queued. Ids stay the ordinal among
-    // queued inputs, so repositioning never makes them drift.
+    // Steering slots between steps. A realized (delivered) input renders at
+    // its delivery point — immediately before the step its drain fed — while
+    // an input no steering_delivered ever named keeps the legacy rule: before
+    // the first step that started after it was queued. Ids stay the ordinal
+    // among queued inputs, so repositioning never makes them drift.
     const pending = queued.map((input, i) => ({ input, id: `${turn.turn}:q${i}` }));
-    for (const step of turn.steps) {
-      while (pending[0] && pending[0].input.time < step.startedAt) {
-        const next = pending.shift()!;
-        emitUser(next.input, next.id);
+    const emitPending = (keep: (input: UserInputRecord) => boolean): void => {
+      for (let i = 0; i < pending.length; ) {
+        const next = pending[i]!;
+        if (keep(next.input)) {
+          pending.splice(i, 1);
+          emitUser(next.input, next.id);
+        } else {
+          i += 1;
+        }
       }
+    };
+    for (const step of turn.steps) {
+      emitPending((input) => input.deliveredBeforeStep === step.step);
+      emitPending((input) => input.deliveredBeforeStep === undefined && input.time < step.startedAt);
       emitStep(step);
     }
     for (const leftover of pending) emitUser(leftover.input, leftover.id);

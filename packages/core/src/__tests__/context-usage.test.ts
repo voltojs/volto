@@ -371,3 +371,43 @@ describe("foldContextUsageEvent determinism", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("steering queue mutations", () => {
+  it("context-usage treats steering_edited/removed as no-op and never double-counts", () => {
+    let fold = foldContextUsageEvent(
+      emptyContextUsageFold(),
+      event("steering_queued", { id: "steer-1", content: "abcdefgh" }),
+      tokenizer,
+    );
+    const counted = fold;
+
+    // Realization must not re-count the message the queue already priced.
+    fold = foldContextUsageEvent(fold, event("steering_delivered", { ids: ["steer-1"] }), tokenizer);
+    expect(fold).toEqual(counted);
+
+    // An edit replaces the queued content in the projections; the fold
+    // ignores the delta (bounded error) and stays byte-identical.
+    fold = foldContextUsageEvent(
+      fold,
+      event("steering_edited", { id: "steer-1", content: "brand new wording here" }),
+      tokenizer,
+    );
+    expect(fold).toEqual(counted);
+
+    // A withdrawal leaves no residue either — nothing is ever un-counted,
+    // and nothing is counted twice.
+    fold = foldContextUsageEvent(fold, event("steering_removed", { id: "steer-1" }), tokenizer);
+    expect(fold).toEqual(counted);
+  });
+
+  it("the snapshot fold mirrors the same no-op rules", () => {
+    let snap = emptyContextUsageSnapshot();
+    snap = foldSnapshotEvent(snap, event("steering_queued", { id: "steer-1", content: "abcdefgh" }), tokenizer);
+    const counted = snap;
+
+    snap = foldSnapshotEvent(snap, event("steering_edited", { id: "steer-1", content: "brand new wording here" }), tokenizer);
+    expect(snap).toEqual(counted);
+    snap = foldSnapshotEvent(snap, event("steering_removed", { id: "steer-1" }), tokenizer);
+    expect(snap).toEqual(counted);
+  });
+});
