@@ -594,6 +594,85 @@ describe("Runner transcript capture", () => {
     expect(streamed!.data).toEqual({ ids: [queuedId] });
   });
 
+  it("records and streams steering_edited and steering_removed", async () => {
+    const model = createMockModelPort([
+      [
+        { type: "tool_use_start", toolCallId: "c1", toolName: "noop" },
+        { type: "tool_use_delta", toolCallId: "c1", argumentsDelta: "{}" },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [textDelta("done"), { type: "done", stopReason: "end_turn" }],
+    ]);
+    const { store, events } = fakeChatStore();
+    const sinkEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
+    let n = 0;
+    let firstId = "";
+    let secondId = "";
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: {
+        tools: [
+          {
+            name: "noop",
+            description: "does nothing",
+            inputSchema: { type: "object", properties: {} },
+            requires: [],
+            riskTier: "READ_ONLY",
+          },
+        ],
+        model: "test-model",
+        id: { next: () => `msg-${++n}` },
+      },
+      toolExecutor: async () => {
+        // Queue two messages, then mutate them before the batch flush drains
+        // the queue — ids are read back from state, never hardcoded.
+        runner.send({ type: "user_message", content: "keep me" });
+        runner.send({ type: "user_message", content: "drop me" });
+        const queue = runner.getState().queuedUserInputs;
+        firstId = queue[0]!.id;
+        secondId = queue[1]!.id;
+        runner.send({ type: "steering_edit", id: firstId, content: "keep me (v2)" });
+        runner.send({ type: "steering_remove", id: secondId });
+        return { modelContent: "ok" };
+      },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      turn: 1,
+      clock: steppingClock(),
+      eventSink: {
+        emit(event) {
+          sinkEvents.push(event);
+        },
+      },
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    // Durable record: both mutations reach the transcript log — Task 10's
+    // queue rebuild folds exactly these events.
+    expect(firstOf<{ id: string; content: unknown }>(events, "steering_edited")).toEqual({
+      id: firstId,
+      content: "keep me (v2)",
+    });
+    expect(firstOf<{ id: string }>(events, "steering_removed")).toEqual({ id: secondId });
+
+    // Live stream: the EventSink sees both (recorder double write).
+    const streamedEdited = sinkEvents.find((e) => e.type === "steering_edited");
+    expect(streamedEdited).toBeDefined();
+    expect(streamedEdited!.data).toEqual({ id: firstId, content: "keep me (v2)" });
+    const streamedRemoved = sinkEvents.find((e) => e.type === "steering_removed");
+    expect(streamedRemoved).toBeDefined();
+    expect(streamedRemoved!.data).toEqual({ id: secondId });
+
+    // The queue really mutated: only the edited message is delivered (with
+    // its new content), the withdrawn one never lands in the history.
+    expect(firstOf<{ ids: string[] }>(events, "steering_delivered")!.ids).toEqual([firstId]);
+    const delivered = runner.getState().messages.find((m) => m.role === "user" && m.content === "keep me (v2)");
+    expect(delivered).toBeDefined();
+    expect(delivered!.id).toBe(firstId);
+    expect(runner.getState().messages.some((m) => m.role === "user" && m.content === "drop me")).toBe(false);
+  });
+
   it("records model_error and ends the turn with reason 'error' when the provider yields an error event", async () => {
     // Real providers (packages/providers/anthropic|openai's model-port.ts)
     // yield {type:"error"} for non-2xx responses, aborts, and empty bodies —

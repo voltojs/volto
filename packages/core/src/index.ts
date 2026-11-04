@@ -30,6 +30,8 @@ export { normalizeToolResultContent } from "./state.js";
 // Types — Input
 export type {
   UserMessageInput,
+  SteeringEditInput,
+  SteeringRemoveInput,
   ModelChunkInput,
   ModelDoneInput,
   ModelErrorInput,

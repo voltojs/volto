@@ -264,6 +264,51 @@ export function step(
     };
   }
 
+  // Unified steering_edit / steering_remove handlers — queue mutations that
+  // are accepted in ANY status (same cross-status placement as the
+  // self_correct handler above, ahead of the status switch): the queue
+  // outlives the turn, so a queued message stays editable/withdrawable even
+  // in idle/done. Locate by id in queuedUserInputs; edit replaces content
+  // IN PLACE (same id, same position, new UserMessage object); remove
+  // hard-deletes (no tombstone). Delivery wins: an id no longer in the
+  // queue — delivered, removed, or never queued — is an errorResult with
+  // state untouched, so a message the model already saw can never be
+  // mutated after the fact.
+  if (input.type === "steering_edit") {
+    const idx = state.queuedUserInputs.findIndex((m) => m.id === input.id);
+    if (idx === -1) {
+      return errorResult(state, `steering_edit: no queued message with id "${input.id}"`);
+    }
+    const queued = state.queuedUserInputs[idx]!;
+    const next = [...state.queuedUserInputs];
+    next[idx] = { ...queued, content: input.content };
+    return {
+      state: { ...state, queuedUserInputs: next },
+      effects: [
+        {
+          type: "emit",
+          event: { type: "steering_edited", data: { id: input.id, content: input.content } },
+        },
+      ],
+    };
+  }
+
+  if (input.type === "steering_remove") {
+    const idx = state.queuedUserInputs.findIndex((m) => m.id === input.id);
+    if (idx === -1) {
+      return errorResult(state, `steering_remove: no queued message with id "${input.id}"`);
+    }
+    return {
+      state: {
+        ...state,
+        queuedUserInputs: state.queuedUserInputs.filter((_, i) => i !== idx),
+      },
+      effects: [
+        { type: "emit", event: { type: "steering_removed", data: { id: input.id } } },
+      ],
+    };
+  }
+
   // Unified loop ladder injection handlers — structurally isomorphic to the
   // self_correct handler above (append user message + context_reminder emit,
   // accepted in any status except done). Division of labor (spec 2026-10-16

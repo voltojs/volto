@@ -977,7 +977,8 @@ export function createRunner(opts: RunnerOptions): Runner {
    *   - tool_use_complete → tool_call
    *   - tool_result → tool_result (transcript shape)
    *   - budget_exceeded / steering_queued / steering_delivered /
-   *     context_reminder → same-name transcript events
+   *     steering_edited / steering_removed / context_reminder → same-name
+   *     transcript events
    *   - user_message (only ever emitted for the initial idle feed) → covered
    *     by the runner-originated record at run(), which now streams too
    * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
@@ -1032,6 +1033,26 @@ export function createRunner(opts: RunnerOptions): Runner {
           // the EventSink, so the live SSE path and the durable log match.
           recorder.record("steering_delivered", {
             ids: event.data["ids"] as string[],
+          });
+          continue;
+
+        case "steering_edited":
+          // Queue mutation before delivery (D14): recorded the same way as
+          // steering_delivered — the durable transcript is what Task 10's
+          // queue rebuild folds, so an unrecorded edit would silently revert
+          // on resume. recorder.record double-writes to the EventSink too.
+          recorder.record("steering_edited", {
+            id: event.data["id"] as string,
+            content: event.data["content"] as TranscriptEventMap["steering_edited"]["content"],
+          });
+          continue;
+
+        case "steering_removed":
+          // Queue withdrawal before delivery (D15): same record + double-write
+          // discipline as steering_edited above — the rebuild must see the
+          // removal or the withdrawn message resurrects after a resume.
+          recorder.record("steering_removed", {
+            id: event.data["id"] as string,
           });
           continue;
 

@@ -13,6 +13,30 @@ export interface UserMessageInput {
   content: string | ContentBlock[];
 }
 
+/**
+ * Edit a queued (not yet delivered) steering message in place — same id,
+ * same queue position, new content (spec 2026-11-04 D14). Accepted in ANY
+ * status: the queue outlives the turn. An id no longer in `queuedUserInputs`
+ * (already delivered, removed, or never queued) yields an errorResult —
+ * delivery wins, so a sent message can never be edited.
+ */
+export interface SteeringEditInput {
+  type: "steering_edit";
+  id: string;
+  content: string | ContentBlock[];
+}
+
+/**
+ * Withdraw a queued (not yet delivered) steering message — hard delete, no
+ * tombstone (spec 2026-11-04 D15). Accepted in ANY status. An id no longer
+ * in `queuedUserInputs` yields an errorResult — delivery wins, so a sent
+ * message can never be withdrawn.
+ */
+export interface SteeringRemoveInput {
+  type: "steering_remove";
+  id: string;
+}
+
 /** Streaming chunk from the model (partial text or tool_use delta) */
 export interface ModelChunkInput {
   type: "model_chunk";
@@ -275,6 +299,8 @@ export interface FileChangedInput {
 /** All possible inputs to the step() reducer */
 export type AgentInput =
   | UserMessageInput
+  | SteeringEditInput
+  | SteeringRemoveInput
   | ModelChunkInput
   | ModelDoneInput
   | ModelErrorInput

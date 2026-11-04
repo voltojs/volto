@@ -601,6 +601,14 @@ export interface TranscriptEventMap {
    *  every drained message id in FIFO order; emitted only when the drained
    *  queue is non-empty. */
   steering_delivered: { ids: string[] };
+  /** Steering — a queued message's content was replaced in place (D14). The
+   *  id stays the queued entry's own; projections fold it over the matching
+   *  `steering_queued`. */
+  steering_edited: { id: string; content: string | ContentBlock[] };
+  /** Steering — a queued message was withdrawn before delivery (D15). Hard
+   *  delete: projections drop the matching `steering_queued` entry; the event
+   *  itself is the audit trail. */
+  steering_removed: { id: string };
   /** A debounced FileWatcher batch injected as AgentInput. Paths only — never file content. */
   file_changed: {
     watchId: string;
