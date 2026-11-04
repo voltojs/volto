@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
-import { toolCallFileRef } from '@/lib/file-reference';
+import { toolCallFileRef } from '@volto/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 import { TraceRow } from './TraceRow';
 

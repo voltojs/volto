@@ -6,6 +6,7 @@ export default defineProject({
       "src/__tests__/**/*.test.ts",
       "src/sse/__tests__/**/*.test.ts",
       "src/agent-registry/__tests__/**/*.test.ts",
+      "src/file-refs/__tests__/**/*.test.ts",
     ],
     // These budgets exist to catch a hang, not to assert latency. The
     // whole-repo gate runs ~68 test tasks plus tsc and eslint concurrently on

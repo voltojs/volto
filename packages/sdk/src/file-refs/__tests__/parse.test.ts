@@ -5,7 +5,7 @@ import {
   parseLinkRef,
   resolveFileRef,
   toolCallFileRef,
-} from '../file-reference';
+} from '../parse.js';
 
 describe('parseFileRef', () => {
   it('parses a plain project-relative path', () => {

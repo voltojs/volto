@@ -6,7 +6,7 @@ import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
-import { parentDir } from '@/lib/file-reference';
+import { parentDir } from '@volto/sdk/file-refs';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';

@@ -8,14 +8,8 @@
  * rendering layers decide what to do with a parsed ref.
  */
 
-export interface FileRef {
-  /** Project-relative path, normalized (no leading `./`). */
-  path: string;
-  /** 1-based start line, from `path:42`, `path#L42` and friends. */
-  line?: number;
-  /** 1-based inclusive end line of a range ref (`path:10-20`, `path#L42-L50`). */
-  endLine?: number;
-}
+import type { FileRef } from "./types.js";
+export type { FileRef };
 
 /** Absurd line numbers are date-stamps and junk, not line targets. */
 const MAX_LINE = 100_000;
