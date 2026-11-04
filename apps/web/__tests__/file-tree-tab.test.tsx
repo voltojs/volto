@@ -138,93 +138,26 @@ describe('FileTreeTab', () => {
   });
 });
 
-describe('FileTreeTab reveal', () => {
-  it('expands the revealed dir and scrolls its row into view', async () => {
-    treeMock.mockResolvedValueOnce({
-      path: '',
-      entries: [{ name: 'src', type: 'dir', size: 0 }],
-    });
-    treeMock.mockResolvedValue({
-      path: 'src',
-      entries: [{ name: 'a.ts', type: 'file', size: 3 }],
-    });
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    usePaneStore.setState({
-      treeReveal: { projectId: 'p1', dir: 'src', nonce: 1 },
-    });
-    render(<FileTreeTab tab={tab} />);
-    // The dir expands: its child row renders.
-    expect(await screen.findByText('a.ts')).toBeDefined();
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
-    const target = scrollIntoView.mock.contexts.at(-1) as Element;
-    expect(target.getAttribute('data-tree-path')).toBe('src');
-  });
-});
-
-describe('FileTreeTab reveal fallback', () => {
-  it('keeps the tree usable when a reveal target is missing', async () => {
+describe('FileTreeTab error domain', () => {
+  it('keeps the tree usable when expanding a directory fails', async () => {
     treeMock.mockImplementation(async (_projectId: string, rel = '') => {
       if (rel === '') {
-        return { path: '', entries: [{ name: 'README.md', type: 'file', size: 5 }] };
+        return {
+          path: '',
+          entries: [
+            { name: 'src', type: 'dir', size: 0 },
+            { name: 'README.md', type: 'file', size: 5 },
+          ],
+        };
       }
       throw new Error('Not found');
     });
-    usePaneStore.setState({ treeReveal: { projectId: 'p1', dir: 'providers', nonce: 7 } });
     render(<FileTreeTab tab={tab} />);
-    expect(await screen.findByText('README.md')).toBeDefined();
-    // A failed background reveal must not clobber the tree with an error page.
+    fireEvent.click(await screen.findByText('src'));
+    await waitFor(() => expect(treeMock).toHaveBeenCalledWith('p1', 'src'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // A failed background expansion must not clobber the tree with an error page.
+    expect(screen.getByText('README.md')).toBeDefined();
     expect(screen.queryByText('Not found')).toBeNull();
-  });
-
-  it('resolves a missing reveal target fuzzily and reveals the hit', async () => {
-    treeMock.mockImplementation(async (_projectId: string, rel = '') => {
-      if (rel === '') {
-        return { path: '', entries: [{ name: 'README.md', type: 'file', size: 5 }] };
-      }
-      throw new Error('Not found');
-    });
-    searchMock.mockResolvedValue({
-      matches: [{ path: 'packages/providers', type: 'dir' }],
-    });
-    usePaneStore.setState({ treeReveal: { projectId: 'p1', dir: 'providers', nonce: 7 } });
-    render(<FileTreeTab tab={tab} />);
-    await waitFor(() =>
-      expect(usePaneStore.getState().treeReveal).toMatchObject({
-        projectId: 'p1',
-        dir: 'packages/providers',
-      }),
-    );
-  });
-
-  it('arms the tree search when the reveal target is ambiguous', async () => {
-    treeMock.mockImplementation(async (_projectId: string, rel = '') => {
-      if (rel === '') {
-        return { path: '', entries: [{ name: 'README.md', type: 'file', size: 5 }] };
-      }
-      throw new Error('Not found');
-    });
-    searchMock.mockResolvedValue({
-      matches: [
-        { path: 'a/providers', type: 'dir' },
-        { path: 'b/providers', type: 'dir' },
-      ],
-    });
-    usePaneStore.setState({ treeReveal: { projectId: 'p1', dir: 'providers', nonce: 7 } });
-    render(<FileTreeTab tab={tab} />);
-    await waitFor(() =>
-      expect(usePaneStore.getState().treeSearch).toMatchObject({
-        projectId: 'p1',
-        query: 'providers',
-      }),
-    );
-  });
-
-  it('pre-fills the search box from a treeSearch request', async () => {
-    usePaneStore.setState({ treeSearch: { projectId: 'p1', query: 'providers', nonce: 3 } });
-    render(<FileTreeTab tab={tab} />);
-    const input = screen.getByRole('textbox') as HTMLInputElement;
-    await waitFor(() => expect(input.value).toBe('providers'));
-    await waitFor(() => expect(searchMock).toHaveBeenCalledWith('p1', 'providers'));
   });
 });

@@ -1,11 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
-import { openFilePreview, usePaneStore } from '@/stores/pane-store';
-import { resolveRefFallback } from '@/lib/open-file-ref';
+import { openFilePreview } from '@/stores/pane-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PaneTab } from '@/stores/pane-store';
@@ -136,56 +135,6 @@ function FileTree({ projectId }: { projectId: string }) {
     [loadDir, tree],
   );
 
-  // Reveal requests from message dir refs (lib/open-file-ref): expand every
-  // ancestor, then scroll the dir row into view. Consumed once per request
-  // (nonce); the scroll waits until the parent listing has loaded, because
-  // the row only exists after its parent's entries render.
-  const treeReveal = usePaneStore((s) => s.treeReveal);
-  const revealedNonce = useRef(0);
-  const scrolledNonce = useRef(0);
-  const listRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (treeReveal === null || treeReveal.projectId !== projectId) return;
-    if (revealedNonce.current === treeReveal.nonce) return;
-    revealedNonce.current = treeReveal.nonce;
-    revealDir(treeReveal.dir);
-  }, [treeReveal, projectId, revealDir]);
-
-  useEffect(() => {
-    if (treeReveal === null || treeReveal.projectId !== projectId) return;
-    if (scrolledNonce.current === treeReveal.nonce) return;
-    const parentKey = treeReveal.dir.includes('/')
-      ? treeReveal.dir.slice(0, treeReveal.dir.lastIndexOf('/'))
-      : '';
-    if (tree[parentKey] === undefined) return;
-    const el = listRef.current?.querySelector(`[data-tree-path="${treeReveal.dir}"]`);
-    scrolledNonce.current = treeReveal.nonce;
-    if (el === undefined || el === null) {
-      // The row cannot exist once its parent listing is loaded: the ref was
-      // shorthand or stale. Resolve fuzzy once — the exact dir is never a
-      // fallback candidate, so this cannot loop.
-      void resolveRefFallback(projectId, { path: treeReveal.dir, kind: 'dir' });
-      return;
-    }
-    el.scrollIntoView?.({ block: 'center' });
-  }, [tree, treeReveal, projectId]);
-
-  // Ambiguity fallback (revealSearch): pre-fill the search box so the
-  // existing debounce+search UI lists the candidates to pick from.
-  const treeSearch = usePaneStore((s) => s.treeSearch);
-  const searchedNonce = useRef(0);
-  const applySearch = useCallback((query: string) => {
-    setFilter(query);
-    if (query.trim() !== '') setSearching(true);
-  }, []);
-  useEffect(() => {
-    if (treeSearch === null || treeSearch.projectId !== projectId) return;
-    if (searchedNonce.current === treeSearch.nonce) return;
-    searchedNonce.current = treeSearch.nonce;
-    applySearch(treeSearch.query);
-  }, [treeSearch, projectId, applySearch]);
-
   if (error !== null) {
     return (
       <div className="flex flex-col items-start gap-3 p-4">
@@ -221,7 +170,7 @@ function FileTree({ projectId }: { projectId: string }) {
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1 text-sm">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm">
         {matches !== null ? (
           searching ? (
             <p className="text-muted-foreground p-2 text-xs">{t('fileTree.searching')}</p>

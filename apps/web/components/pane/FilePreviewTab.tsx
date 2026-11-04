@@ -5,10 +5,8 @@ import { useTranslations } from 'next-intl';
 import hljs from 'highlight.js/lib/common';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/chat/Markdown';
-import { fetchFsFile, fetchFsTree, type FsFilePayload } from '@/lib/fs-api';
+import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
 import { parentDir } from '@/lib/file-reference';
-import { revealInTree, usePaneStore } from '@/stores/pane-store';
-import { resolveRefFallback } from '@/lib/open-file-ref';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';
@@ -49,7 +47,6 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
   return (
     <FilePreview
       key={`${tab.projectId}:${tab.path}`}
-      tabId={tab.id}
       projectId={tab.projectId}
       path={tab.path}
       line={tab.line}
@@ -59,13 +56,11 @@ export function FilePreviewTab({ tab }: { tab: PaneTab }) {
 }
 
 function FilePreview({
-  tabId,
   projectId,
   path,
   line,
   endLine,
 }: {
-  tabId: string;
   projectId: string;
   path: string;
   line?: number;
@@ -78,13 +73,6 @@ function FilePreview({
     error: null,
   });
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  // Latest line target for the fetch-failure fallback: the ref keeps the
-  // fetch effect free of line deps so re-targeting a line never refetches
-  // the file. Updated in an effect — refs are not touched during render.
-  const lineTargetRef = useRef({ line, endLine });
-  useEffect(() => {
-    lineTargetRef.current = { line, endLine };
-  }, [line, endLine]);
 
   // Bring the line target into view once the file is loaded, and again when a
   // new click re-targets another line of the same open file. Anchors live in
@@ -103,37 +91,15 @@ function FilePreview({
         if (!cancelled) setState({ payload, error: null });
       },
       (err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        // A failed preview often means the path is a directory. The tree
-        // endpoint answers only for directories, so probe it and pivot to a
-        // tree reveal instead of parking on a broken preview tab.
-        fetchFsTree(projectId, path).then(
-          () => {
-            if (cancelled) return;
-            revealInTree(projectId, path);
-            usePaneStore.getState().closeTab(tabId);
-          },
-          () => {
-            // Neither a readable file nor a directory: the path may be a
-            // shorthand. Resolve fuzzy (a unique pick navigates, a tie opens
-            // the tree search) and keep the error state only when nothing
-            // resolves — the self-match is never a fallback target.
-            resolveRefFallback(projectId, { path, ...lineTargetRef.current }).then((result) => {
-              if (cancelled) return;
-              if (result.kind === 'none') {
-                setState({ payload: null, error: message });
-                return;
-              }
-              usePaneStore.getState().closeTab(tabId);
-            });
-          },
-        );
+        // A failed preview stays a failed preview: the error state offers a
+        // retry and never navigates to a guessed lookalike.
+        if (!cancelled) setState({ payload: null, error: err instanceof Error ? err.message : String(err) });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [projectId, path, nonce, tabId]);
+  }, [projectId, path, nonce]);
 
   if (state.error !== null) {
     return (

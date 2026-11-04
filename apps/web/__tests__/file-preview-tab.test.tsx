@@ -2,26 +2,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FilePreviewTab } from '@/components/pane/FilePreviewTab';
-import { fetchFsFile, fetchFsTree, searchFsFiles, type FsFilePayload } from '@/lib/fs-api';
+import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
 import { usePaneStore } from '@/stores/pane-store';
 import type { PaneTab } from '@/stores/pane-store';
 
-vi.mock('@/lib/fs-api', () => ({ fetchFsFile: vi.fn(), fetchFsTree: vi.fn(), searchFsFiles: vi.fn() }));
+vi.mock('@/lib/fs-api', () => ({ fetchFsFile: vi.fn() }));
 const fileMock = vi.mocked(fetchFsFile);
-const treeMock = vi.mocked(fetchFsTree);
-const searchMock = vi.mocked(searchFsFiles);
 
 const tab = (path: string) =>
   ({ kind: 'file-preview', id: `preview:p1:${path}`, projectId: 'p1', path }) as const;
 
 beforeEach(() => {
   fileMock.mockReset();
-  treeMock.mockReset();
-  searchMock.mockReset();
-  // Pivot probes run on every failed preview; default "not resolvable".
-  treeMock.mockRejectedValue(new Error('Not a directory'));
-  searchMock.mockRejectedValue(new Error('Not found'));
-  usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true, treeReveal: null });
+  usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true });
 });
 
 describe('FilePreviewTab', () => {
@@ -172,88 +165,15 @@ describe('FilePreviewTab line targeting', () => {
   });
 });
 
-describe('FilePreviewTab directory pivot', () => {
-  it('pivots a failed preview into a file-tree reveal when the path is a directory', async () => {
+describe('FilePreviewTab failure stays put', () => {
+  it('shows the error state without navigating anywhere else', async () => {
     fileMock.mockRejectedValueOnce(new Error('Not found'));
-    treeMock.mockResolvedValueOnce({ path: 'packages/core', entries: [] });
-    usePaneStore.setState({
-      tabs: [tab('packages/core')],
-      activeTabId: 'preview:p1:packages/core',
-    });
-    render(<FilePreviewTab tab={tab('packages/core')} />);
-    await waitFor(() => {
-      const s = usePaneStore.getState();
-      expect(s.tabs.some((t) => t.kind === 'files')).toBe(true);
-    });
-    // The broken preview tab is withdrawn; only the files tab remains.
-    expect(usePaneStore.getState().tabs.map((t) => t.kind)).toEqual(['files']);
-    expect(usePaneStore.getState().treeReveal).toMatchObject({
-      projectId: 'p1',
-      dir: 'packages/core',
-    });
-  });
-
-  it('shows the error state when neither the file nor a dir resolves', async () => {
-    fileMock.mockRejectedValueOnce(new Error('Not found'));
-    treeMock.mockRejectedValueOnce(new Error('Not a directory'));
-    render(<FilePreviewTab tab={tab('missing.ts')} />);
-    expect(await screen.findByText('Not found')).toBeDefined();
-    expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
-    expect(usePaneStore.getState().tabs.some((t) => t.kind === 'files')).toBe(false);
-  });
-});
-
-describe('FilePreviewTab fuzzy fallback', () => {
-  it('opens the uniquely fuzzy-resolved file when preview and dir probe both fail', async () => {
-    fileMock.mockRejectedValueOnce(new Error('Not found'));
-    treeMock.mockRejectedValueOnce(new Error('Not a directory'));
-    searchMock.mockResolvedValueOnce({
-      matches: [{ path: 'src/a.ts', type: 'file' }],
-    });
-    usePaneStore.setState({
-      tabs: [tab('a.ts')],
-      activeTabId: 'preview:p1:a.ts',
-    });
-    render(<FilePreviewTab tab={tab('a.ts')} />);
-    await waitFor(() => {
-      expect(usePaneStore.getState().tabs.map((t) => t.id)).toEqual(['preview:p1:src/a.ts']);
-    });
-  });
-
-  it('defers to the tree search when several candidates tie', async () => {
-    fileMock.mockRejectedValueOnce(new Error('Not found'));
-    treeMock.mockRejectedValueOnce(new Error('Not a directory'));
-    searchMock.mockResolvedValueOnce({
-      matches: [
-        { path: 'a/x.ts', type: 'file' },
-        { path: 'b/x.ts', type: 'file' },
-      ],
-    });
-    usePaneStore.setState({
-      tabs: [tab('x.ts')],
-      activeTabId: 'preview:p1:x.ts',
-    });
-    render(<FilePreviewTab tab={tab('x.ts')} />);
-    await waitFor(() => {
-      expect(usePaneStore.getState().tabs.map((t) => t.kind)).toEqual(['files']);
-    });
-    expect(usePaneStore.getState().treeSearch).toMatchObject({
-      projectId: 'p1',
-      query: 'x.ts',
-    });
-  });
-
-  it('keeps the error state when nothing resolves', async () => {
-    fileMock.mockRejectedValueOnce(new Error('Not found'));
-    treeMock.mockRejectedValueOnce(new Error('Not a directory'));
-    searchMock.mockResolvedValueOnce({ matches: [{ path: 'q/y.ts', type: 'file' }] });
     usePaneStore.setState({
       tabs: [tab('missing.ts')],
       activeTabId: 'preview:p1:missing.ts',
     });
     render(<FilePreviewTab tab={tab('missing.ts')} />);
     expect(await screen.findByText('Not found')).toBeDefined();
-    // Self-match is never a fallback: the failed tab stays for manual retry.
     expect(usePaneStore.getState().tabs.map((t) => t.id)).toEqual(['preview:p1:missing.ts']);
   });
 });

@@ -7,7 +7,7 @@ import { usePaneStore } from '@/stores/pane-store';
 const OPEN = '在右侧面板打开';
 
 beforeEach(() => {
-  usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true, treeReveal: null });
+  usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true });
 });
 
 describe('Markdown file references', () => {
@@ -79,17 +79,20 @@ describe('AnswerRow file link binding', () => {
   });
 });
 
-describe('Markdown directory refs', () => {
-  it('reveals a trailing-slash dir ref in the file tree instead of a preview', () => {
-    render(<Markdown content={'见 `packages/tools/` 目录'} projectId="p1" />);
-    fireEvent.click(screen.getByRole('button', { name: '在右侧面板打开 packages/tools' }));
-    const s = usePaneStore.getState();
-    expect(s.tabs).toEqual([{ kind: 'files', id: 'files:p1', projectId: 'p1' }]);
-    expect(s.treeReveal).toMatchObject({ projectId: 'p1', dir: 'packages/tools' });
+describe('Markdown non-file refs stay plain', () => {
+  it('does not linkify directory refs', () => {
+    render(<Markdown content={'见 `packages/tools/` 与 `providers/` 目录'} projectId="p1" />);
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('does not linkify npm-scope package names', () => {
     render(<Markdown content={'`@volto/core` 是零依赖内核'} projectId="p1" />);
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('renders a relative non-file link inert instead of a dead anchor', () => {
+    render(<Markdown content={'[License](LICENSE)'} projectId="p1" />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });

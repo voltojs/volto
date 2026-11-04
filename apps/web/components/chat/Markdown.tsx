@@ -157,6 +157,11 @@ function buildComponents(ctx: FileLinkContext): Components {
           <span className={className}>{children}</span>
         );
       }
+      // A local non-file href is inert text: an anchor would navigate to a
+      // 404. Only real URLs keep anchor behavior.
+      const external =
+        typeof href === 'string' && /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href);
+      if (!external) return <span className={className}>{children}</span>;
       return (
         <a
           className={cn(

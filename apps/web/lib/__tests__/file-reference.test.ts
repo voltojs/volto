@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  chooseRefMatch,
   parentDir,
   parseFileRef,
   parseLinkRef,
@@ -120,7 +119,7 @@ describe('toolCallFileRef', () => {
 
   it('rejects non-project paths for the fs tools', () => {
     expect(toolCallFileRef('read_file', { path: '/abs/x.ts' })).toBeNull();
-    expect(toolCallFileRef('read_file', { path: 'e.g.' })).toBeNull();
+    expect(toolCallFileRef('read_file', { path: '' })).toBeNull();
     expect(toolCallFileRef('read_file', {})).toBeNull();
   });
 
@@ -132,11 +131,11 @@ describe('toolCallFileRef', () => {
 });
 
 describe('parseLinkRef', () => {
-  it('accepts relative link forms that parseFileRef rejects', () => {
+  it('accepts relative file forms that parseFileRef rejects', () => {
     expect(parseLinkRef('./other.md')).toEqual({ path: './other.md' });
     expect(parseLinkRef('../x.md')).toEqual({ path: '../x.md' });
-    // An intentional markdown link may target an extensionless file.
-    expect(parseLinkRef('other')).toEqual({ path: 'other' });
+    // Links share the file-shape gate: extensionless targets stay inert.
+    expect(parseLinkRef('other')).toBeNull();
   });
 
   it('keeps line suffixes and the rejection rules', () => {
@@ -182,84 +181,19 @@ describe('parentDir', () => {
   });
 });
 
-describe('directory and package-name refs', () => {
+describe('package-name and directory refs stay plain text', () => {
   it('rejects npm-scope and alias refs — they name packages, not files', () => {
     expect(parseFileRef('@volto/core')).toBeNull();
     expect(parseFileRef('`@/lib/utils`'.slice(1, -1))).toBeNull();
     expect(parseLinkRef('@volto/core')).toBeNull();
   });
 
-  it('parses a trailing-slash ref as a directory', () => {
-    expect(parseFileRef('packages/tools/')).toEqual({
-      path: 'packages/tools',
-      kind: 'dir',
-    });
-    expect(parseFileRef('providers/')).toEqual({ path: 'providers', kind: 'dir' });
+  it('rejects trailing-slash directory refs — only files are judged', () => {
+    expect(parseFileRef('packages/tools/')).toBeNull();
+    expect(parseFileRef('providers/')).toBeNull();
   });
 
-  it('keeps ordinary refs as files', () => {
-    expect(parseFileRef('packages/core')).toEqual({ path: 'packages/core' });
+  it('keeps ordinary file refs clickable', () => {
     expect(parseFileRef('src/foo.ts')).toEqual({ path: 'src/foo.ts' });
-  });
-
-  it('resolves directory refs against a base like file refs', () => {
-    expect(resolveFileRef('docs', { path: './api/', kind: 'dir' })).toEqual({
-      path: 'docs/api',
-      kind: 'dir',
-    });
-  });
-});
-
-describe('chooseRefMatch (fallback resolution)', () => {
-  const file = (path: string) => ({ path, type: 'file' as const });
-  const dir = (path: string) => ({ path, type: 'dir' as const });
-
-  it('prefers a unique path-suffix match and keeps the line target', () => {
-    expect(
-      chooseRefMatch({ path: 'core/src/step.ts', line: 42 }, [file('packages/core/src/step.ts')]),
-    ).toEqual({ kind: 'unique', target: file('packages/core/src/step.ts'), withLine: true });
-  });
-
-  it('treats an exact-path hit that just failed as not resolvable', () => {
-    expect(chooseRefMatch({ path: 'x.ts' }, [file('x.ts')])).toEqual({ kind: 'none' });
-  });
-
-  it('reports ambiguity when several paths share the ref suffix', () => {
-    expect(
-      chooseRefMatch({ path: 'src/a.ts' }, [file('x/src/a.ts'), file('y/src/a.ts')]),
-    ).toEqual({ kind: 'ambiguous' });
-  });
-
-  it('treats a bare name as a path-suffix match and keeps the line target', () => {
-    expect(
-      chooseRefMatch({ path: 'file-reference.ts', line: 3 }, [file('packages/x/file-reference.ts')]),
-    ).toEqual({ kind: 'unique', target: file('packages/x/file-reference.ts'), withLine: true });
-  });
-
-  it('drops the line target when only a basename matches', () => {
-    expect(
-      chooseRefMatch({ path: 'src/a.ts', line: 5 }, [file('x/y/a.ts')]),
-    ).toEqual({ kind: 'unique', target: file('x/y/a.ts'), withLine: false });
-  });
-
-  it('requires basename equality, not substring', () => {
-    expect(chooseRefMatch({ path: 'a.ts' }, [file('x/my-a.ts')])).toEqual({ kind: 'none' });
-  });
-
-  it('reports ambiguity when several basenames match', () => {
-    expect(
-      chooseRefMatch({ path: 'providers' }, [dir('a/providers'), dir('b/providers')]),
-    ).toEqual({ kind: 'ambiguous' });
-  });
-
-  it('resolves a directory shorthand to its unique deeper location', () => {
-    expect(
-      chooseRefMatch({ path: 'providers', kind: 'dir' }, [dir('packages/providers')]),
-    ).toEqual({ kind: 'unique', target: dir('packages/providers'), withLine: true });
-  });
-
-  it('finds nothing from empty or unrelated matches', () => {
-    expect(chooseRefMatch({ path: 'a.ts' }, [])).toEqual({ kind: 'none' });
-    expect(chooseRefMatch({ path: 'a.ts' }, [file('b/c.ts')])).toEqual({ kind: 'none' });
   });
 });
