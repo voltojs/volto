@@ -1640,20 +1640,17 @@ function handleFileChanged(
     // Anthropic reject a request where a user message splits that pair.
     // Queuing defers the notice to the turn boundary (drained alongside
     // queuedUserInputs once every pending tool result has flushed) instead
-    // of appending it into messages mid-turn. The notice is announced like
-    // any other queued message — steering_queued carries its stamped id, so
-    // the steering_delivered at the drain keeps a matching queued event for
-    // every id it delivers.
+    // of appending it into messages mid-turn.
+    //
+    // Deliberately NOT announced as steering_queued: the notice is an input
+    // the model must see, not a user-authored message the UI may edit or
+    // retract. The drain still names its id in steering_delivered, and every
+    // fold treats an unknown delivered id as a no-op — so no fake queued
+    // event is needed to "balance" the delivery.
     const noticeMsg = stamp({ id: "", role: "user" as const, content: notice }, ctx);
     return {
       state: { ...state, queuedUserInputs: [...state.queuedUserInputs, noticeMsg] },
-      effects: [
-        fileChangedEmit,
-        {
-          type: "emit",
-          event: { type: "steering_queued", data: { id: noticeMsg.id, content: notice } },
-        },
-      ],
+      effects: [fileChangedEmit],
     };
   }
 

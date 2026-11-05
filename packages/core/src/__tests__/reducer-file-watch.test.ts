@@ -155,6 +155,20 @@ describe("file_changed — busy states (F-008..F-009)", () => {
     expect(emitEvents(result.effects, "file_changed")).toHaveLength(1);
   });
 
+  it("a file-change notice queued mid-turn announces only file_changed", () => {
+    const busy = reachCallingModel();
+    const result = step(busy, fileChanged, ctx);
+
+    // The notice must reach the model, so it is still enqueued — but it is
+    // not a user-authored message the UI may edit or retract, so it must not
+    // be announced as steering_queued. The drain's steering_delivered names
+    // an id no projection holds a queued event for, which is a no-op there.
+    expect(result.effects.map((e) => e.type === "emit" && e.event.type).filter(Boolean)).toEqual([
+      "file_changed",
+    ]);
+    expect(result.state.queuedUserInputs).toHaveLength(1);
+  });
+
   it("executing_tools: queues the notice, keeps pending tools, no call_model", () => {
     let state = createInitialState();
     state = step(state, { type: "user_message", content: "Read the file" }, ctx).state;

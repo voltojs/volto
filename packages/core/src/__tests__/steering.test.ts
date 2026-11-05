@@ -154,7 +154,7 @@ describe("Phase 3 — steering", () => {
   });
 
   describe("file_changed queued mid-turn", () => {
-    it("queued file_changed notice emits steering_queued carrying the stamped message id", () => {
+    it("queued file_changed notice is enqueued without a steering_queued announcement", () => {
       const context = ctxWithIds();
       const setup = drive(reachCallingModel(), context);
       const callingState = setup[setup.length - 1]!.state;
@@ -166,11 +166,15 @@ describe("Phase 3 — steering", () => {
       };
       const result = step(callingState, input, context);
 
+      // Still queued for the model, with a stamped id and the notice text...
       const queued = result.state.queuedUserInputs[0]!;
       expect(queued.id).not.toBe("");
-      expect(emitData(result.effects, "steering_queued")).toEqual([
-        { id: queued.id, content: formatFileChangedNotice(input) },
-      ]);
+      expect(queued.content).toBe(formatFileChangedNotice(input));
+
+      // ...but not announced as a user message: the drain's steering_delivered
+      // names an id no queued event defines, which the folds ignore.
+      expect(emitData(result.effects, "steering_queued")).toEqual([]);
+      expect(emitData(result.effects, "file_changed")).toHaveLength(1);
     });
   });
 

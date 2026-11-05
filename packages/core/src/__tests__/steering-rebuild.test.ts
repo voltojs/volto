@@ -96,6 +96,14 @@ describe("pendingSteeredMessages — D13 event fold", () => {
 
     expect(pending).toEqual([{ id: "q2", role: "user", content: "two" }]);
   });
+
+  it("a delivered id with no queued event is a no-op", () => {
+    // A file-change notice is enqueued without a steering_queued broadcast, so
+    // the drain's steering_delivered names an id no queued event ever created.
+    // The fold must ignore it instead of inventing an entry.
+    expect(pendingSteeredMessages([delivered(["ghost"])])).toEqual([]);
+    expect(pendingSteeringEntries([delivered(["ghost"])])).toEqual([]);
+  });
 });
 
 describe("pendingSteeringEntries — the same fold, with queue times", () => {
