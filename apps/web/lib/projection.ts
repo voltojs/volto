@@ -217,7 +217,7 @@ function queuedBlocks(content: SteeringContent): ConversationBlock[] {
   return blocks;
 }
 
-function toFeedMessage(entry: QueuedEntry, turn: number): FeedMessage {
+function toFeedMessage(entry: QueuedEntry): FeedMessage {
   return {
     id: entry.id,
     role: 'user',
@@ -225,7 +225,6 @@ function toFeedMessage(entry: QueuedEntry, turn: number): FeedMessage {
     content: contentText(entry.content),
     timestamp: entry.time,
     queued: entry.queued,
-    turn,
   };
 }
 
@@ -236,11 +235,8 @@ function toFeedMessage(entry: QueuedEntry, turn: number): FeedMessage {
  * Equal timestamps keep the already-folded message first (a sub-millisecond
  * tie the event array order alone cannot break here).
  *
- * Each inserted entry is stamped with the turn of the last real message
- * passed (`0` when no real message precedes it). A queued entry's id is its
- * stamped steering id, which need not encode a turn at all — a numeric id
- * such as `"42"` must not be mistaken for one — so the turn travels on the
- * entry instead.
+ * The entries' turn is stamped later, once the merged feed is known — see
+ * `resolveQueuedTurns`.
  */
 function insertQueuedMessages(
   messages: readonly ConversationMessage[],
@@ -248,18 +244,15 @@ function insertQueuedMessages(
 ): FeedMessage[] {
   const merged: FeedMessage[] = [];
   let next = 0;
-  let turn = 0;
   for (const message of messages) {
     while (next < queued.length && queued[next]!.time < message.timestamp) {
-      merged.push(toFeedMessage(queued[next]!, turn));
+      merged.push(toFeedMessage(queued[next]!));
       next += 1;
     }
-    const parsed = Number(message.id.split(':')[0]);
-    if (!Number.isNaN(parsed)) turn = parsed;
     merged.push(message);
   }
   while (next < queued.length) {
-    merged.push(toFeedMessage(queued[next]!, turn));
+    merged.push(toFeedMessage(queued[next]!));
     next += 1;
   }
   return merged;
@@ -352,6 +345,33 @@ export function mergeStoredAndLive(
 }
 
 /**
+ * Stamps every queued entry with the turn it belongs to in the final feed:
+ * the turn of the last real message before it, or `0` when nothing precedes
+ * it (the cancel-notice walk has no open turn yet there, so the sentinel
+ * never places a notice).
+ *
+ * A queued entry's id is its stamped steering id and need not encode a turn,
+ * and the live list alone has no preceding messages on a cold load — the
+ * turn is a property of the entry's position in the merged feed, so the
+ * stamp happens here, at the composition boundary, after the merge. Real
+ * messages are returned unchanged and carry the running turn forward.
+ */
+export function resolveQueuedTurns(
+  messages: readonly ConversationMessage[],
+): FeedMessage[] {
+  let turn = 0;
+  return messages.map((message) => {
+    const queued = (message as FeedMessage).queued;
+    if (queued === undefined) {
+      const parsed = Number(message.id.split(':')[0]);
+      if (!Number.isNaN(parsed)) turn = parsed;
+      return message;
+    }
+    return { ...message, turn };
+  });
+}
+
+/**
  * A neutral status row in the conversation (a cancelled turn, a model-tier
  * fallback). `key` is the React key; `time` is the event's epoch time.
  */
@@ -374,9 +394,10 @@ export type ChatEntry =
  * moves (spec §4.6). Absent on every message that never went through the
  * queue.
  *
- * A queued entry also carries `turn` explicitly: its id is the stamped
- * steering id, which need not look like the `${turn}:…` message ids, so the
- * turn it was sent in cannot be recovered from the id alone.
+ * A queued entry also carries `turn` explicitly, stamped by
+ * `resolveQueuedTurns` at composition time: its id is the stamped steering
+ * id, which need not look like the `${turn}:…` message ids, so the turn it
+ * was sent in cannot be recovered from the id alone.
  */
 export type FeedMessage = ConversationMessage & {
   queued?: boolean;
@@ -403,6 +424,10 @@ export type FeedMessage = ConversationMessage & {
  *   message of their own — they surface as a trailing error notice rather
  *   than being swallowed. A turn whose step already surfaced its error skips
  *   the duplicate notice.
+ *
+ * This is the boundary where queued entries learn their turn: the merged
+ * feed is what `resolveQueuedTurns` walks, so main and subagent feeds both
+ * place cancel notices correctly.
  */
 export function composeChatEntries(
   messages: readonly ConversationMessage[],
@@ -410,6 +435,7 @@ export function composeChatEntries(
   notices: readonly ChatNotice[] = [],
   t: (key: string) => string = (key) => key,
 ): ChatEntry[] {
+  const resolved = resolveQueuedTurns(messages);
   const stepErrorText = new Map<string, string>();
   for (const turn of records) {
     for (const step of turn.steps) {
@@ -422,7 +448,7 @@ export function composeChatEntries(
   }
 
   const entries: ChatEntry[] = [];
-  for (const message of messages) {
+  for (const message of resolved) {
     if (message.role === 'assistant') {
       const errorText = stepErrorText.get(message.id);
       if (errorText !== undefined) {

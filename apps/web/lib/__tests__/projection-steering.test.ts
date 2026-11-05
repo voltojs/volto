@@ -124,6 +124,8 @@ describe('steering queue fold', () => {
     // The React key derives from the steering id, never a position ordinal.
     expect(bubble.message.id).toBe('s1');
     expect(bubble.message.queued).toBe(true);
+    // A non-numeric steering id still resolves to the turn it was sent in.
+    expect(bubble.message.turn).toBe(1);
     // Send position: everything that had arrived when it was queued renders
     // above it; the later step renders below it.
     expect(messageIds(entries)).toEqual(['1:u0', '1:1', 's1', '1:2']);
@@ -273,7 +275,8 @@ describe('steering queue fold', () => {
  * A host whose `Id` port stamps plain numeric ids ("42") would make the id
  * parse as a turn number, which used to splice the cancel notice of the turn
  * it was queued in ahead of the bubble itself. The turn is therefore carried
- * explicitly on the feed entry, stamped at insertion time.
+ * explicitly on the feed entry, resolved from the entry's position in the
+ * final merged feed.
  */
 describe('queued entry turn', () => {
   it('a numeric stamped steering id keeps its entry inside its own turn', () => {
@@ -315,6 +318,58 @@ describe('queued entry turn', () => {
     const queuedAt = findEntry(entries, '42');
     expect(queuedAt).not.toBeNull();
     expect(queuedAt!.entry.message.turn).toBe(1);
+  });
+
+  it('takes its turn from the merged feed, not from the live list alone', () => {
+    // Cold load: the stored history holds turn 5 (cancelled) and turn 6,
+    // while the live list carries only the seeded entry. Insertion time sees
+    // no preceding real message, so the turn can only be right once the two
+    // lists are merged.
+    const stored: ConversationMessage[] = [
+      {
+        id: '5:u0',
+        role: 'user',
+        content: 'first',
+        timestamp: 10,
+        blocks: [{ type: 'text', text: 'first' }],
+      },
+      {
+        id: '5:a1',
+        role: 'assistant',
+        content: 'working',
+        timestamp: 30,
+        blocks: [{ type: 'text', text: 'working' }],
+      },
+      {
+        id: '6:u0',
+        role: 'user',
+        content: 'again',
+        timestamp: 60,
+        blocks: [{ type: 'text', text: 'again' }],
+      },
+    ];
+    const records = [
+      {
+        turn: 5,
+        startedAt: 5,
+        endedAt: 40,
+        reason: 'cancelled' as const,
+        userInput: [],
+        steps: [],
+      },
+      { turn: 6, startedAt: 50, userInput: [], steps: [] },
+    ];
+    const live = projectConversation([], [], undefined, (k) => k, [
+      { id: 'q1', content: 'queued', time: 20 },
+    ]);
+    const merged = mergeStoredAndLive(stored, live.view.messages);
+    const entries = composeChatEntries(merged, records);
+    // The queued bubble sits inside turn 5, so the stopped notice belongs
+    // after turn 5's messages and before turn 6 — not in front of the bubble.
+    expect(
+      entries.map((e) => (e.kind === 'message' ? e.message.id : e.key)),
+    ).toEqual(['5:u0', 'q1', '5:a1', '5:cancelled:0', '6:u0']);
+    expect(findEntry(entries, 'q1')!.entry.message.turn).toBe(5);
   });
 });
 
