@@ -1,12 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { ConversationMessage } from '@volto/sdk/sse';
 import { useSessionStore, type Session } from '@/stores/session-store';
 import {
   ensureSessionDetail,
+  needsQueueResync,
   selectUnpersistedSessions,
 } from '@/hooks/use-server-sessions';
 import type { ServerSessionSummary } from '@/lib/sessions-api';
 import { SessionDetailUnavailableError } from '@/lib/sessions-api';
 import { summary } from './helpers/session';
+
+/** A stored-feed entry, optionally carrying the queue badge. */
+function storedMessage(extra: { queued?: boolean } = {}): ConversationMessage {
+  return {
+    id: 'm',
+    role: 'user',
+    blocks: [],
+    content: 'hi',
+    timestamp: 0,
+    ...extra,
+  };
+}
 
 const fetchServerSessionDetail = vi.fn();
 vi.mock('@/lib/sessions-api', async () => {
@@ -67,6 +81,54 @@ describe('ensureSessionDetail', () => {
 
     await ensureSessionDetail('a');
     expect(fetchServerSessionDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('force refetches a session whose detail is already loaded', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockResolvedValueOnce({
+      id: 'a',
+      messages: [{ id: 'm1', role: 'user', content: 'first' }],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'ask',
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await ensureSessionDetail('a');
+    expect(fetchServerSessionDetail).toHaveBeenCalledTimes(1);
+
+    // Already loaded, no force: still one request, as before.
+    await ensureSessionDetail('a');
+    expect(fetchServerSessionDetail).toHaveBeenCalledTimes(1);
+
+    // Simulate the switch-away flush: the stored feed now holds a queued
+    // entry that delivery/edit/retract while unattached has since invalidated.
+    useSessionStore
+      .getState()
+      .updateSessionMessages('a', [storedMessage({ queued: true })]);
+
+    // The server reports a different history; forcing must replace the stale
+    // snapshot wholesale (including the frozen queue badge), not keep it.
+    fetchServerSessionDetail.mockResolvedValueOnce({
+      id: 'a',
+      messages: [{ id: 'm2', role: 'user', content: 'second' }],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'ask',
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await ensureSessionDetail('a', undefined, { force: true });
+    expect(fetchServerSessionDetail).toHaveBeenCalledTimes(2);
+    const replaced = useSessionStore.getState().sessions[0]!.messages;
+    expect(replaced.map((m) => m.id)).toEqual(['m2']);
+    expect(needsQueueResync(replaced)).toBe(false);
   });
 
   it('stores queuedMessages from the detail response', async () => {
@@ -200,6 +262,17 @@ describe('ensureSessionDetail', () => {
     const session = useSessionStore.getState().sessions[0]!;
     expect(session.detailLoaded).toBe(true);
     expect(session.detailError).toBeNull();
+  });
+});
+
+describe('needsQueueResync', () => {
+  it('is true only for a stored feed carrying a queued entry', () => {
+    expect(needsQueueResync([])).toBe(false);
+    expect(needsQueueResync([storedMessage()])).toBe(false);
+    expect(needsQueueResync([storedMessage({ queued: false })])).toBe(false);
+    expect(needsQueueResync([storedMessage(), storedMessage({ queued: true })])).toBe(
+      true,
+    );
   });
 });
 

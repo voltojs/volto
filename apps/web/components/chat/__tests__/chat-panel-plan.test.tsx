@@ -52,6 +52,9 @@ vi.mock('@/hooks/use-add-project', () => ({
 
 vi.mock('@/hooks/use-server-sessions', () => ({
   ensureSessionDetail: vi.fn(async () => {}),
+  // The plan-behaviour tests never store a queued entry; a plain false keeps
+  // the entry effect on its normal, unforced path.
+  needsQueueResync: vi.fn(() => false),
 }));
 
 vi.mock('@/lib/sessions-api', async (importOriginal) => ({

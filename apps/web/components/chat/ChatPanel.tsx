@@ -45,7 +45,11 @@ import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
 import { useFileRefs } from '@/hooks/use-file-refs';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
-import { ensureSessionDetail, refreshServerSessions } from '@/hooks/use-server-sessions';
+import {
+  ensureSessionDetail,
+  needsQueueResync,
+  refreshServerSessions,
+} from '@/hooks/use-server-sessions';
 import { runSessionCompact } from '@/lib/session-compact';
 import { postApproval } from '@/lib/agent-config';
 import { selectPendingApprovals, type ApprovalOutcome } from '@/lib/approvals';
@@ -180,9 +184,25 @@ export function ChatPanel() {
   // are recorded on the session as a retryable `detailError` inside
   // ensureSessionDetail itself; the `.catch()` here only keeps a rejection
   // from becoming unhandled.
+  //
+  // A stored feed that still carries a `queued: true` entry was snapshotted
+  // mid-turn; whatever happened to that entry while the session was not
+  // attached (delivery, edit, retraction) produced no live events for this
+  // client, so one forced refresh replaces the frozen copy with the server's.
+  // The server's `messages` excludes undelivered entries and re-seeds them
+  // through `queuedMessages`, so the condition is false afterwards — no loop.
+  // The store is read inside the effect rather than through a selector: the
+  // dependency stays `[currentSessionId]`, so this fires exactly once per
+  // session entry.
   useEffect(() => {
     if (currentSessionId) {
-      void ensureSessionDetail(currentSessionId, t).catch(() => {});
+      const stored = useSessionStore
+        .getState()
+        .sessions.find((s) => s.id === currentSessionId);
+      const stale = needsQueueResync(stored?.messages ?? []);
+      void ensureSessionDetail(currentSessionId, t, { force: stale }).catch(
+        () => {},
+      );
     }
   }, [currentSessionId]);
 

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
+import type { ConversationMessage } from '@volto/sdk/sse';
 import {
   fetchServerSessions,
   fetchServerSessionDetail,
@@ -57,9 +58,31 @@ export function normalisePermissionMode(mode: string | null): PermissionMode {
 }
 
 /**
+ * True when a stored feed still carries a queued entry. Such a snapshot was
+ * taken while a steering message was undelivered; delivery, edits and
+ * retractions that happen while the session is not attached reach this
+ * client as no live events at all, so the `queued: true` copy can never
+ * clear itself. The caller must replace it with the server's copy once.
+ *
+ * Inspects the stored snapshot only, never a merged feed: the detail
+ * response's `queuedMessages` seed is not part of `Session.messages`, so
+ * re-reading it here would keep this true and loop.
+ */
+export function needsQueueResync(
+  messages: readonly ConversationMessage[],
+): boolean {
+  return messages.some((m) => (m as { queued?: boolean }).queued === true);
+}
+
+/**
  * Fetches one session's messages and context-usage seed, unless they are
  * already in memory. The response is applied even if the user has switched
  * away in the meantime — the data belongs to that session, not to the view.
+ *
+ * `opts.force` bypasses the `detailLoaded` early return only — used to
+ * replace a stored snapshot the server has since moved past (see
+ * `needsQueueResync`). The in-flight dedupe still applies: a forced call
+ * that lands while a request is already running joins that request.
  *
  * A failure (network/HTTP error, or a 404 meaning the transcript is gone) is
  * recorded on the session as a retryable `detailError` rather than left as a
@@ -69,9 +92,10 @@ export function normalisePermissionMode(mode: string | null): PermissionMode {
 export async function ensureSessionDetail(
   id: string,
   t: (key: string, params?: Record<string, string | number>) => string = (key) => key,
+  opts: { force?: boolean } = {},
 ): Promise<void> {
   const known = useSessionStore.getState().sessions.find((s) => s.id === id);
-  if (known?.detailLoaded) return;
+  if (known?.detailLoaded && !opts.force) return;
 
   const existing = inFlight.get(id);
   if (existing) return existing;
