@@ -38,6 +38,7 @@ interface DetailMessage {
   id: string;
   role: string;
   content: unknown;
+  timestamp: number;
 }
 
 interface DetailResponse {
@@ -169,5 +170,65 @@ describe("GET /sessions/:id — undelivered steering queue", () => {
     // Always present: the client reads the field without a fallback branch.
     expect("queuedMessages" in body).toBe(true);
     expect(body.queuedMessages).toEqual([]);
+  });
+
+  it("orders the feed by send time when a delivered entry sits after a later message", async () => {
+    const sessionId = "detail-queue-order";
+    // The delivery anchor is the model call the drain fed (step 2), but the
+    // entry was sent (t=T0+130) before step 1's reply (t=T0+140). The view
+    // projection therefore emits it after that reply while stamping it with
+    // its enqueue time — the route must hand back send order (D16), which is
+    // also what the client's timestamp merge assumes.
+    await store.appendEvents(null, sessionId, [
+      { time: T0, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: T0 + 110, type: "user_message", data: { content: "first" }, turn: 1 },
+      {
+        time: T0 + 140,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "text", text: "step one" }],
+          stopReason: "tool_use",
+          durationMs: 30,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: T0 + 130, type: "steering_queued", data: { id: "q1", content: "later" }, turn: 1 },
+      { time: T0 + 150, type: "steering_delivered", data: { ids: ["q1"] }, turn: 1 },
+      {
+        time: T0 + 160,
+        type: "model_call_start",
+        data: { headerHash: "h2" },
+        turn: 1,
+        step: 2,
+      },
+      {
+        time: T0 + 170,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "text", text: "step two" }],
+          stopReason: "end_turn",
+          durationMs: 10,
+        },
+        turn: 1,
+        step: 2,
+      },
+    ]);
+
+    const { status, body } = await fetchDetail(sessionId);
+
+    expect(status).toBe(200);
+    expect(body.queuedMessages).toEqual([]);
+    // `q1` before the t=T0+140 reply: the send position D16 requires.
+    expect(body.messages.map((message) => message.content)).toEqual([
+      "first",
+      "later",
+      "step one",
+      "step two",
+    ]);
+    // And the list is timestamp-monotonic, the precondition of the client's
+    // timestamp merge.
+    const timestamps = body.messages.map((message) => message.timestamp);
+    expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b));
   });
 });

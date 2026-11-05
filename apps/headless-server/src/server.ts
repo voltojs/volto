@@ -2058,7 +2058,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // and hand them to the dock through `queuedMessages`. Only this route
         // splits them — the trajectory route and every other
         // `readConversation` consumer keep the scenario-H placement.
-        const messages = view.messages.filter(
+        const unqueuedMessages = view.messages.filter(
           (message) =>
             !(
               message.role === "user" &&
@@ -2068,6 +2068,13 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               )
             ),
         );
+        // The view projection anchors a delivered queued input at its delivery
+        // point but stamps it with the enqueue time. The chat feed follows D16
+        // (send position) and the client merges by timestamp, so this route
+        // normalizes the order here (Array.prototype.sort is stable, so equal
+        // timestamps keep their feed order). Trajectory and every other
+        // `readConversation` consumer keep the view's placement.
+        const messages = [...unqueuedMessages].sort((a, b) => a.timestamp - b.timestamp);
         jsonResponse(res, 200, {
           id,
           ...bindingsOf(record.meta),
