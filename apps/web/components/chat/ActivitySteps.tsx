@@ -26,10 +26,13 @@ export function ActivitySteps({
   blocks,
   density,
   onOpenSubagent,
+  fileProjectId,
 }: {
   blocks: ActivityBlock[];
   density: StreamDensity;
   onOpenSubagent?: (childSessionId: string) => void;
+  /** Project the content belongs to; undefined → current session at click time. */
+  fileProjectId?: string | null;
 }) {
   const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
@@ -56,6 +59,7 @@ export function ActivitySteps({
         key={`c-${index}-${block.call.id}`}
         call={block.call}
         label={toolCallSummary(block.call.name, block.call.args, t)}
+        fileProjectId={fileProjectId}
       />
     ),
   );

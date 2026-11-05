@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ChatEntry } from '@/lib/projection';
 import { MessageBubble } from './MessageBubble';
 import { ErrorNotice } from './ErrorNotice';
@@ -11,6 +11,7 @@ import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
 import { groupFeedEntries } from '@/lib/feed-groups';
 import { useStreamDensity } from '@/lib/stream-density';
+import { useFileRefsStore } from '@/stores/file-refs-store';
 import type { StreamDensity } from '@/lib/stream-density';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +35,7 @@ export function MessageList({
   entries,
   onOpenSubagent,
   sessionId,
+  fileProjectId,
   isGenerating = false,
   density,
   scrollable = true,
@@ -44,6 +46,11 @@ export function MessageList({
   density?: StreamDensity;
   /** Session for resolving image attachment refs; omitted → images stay as placeholders. */
   sessionId?: string | null;
+  /**
+   * Project the content belongs to (undefined → current session at click
+   * time). Sub-agent feeds pass their parent's project explicitly.
+   */
+  fileProjectId?: string | null;
   /** Round in flight for this feed — shows the bottom wave indicator. */
   isGenerating?: boolean;
   /**
@@ -68,6 +75,15 @@ export function MessageList({
     (entry) => entry.kind !== 'message' || entry.message.queued !== true,
   );
   const rows = groupFeedEntries(delivered);
+  // Annotations arrive per session (row-keyed); slice them per answer row so
+  // chips render only where the host confirmed a file identity.
+  const fileRefs = useFileRefsStore((s) =>
+    sessionId != null ? s.bySession[sessionId] : undefined,
+  );
+  const refsByKey = useMemo(
+    () => new Map((fileRefs ?? []).map((r) => [r.rowKey, r.blockRefs])),
+    [fileRefs],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -91,6 +107,8 @@ export function MessageList({
                 blocks={row.blocks}
                 sessionId={sessionId}
                 footer={row.footer}
+                fileProjectId={fileProjectId}
+                blockRefs={refsByKey.get(row.key)}
               />
             );
           }
@@ -101,6 +119,7 @@ export function MessageList({
                   blocks={row.blocks}
                   density={effectiveDensity}
                   onOpenSubagent={onOpenSubagent}
+                  fileProjectId={fileProjectId}
                 />
                 {row.footer !== null && <MessageFooter message={row.footer} />}
               </div>

@@ -16,7 +16,7 @@ export interface TraceRowProps {
   /** Leading label: a tool name, "思考", "已执行 3 步"… */
   label: string;
   /** Secondary text: the command, the path, a reasoning preview. */
-  detail?: string;
+  detail?: ReactNode;
   /** Trailing metadata in mono, e.g. "53ms". */
   meta?: string;
   /** Trailing state glyph (check / alert / spinner). */

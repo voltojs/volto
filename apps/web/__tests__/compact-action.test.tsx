@@ -171,7 +171,7 @@ describe('runSessionCompact', () => {
 });
 
 describe('ChatHeader 压缩上下文按钮', () => {
-  it('renders and fires onCompact when a session is open', () => {
+  it('renders and fires onCompact from the actions menu', () => {
     const onCompact = vi.fn();
     render(
       <ChatHeader
@@ -179,21 +179,22 @@ describe('ChatHeader 压缩上下文按钮', () => {
         compactAction={{ disabled: false, onCompact }}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }));
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByText('压缩上下文（摘要旧消息，释放 token）'));
     expect(onCompact).toHaveBeenCalledTimes(1);
   });
 
   it('is disabled while the session is generating', () => {
+    const onCompact = vi.fn();
     render(
       <ChatHeader
         title="会话"
-        compactAction={{ disabled: true, onCompact: () => {} }}
+        compactAction={{ disabled: true, onCompact }}
       />,
     );
-    expect(
-      (screen.getByRole('button', { name: '压缩上下文' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByText('压缩上下文（摘要旧消息，释放 token）'));
+    expect(onCompact).not.toHaveBeenCalled();
   });
 
   it('renders no compact button without compactAction props', () => {

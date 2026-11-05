@@ -54,8 +54,8 @@ describe("sanitizeGeneratedTitle", () => {
     expect(sanitizeGeneratedTitle("```\n重构会话标题\n```")).toBe("重构会话标题");
   });
 
-  it("collapses newlines and runs of whitespace", () => {
-    expect(sanitizeGeneratedTitle("重构\n\n  标题")).toBe("重构 标题");
+  it("collapses runs of whitespace within one line", () => {
+    expect(sanitizeGeneratedTitle("重构   标题")).toBe("重构 标题");
   });
 
   it("drops trailing sentence punctuation", () => {
@@ -63,8 +63,21 @@ describe("sanitizeGeneratedTitle", () => {
     expect(sanitizeGeneratedTitle("Fix the parser.")).toBe("Fix the parser");
   });
 
-  it("caps at 200 codepoints", () => {
-    expect(Array.from(sanitizeGeneratedTitle("长".repeat(260)) ?? "")).toHaveLength(200);
+  it("refuses output longer than a title", () => {
+    // A reply, not a name: clipping it would fabricate a title from a
+    // sentence the model never meant as one.
+    expect(sanitizeGeneratedTitle("长".repeat(41))).toBeNull();
+    expect(Array.from(sanitizeGeneratedTitle("长".repeat(40)) ?? "")).toHaveLength(40);
+  });
+
+  it("refuses a multi-line reply", () => {
+    expect(sanitizeGeneratedTitle("好的，我来分析项目。\n\n## 结构\n\n- 入口")).toBeNull();
+  });
+
+  it("refuses tool-call and markdown traces", () => {
+    expect(sanitizeGeneratedTitle("<tool_call><function=search_codebase>…")).toBeNull();
+    expect(sanitizeGeneratedTitle("# 项目分析")).toBeNull();
+    expect(sanitizeGeneratedTitle("重构 `会话标题")).toBeNull();
   });
 
   it("rejects output with no letters or digits", () => {
@@ -84,8 +97,31 @@ describe("generateTitle", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]!.model).toBe("small");
     expect(requests[0]!.tools).toEqual([]);
-    const user = requests[0]!.messages.find((message) => message.role === "user");
-    expect(user?.content).toBe("帮我重构会话标题");
+  });
+
+  it("sends the naming instruction inside the user message", async () => {
+    // Models that ignore a bare system instruction answer the message
+    // instead of naming it, so the instruction has to travel with the text.
+    const requests: ModelRequest[] = [];
+    await generateTitle(fakePort(["重构会话标题"], requests), "small", "帮我重构会话标题");
+
+    const messages = requests[0]!.messages;
+    expect(messages.some((message) => message.role === "system")).toBe(false);
+    const user = messages.find((message) => message.role === "user");
+    expect(user?.content).toContain("title only");
+    expect(user?.content).toContain("<conversation>");
+    expect(user?.content).toContain("帮我重构会话标题");
+  });
+
+  it("treats a max_tokens finish as no title", async () => {
+    const port: ModelPort = {
+      async *stream() {
+        yield { type: "text_delta", text: "我来帮你分析项目结构" };
+        yield { type: "done", stopReason: "max_tokens" };
+      },
+    };
+
+    expect(await generateTitle(port, "small", "分析一下该项目")).toBeNull();
   });
 
   it("treats a model error event as no title", async () => {
@@ -215,6 +251,83 @@ describe("title model through the gateway", () => {
     expect(
       body.events.some((event) => event.data["titleSource"] === "model"),
     ).toBe(true);
+  });
+
+  it("keeps the heuristic title when the model answers instead of naming", async () => {
+    const { server } = await bootWithTitleModel({
+      answer: [
+        "好的，我来分析这个项目。首先看一下根目录和关键配置文件。",
+        "目录里有几个关键文件：package.json、tsconfig.json、vite.config.ts。",
+      ],
+    });
+    await runTurn(server, "分析一下该项目，介绍一下它是怎样工作的");
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(await titleOf(server)).toBe("分析一下该项目，介绍一下它是怎样工作的");
+    const events = (await (
+      await fetch(`${server.url}/sessions/${encodeURIComponent(server.sessionId)}/events`, {
+        headers: authHeaders(server),
+      })
+    ).json()) as { events: Array<{ type: string; data: Record<string, unknown> }> };
+    expect(events.events.some((event) => event.data["titleSource"] === "model")).toBe(false);
+  });
+
+  it("starts naming before the first turn settles", async () => {
+    // The title is decoration on the session, not a result of the answer: it
+    // has to be requested as soon as the first message exists, so the header
+    // is not left generic for the whole turn.
+    let releaseMain: () => void = () => {};
+    const mainGate = new Promise<void>((resolve) => {
+      releaseMain = resolve;
+    });
+    const mainPort: ModelPort = {
+      async *stream() {
+        yield { type: "text_delta", text: "我会在标题之后结束" };
+        await mainGate;
+        yield { type: "done", stopReason: "end_turn" };
+      },
+    };
+    let markTitleStarted: () => void = () => {};
+    const titleStarted = new Promise<void>((resolve) => {
+      markTitleStarted = resolve;
+    });
+    const server = await startTestServer({
+      modelPort: mainPort,
+      titleModelPortFactory: async () => ({
+        modelPort: {
+          async *stream() {
+            markTitleStarted();
+            yield { type: "text_delta", text: "项目工作原理分析" };
+            yield { type: "done", stopReason: "end_turn" };
+          },
+        },
+        model: "title-model",
+      }),
+    });
+    servers.push(server);
+
+    await server.openEvents();
+    const response = await fetch(`${server.url}/messages`, {
+      method: "POST",
+      headers: authHeaders(server),
+      body: JSON.stringify({
+        sessionId: server.sessionId,
+        message: "分析一下该项目",
+        ...server.turnConfig,
+      }),
+    });
+    expect(response.status).toBe(202);
+
+    const raced = await Promise.race([
+      titleStarted.then(() => "started"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 2_000)),
+    ]);
+    releaseMain();
+    await server.captureMessages();
+
+    expect(raced).toBe("started");
+    expect(await titleOf(server)).toBe("项目工作原理分析");
   });
 
   it("does not call a title model when one is not configured", async () => {

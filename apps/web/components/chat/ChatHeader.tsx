@@ -2,13 +2,29 @@
 
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
 import { useTranslations } from 'next-intl';
-import { Separator } from '@/components/ui/separator';
+import { startNewSession } from '@/lib/new-session';
+import { useSessionStore } from '@/stores/session-store';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Download, GitBranch, History, Minimize2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Download,
+  GitBranch,
+  History,
+  Minimize2,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+} from 'lucide-react';
 
 interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
@@ -51,98 +67,88 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
   const t = useTranslations('chat');
+  const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   return (
     <header className="flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5">
-      <SidebarToggle />
-      <Separator orientation="vertical" className="h-5 !self-center" />
-
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        {/* The full title, wrapped rather than clipped: the header is the only
-            place a long auto-generated title can be read. */}
-        <span className="text-foreground/90 font-mono text-[13px] break-words">
-          {title}
-        </span>
-      </div>
-
-      <div className="ml-auto flex shrink-0 items-center gap-1 self-center">
-        {forkAction && (
+      {/* The collapse toggle lives in the sidebar nameplate; when the sidebar
+          is collapsed its expand control and the new-conversation entry move
+          here, next to the title. */}
+      {!sidebarOpen && (
+        <div className="flex shrink-0 items-center gap-1">
+          <SidebarToggle />
           <Tooltip>
             <TooltipTrigger
               render={
                 <button
                   type="button"
-                  aria-label={t('header.forkAria')}
-                  onClick={forkAction.onFork}
-                  disabled={forkAction.disabled}
-                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
-                />
-              }
-            >
-              <GitBranch className="h-4 w-4" />
-            </TooltipTrigger>
-            <TooltipContent>
-              {forkAction.disabled ? t('header.forkDisabled') : t('header.fork')}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {rewindAction && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={t('header.rewindAria')}
-                  onClick={rewindAction.onRewind}
-                  disabled={rewindAction.disabled}
-                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
-                />
-              }
-            >
-              <History className="h-4 w-4" />
-            </TooltipTrigger>
-            <TooltipContent>
-              {rewindAction.disabled ? t('header.rewindDisabled') : t('header.rewind')}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {exportAction && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={t('header.exportAria')}
-                  onClick={exportAction.onExport}
+                  aria-label={t('header.newSession')}
+                  onClick={startNewSession}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
                 />
               }
             >
-              <Download className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
             </TooltipTrigger>
-            <TooltipContent>{t('header.exportTooltip')}</TooltipContent>
+            <TooltipContent>{t('header.newSession')}</TooltipContent>
           </Tooltip>
-        )}
-        {compactAction && (
-          <Tooltip>
-            <TooltipTrigger
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        {/* One line, clipped: the hover tooltip carries the full title. */}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="text-foreground/90 min-w-0 truncate font-mono text-[13px]">
+                {title}
+              </span>
+            }
+          />
+          <TooltipContent side="bottom">{title}</TooltipContent>
+        </Tooltip>
+      </div>
+
+      <div className="ml-auto flex shrink-0 items-center gap-1 self-center">
+        {(forkAction ?? rewindAction ?? exportAction ?? compactAction) !== undefined && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
               render={
                 <button
                   type="button"
-                  aria-label={t('header.compactAria')}
-                  onClick={compactAction.onCompact}
-                  disabled={compactAction.disabled}
-                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
+                  aria-label={t('header.moreAria')}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
                 />
               }
             >
-              <Minimize2 className="h-4 w-4" />
-            </TooltipTrigger>
-            <TooltipContent>
-              {compactAction.disabled
-                ? t('header.compactDisabled')
-                : t('header.compact')}
-            </TooltipContent>
-          </Tooltip>
+              <MoreHorizontal className="h-4 w-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {forkAction && (
+                <DropdownMenuItem disabled={forkAction.disabled} onClick={forkAction.onFork}>
+                  <GitBranch className="h-4 w-4" />
+                  <span>{t('header.fork')}</span>
+                </DropdownMenuItem>
+              )}
+              {rewindAction && (
+                <DropdownMenuItem disabled={rewindAction.disabled} onClick={rewindAction.onRewind}>
+                  <History className="h-4 w-4" />
+                  <span>{t('header.rewind')}</span>
+                </DropdownMenuItem>
+              )}
+              {exportAction && (
+                <DropdownMenuItem onClick={exportAction.onExport}>
+                  <Download className="h-4 w-4" />
+                  <span>{t('header.exportTooltip')}</span>
+                </DropdownMenuItem>
+              )}
+              {compactAction && (
+                <DropdownMenuItem disabled={compactAction.disabled} onClick={compactAction.onCompact}>
+                  <Minimize2 className="h-4 w-4" />
+                  <span>{t('header.compact')}</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {paneToggle && (
           <Tooltip>

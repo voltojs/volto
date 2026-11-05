@@ -5,7 +5,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { usePaneStore } from '@/stores/pane-store';
+import { ActivitySteps } from '@/components/chat/ActivitySteps';
 import { ToolCallCard } from '@/components/chat/ToolCallCard';
 
 describe('ToolCallCard', () => {
@@ -30,5 +32,60 @@ describe('ToolCallCard', () => {
     );
     expect(screen.queryByRole('button', { name: /查看执行过程/ })).toBeNull();
     expect(screen.queryByText('运行中')).toBeNull();
+  });
+});
+
+describe('ToolCallCard file ref chip', () => {
+  const call = { id: 'c1', name: 'read_file', args: { path: 'src/a.ts' } };
+
+  it('opens the owning project preview when the path chip is clicked', () => {
+    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true });
+    render(<ToolCallCard call={call} label="src/a.ts" fileProjectId="pOwned" />);
+    fireEvent.click(screen.getByRole('button', { name: '在右侧面板打开 src/a.ts' }));
+    expect(usePaneStore.getState().tabs[0]).toMatchObject({
+      kind: 'file-preview',
+      projectId: 'pOwned',
+      path: 'src/a.ts',
+    });
+  });
+
+  it('clicking the chip does not toggle the row body', () => {
+    render(<ToolCallCard call={call} label="src/a.ts" fileProjectId="pOwned" />);
+    fireEvent.click(screen.getByRole('button', { name: '在右侧面板打开 src/a.ts' }));
+    expect(screen.queryByText(/"path": "src\/a\.ts"/)).toBeNull();
+  });
+
+  it('renders no chip for tools that do not reference one file', () => {
+    render(
+      <ToolCallCard
+        call={{ id: 'c4', name: 'bash', args: { command: 'ls' } }}
+        label="ls"
+        fileProjectId="p1"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /在右侧面板打开/ })).toBeNull();
+  });
+
+  it('renders no chip when the owning project is unknown', () => {
+    render(<ToolCallCard call={call} label="src/a.ts" fileProjectId={null} />);
+    expect(screen.queryByRole('button', { name: /在右侧面板打开/ })).toBeNull();
+    expect(screen.getByText('src/a.ts')).toBeDefined();
+  });
+});
+
+describe('ActivitySteps file ref binding', () => {
+  it('threads the owning project from the feed into tool cards', () => {
+    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: true });
+    render(
+      <ActivitySteps
+        blocks={[
+          { type: 'tool_call', call: { id: 'c9', name: 'read_file', args: { path: 'src/b.ts' } } },
+        ]}
+        density="detailed"
+        fileProjectId="pFeed"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '在右侧面板打开 src/b.ts' }));
+    expect(usePaneStore.getState().tabs[0]).toMatchObject({ projectId: 'pFeed', path: 'src/b.ts' });
   });
 });

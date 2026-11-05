@@ -43,7 +43,9 @@
     "compact": "Compact context (summarize old messages, free tokens)",
     "compactDisabled": "Generating — cannot compact yet",
     "paneCollapse": "Collapse pane",
-    "paneExpand": "Expand pane"
+    "paneExpand": "Expand pane",
+    "moreAria": "More actions",
+    "newSession": "New conversation"
   },
   "rewind": {
     "title": "Restart from a turn",
@@ -257,5 +259,8 @@
   "queuedRemove": "Retract",
   "queuedEmptyError": "Message content cannot be empty",
   "queuedGoneNotice": "That queued message is no longer available — it may have already been delivered",
-  "queuedAttachments": "{count} attachments"
+  "queuedAttachments": "{count} attachments",
+  "fileLink": {
+    "openInPane": "Open {path} in the file panel"
+  }
 }

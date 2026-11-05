@@ -24,7 +24,19 @@ export type PaneTab =
       parentSessionId?: string;
     }
   | { kind: 'files'; id: string; projectId: string }
-  | { kind: 'file-preview'; id: string; projectId: string; path: string }
+  /**
+   * File preview. `line`/`endLine` carry a line target from a message
+   * reference (`src/foo.ts:42`): same file re-clicked with a new target
+   * updates the payload instead of opening another tab.
+   */
+  | {
+      kind: 'file-preview';
+      id: string;
+      projectId: string;
+      path: string;
+      line?: number;
+      endLine?: number;
+    }
   | { kind: 'git-graph'; id: string; projectId: string }
   | { kind: 'tasks'; id: string }
   /** 计划文档标签（plan 模式）。内容不进标签载荷——标签体按 sessionId 自拉。 */
@@ -59,6 +71,10 @@ interface PaneState {
   open: boolean;
   /** 面板折叠：标签保留，仅隐藏渲染——Header 的切换按钮负责翻转。 */
   hidden: boolean;
+  /**
+   * Latest "reveal this directory in the file tree" request. FileTreeTab
+   * consumes it and expands/scrolls to the dir; `nonce` re-arms the same dir.
+   */
   openTab: (tab: PaneTab) => void;
   /** Open the pane shell with zero tabs (empty-state overview). */
   openPane: () => void;
@@ -88,6 +104,27 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
         if (existing === undefined) {
           return {
             tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            hidden: false,
+            open: true,
+          };
+        }
+        if (
+          existing.kind === 'file-preview' &&
+          tab.kind === 'file-preview'
+        ) {
+          // A click without a line target only activates the existing tab —
+          // it must not yank a tab that is already parked on a line target.
+          const hasTarget = tab.line !== undefined || tab.endLine !== undefined;
+          const targetChanged =
+            hasTarget &&
+            (existing.line !== tab.line || existing.endLine !== tab.endLine);
+          if (!targetChanged) {
+            return { activeTabId: tab.id, hidden: false, open: true };
+          }
+          const merged: PaneTab = { ...tab, id: existing.id };
+          return {
+            tabs: state.tabs.map((t) => (t.id === tab.id ? merged : t)),
             activeTabId: tab.id,
             hidden: false,
             open: true,
@@ -179,6 +216,31 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     setHidden: (hidden) => set({ hidden }),
   }),
 );
+
+/** Stable tab id for a file preview — one tab per project+path. */
+export function filePreviewTabId(projectId: string, path: string): string {
+  return `preview:${projectId}:${path}`;
+}
+
+/**
+ * Open (or activate) the file-preview tab for a project file. Used by every
+ * message surface (markdown refs, tool cards) and by the file tree, so the
+ * dedupe id convention lives in one place. `ref` targets a line range.
+ */
+export function openFilePreview(
+  projectId: string,
+  path: string,
+  ref?: { line?: number; endLine?: number },
+): void {
+  usePaneStore.getState().openTab({
+    kind: 'file-preview',
+    id: filePreviewTabId(projectId, path),
+    projectId,
+    path,
+    ...(ref?.line !== undefined ? { line: ref.line } : {}),
+    ...(ref?.endLine !== undefined ? { endLine: ref.endLine } : {}),
+  });
+}
 
 /**
  * Open the singleton background-tasks tab. Session-scoped (not project-scoped):

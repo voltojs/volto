@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RightPane } from '@/components/pane/RightPane';
 import { usePaneStore, PANE_WIDTH_DEFAULT } from '@/stores/pane-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -191,5 +191,29 @@ describe('RightPane overview', () => {
     expect(
       view.container.querySelector('[data-testid="right-pane"]'),
     ).not.toBeNull();
+  });
+});
+
+describe('RightPane tab strip', () => {
+  it('scrolls the active tab into view on open and on switch', async () => {
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    const fileTab = (path: string) =>
+      ({ kind: 'file-preview', id: `preview:p1:${path}`, projectId: 'p1', path }) as const;
+    usePaneStore.setState({
+      tabs: [fileTab('a.ts'), fileTab('b.ts')],
+      activeTabId: 'preview:p1:b.ts',
+      open: true,
+    });
+    render(<RightPane projectId="p1" />);
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+    const first = scrollSpy.mock.contexts[0] as Element;
+    expect(first.getAttribute('data-tab-id')).toBe('preview:p1:b.ts');
+    act(() => {
+      usePaneStore.getState().setActive('preview:p1:a.ts');
+    });
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(2));
+    const second = scrollSpy.mock.contexts[1] as Element;
+    expect(second.getAttribute('data-tab-id')).toBe('preview:p1:a.ts');
   });
 });

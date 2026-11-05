@@ -10,6 +10,7 @@ import {
 import { useConfigStore } from '@/stores/config-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
+import { useFileRefs } from '@/hooks/use-file-refs';
 import { useSubagentConversation } from '@/hooks/use-subagent-conversation';
 import { useSubagentChatAgent } from '@/hooks/use-subagent-chat-agent';
 import { useSubagentContextUsage } from '@/hooks/use-subagent-context-usage';
@@ -105,6 +106,9 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
     },
   });
 
+  // Sub-agent prose refs resolve under the child session's own annotations.
+  useFileRefs(parent?.projectId ?? null, childId ?? null);
+
   if (tab.kind !== 'subagent') return null;
   // 闭包窄化：TS 不把判别联合的窄化带进回调，先提取本类标签引用再展开。
   const subTab = tab;
@@ -163,6 +167,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               <MessageList
                 entries={feed.entries}
                 sessionId={childId}
+                fileProjectId={parent?.projectId ?? null}
                 isGenerating={running}
                 density={streamDensity}
               />
@@ -172,6 +177,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               <MessageList
                 entries={feed.entries}
                 sessionId={childId}
+                fileProjectId={parent?.projectId ?? null}
                 isGenerating={running}
                 density={streamDensity}
               />
@@ -233,7 +239,10 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         </TabsContent>
         {/* 轨迹：非 keepMounted——切走即卸载，其内部 hook 随挂载合法。 */}
         <TabsContent value="trajectory" className="flex min-h-0 flex-1 flex-col">
-          <SubagentTrajectoryView sessionId={subTab.childSessionId} />
+          <SubagentTrajectoryView
+            sessionId={subTab.childSessionId}
+            fileProjectId={parent?.projectId ?? null}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -245,7 +254,13 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
  * 骨架分支逐行平移自已下线的独立轨迹标签。行点击经全局抽屉 store 打开
  * 行详情——抽屉由主轨迹面板渲染，这里只负责写入行快照。
  */
-function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
+function SubagentTrajectoryView({
+  sessionId,
+  fileProjectId,
+}: {
+  sessionId: string;
+  fileProjectId: string | null;
+}) {
   const t = useTranslations('pane');
   const stored = useStoredRows(sessionId);
   if (stored.error !== null) {
@@ -282,7 +297,7 @@ function SubagentTrajectoryView({ sessionId }: { sessionId: string }) {
       <TrajectoryList
         rows={stored.rows ?? []}
         streamingRowId={null}
-        onSelect={(row) => useTrajectoryDrawerStore.getState().open(row)}
+        onSelect={(row) => useTrajectoryDrawerStore.getState().open(row, fileProjectId)}
       />
     </div>
   );

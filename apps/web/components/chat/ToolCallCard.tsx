@@ -5,10 +5,14 @@ import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
+import { toolCallFileRef } from '@volto/sdk/file-refs';
+import { FileRefChip } from './FileRefChip';
 import { TraceRow } from './TraceRow';
 
 interface ToolCallCardProps {
   call: ConversationToolCall;
+  /** Project the call's content belongs to; null = unknown (no chips). */
+  fileProjectId?: string | null;
   /**
    * One-line summary of the call (its command, path, query…), shown after the
    * tool name. Rows are indistinguishable without it — every `bash` call would
@@ -45,7 +49,8 @@ export function toolCallCardComparator(
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
     a.call.approval?.decision === b.call.approval?.decision &&
-    a.label === b.label
+    a.label === b.label &&
+    a.fileProjectId === b.fileProjectId
   );
 }
 
@@ -53,6 +58,7 @@ export function toolCallCardComparator(
 export const ToolCallCard = memo(function ToolCallCard({
   call,
   label,
+  fileProjectId,
 }: ToolCallCardProps) {
   const t = useTranslations('chat');
   const failed = call.isError === true || call.approval?.decision === 'deny';
@@ -60,6 +66,17 @@ export const ToolCallCard = memo(function ToolCallCard({
   // has to hunt for. Controlled rather than `defaultOpen`, because in a live
   // run the card mounts while the tool is still running and the failure only
   // lands later. A user's collapse wins until the next failure.
+  const summary = label !== undefined && label !== call.name ? label : undefined;
+  const ref = toolCallFileRef(call.name, call.args);
+  const renderDetail = () => {
+    if (summary === undefined) return undefined;
+    if (ref === null || fileProjectId === null) return summary;
+    return (
+      <FileRefChip target={ref} projectId={fileProjectId} variant="link" nested>
+        {summary}
+      </FileRefChip>
+    );
+  };
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const [lastFailed, setLastFailed] = useState(failed);
   if (failed !== lastFailed) {
@@ -71,7 +88,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     <TraceRow
       icon={toolIcon(call.name)}
       label={call.name}
-      detail={label !== undefined && label !== call.name ? label : undefined}
+      detail={renderDetail()}
       meta={call.durationMs === undefined ? undefined : `${call.durationMs}ms`}
       status={<StatusIcon call={call} />}
       failed={failed}

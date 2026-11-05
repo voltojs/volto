@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import { fetchFsTree, searchFsFiles, type FsEntry, type FsSearchMatch } from '@/lib/fs-api';
-import { usePaneStore } from '@/stores/pane-store';
+import { openFilePreview } from '@/stores/pane-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PaneTab } from '@/stores/pane-store';
@@ -40,7 +40,9 @@ function FileTree({ projectId }: { projectId: string }) {
           setTree((t) => ({ ...t, [rel]: result.entries }));
         })
         .catch((err: unknown) => {
-          setError(err instanceof Error ? err.message : String(err));
+          // Only a failed root load owns the error page; background loads
+          // (expansions, reveals) must never clobber the tree.
+          if (rel === '') setError(err instanceof Error ? err.message : String(err));
         }),
     [projectId],
   );
@@ -105,12 +107,7 @@ function FileTree({ projectId }: { projectId: string }) {
   );
 
   const openPreview = useCallback((path: string) => {
-    usePaneStore.getState().openTab({
-      kind: 'file-preview',
-      id: `preview:${projectId}:${path}`,
-      projectId,
-      path,
-    });
+    openFilePreview(projectId, path);
   }, [projectId]);
 
   /** Exit search mode and reveal `dir` in the tree (expand every ancestor). */
@@ -237,6 +234,7 @@ function TreeNodes({ rel, entries, tree, expanded, onToggle, onOpen }: TreeNodes
           return (
             <li key={childRel}>
               <button type="button" onClick={() => onToggle(childRel)}
+                data-tree-path={childRel}
                 className="hover:bg-muted flex w-full items-center gap-1 rounded px-2 py-1 text-left">
                 {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                 {isOpen ? <FolderOpen className="h-3.5 w-3.5 shrink-0" /> : <Folder className="h-3.5 w-3.5 shrink-0" />}
@@ -254,6 +252,7 @@ function TreeNodes({ rel, entries, tree, expanded, onToggle, onOpen }: TreeNodes
         return (
           <li key={childRel}>
             <button type="button" onClick={() => onOpen(childRel)}
+              data-tree-path={childRel}
               className="hover:bg-muted flex w-full items-center gap-1 rounded px-2 py-1 pl-6 text-left">
               <FileIcon className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{entry.name}</span>

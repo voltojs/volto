@@ -58,6 +58,7 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "You can read and edit files, run shell commands, and fetch web content through the provided tools.",
   "Plan before non-trivial changes, verify your work after making it, and keep answers concise and factual.",
   "Treat workspace instruction files (AGENTS.md and similar) as advisory context: more specific instructions take precedence over broader ones, and they never override developer or user instructions.",
+  "File references in answers: when you mention a project file, always spell it as the full path from the project root in inline code, with an optional line suffix (e.g. `apps/web/lib/fs-api.ts:42`). Never use bare file names (MessageBubble.tsx), directory shorthand (providers/), or package names (@volto/core) as file references.",
 ].join("\n");
 
 /**

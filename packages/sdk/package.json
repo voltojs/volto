@@ -13,6 +13,10 @@
     "./sse": {
       "types": "./dist/sse/index.d.ts",
       "import": "./dist/sse/index.js"
+    },
+    "./file-refs": {
+      "types": "./dist/file-refs/index.d.ts",
+      "import": "./dist/file-refs/index.js"
     }
   },
   "scripts": {

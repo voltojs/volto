@@ -613,17 +613,6 @@ interface Session {
    * on every turn would be pure waste.
    */
   titlePrepared?: boolean;
-  /**
-   * True for the turn that wrote the session's heuristic title, i.e. the
-   * first turn. The title model runs only off this flag, so a session is
-   * never renamed mid-conversation.
-   */
-  titleWrittenThisTurn?: boolean;
-  /**
-   * Set once this process has tried to name the session with a model, so the
-   * background call is never made twice for one session.
-   */
-  titleGenerationStarted?: boolean;
 }
 
 /** An event as an agent's stream() yields it.
@@ -1025,7 +1014,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     if (title === null) return;
 
     if (await writeSessionTitle(session.id, title, "heuristic", true) === "written") {
-      session.titleWrittenThisTurn = true;
+      // Name the session with the model now, alongside the turn it belongs
+      // to: the request does not depend on the answer, and waiting for the
+      // turn to settle would leave the header generic for its whole duration.
+      void generateModelTitle(session, text);
     }
   }
 
@@ -1033,25 +1025,22 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * Replaces a freshly derived title with one written by the configured title
    * model.
    *
-   * Runs after the turn settled, so everything it needs is durable: it re-reads
-   * the transcript to take the first user message and to check that the title
-   * is still the heuristic one — a rename that landed while the model was
-   * thinking wins, and the late model answer is dropped. Every failure is the
-   * same: the heuristic title stays, and nothing reaches the conversation.
+   * Started as soon as the first message has a heuristic name, so it runs
+   * alongside the turn instead of after it. The write goes through the ranked
+   * writer: a rename that lands while the model is thinking outranks this
+   * title, and the late answer is dropped. Every failure is the same: the
+   * heuristic title stays, and nothing reaches the conversation.
    */
-  async function finalizeTitle(session: Session): Promise<void> {
+  async function generateModelTitle(session: Session, text: string): Promise<void> {
     try {
       if (!chatStore) return;
-      const record = await chatStore.readSession(session.id);
-      if (!record || record.meta.titleSource !== "heuristic") return;
-      const text = firstUserMessageText(record.events);
-      if (text === null) return;
-
       const target = await titleModelPortFactory();
       if (target === null) return;
       const title = await generateTitle(target.modelPort, target.model, text);
-      if (title === null || title === record.meta.title) return;
+      if (title === null) return;
 
+      const record = await chatStore.readSession(session.id);
+      if (!record || record.meta.title === title) return;
       await writeSessionTitle(session.id, title, "model");
     } catch {
       // A title is decoration: it never surfaces an error or fails a turn.
@@ -1738,39 +1727,21 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // the boundary so this catch block records exactly that gap, without
     // ever double-recording a failure createAgent() already saw.
     let turnReachedStream = false;
-    /** Why this turn's stream closed, if it reached `turn_end` at all. */
-    let turnEndReason: string | undefined;
 
     /**
      * Stream one turn onto the session's SSE channel, then capture its
-     * history and hand off title finalization. Shared verbatim by the user's
-     * own turn and by every settle-time auto-flush round below, so both get
-     * identical framing (turn_start/turn_end), history capture and title
-     * logic — a flush round is a normal turn whose opening input is
-     * `{ type: "steering_flush" }` (Task 5).
+     * history. Shared verbatim by the user's own turn and by every
+     * settle-time auto-flush round below, so both get identical framing
+     * (turn_start/turn_end) and history capture — a flush round is a normal
+     * turn whose opening input is `{ type: "steering_flush" }` (Task 5).
      */
     async function streamTurn(input: string | AgentInput): Promise<void> {
       const abort = new AbortController();
       session.abort = abort;
       for await (const event of session.agent!.stream(input, { signal: abort.signal })) {
         push(session, frame(session, event));
-        if (event.type === "turn_end") turnEndReason = String(event.data["reason"] ?? "");
       }
       await captureHistory();
-      // Naming comes last and off the turn's critical path: the model call it
-      // makes can take seconds, and it must not hold `session.running` — a
-      // follow-up message should never wait on naming. Only the turn that
-      // wrote the heuristic title reaches here with the flag set, and the
-      // once-only guard keeps a session named exactly once.
-      if (
-        session.titleWrittenThisTurn &&
-        !session.titleGenerationStarted &&
-        turnEndReason === "done"
-      ) {
-        session.titleWrittenThisTurn = false;
-        session.titleGenerationStarted = true;
-        void finalizeTitle(session);
-      }
     }
 
     try {
@@ -1794,9 +1765,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
 
       // Title first, model second: this runs before the turn's first token so
-      // the client never shows an untitled conversation, and the heuristic it
-      // writes is what a later model title improves on. Best-effort — every
-      // failure inside is swallowed, and a title never fails a turn.
+      // the client never shows an untitled conversation, and the model request
+      // it starts runs alongside the turn rather than waiting for it. The
+      // heuristic it writes is what the model title improves on. Best-effort —
+      // every failure inside is swallowed, and a title never fails a turn.
       if (!session.titlePrepared) {
         session.titlePrepared = true;
         await prepareHeuristicTitle(session, message);

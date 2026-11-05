@@ -24,11 +24,18 @@ import { projectMessages } from "@volto/core";
 /**
  * A derived title is the first user message collapsed to one line, capped
  * here. Early builds clipped at 30 code points, which made a header read
- * "review 从 29cd234…"; the cap is generous enough to keep a real title whole
- * while still refusing to turn a pasted essay into a header. The server
- * enforces the same 200 on every manual rename.
+ * "review 从 29cd234…"; 60 keeps a short real prompt whole without turning a
+ * pasted essay into a header. Manual renames keep their own, larger limit in
+ * the server route.
  */
-const MAX_TITLE_LENGTH = 200;
+const MAX_HEURISTIC_TITLE_LENGTH = 60;
+
+/**
+ * A model-written title is a name, not a reply. Anything longer than this is
+ * refused outright rather than clipped: clipping a reply fabricates a title
+ * the model never meant, and the heuristic title is the better fallback.
+ */
+const MAX_MODEL_TITLE_CODEPOINTS = 40;
 
 /**
  * Collapses the first user message to a single line and caps it.
@@ -43,8 +50,8 @@ export function deriveHeuristicTitle(firstUserMessage: string): string | null {
   if (collapsed.length === 0) return null;
 
   const codepoints = Array.from(collapsed);
-  return codepoints.length > MAX_TITLE_LENGTH
-    ? `${codepoints.slice(0, MAX_TITLE_LENGTH).join("")}…`
+  return codepoints.length > MAX_HEURISTIC_TITLE_LENGTH
+    ? `${codepoints.slice(0, MAX_HEURISTIC_TITLE_LENGTH).join("")}…`
     : collapsed;
 }
 
@@ -99,27 +106,36 @@ export function messageText(message: string | AgentInput): string | null {
 export const TITLE_TIMEOUT_MS = 15_000;
 
 /**
- * Tells the model what a title is. Deliberately short: this is a cheap
- * utility call, not a conversation, and the output is discarded unless it
- * survives `sanitizeGeneratedTitle`.
+ * Tells the model what a title is. The instruction travels inside the user
+ * message: models such as MiMo answer a message that carries only a bare
+ * system instruction instead of naming it (observed live), while the same
+ * instruction placed next to the text produces a title.
  */
-const TITLE_SYSTEM_PROMPT = [
-  "You name conversations for a coding assistant.",
+const TITLE_INSTRUCTION = [
+  "Name the conversation below with a short title.",
   "Reply with the title only: no quotes, no markdown, no trailing punctuation.",
   "One line, at most 12 Chinese characters or 8 English words.",
-  "Write it in the same language as the user's message.",
+  "Write it in the same language as the conversation.",
 ].join(" ");
 
-/** Cap on the user message sent to the title model, in codepoints. */
+/** Cap on the conversation text sent to the title model, in codepoints. */
 const MAX_PROMPT_INPUT = 2_000;
 
+/** The user message that carries both the instruction and the conversation. */
+function titleRequestText(firstUserMessage: string): string {
+  const conversation = Array.from(firstUserMessage).slice(0, MAX_PROMPT_INPUT).join("");
+  return [TITLE_INSTRUCTION, "", "<conversation>", conversation, "</conversation>"].join("\n");
+}
+
 /**
- * Cleans a model's raw answer into a usable title.
+ * Cleans a model's raw answer into a usable title, or null when the answer is
+ * not a title at all.
  *
  * Models wrap short answers in quotes, backticks, or a markdown fence, and
- * some append a period; none of that belongs in a sidebar row. Returns null
- * when nothing usable is left, which the caller reads as "keep the current
- * title".
+ * some append a period; none of that belongs in a sidebar row. A model that
+ * treats the request as a conversation produces a reply (multi-line, long, or
+ * marked up); the heuristic title is the better name, so such an answer is
+ * refused instead of clipped or flattened.
  */
 export function sanitizeGeneratedTitle(raw: string): string | null {
   let title = raw.trim();
@@ -131,6 +147,8 @@ export function sanitizeGeneratedTitle(raw: string): string | null {
     title = title.replace(/^["'`“”‘’「」『』]+/u, "").replace(/["'`“”‘’「」『』]+$/u, "");
     if (title === previous) break;
   }
+  // A reply uses several lines; a title is one.
+  if (title.split(/\r?\n/u).filter((line) => line.trim().length > 0).length > 1) return null;
   // One line, no runs of whitespace.
   title = title.replace(/\s+/gu, " ").trim();
   // Trailing sentence punctuation reads as a sentence, not a name.
@@ -138,11 +156,18 @@ export function sanitizeGeneratedTitle(raw: string): string | null {
   if (title.length === 0) return null;
   // Nothing but punctuation left over: not a title.
   if (!/[\p{L}\p{N}]/u.test(title)) return null;
-
-  const codepoints = Array.from(title);
-  return codepoints.length > MAX_TITLE_LENGTH
-    ? codepoints.slice(0, MAX_TITLE_LENGTH).join("")
-    : title;
+  // Markdown headings, list items, leftover fences, and an odd backtick count
+  // all signal a reply rather than a name.
+  if (title.startsWith("#")) return null;
+  if (/^[-*+]\s/u.test(title)) return null;
+  if (title.includes("```")) return null;
+  if ((title.match(/`/gu)?.length ?? 0) % 2 === 1) return null;
+  // Tool-call markup leaked into text (the model answering with a planned
+  // tool call instead of a title).
+  if (/<(?:tool_call|function|parameter|\/)/iu.test(title)) return null;
+  // Longer than a name: refused, never clipped.
+  if (Array.from(title).length > MAX_MODEL_TITLE_CODEPOINTS) return null;
+  return title;
 }
 
 /**
@@ -150,9 +175,10 @@ export function sanitizeGeneratedTitle(raw: string): string | null {
  *
  * Every failure mode is the same answer — null, meaning "keep whatever title
  * the session already has": a provider error, a timeout (the abort signal
- * reaches the port's request), an empty answer, or an answer that is only
- * punctuation. A title is decoration; it never surfaces an error to the
- * conversation.
+ * reaches the port's request), an empty answer, an answer that is only
+ * punctuation, a reply too long or too structured to be a name, or an answer
+ * cut off by the output-token cap. A title is decoration; it never surfaces
+ * an error to the conversation.
  */
 export async function generateTitle(
   port: ModelPort,
@@ -165,31 +191,31 @@ export async function generateTitle(
   try {
     const request: ModelRequest = {
       messages: [
-        { id: "title-system", role: "system", content: TITLE_SYSTEM_PROMPT },
-        {
-          id: "title-user",
-          role: "user",
-          content: Array.from(firstUserMessage).slice(0, MAX_PROMPT_INPUT).join(""),
-        },
+        { id: "title-user", role: "user", content: titleRequestText(firstUserMessage) },
       ],
       tools: [],
       model,
-      // A title is a few words; anything longer is the model ignoring the
-      // instruction, and the cap keeps a runaway answer cheap.
-      maxTokens: 64,
+      // A title is a few words; a larger ceiling avoids cutting a legitimate
+      // title mid-word, and a truncated reply is rejected below anyway.
+      maxTokens: 256,
       abortSignal: controller.signal,
     };
 
     let text = "";
+    let finish: "end_turn" | "tool_use" | "max_tokens" | undefined;
     for await (const event of port.stream(request)) {
       // A port that ignores its abort signal must not be able to answer after
       // the deadline: the bound is the generator's to enforce, not the
       // provider's to honour.
       if (controller.signal.aborted) return null;
       if (event.type === "text_delta") text += event.text;
+      else if (event.type === "done") finish = event.stopReason;
       else if (event.type === "error") return null;
     }
     if (controller.signal.aborted) return null;
+    // A cut-off answer is not a title, even when it fits the length check:
+    // its tail is arbitrary.
+    if (finish === "max_tokens") return null;
     return sanitizeGeneratedTitle(text);
   } catch {
     // Aborts and provider failures are both "no title this time".

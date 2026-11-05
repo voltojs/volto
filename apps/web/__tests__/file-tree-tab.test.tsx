@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FileTreeTab } from '@/components/pane/FileTreeTab';
 import { usePaneStore } from '@/stores/pane-store';
 import { fetchFsTree, searchFsFiles } from '@/lib/fs-api';
@@ -135,5 +135,29 @@ describe('FileTreeTab', () => {
     fireEvent.click(await screen.findByText('src'));
     expect(await screen.findByText('p2-child.ts')).toBeDefined();
     expect(treeMock).toHaveBeenLastCalledWith('p2', 'src');
+  });
+});
+
+describe('FileTreeTab error domain', () => {
+  it('keeps the tree usable when expanding a directory fails', async () => {
+    treeMock.mockImplementation(async (_projectId: string, rel = '') => {
+      if (rel === '') {
+        return {
+          path: '',
+          entries: [
+            { name: 'src', type: 'dir', size: 0 },
+            { name: 'README.md', type: 'file', size: 5 },
+          ],
+        };
+      }
+      throw new Error('Not found');
+    });
+    render(<FileTreeTab tab={tab} />);
+    fireEvent.click(await screen.findByText('src'));
+    await waitFor(() => expect(treeMock).toHaveBeenCalledWith('p1', 'src'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // A failed background expansion must not clobber the tree with an error page.
+    expect(screen.getByText('README.md')).toBeDefined();
+    expect(screen.queryByText('Not found')).toBeNull();
   });
 });
