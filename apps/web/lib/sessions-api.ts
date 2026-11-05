@@ -15,6 +15,7 @@ import type {
   TrajectoryView,
   TodoItem,
 } from '@volto/sdk/sse';
+import type { QueuedSeed } from './projection';
 
 /** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */
 export class TrajectoryUnavailableError extends Error {
@@ -84,6 +85,15 @@ export interface ServerSessionDetail {
   contextUsage: ContextUsageSnapshot | null;
   /** Standing todos folded from the durable event log; null when never written. */
   todos?: TodoItem[] | null;
+  /**
+   * The undelivered steering queue, FIFO with each entry's enqueue time,
+   * folded server-side from the durable event log. Those entries are NOT in
+   * `messages` (a still-queued message must not render as already sent), so
+   * this is the only seed for the queue dock on a cold load. Optional so a
+   * response from an older server still type-checks — consumers default to
+   * `[]`.
+   */
+  queuedMessages?: QueuedSeed[];
   createdAt: number;
   updatedAt: number;
 }

@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { projectConversation, composeChatEntries } from '@/lib/projection';
-import type { ChatEntry } from '@/lib/projection';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import {
+  projectConversation,
+  composeChatEntries,
+  selectQueuedSeed,
+} from '@/lib/projection';
+import type { ChatEntry, FeedMessage } from '@/lib/projection';
+import type { ConversationMessage, TranscriptEventInput } from '@volto/sdk/sse';
 
 /**
  * Steering queue fold (spec 2026-11-04 §4.6): the web feed keeps queued
@@ -260,5 +264,97 @@ describe('steering queue fold', () => {
     expect(bubble).not.toBeNull();
     expect(bubble!.entry.message.queued).toBe(false);
     expect(bubble!.entry.message.content).toBe('second');
+  });
+});
+
+/**
+ * Seeding the fold from `GET /sessions/:id`'s `queuedMessages` (Task 4): a
+ * cold load has no `steering_queued` event to fold — the SSE channel only
+ * carries events from the moment it connects — so the server's pending queue
+ * is the entry's only source until live receipts arrive.
+ */
+describe('steering queue seed', () => {
+  it('renders a seeded queued entry at its send position and realizes it on delivery', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+      { time: 200, type: 'steering_delivered', data: { ids: ['q1'] }, turn: 1 },
+      { time: 300, type: 'turn_start', data: { turn: 2 }, turn: 2 },
+    ] as TranscriptEventInput[];
+    const seed = [{ id: 'q1', content: 'seeded', time: 130 }];
+    const { view } = projectConversation(events, [], undefined, (k) => k, seed);
+    const ids = view.messages.map((m) => m.id);
+    expect(ids.filter((id) => id === 'q1')).toHaveLength(1);
+    // Send position: after the message that had arrived when it was queued.
+    expect(ids[0]).not.toBe('q1');
+    const entry = view.messages.find((m) => m.id === 'q1')!;
+    expect(entry.content).toBe('seeded');
+    // The live `steering_delivered` receipt flipped the seeded badge without
+    // moving the entry.
+    expect((entry as FeedMessage).queued).toBe(false);
+  });
+
+  it('does not duplicate a seeded entry when its steering_queued event also arrives', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+      {
+        time: 130,
+        type: 'steering_queued',
+        data: { id: 'q1', content: 'seeded' },
+        turn: 1,
+      },
+    ] as TranscriptEventInput[];
+    const { view } = projectConversation(events, [], undefined, (k) => k, [
+      { id: 'q1', content: 'seeded', time: 130 },
+    ]);
+    const ids = view.messages.map((m) => m.id);
+    expect(ids.filter((id) => id === 'q1')).toHaveLength(1);
+    expect(ids).toEqual(['1:u0', 'q1']);
+  });
+
+  it('applies edit and removal receipts to a seeded entry', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+      {
+        time: 150,
+        type: 'steering_edited',
+        data: { id: 'q1', content: 'rewritten' },
+        turn: 1,
+      },
+      { time: 160, type: 'steering_removed', data: { id: 'q2' }, turn: 1 },
+      { time: 170, type: 'turn_end', data: { turn: 1, reason: 'done' }, turn: 1 },
+    ] as TranscriptEventInput[];
+    const seed = [
+      { id: 'q1', content: 'seeded', time: 120 },
+      { id: 'q2', content: 'doomed', time: 130 },
+    ];
+    const { view } = projectConversation(events, [], undefined, (k) => k, seed);
+    const ids = view.messages.map((m) => m.id);
+    expect(ids.filter((id) => id === 'q1')).toHaveLength(1);
+    const entry = view.messages.find((m) => m.id === 'q1')!;
+    // The edit receipt rewrote the seeded content in place.
+    expect(entry.content).toBe('rewritten');
+    expect((entry as FeedMessage).queued).toBe(true);
+    // The removal receipt dropped the other seeded entry entirely.
+    expect(ids).not.toContain('q2');
+  });
+});
+
+describe('selectQueuedSeed', () => {
+  it('drops seeds already present in the stored feed', () => {
+    expect(
+      selectQueuedSeed(
+        [{ id: 'q1', content: 'x', time: 1 }],
+        [{ id: 'q1' } as ConversationMessage],
+      ),
+    ).toEqual([]);
+  });
+
+  it('keeps seeds the stored feed does not hold', () => {
+    const seed = [{ id: 'q1', content: 'x', time: 1 }];
+    const stored = [{ id: 'm1' } as ConversationMessage];
+    expect(selectQueuedSeed(seed, stored)).toEqual(seed);
   });
 });

@@ -69,6 +69,46 @@ describe('ensureSessionDetail', () => {
     expect(fetchServerSessionDetail).toHaveBeenCalledTimes(1);
   });
 
+  it('stores queuedMessages from the detail response', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockResolvedValue({
+      id: 'a',
+      messages: [],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'ask',
+      queuedMessages: [{ id: 'q1', content: 'queued', time: 5 }],
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await ensureSessionDetail('a');
+    expect(useSessionStore.getState().sessions[0]!.queuedMessages).toEqual([
+      { id: 'q1', content: 'queued', time: 5 },
+    ]);
+
+    // A response that omits the field (an older server) seeds no queue.
+    useSessionStore.setState({ sessions: [summary('b')] });
+    fetchServerSessionDetail.mockResolvedValue({
+      id: 'b',
+      messages: [],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'ask',
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await ensureSessionDetail('b');
+    expect(
+      useSessionStore.getState().sessions.find((s) => s.id === 'b')!.queuedMessages,
+    ).toEqual([]);
+  });
+
   it('shares one in-flight request across concurrent callers', async () => {
     useSessionStore.setState({ sessions: [summary('a')] });
     let resolve!: (v: unknown) => void;

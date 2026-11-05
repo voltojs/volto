@@ -8,6 +8,7 @@ import {
   composeChatEntries,
   mergeStoredAndLive,
   projectConversation,
+  selectQueuedSeed,
   type ChatEntry,
   type ProjectedConversation,
 } from '@/lib/projection';
@@ -67,6 +68,15 @@ export function useConversation(): ConversationFeed {
     s.sessions.find((session) => session.id === s.currentSessionId),
   );
   const stored = currentSession?.messages ?? EMPTY_MESSAGES;
+  // The server's still-queued steering entries seed the fold: the SSE
+  // channel only carries events from the moment it connects, so a cold
+  // load's queued bubbles have no `steering_queued` event to fold. An id the
+  // stored feed already holds (the client's own switch-away snapshot) is
+  // dropped — exactly one entry per steering id survives the merge.
+  const queuedSeed = useMemo(
+    () => selectQueuedSeed(currentSession?.queuedMessages ?? [], stored),
+    [currentSession?.queuedMessages, stored],
+  );
   const events = useChatStore((s) => s.events);
   const deltas = useChatStore((s) => s.deltas);
   const notices = useChatStore((s) => s.notices);
@@ -84,8 +94,8 @@ export function useConversation(): ConversationFeed {
   // closed turn from `prev`.
   const live = useMemo<ProjectedConversation>(() => {
     if (!bufferIsCurrent) return EMPTY_PROJECTED;
-    return projectConversation(events, deltas);
-  }, [events, deltas, bufferIsCurrent, t]);
+    return projectConversation(events, deltas, undefined, t, queuedSeed);
+  }, [events, deltas, bufferIsCurrent, t, queuedSeed]);
 
   // Context usage: the session's numbers-only snapshot seed (filled by
   // ensureSessionDetail from GET /sessions/:id) plus the live event buffer

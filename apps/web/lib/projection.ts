@@ -67,7 +67,38 @@ function ownedBySteeringFold(event: TranscriptEventInput): boolean {
 }
 
 /** Content shape of a `steering_queued` event (string or content blocks). */
-type SteeringContent = TranscriptEventInput<'steering_queued'>['data']['content'];
+export type SteeringContent = TranscriptEventInput<'steering_queued'>['data']['content'];
+
+/**
+ * One still-queued steering entry as `GET /sessions/:id` reports it. The
+ * server folds the durable log into these (FIFO, each with its enqueue
+ * time) so a cold load can seed the web's steering fold — the SSE channel
+ * only carries events from the moment it connects, so without this seed a
+ * reloaded page would show no queued messages at all. Defined here, once:
+ * `sessions-api` and the session store import the type from this module.
+ */
+export interface QueuedSeed {
+  /** Stamped at enqueue time — the entry's identity and React key. */
+  id: string;
+  content: SteeringContent;
+  /** The `steering_queued` event's clock time — the send-position anchor. */
+  time: number;
+}
+
+/**
+ * The seed entries the fold still needs: an id the stored feed already
+ * renders is dropped. The client's own switch-away snapshot can carry the
+ * same steering id (it was folded live before the switch), and the merge
+ * must keep exactly one entry per steering id — the stored copy renders
+ * there instead.
+ */
+export function selectQueuedSeed(
+  queued: readonly QueuedSeed[],
+  stored: readonly ConversationMessage[],
+): QueuedSeed[] {
+  const held = new Set(stored.map((message) => message.id));
+  return queued.filter((entry) => !held.has(entry.id));
+}
 
 /** One queued user bubble, folded from the steering events. */
 interface QueuedEntry {
@@ -85,10 +116,29 @@ interface QueuedEntry {
  * `steering_removed` drops it entirely, and `steering_delivered` flips
  * `queued` to false without moving it. Pure — folding the live-accumulated
  * buffer and re-folding the same stored log produce the same entries.
+ *
+ * `seed` (the server's pending queue) pre-fills the fold before any event
+ * is applied: seeded entries start `queued: true` at their send positions,
+ * and a `steering_queued` for an already-seeded id is ignored (the existing
+ * idempotence rule), so the seed is never duplicated or repositioned. With
+ * no seed the fold behaves exactly as before.
  */
-function foldSteeringQueue(events: readonly TranscriptEventInput[]): QueuedEntry[] {
+function foldSteeringQueue(
+  events: readonly TranscriptEventInput[],
+  seed: readonly QueuedSeed[] = [],
+): QueuedEntry[] {
   const byId = new Map<string, QueuedEntry>();
   const sendOrder: string[] = [];
+  for (const entry of seed) {
+    if (byId.has(entry.id)) continue;
+    byId.set(entry.id, {
+      id: entry.id,
+      content: entry.content,
+      time: entry.time,
+      queued: true,
+    });
+    sendOrder.push(entry.id);
+  }
   for (const event of events) {
     switch (event.type) {
       case 'steering_queued': {
@@ -213,19 +263,26 @@ function insertQueuedMessages(
  *
  * Steering queue events are excluded from the record fold and folded into
  * the message list here instead (send positions + `queued` badge, spec §4.6).
+ *
+ * `queuedSeed` (optional) seeds that fold with the server's pending queue
+ * for a cold load — see `QueuedSeed`. Omitted (every pre-Task-4 call site)
+ * the fold runs on events alone, exactly as before.
  */
 export function projectConversation(
   events: readonly TranscriptEventInput[],
   deltas: readonly TranscriptDelta[],
   prev?: readonly TurnRecord[],
   t: (key: string) => string = (key) => key,
+  queuedSeed?: readonly QueuedSeed[],
 ): ProjectedConversation {
   const recordEvents = events.filter((event) => !ownedBySteeringFold(event));
   let records = buildTurnRecords(asStored(recordEvents), prev);
   for (const delta of deltas) records = applyPartial(records, delta);
   const view = toConversationView(records);
   return {
-    view: { messages: insertQueuedMessages(view.messages, foldSteeringQueue(events)) },
+    view: {
+      messages: insertQueuedMessages(view.messages, foldSteeringQueue(events, queuedSeed)),
+    },
     records,
   };
 }

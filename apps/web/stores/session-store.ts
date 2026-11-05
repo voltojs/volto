@@ -5,6 +5,7 @@ import type {
   TodoItem,
 } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
+import type { QueuedSeed } from '@/lib/projection';
 import { useConfigStore } from './config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 
@@ -74,6 +75,12 @@ export interface Session {
    * frames override this when the chat event buffer has any.
    */
   todos?: TodoItem[] | null;
+  /**
+   * The undelivered steering queue seeded from `GET /sessions/:id` — the
+   * entries a cold load folds into the queue dock. Optional cache field:
+   * consumers default to `[]`.
+   */
+  queuedMessages?: QueuedSeed[];
 }
 
 /** Detail payload used to fill in a session fetched via `GET /sessions/:id`. */
@@ -81,6 +88,8 @@ export interface SessionDetail {
   messages: ConversationMessage[];
   contextUsage: ContextUsageSnapshot | null;
   todos?: TodoItem[] | null;
+  /** Optional cache field, mirroring `Session.queuedMessages`. */
+  queuedMessages?: QueuedSeed[];
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;
@@ -229,6 +238,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       title: options.title ?? '',
       messages: [],
       messageCount: 0,
+      queuedMessages: [],
       // A brand-new session exists only in memory until its first message
       // is persisted; there is nothing to lazy-load.
       detailLoaded: true,
@@ -274,6 +284,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               ...s,
               ...detail,
               messageCount: detail.messages.length,
+              // Normalise the optional seed so a response without the field
+              // clears a stale queue instead of leaving the old one behind.
+              queuedMessages: detail.queuedMessages ?? [],
               detailLoaded: true,
               detailError: null,
               detailErrorKind: null,
