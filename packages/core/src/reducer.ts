@@ -1044,6 +1044,21 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
     // handleExecutingTools / handleWaitingForApproval: [...messages,
     // ...queuedUserInputs], clear the queue, emit steering_delivered with the
     // drained ids before the re-issued call_model.
+    //
+    // The runaway guard wins first — this branch also issues a model call,
+    // so it must terminate exactly like the max_tokens limit path above:
+    // done + error, and the queue stays untouched for the host's auto-flush
+    // under a fresh budget (spec scenario G).
+    if (limit) {
+      return {
+        state: { ...baseState, status: "done" },
+        effects: [
+          emitEffect,
+          { type: "emit", event: { type: "error", data: { error: limit } } },
+          { type: "done" },
+        ],
+      };
+    }
     if (state.queuedUserInputs.length > 0) {
       const flushed = appendQueuedAndClear(baseState, baseState.messages);
       const continuedState: ReducerState = {

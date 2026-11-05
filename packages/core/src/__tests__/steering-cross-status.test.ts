@@ -220,6 +220,35 @@ describe("end_turn continuation (D3)", () => {
     expect(requestTail[2]!.content).toBe("Second queued");
   });
 
+  it("end_turn continuation with a hit limit terminates the turn and keeps queuedUserInputs", () => {
+    const context = ctxWithIds();
+    // maxIterations: 1 — the first model_done already trips the runaway
+    // guard, so the queued end_turn continuation must NOT issue a call.
+    const setup = drive(reachCallingModel(), context, createInitialState({ maxIterations: 1 }));
+    const callingState = setup[setup.length - 1]!.state;
+
+    const queued = step(callingState, { type: "user_message", content: "Queued before end_turn" }, context);
+    expect(queued.state.queuedUserInputs).toHaveLength(1);
+    const queuedId = queued.state.queuedUserInputs[0]!.id;
+
+    const result = step(
+      queued.state,
+      { type: "model_done", stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 5 } },
+      context,
+    );
+
+    // The guard wins over continuation: done + an error naming the cap.
+    expect(result.state.status).toBe("done");
+    expect(result.effects.some((e) => e.type === "done")).toBe(true);
+    expect(result.effects.some((e) => e.type === "call_model")).toBe(false);
+    expect(emitData(result.effects, "error")).toEqual([{ error: "Maximum iterations reached" }]);
+    expect(emitData(result.effects, "steering_delivered")).toEqual([]);
+    // The queue survives untouched for the host-side auto-flush (scenario G).
+    expect(result.state.queuedUserInputs).toHaveLength(1);
+    expect(result.state.queuedUserInputs[0]!.id).toBe(queuedId);
+    expect(result.state.queuedUserInputs[0]!.content).toBe("Queued before end_turn");
+  });
+
   it("end_turn with empty queue completes the turn as before", () => {
     const context = ctxWithIds();
     const setup = drive(reachCallingModel(), context);
