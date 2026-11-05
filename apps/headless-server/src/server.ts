@@ -37,7 +37,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import { projectMessageEntries, foldStandingTodos } from "@volto/core";
+import { projectMessageEntries, foldStandingTodos, pendingSteeringEntries } from "@volto/core";
 import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@volto/core";
 import {
   readConversation,
@@ -2022,10 +2022,43 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // event log so a cold page load restores the plan without replaying
         // tool args. Live SSE `todoListUpdated` frames still override this.
         const todos = foldStandingTodos(record.events);
+        // The durable steering queue still waiting for delivery, in FIFO
+        // order with each entry's enqueue time. Always present: `[]` means
+        // "nothing queued", never "field omitted".
+        const queuedMessages = pendingSteeringEntries(record.events);
+        // The same text projection the conversation view uses, so a pending
+        // entry can be matched against the message it parked at the turn end.
+        const textOf = (content: string | ContentBlock[]): string =>
+          typeof content === "string"
+            ? content
+            : content
+                .filter(
+                  (block): block is Extract<ContentBlock, { type: "text" | "structured" }> =>
+                    block.type === "text" || block.type === "structured",
+                )
+                .map((block) => block.text)
+                .join("");
+        // The chat feed must not render a still-queued message as already
+        // sent (D16): the view projection parks an undelivered entry at its
+        // turn's end (spec scenario H), so drop exactly those entries here
+        // and hand them to the dock through `queuedMessages`. Only this route
+        // splits them — the trajectory route and every other
+        // `readConversation` consumer keep the scenario-H placement.
+        const messages = view.messages.filter(
+          (message) =>
+            !(
+              message.role === "user" &&
+              queuedMessages.some(
+                (entry) =>
+                  entry.time === message.timestamp && textOf(entry.content) === message.content,
+              )
+            ),
+        );
         jsonResponse(res, 200, {
           id,
           ...bindingsOf(record.meta),
-          messages: view.messages,
+          messages,
+          queuedMessages,
           contextUsage,
           todos,
           createdAt: record.createdAt,
