@@ -14,7 +14,7 @@
   },
   "composer": {
     "placeholder": "Describe what you want to build…",
-    "waitingApproval": "Waiting for your approval",
+    "waitingApproval": "Waiting for approval — you can keep typing; messages will queue",
     "noWorkspace": "Choose a workspace first",
     "missingBinding": "This session has no project or model bound, so it cannot send",
     "addImage": "Add image",

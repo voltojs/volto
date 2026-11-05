@@ -14,7 +14,7 @@
   },
   "composer": {
     "placeholder": "描述你想要构建的内容…",
-    "waitingApproval": "等待你的审批",
+    "waitingApproval": "审批等待中——可继续输入，将排队",
     "noWorkspace": "请先选择工作区",
     "missingBinding": "此会话缺少绑定的项目或模型，无法发送消息",
     "addImage": "添加图片",

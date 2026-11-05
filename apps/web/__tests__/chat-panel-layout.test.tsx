@@ -235,4 +235,29 @@ describe('ChatPanel input layout', () => {
     const editorPanel = editor.closest('[data-slot="tabs-content"]')!;
     expect(editorPanel.contains(wave)).toBe(true);
   });
+
+  it('offers an input-permitting placeholder while approvals are pending', () => {
+    useChatStore.setState({
+      events: [
+        {
+          time: 1,
+          type: 'approval_asked',
+          data: { callId: 'c1', name: 'bash', riskTier: 'WRITE_HIGH' },
+        },
+      ],
+    });
+    const { container } = render(<ChatPanel />);
+
+    const editor = container.querySelector('[data-testid="input-editor"]');
+    expect(editor).not.toBeNull();
+    // The composer stays usable during approvals (scenario F), so the
+    // placeholder must steer the user to keep typing — it must not imply
+    // the composer is locked until the decision lands. The Placeholder
+    // extension decorates the empty paragraph, not the editable root.
+    const decorated = container.querySelector('[data-placeholder]');
+    expect(decorated?.getAttribute('data-placeholder')).toBe(
+      '审批等待中——可继续输入，将排队',
+    );
+    expect(editor!.getAttribute('contenteditable')).toBe('true');
+  });
 });
