@@ -328,13 +328,17 @@ describe("POST /messages — reasoningEffort validated before ack (HTTP level)",
 
     expect(res.status).toBe(202);
 
-    // The turn runs asynchronously over SSE; give createAgent() time to have
-    // built the agent and appended its session_meta event.
+    // The turn runs asynchronously over SSE, and the session meta is written
+    // in two stages: the title's `session_meta` lands first, createAgent's
+    // chatMeta (carrying reasoningEffort) second. "The record exists" is
+    // therefore not the observable condition — poll until the asserted field
+    // itself has landed; the assertion below still fails loudly on timeout.
     const store = createJsonlStore({ directory: path.join(configDir, "sessions") });
     let persisted: Awaited<ReturnType<typeof store.readSession>>;
     for (let i = 0; i < 40; i++) {
       persisted = await store.readSession(sessionId);
-      if (persisted) break;
+      const meta = persisted?.meta as { reasoningEffort?: string } | undefined;
+      if (meta?.reasoningEffort === "low") break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 

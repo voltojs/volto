@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
 import type { ModelRequest, UserMessage } from "@volto/core";
 import { DEFAULT_LOCALE, t } from "@volto/i18n";
 import { createWiredAgent } from "../wiring.js";
@@ -53,6 +54,18 @@ function postMessage(server: TestServer, message: string): Promise<Response> {
       "content-type": "application/json",
     },
     body: JSON.stringify({ sessionId: server.sessionId, message, ...server.turnConfig }),
+  });
+}
+
+/** POST an arbitrary JSON body (e.g. an approval decision) to the server. */
+function postJson(server: TestServer, pathName: string, body: unknown): Promise<Response> {
+  return fetch(`${server.url}${pathName}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${server.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
 }
 
@@ -560,6 +573,108 @@ describe("POST /messages steering (D10)", () => {
 
     // Let the flush turn's delayed recorder flush land before teardown
     // removes the temp config dir out from under it.
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
+  });
+
+  it("an auto-flush turn rebuilds for a permission remembered during the previous turn", async () => {
+    // Turn 1's bash call parks at the approval; allowing it WITH remember
+    // writes a permission rule and flags the session dirty. The follow-up
+    // message lands in the settle window and must ride the auto-flush turn —
+    // which has to pass the same config/permission rebuild gate as a normal
+    // turn, so the remembered rule reaches it and the same command executes
+    // without a second approval ask.
+    const marker = "volto-flush-rebuild-4d1e";
+    const command = `echo ${marker}`;
+    const modelPort = createMockModelPort([
+      // Turn 1: run the command (parks at the approval), then close.
+      toolCallScript("call-1", "bash", JSON.stringify({ command })),
+      textScript("first turn done"),
+      // The flush-delivered turn: run the SAME command again.
+      toolCallScript("call-2", "bash", JSON.stringify({ command })),
+      textScript("flush turn done"),
+    ]);
+    let builds = 0;
+    const server = await boot({
+      // Delayed appends widen the settle window deterministically (the same
+      // construction as the captureHistory scenario above).
+      appendEventsDelayMs: 500,
+      modelPort,
+      agentFactory: async (opts) => {
+        builds += 1;
+        return createWiredAgent(opts);
+      },
+    });
+    // createServer builds its own legacy agent before boot() returns — from
+    // here on, only the session's own constructions are counted.
+    const buildsAtBoot = builds;
+
+    await server.openEvents();
+    const connected = server.rawFrames().find((frame) => frame.event === "connected");
+    const approvalToken = (connected?.data as { token: string }).token;
+    expect(typeof approvalToken).toBe("string");
+
+    // ── Turn 1: bash parks at the approval; allow + remember ──
+    const first = await postMessageAs(server, "run the echo command", { permissionMode: "ask" });
+    expect(first.status).toBe(202);
+    await waitFor(
+      () => server.events().some((event) => event.type === "approval_asked"),
+      "approval_asked for turn 1's bash call",
+    );
+    const callId = server.events().find((event) => event.type === "approval_asked")!.data["callId"];
+    expect(typeof callId).toBe("string");
+
+    const remember = await postJson(server, "/approvals", {
+      sessionId: server.sessionId,
+      callId,
+      decision: "allow",
+      token: approvalToken,
+      remember: { prefixTokens: 1 },
+    });
+    expect(remember.status).toBe(202);
+    const rememberBody = (await remember.json()) as {
+      remembered?: unknown;
+      rememberError?: unknown;
+    };
+    expect(rememberBody.rememberError).toBeUndefined();
+    expect(rememberBody.remembered).toBeDefined();
+
+    await server.captureMessages();
+    expect(turnEndCount(server)).toBe(1);
+
+    // ── Settle window: queue the follow-up the flush loop must deliver ──
+    const second = await postMessageAs(server, "run it again", { permissionMode: "ask" });
+    expect(second.status).toBe(202);
+    expect((await second.json()) as unknown).toEqual({ queued: true });
+    await waitFor(
+      () => sawSteeringQueued(server, "run it again"),
+      "steering_queued frame for the settle-window message",
+    );
+
+    // The flush turn opens only after the loop's rebuild gate has run.
+    await waitFor(() => server.turnCount() >= 2, "auto-flush turn_start");
+
+    // The gate rebuilt the agent before the flush turn streamed: turn 1's
+    // build plus the flush-loop rebuild. Without the gate the factory runs
+    // once and the flush turn reuses the stale agent.
+    expect(builds - buildsAtBoot).toBe(2);
+
+    // The remembered rule reaches the flush-delivered turn: it completes
+    // with no second approval ask, and both turns really executed the
+    // command (two tool_results carrying the marker output).
+    await waitFor(() => turnEndCount(server) >= 2, "auto-flush turn_end");
+    expect(turnEndCount(server)).toBe(2);
+    expect(server.events().filter((event) => event.type === "approval_asked")).toHaveLength(1);
+    expect(
+      server
+        .events()
+        .filter(
+          (event) => event.type === "tool_result" && JSON.stringify(event.data).includes(marker),
+        ),
+    ).toHaveLength(2);
+    expect(errorFrames(server)).toEqual([]);
+
+    // The flush turn's transcript writes are delayed too — let them land
+    // before teardown removes the temp config dir out from under them.
     await new Promise<void>((resolve) => setTimeout(resolve, 600));
   });
 });

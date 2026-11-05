@@ -1827,18 +1827,18 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       // between — so a steer arriving after the release routes as a normal
       // new turn instead (the same atomicity rule as the pre-latch re-check
       // at the top of this function).
-      const agent = session.agent;
-      const queuedCount = (): number => {
+      const currentQueue = (): UserMessage[] => {
         try {
           // A state that omits the queue field (a host test stub) reads as
           // empty, and a rebuilt-but-never-run agent has no state at all
           // (getState throws) — same "keep what we had" stance as
           // captureHistory above: nothing provably queued, nothing to flush.
-          return agent?.getState().queuedUserInputs?.length ?? 0;
+          return session.agent?.getState().queuedUserInputs ?? [];
         } catch {
-          return 0;
+          return [];
         }
       };
+      const queuedCount = (): number => currentQueue().length;
       if (queuedCount() > 0) {
         try {
           // Resolved BEFORE the loop: the cap report below must render
@@ -1847,6 +1847,23 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           let rounds = 0;
           while (queuedCount() > 0 && rounds < AUTO_FLUSH_MAX_ROUNDS) {
             rounds += 1;
+            // Same config/permission rebuild gate as the main path above, on
+            // every round: a permission remembered during the previous turn
+            // must reach a flush-delivered turn too (permissionsDirty), and a
+            // config change must swap the agent before the round streams.
+            const { config, credentials } = await resolveConfig(requested);
+            if (!session.agent || !sameConfig(session.config, config) || session.permissionsDirty) {
+              // Seed the replacement with the CURRENT live queue rather than
+              // the transcript fold alone — delivery must not depend on the
+              // recorder's fire-and-forget flush landing first.
+              const pending = currentQueue();
+              await rebuild(
+                session,
+                config,
+                credentials,
+                pending.length > 0 ? pending : undefined,
+              );
+            }
             await streamTurn({ type: "steering_flush" });
           }
           if (rounds >= AUTO_FLUSH_MAX_ROUNDS && queuedCount() > 0) {
