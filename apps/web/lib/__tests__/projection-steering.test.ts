@@ -269,6 +269,56 @@ describe('steering queue fold', () => {
 });
 
 /**
+ * A queued bubble's id is its stamped steering id, never a `${turn}:…` key.
+ * A host whose `Id` port stamps plain numeric ids ("42") would make the id
+ * parse as a turn number, which used to splice the cancel notice of the turn
+ * it was queued in ahead of the bubble itself. The turn is therefore carried
+ * explicitly on the feed entry, stamped at insertion time.
+ */
+describe('queued entry turn', () => {
+  it('a numeric stamped steering id keeps its entry inside its own turn', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+      {
+        time: 120,
+        type: 'model_call_start',
+        data: { headerHash: 'h1' },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 130,
+        type: 'steering_queued',
+        data: { id: '42', content: 'second' },
+        turn: 1,
+      },
+      {
+        time: 140,
+        type: 'turn_end',
+        data: { turn: 1, reason: 'cancelled' },
+        turn: 1,
+      },
+      { time: 200, type: 'turn_start', data: { turn: 2 }, turn: 2 },
+      { time: 210, type: 'user_message', data: { content: 'again' }, turn: 2 },
+      { time: 220, type: 'turn_end', data: { turn: 2, reason: 'done' }, turn: 2 },
+    ] as TranscriptEventInput[];
+
+    const entries = feed(events);
+    // The stopped notice stays at the end of turn 1: the queued bubble does
+    // not split its own turn, and turn 2's message follows the notice.
+    expect(
+      entries.map((e) => (e.kind === 'message' ? e.message.id : e.key)),
+    ).toEqual(['1:u0', '42', '1:cancelled:0', '2:u0']);
+    // The explicit turn — the preceding real message's turn — wins over the
+    // numeric id, which parses as turn 42 on its own.
+    const queuedAt = findEntry(entries, '42');
+    expect(queuedAt).not.toBeNull();
+    expect(queuedAt!.entry.message.turn).toBe(1);
+  });
+});
+
+/**
  * Seeding the fold from `GET /sessions/:id`'s `queuedMessages` (Task 4): a
  * cold load has no `steering_queued` event to fold — the SSE channel only
  * carries events from the moment it connects — so the server's pending queue

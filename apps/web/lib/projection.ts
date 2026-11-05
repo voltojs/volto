@@ -217,7 +217,7 @@ function queuedBlocks(content: SteeringContent): ConversationBlock[] {
   return blocks;
 }
 
-function toFeedMessage(entry: QueuedEntry): FeedMessage {
+function toFeedMessage(entry: QueuedEntry, turn: number): FeedMessage {
   return {
     id: entry.id,
     role: 'user',
@@ -225,6 +225,7 @@ function toFeedMessage(entry: QueuedEntry): FeedMessage {
     content: contentText(entry.content),
     timestamp: entry.time,
     queued: entry.queued,
+    turn,
   };
 }
 
@@ -234,6 +235,12 @@ function toFeedMessage(entry: QueuedEntry): FeedMessage {
  * arrived later — the feed tail at send time, stable as the turn continues.
  * Equal timestamps keep the already-folded message first (a sub-millisecond
  * tie the event array order alone cannot break here).
+ *
+ * Each inserted entry is stamped with the turn of the last real message
+ * passed (`0` when no real message precedes it). A queued entry's id is its
+ * stamped steering id, which need not encode a turn at all — a numeric id
+ * such as `"42"` must not be mistaken for one — so the turn travels on the
+ * entry instead.
  */
 function insertQueuedMessages(
   messages: readonly ConversationMessage[],
@@ -241,15 +248,18 @@ function insertQueuedMessages(
 ): FeedMessage[] {
   const merged: FeedMessage[] = [];
   let next = 0;
+  let turn = 0;
   for (const message of messages) {
     while (next < queued.length && queued[next]!.time < message.timestamp) {
-      merged.push(toFeedMessage(queued[next]!));
+      merged.push(toFeedMessage(queued[next]!, turn));
       next += 1;
     }
+    const parsed = Number(message.id.split(':')[0]);
+    if (!Number.isNaN(parsed)) turn = parsed;
     merged.push(message);
   }
   while (next < queued.length) {
-    merged.push(toFeedMessage(queued[next]!));
+    merged.push(toFeedMessage(queued[next]!, turn));
     next += 1;
   }
   return merged;
@@ -363,8 +373,15 @@ export type ChatEntry =
  * `steering_delivered` named it — the badge state only; the entry never
  * moves (spec §4.6). Absent on every message that never went through the
  * queue.
+ *
+ * A queued entry also carries `turn` explicitly: its id is the stamped
+ * steering id, which need not look like the `${turn}:…` message ids, so the
+ * turn it was sent in cannot be recovered from the id alone.
  */
-export type FeedMessage = ConversationMessage & { queued?: boolean };
+export type FeedMessage = ConversationMessage & {
+  queued?: boolean;
+  turn?: number;
+};
 
 /**
  * Composes the feed a UI renders from a merged message list plus the live
@@ -476,10 +493,17 @@ export function composeChatEntries(
   ];
 }
 
-/** The turn an entry belongs to; ids and keys are all `${turn}:…`. */
+/**
+ * The turn an entry belongs to. Real message ids and keys are `${turn}:…`; a
+ * queued entry carries its turn explicitly, because its id is the stamped
+ * steering id instead. The id parse is kept for every other entry.
+ */
 function entryTurn(entry: ChatEntry): number {
-  const id = entry.kind === 'message' ? entry.message.id : entry.key;
-  return Number(id.split(':')[0]);
+  if (entry.kind === 'message') {
+    if (entry.message.turn !== undefined) return entry.message.turn;
+    return Number(entry.message.id.split(':')[0]);
+  }
+  return Number(entry.key.split(':')[0]);
 }
 
 /**
@@ -523,10 +547,10 @@ function withCancelNotices(
   let openTurn: number | null = null;
   for (const entry of entries) {
     const parsed = entryTurn(entry);
-    // A queued bubble's id is its stamped steering id — no `${turn}:` prefix.
-    // It belongs to the turn it was queued in, so an unparseable id must not
-    // read as a turn boundary (that would splice the cancel notice ahead of
-    // the rest of its own turn); the open turn carries forward instead.
+    // Defense: an entry with neither an explicit turn nor a parseable
+    // `${turn}:` id must not read as a turn boundary — that would splice the
+    // cancel notice ahead of the rest of its own turn; the open turn carries
+    // forward instead.
     const turn: number = Number.isNaN(parsed) ? openTurn ?? parsed : parsed;
     if (openTurn !== null && turn !== openTurn) {
       const done = pending.get(openTurn);
