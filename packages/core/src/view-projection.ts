@@ -20,6 +20,9 @@ import type {
 } from "./ports.js";
 import { extractBlockText } from "./text-extract.js";
 import { totalUsageTokens } from "./pricing.js";
+// D12 termination pairing — same wording source as transcript-projection.ts,
+// so every projection renders byte-identical interruption text.
+import { interruptionMessageFor } from "./reducer.js";
 
 // ──────────────────────────────────────────────
 // Intermediate layer
@@ -344,6 +347,20 @@ export function buildTurnRecords(
         turn.endedAt = event.time;
         turn.reason = data.reason;
         if (data.error !== undefined) turn.error = data.error;
+        // D12 termination pairing (the mirror transcript-projection.ts does
+        // on turn_end): a turn killed with results still missing (Stop,
+        // safety limit) synthesizes the interrupted placeholder for every
+        // unresolved call — otherwise the conversation view spins forever.
+        // Same tier rule and wording source as the reducer's synthesis; a
+        // turn that ended with results in place finds nothing to touch.
+        const tier = data.reason === "cancelled" ? "cancel" : "limit";
+        for (const step of turn.steps) {
+          for (const call of step.toolCalls) {
+            if (call.content !== undefined) continue;
+            call.content = interruptionMessageFor(call.name, tier);
+            call.isError = true;
+          }
+        }
         break;
       }
 

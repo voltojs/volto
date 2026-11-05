@@ -268,6 +268,43 @@ describe("toConversationView", () => {
     });
   });
 
+  it("a cancelled turn with an interrupted tool call renders an isError result in the conversation view", () => {
+    // D12 §4.2: termination pairing must be visible in the four-way
+    // projections too — a Stop leaves the in-flight tool_use without a real
+    // result, and the view must show the synthesized interruption instead
+    // of an endless spinner (ToolCallCard keys off `result`).
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "read_file", input: { path: "a.txt" } }],
+          stopReason: "tool_use",
+          durationMs: 5,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 140, type: "tool_call", data: { callId: "c1", name: "read_file", input: { path: "a.txt" } }, turn: 1, step: 1 },
+      { time: 150, type: "turn_end", data: { turn: 1, reason: "cancelled" }, turn: 1 },
+    ]);
+
+    const view = toConversationView(buildTurnRecords(events));
+    const toolBlock = view.messages
+      .find((message) => message.role === "assistant")!
+      .blocks.find((block) => block.type === "tool_call");
+    expect(toolBlock).toMatchObject({
+      type: "tool_call",
+      call: {
+        isError: true,
+        result: expect.stringContaining("was interrupted: the user cancelled the turn before it finished"),
+      },
+    });
+  });
+
   it("tool_call blocks carry childSessionId and startedAt for sub-agent calls", () => {
     // The SDK appends the subagent_started bracket straight to the store while
     // the parent flushes its buffered tool_call at batch end — the parked
