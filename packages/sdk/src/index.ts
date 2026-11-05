@@ -1,6 +1,10 @@
 // @volto/sdk — facade: createAgent, run / stream / resume
 
 export { createAgent, assembleSubAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "./create-agent.js";
+// D16 queued-edit merge: exported so the gateway's seed-path persistence
+// writes the SAME merged content (edit text + preserved attachments) the
+// live path delivers — one source of truth for the merge rule.
+export { mergeQueuedEdit } from "./create-agent.js";
 export type { CreateAgentOptions, AgentInstance, ResolvedPorts, AssembledSubAgent } from "./create-agent.js";
 // Background sub-agent registry: holds detached task promises outside
 // AgentState; hosts and the Runner-side drain consume it via collect/pending.

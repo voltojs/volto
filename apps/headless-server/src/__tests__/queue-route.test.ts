@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ModelRequest, UserMessage } from "@volto/core";
+import type { ModelRequest, TranscriptEventInput, UserMessage } from "@volto/core";
+import { pendingSteeredMessages } from "@volto/core";
 import { DEFAULT_LOCALE, t } from "@volto/i18n";
 import { createWiredAgent } from "../wiring.js";
 import { startTestServer, type TestServer } from "./helpers.js";
@@ -676,5 +677,65 @@ describe("POST /messages/queue (D14/D15)", () => {
     const removals = await storedRemovals();
     expect(removals).toHaveLength(1);
     expect(removals[0]!.data).toEqual({ id: queuedId });
+  });
+
+  it("editing a queued message with attachments on the seed path persists the merged content", async () => {
+    const { server, coldId, queuedId } = await bootColdSeedSession();
+    const coldPath = path.join(server.configDir, `${coldId}.jsonl`);
+
+    // The queued entry carries an attachment, exactly as the recorder would
+    // have written it for an image-carrying message: text block + image ref.
+    const imageBlock = {
+      type: "image",
+      source: { type: "ref", id: "att-1", mediaType: "image/png" },
+    };
+    const readLines = async (): Promise<Array<{ event: TranscriptEventInput }>> =>
+      (await fs.readFile(coldPath, "utf8"))
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) => JSON.parse(line) as { event: TranscriptEventInput });
+    const rewrite = (await fs.readFile(coldPath, "utf8"))
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => {
+        const parsed = JSON.parse(line) as { event: { type?: string; data: Record<string, unknown> } };
+        if (parsed.event.type === "steering_queued" && parsed.event.data["id"] === queuedId) {
+          parsed.event.data["content"] = [
+            { type: "text", text: "queued for seed persistence" },
+            imageBlock,
+          ];
+        }
+        return JSON.stringify(parsed);
+      });
+    await fs.writeFile(coldPath, `${rewrite.join("\n")}\n`);
+
+    // Edit via HTTP — the cold session hits the seed path (no recorder).
+    const res = await postQueue(server, {
+      sessionId: coldId,
+      id: queuedId,
+      action: { kind: "edit", content: "edited text" },
+    });
+    expect(res.status).toBe(200);
+
+    // The durable event must carry the MERGED content — new text block
+    // first, the original image block after — not the raw edit string, or
+    // a later fold would silently drop the attachment (D16 / D13).
+    const edits = (await readLines())
+      .map((line) => line.event)
+      .filter((event) => event.type === "steering_edited");
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.data).toEqual({ id: queuedId, content: [
+      { type: "text", text: "edited text" },
+      imageBlock,
+    ] });
+
+    // Folding the log rebuilds the entry with the attachment intact.
+    const rebuilt = pendingSteeredMessages((await readLines()).map((line) => line.event));
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0]!.id).toBe(queuedId);
+    expect(rebuilt[0]!.content).toEqual([
+      { type: "text", text: "edited text" },
+      imageBlock,
+    ]);
   });
 });

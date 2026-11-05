@@ -1257,7 +1257,7 @@ export interface ResolvedPorts {
  * byte-for-byte, and an edit whose own content is already blocks owns the
  * full content and is left untouched.
  */
-function mergeQueuedEdit(
+export function mergeQueuedEdit(
   edit: SteeringEditInput,
   original: UserMessage["content"],
 ): SteeringEditInput {

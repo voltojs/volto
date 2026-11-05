@@ -10,7 +10,7 @@
 
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
-import { sse, type CreateAgentOptions } from "@volto/sdk";
+import { sse, mergeQueuedEdit, type CreateAgentOptions } from "@volto/sdk";
 import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
@@ -1626,17 +1626,33 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     //     precondition (steerTarget is always paired with lastRunner, so a
     //     throwing instance cannot reach the runner branch either), and
     //   - session.queueSeed IS the instance's seedQueuedInputs (same
-    //     reference, passed as initialQueuedInputs), so membership here is
-    //     membership there.
+    //     reference, passed as initialQueuedInputs), so this find IS the
+    //     instance's own membership check.
     // Prediction false ⟹ updateQueue cannot answer "seed" (its branch needs
     // the same two conditions), so live/missing paths are untouched: their
     // persistence stays with the Runner's recorder or nothing at all.
-    const willSeed =
-      isSeedPhase(agent) && (session.queueSeed?.some((queued) => queued.id === id) ?? false);
-    if (willSeed && chatStore) {
+    const seedOriginal = isSeedPhase(agent)
+      ? session.queueSeed?.find((queued) => queued.id === id)
+      : undefined;
+    if (seedOriginal !== undefined && chatStore) {
       const event: TranscriptEventInput =
         action.kind === "edit"
-          ? { time: Date.now(), type: "steering_edited", data: { id, content: action.content } }
+          ? {
+              time: Date.now(),
+              type: "steering_edited",
+              // Persist the MERGED content: mergeQueuedEdit (spec D16) is
+              // the same merge updateQueue applies before delivery —
+              // persisting the raw edit string would let a later fold
+              // replace the entry with text-only content and silently drop
+              // its attachments.
+              data: {
+                id,
+                content: mergeQueuedEdit(
+                  { type: "steering_edit", id, content: action.content },
+                  seedOriginal.content,
+                ).content,
+              },
+            }
           : { time: Date.now(), type: "steering_removed", data: { id } };
       try {
         // Append BEFORE the mutation: only a durable event licenses touching
