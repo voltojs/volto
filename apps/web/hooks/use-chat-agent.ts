@@ -191,6 +191,7 @@ export function useChatAgent(): UseChatAgentReturn {
           }
         }
         if (event.type === 'turn_end') chat.setGenerating(false);
+        else if (event.type === 'turn_start') chat.setGenerating(true);
       });
 
       client.onDelta((delta) => {
