@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   projectConversation,
   composeChatEntries,
+  mergeStoredAndLive,
   selectQueuedSeed,
 } from '@/lib/projection';
 import type { ChatEntry, FeedMessage } from '@/lib/projection';
@@ -275,23 +276,37 @@ describe('steering queue fold', () => {
  */
 describe('steering queue seed', () => {
   it('renders a seeded queued entry at its send position and realizes it on delivery', () => {
+    const seed = [{ id: 'q1', content: 'seeded', time: 130 }];
+    const before = projectConversation(
+      [
+        { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+        { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+        { time: 300, type: 'turn_start', data: { turn: 2 }, turn: 2 },
+      ] as TranscriptEventInput[],
+      [],
+      undefined,
+      (k) => k,
+      seed,
+    ).view.messages;
     const events = [
       { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
       { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
       { time: 200, type: 'steering_delivered', data: { ids: ['q1'] }, turn: 1 },
       { time: 300, type: 'turn_start', data: { turn: 2 }, turn: 2 },
     ] as TranscriptEventInput[];
-    const seed = [{ id: 'q1', content: 'seeded', time: 130 }];
     const { view } = projectConversation(events, [], undefined, (k) => k, seed);
     const ids = view.messages.map((m) => m.id);
     expect(ids.filter((id) => id === 'q1')).toHaveLength(1);
-    // Send position: after the message that had arrived when it was queued.
-    expect(ids[0]).not.toBe('q1');
+    // Exact order: at its send position, after the message that had arrived
+    // when it was queued.
+    expect(before.map((m) => m.id)).toEqual(['1:u0', 'q1']);
+    // The live `steering_delivered` receipt flipped the seeded badge without
+    // moving the entry — the order is unchanged before/after.
+    expect(ids).toEqual(before.map((m) => m.id));
     const entry = view.messages.find((m) => m.id === 'q1')!;
     expect(entry.content).toBe('seeded');
-    // The live `steering_delivered` receipt flipped the seeded badge without
-    // moving the entry.
     expect((entry as FeedMessage).queued).toBe(false);
+    expect((before.find((m) => m.id === 'q1') as FeedMessage).queued).toBe(true);
   });
 
   it('does not duplicate a seeded entry when its steering_queued event also arrives', () => {
@@ -339,6 +354,54 @@ describe('steering queue seed', () => {
     expect((entry as FeedMessage).queued).toBe(true);
     // The removal receipt dropped the other seeded entry entirely.
     expect(ids).not.toContain('q2');
+  });
+
+  it('keeps seeded entries in FIFO send order', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { time: 110, type: 'user_message', data: { content: 'first' }, turn: 1 },
+    ] as TranscriptEventInput[];
+    const { view } = projectConversation(events, [], undefined, (k) => k, [
+      { id: 'q1', content: 'one', time: 120 },
+      { id: 'q2', content: 'two', time: 130 },
+    ]);
+    // Exact order: the seeds' relative FIFO order survives the fold —
+    // q1 (queued first) renders above q2.
+    expect(view.messages.map((m) => m.id)).toEqual(['1:u0', 'q1', 'q2']);
+  });
+
+  it('lands a seeded entry between stored messages persisted after it, not at the tail', () => {
+    // Cold load mid tool batch: the assistant messages after the enqueue are
+    // already persisted, while the queue is still pending server-side. The
+    // seeded bubble must render at its send position among them.
+    const stored: ConversationMessage[] = [
+      {
+        id: '1:u0',
+        role: 'user',
+        content: 'm1',
+        timestamp: 10,
+        blocks: [{ type: 'text', text: 'm1' }],
+      },
+      {
+        id: '1:1',
+        role: 'assistant',
+        content: 'a1',
+        timestamp: 20,
+        blocks: [{ type: 'text', text: 'a1' }],
+      },
+      {
+        id: '1:2',
+        role: 'assistant',
+        content: 'a2',
+        timestamp: 30,
+        blocks: [{ type: 'text', text: 'a2' }],
+      },
+    ];
+    const live = projectConversation([], [], undefined, (k) => k, [
+      { id: 'q1', content: 'seeded', time: 25 },
+    ]);
+    const merged = mergeStoredAndLive(stored, live.view.messages);
+    expect(merged.map((m) => m.id)).toEqual(['1:u0', '1:1', 'q1', '1:2']);
   });
 });
 

@@ -489,11 +489,12 @@ describe('mergeStoredAndLive', () => {
     id: string,
     role: 'user' | 'assistant',
     content: string,
+    timestamp = 100,
   ): ConversationMessage => ({
     id,
     role,
     content,
-    timestamp: 100,
+    timestamp,
     blocks: content ? [{ type: 'text', text: content }] : [],
   });
 
@@ -516,6 +517,39 @@ describe('mergeStoredAndLive', () => {
       'hi',
       'full',
     ]);
+  });
+
+  it('interleaves stored and live entries by timestamp', () => {
+    const stored = [
+      message('s1', 'user', 'first', 10),
+      message('s2', 'assistant', 'later', 30),
+    ];
+    const live = [message('l1', 'user', 'middle', 25)];
+    expect(mergeStoredAndLive(stored, live).map((m) => m.id)).toEqual([
+      's1',
+      'l1',
+      's2',
+    ]);
+  });
+
+  it('keeps the stored entry first when timestamps are equal', () => {
+    const stored = [message('s1', 'user', 'first', 100)];
+    const live = [message('l1', 'user', 'second', 100)];
+    expect(mergeStoredAndLive(stored, live).map((m) => m.id)).toEqual([
+      's1',
+      'l1',
+    ]);
+  });
+
+  it('keeps the live copy when an id appears on both sides', () => {
+    const stored = [
+      message('x', 'assistant', 'partial', 10),
+      message('s2', 'assistant', 'tail', 30),
+    ];
+    const live = [message('x', 'assistant', 'full', 20)];
+    const merged = mergeStoredAndLive(stored, live);
+    expect(merged.map((m) => m.id)).toEqual(['x', 's2']);
+    expect(merged.map((m) => m.content)).toEqual(['full', 'tail']);
   });
 
   it('returns the live feed when there is no stored history', () => {

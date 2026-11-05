@@ -295,15 +295,23 @@ export function projectConversation(
 // projected server-side when recovered, or flushed into the store client-side
 // at the moment the session is switched away from) plus the live projection
 // of whatever the SSE channel has streamed since the session was opened. The
-// two are merged by stable message id — the live list supersedes the
-// snapshot for the same turn position — so switching back to a recovered
-// session and continuing it shows one continuous conversation.
+// two are interleaved by message timestamp and deduped by stable message id —
+// the live list supersedes the snapshot for the same turn position — so
+// switching back to a recovered session and continuing it shows one
+// continuous conversation.
 
 /**
- * Merges a session's persisted history with the live projection. The live
- * side wins on id collisions, and (for the active session, whose stored
- * snapshot is only refreshed on switch-away, not on every delta) is a strict
- * superset, so the result equals the live feed once a turn is underway.
+ * Merges a session's persisted history with the live projection into one
+ * timestamp-ordered feed. Both sides are ordered by event time (the same
+ * server clock), so a stable two-pointer merge interleaves them: a queued
+ * bubble folded live lands at its send position among messages persisted
+ * after it, not appended to the tail. On equal timestamps the stored entry
+ * renders first (a sub-millisecond tie keeps the already-persisted row above
+ * the one still streaming), preserving each side's intra-list order. The
+ * live side still supersedes the snapshot on id collisions (the stored copy
+ * is dropped), and (for the active session, whose stored snapshot is only
+ * refreshed on switch-away, not on every delta) is a strict superset, so the
+ * result equals the live feed once a turn is underway.
  */
 export function mergeStoredAndLive(
   stored: readonly ConversationMessage[],
@@ -312,10 +320,25 @@ export function mergeStoredAndLive(
   if (stored.length === 0) return live as ConversationMessage[];
   if (live.length === 0) return stored as ConversationMessage[];
   const liveIds = new Set(live.map((m) => m.id));
-  return [
-    ...stored.filter((m) => !liveIds.has(m.id)),
-    ...(live as ConversationMessage[]),
-  ];
+  const kept = stored.filter((m) => !liveIds.has(m.id));
+  const merged: ConversationMessage[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < kept.length || j < live.length) {
+    const nextStored = kept[i];
+    const nextLive = live[j];
+    if (nextStored === undefined) {
+      merged.push(nextLive as ConversationMessage);
+      j += 1;
+    } else if (nextLive === undefined || nextStored.timestamp <= nextLive.timestamp) {
+      merged.push(nextStored);
+      i += 1;
+    } else {
+      merged.push(nextLive);
+      j += 1;
+    }
+  }
+  return merged;
 }
 
 /**
