@@ -27,6 +27,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Paperclip } from 'lucide-react';
 import type { ConversationBlock } from '@volto/sdk/sse';
+import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { updateQueue } from '@/hooks/use-chat-agent';
@@ -179,20 +180,17 @@ function QueuedItem({ message }: { message: FeedMessage }) {
         </span>
         {!editing && (
           <div className="flex shrink-0 gap-1">
-            <button
-              type="button"
-              onClick={startEdit}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1.5 py-0.5 text-xs"
-            >
+            <Button type="button" variant="ghost" size="xs" onClick={startEdit}>
               {t('queuedEdit')}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="destructive"
+              size="xs"
               onClick={() => void retract()}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1.5 py-0.5 text-xs"
             >
               {t('queuedRemove')}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -217,21 +215,12 @@ function QueuedItem({ message }: { message: FeedMessage }) {
             </p>
           )}
           <div className="flex justify-end gap-1">
-            <button
-              type="button"
-              disabled={empty}
-              onClick={() => void save()}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1.5 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <Button type="button" size="xs" disabled={empty} onClick={() => void save()}>
               {t('queuedSave')}
-            </button>
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground rounded px-1.5 py-0.5 text-xs"
-            >
+            </Button>
+            <Button type="button" variant="ghost" size="xs" onClick={cancelEdit}>
               {t('common.cancel')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
