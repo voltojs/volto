@@ -15,17 +15,30 @@
  * array alone (core purity). Legacy events recorded before the feature
  * carry no `id` and cannot be addressed by id; they are ignored rather than
  * guessed at.
+ *
+ * `time` is the `steering_queued` event time, not the edit or delivery time:
+ * it lets the UI place a still-queued entry at its send position.
  */
 
 import type { TranscriptEventInput, TranscriptEventMap } from "./ports.js";
 import type { UserMessage } from "./state.js";
 
+/** One undelivered steering entry, carrying the time it was enqueued. */
+export interface PendingSteeringEntry {
+  id: string;
+  content: TranscriptEventMap["steering_queued"]["content"];
+  time: number;
+}
+
 /**
- * Fold `events` in order into the queue entries that are still pending.
+ * Fold `events` in order into the queue entries that are still pending,
+ * keeping each entry's enqueue time.
  *
  * Rules (spec D13):
- * - `steering_queued{id}` builds an entry with that id, keeping FIFO order;
- * - `steering_edited{id}` replaces the content, keeping id and position;
+ * - `steering_queued{id}` builds an entry with that id, keeping FIFO order
+ *   and the event's own `time`;
+ * - `steering_edited{id}` replaces the content, keeping id, position and the
+ *   original `time` (an edit is not a re-enqueue);
  * - `steering_removed{id}` drops the entry;
  * - `steering_delivered{ids}` drops every named id (delivery wins);
  * - events without an `id` (legacy, pre-feature) are ignored;
@@ -34,9 +47,11 @@ import type { UserMessage } from "./state.js";
  * Never throws on a malformed record: this reads an on-disk log that may
  * predate the feature, so every id is narrowed from an untyped view.
  */
-export function pendingSteeredMessages(events: readonly TranscriptEventInput[]): UserMessage[] {
-  const pending: UserMessage[] = [];
-  const positionOf = (id: string): number => pending.findIndex((message) => message.id === id);
+export function pendingSteeringEntries(
+  events: readonly TranscriptEventInput[],
+): PendingSteeringEntry[] {
+  const pending: PendingSteeringEntry[] = [];
+  const positionOf = (id: string): number => pending.findIndex((entry) => entry.id === id);
 
   for (const event of events) {
     switch (event.type) {
@@ -46,7 +61,7 @@ export function pendingSteeredMessages(events: readonly TranscriptEventInput[]):
         // throwing (same stance as the transcript projections).
         const id: unknown = (data as { id?: unknown }).id;
         if (typeof id !== "string") break;
-        pending.push({ id, role: "user", content: data.content });
+        pending.push({ id, content: data.content, time: event.time });
         break;
       }
       case "steering_edited": {
@@ -86,4 +101,16 @@ export function pendingSteeredMessages(events: readonly TranscriptEventInput[]):
     }
   }
   return pending;
+}
+
+/**
+ * Fold `events` in order into the queue entries that are still pending,
+ * projected to the `UserMessage` shape hosts hand to
+ * `CreateAgentOptions.initialQueuedInputs`.
+ *
+ * Thin projection of `pendingSteeringEntries`: the fold and its rules live
+ * there, so both views can never disagree.
+ */
+export function pendingSteeredMessages(events: readonly TranscriptEventInput[]): UserMessage[] {
+  return pendingSteeringEntries(events).map(({ id, content }) => ({ id, role: "user" as const, content }));
 }

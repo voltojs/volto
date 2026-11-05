@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { pendingSteeredMessages } from "../steering-rebuild.js";
+import { pendingSteeredMessages, pendingSteeringEntries } from "../steering-rebuild.js";
 import type { TranscriptEventInput } from "../ports.js";
 
 function queued(id: string, content: string | Array<{ type: "text"; text: string }>, time = 0): TranscriptEventInput {
@@ -95,5 +95,29 @@ describe("pendingSteeredMessages — D13 event fold", () => {
     ]);
 
     expect(pending).toEqual([{ id: "q2", role: "user", content: "two" }]);
+  });
+});
+
+describe("pendingSteeringEntries — the same fold, with queue times", () => {
+  it("keeps each entry's queueing time, edits keep the original time", () => {
+    expect(
+      pendingSteeringEntries([
+        queued("q1", "first", 100),
+        queued("q2", "second", 140),
+        edited("q1", "first, reworded", 160),
+      ]),
+    ).toEqual([
+      { id: "q1", content: "first, reworded", time: 100 },
+      { id: "q2", content: "second", time: 140 },
+    ]);
+  });
+
+  it("delivered entries carry no time because they are gone", () => {
+    expect(pendingSteeringEntries([queued("q1", "x", 10), delivered(["q1"], 20)])).toEqual([]);
+  });
+
+  it("pendingSteeredMessages is the UserMessage projection of pendingSteeringEntries", () => {
+    const events = [queued("q1", "x", 10)];
+    expect(pendingSteeredMessages(events)).toEqual([{ id: "q1", role: "user", content: "x" }]);
   });
 });
