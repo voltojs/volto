@@ -178,7 +178,7 @@ function QueuedItem({ message }: { message: FeedMessage }) {
           {t('queuedBadge')}
         </span>
         {!editing && (
-          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <div className="flex shrink-0 gap-1">
             <button
               type="button"
               onClick={startEdit}
