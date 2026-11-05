@@ -9,7 +9,6 @@ import { WaveLoading } from './WaveLoading';
 import { ActivitySteps } from './ActivitySteps';
 import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
-import { QueuedMessageActions } from './QueuedMessageActions';
 import { groupFeedEntries } from '@/lib/feed-groups';
 import { useStreamDensity } from '@/lib/stream-density';
 import type { StreamDensity } from '@/lib/stream-density';
@@ -20,20 +19,9 @@ function renderEntry(entry: ChatEntry, sessionId?: string | null) {
     case 'message':
       // Assistant messages never reach here — the feed splits them into answer
       // rows and execution groups; only human turns stay whole bubbles.
-      // Edit/retract exist only while the message is still queued: delivery
-      // wins, so a `queued: false` bubble (or one that never went through the
-      // queue) renders without actions by design.
-      if (entry.message.queued === true) {
-        return (
-          <div key={entry.message.id} className="group relative">
-            <MessageBubble message={entry.message} sessionId={sessionId} />
-            <QueuedMessageActions
-              id={entry.message.id}
-              content={entry.message.content}
-            />
-          </div>
-        );
-      }
+      // Queued (not yet delivered) messages never reach here either — they
+      // live in the QueuedDock above the composer (spec D16), filtered out
+      // before grouping below.
       return <MessageBubble key={entry.message.id} message={entry.message} sessionId={sessionId} />;
     case 'error':
       return <ErrorNotice key={entry.key} text={entry.text} time={entry.time} />;
@@ -72,7 +60,14 @@ export function MessageList({
   // stored preference on their own, but an execution group cannot.
   const [storedDensity] = useStreamDensity();
   const effectiveDensity = density ?? storedDensity;
-  const rows = groupFeedEntries(entries);
+  // The conversation renders only DELIVERED entries (spec D16): a still
+  // queued message lives in the QueuedDock above the composer and rejoins
+  // this flow — at its send position, unchanged — once steering_delivered
+  // flips `queued` to false.
+  const delivered = entries.filter(
+    (entry) => entry.kind !== 'message' || entry.message.queued !== true,
+  );
+  const rows = groupFeedEntries(delivered);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

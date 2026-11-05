@@ -11,6 +11,7 @@ import type {
   ModelPort,
   ModelEvent,
   UserMessage,
+  ContentBlock,
   TranscriptEventInput,
 } from "@volto/core";
 
@@ -421,5 +422,110 @@ describe("createAgent steering", () => {
     const pending = agent.getState().queuedUserInputs;
     expect(pending).toHaveLength(1);
     expect(pending[0]!.id).toBe((queued!.data as { id: string }).id);
+  });
+
+  it("editing a queued message with attachments preserves the attachment blocks", async () => {
+    // D16: an edit replaces only the text surface — the entry's non-text
+    // blocks (attachments) ride along after the new text, on BOTH the seed
+    // path (no Runner yet) and the live path (running Runner).
+    const imageA: ContentBlock = {
+      type: "image",
+      source: { type: "ref", id: "att-a", mediaType: "image/png" },
+      width: 8,
+      height: 8,
+    };
+    const imageB: ContentBlock = {
+      type: "image",
+      source: { type: "ref", id: "att-b", mediaType: "image/jpeg" },
+      width: 4,
+      height: 4,
+    };
+    const events: TranscriptEventInput[] = [];
+    const model = createGatedModel([[textDelta("ok"), modelDone("end_turn")]]);
+    const seeded: UserMessage[] = [
+      { id: "q1", role: "user", content: [{ type: "text", text: "seed 图文" }, imageA] },
+      { id: "q2", role: "user", content: "seed 纯文本" },
+      { id: "q3", role: "user", content: [{ type: "text", text: "live 图文" }, imageB] },
+      { id: "q4", role: "user", content: "live 纯文本" },
+    ];
+    const agent = createAgent({
+      modelPort: model,
+      initialQueuedInputs: seeded,
+      chatStore: {
+        async appendEvents(_sessionId: string, batch: TranscriptEventInput[]) {
+          events.push(...batch);
+        },
+      },
+      chatSessionId: "chat-1",
+    });
+
+    // Seed path (no state source exists yet): the host array receives the
+    // merged content — text first, attachment preserved after it.
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "q1", content: "改过的 seed 图文" }),
+    ).toBe("seed");
+    expect(seeded[0]!.content).toEqual([
+      { type: "text", text: "改过的 seed 图文" },
+      imageA,
+    ]);
+    // A pure-text entry edits byte-for-byte unchanged — still a plain string.
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "q2", content: "改过的 seed 纯文本" }),
+    ).toBe("seed");
+    expect(seeded[1]!.content).toBe("改过的 seed 纯文本");
+
+    // A file_changed turn opens WITHOUT flushing the queue, so every entry
+    // is still editable while the first model call is gated — the live path.
+    const turn = agent.run({
+      type: "file_changed",
+      watchId: "w1",
+      events: [{ type: "change", path: "a.ts" }],
+    });
+    await waitUntil(() => model.callCount === 1, "model call in flight");
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "q3", content: "改过的 live 图文" }),
+    ).toBe("live");
+    expect(
+      agent.getState().queuedUserInputs.find((m) => m.id === "q3")!.content,
+    ).toEqual([{ type: "text", text: "改过的 live 图文" }, imageB]);
+    expect(
+      agent.updateQueue({ type: "steering_edit", id: "q4", content: "改过的 live 纯文本" }),
+    ).toBe("live");
+    expect(
+      agent.getState().queuedUserInputs.find((m) => m.id === "q4")!.content,
+    ).toBe("改过的 live 纯文本");
+
+    model.openGate();
+    const final = await turn;
+    // Delivered at the end_turn continuation, merged content intact and in
+    // order: text first, then the original attachment block.
+    expect(final.messages.find((m) => m.id === "q1")!.content).toEqual([
+      { type: "text", text: "改过的 seed 图文" },
+      imageA,
+    ]);
+    expect(final.messages.find((m) => m.id === "q2")!.content).toBe(
+      "改过的 seed 纯文本",
+    );
+    expect(final.messages.find((m) => m.id === "q3")!.content).toEqual([
+      { type: "text", text: "改过的 live 图文" },
+      imageB,
+    ]);
+    expect(final.messages.find((m) => m.id === "q4")!.content).toBe(
+      "改过的 live 纯文本",
+    );
+
+    // The durable record mirrors the merged content — the web's queue fold
+    // reads steering_edited, so what the host persists must carry the blocks.
+    const edited = events.filter((e) => e.type === "steering_edited");
+    expect(edited.map((e) => (e.data as { id: string }).id).sort()).toEqual([
+      "q3",
+      "q4",
+    ]);
+    expect(
+      edited.find((e) => (e.data as { id: string }).id === "q3")!.data,
+    ).toEqual({
+      id: "q3",
+      content: [{ type: "text", text: "改过的 live 图文" }, imageB],
+    });
   });
 });

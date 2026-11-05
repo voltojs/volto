@@ -10,6 +10,7 @@ import { expandStoredTitle } from '@/lib/session-title';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { isPermissionMode } from '@/lib/permission-mode';
 import { InputBar } from './InputBar';
+import { QueuedDock } from './QueuedDock';
 import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
@@ -951,6 +952,10 @@ export function ChatPanel() {
             </div>
             {/* Same width as the thread, pinned below the scroller. */}
             <ConversationColumn className="max-w-7xl flex-none">
+              {/* Still-queued messages wait here, right above the composer
+                  (spec D16); delivery moves them into the conversation flow
+                  at their send position. */}
+              <QueuedDock entries={entries} />
               <InputBar
                 onSend={handleSubmit}
                 sessionId={currentSessionId}

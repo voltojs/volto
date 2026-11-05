@@ -256,5 +256,6 @@
   "queuedSave": "保存",
   "queuedRemove": "撤回",
   "queuedEmptyError": "消息内容不能为空",
-  "queuedGoneNotice": "该排队消息已不可用，可能已送达"
+  "queuedGoneNotice": "该排队消息已不可用，可能已送达",
+  "queuedAttachments": "{count} 个附件"
 }

@@ -28,6 +28,7 @@ import type {
   Network,
   Message,
   UserMessage,
+  ContentBlock,
   CompactionConfig,
   ApprovalGate,
   ToolSource,
@@ -1146,6 +1147,12 @@ export interface AgentInstance {
    * (spec 2026-11-04 D14/D15). Membership check and delivery happen in one
    * synchronous span (no await between them).
    *
+   * Edit content semantics (spec D16): the gateway's edit carries plain
+   * text; when the target entry holds non-text blocks (attachments), the
+   * delivered content is `[newTextBlock, ...originalNonTextBlocks]` — text
+   * first, attachments preserved — while a pure-text entry is edited
+   * verbatim. Attachments are therefore never editable away.
+   *
    * Returns where the id was found (the host's persistence duty is part of
    * the contract):
    * - `"live"` — in the live queue (the delivery target's `queuedUserInputs`,
@@ -1239,6 +1246,32 @@ export interface ResolvedPorts {
 // ──────────────────────────────────────────────
 // createAgent
 // ──────────────────────────────────────────────
+
+/**
+ * D16 — an edit replaces only the TEXT surface of a queued message: when
+ * the entry carries non-text blocks (attachments), the edit's plain-text
+ * content is rebuilt as `[newTextBlock, ...originalNonTextBlocks]` — text
+ * first, the original attachments after it — so "attachments are not
+ * editable" holds on every delivery path. Pure-text entries (string
+ * content, or an array without non-text blocks) pass the edit through
+ * byte-for-byte, and an edit whose own content is already blocks owns the
+ * full content and is left untouched.
+ */
+function mergeQueuedEdit(
+  edit: SteeringEditInput,
+  original: UserMessage["content"],
+): SteeringEditInput {
+  if (typeof edit.content !== "string" || typeof original === "string") {
+    return edit;
+  }
+  const preserved = original.filter((block) => block.type !== "text");
+  if (preserved.length === 0) return edit;
+  const content: ContentBlock[] = [
+    { type: "text", text: edit.content },
+    ...preserved,
+  ];
+  return { ...edit, content };
+}
 
 export function createAgent(opts: CreateAgentOptions): AgentInstance {
   const { modelPort } = opts;
@@ -2621,12 +2654,28 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     updateQueue(input: SteeringEditInput | SteeringRemoveInput): "live" | "seed" | "missing" {
       // Membership check and delivery are one synchronous span (no await
       // between them): a yielding check could observe a queue that changed
-      // under it and mis-deliver the mutation.
+      // under it and mis-deliver the mutation. The lookup precedence (live
+      // Runner → carried state → seed array) mirrors the delivery dispatch
+      // below, so membership is resolved ONCE here: the found entry's
+      // content feeds mergeQueuedEdit before the input is constructed, and
+      // the live, claim-gap and seed deliveries all receive the SAME merged
+      // result (spec D16 — text editable, attachments preserved).
       const runner = steerTarget;
+      const source = runner
+        ? runner.getState().queuedUserInputs
+        : (lastFinalState?.queuedUserInputs ??
+          (lastRunner === null && lastFinalState === null
+            ? seedQueuedInputs
+            : undefined));
+      const original = source?.find((m) => m.id === input.id);
+      if (original === undefined) return "missing";
+      const delivery =
+        input.type === "steering_edit"
+          ? mergeQueuedEdit(input, original.content)
+          : input;
+
       if (runner) {
-        const queued = runner.getState().queuedUserInputs;
-        if (!queued.some((m) => m.id === input.id)) return "missing";
-        runner.send(input);
+        runner.send(delivery);
         commitLateDelivery();
         return "live";
       }
@@ -2639,7 +2688,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // steering_edited / steering_removed event exactly once — the same
       // "live" contract as an immediate send.
       if (lastFinalState?.queuedUserInputs.some((m) => m.id === input.id)) {
-        pendingSteerInputs.push(input);
+        pendingSteerInputs.push(delivery);
         return "live";
       }
       // The seed array is authoritative ONLY while no state source exists
@@ -2654,8 +2703,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // is no recorder yet, so the host persists the event itself.
         const idx = seedQueuedInputs.findIndex((m) => m.id === input.id);
         if (idx === -1) return "missing";
-        if (input.type === "steering_edit") {
-          seedQueuedInputs[idx] = { ...seedQueuedInputs[idx]!, content: input.content };
+        if (delivery.type === "steering_edit") {
+          seedQueuedInputs[idx] = { ...seedQueuedInputs[idx]!, content: delivery.content };
         } else {
           seedQueuedInputs.splice(idx, 1);
         }
