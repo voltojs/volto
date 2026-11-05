@@ -71,6 +71,8 @@ describe('queued message actions', () => {
     render(<Feed />);
 
     expect(screen.getByText('原始内容')).toBeInTheDocument();
+    // Spec §4.6: the queued message shows up marked "排队中" right away.
+    expect(screen.getByText('排队中')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '撤回' })).toBeInTheDocument();
   });
@@ -160,6 +162,7 @@ describe('queued message actions', () => {
 
     // Delivery wins: the bubble stays, the actions are gone with it.
     expect(screen.getByText('原始内容')).toBeInTheDocument();
+    expect(screen.queryByText('排队中')).toBeNull();
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
     expect(screen.queryByRole('button', { name: '撤回' })).toBeNull();
   });
