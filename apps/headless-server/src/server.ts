@@ -157,6 +157,12 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   /** SSE heartbeat interval in ms. @default 15000 */
   heartbeatInterval?: number;
   /**
+   * How long a steer waits for a cold-window agent (the latch is held by a
+   * turn whose agent has not materialized yet) before giving up and
+   * reporting. @default STEER_AGENT_WAIT_MS
+   */
+  steerAgentWaitMs?: number;
+  /**
    * Interface to bind. Defaults to loopback: the client may name any absolute
    * path as a project root, so binding all interfaces would expose this
    * machine's filesystem to the local network.
@@ -417,6 +423,12 @@ export interface HeadlessServer extends http.Server {
   readonly launchToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   readonly authenticatedUrl: string;
+  /**
+   * The session registry driving turns, steering and SSE channels. Exposed
+   * so hosts and tests can reach registry-level entry points (e.g. a direct
+   * `runTurn`) that no route surfaces.
+   */
+  readonly registry: ReturnType<typeof createSessionRegistry>;
 }
 
 export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
@@ -524,6 +536,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   });
   const registry = createSessionRegistry({
     ...opts,
+    // Normalized here so the /messages cold-window wait below (which shares
+    // the registry's awaitAgent) runs on exactly this value.
+    steerAgentWaitMs: opts.steerAgentWaitMs ?? STEER_AGENT_WAIT_MS,
     projectStore,
     providerStore,
     chatStore,
@@ -828,35 +843,34 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
 
         // D10 — a message landing while this session's turn latch is held is
         // STEERED into the owning turn and acked as queued: never a mid-turn
-        // rejection, never a second concurrent run. The latch read, the agent
-        // reference and the steer() delivery form one synchronous span — no
-        // await may sit between them, so a rebuild in flight in another
-        // task's await span cannot slip a stale instance in between (spec
-        // D10's single-threaded atomicity rule). Attachment blocks were
-        // already resolved above, so `turnInput` is final here.
+        // rejection, never a second concurrent run. Attachment blocks were
+        // already resolved above, so `turnInput` is final here. The bounded
+        // cold-window wait is the registry's shared awaitAgent; after it
+        // returns, the latch re-read and the steer() delivery form one
+        // synchronous span — no await may sit between them, so a rebuild in
+        // flight in another task's await span cannot slip a stale instance
+        // in between (spec D10's single-threaded atomicity rule).
         const session = registry.get(sessionId);
-        const steerDeadline = Date.now() + STEER_AGENT_WAIT_MS;
-        for (;;) {
-          if (session.running && session.agent) {
-            session.agent.steer(turnInput);
-            jsonResponse(res, 202, { queued: true });
-            return;
-          }
-          if (!session.running) break; // idle — start a normal turn below
-          // Cold window: the first turn owns the latch but its agent has not
-          // been built yet. Wait, bounded, for the delivery target to exist —
-          // a 202 here would ack a message the gateway could not deliver.
-          if (Date.now() >= steerDeadline) {
-            jsonResponse(res, 503, {
-              error: t(
-                await activeLocale(getConfigDir(), req.headers["accept-language"]),
-                "server.error.agentStarting",
-              ),
-            });
-            return;
-          }
-          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        const target = await registry.awaitAgent(session);
+        if (session.running && target) {
+          target.steer(turnInput);
+          jsonResponse(res, 202, { queued: true });
+          return;
         }
+        if (session.running) {
+          // Cold window timed out: the first turn still owns the latch but
+          // its agent never appeared. A 202 here would ack a message the
+          // gateway could not deliver.
+          jsonResponse(res, 503, {
+            error: t(
+              await activeLocale(getConfigDir(), req.headers["accept-language"]),
+              "server.error.agentStarting",
+            ),
+          });
+          return;
+        }
+        // Idle, or the latch released while we waited — start a normal turn
+        // below.
 
         // Ack immediately; the turn streams over SSE. runTurn never rejects —
         // failures are delivered to the client as protocol `error` events.
@@ -2560,6 +2574,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   return Object.assign(httpServer, {
     launchToken: auth.launchToken,
     authenticatedUrl,
+    registry,
   });
 }
 

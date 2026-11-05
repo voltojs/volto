@@ -375,6 +375,71 @@ describe("POST /messages steering (D10)", () => {
     await server.captureMessages();
   });
 
+  it("runTurn called directly in the cold window reports instead of dropping the message", async () => {
+    // Gate the per-session build so turn 1 parks in `running=true, agent=null`
+    // — the cold window — while a direct runTurn call arrives for "second".
+    // The registry path has no HTTP response to answer with, so the refusal
+    // must reach the client as an SSE error frame instead of vanishing.
+    let releaseBuild!: () => void;
+    const buildGate = new Promise<void>((resolve) => {
+      releaseBuild = resolve;
+    });
+    let buildParking!: () => void;
+    const buildStarted = new Promise<void>((resolve) => {
+      buildParking = resolve;
+    });
+    let builds = 0;
+    const server = await boot({
+      steerAgentWaitMs: 50,
+      agentFactory: async (opts) => {
+        builds += 1;
+        // Call #1 is createServer's own legacy agent; the session's first
+        // turn build is what the cold window is made of.
+        if (builds > 1) {
+          buildParking();
+          await buildGate;
+        }
+        return createWiredAgent(opts);
+      },
+    });
+
+    await server.openEvents();
+
+    const first = await postMessage(server, "first message");
+    expect(first.status).toBe(202);
+    await buildStarted; // latch held, agent still null
+
+    // Bypass POST /messages (whose own bounded wait would answer 503) and
+    // hit the registry entry point directly — the path that used to swallow
+    // the message via `session.agent?.steer(...)` with agent=null.
+    await server.registry.runTurn(server.sessionId, "second", server.turnConfig);
+
+    // The observable outcome: an error frame carrying the agentStarting copy
+    // reaches the SSE client (protocol frames only ever show up in
+    // rawFrames(), never in events()).
+    await waitFor(
+      () => server.rawFrames().some((frame) => frame.event === "error"),
+      "agentStarting error frame",
+    );
+    const errors = server
+      .rawFrames()
+      .filter((frame) => frame.event === "error") as Array<{ data: { message: string } }>;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.data.message).toBe(t(DEFAULT_LOCALE, "server.error.agentStarting"));
+
+    // And no second turn started behind the report: the session's only build
+    // request is still turn 1's, and turn 1 has not even begun streaming.
+    expect(builds).toBe(2);
+    expect(server.turnCount()).toBe(0);
+
+    // Let turn 1 finish: still exactly one turn.
+    releaseBuild();
+    await server.captureMessages();
+    expect(server.turnCount()).toBe(1);
+    expect(turnEndCount(server)).toBe(1);
+    expect(builds).toBe(2);
+  });
+
   it("cancel with queued messages auto-runs a new turn delivering them in order", async () => {
     // Turn 1 parks inside its model call so two follow-ups can queue behind
     // the held latch. The park unwinds on the cancel signal — the way a

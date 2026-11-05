@@ -42,6 +42,12 @@ export interface SessionRegistryOptions extends Omit<WiringOptions, "chatStore" 
   replayBufferSize?: number;
   /** SSE heartbeat interval in ms. @default 15000 */
   heartbeatInterval?: number;
+  /**
+   * How long a steer waits for a cold-window agent (the latch is held by a
+   * turn whose agent has not materialized yet) before giving up and
+   * reporting. @default STEER_AGENT_WAIT_MS
+   */
+  steerAgentWaitMs?: number;
   projectStore?: ReturnType<typeof createProjectStore>;
   providerStore?: ReturnType<typeof createProviderStore>;
   /**
@@ -674,6 +680,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     maxSessions = 100,
     replayBufferSize = 200,
     heartbeatInterval = 15_000,
+    steerAgentWaitMs = STEER_AGENT_WAIT_MS,
     projectStore,
     providerStore,
     agentFactory,
@@ -1556,6 +1563,27 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   }
 
   /**
+   * Bounded wait for the cold-window agent (D10): a first turn owns the
+   * latch but its rebuild has not produced an instance yet. Waits, polling,
+   * until the agent materializes, the latch releases, or `steerAgentWaitMs`
+   * expires — then returns whatever `session.agent` is at that moment.
+   *
+   * Every steering site shares this one loop (runTurn's pre-claim check,
+   * POST /messages and updateQueuedMessage) so the bound and the exit
+   * conditions cannot drift between them. The return value is a plain
+   * reference: after it comes back there must be NO await before the caller
+   * steers into it (spec D10's single-threaded atomicity rule — a rebuild in
+   * flight must not slip a stale instance in between).
+   */
+  async function awaitAgent(session: Session): Promise<Session["agent"]> {
+    const deadline = Date.now() + steerAgentWaitMs;
+    while (session.running && !session.agent && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    return session.agent;
+  }
+
+  /**
    * Edit or withdraw a queued (not yet delivered) message by id (D14/D15).
    *
    * Delegates membership and mutation to `AgentInstance.updateQueue` (the
@@ -1592,10 +1620,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // racing a second rebuild into the same Session (the exact rule POST
     // /messages applies before steer()). Idle-without-an-agent falls
     // straight through to the rebuild below.
-    const deadline = Date.now() + STEER_AGENT_WAIT_MS;
-    while (session.running && !session.agent && Date.now() < deadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
-    }
+    await awaitAgent(session);
     // Rebuild-first for a genuinely cold session (no instance ever built):
     // rebuild()'s event fold seeds the queue, which is what makes the
     // "seed" outcome reachable below. rebuild() stashes that same array on
@@ -1685,18 +1710,38 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   ): Promise<void> {
     const session = get(sessionId);
 
-    // D10 latch re-check — synchronous, before any await: claim the latch or
-    // deliver into the turn that owns it. POST /messages routes mid-turn
-    // messages to steering itself and only calls runTurn while the latch is
-    // free; this pre-claim re-check is what keeps that claim race-proof for
-    // direct callers too (two callers on the same tick must never both start
-    // a turn — spec D10's pre-latch re-check). A message delivered here is
-    // queued by the agent, never rejected and never dropped: the route's
-    // bounded cold-window wait guarantees an agent exists before it ever
-    // reaches this function with the latch held.
+    // D10 latch re-check — the final latch check and the claim below form
+    // one synchronous span (no await in between), so two callers can never
+    // both start a turn. POST /messages routes mid-turn messages to steering
+    // itself and only calls runTurn while the latch is free; this pre-claim
+    // re-check is what keeps that claim race-proof for direct callers too
+    // (spec D10's pre-latch re-check). A message delivered here is queued by
+    // the agent, never rejected and never dropped — but when the latch is
+    // held and no agent has materialized yet (the cold window), a bounded
+    // wait decides between steering, reporting and claiming: steer once the
+    // agent appears, report `server.error.agentStarting` when the wait
+    // expires with the latch still held (the message is refused in the
+    // open, not swallowed), and claim the latch as a normal new turn when
+    // the turn ended while we waited.
     if (session.running) {
-      session.agent?.steer(message);
-      return;
+      const target = await awaitAgent(session);
+      if (target) {
+        // Atomicity: awaitAgent's return and steer() are one span — no
+        // await in between, so no rebuild can slip a stale instance in.
+        target.steer(message);
+        return;
+      }
+      if (session.running) {
+        // Still latched but the agent never appeared: report the refusal on
+        // the session's channel instead of silently dropping the message.
+        push(
+          session,
+          session.mapper.error(t(await activeLocale(getConfigDir()), "server.error.agentStarting")),
+        );
+        return;
+      }
+      // The turn ended while we waited — fall through and claim the latch
+      // below as a normal new turn (D10/D11's normal path).
     }
     session.running = true;
 
@@ -2045,6 +2090,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     interrupt,
     decideApproval,
     ensureAgent,
+    /**
+     * The shared bounded cold-window wait (D10). Exposed so POST /messages
+     * can wait for the same delivery target `runTurn`'s pre-claim and
+     * `updateQueuedMessage` wait for, instead of keeping a second copy of
+     * the loop. See the implementation note on atomicity: no await between
+     * its return and the caller's steer().
+     */
+    awaitAgent,
     /**
      * Edit or withdraw a queued (not yet delivered) message by id — the
      * `POST /messages/queue` backend. Returns where `updateQueue` found the

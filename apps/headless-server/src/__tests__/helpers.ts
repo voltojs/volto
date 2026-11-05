@@ -60,6 +60,12 @@ export interface TestServer {
    */
   turnConfig: { projectId: string; providerId: string; modelId: string };
   /**
+   * The server's own session registry — for tests that must call a
+   * registry-level entry point (e.g. `runTurn`) directly, bypassing the
+   * HTTP routes.
+   */
+  registry: HeadlessServer["registry"];
+  /**
    * Open the session's GET /events stream and start collecting frames.
    * Resolves once the channel is attached (the `connected` frame arrived),
    * so a subsequent POST /messages is never rejected with 409.
@@ -163,6 +169,12 @@ export interface StartTestServerOptions {
    * untouched.
    */
   appendEventsFailure?: { failing: boolean };
+  /**
+   * Override for the bounded cold-window steer wait (see
+   * `ServerOptions.steerAgentWaitMs`). Lets a test exercise the timeout path
+   * without paying the production default.
+   */
+  steerAgentWaitMs?: number;
 }
 
 /** Rejects every append while `gate.failing`; delegates reads verbatim. */
@@ -221,6 +233,7 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
       ? { titleModelPortFactory: opts.titleModelPortFactory }
       : {}),
     ...(opts.agentFactory !== undefined ? { agentFactory: opts.agentFactory } : {}),
+    ...(opts.steerAgentWaitMs !== undefined ? { steerAgentWaitMs: opts.steerAgentWaitMs } : {}),
   });
 
   await new Promise<void>((resolve) => server.on("listening", resolve));
@@ -371,6 +384,7 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     configDir,
     attachmentRoot,
     turnConfig,
+    registry: server.registry,
     openEvents,
     captureMessages,
     turnCount,
