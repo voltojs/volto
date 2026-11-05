@@ -389,3 +389,52 @@ describe('InputBar gate during generation and approvals (ChatPanel)', () => {
     expect(screen.getByRole('button', { name: '中断生成' })).toBeInTheDocument();
   });
 });
+
+// ── Task 10: an explicit queue-send action while generating ────────────────
+// While a turn streams the primary button is Stop, so Enter used to be the
+// only way to send a message that will be queued. These cases pin the second,
+// visible entry point and its guards.
+
+describe('InputBar queue-send while generating', () => {
+  it('offers a queue-send action while generating once there is text', () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    const { editor } = setup({ isGenerating: true, onStop, onSend });
+    act(() => void editor.commands.insertContent('hello'));
+
+    const queue = screen.getByTestId('composer-queue-send');
+    const stop = screen.getByRole('button', { name: '中断生成' });
+    expect(queue).toBeEnabled();
+    expect(stop).toBeEnabled();
+    // Stop stays the rightmost action: queue-send sits to its left.
+    expect(queue.nextElementSibling).toBe(stop);
+
+    fireEvent.click(queue);
+    expect(onSend).toHaveBeenCalledWith({ text: 'hello', attachments: [] });
+  });
+
+  it('hides the queue action when the composer is empty and keeps stop reachable', () => {
+    const onStop = vi.fn();
+    setup({ isGenerating: true, onStop, onSend: vi.fn() });
+
+    expect(screen.queryByTestId('composer-queue-send')).toBeNull();
+
+    const stop = screen.getByRole('button', { name: '中断生成' });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalled();
+  });
+
+  it('disables the queue action when the composer is gated but keeps stop enabled', () => {
+    const onSend = vi.fn();
+    const { editor } = setup({ isGenerating: true, onStop: vi.fn(), onSend, disabled: true });
+    act(() => void editor.commands.insertContent('hello'));
+
+    const queue = screen.getByTestId('composer-queue-send');
+    expect(queue).toBeDisabled();
+    expect(screen.getByRole('button', { name: '中断生成' })).toBeEnabled();
+
+    fireEvent.click(queue);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});

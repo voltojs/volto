@@ -20,7 +20,8 @@
     "addImage": "Add image",
     "imageUnsupported": "The current model does not accept images",
     "stop": "Stop generating",
-    "send": "Send"
+    "send": "Send",
+    "queueSend": "Queue message"
   },
   "connection": {
     "connecting": "Connecting to the agent service…",

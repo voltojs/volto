@@ -596,19 +596,38 @@ export function InputBar({
           <div className="ml-auto flex items-center gap-1">
             {trailing}
             {showStop ? (
-              // Deliberately not gated on `disabled`: generating no longer
-              // locks the editor, and stopping the turn must stay reachable
-              // even when some other gate (e.g. missing binding) locks it.
-              <Button
-                type="button"
-                size="icon"
-                variant="destructive"
-                className="h-8 w-8 shrink-0 rounded-full"
-                onClick={onStop}
-                aria-label={t('composer.stop')}
-              >
-                <Square className="h-3.5 w-3.5 fill-current" />
-              </Button>
+              <>
+                {/* Generating no longer locks the editor, but the primary
+                    action is Stop — so queuing needs its own visible entry
+                    point, otherwise the only way to send is guessing that
+                    Enter still works. Stop stays rightmost. */}
+                {!isEmpty && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    data-testid="composer-queue-send"
+                    className="h-8 w-8 shrink-0 rounded-full"
+                    disabled={disabled || hasUploading}
+                    onClick={() => submitRef.current()}
+                    aria-label={t('composer.queueSend')}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                )}
+                {/* Deliberately not gated on `disabled`: generating no longer
+                    locks the editor, and stopping the turn must stay reachable
+                    even when some other gate (e.g. missing binding) locks it. */}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="destructive"
+                  className="h-8 w-8 shrink-0 rounded-full"
+                  onClick={onStop}
+                  aria-label={t('composer.stop')}
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </Button>
+              </>
             ) : (
               <Button
                 type="submit"
