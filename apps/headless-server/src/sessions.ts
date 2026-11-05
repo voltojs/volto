@@ -1718,16 +1718,19 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // (spec D10's pre-latch re-check). A message delivered here is queued by
     // the agent, never rejected and never dropped — but when the latch is
     // held and no agent has materialized yet (the cold window), a bounded
-    // wait decides between steering, reporting and claiming: steer once the
-    // agent appears, report `server.error.agentStarting` when the wait
-    // expires with the latch still held (the message is refused in the
-    // open, not swallowed), and claim the latch as a normal new turn when
-    // the turn ended while we waited.
+    // wait decides between two outcomes: steer into the owning turn only if
+    // the latch is STILL HELD once an agent appears (delivered now), or
+    // report `server.error.agentStarting` when the wait expires with the
+    // latch still held (the message is refused in the open, not swallowed).
+    // If the latch was released while we waited, the message falls through
+    // and claims it as a normal new turn (D10/D11's normal path) — it is
+    // deliberately NOT steered into the surviving agent, matching what
+    // POST /messages does for the same state.
     if (session.running) {
       const target = await awaitAgent(session);
-      if (target) {
-        // Atomicity: awaitAgent's return and steer() are one span — no
-        // await in between, so no rebuild can slip a stale instance in.
+      if (target && session.running) {
+        // Atomicity: the latch read and steer() share one synchronous span —
+        // no await in between, so no rebuild can slip a stale instance in.
         target.steer(message);
         return;
       }
@@ -1740,8 +1743,10 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
         );
         return;
       }
-      // The turn ended while we waited — fall through and claim the latch
-      // below as a normal new turn (D10/D11's normal path).
+      // The latch was released while we waited: fall through and claim it as
+      // a normal new turn (D10/D11's normal path), even if the old agent
+      // survived — the route does the same, and a fresh turn delivers
+      // immediately instead of parking the message in a settled queue.
     }
     session.running = true;
 
