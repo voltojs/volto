@@ -13,8 +13,13 @@
  * (spec D4 — documented here, behavior untouched).
  */
 export const DEFAULT_TIMEOUTS = {
-  /** Default per-call timeout for tool executions (e.g. bash). */
-  tool: 30_000,
+  /**
+   * Default per-call timeout for tool executions (e.g. bash). Two minutes:
+   * a single tool call is routinely a build, a test suite, or a scripted
+   * sleep, and the 30s used to cut those off mid-run. Long-running commands
+   * can still pass an explicit `timeout` per call.
+   */
+  tool: 120_000,
   /** Default per-request timeout for network calls (e.g. web_fetch). */
   network: 30_000,
 } as const;

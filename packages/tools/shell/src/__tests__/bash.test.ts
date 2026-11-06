@@ -375,7 +375,6 @@ describe("bash timeout classification (F-232, spec D3/§6)", () => {
     });
     const r = await tool.handler({ command: "sleep 60" });
     expect(r.isError).toBe(true);
-    expect(r.modelContent).toContain("[timeout] bash timed out after 30000ms");
     // Default N comes from the shared DEFAULT_TIMEOUTS.tool table.
     expect(r.modelContent).toContain(
       `[timeout] bash timed out after ${DEFAULT_TIMEOUTS.tool}ms`,
@@ -427,7 +426,9 @@ describe("bash timeout classification (F-232, spec D3/§6)", () => {
     });
     const r = await tool.handler({ command: "sleep 60" });
     expect(r.isError).toBe(true);
-    expect(r.modelContent).toContain("[timeout] bash timed out after 30000ms");
+    expect(r.modelContent).toContain(
+      `[timeout] bash timed out after ${DEFAULT_TIMEOUTS.tool}ms`,
+    );
     expect(r.modelContent).toContain("(exit code: 124)");
     expect(r.displayMetadata?.timedOut).toBe(true);
   });

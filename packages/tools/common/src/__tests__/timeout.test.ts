@@ -16,7 +16,7 @@ describe("renderTimeoutSignature", () => {
 
 describe("DEFAULT_TIMEOUTS", () => {
   it("declares the tool and network layer defaults as const numbers", () => {
-    expect(DEFAULT_TIMEOUTS).toEqual({ tool: 30_000, network: 30_000 });
+    expect(DEFAULT_TIMEOUTS).toEqual({ tool: 120_000, network: 30_000 });
     expect(typeof DEFAULT_TIMEOUTS.tool).toBe("number");
     expect(typeof DEFAULT_TIMEOUTS.network).toBe("number");
   });

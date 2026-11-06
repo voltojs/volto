@@ -14,7 +14,10 @@ const bashSchema = z.object({
     .int()
     .positive()
     .optional()
-    .describe(`Timeout in milliseconds (default: ${DEFAULT_TIMEOUTS.tool})`),
+    .describe(
+      `Timeout in milliseconds (default: ${DEFAULT_TIMEOUTS.tool}). ` +
+        "Raise it for commands you expect to run longer (installs, builds, long tests, sleeps).",
+    ),
   show_full_output: z
     .boolean()
     .optional()
@@ -52,7 +55,8 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       "cd, export, and source effects carry across calls. Pass isolated=true " +
       "for a one-shot process that neither sees nor changes session state. " +
       "Pass run_in_background=true for a long-lived process (use bash_output / " +
-      "kill_shell). Output may be truncated when large.",
+      "kill_shell). Output may be truncated when large. A call that outlives " +
+      "its timeout is killed (default 120s) — pass timeout for longer commands.",
     schema: bashSchema,
     requires: [CAP_SHELL_EXEC],
     riskTier: "WRITE_HIGH",
