@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import type { ComponentType, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Bot,
+  FileDiff,
   FileImage,
   FileText,
   FolderTree,
@@ -25,6 +26,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { BackgroundTasksTab } from './BackgroundTasksTab';
+import { FileDiffTab } from './FileDiffTab';
 import { FilePreviewTab } from './FilePreviewTab';
 import { FileTreeTab } from './FileTreeTab';
 import { GitGraphTab } from './GitGraphTab';
@@ -54,6 +56,7 @@ const PANE_TAB_RENDERERS: {
   subagent: SubagentTab,
   files: FileTreeTab,
   'file-preview': FilePreviewTab,
+  'file-diff': FileDiffTab,
   'git-graph': GitGraphTab,
   tasks: BackgroundTasksTab,
   plan: PlanTab,
@@ -83,6 +86,8 @@ function tabIcon(tab: PaneTab): ComponentType<{ className?: string }> {
       return ListTodo;
     case 'plan':
       return ScrollText;
+    case 'file-diff':
+      return FileDiff;
     case 'file-preview':
       return IMAGE_EXTS.has(
         tab.path.slice(tab.path.lastIndexOf('.')).toLowerCase(),
@@ -106,6 +111,7 @@ function tabTitleKey(tab: PaneTab): string {
     case 'plan':
       return 'tabs.plan';
     case 'file-preview':
+    case 'file-diff':
       return '';
   }
 }
@@ -228,7 +234,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
             {tabs.map((tab) => {
               const Icon = tabIcon(tab);
               const title =
-                tab.kind === 'file-preview'
+                tab.kind === 'file-preview' || tab.kind === 'file-diff'
                   ? (tab.path.split('/').at(-1) ?? tab.path)
                   : // A sub-agent tab is labelled with the dispatch's own task
                     // title when there is one; the session-id suffix stays the
@@ -250,7 +256,11 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
                 >
                   <button
                     type="button"
-                    title={tab.kind === 'file-preview' ? tab.path : undefined}
+                    title={
+                      tab.kind === 'file-preview' || tab.kind === 'file-diff'
+                        ? tab.path
+                        : undefined
+                    }
                     onClick={() => setActive(tab.id)}
                     className="flex min-w-0 items-center gap-1.5"
                   >

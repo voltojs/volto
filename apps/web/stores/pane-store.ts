@@ -45,6 +45,26 @@ export type PaneTab =
       line?: number;
       endLine?: number;
     }
+  /**
+   * A file's diff for one turn. The body is carried in the payload: it was
+   * captured by the write tool and lives in the transcript, so the tab needs
+   * no fetch and stays correct after a reload. `turn` separates the same
+   * file's changes across turns; a later edit in the same turn overwrites
+   * the payload in place.
+   */
+  | {
+      kind: 'file-diff';
+      id: string;
+      projectId: string;
+      path: string;
+      turn: string;
+      diff: string;
+      additions: number;
+      deletions: number;
+      /** Edits of this file folded into the entry (1 = a single write). */
+      edits: number;
+      truncated?: boolean;
+    }
   | { kind: 'git-graph'; id: string; projectId: string }
   | { kind: 'tasks'; id: string }
   /** 计划文档标签（plan 模式）。内容不进标签载荷——标签体按 sessionId 自拉。 */
@@ -138,6 +158,19 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
             open: true,
           };
         }
+        // A file-diff tab is keyed per turn+path: re-opening it after another
+        // edit in the same turn must refresh the body, not keep the stale one.
+        if (existing.kind === 'file-diff' && tab.kind === 'file-diff') {
+          if (existing.diff === tab.diff) {
+            return { activeTabId: tab.id, hidden: false, open: true };
+          }
+          return {
+            tabs: state.tabs.map((t) => (t.id === tab.id ? tab : t)),
+            activeTabId: tab.id,
+            hidden: false,
+            open: true,
+          };
+        }
         // Subagent tabs overwrite the payload on view flip (card click opens
         // chat, "view trajectory" opens trajectory) — same tab, new view.
         // Callers that only carry a view (TrajectoryDrawer) must not wipe the
@@ -187,7 +220,7 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
             }
             continue;
           }
-          if (tab.kind === 'file-preview') {
+          if (tab.kind === 'file-preview' || tab.kind === 'file-diff') {
             // Path is relative to the old workspace — drop rather than guess.
             changed = true;
             continue;
@@ -247,6 +280,40 @@ export function openFilePreview(
     path,
     ...(ref?.line !== undefined ? { line: ref.line } : {}),
     ...(ref?.endLine !== undefined ? { endLine: ref.endLine } : {}),
+  });
+}
+
+/** Stable tab id for a file's diff in one turn — one tab per project+turn+path. */
+export function fileDiffTabId(projectId: string, turn: string, path: string): string {
+  return `diff:${projectId}:${turn}:${path}`;
+}
+
+/**
+ * Open (or refresh) the diff tab for one file's changes in one turn. Used by
+ * the turn-end change card; the body travels with the payload because it was
+ * captured at edit time and is already in the transcript.
+ */
+export function openFileDiffTab(input: {
+  projectId: string;
+  path: string;
+  turn: string;
+  diff: string;
+  additions: number;
+  deletions: number;
+  edits: number;
+  truncated?: boolean;
+}): void {
+  usePaneStore.getState().openTab({
+    kind: 'file-diff',
+    id: fileDiffTabId(input.projectId, input.turn, input.path),
+    projectId: input.projectId,
+    path: input.path,
+    turn: input.turn,
+    diff: input.diff,
+    additions: input.additions,
+    deletions: input.deletions,
+    edits: input.edits,
+    ...(input.truncated === true ? { truncated: true } : {}),
   });
 }
 

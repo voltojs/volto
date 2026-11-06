@@ -1,7 +1,7 @@
 import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
+import { computeUnifiedDiff, defineTool as defineFileTool } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
 
 /**
@@ -102,7 +102,12 @@ export function createMultiEditTool(fs: FileSystem): FileTool {
         const mtime = (await fs.stat(path)).mtime;
         return {
           modelContent: `multi_edit: ${edits.length} edit(s) applied atomically to ${path}.`,
-          displayMetadata: { path, editsApplied: edits.length, writeFile: { path, mtime } },
+          displayMetadata: {
+            path,
+            editsApplied: edits.length,
+            writeFile: { path, mtime },
+            fileChange: { path, ...computeUnifiedDiff(originalContent, result.content) },
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

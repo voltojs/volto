@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import type { ChatEntry } from '@/lib/projection';
 import { MessageBubble } from './MessageBubble';
 import { ErrorNotice } from './ErrorNotice';
@@ -11,6 +12,8 @@ import type { SubagentOpenMeta } from './SubagentCard';
 import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
 import { groupFeedEntries } from '@/lib/feed-groups';
+import { collectTurnFileChanges } from '@/lib/turn-file-changes';
+import { FileChangesCard } from './FileChangesCard';
 import { useStreamDensity } from '@/lib/stream-density';
 import { useFileRefsStore } from '@/stores/file-refs-store';
 import type { StreamDensity } from '@/lib/stream-density';
@@ -76,6 +79,17 @@ export function MessageList({
     (entry) => entry.kind !== 'message' || entry.message.queued !== true,
   );
   const rows = groupFeedEntries(delivered);
+  // Turn-end change summary: the write tools' captured diffs, folded per turn.
+  // Rows carry their turn so the card lands after the turn's last row — before
+  // the next user bubble — rather than at the bottom of the whole feed.
+  const changesByTurn = useMemo(() => collectTurnFileChanges(delivered), [delivered]);
+  const lastRowOfTurn = useMemo(() => {
+    const last = new Map<string, number>();
+    rows.forEach((row, index) => {
+      if (row.turn !== '') last.set(row.turn, index);
+    });
+    return last;
+  }, [rows]);
   // Annotations arrive per session (row-keyed); slice them per answer row so
   // chips render only where the host confirmed a file identity.
   const fileRefs = useFileRefsStore((s) =>
@@ -100,9 +114,23 @@ export function MessageList({
           second argument); the reference handed down stays whatever the
           caller passed, so downstream memo comparators see a stable prop. */}
       <div className="py-2">
-        {rows.map((row) => {
+        {rows.flatMap((row, index) => {
+          const changes = changesByTurn.get(row.turn);
+          const card =
+            changes !== undefined &&
+            changes.length > 0 &&
+            lastRowOfTurn.get(row.turn) === index ? (
+              <FileChangesCard
+                key={`changes-${row.turn}-${index}`}
+                turn={row.turn}
+                changes={changes}
+                projectId={fileProjectId}
+              />
+            ) : null;
+          const renderWithCard = (node: ReactNode): ReactNode[] =>
+            card === null ? [node] : [node, card];
           if (row.kind === 'answer') {
-            return (
+            return renderWithCard(
               <AnswerRow
                 key={row.key}
                 blocks={row.blocks}
@@ -110,11 +138,11 @@ export function MessageList({
                 footer={row.footer}
                 fileProjectId={fileProjectId}
                 blockRefs={refsByKey.get(row.key)}
-              />
+              />,
             );
           }
           if (row.kind === 'activity') {
-            return (
+            return renderWithCard(
               <div key={row.key} className="py-0.5">
                 <ActivitySteps
                   blocks={row.blocks}
@@ -123,10 +151,10 @@ export function MessageList({
                   fileProjectId={fileProjectId}
                 />
                 {row.footer !== null && <MessageFooter message={row.footer} />}
-              </div>
+              </div>,
             );
           }
-          return renderEntry(row.entry, sessionId);
+          return renderWithCard(renderEntry(row.entry, sessionId));
         })}
         {/* Unified loading: pinned under the feed so the existing scroll-to-
             bottom keeps it in view for the whole round. */}

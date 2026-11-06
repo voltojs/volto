@@ -1,7 +1,7 @@
 import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
+import { computeUnifiedDiff, defineTool as defineFileTool } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
 
 /**
@@ -175,7 +175,12 @@ export function createApplyPatchTool(fs: FileSystem): FileTool {
         const mtime = (await fs.stat(path)).mtime;
         return {
           modelContent: `apply_patch: ${hunks.length} hunk(s) applied to ${path}.`,
-          displayMetadata: { path, hunksApplied: hunks.length, writeFile: { path, mtime } },
+          displayMetadata: {
+            path,
+            hunksApplied: hunks.length,
+            writeFile: { path, mtime },
+            fileChange: { path, ...computeUnifiedDiff(fileContent, result.content) },
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

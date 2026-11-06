@@ -1,6 +1,22 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem, FileReadResult, FileStat, StepContext, ToolDefinition } from "@volto/core";
-import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@volto/core";
+import type {
+  EventSink,
+  FileSystem,
+  FileReadResult,
+  FileStat,
+  StepContext,
+  ToolDefinition,
+  TranscriptEvent,
+} from "@volto/core";
+import {
+  buildTurnRecords,
+  createMockModelPort,
+  modelDone,
+  textDelta,
+  toConversationView,
+  toolUseDelta,
+  toolUseStart,
+} from "@volto/core";
 import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@volto/tools-fs";
 import { createRunner } from "../runner.js";
 import { createFsToolExecutor } from "../tool-executor.js";
@@ -81,5 +97,56 @@ describe("fs end-to-end via Runner (reducer recording + executor gate)", () => {
     expect(get("bar.ts")).toBe("const x = 1;"); // unchanged — gate ran before write
     const toolMsg = final.messages.find((m) => m.role === "tool");
     expect(toolMsg?.content[0]).toMatchObject({ isError: true });
+  });
+
+  it("records the edit's diff in the transcript and projects it onto the conversation call", async () => {
+    const { fs } = createInMemoryFs({ "foo.ts": "const x = 1;\nconst y = 0;" });
+    const model = createMockModelPort([
+      [toolUseStart("c1", "read_file"), toolUseDelta("c1", '{"path":"foo.ts"}'), modelDone("tool_use")],
+      [
+        toolUseStart("c2", "edit_file"),
+        toolUseDelta("c2", '{"path":"foo.ts","old_string":"const x = 1;","new_string":"const x = 2;"}'),
+        modelDone("tool_use"),
+      ],
+      [textDelta("Done."), modelDone("end_turn")],
+    ]);
+    const recorded: Array<{ type: string; data: Record<string, unknown>; time: number; turn?: number; step?: number }> = [];
+    const eventSink: EventSink = {
+      emit: (event) => {
+        recorded.push(event as (typeof recorded)[number]);
+      },
+    };
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: ctx,
+      availableCapabilities: caps,
+      toolExecutor: createFsToolExecutor({ fs }),
+      eventSink,
+    });
+    await runner.run({ type: "user_message", content: "bump x" });
+
+    // Only the stamped events are transcript records; the sink also carries
+    // untimed observability residuals.
+    const events = recorded
+      .filter((event) => typeof event.time === "number")
+      .map((event, seq) => ({ ...event, seq }) as unknown as TranscriptEvent);
+    expect(events.length).toBeGreaterThan(0);
+
+    const changed = events.find(
+      (event) => event.type === "tool_result" && (event.data as { callId?: string }).callId === "c2",
+    );
+    expect(changed).toBeDefined();
+    const metadata = (changed!.data as { displayMetadata?: Record<string, unknown> }).displayMetadata;
+    expect(metadata?.["fileChange"]).toMatchObject({ path: "foo.ts", additions: 1, deletions: 1 });
+
+    const view = toConversationView(buildTurnRecords(events));
+    const call = view.messages
+      .flatMap((message) => message.blocks)
+      .find((block) => block.type === "tool_call" && block.call.id === "c2");
+    if (call?.type !== "tool_call") throw new Error("expected the edit call in the view");
+    expect(call.call.fileChange).toMatchObject({ path: "foo.ts", additions: 1, deletions: 1 });
+    expect(call.call.fileChange?.diff).toContain("-const x = 1;");
+    expect(call.call.fileChange?.diff).toContain("+const x = 2;");
   });
 });

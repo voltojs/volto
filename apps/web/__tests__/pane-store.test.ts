@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
+  fileDiffTabId,
   filePreviewTabId,
+  openFileDiffTab,
   openFilePreview,
   usePaneStore,
   PANE_WIDTH_MIN,
@@ -287,5 +289,48 @@ describe('openFilePreview', () => {
     const s = usePaneStore.getState();
     expect(s.tabs).toHaveLength(2);
     expect(s.activeTabId).toBe(filePreviewTabId('p2', 'a.ts'));
+  });
+});
+
+describe('openFileDiffTab', () => {
+  const diff = (body: string) => ({
+    projectId: 'p1',
+    path: 'src/a.ts',
+    turn: '2',
+    diff: body,
+    additions: 1,
+    deletions: 1,
+    edits: 1,
+  });
+
+  it('opens one tab per project+turn+path and activates it', () => {
+    openFileDiffTab(diff('@@ -1,1 +1,1 @@\n-a\n+b'));
+    const s = usePaneStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.tabs[0]).toMatchObject({ kind: 'file-diff', path: 'src/a.ts', turn: '2' });
+    expect(s.activeTabId).toBe(fileDiffTabId('p1', '2', 'src/a.ts'));
+  });
+
+  it('keeps the same file separate across turns', () => {
+    openFileDiffTab(diff('@@ -1,1 +1,1 @@\n-a\n+b'));
+    openFileDiffTab({ ...diff('@@ -1,1 +1,1 @@\n-c\n+d'), turn: '3' });
+    const s = usePaneStore.getState();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.activeTabId).toBe(fileDiffTabId('p1', '3', 'src/a.ts'));
+  });
+
+  it('refreshes the body when the same turn edits the file again', () => {
+    openFileDiffTab(diff('@@ -1,1 +1,1 @@\n-a\n+b'));
+    openFileDiffTab({ ...diff('@@ -2,1 +2,1 @@\n-c\n+d'), additions: 4, edits: 2 });
+    const s = usePaneStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.tabs[0]).toMatchObject({ additions: 4, edits: 2 });
+    expect(s.tabs[0]).toMatchObject({ diff: '@@ -2,1 +2,1 @@\n-c\n+d' });
+  });
+
+  it('drops diff tabs when the workspace switches (paths are project-relative)', () => {
+    openFileDiffTab(diff('@@ -1,1 +1,1 @@\n-a\n+b'));
+    usePaneStore.getState().retargetProjectTabs('p2');
+    expect(usePaneStore.getState().tabs).toHaveLength(0);
   });
 });

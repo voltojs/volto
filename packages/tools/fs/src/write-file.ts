@@ -1,7 +1,7 @@
 import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
+import { computeUnifiedDiff, defineTool as defineFileTool } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
 
 const schema = z.object({
@@ -20,12 +20,24 @@ export function createWriteFileTool(fs: FileSystem): FileTool {
     riskTier: "WRITE_HIGH",
     pathInputs: ["path"],
     run: async ({ path, content }) => {
+      // Capture the previous text for the change summary. A missing (or
+      // unreadable) file is a creation: its diff is a pure addition.
+      let before = "";
+      try {
+        before = (await fs.read(path)).content;
+      } catch {
+        before = "";
+      }
       try {
         await fs.write(path, content);
         const mtime = (await fs.stat(path)).mtime;
         return {
           modelContent: `write_file: ${path} written.`,
-          displayMetadata: { path, writeFile: { path, mtime } },
+          displayMetadata: {
+            path,
+            writeFile: { path, mtime },
+            fileChange: { path, ...computeUnifiedDiff(before, content) },
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

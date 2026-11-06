@@ -24,9 +24,19 @@ type AnswerBlock = Extract<ConversationBlock, { type: 'text' | 'image' }>;
 type ActivityBlock = Extract<ConversationBlock, { type: 'reasoning' | 'tool_call' }>;
 
 export type FeedRow =
-  | { kind: 'entry'; key: string; entry: ChatEntry }
-  | { kind: 'answer'; key: string; blocks: AnswerBlock[]; footer: ConversationMessage | null }
-  | { kind: 'activity'; key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null };
+  | { kind: 'entry'; key: string; turn: string; entry: ChatEntry }
+  | { kind: 'answer'; key: string; turn: string; blocks: AnswerBlock[]; footer: ConversationMessage | null }
+  | { kind: 'activity'; key: string; turn: string; blocks: ActivityBlock[]; footer: ConversationMessage | null };
+
+/**
+ * The turn a row belongs to, as the `${turn}` string the message ids use. A
+ * row whose id has no turn prefix yields '' — it can still render, it just
+ * cannot anchor turn-scoped UI (the file-change card).
+ */
+function rowTurn(id: string): string {
+  const head = id.split(':')[0];
+  return head !== undefined && head !== '' && !Number.isNaN(Number(head)) ? head : '';
+}
 
 function entryKey(entry: ChatEntry): string {
   return entry.kind === 'message' ? entry.message.id : entry.key;
@@ -55,7 +65,12 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   // One message can carry several execution runs (`tool → text → tool`); the
   // message id alone would repeat as the row key, so each run gets a counter.
   let activityRun = 0;
-  let open: { key: string; blocks: ActivityBlock[]; footer: ConversationMessage | null } | null = null;
+  let open: {
+    key: string;
+    turn: string;
+    blocks: ActivityBlock[];
+    footer: ConversationMessage | null;
+  } | null = null;
 
   const flush = (): void => {
     if (open !== null) {
@@ -67,7 +82,8 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
   for (const entry of entries) {
     if (entry.kind !== 'message' || entry.message.role !== 'assistant') {
       flush();
-      rows.push({ kind: 'entry', key: entryKey(entry), entry });
+      const key = entryKey(entry);
+      rows.push({ kind: 'entry', key, turn: rowTurn(key), entry });
       continue;
     }
 
@@ -81,7 +97,13 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
       // empty answer row keeps the footer alive.
       flush();
       if (isTurnTail) {
-        rows.push({ kind: 'answer', key: `${message.id}:footer`, blocks: [], footer: message });
+        rows.push({
+          kind: 'answer',
+          key: `${message.id}:footer`,
+          turn: rowTurn(message.id),
+          blocks: [],
+          footer: message,
+        });
       }
       continue;
     }
@@ -89,7 +111,12 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
     segments.forEach((segment, index) => {
       const isLast = index === segments.length - 1;
       if (segment.kind === 'activity') {
-        open ??= { key: `activity-${message.id}-${activityRun++}`, blocks: [], footer: null };
+        open ??= {
+          key: `activity-${message.id}-${activityRun++}`,
+          turn: rowTurn(message.id),
+          blocks: [],
+          footer: null,
+        };
         open.blocks.push(...segment.blocks);
         // The tail of a message may sit inside a run that keeps growing; the
         // last message to end in activity owns the footer of that run.
@@ -100,6 +127,7 @@ export function groupFeedEntries(entries: readonly ChatEntry[]): FeedRow[] {
       rows.push({
         kind: 'answer',
         key: `${message.id}:a${index}`,
+        turn: rowTurn(message.id),
         blocks: segment.blocks,
         footer: isLast ? footerFor() : null,
       });

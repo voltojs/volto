@@ -225,6 +225,10 @@ export {
 } from "./file-gate.js";
 export type { FileAccess } from "./file-gate.js";
 
+// File change — the display contract for a write tool's diff
+export { extractFileChange } from "./file-change.js";
+export type { FileChange } from "./file-change.js";
+
 // ContextAssembler — cache-friendly message ordering
 export {
   assembleContext,

@@ -270,5 +270,10 @@
     "background": "后台",
     "unavailable": "{count} 项不可用",
     "unavailableDetail": "派发时被丢弃：{tools}"
+  },
+  "fileChanges": {
+    "title": "已编辑 {count} 个文件",
+    "open": "查看 {path} 的 diff",
+    "truncated": "内容已截断"
   }
 }

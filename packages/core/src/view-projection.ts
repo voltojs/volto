@@ -10,6 +10,8 @@
  */
 
 import type { ContentBlock, ToolResultBlock } from "./state.js";
+import { extractFileChange } from "./file-change.js";
+import type { FileChange } from "./file-change.js";
 import type {
   ApprovalDenialReason,
   TokenUsage,
@@ -745,6 +747,12 @@ export interface ConversationToolCall {
   result?: string;
   isError?: boolean;
   durationMs?: number;
+  /**
+   * The edit this call made, when it wrote one file. Captured by the tool into
+   * `displayMetadata.fileChange` and persisted with the `tool_result` event, so
+   * the diff is exact per edit and survives reloads and replays.
+   */
+  fileChange?: FileChange;
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
   /** Dispatch-supplied task title, when the session records one. */
@@ -867,6 +875,19 @@ function textOf(content: string | ContentBlock[]): string {
 function toolResultText(content: string | ToolResultBlock[]): string {
   if (typeof content === "string") return content;
   return content.map(extractBlockText).join("\n");
+}
+
+/**
+ * The optional `fileChange` slice of a conversation tool call. Kept as a
+ * spreadable object so the call stays structurally identical for every tool
+ * that did not write a file, and so the (large) diff text is only attached
+ * when the tool actually reported a change.
+ */
+function fileChangeFields(displayMetadata: Record<string, unknown> | undefined): {
+  fileChange?: FileChange;
+} {
+  const change = extractFileChange(displayMetadata);
+  return change === null ? {} : { fileChange: change };
 }
 
 /**
@@ -1030,6 +1051,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   ...(call?.content !== undefined ? { result: toolResultText(call.content) } : {}),
                   ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                   ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+                  ...fileChangeFields(call?.displayMetadata),
                   ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
                   ...(call?.subagentTitle !== undefined ? { subagentTitle: call.subagentTitle } : {}),
                   ...(call?.subagentDroppedTools !== undefined

@@ -2,7 +2,7 @@ import type { FileSystem } from "@volto/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
 import { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
+import { computeUnifiedDiff, defineTool as defineFileTool } from "@volto/tools-common";
 import type { Tool as FileTool } from "@volto/tools-common";
 
 export { computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./fuzzy-match.js";
@@ -100,7 +100,12 @@ export function createEditFileTool(fs: FileSystem): FileTool {
         const mtime = (await fs.stat(path)).mtime;
         return {
           modelContent: `edit_file: ${editMode} replacement applied in ${path}.`,
-          displayMetadata: { path, editMode, writeFile: { path, mtime } },
+          displayMetadata: {
+            path,
+            editMode,
+            writeFile: { path, mtime },
+            fileChange: { path, ...computeUnifiedDiff(content, updated) },
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

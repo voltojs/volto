@@ -270,5 +270,10 @@
     "background": "background",
     "unavailable": "{count} unavailable",
     "unavailableDetail": "Dropped on dispatch: {tools}"
+  },
+  "fileChanges": {
+    "title": "Edited {count} files",
+    "open": "View the diff of {path}",
+    "truncated": "Content truncated"
   }
 }
