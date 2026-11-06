@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createRunner } from "../runner.js";
 import { createAutoAllowGate } from "../approval-gate.js";
 // NOTE: createMockModelPort / textDelta / reasoningDelta are re-exported from
@@ -52,6 +52,57 @@ function typesOf(events: TranscriptEventInput[]): string[] {
 function firstOf<T = Record<string, unknown>>(events: TranscriptEventInput[], type: string): T | undefined {
   return events.find((e) => e.type === type)?.data as T | undefined;
 }
+
+
+  it("persists a steering_queued event while the tool batch is still running", async () => {
+    // The user's scenario: a message queued during a long tool call must be
+    // durable before the batch ends — a mid-turn detail read folds the log,
+    // so waiting for the batch flush leaves the queue invisible for as long
+    // as the tool runs.
+    let startTool!: () => void;
+    const toolStarted = new Promise<void>((resolve) => {
+      startTool = resolve;
+    });
+    let releaseTool!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+
+    const slowTool: ToolDefinition = {
+      name: "slow",
+      description: "A tool that blocks until the test releases it",
+      inputSchema: { type: "object", properties: {} },
+      requires: [],
+      riskTier: "READ_ONLY",
+    };
+    const model = createMockModelPort([
+      [toolUseStart("call-1", "slow"), toolUseDelta("call-1", "{}"), modelDone("tool_use")],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+    const { store, events } = fakeChatStore();
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [slowTool], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      toolExecutor: async () => {
+        startTool();
+        await gate;
+        return { modelContent: "ok" };
+      },
+    });
+
+    const run = runner.run({ type: "user_message", content: "run the slow tool" });
+    await toolStarted;
+    runner.send({ type: "user_message", content: "queued during the tool" });
+
+    await vi.waitFor(() => {
+      expect(typesOf(events)).toContain("steering_queued");
+    });
+
+    releaseTool();
+    await run;
+  });
 
 describe("Runner transcript capture", () => {
   it("brackets the turn and the model call", async () => {

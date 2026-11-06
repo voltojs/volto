@@ -1054,6 +1054,11 @@ export function createRunner(opts: RunnerOptions): Runner {
             id: event.data["id"] as string,
             content: event.data["content"] as TranscriptEventMap["steering_queued"]["content"],
           });
+          // Flush now, not at the batch boundary: the durable queue is what a
+          // mid-turn `GET /sessions/:id` folds for a client that just
+          // reconnected, and a long tool call can hold the batch open for
+          // minutes. A refresh inside that window must still see the entry.
+          void recorder.flush();
           continue;
 
         case "steering_delivered":
@@ -1063,6 +1068,9 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record("steering_delivered", {
             ids: event.data["ids"] as string[],
           });
+          // Same immediate-durability rule as steering_queued: a rebuild or a
+          // mid-turn detail read must not resurrect a delivered entry.
+          void recorder.flush();
           continue;
 
         case "steering_edited":
@@ -1074,6 +1082,8 @@ export function createRunner(opts: RunnerOptions): Runner {
             id: event.data["id"] as string,
             content: event.data["content"] as TranscriptEventMap["steering_edited"]["content"],
           });
+          // Immediate durability, same reason as steering_queued.
+          void recorder.flush();
           continue;
 
         case "steering_removed":
@@ -1083,6 +1093,8 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record("steering_removed", {
             id: event.data["id"] as string,
           });
+          // Immediate durability, same reason as steering_queued.
+          void recorder.flush();
           continue;
 
         case "model_done": {
@@ -2922,6 +2934,11 @@ export function createRunner(opts: RunnerOptions): Runner {
         if (initialInput.type === "user_message") {
           recorder.record("user_message", { content: initialInput.content });
         }
+        // Persist the turn opening before any model I/O: a client that
+        // reconnects mid-turn rebuilds the live state from this log tail
+        // (`GET /sessions/:id/events?tail=1`), and without the flush it would
+        // see nothing until the first model call returns.
+        void recorder.flush();
 
         forwardEmit(feed(initialInput));
         turnOpened = true;
