@@ -101,6 +101,16 @@ export type { AgentEntry, AgentScanResult, ScanAgentSourcesOptions } from "./age
 export { createAgentStore } from "./agent-registry/store.js";
 export type { AgentStore, CreateAgentStoreOptions } from "./agent-registry/store.js";
 
+// Built-in sub-agent types (routing floor: every file source shadows these)
+export {
+  BUILTIN_AGENTS,
+  BUILTIN_EXPLORE,
+  BUILTIN_GENERAL_PURPOSE,
+  EXPLORE_NAME,
+  GENERAL_PURPOSE_NAME,
+  findBuiltInAgent,
+} from "./agent-registry/builtin.js";
+
 // M13: Slash commands
 export { renderCommand, parseArgs, findCommand } from "./commands.js";
 export type { SlashCommand } from "./commands.js";

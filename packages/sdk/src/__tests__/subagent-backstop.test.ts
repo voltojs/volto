@@ -70,12 +70,12 @@ function toolResultOf(
 }
 
 describe("F-150 executor backstop A — unknown subagent_type", () => {
-  it("F-150 the executor backstop rejects an unknown subagent_type with an exact signature", async () => {
-    // agentSpecs is empty, so the task tool's types list is empty and its
-    // pre-check is skipped: the scripted call goes straight to the executor,
-    // whose backstop must throw rather than fall through to a general
-    // sub-agent. The throw is normalized by the task tool into an isError
-    // tool_result whose text is pinned verbatim below.
+  it("F-150 an unknown subagent_type is rejected without falling through to general-purpose", async () => {
+    // Built-ins always populate the type list, so subagent_type arrives as
+    // an enum and a value outside it is rejected at validation — the same
+    // fail-loudly guarantee the executor backstop was there for: a model
+    // that names a type must not silently get a different one. The result
+    // stays an isError tool_result whose signature is pinned below.
     const { port, requests } = captureModelPort([
       toolCallScript(
         "c1",
@@ -93,7 +93,9 @@ describe("F-150 executor backstop A — unknown subagent_type", () => {
     expect(requests.length).toBeGreaterThanOrEqual(2);
     const result = toolResultOf(requests[1]!, "c1");
     expect(result.isError).toBe(true);
-    expect(result.text).toBe('Sub-agent error: Unknown subagent_type "ghost"');
+    expect(result.text).toBe(
+      'Invalid input for tool "task": property "subagent_type" must be one of: general-purpose, explore',
+    );
   });
 });
 

@@ -50,6 +50,20 @@ describe("validateToolInput", () => {
     );
   });
 
+  it("flags an enum property value outside the allowed set", () => {
+    const enumSchema: JSONSchema = {
+      type: "object",
+      properties: {
+        subagent_type: { type: "string", enum: ["general-purpose", "explore"] },
+      },
+    };
+    expect(validateToolInput(enumSchema, { subagent_type: "ghost" })).toContain(
+      'property "subagent_type" must be one of:',
+    );
+    expect(validateToolInput(enumSchema, { subagent_type: "explore" })).toBeNull();
+    expect(validateToolInput(enumSchema, {})).toBeNull();
+  });
+
   it("allows optional properties to be absent", () => {
     expect(validateToolInput(objectSchema, { path: "a.ts" })).toBeNull();
   });

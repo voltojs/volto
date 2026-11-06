@@ -301,18 +301,26 @@ export function ChatPanel() {
   // stamped from the session that is current *now*, so a later session
   // switch cannot rebind this tab's continued-chat input to the wrong
   // workspace.
-  const openSubagent = useCallback((childId: string) => {
-    const parentSessionId = useSessionStore.getState().currentSessionId;
-    usePaneStore
-      .getState()
-      .openTab({
-        kind: 'subagent',
-        id: `subagent:${childId}`,
-        childSessionId: childId,
-        view: 'chat',
-        ...(parentSessionId !== null ? { parentSessionId } : {}),
-      });
-  }, []);
+  const openSubagent = useCallback(
+    (childId: string, meta?: { title?: string; agentType?: string }) => {
+      const parentSessionId = useSessionStore.getState().currentSessionId;
+      usePaneStore
+        .getState()
+        .openTab({
+          kind: 'subagent',
+          id: `subagent:${childId}`,
+          childSessionId: childId,
+          view: 'chat',
+          ...(parentSessionId !== null ? { parentSessionId } : {}),
+          // Dispatch facts travel with the tab: the pane labels itself before
+          // the child transcript has loaded, and a legacy tab without them
+          // still falls back to the session-id suffix.
+          ...(meta?.title !== undefined ? { title: meta.title } : {}),
+          ...(meta?.agentType !== undefined ? { agentType: meta.agentType } : {}),
+        });
+    },
+    [],
+  );
 
   // /clear 动作命令：与侧栏「新会话」完全同一行为（回欢迎屏 + 清聊天缓冲）。
   // /compact：与 Header「压缩上下文」按钮同一路径（toast 反馈，不改对话流）。

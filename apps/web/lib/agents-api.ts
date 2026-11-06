@@ -18,9 +18,14 @@ export interface AgentEntry {
   id: string;
   name: string;
   description: string;
-  scope: 'project' | 'user' | 'plugin';
+  scope: 'project' | 'user' | 'plugin' | 'builtin';
   /** True for plugin-sourced entries: PUT/DELETE answer 409. */
   readOnly: boolean;
+  /**
+   * True when this row is a built-in type (the implicit row, or a same-named
+   * override file standing in for it). Editable, never deletable.
+   */
+  builtIn?: boolean;
   /** True when a higher-priority same-named definition shadows this one. */
   shadowed: boolean;
   /** Absent for plugin entries, which have no on-disk file. */

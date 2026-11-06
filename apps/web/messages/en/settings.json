@@ -141,7 +141,10 @@
     "scopeProject": "Project",
     "scopeUser": "User",
     "scopePlugin": "Plugin",
+    "scopeBuiltin": "Built-in",
     "inherit": "Inherit main chat",
+    "toolsInherit": "Tools inherited",
+    "toolsUnavailable": "Declares tools this gateway does not provide: {tools} (dropped on dispatch)",
     "route": "Route: {model}",
     "routeStale": "Removed tier: {model}",
     "routeUnconfigured": "Route: {label} (no model assigned)",
@@ -186,6 +189,9 @@
     "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel",
-    "delete": "Delete"
+    "delete": "Delete",
+    "toolsUnavailable": "Unavailable tools (not provided by this gateway, dropped on dispatch):",
+    "removeTool": "Remove tool {name}",
+    "removeAllUnavailable": "Remove all"
   }
 }

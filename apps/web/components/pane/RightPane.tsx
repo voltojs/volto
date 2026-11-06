@@ -230,7 +230,13 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
               const title =
                 tab.kind === 'file-preview'
                   ? (tab.path.split('/').at(-1) ?? tab.path)
-                  : t(tabTitleKey(tab), { suffix: tab.kind === 'subagent' ? tab.childSessionId.slice(-6) : '' });
+                  : // A sub-agent tab is labelled with the dispatch's own task
+                    // title when there is one; the session-id suffix stays the
+                    // fallback so legacy tabs and unnamed dispatches still
+                    // read distinctly.
+                    tab.kind === 'subagent' && tab.title !== undefined
+                    ? tab.title
+                    : t(tabTitleKey(tab), { suffix: tab.kind === 'subagent' ? tab.childSessionId.slice(-6) : '' });
               const active = tab.id === activeTab.id;
               return (
                 <div

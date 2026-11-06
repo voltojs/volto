@@ -91,3 +91,134 @@ describe("task_output", () => {
     expect(result.modelContent as string).toContain("t9");
   });
 });
+
+describe("per-dispatch refinement parameters", () => {
+  const types = [{ name: "general-purpose", description: "default" }];
+
+  it("exposes every refinement field in the schema", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }), { types });
+    const props = tool.definition.inputSchema.properties ?? {};
+    expect(Object.keys(props)).toEqual(
+      expect.arrayContaining([
+        "message",
+        "subagent_type",
+        "run_in_background",
+        "model",
+        "title",
+        "system_prompt",
+        "tools",
+        "max_iterations",
+        "temperature",
+        "max_tokens",
+        "response_format",
+      ]),
+    );
+  });
+
+  it("passes every refinement through to the dispatch in camelCase", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const tool = createTaskTool(async (req) => {
+      seen.push(req as Record<string, unknown>);
+      return { taskId: "t1", text: "ok" };
+    }, { types });
+
+    await tool.handler({
+      message: "go",
+      title: "调研触发机制",
+      system_prompt: "Be brief.",
+      tools: ["read_file", "grep"],
+      max_iterations: 6,
+      temperature: 0.2,
+      max_tokens: 2048,
+      response_format: { type: "json" },
+    });
+
+    expect(seen[0]).toMatchObject({
+      message: "go",
+      title: "调研触发机制",
+      systemPrompt: "Be brief.",
+      tools: ["read_file", "grep"],
+      maxIterations: 6,
+      temperature: 0.2,
+      maxTokens: 2048,
+      responseFormat: { type: "json" },
+    });
+  });
+
+  it("omits every refinement key when the model did not supply it", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const tool = createTaskTool(async (req) => {
+      seen.push(req as Record<string, unknown>);
+      return { taskId: "t1", text: "ok" };
+    }, { types });
+
+    await tool.handler({ message: "go" });
+    for (const key of [
+      "title",
+      "systemPrompt",
+      "tools",
+      "maxIterations",
+      "temperature",
+      "maxTokens",
+      "responseFormat",
+    ]) {
+      expect(seen[0]!).not.toHaveProperty(key);
+    }
+  });
+
+  it("rejects an over-long title and a malformed response_format", async () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }), { types });
+    const longTitle = await tool.handler({ message: "go", title: "x".repeat(121) });
+    expect(longTitle.isError).toBe(true);
+    const badFormat = await tool.handler({
+      message: "go",
+      response_format: { type: "yaml" },
+    });
+    expect(badFormat.isError).toBe(true);
+  });
+});
+
+describe("subagent_type enum + assembly-fact rendering", () => {
+  const richTypes = [
+    { name: "general-purpose", description: "default", builtIn: true },
+    {
+      name: "explore",
+      description: "read-only",
+      builtIn: true,
+      effectiveTools: ["read_file", "grep"],
+      droppedTools: ["run_bash_command"],
+    },
+    { name: "no-tool-scholar", description: "reviews from memory", effectiveTools: [], noTools: true },
+    { name: "searcher", description: "locates code", effectiveTools: ["echo"], droppedTools: ["curl"] },
+  ];
+
+  it("the schema constrains subagent_type to an enum of the offered names", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }), { types: richTypes });
+    const props = tool.definition.inputSchema.properties ?? {};
+    expect(props["subagent_type"]?.enum).toEqual(richTypes.map((t) => t.name));
+  });
+
+  it("an out-of-enum value is rejected at validation and never dispatched", async () => {
+    const dispatch = vi.fn(async () => ({ taskId: "t1" }));
+    const tool = createTaskTool(dispatch as never, { types: richTypes });
+    const result = await tool.handler({ message: "go", subagent_type: "bug-analyzer" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent as string).toContain("Invalid input");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("renders assembled tool facts — inherited, restricted, dropped, none", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }), { types: richTypes });
+    expect(tool.definition.description).toContain("inherits the parent's tools");
+    expect(tool.definition.description).toContain("tools: read_file, grep");
+    expect(tool.definition.description).toContain("unavailable: run_bash_command");
+    expect(tool.definition.description).toContain("unavailable: curl");
+    expect(tool.definition.description).toContain("no tools");
+  });
+
+  it("with no types configured the schema stays a free string", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }), { types: [] });
+    const props = tool.definition.inputSchema.properties ?? {};
+    expect(props["subagent_type"]?.enum).toBeUndefined();
+  });
+});

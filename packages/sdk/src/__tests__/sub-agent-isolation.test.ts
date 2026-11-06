@@ -270,8 +270,14 @@ describe("task sub-agent — skill catalog context layer", () => {
     await agent.run("Research this topic");
 
     const subRequest = capturedRequests[1]!;
-    // No system messages at all — no host system prompt, no catalog layer.
-    expect(subRequest.messages.some((m) => m.role === "system")).toBe(false);
+    // The only system message is the built-in sub-agent role prompt — no host
+    // system prompt leaked in, and no catalog layer without a registry.
+    const systemTexts = subRequest.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (typeof m.content === "string" ? m.content : ""));
+    expect(systemTexts).toHaveLength(1);
+    expect(systemTexts[0]).toContain("sub-agent");
+    expect(systemTexts[0]).not.toContain("Research this topic");
   });
 
   it("gives a dispatched subagent no catalog layer when no skill is model-invocable", async () => {
@@ -308,6 +314,13 @@ describe("task sub-agent — skill catalog context layer", () => {
     await agent.run("Research this topic");
 
     const subRequest = capturedRequests[1]!;
-    expect(subRequest.messages.some((m) => m.role === "system")).toBe(false);
+    // The only system message is the built-in role prompt; a non-invocable
+    // skill produces no catalog content in it.
+    const systemTexts = subRequest.messages
+      .filter((m) => m.role === "system")
+      .map((m) => (typeof m.content === "string" ? m.content : ""));
+    expect(systemTexts).toHaveLength(1);
+    expect(systemTexts[0]).toContain("sub-agent");
+    expect(systemTexts[0]).not.toContain("manual-only");
   });
 });

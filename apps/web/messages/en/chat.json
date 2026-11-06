@@ -263,5 +263,12 @@
   "queuedAttachments": "{count} attachments",
   "fileLink": {
     "openInPane": "Open {path} in the file panel"
+  },
+  "subagentCard": {
+    "maxIterations": "≤{count} turns",
+    "tools": "{count} tools",
+    "background": "background",
+    "unavailable": "{count} unavailable",
+    "unavailableDetail": "Dropped on dispatch: {tools}"
   }
 }

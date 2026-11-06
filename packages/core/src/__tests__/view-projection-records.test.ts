@@ -437,6 +437,139 @@ describe("buildTurnRecords", () => {
   });
 });
 
+describe("buildTurnRecords — sub-agent dispatch title", () => {
+  function dispatchLog(title?: string) {
+    return log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      {
+        time: 130,
+        type: "subagent_started",
+        data: {
+          childSessionId: "s-sub-1",
+          label: "task",
+          depth: 1,
+          ...(title !== undefined ? { title } : {}),
+        },
+        turn: 1,
+      },
+      {
+        time: 135,
+        type: "tool_call",
+        data: {
+          callId: "c1",
+          name: "task",
+          input: { message: "long message first line\nmore", subagent_type: "explore" },
+        },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 140,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "task", input: { message: "go" } }],
+          stopReason: "tool_use",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          ttftMs: 1,
+          durationMs: 2,
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+  }
+
+  it("carries the dispatch title onto the tool call record", () => {
+    const [turn] = buildTurnRecords(dispatchLog("调研触发机制"));
+    const call = turn!.steps[0]!.toolCalls[0]!;
+    expect(call.childSessionId).toBe("s-sub-1");
+    expect(call.subagentTitle).toBe("调研触发机制");
+  });
+
+  it("leaves the title absent for a session recorded before the field existed", () => {
+    const [turn] = buildTurnRecords(dispatchLog());
+    expect(turn!.steps[0]!.toolCalls[0]!.subagentTitle).toBeUndefined();
+  });
+
+  it("folds a subagent_tools_dropped record onto the call that dispatched it", () => {
+    const events = log([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+      { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+      // Disclosure arrives BEFORE the buffered tool_call flush — the fold must
+      // not depend on log order.
+      {
+        time: 130,
+        type: "subagent_tools_dropped",
+        data: {
+          childSessionId: "s-sub-1",
+          subagentType: "bug-analyzer",
+          droppedTools: ["run_bash_command", "search_files"],
+          droppedCapabilities: [],
+        },
+        turn: 1,
+      },
+      {
+        time: 131,
+        type: "subagent_permission_downgraded",
+        data: {
+          childSessionId: "s-sub-1",
+          subagentType: "bug-analyzer",
+          downgrades: [{ field: "sandbox", requested: "danger-full-access", effective: "workspace-write" }],
+        },
+        turn: 1,
+      },
+      { time: 132, type: "subagent_started", data: { childSessionId: "s-sub-1", label: "task", depth: 1 }, turn: 1 },
+      {
+        time: 135,
+        type: "tool_call",
+        data: { callId: "c1", name: "task", input: { message: "go" } },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 140,
+        type: "assistant_message",
+        data: {
+          content: [{ type: "tool_use", id: "c1", name: "task", input: { message: "go" } }],
+          stopReason: "tool_use",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          ttftMs: 1,
+          durationMs: 2,
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+
+    const [turn] = buildTurnRecords(events);
+    const call = turn!.steps[0]!.toolCalls[0]!;
+    expect(call.subagentDroppedTools).toEqual(["run_bash_command", "search_files"]);
+    expect(call.subagentDowngrades).toEqual([
+      { field: "sandbox", requested: "danger-full-access", effective: "workspace-write" },
+    ]);
+    // Empty capability drop lists are not materialised.
+    expect(call.subagentDroppedCapabilities).toBeUndefined();
+
+    const row = toTrajectoryView([turn!], events).rows.find((r) => r.kind === "subagent");
+    expect(row!.subagentDroppedTools).toEqual(["run_bash_command", "search_files"]);
+  });
+
+  it("surfaces the title and type on the trajectory row, titled over the message", () => {
+    const events = dispatchLog("调研触发机制");
+    const [turn] = buildTurnRecords(events);
+    const view = toTrajectoryView([turn!], events);
+    const row = view.rows.find((r) => r.kind === "subagent");
+    expect(row).toBeDefined();
+    expect(row!.subagentTitle).toBe("调研触发机制");
+    expect(row!.subagentType).toBe("explore");
+    // The row summary reads as the task, not as a JSON dump of the message.
+    expect(row!.summary).toBe("调研触发机制");
+  });
+});
+
 describe("buildTurnRecords — steering queue realization", () => {
   it("folds steering_edited and steering_removed into the queued input records", () => {
     const events = log([

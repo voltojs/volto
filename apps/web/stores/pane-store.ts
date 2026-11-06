@@ -22,6 +22,14 @@ export type PaneTab =
        * opened before the field existed — those fall back to currentSessionId.
        */
       parentSessionId?: string;
+      /**
+       * Dispatch-supplied task title, so the tab strip can label the pane
+       * with what the user asked for instead of a session-id suffix — before
+       * the child's own transcript has loaded. Absent for legacy tabs.
+       */
+      title?: string;
+      /** `subagent_type` the dispatch named (the card's own label). */
+      agentType?: string;
     }
   | { kind: 'files'; id: string; projectId: string }
   /**

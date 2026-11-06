@@ -59,6 +59,9 @@ describe("sub-agent assembly", () => {
       parentCapabilities: new Set(),
     });
     expect(assembled.tools.map((t) => t.definition.name)).toEqual(["read_file"]);
+    // The loss is data the caller can surface — never a silent edit of what
+    // the definition file says.
+    expect(assembled.droppedTools).toEqual(["curl"]);
   });
 
   it("intersects capabilities", () => {
@@ -70,6 +73,7 @@ describe("sub-agent assembly", () => {
       parentCapabilities: new Set(["filesystem:read"]),
     });
     expect([...assembled.capabilities]).toEqual(["filesystem:read"]);
+    expect(assembled.droppedCapabilities).toEqual(["shell:exec"]);
   });
 
   it("refuses to widen the sandbox and reports the downgrade", () => {
@@ -310,7 +314,12 @@ describe("typed sub-agent dispatch wiring", () => {
         ? first.content
         : first.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
     expect(first.isError).toBe(true);
-    expect(firstText).toContain("nope");
+    // subagent_type is an enum built from the offered types, so a drifting
+    // value is rejected at validation — never dispatched — and the error
+    // names the allowed set so the model can self-correct.
+    expect(firstText).toContain("subagent_type");
+    expect(firstText).toContain("general-purpose");
+    expect(firstText).toContain("searcher");
   });
 
   it("ignores shadowed entries when resolving a type", async () => {

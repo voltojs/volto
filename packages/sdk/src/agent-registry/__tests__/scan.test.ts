@@ -136,4 +136,37 @@ describe("scanAgentSources", () => {
     expect(entry?.filePath).toBe(path.join(dir, "tagged.md"));
     expect(entry?.unknownKeys).toEqual({ customKey: "keep-me" });
   });
+
+  it("warns on declared tool names outside the known set when one is provided", async () => {
+    const cwd = await tmp();
+    const configDir = await tmp();
+    const dir = path.join(cwd, ".volto", "agents");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "imported.md"),
+      "---\nname: imported\ntools: [read_file, run_bash_command, search_files]\n---\n\nbody\n",
+      "utf8",
+    );
+    // vl3ierhqx: a definition imported from another product names tools that
+    // do not exist in volto; the intersection silently dropped them.
+    const known = new Set(["read_file", "write_file", "grep"]);
+    const { warnings } = await scanAgentSources({ cwd, configDir, knownToolNames: known });
+    expect(warnings).toHaveLength(2);
+    expect(warnings.some((w) => w.includes("run_bash_command"))).toBe(true);
+    expect(warnings.some((w) => w.includes("search_files"))).toBe(true);
+  });
+
+  it("does not warn on tool names when no known set is provided", async () => {
+    const cwd = await tmp();
+    const configDir = await tmp();
+    const dir = path.join(cwd, ".volto", "agents");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "imported.md"),
+      "---\nname: imported\ntools: [read_file, nonexistent]\n---\n\nbody\n",
+      "utf8",
+    );
+    const { warnings } = await scanAgentSources({ cwd, configDir });
+    expect(warnings).toHaveLength(0);
+  });
 });

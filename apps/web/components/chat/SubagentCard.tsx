@@ -5,12 +5,18 @@ import { useTranslations } from 'next-intl';
 import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
-import { subagentTaskTitle } from '@/lib/background-tasks';
+import { subagentTaskTitle, subagentTypeOf } from '@/lib/background-tasks';
 import { TraceRow } from './TraceRow';
+
+/** Dispatch facts the pane needs to label its tab before the child loads. */
+export interface SubagentOpenMeta {
+  title?: string;
+  agentType?: string;
+}
 
 interface SubagentCardProps {
   call: ConversationToolCall;
-  onOpenSubagent?: (childSessionId: string) => void;
+  onOpenSubagent?: (childSessionId: string, meta?: SubagentOpenMeta) => void;
 }
 
 /**
@@ -20,9 +26,9 @@ interface SubagentCardProps {
  * memo; compare only the fields that actually move during a live run —
  * result/isError/durationMs land together at tool_result. Excluded on
  * purpose: `args` (fresh reference per projection; the title derived from it
- * is fixed once the call is issued), `childSessionId`/`startedAt` (write-once
- * when the delegation bracket lands), `approval` (not rendered by this
- * component). Exported for the comparator test.
+ * is fixed once the call is issued), `childSessionId`/`startedAt`/`subagentTitle`
+ * (write-once when the delegation bracket lands), `approval` (not rendered by
+ * this component). Exported for the comparator test.
  */
 export function subagentCardComparator(
   a: SubagentCardProps,
@@ -33,6 +39,13 @@ export function subagentCardComparator(
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
     a.call.durationMs === b.call.durationMs &&
+    // Write-once when the delegation bracket lands, exactly like
+    // childSessionId: a title arriving after the first paint must re-render.
+    a.call.subagentTitle === b.call.subagentTitle &&
+    // Arrays are rebuilt per projection pass; compare their content, not
+    // their identity, or the memo would miss on every frame.
+    (a.call.subagentDroppedTools?.join('\u0000') ?? '') ===
+      (b.call.subagentDroppedTools?.join('\u0000') ?? '') &&
     a.onOpenSubagent === b.onOpenSubagent
   );
 }
@@ -66,13 +79,47 @@ export const SubagentCard = memo(function SubagentCard({
       : null;
   const duration =
     typeof call.durationMs === 'number' ? formatDuration(call.durationMs) : null;
-  const title = subagentTaskTitle(call.args);
+  // The dispatch's own label wins; only pre-title sessions fall back to the
+  // message's first line.
+  const title = subagentTaskTitle(call.args, call.subagentTitle);
+  const agentType = subagentTypeOf(call.args);
+  // What the dispatch actually asked for — the same facts the executor used,
+  // read straight off the call's args so the card never guesses.
+  const badges: string[] = [];
+  if (typeof call.args.background === 'boolean' && call.args.background) {
+    badges.push(t('subagentCard.background'));
+  }
+  if (typeof call.args.model === 'string' && call.args.model !== '') {
+    badges.push(call.args.model);
+  }
+  if (typeof call.args.max_iterations === 'number') {
+    badges.push(t('subagentCard.maxIterations', { count: call.args.max_iterations }));
+  }
+  if (Array.isArray(call.args.tools)) {
+    badges.push(t('subagentCard.tools', { count: call.args.tools.length }));
+  }
 
   return (
     <TraceRow
       icon={Bot}
-      label="task"
+      // The delegation's identity is which agent type ran, not the tool name:
+      // "task" says nothing the glyph does not already say.
+      label={agentType ?? 'general-purpose'}
       detail={title === '' ? undefined : title}
+      badges={badges}
+      // Declared-but-unavailable tools are a warning, not a task fact: folded
+      // into a tinted marker whose detail names them on hover, so the row
+      // stays one line.
+      {...(call.subagentDroppedTools !== undefined && call.subagentDroppedTools.length > 0
+        ? {
+            warning: t('subagentCard.unavailable', {
+              count: call.subagentDroppedTools.length,
+            }),
+            warningDetail: t('subagentCard.unavailableDetail', {
+              tools: call.subagentDroppedTools.join('、'),
+            }),
+          }
+        : {})}
       meta={isRunning ? undefined : (duration ?? undefined)}
       failed={call.isError === true}
       status={
@@ -87,7 +134,12 @@ export const SubagentCard = memo(function SubagentCard({
           <Check className="text-success/60 h-3 w-3" />
         )
       }
-      onActivate={() => onOpenSubagent?.(call.childSessionId ?? '')}
+      onActivate={() =>
+        onOpenSubagent?.(call.childSessionId ?? '', {
+          ...(title !== '' ? { title } : {}),
+          ...(agentType !== undefined ? { agentType } : {}),
+        })
+      }
       ariaLabel={t('common.subagent', { title }).trim()}
     />
   );

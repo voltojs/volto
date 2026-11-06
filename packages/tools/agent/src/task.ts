@@ -30,6 +30,11 @@ export interface SubAgentResult {
 /**
  * Dispatch a sub-agent. The SDK provides the real implementation; this package
  * only defines the contract and routes the model-facing tool call.
+ *
+ * The per-dispatch refinement fields mirror `AgentSpec` (the definition-level
+ * settings) and follow the same precedence — dispatch > definition > parent —
+ * and the same safety rule: they can only narrow or refine, never widen what
+ * the parent's assembly line grants.
  */
 export type SubAgentDispatch = (req: {
   message: string;
@@ -37,12 +42,44 @@ export type SubAgentDispatch = (req: {
   background?: boolean;
   /** Per-dispatch model override; takes precedence over the agent definition's model. */
   model?: string;
+  /** One-line task label for the UI surfaces (card / tab / trajectory / tasks list). */
+  title?: string;
+  /** Supplementary instructions APPENDED after the child's role prompt / definition body. */
+  systemPrompt?: string;
+  /** Per-dispatch tool allowlist, intersected again with the assembled child set. */
+  tools?: string[];
+  /** Child loop-iteration budget; outranks the definition's maxIterations. */
+  maxIterations?: number;
+  /** Per-dispatch temperature override. */
+  temperature?: number;
+  /** Per-dispatch max-tokens override. */
+  maxTokens?: number;
+  /** Structured-JSON output request for the child's final answer. */
+  responseFormat?: { type: "json"; schema?: Record<string, unknown> };
 }) => Promise<SubAgentResult>;
 
-/** One available sub-agent definition, rendered into the tool description. */
+/**
+ * One available sub-agent definition, rendered into the tool description.
+ *
+ * The tool-visibility fields carry the ASSEMBLED facts (the definition's
+ * declared set intersected with what the parent actually owns), never the
+ * declaration: a model choosing between types can only make an informed pick
+ * if the list says what the child will really have — including "no tools".
+ */
 export interface AgentTypeSummary {
   name: string;
   description?: string;
+  /**
+   * Tool names the child keeps after intersection with the parent's set.
+   * Absent = the type inherits the parent's tools (no declared restriction).
+   */
+  effectiveTools?: string[];
+  /** Declared tool names dropped because the parent does not own them. */
+  droppedTools?: string[];
+  /** True when the definition declares an empty tool list (child gets none). */
+  noTools?: boolean;
+  /** True for SDK built-in types (general-purpose / explore). */
+  builtIn?: boolean;
 }
 
 const NO_OUTPUT = "(Sub-agent completed with no output)";
@@ -71,30 +108,100 @@ export function buildResultBlocks(
   ];
 }
 
-const taskSchema = z.object({
-  message: z.string().describe(
-    "Self-contained instruction; the sub-agent cannot see this conversation.",
-  ),
-  subagent_type: z.string().optional().describe(
-    "Which agent definition to use. Omit for a general-purpose sub-agent.",
-  ),
-  run_in_background: z.boolean().optional().describe(
-    "Return a task id immediately instead of waiting for the result.",
-  ),
-  model: z.string().optional().describe(
-    "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
-  ),
-});
+/**
+ * Build the input schema. With a type list the `subagent_type` becomes an
+ * enum, not free text: a model that decides "general-purpose" but emits a
+ * drifting value must fail validation (isError → self-correct) instead of
+ * silently landing on whichever definition the string happens to name.
+ */
+function buildTaskSchema(types: AgentTypeSummary[]) {
+  const subagentType =
+    types.length > 0
+      ? z.enum(types.map((t) => t.name) as [string, ...string[]])
+      : z.string();
+  return z.object({
+    message: z.string().describe(
+      "Self-contained instruction; the sub-agent cannot see this conversation. " +
+        "State the required scope, the expected depth (quick overview vs deep " +
+        "dive) and a target output size — the child acts only on this message.",
+    ),
+    subagent_type: subagentType.optional().describe(
+      "Which agent definition to use. Omit (or use \"general-purpose\") unless the " +
+        "task clearly matches a listed specialist.",
+    ),
+    run_in_background: z.boolean().optional().describe(
+      "Return a task id immediately instead of waiting for the result. " +
+        "Use for dispatches expected to run long, or when fanning out several in parallel.",
+    ),
+    model: z.string().optional().describe(
+      "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
+    ),
+    title: z.string().min(1).max(120).optional().describe(
+      "One-line human-readable label for this dispatch, shown in the UI " +
+        "(conversation card, execution panel tab, trajectory). Never sent to the child.",
+    ),
+    system_prompt: z.string().min(1).max(4096).optional().describe(
+      "Supplementary instructions for the child, APPENDED after its role prompt " +
+        "(or the definition's body). Narrow or refine the child's behavior; the " +
+        "built-in sub-agent contract stays.",
+    ),
+    tools: z.array(z.string()).optional().describe(
+      "Per-dispatch tool allowlist for the child, intersected with the type's " +
+        "assembled tool set — narrows only, never grants tools the parent lacks. " +
+        "An empty list leaves the child tool-less.",
+    ),
+    max_iterations: z.number().int().positive().optional().describe(
+      "Loop-iteration budget for the child run; outranks the definition's maxIterations. " +
+        "Omit to inherit. Bounds a 'quick' dispatch instead of trusting the message alone.",
+    ),
+    temperature: z.number().min(0).max(2).optional().describe(
+      "Per-dispatch temperature override; outranks the definition's, which outranks the parent's.",
+    ),
+    max_tokens: z.number().int().positive().optional().describe(
+      "Per-dispatch max output tokens override; outranks the definition's, which outranks the parent's.",
+    ),
+    response_format: z
+      .object({
+        type: z.literal("json"),
+        schema: z.record(z.string(), z.unknown()).optional(),
+      })
+      .optional()
+      .describe(
+        "Ask the child for structured JSON output (optionally schema-validated). " +
+          "Use when the result feeds machine processing rather than prose aggregation.",
+      ),
+  });
+}
 
 function renderDescription(types: AgentTypeSummary[]): string {
   const base =
     "Spawn a sub-agent to perform a task in isolation. " +
-    "The sub-agent has its own context window and cannot see this conversation.";
+    "The sub-agent has its own context window and cannot see this conversation. " +
+    "Pass `title` (one short line) so the user can identify this dispatch in the UI, " +
+    "and `max_iterations` to bound a quick one instead of leaving the child unbounded.";
   if (types.length === 0) return base;
-  const list = types
-    .map((t) => `- ${t.name}${t.description ? `: ${t.description}` : ""}`)
-    .join("\n");
-  return `${base}\n\nAvailable subagent_type values:\n${list}`;
+  const list = types.map((t) => renderTypeLine(t)).join("\n");
+  return (
+    `${base}\n\nAvailable subagent_type values (tool lists are what the child ` +
+    `actually gets after assembly):\n${list}`
+  );
+}
+
+function renderTypeLine(t: AgentTypeSummary): string {
+  const facts = renderToolFacts(t);
+  return `- ${t.name}${t.description ? `: ${t.description}` : ""}${facts ? ` (${facts})` : ""}`;
+}
+
+function renderToolFacts(t: AgentTypeSummary): string | undefined {
+  if (t.effectiveTools === undefined) {
+    return t.builtIn ? "inherits the parent's tools" : undefined;
+  }
+  if (t.noTools || t.effectiveTools.length === 0) return "no tools";
+  const parts = [`tools: ${t.effectiveTools.join(", ")}`];
+  if (t.droppedTools !== undefined && t.droppedTools.length > 0) {
+    parts.push(`unavailable: ${t.droppedTools.join(", ")}`);
+  }
+  return parts.join("; ");
 }
 
 function renderTypeList(types: AgentTypeSummary[]): string {
@@ -109,12 +216,14 @@ export function createTaskTool(
   return defineTool({
     name: "task",
     description: renderDescription(types),
-    schema: taskSchema,
+    schema: buildTaskSchema(types),
     requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
     riskTier: "WRITE_LOW",
     run: async (input): Promise<ToolResult> => {
       // Reject an unknown subagent_type BEFORE dispatching, and list the valid
-      // values so the model can self-correct in the next attempt.
+      // values so the model can self-correct in the next attempt. With the
+      // enum schema this is a backstop (zod already rejected the value);
+      // with the free-string fallback (no types) it never fires.
       if (input.subagent_type !== undefined && types.length > 0) {
         const known = types.some((t) => t.name === input.subagent_type);
         if (!known) {
@@ -133,6 +242,23 @@ export function createTaskTool(
           subagentType: input.subagent_type,
           background: input.run_in_background,
           model: input.model,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.system_prompt !== undefined
+            ? { systemPrompt: input.system_prompt }
+            : {}),
+          ...(input.tools !== undefined ? { tools: input.tools } : {}),
+          ...(input.max_iterations !== undefined
+            ? { maxIterations: input.max_iterations }
+            : {}),
+          ...(input.temperature !== undefined
+            ? { temperature: input.temperature }
+            : {}),
+          ...(input.max_tokens !== undefined
+            ? { maxTokens: input.max_tokens }
+            : {}),
+          ...(input.response_format !== undefined
+            ? { responseFormat: input.response_format }
+            : {}),
         });
 
         if (input.run_in_background) {

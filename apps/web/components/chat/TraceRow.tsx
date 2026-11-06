@@ -17,6 +17,20 @@ export interface TraceRowProps {
   label: string;
   /** Secondary text: the command, the path, a reasoning preview. */
   detail?: ReactNode;
+  /**
+   * Small trailing chips after the detail (agent type, model tier, budget).
+   * Presentational only: the same row anatomy as a tool call, so a delegation
+   * row does not grow a second layout.
+   */
+  badges?: readonly string[];
+  /**
+   * A folded warning shown after the badges (e.g. "2 项不可用"). Tinted, and
+   * carries `warningDetail` as its native tooltip — the explanation belongs
+   * on demand, not in the one-line trace.
+   */
+  warning?: string;
+  /** Full text of the folded warning, shown on hover. */
+  warningDetail?: string;
   /** Trailing metadata in mono, e.g. "53ms". */
   meta?: string;
   /** Trailing state glyph (check / alert / spinner). */
@@ -59,6 +73,9 @@ export function TraceRow({
   icon: Icon,
   label,
   detail,
+  badges,
+  warning,
+  warningDetail,
   meta,
   status,
   failed = false,
@@ -106,6 +123,23 @@ export function TraceRow({
       {detail !== undefined && detail !== '' && (
         <span className="text-muted-foreground/70 truncate">{detail}</span>
       )}
+      {warning !== undefined && (
+        <span
+          title={warningDetail}
+          className="shrink-0 rounded border border-amber-500/40 px-1 font-mono text-[10px] leading-[14px] text-amber-600 dark:text-amber-500"
+        >
+          {warning}
+        </span>
+      )}
+      {badges !== undefined &&
+        badges.map((badge) => (
+          <span
+            key={badge}
+            className="text-muted-foreground/50 border-border/60 shrink-0 rounded border px-1 font-mono text-[10px] leading-[14px]"
+          >
+            {badge}
+          </span>
+        ))}
       {meta !== undefined && (
         <span className="text-muted-foreground/40 ml-auto shrink-0 font-mono text-[10px] tabular-nums">
           {meta}

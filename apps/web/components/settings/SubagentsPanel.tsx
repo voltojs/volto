@@ -33,6 +33,7 @@ const SCOPE_LABEL_KEY: Record<AgentEntry['scope'], string> = {
   project: 'subagents.scopeProject',
   user: 'subagents.scopeUser',
   plugin: 'subagents.scopePlugin',
+  builtin: 'subagents.scopeBuiltin',
 };
 
 /** Which form, if any, currently replaces the list. */
@@ -197,6 +198,10 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
     }
   };
 
+  // The catalogue the child could actually be granted. A declared name
+  // outside it is dropped at dispatch — surface it here, where it is fixable.
+  const toolNames = new Set(tools.map((tool) => tool.name));
+
   if (status === 'loading') {
     return (
       <p className="text-muted-foreground text-sm">{t('subagents.loading')}</p>
@@ -243,9 +248,12 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
             tiers={tiers}
             entry={form.entry}
             // The row trash button opens straight into the confirmation;
-            // the pencil opens the editable fields.
+            // the pencil opens the editable fields. Built-ins are editable
+            // but never deletable — no confirmation UI for them at all.
             startConfirmingDelete={form.startConfirmingDelete === true}
-            onDelete={() => void handleDelete(form.entry)}
+            onDelete={
+              form.entry.builtIn === true ? undefined : () => void handleDelete(form.entry)
+            }
             onSubmit={(payload) => handleSubmit(payload)}
             onCancel={() => {
               setForm(null);
@@ -287,8 +295,61 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
         </p>
       ) : (
         agents.map((agent) => (
-          <div
+          <AgentRow
             key={agent.id}
+            agent={agent}
+            tierList={tiers}
+            providers={providers}
+            catalogProviders={catalogProviders}
+            knownTools={toolNames}
+            onEdit={() => {
+              setActionError(null);
+              setForm({ mode: 'edit', entry: agent });
+            }}
+            onDelete={() => {
+              setActionError(null);
+              setForm({
+                mode: 'edit',
+                entry: agent,
+                startConfirmingDelete: true,
+              });
+            }}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * One list row. Extracted so the "declared but unavailable" computation can
+ * live next to the rendering it explains: a definition naming a tool this
+ * gateway does not expose is exactly the loss `subagent_tools_dropped`
+ * reports at runtime, and it is knowable here without running anything.
+ */
+function AgentRow({
+  agent,
+  tierList,
+  providers,
+  catalogProviders,
+  knownTools,
+  onEdit,
+  onDelete,
+}: {
+  agent: AgentEntry;
+  tierList: RoutingTier[] | null;
+  providers: readonly Provider[];
+  catalogProviders: readonly CatalogProvider[];
+  knownTools: ReadonlySet<string>;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const t = useTranslations('settings');
+  // Only a declared list can be wrong; an omitted `tools` inherits a set the
+  // catalogue cannot judge.
+  const missingTools = (agent.spec.tools ?? []).filter((name) => !knownTools.has(name));
+  return (
+          <div
             data-agent-row=""
             data-agent-id={agent.id}
             className="space-y-1.5 rounded-md border p-2.5 text-sm"
@@ -304,11 +365,20 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
               <Badge variant="secondary">{t(SCOPE_LABEL_KEY[agent.scope])}</Badge>
               <ModelBadge
                 model={agent.spec.model}
-                tiers={tiers}
+                tiers={tierList}
                 providers={providers}
                 catalogProviders={catalogProviders}
               />
-              <ToolBadges tools={agent.spec.tools ?? []} />
+              {/* An omitted `tools` means the child inherits the parent's
+                  set — say so, because "no badges" would read as "no tools"
+                  (built-in general-purpose renders exactly like that). */}
+              {agent.spec.tools === undefined ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {t('subagents.toolsInherit')}
+                </Badge>
+              ) : (
+                <ToolBadges tools={agent.spec.tools} />
+              )}
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button
                   variant="ghost"
@@ -316,10 +386,7 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                   data-action="edit"
                   disabled={agent.readOnly}
                   aria-label={t('subagents.ariaEdit', { name: agent.name })}
-                  onClick={() => {
-                    setActionError(null);
-                    setForm({ mode: 'edit', entry: agent });
-                  }}
+                  onClick={onEdit}
                 >
                   <Pencil />
                 </Button>
@@ -327,16 +394,11 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
                   variant="ghost"
                   size="icon-sm"
                   data-action="delete"
-                  disabled={agent.readOnly}
+                  // A built-in is configurable but never removable: neither
+                  // its implicit row nor its override file can be deleted.
+                  disabled={agent.readOnly || agent.builtIn === true}
                   aria-label={t('subagents.ariaDelete', { name: agent.name })}
-                  onClick={() => {
-                    setActionError(null);
-                    setForm({
-                      mode: 'edit',
-                      entry: agent,
-                      startConfirmingDelete: true,
-                    });
-                  }}
+                  onClick={onDelete}
                 >
                   <Trash2 />
                 </Button>
@@ -347,6 +409,16 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
             {agent.description && (
               <p className="text-muted-foreground line-clamp-2 text-xs">
                 {agent.description}
+              </p>
+            )}
+            {missingTools.length > 0 && (
+              // This is the same loss `subagent_tools_dropped` reports at
+              // dispatch time, known statically: the definition names a tool
+              // this gateway does not expose, so the child will never get it.
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                {t('subagents.toolsUnavailable', {
+                  tools: missingTools.join('、'),
+                })}
               </p>
             )}
             {agent.shadowed && (
@@ -373,8 +445,5 @@ export function SubagentsPanel({ projectId }: SubagentsPanelProps) {
               </Tooltip>
             )}
           </div>
-        ))
-      )}
-    </div>
   );
 }

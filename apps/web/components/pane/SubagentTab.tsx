@@ -51,6 +51,12 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
   const bucket = useChatStore((s) =>
     childId !== undefined ? s.subagents[childId] : undefined,
   );
+  // Dispatch facts carried on the tab (set when the card opened it). The
+  // title falls back to the child's own session_meta title when the tab was
+  // opened from somewhere that had no dispatch in hand (trajectory drawer).
+  const tabTitle = tab.kind === 'subagent' ? tab.title : undefined;
+  const agentType =
+    (tab.kind === 'subagent' ? tab.agentType : undefined) ?? 'general-purpose';
   const feed = useSubagentConversation(childId ?? null);
   // Same display preference as the main chat: a sub-agent's execution detail
   // is read at the same distance, so it must not have a second setting.
@@ -124,9 +130,18 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs">
-        <span className="text-foreground/90 font-mono">task</span>
-        <span className="text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2 text-xs">
+        {/* The dispatch's own identity: the agent type it named (or the
+            built-in default) is what this run actually was. */}
+        <span className="text-foreground/90 shrink-0 font-mono">{agentType}</span>
+        {/* Its task title is the one thing the user typed to ask for it —
+            lead with it, truncating rather than pushing the status out. */}
+        {tabTitle !== undefined && (
+          <span className="text-foreground/70 min-w-0 truncate" title={tabTitle}>
+            {tabTitle}
+          </span>
+        )}
+        <span className="text-muted-foreground shrink-0">
           {bucket?.status === 'running' && t('subagent.running')}
           {bucket?.status === 'done' &&
             (bucket.durationMs !== undefined
@@ -134,7 +149,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               : t('subagent.done'))}
           {bucket?.status === 'error' && <span className="text-destructive">{t('subagent.failed')}</span>}
         </span>
-        <span className="text-muted-foreground/60 min-w-0 flex-1 truncate font-mono text-[10px]">
+        <span className="text-muted-foreground/60 ml-auto min-w-0 max-w-40 truncate font-mono text-[10px]">
           {childId}
         </span>
       </div>

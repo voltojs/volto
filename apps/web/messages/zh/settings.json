@@ -141,7 +141,10 @@
     "scopeProject": "项目",
     "scopeUser": "用户",
     "scopePlugin": "插件",
+    "scopeBuiltin": "内置",
     "inherit": "继承主对话",
+    "toolsInherit": "工具继承父级",
+    "toolsUnavailable": "声明了本网关不提供的工具：{tools}（派发时会被丢弃）",
     "route": "路由：{model}",
     "routeStale": "已失效档位:{model}",
     "routeUnconfigured": "路由：{label}（未配置模型）",
@@ -186,6 +189,9 @@
     "saving": "保存中…",
     "save": "保存",
     "cancel": "取消",
-    "delete": "删除"
+    "delete": "删除",
+    "toolsUnavailable": "不可用工具（本网关不提供，派发时会被丢弃）：",
+    "removeTool": "移除工具 {name}",
+    "removeAllUnavailable": "全部移除"
   }
 }

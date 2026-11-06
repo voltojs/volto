@@ -9,12 +9,30 @@ export interface BackgroundTaskItem {
   startedAt?: number;
 }
 
-/** Title = first line of args.message, truncated; empty when not a string. */
-export function subagentTaskTitle(args: Record<string, unknown>): string {
+/**
+ * The dispatch's display title. An explicit `title` from the task tool wins —
+ * it is what the dispatching model chose to call this job — and only sessions
+ * recorded before that field existed fall back to the first line of
+ * `args.message`, truncated. Returns '' when neither yields anything.
+ */
+export function subagentTaskTitle(
+  args: Record<string, unknown>,
+  explicit?: string,
+): string {
+  if (typeof explicit === 'string' && explicit.trim() !== '') return explicit.trim();
+  if (typeof args.title === 'string' && args.title.trim() !== '') {
+    return args.title.trim();
+  }
   const message = args.message;
   if (typeof message !== 'string') return '';
   const firstLine = message.split('\n', 1)[0] ?? '';
   return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
+}
+
+/** The sub-agent type a `task` call named, for the UI badge. */
+export function subagentTypeOf(args: Record<string, unknown>): string | undefined {
+  const type = args.subagent_type;
+  return typeof type === 'string' && type !== '' ? type : undefined;
 }
 
 function toItem(call: ConversationToolCall): BackgroundTaskItem {
@@ -23,7 +41,7 @@ function toItem(call: ConversationToolCall): BackgroundTaskItem {
   const item: BackgroundTaskItem = {
     id: call.id,
     childSessionId: call.childSessionId!,
-    title: subagentTaskTitle(call.args),
+    title: subagentTaskTitle(call.args, call.subagentTitle),
     status,
   };
   if (call.durationMs !== undefined) item.durationMs = call.durationMs;

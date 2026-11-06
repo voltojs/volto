@@ -7,6 +7,7 @@ import type { ConversationBlock } from '@volto/sdk/sse';
 import type { StreamDensity } from '@/lib/stream-density';
 import { toolCallSummary } from '@/lib/tool-summary';
 import { SubagentCard } from './SubagentCard';
+import type { SubagentOpenMeta } from './SubagentCard';
 import { ToolCallCard } from './ToolCallCard';
 import { TraceRow } from './TraceRow';
 
@@ -30,7 +31,7 @@ export function ActivitySteps({
 }: {
   blocks: ActivityBlock[];
   density: StreamDensity;
-  onOpenSubagent?: (childSessionId: string) => void;
+  onOpenSubagent?: (childSessionId: string, meta?: SubagentOpenMeta) => void;
   /** Project the content belongs to; undefined → current session at click time. */
   fileProjectId?: string | null;
 }) {

@@ -7,6 +7,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { Notice } from './Notice';
 import { WaveLoading } from './WaveLoading';
 import { ActivitySteps } from './ActivitySteps';
+import type { SubagentOpenMeta } from './SubagentCard';
 import { AnswerRow } from './AnswerRow';
 import { MessageFooter } from './MessageFooter';
 import { groupFeedEntries } from '@/lib/feed-groups';
@@ -41,7 +42,7 @@ export function MessageList({
   scrollable = true,
 }: {
   entries: ChatEntry[];
-  onOpenSubagent?: (childSessionId: string) => void;
+  onOpenSubagent?: (childSessionId: string, meta?: SubagentOpenMeta) => void;
   /** How much execution detail each bubble shows; omitted → stored preference. */
   density?: StreamDensity;
   /** Session for resolving image attachment refs; omitted → images stay as placeholders. */

@@ -114,6 +114,36 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
           )}
         </>
       )}
+      {row.subagentTitle !== undefined && (
+        <Field label={t('drawer.subagentTitle')}>
+          <Cell text={row.subagentTitle} />
+        </Field>
+      )}
+      {row.subagentType !== undefined && (
+        <Field label={t('drawer.subagentType')}>
+          <Cell text={row.subagentType} />
+        </Field>
+      )}
+      {row.subagentDroppedTools !== undefined && row.subagentDroppedTools.length > 0 && (
+        <Field label={t('drawer.subagentDroppedTools')}>
+          <Cell text={row.subagentDroppedTools.join('、')} />
+        </Field>
+      )}
+      {row.subagentDroppedCapabilities !== undefined &&
+        row.subagentDroppedCapabilities.length > 0 && (
+          <Field label={t('drawer.subagentDroppedCapabilities')}>
+            <Cell text={row.subagentDroppedCapabilities.join('、')} />
+          </Field>
+        )}
+      {row.subagentDowngrades !== undefined && row.subagentDowngrades.length > 0 && (
+        <Field label={t('drawer.subagentDowngrades')}>
+          <Cell
+            text={row.subagentDowngrades
+              .map((axis) => `${axis.field}: ${axis.requested} → ${axis.effective}`)
+              .join('；')}
+          />
+        </Field>
+      )}
       {childSessionId !== null && (
         <Field label={t('drawer.childSession')}>
           <div className="flex items-center justify-between gap-2">
@@ -128,6 +158,11 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
                   id: `subagent:${childSessionId}`,
                   childSessionId,
                   view: 'trajectory',
+                  // Carry the dispatch facts the row already knows, so the
+                  // pane header does not have to re-derive them from the
+                  // child's transcript.
+                  ...(row.subagentTitle !== undefined ? { title: row.subagentTitle } : {}),
+                  ...(row.subagentType !== undefined ? { agentType: row.subagentType } : {}),
                 })
               }
               className="text-primary hover:bg-primary/10 shrink-0 rounded px-2 py-1 text-xs font-medium"

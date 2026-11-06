@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -95,6 +96,11 @@ export function SubagentForm({
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(spec?.tools ?? []),
   );
+  // An existing definition that omits `tools` inherits the parent's set —
+  // checkboxes showing "nothing selected" must not read as "none" on a save
+  // that never touched them. Until a toggle is flipped, the field is left
+  // out of the submitted spec entirely.
+  const [toolsDirty, setToolsDirty] = useState(false);
   // `spec.model` carries a routing tier id; the sentinel stands for inherit.
   const [model, setModel] = useState(spec?.model || MODEL_INHERIT_VALUE);
   const [sandbox, setSandbox] = useState<SandboxMode>(
@@ -137,7 +143,39 @@ export function SubagentForm({
     })) ?? []),
   ];
 
+  // Declared tools this gateway does not expose. They have no checkbox (the
+  // list is the catalogue), so without an explicit affordance here they would
+  // survive every save invisibly — the definition keeps naming a tool the
+  // child can never get.
+  const catalogNames = new Set(tools.map((tool) => tool.name));
+  // Reads the CURRENT selection, not the entry's spec: a removed name leaves
+  // this list the moment it is dropped, so the section never shows a chip
+  // that the next save would not write.
+  const unavailableTools = (spec?.tools ?? []).filter(
+    (name) => !catalogNames.has(name) && selectedTools.has(name),
+  );
+
+  /** Drop one declared-but-unavailable name from the definition. */
+  const removeUnavailableTool = (toolName: string) => {
+    setToolsDirty(true);
+    setSelectedTools((prev) => {
+      const next = new Set(prev);
+      next.delete(toolName);
+      return next;
+    });
+  };
+
+  const removeAllUnavailableTools = () => {
+    setToolsDirty(true);
+    setSelectedTools((prev) => {
+      const next = new Set(prev);
+      for (const name of unavailableTools) next.delete(name);
+      return next;
+    });
+  };
+
   const toggleTool = (toolName: string) => {
+    setToolsDirty(true);
     setSelectedTools((prev) => {
       const next = new Set(prev);
       if (next.has(toolName)) next.delete(toolName);
@@ -152,13 +190,18 @@ export function SubagentForm({
         // so a save from this form never silently drops hand-written keys.
         { ...entry.spec }
       : { name: name.trim() };
+    const inheritTools =
+      mode === 'edit' && spec?.tools === undefined && !toolsDirty;
     return {
       ...base,
       name: name.trim(),
       ...(description.trim()
         ? { description: description.trim() }
         : { description: undefined }),
-      tools: [...selectedTools],
+      // An untouched inherit-tools definition stays inherited; writing
+      // `tools: []` because the checkboxes rendered empty would turn "the
+      // parent's set" into "none" behind the user's back.
+      ...(inheritTools ? {} : { tools: [...selectedTools] }),
       ...(model !== MODEL_INHERIT_VALUE ? { model } : { model: undefined }),
       policy: { ...(base.policy ?? { approval: 'ask' }), sandbox },
       ...(systemPrompt.trim()
@@ -197,6 +240,10 @@ export function SubagentForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t('subagentForm.namePlaceholder')}
+            // A built-in's name is its identity (and the id that addressed it
+            // — the server pins spec.name there); editing a built-in row
+            // customizes the type, never renames it.
+            disabled={entry?.builtIn === true}
             required
           />
         </Field>
@@ -278,6 +325,43 @@ export function SubagentForm({
               </Field>
             ))}
           </div>
+          {unavailableTools.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              <FieldDescription className="text-amber-600 dark:text-amber-500">
+                {t('subagentForm.toolsUnavailable')}
+              </FieldDescription>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {unavailableTools.map((name) => (
+                  <span
+                    key={name}
+                    data-unavailable-tool={name}
+                    className="border-amber-500/40 text-amber-700 dark:text-amber-500 inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px]"
+                  >
+                    {name}
+                    <button
+                      type="button"
+                      aria-label={t('subagentForm.removeTool', { name })}
+                      onClick={() => removeUnavailableTool(name)}
+                      className="hover:bg-amber-500/15 rounded p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                {unavailableTools.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={removeAllUnavailableTools}
+                  >
+                    {t('subagentForm.removeAllUnavailable')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </FieldSet>
 
         <Field orientation="vertical">

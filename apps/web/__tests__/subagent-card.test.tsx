@@ -24,9 +24,10 @@ const runningCall = {
 };
 
 describe('SubagentCard', () => {
-  it('renders the compact row: tool label, first-line title, no body', () => {
+  it('renders the compact row: agent-type label, first-line title, no body', () => {
     render(<SubagentCard call={runningCall} />);
-    expect(screen.getByText('task')).toBeDefined();
+    // No subagent_type declared -> the built-in default is the honest label.
+    expect(screen.getByText('general-purpose')).toBeDefined();
     expect(screen.getByRole('button', { name: /子智能体/ })).toBeDefined();
     // 标题只取 message 首行，不渲染后续行
     expect(screen.getByText('T13: fresh-context self-test report')).toBeDefined();
@@ -38,15 +39,77 @@ describe('SubagentCard', () => {
 
   it('shows no title when args.message is not a string', () => {
     render(<SubagentCard call={{ ...runningCall, args: { message: 42 } }} />);
-    expect(screen.getByText('task')).toBeDefined();
+    expect(screen.getByText('general-purpose')).toBeDefined();
     expect(screen.queryByText('42')).toBeNull();
   });
 
-  it('opens the pane when the whole row is clicked', () => {
+  it('prefers the dispatch title over the message first line', () => {
+    render(
+      <SubagentCard
+        call={{ ...runningCall, subagentTitle: '分析子代理触发机制', args: { ...runningCall.args, title: 'ignored' } }}
+      />,
+    );
+    expect(screen.getByText('分析子代理触发机制')).toBeDefined();
+    expect(screen.queryByText('T13: fresh-context self-test report')).toBeNull();
+  });
+
+  it('labels the row with the named subagent_type and shows dispatch badges', () => {
+    render(
+      <SubagentCard
+        call={{
+          ...runningCall,
+          args: {
+            message: 'go',
+            subagent_type: 'explore',
+            model: 'fast',
+            max_iterations: 6,
+            tools: ['read_file', 'grep'],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText('explore')).toBeDefined();
+    expect(screen.queryByText('general-purpose')).toBeNull();
+    expect(screen.getByText('fast')).toBeDefined();
+    expect(screen.getByText('≤6 轮')).toBeDefined();
+    expect(screen.getByText('2 个工具')).toBeDefined();
+  });
+
+  it('folds unavailable tools into a tinted marker with the names on hover', () => {
+    render(
+      <SubagentCard
+        call={{
+          ...runningCall,
+          subagentDroppedTools: ['run_bash_command', 'search_files'],
+        }}
+      />,
+    );
+    const marker = screen.getByText('2 项不可用');
+    expect(marker).toBeDefined();
+    expect(marker).toHaveAttribute(
+      'title',
+      '派发时被丢弃：run_bash_command、search_files',
+    );
+  });
+
+  it('shows no marker when nothing was dropped', () => {
+    render(<SubagentCard call={runningCall} />);
+    expect(screen.queryByText(/不可用/)).toBeNull();
+  });
+
+  it('opens the pane when the whole row is clicked, carrying the dispatch facts', () => {
     const onOpenSubagent = vi.fn();
-    render(<SubagentCard call={runningCall} onOpenSubagent={onOpenSubagent} />);
+    render(
+      <SubagentCard
+        call={{ ...runningCall, subagentTitle: 'T13 report', args: { ...runningCall.args, subagent_type: 'bug-analyzer' } }}
+        onOpenSubagent={onOpenSubagent}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: /子智能体/ }));
-    expect(onOpenSubagent).toHaveBeenCalledWith('s-sub-0');
+    expect(onOpenSubagent).toHaveBeenCalledWith('s-sub-0', {
+      title: 'T13 report',
+      agentType: 'bug-analyzer',
+    });
   });
 
   it('shows the running state (spinner) while the result is pending', () => {
@@ -127,8 +190,9 @@ describe('feed sub-agent routing', () => {
     );
     // plain 调用仍走 ToolCallCard（工具名以 mono 折叠行展示）
     expect(screen.getByText('read_file')).toBeDefined();
-    // subagent 调用走 SubagentCard（紧凑单行，按钮语义）
-    expect(screen.getAllByText('task')).toHaveLength(1);
+    // subagent 调用走 SubagentCard（紧凑单行，按钮语义，标签是代理类型）
+    expect(screen.queryByText('task')).toBeNull();
+    expect(screen.getByText('general-purpose')).toBeDefined();
     expect(screen.getByRole('button', { name: /子智能体/ })).toBeDefined();
   });
 });

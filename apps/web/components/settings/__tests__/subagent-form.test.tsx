@@ -244,4 +244,161 @@ describe("SubagentForm", () => {
     fireEvent.click(screen.getByText(/确认删除/));
     expect(onDelete).toHaveBeenCalled();
   });
+
+  it("lists declared tools the gateway does not provide, each removable", () => {
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "user:imported", name: "imported", scope: "user", readOnly: false, shadowed: false,
+          spec: { name: "imported", tools: ["read_file", "run_bash_command", "search_files"] },
+        } as never}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    // Not in the catalogue, so no checkbox — but the form must say they exist
+    // and let the user delete them; otherwise every save keeps them forever.
+    expect(screen.getByText(/不可用工具/)).toBeInTheDocument();
+    expect(screen.getByText("run_bash_command")).toBeInTheDocument();
+    expect(screen.getByText("search_files")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "移除工具 run_bash_command" }),
+    ).toBeInTheDocument();
+  });
+
+  it("removing an unavailable tool drops it from the submitted spec", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "user:imported", name: "imported", scope: "user", readOnly: false, shadowed: false,
+          spec: { name: "imported", tools: ["read_file", "run_bash_command", "search_files"] },
+        } as never}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "移除工具 run_bash_command" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0].spec.tools).toEqual(["read_file", "search_files"]);
+    // Kept tools stay checked.
+    expect(screen.queryByText("run_bash_command")).toBeNull();
+  });
+
+  it("removes every unavailable tool at once", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "user:imported", name: "imported", scope: "user", readOnly: false, shadowed: false,
+          spec: { name: "imported", tools: ["read_file", "run_bash_command", "search_files"] },
+        } as never}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "全部移除" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0].spec.tools).toEqual(["read_file"]);
+  });
+
+  it("shows no unavailable section when every declared tool exists", () => {
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "project:x", name: "x", scope: "project", readOnly: false, shadowed: false,
+          spec: { name: "x", tools: ["read_file"] },
+        } as never}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/不可用工具/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /全部移除/ })).toBeNull();
+  });
+
+  it("locks the name of a built-in row — a built-in is customized, never renamed", () => {
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "builtin:general-purpose", name: "general-purpose", scope: "builtin",
+          readOnly: false, builtIn: true, shadowed: false,
+          spec: { name: "general-purpose", systemPrompt: "You are a sub-agent" },
+        } as never}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        // The panel never passes onDelete for a built-in; the form must not
+        // render a delete path even if one were wired by mistake.
+      />,
+    );
+    expect(screen.getByDisplayValue("general-purpose")).toBeDisabled();
+    expect(screen.queryByText(/删除/)).not.toBeInTheDocument();
+  });
+
+  it("an untouched built-in save keeps tools inherited, not emptied", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "builtin:general-purpose", name: "general-purpose", scope: "builtin",
+          readOnly: false, builtIn: true, shadowed: false,
+          spec: { name: "general-purpose", systemPrompt: "You are a sub-agent" },
+        } as never}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    // general-purpose inherits the parent's tools (no `tools` field). The
+    // checkboxes render unchecked; saving must not translate that into
+    // `tools: []` — that would silently turn "inherit" into "none".
+    expect(onSubmit.mock.calls[0]![0].spec).not.toHaveProperty("tools");
+  });
+
+  it("toggling a tool on a built-in save writes the explicit selection", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <SubagentForm
+        mode="edit"
+        tools={TOOLS}
+        tiers={TIERS}
+        entry={{
+          id: "builtin:general-purpose", name: "general-purpose", scope: "builtin",
+          readOnly: false, builtIn: true, shadowed: false,
+          spec: { name: "general-purpose" },
+        } as never}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "read_file" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0].spec.tools).toEqual(["read_file"]);
+  });
 });

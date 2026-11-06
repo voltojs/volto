@@ -60,6 +60,34 @@ describe('SubagentTab', () => {
     expect(screen.getByText('执行中')).toBeDefined();
   });
 
+  it('labels the header with the dispatch type and task title', async () => {
+    useChatStore.setState({
+      subagents: { 's-sub-7': { events: [userGo, assistant('done')], deltas: [], status: 'done' } },
+    });
+    fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-7', events: [] });
+    render(
+      <SubagentTab
+        tab={{
+          kind: 'subagent',
+          id: 'subagent:s-sub-7',
+          childSessionId: 's-sub-7',
+          view: 'chat',
+          title: '调研触发机制',
+          agentType: 'explore',
+        }}
+      />,
+    );
+    expect(await screen.findByText('调研触发机制')).toBeDefined();
+    expect(screen.getByText('explore')).toBeDefined();
+  });
+
+  it('falls back to the built-in type when the tab carries no dispatch facts', async () => {
+    useChatStore.setState({ subagents: { 's-sub-8': { events: [], deltas: [], status: 'done' } } });
+    fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-8', events: [] });
+    render(<SubagentTab tab={tab('s-sub-8')} />);
+    expect(await screen.findByText('general-purpose')).toBeDefined();
+  });
+
   it('shows the no-record empty state when the bucket is empty and done', async () => {
     useChatStore.setState({ subagents: { 's-sub-1': { events: [], deltas: [], status: 'done' } } });
     fetchSessionEventsMock.mockResolvedValue({ sessionId: 's-sub-1', events: [] });

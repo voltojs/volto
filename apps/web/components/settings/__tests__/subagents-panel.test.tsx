@@ -123,6 +123,76 @@ describe("SubagentsPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a built-in row as editable but never deletable", async () => {
+    stub(
+      [
+        {
+          id: "builtin:general-purpose", name: "general-purpose",
+          description: "通用子代理", scope: "builtin", readOnly: false,
+          builtIn: true, shadowed: false,
+          spec: { name: "general-purpose", systemPrompt: "You are a sub-agent" },
+        },
+        ...AGENTS,
+      ],
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("general-purpose")).toBeInTheDocument());
+
+    const row = screen.getByText("general-purpose").closest("[data-agent-row]")!;
+    expect(row).toHaveTextContent(/内置/);
+    // Model configuration is the point — the pencil must stay live even
+    // though the trash never is.
+    expect(row.querySelector("[data-action='edit']")).not.toHaveAttribute("disabled");
+    expect(row.querySelector("[data-action='delete']")).toHaveAttribute("disabled");
+    // No `tools` field means the child inherits the parent's set — the row
+    // says so instead of rendering an empty tool strip.
+    expect(row).toHaveTextContent(/工具继承父级/);
+
+    // The edit form opens with the name pinned.
+    await user.click(row.querySelector("[data-action='edit']")!);
+    await waitFor(() => expect(screen.getByLabelText(/名称/)).toBeDisabled());
+  });
+
+  it("warns about declared tools this gateway does not provide", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/agents")) {
+        return new Response(
+          JSON.stringify({
+            agents: [
+              {
+                id: "user:imported", name: "imported", description: "from another product",
+                scope: "user", readOnly: false, shadowed: false,
+                spec: { name: "imported", tools: ["read_file", "run_bash_command", "search_files"] },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/config/routing-tiers")) {
+        return new Response(JSON.stringify({ tiers: [] }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ tools: [{ name: "read_file", description: "read" }] }),
+        { status: 200 },
+      );
+    }));
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("imported")).toBeInTheDocument());
+    // The same loss the runtime reports as subagent_tools_dropped, known
+    // statically: the definition names tools this gateway cannot grant.
+    expect(screen.getByText(/run_bash_command、search_files/)).toBeInTheDocument();
+  });
+
+  it("stays quiet when every declared tool exists", async () => {
+    stub();
+    render(<SubagentsPanel projectId={null} />);
+    await waitFor(() => expect(screen.getByText("searcher")).toBeInTheDocument());
+    expect(screen.queryByText(/本网关不提供/)).toBeNull();
+  });
+
   it("renders an empty state rather than a blank panel", async () => {
     stub([]);
     render(<SubagentsPanel projectId={null} />);

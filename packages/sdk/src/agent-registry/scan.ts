@@ -34,6 +34,17 @@ export interface ScanAgentSourcesOptions {
   cwd: string;
   configDir: string;
   pluginSpecs?: AgentSpec[];
+  /**
+   * When provided, every declared `tools:` name that matches none of them is
+   * reported as a warning. Definitions imported from other agent products are
+   * written against a different tool namespace (`run_bash_command`,
+   * `search_files`); the intersection rule drops them at dispatch time, and
+   * without this check the loss is only visible by transcript archaeology.
+   * Hosts pass the full set of tool names they can grant; omitted = no check
+   * (a host whose tool set is dynamic should prefer the runtime
+   * `subagent_tools_dropped` event instead of a false alarm here).
+   */
+  knownToolNames?: ReadonlySet<string>;
 }
 
 /**
@@ -68,6 +79,7 @@ async function loadSourceDir(
   dir: string,
   scope: "user" | "project",
   warnings: string[],
+  knownToolNames?: ReadonlySet<string>,
 ): Promise<AgentEntry[]> {
   let names: string[];
   try {
@@ -97,6 +109,16 @@ async function loadSourceDir(
     if ("error" in parsed) {
       warnings.push(parsed.error);
       continue;
+    }
+    if (knownToolNames && parsed.spec.tools) {
+      for (const toolName of parsed.spec.tools) {
+        if (!knownToolNames.has(toolName)) {
+          warnings.push(
+            `${filePath}: tools entry "${toolName}" is not a known tool name; ` +
+              `it will be dropped from any dispatch of "${parsed.spec.name}".`,
+          );
+        }
+      }
     }
     entries.push({
       id: `${scope}:${parsed.spec.name}`,
@@ -142,7 +164,12 @@ export async function scanAgentSources(
   }
 
   for (const source of fileSources(opts)) {
-    const loaded = await loadSourceDir(source.dir, source.scope, warnings);
+    const loaded = await loadSourceDir(
+      source.dir,
+      source.scope,
+      warnings,
+      opts.knownToolNames,
+    );
     for (const entry of loaded) add(entry);
   }
 

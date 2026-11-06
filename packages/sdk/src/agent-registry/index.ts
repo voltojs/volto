@@ -13,6 +13,15 @@ export type {
   ScanAgentSourcesOptions,
 } from "./scan.js";
 
+export {
+  BUILTIN_AGENTS,
+  BUILTIN_EXPLORE,
+  BUILTIN_GENERAL_PURPOSE,
+  EXPLORE_NAME,
+  GENERAL_PURPOSE_NAME,
+  findBuiltInAgent,
+} from "./builtin.js";
+
 export { serializeAgentFile } from "./serialize.js";
 
 export { createAgentStore } from "./store.js";

@@ -93,6 +93,11 @@ import type { SubAgentDispatch, AgentTypeSummary } from "@volto/tools-agent";
 import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@volto/tools-agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
+import {
+  BUILTIN_AGENTS,
+  findBuiltInAgent,
+  GENERAL_PURPOSE_NAME,
+} from "./agent-registry/builtin.js";
 import { buildDefaultToolVisibility } from "./tool-scope-default.js";
 import type { ToolVisibility } from "./tool-scope-default.js";
 
@@ -100,8 +105,23 @@ import type { ToolVisibility } from "./tool-scope-default.js";
  * Sync sub-agent request handed to the per-dispatch executor. Background
  * dispatch wraps the same executor: the promise is registered with the
  * BackgroundRegistry instead of awaited inline.
+ *
+ * The refinement fields mirror the task tool's per-dispatch parameters and
+ * follow the dispatch > definition > parent precedence. Every one of them can
+ * only narrow or refine what the parent's assembly grants.
  */
-type SyncSubAgentRequest = { message: string; subagentType?: string; model?: string };
+type SyncSubAgentRequest = {
+  message: string;
+  subagentType?: string;
+  model?: string;
+  title?: string;
+  systemPrompt?: string;
+  tools?: string[];
+  maxIterations?: number;
+  temperature?: number;
+  maxTokens?: number;
+  responseFormat?: { type: "json"; schema?: Record<string, unknown> };
+};
 /**
  * The child's answer plus the transcript session it wrote, so a caller can
  * hand the UI something to drill into. Absent session id means the dispatch
@@ -221,17 +241,57 @@ function createLazyNodeDocumentParser(): DocumentParserAdapter {
 }
 
 /**
- * The `subagent_type` values a task tool offers. Shadowed definitions are
- * left out: a name that resolves to a different file than the one the user
- * is looking at would dispatch something they did not choose.
+ * The `subagent_type` values a task tool offers, carrying ASSEMBLED facts so
+ * the model routes with true information. Shadowed definitions are left out:
+ * a name that resolves to a different file than the one the user is looking
+ * at would dispatch something they did not choose. Built-ins head the list
+ * (the routing floor); a live file definition of the same name shadows one.
+ *
+ * `parentToolNames` is the set a child could inherit (the parent's tools minus
+ * the task/task_output instances plus the re-bound `task` when the depth
+ * budget allows) — the intersection preview mirrors what `assembleSubAgent`
+ * will actually keep at dispatch time.
  */
-function toAgentTypeSummaries(entries: AgentEntry[]): AgentTypeSummary[] {
-  return entries
-    .filter((entry) => !entry.shadowed)
-    .map((entry) => ({
-      name: entry.spec.name,
-      ...(entry.spec.description !== undefined ? { description: entry.spec.description } : {}),
-    }));
+function buildAgentTypeSummaries(
+  entries: AgentEntry[],
+  parentToolNames: ReadonlySet<string>,
+): AgentTypeSummary[] {
+  const live = entries.filter((entry) => !entry.shadowed);
+  const taken = new Set(live.map((entry) => entry.spec.name));
+  const summaries: AgentTypeSummary[] = [];
+  const push = (spec: AgentSpec, builtIn: boolean): void => {
+    const summary: AgentTypeSummary = {
+      name: spec.name,
+      ...(spec.description !== undefined ? { description: spec.description } : {}),
+      ...(builtIn ? { builtIn: true } : {}),
+    };
+    if (spec.tools !== undefined) {
+      summary.effectiveTools = spec.tools.filter((n) => parentToolNames.has(n));
+      const dropped = spec.tools.filter((n) => !parentToolNames.has(n));
+      if (dropped.length > 0) summary.droppedTools = dropped;
+      if (spec.tools.length === 0) summary.noTools = true;
+    }
+    summaries.push(summary);
+  };
+  for (const spec of BUILTIN_AGENTS) {
+    if (!taken.has(spec.name)) push(spec, true);
+  }
+  for (const entry of live) push(entry.spec, false);
+  return summaries;
+}
+
+/**
+ * Names a dispatch could resolve: the list an "Unknown subagent_type" error
+ * should offer. Built-ins plus live (non-shadowed) definitions.
+ */
+function dispatchableAgentNames(entries: AgentEntry[]): string {
+  const names = BUILTIN_AGENTS.map((spec) => spec.name);
+  for (const entry of entries) {
+    if (!entry.shadowed && !names.includes(entry.spec.name)) {
+      names.push(entry.spec.name);
+    }
+  }
+  return names.join(", ");
 }
 
 /**
@@ -1752,7 +1812,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // hand the registry to each Runner for turn-boundary draining.
     const registry = createBackgroundRegistry();
     backgroundRegistry = registry;
-    const dispatch: SubAgentDispatch = async ({ message, subagentType, background, model }) => {
+    const dispatch: SubAgentDispatch = async ({
+      message,
+      subagentType,
+      background,
+      model,
+      ...refinements
+    }) => {
       if (background) {
         const taskId = idPort.next();
         // Fire the executor detached; the registry normalizes a rejection so
@@ -1766,6 +1832,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
             message,
             ...(subagentType !== undefined ? { subagentType } : {}),
             ...(model !== undefined ? { model } : {}),
+            ...refinements,
           }),
         );
         // Record the task in serializable state so a checkpoint/resume can
@@ -1784,6 +1851,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         message,
         ...(subagentType !== undefined ? { subagentType } : {}),
         ...(model !== undefined ? { model } : {}),
+        ...refinements,
       });
       return {
         taskId: idPort.next(),
@@ -1792,8 +1860,23 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
       };
     };
+    // The tool names a child could inherit: this agent's custom tools (task
+    // and task_output are not yet pushed here, so they are naturally absent —
+    // matching what the executor strips before assembly) plus the adapter
+    // tools. `task` is re-added when the depth budget grants it, mirroring the
+    // freshly-bound nested tool so a definition naming `task` is not previewed
+    // as dropping it.
+    const inheritableToolNames = new Set<string>([
+      ...allCustomTools.map((t) => t.definition.name),
+      ...adapterTools.map((t) => t.definition.name),
+    ]);
+    if (0 < (opts.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH)) {
+      inheritableToolNames.add("task");
+    }
     allCustomTools.push(
-      createTaskTool(dispatch, { types: toAgentTypeSummaries(agentSpecs) }),
+      createTaskTool(dispatch, {
+        types: buildAgentTypeSummaries(agentSpecs, inheritableToolNames),
+      }),
     );
     // task_output collects a previously dispatched background task; the
     // registry's collect is idempotent and normalizes unknown ids to errors.
@@ -3161,6 +3244,17 @@ function extractInputText(input: AgentInput): string {
 type StampedSinkEvent = { type: string; data: Record<string, unknown>; time: number };
 
 /**
+ * The dispatch bookkeeping records that belong on the parent's log and main
+ * feed: the start bracket plus the two "asked for more than it got" events.
+ * A narrow union (rather than the whole event map) keeps them assignable to
+ * the loose `EventSink` signature.
+ */
+type DispatchRecordEvent =
+  | TranscriptEventInput<"subagent_started">
+  | TranscriptEventInput<"subagent_permission_downgraded">
+  | TranscriptEventInput<"subagent_tools_dropped">;
+
+/**
  * Wrap an EventSink so every emitted event is tagged with the originating
  * agent depth and an optional label. Used by sub-agents so the host can
  * distinguish nested output from the main agent's stream without breaking
@@ -3209,6 +3303,16 @@ export interface AssembledSubAgent {
   permissionConfig: PermissionConfig;
   /** Axes where the definition asked for more than the parent allows. */
   downgrades: Array<{ field: string; requested: string; effective: string }>;
+  /**
+   * Tool names the definition declared that the parent does not own, dropped
+   * by the intersection rule. Emitted as `subagent_tools_dropped` so a
+   * definition written against another tool namespace never fails silently
+   * (vl3ierhqx: `run_bash_command` / `search_files` vanished with zero trace
+   * and the child ran 49 calls without a shell).
+   */
+  droppedTools: string[];
+  /** Capability names the definition declared that the parent does not grant. */
+  droppedCapabilities: string[];
 }
 
 /**
@@ -3251,6 +3355,14 @@ export function assembleSubAgent(opts: {
     spec.capabilities === undefined
       ? new Set(parentCapabilities)
       : new Set(spec.capabilities.filter((c) => parentCapabilities.has(c)));
+  const droppedTools =
+    spec.tools === undefined
+      ? []
+      : spec.tools.filter((name) => !parentToolsByName.has(name));
+  const droppedCapabilities =
+    spec.capabilities === undefined
+      ? []
+      : spec.capabilities.filter((c) => !parentCapabilities.has(c));
 
   // Complete a partial policy from the parent (missing axis = inherit, not
   // widen), then let core narrowPermission take the stricter option on every
@@ -3278,7 +3390,14 @@ export function assembleSubAgent(opts: {
     });
   }
 
-  return { tools, capabilities, permissionConfig, downgrades };
+  return {
+    tools,
+    capabilities,
+    permissionConfig,
+    downgrades,
+    droppedTools,
+    droppedCapabilities,
+  };
 }
 
 /**
@@ -3323,6 +3442,13 @@ function createSubAgentExecutor(
     message,
     subagentType,
     model,
+    title,
+    systemPrompt: dispatchSystemPrompt,
+    tools: dispatchTools,
+    maxIterations: dispatchMaxIterations,
+    temperature: dispatchTemperature,
+    maxTokens: dispatchMaxTokens,
+    responseFormat: dispatchResponseFormat,
   }: SyncSubAgentRequest): Promise<SyncSubAgentOutcome> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
     const turn = getCurrentTurn();
@@ -3383,21 +3509,27 @@ function createSubAgentExecutor(
     let childPermissionConfig: PermissionConfig | undefined = parentPolicyResolved;
     let downgrades: AssembledSubAgent["downgrades"] = [];
     // The resolved definition, kept for the settings the Runner reads below
-    // (prompt, model). Undefined on the general-purpose path.
+    // (prompt, model). Undefined on the omit path.
     let childSpec: AgentSpec | undefined;
+    // The child's system prompt source: a file definition's body, or the
+    // built-in role prompt (including for the omit path — an untyped child
+    // must still know it is a sub-agent with a self-contained deliverable).
+    let childSystemPrompt: string | undefined;
+    // Assembly drops (declared-but-parent-does-not-own). Non-empty arrays on
+    // a typed dispatch emit `subagent_tools_dropped` next to the permission
+    // downgrade event — the intersection rule must never be a silent edit of
+    // what a definition file says.
+    let droppedTools: string[] = [];
+    let droppedCapabilities: string[] = [];
 
-    if (subagentType !== undefined) {
+    if (subagentType === undefined) {
+      childSystemPrompt = findBuiltInAgent(GENERAL_PURPOSE_NAME)?.systemPrompt;
+    } else if (agentSpecs.some(
+      (e) => !e.shadowed && e.spec.name === subagentType,
+    )) {
       const entry = agentSpecs.find(
         (e) => !e.shadowed && e.spec.name === subagentType,
-      );
-      if (!entry) {
-        // The task tool pre-checks known types when a registry is present;
-        // this is the executor-side backstop for a subagent_type that reached
-        // dispatch with no matching non-shadowed definition. Fail loudly
-        // rather than silently falling back to general-purpose — the model
-        // asked for a specific definition and must not get a different one.
-        throw new Error(`Unknown subagent_type "${subagentType}"`);
-      }
+      )!;
       const assembled = assembleSubAgent({
         spec: entry.spec,
         parentTools: parentToolsForChild,
@@ -3412,7 +3544,54 @@ function createSubAgentExecutor(
       childCapabilities = assembled.capabilities;
       childPermissionConfig = assembled.permissionConfig;
       downgrades = assembled.downgrades;
+      droppedTools = assembled.droppedTools;
+      droppedCapabilities = assembled.droppedCapabilities;
       childSpec = entry.spec;
+      childSystemPrompt = entry.spec.systemPrompt;
+      // A declared `task` is never a real drop when the depth budget grants
+      // it: the intersection strips the PARENT's bound instance only to make
+      // room for the freshly-bound deeper one (see nested delegation below).
+      if (childCanDelegate) {
+        droppedTools = droppedTools.filter((n) => n !== "task");
+      }
+    } else {
+      const builtIn = findBuiltInAgent(subagentType);
+      if (builtIn === undefined) {
+        // The task tool's enum already rejects unknown names when a type list
+        // was assembled; this executor-side backstop keeps a hand-built
+        // dispatch from silently falling to general-purpose — the model asked
+        // for a specific definition and must not get a different one.
+        throw new Error(
+          `Unknown subagent_type "${subagentType}". Available: ${dispatchableAgentNames(agentSpecs)}`,
+        );
+      }
+      // Built-in path: filter the parent's tools (same intersection semantics
+      // as a definition), never run narrowPermission — built-ins declare no
+      // policy and must inherit the parent's resolved value exactly like the
+      // old omit branch did, not concrete-default it.
+      childSpec = builtIn;
+      childSystemPrompt = builtIn.systemPrompt;
+      if (builtIn.tools !== undefined) {
+        const allow = new Set(builtIn.tools);
+        const parentNames = new Set(
+          parentToolsForChild.map((t) => t.definition.name),
+        );
+        droppedTools = builtIn.tools.filter((n) => !parentNames.has(n));
+        childTools = parentToolsForChild.filter((t) => allow.has(t.definition.name));
+      }
+    }
+
+    // ── Per-dispatch system prompt (task tool's `system_prompt`) ──
+    // APPENDED after the role prompt / definition body, never replacing it:
+    // the built-in "you are an isolated sub-agent" contract and a
+    // definition's authored instructions are not the dispatching model's to
+    // overwrite. An empty result stays undefined so no empty message is
+    // seeded.
+    if (dispatchSystemPrompt !== undefined && dispatchSystemPrompt.length > 0) {
+      childSystemPrompt =
+        childSystemPrompt !== undefined && childSystemPrompt.length > 0
+          ? `${childSystemPrompt}\n\n${dispatchSystemPrompt}`
+          : dispatchSystemPrompt;
     }
 
     // ── Model routing tier resolution (spec 2026-10-29 D3-D6) ──
@@ -3513,6 +3692,14 @@ function createSubAgentExecutor(
     const childWantsTask =
       childSpec?.tools === undefined || childSpec.tools.includes("task");
     if (childCanDelegate && childCapabilities.has(CAP_AGENT_TASK) && childWantsTask) {
+      // The preview set a definition is intersected against: this agent's own
+      // tools, plus the freshly-bound nested `task` (created after the nested
+      // executor, so the nested assembly cannot see it — declaring `task` in
+      // a definition must not then read as "dropped" at the next level).
+      const nestedToolNames = new Set<string>([
+        ...childTools.map((t) => t.definition.name),
+        "task",
+      ]);
       const nestedExecutor = createSubAgentExecutor(
         opts,
         childTools,
@@ -3539,10 +3726,21 @@ function createSubAgentExecutor(
             "Background dispatch is not available to a sub-agent; run the task synchronously.",
           );
         }
+        // Nested delegation supports the full refinement set: a research
+        // sub-agent fanning out sub-searches needs the same per-dispatch
+        // title / prompt / tool narrowing one level down.
+        const {
+          message,
+          subagentType: nestedType,
+          model: nestedModel,
+          background: _background,
+          ...nestedRefinements
+        } = req;
         const outcome = await nestedExecutor({
-          message: req.message,
-          ...(req.subagentType !== undefined ? { subagentType: req.subagentType } : {}),
-          ...(req.model !== undefined ? { model: req.model } : {}),
+          message,
+          ...(nestedType !== undefined ? { subagentType: nestedType } : {}),
+          ...(nestedModel !== undefined ? { model: nestedModel } : {}),
+          ...nestedRefinements,
         });
         return {
           taskId: idPort.next(),
@@ -3553,74 +3751,112 @@ function createSubAgentExecutor(
       };
       childTools = [
         ...childTools,
-        createTaskTool(nestedDispatch, { types: toAgentTypeSummaries(agentSpecs) }),
+        createTaskTool(nestedDispatch, {
+          types: buildAgentTypeSummaries(agentSpecs, nestedToolNames),
+        }),
       ];
     }
 
-    if (chatStore && parentChatSessionId && childSessionId) {
-      bestEffortAppend(chatStore, parentChatSessionId, [
-        {
-          time: startedAt,
-          type: "subagent_started",
-          data: { childSessionId, label: agentLabel, depth },
-          turn,
-        },
-      ]);
-      bestEffortAppend(chatStore, childSessionId, [
-        {
-          time: startedAt,
-          type: "session_meta",
-          data: {
-            projectId: null,
-            providerId: null,
-            modelId: null,
-            permissionMode: null,
-            parentSessionId: parentChatSessionId,
-            delegationDepth: depth,
-            origin: "subagent" as const,
-          },
-        },
-      ]);
+    // ── Per-dispatch tool allowlist (task tool's `tools`) ──
+    // Applied LAST, after assembly and after the nested `task` is bound, so
+    // the list is judged against what this dispatch would really run — and it
+    // narrows only: a name outside the assembled set is dropped (reported
+    // below) rather than conjured. `undefined` = no dispatch-level
+    // restriction; `[]` = no tools at all.
+    if (dispatchTools !== undefined) {
+      const requested = new Set(dispatchTools);
+      const available = new Set(childTools.map((t) => t.definition.name));
+      for (const name of dispatchTools) {
+        if (!available.has(name)) droppedTools = [...droppedTools, name];
+      }
+      childTools = childTools.filter((t) => requested.has(t.definition.name));
     }
 
-    // Live path (Task 5c): the same bracket also rides the parent's event
-    // sink so SSE clients see it in real time — the store write above alone
-    // only reaches replay/resume. Brackets are parent-level events: never
-    // tagged agentDepth (they must stay on the main feed, not be routed into
-    // a child bucket), and the parent turn stamp is mandatory — an unstamped
-    // bracket would fall into a phantom turn 0 in the client projection.
-    // Emission needs only a child session to link (childSessionId implies
-    // parentChatSessionId); it deliberately does not depend on the chatStore,
-    // whose absence only disables persistence. Sink absent → skipped silently.
-    // The stamp rides along as top-level extras on the sink payload, the same
-    // convention the Runner's toSinkEvent uses for streamed transcript events
-    // (task-r6 isomorphism).
-    if (childSessionId) {
-      const startedBracket: TranscriptEventInput<"subagent_started"> = {
+    // The dispatch's own record: the start bracket plus, when they apply, the
+    // two "you asked for more than you got" events. Built up front so they
+    // land in ONE append batch — separate fire-and-forget appends would race
+    // and interleave a later dispatch's events into an earlier batch. The
+    // start bracket needs a child session (there is nothing to link without
+    // one); the two disclosure events do not — the loss is real either way.
+    const parentDispatchEvents: DispatchRecordEvent[] = [];
+    if (childSessionId !== undefined) {
+      parentDispatchEvents.push({
         time: startedAt,
         type: "subagent_started",
-        data: { childSessionId, label: agentLabel, depth },
+        data: { childSessionId, label: agentLabel, depth, ...(title !== undefined ? { title } : {}) },
         turn,
-      };
-      currentSink?.emit(startedBracket);
+      });
     }
-
     // F-023: a definition that asked for more than the parent allows must say
-    // so on the main feed — otherwise the user sees a silent, inexplicable
-    // restriction. Parent-level (un-tagged), like the brackets above.
+    // so in the durable log too — otherwise the user sees a silent,
+    // inexplicable restriction the moment they reload. Parent-level
+    // (un-tagged), turn-stamped, on the main feed.
     if (downgrades.length > 0 && subagentType !== undefined) {
-      const downgradeEvent: StampedSinkEvent = {
+      parentDispatchEvents.push({
         time: nowMs(),
         type: "subagent_permission_downgraded",
         data: {
           ...(childSessionId !== undefined ? { childSessionId } : {}),
           subagentType,
           downgrades,
-          turn,
         },
-      };
-      currentSink?.emit(downgradeEvent);
+        turn,
+      });
     }
+    // Tool/capability visibility: declared-but-dropped must be as loud as a
+    // policy downgrade. A definition written against another agent product's
+    // tool namespace otherwise loses those tools with zero trace, and the
+    // only way to notice is archaeological transcript reading.
+    if (droppedTools.length > 0 || droppedCapabilities.length > 0) {
+      parentDispatchEvents.push({
+        time: nowMs(),
+        type: "subagent_tools_dropped",
+        data: {
+          ...(childSessionId !== undefined ? { childSessionId } : {}),
+          ...(subagentType !== undefined ? { subagentType } : {}),
+          droppedTools,
+          droppedCapabilities,
+        },
+        turn,
+      });
+    }
+
+    if (chatStore && parentChatSessionId) {
+      bestEffortAppend(chatStore, parentChatSessionId, parentDispatchEvents);
+      if (childSessionId !== undefined) {
+        bestEffortAppend(chatStore, childSessionId, [
+          {
+            time: startedAt,
+            type: "session_meta",
+            data: {
+              projectId: null,
+              providerId: null,
+              modelId: null,
+              permissionMode: null,
+              parentSessionId: parentChatSessionId,
+              delegationDepth: depth,
+              origin: "subagent" as const,
+              // The dispatch title is the child's display name: without it a
+              // resumed/replayed tab or the tasks list can only re-derive a
+              // truncated first line from the message.
+              ...(title !== undefined ? { title } : {}),
+            },
+          },
+        ]);
+      }
+    }
+
+    // Live path (Task 5c): the same records also ride the parent's event sink
+    // so SSE clients see them in real time — the store write above alone only
+    // reaches replay/resume. They are parent-level events: never tagged
+    // agentDepth (they must stay on the main feed, not be routed into a child
+    // bucket), and the parent turn stamp is mandatory — an unstamped event
+    // would fall into a phantom turn 0 in the client projection. Emission does
+    // not depend on the chatStore, whose absence only disables persistence.
+    for (const event of parentDispatchEvents) {
+      currentSink?.emit(event);
+    }
+
 
     // Unresolved model tier (design D5): same audience and channel as the
     // F-023 downgrade above — parent-level (un-tagged), turn-stamped, on the
@@ -3727,7 +3963,13 @@ function createSubAgentExecutor(
       childSpec?.reasoningEffort ??
       resolvedTier?.reasoningEffort ??
       resolveConfigValue(opts.reasoningEffort, opts.config?.config, "reasoningEffort");
+    // Per-dispatch refinements (task tool's temperature / max_tokens /
+    // response_format / max_iterations) head every chain: the dispatching
+    // model asked for this run specifically, so it outranks the definition,
+    // which outranks the parent. Same shape as the model and reasoning-effort
+    // chains above — one precedence rule, applied on every axis.
     const resolvedSubResponseFormat =
+      dispatchResponseFormat ??
       childSpec?.responseFormat ??
       resolveConfigValue(opts.responseFormat, opts.config?.config, "responseFormat");
 
@@ -3745,7 +3987,9 @@ function createSubAgentExecutor(
     );
 
     const subMaxTokens =
-      childSpec?.maxTokens ?? resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens");
+      dispatchMaxTokens ??
+      childSpec?.maxTokens ??
+      resolveConfigValue(opts.maxTokens, opts.config?.config, "maxTokens");
     const subStepContext: StepContext = {
       tools: subToolDefs,
       // Model resolution chain (design §4.4): the per-dispatch input
@@ -3766,6 +4010,7 @@ function createSubAgentExecutor(
           : {}),
       maxTokens: subMaxTokens,
       temperature:
+        dispatchTemperature ??
         childSpec?.temperature ??
         resolveConfigValue(opts.temperature, opts.config?.config, "temperature"),
       id: idPort,
@@ -3883,17 +4128,20 @@ function createSubAgentExecutor(
       attachmentStore,
       // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
       initialState: createInitialState({
-        // The definition's body is the sub-agent's system prompt. Seeded the
-        // same way the parent seeds its own (a system message ahead of the
-        // dispatch), and deliberately without the parent's prompt: a typed
-        // sub-agent starts from its own instructions, not the parent's.
-        ...(childSpec?.systemPrompt
+        // The child's system prompt: a file definition's body, or the built-in
+        // role prompt (explicit built-in type, or omit == general-purpose).
+        // Seeded the same way the parent seeds its own (a system message ahead
+        // of the dispatch), and deliberately without the parent's prompt: a
+        // sub-agent starts from its own instructions, not the parent's. The
+        // role prompt is what closes the old gap where the omit path left an
+        // isolated child with NO system prompt at all.
+        ...(childSystemPrompt
           ? {
               messages: [
                 {
                   id: idPort.next(),
                   role: "system" as const,
-                  content: childSpec.systemPrompt,
+                  content: childSystemPrompt,
                 },
               ],
             }
@@ -3902,9 +4150,11 @@ function createSubAgentExecutor(
         // runaway guards, independent of the parent's: a sub-agent told to
         // answer in two iterations must stop at two even when the parent
         // allows twenty.
-        ...(childSpec?.maxIterations !== undefined
-          ? { maxIterations: childSpec.maxIterations }
-          : {}),
+        ...(dispatchMaxIterations !== undefined
+          ? { maxIterations: dispatchMaxIterations }
+          : childSpec?.maxIterations !== undefined
+            ? { maxIterations: childSpec.maxIterations }
+            : {}),
         ...(childSpec?.maxToolCalls !== undefined
           ? { maxToolCalls: childSpec.maxToolCalls }
           : {}),

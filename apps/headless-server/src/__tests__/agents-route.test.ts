@@ -68,6 +68,84 @@ describe("/agents", () => {
     await close();
   });
 
+  it("lists the built-in types ahead of file definitions", async () => {
+    const { url, token, writeUserAgent, close } = await startRouteTestServer();
+    await writeUserAgent("mine", "x");
+
+    const res = await fetch(`${url}/agents`, { headers: auth(token) });
+    const body = (await res.json()) as { agents: Array<Record<string, unknown>> };
+
+    const gp = body.agents.find((a) => a["name"] === "general-purpose");
+    expect(gp).toMatchObject({ id: "builtin:general-purpose", scope: "builtin", builtIn: true, readOnly: false, shadowed: false });
+    expect(body.agents.find((a) => a["name"] === "explore")).toMatchObject({ id: "builtin:explore", scope: "builtin" });
+    // Built-ins head the list; the file row is not flagged as built-in.
+    expect(body.agents[0]!["scope"]).toBe("builtin");
+    expect(body.agents.find((a) => a["name"] === "mine")).not.toHaveProperty("builtIn");
+    await close();
+  });
+
+  it("a same-named file definition replaces its built-in row", async () => {
+    const { url, token, writeUserAgent, close } = await startRouteTestServer();
+    await writeUserAgent("general-purpose", "custom generalist");
+
+    const res = await fetch(`${url}/agents`, { headers: auth(token) });
+    const body = (await res.json()) as { agents: Array<Record<string, unknown>> };
+
+    expect(body.agents.find((a) => a["id"] === "builtin:general-purpose")).toBeUndefined();
+    expect(body.agents.find((a) => a["name"] === "general-purpose")).toMatchObject({
+      id: "user:general-purpose",
+      scope: "user",
+      builtIn: true,
+      shadowed: false,
+    });
+    // The other built-in stays listed.
+    expect(body.agents.find((a) => a["name"] === "explore")).toMatchObject({ scope: "builtin" });
+    await close();
+  });
+
+  it("editing a built-in materializes a user-scope override file", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const put = await fetch(`${url}/agents/builtin:general-purpose`, {
+      method: "PUT",
+      headers: { ...auth(token), "content-type": "application/json" },
+      body: JSON.stringify({ spec: { name: "hijacked", description: "d", model: "fast" } }),
+    });
+    expect(put.status).toBe(200);
+    // The id pins the name — a built-in row customizes the type, never renames it.
+    expect(await put.json()).toMatchObject({ id: "user:general-purpose", spec: { name: "general-purpose", model: "fast" } });
+
+    const list = (await (await fetch(`${url}/agents`, { headers: auth(token) })).json()) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    expect(list.agents.find((a) => a["id"] === "builtin:general-purpose")).toBeUndefined();
+    expect(list.agents.find((a) => a["id"] === "user:general-purpose")).toMatchObject({ builtIn: true });
+    await close();
+  });
+
+  it("refuses to delete a built-in or its override file", async () => {
+    const { url, token, writeUserAgent, close } = await startRouteTestServer();
+    await writeUserAgent("explore", "x");
+
+    const delBuiltIn = await fetch(`${url}/agents/builtin:general-purpose`, { method: "DELETE", headers: auth(token) });
+    expect(delBuiltIn.status).toBe(409);
+    expect(JSON.stringify(await delBuiltIn.json())).toMatch(/built-in/i);
+
+    const delOverride = await fetch(`${url}/agents/user:explore`, { method: "DELETE", headers: auth(token) });
+    expect(delOverride.status).toBe(409);
+    await close();
+  });
+
+  it("404s when PUT addresses a name that is not built-in", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    const put = await fetch(`${url}/agents/builtin:ghost`, {
+      method: "PUT",
+      headers: { ...auth(token), "content-type": "application/json" },
+      body: JSON.stringify({ spec: { name: "ghost" } }),
+    });
+    expect(put.status).toBe(404);
+    await close();
+  });
+
   it("requires authentication on every verb", async () => {
     const { url, close } = await startRouteTestServer();
     for (const [method, path] of [["GET", "/agents"], ["POST", "/agents"], ["PUT", "/agents/project:x"], ["DELETE", "/agents/project:x"]] as const) {

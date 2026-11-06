@@ -54,6 +54,15 @@ export function validateToolInput(schema: JSONSchema | undefined, input: unknown
 
     for (const [key, propertySchema] of Object.entries(schema.properties)) {
       if (!missing(record[key])) {
+        if (
+          propertySchema.enum !== undefined &&
+          !propertySchema.enum.includes(record[key])
+        ) {
+          // An enum-constrained property (e.g. subagent_type): reject a value
+          // outside the allowed set as a self-correctable input error instead
+          // of letting a drifting string reach the dispatcher.
+          return `property "${key}" must be one of: ${propertySchema.enum.join(", ")}`;
+        }
         if (!typeMatches(propertySchema, record[key])) {
           return `property "${key}" has invalid type`;
         }

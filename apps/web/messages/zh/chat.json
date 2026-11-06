@@ -263,5 +263,12 @@
   "queuedAttachments": "{count} 个附件",
   "fileLink": {
     "openInPane": "在右侧面板打开 {path}"
+  },
+  "subagentCard": {
+    "maxIterations": "≤{count} 轮",
+    "tools": "{count} 个工具",
+    "background": "后台",
+    "unavailable": "{count} 项不可用",
+    "unavailableDetail": "派发时被丢弃：{tools}"
   }
 }

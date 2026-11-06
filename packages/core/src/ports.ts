@@ -616,8 +616,36 @@ export interface TranscriptEventMap {
   };
 
   // ── Sub-agents ──
-  subagent_started: { childSessionId: string; label: string; depth: number };
+  subagent_started: {
+    childSessionId: string;
+    label: string;
+    depth: number;
+    /** Dispatch-supplied one-line task label (absent on pre-title sessions). */
+    title?: string;
+  };
   subagent_finished: { childSessionId: string; isError: boolean; durationMs: number };
+  /**
+   * A definition (or a per-dispatch allowlist) named tools / capabilities the
+   * assembled child could not get, because the intersection rule keeps only
+   * what the parent owns. Durable so the loss is auditable after a reload —
+   * a sink-only event would vanish with the process.
+   */
+  subagent_tools_dropped: {
+    childSessionId?: string;
+    subagentType?: string;
+    droppedTools: string[];
+    droppedCapabilities: string[];
+  };
+  /**
+   * The definition asked for a wider permission axis than the parent allows
+   * and `narrowPermission` took the stricter option (F-023). Same durable,
+   * parent-level channel as the drops above.
+   */
+  subagent_permission_downgraded: {
+    childSessionId?: string;
+    subagentType: string;
+    downgrades: Array<{ field: string; requested: string; effective: string }>;
+  };
 
   // ── Other ──
   budget_exceeded: { reason: string };

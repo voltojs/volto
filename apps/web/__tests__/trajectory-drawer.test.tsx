@@ -41,6 +41,26 @@ describe('TrajectoryDrawer', () => {
     expect(usePaneStore.getState().activeTabId).toBe('subagent:child-9');
   });
 
+  it('shows the tools a dispatch could not get, and the narrowed permission axes', () => {
+    const childRow = row({
+      kind: 'subagent',
+      childSessionId: 'child-9',
+      subagentTitle: '分析触发机制',
+      subagentType: 'bug-analyzer',
+      subagentDroppedTools: ['run_bash_command', 'search_files'],
+      subagentDowngrades: [
+        { field: 'sandbox', requested: 'danger-full-access', effective: 'workspace-write' },
+      ],
+    });
+    render(<TrajectoryDrawer row={childRow} open onOpenChange={() => {}} />);
+    expect(screen.getByText('分析触发机制')).toBeInTheDocument();
+    expect(screen.getByText('bug-analyzer')).toBeInTheDocument();
+    expect(screen.getByText('run_bash_command、search_files')).toBeInTheDocument();
+    expect(
+      screen.getByText('sandbox: danger-full-access → workspace-write'),
+    ).toBeInTheDocument();
+  });
+
   // Base UI 契约：Popup 必须渲染在 Viewport 内（滑动关闭 + 触摸滚动锁定的
   // 宿主）。缺 Viewport 时 Drawer.Popup 会在运行时告警——本断言把结构钉死。
   it('renders the popup inside a drawer viewport', () => {

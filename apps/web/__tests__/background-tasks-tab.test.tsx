@@ -43,6 +43,9 @@ describe('BackgroundTasksTab', () => {
       id: 'subagent:s-sub-0',
       childSessionId: 's-sub-0',
       view: 'chat',
+      // The row's task title travels into the tab so the pane labels itself
+      // instead of showing a bare session suffix.
+      title: 'explore codebase',
     });
     expect(usePaneStore.getState().activeTabId).toBe('subagent:s-sub-0');
   });

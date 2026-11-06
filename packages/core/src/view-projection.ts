@@ -118,6 +118,18 @@ export interface ToolCallRecord {
   };
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
+  /**
+   * Dispatch-supplied task title (`task` tool's `title`). Absent on sessions
+   * recorded before the field existed — consumers fall back to deriving one
+   * from `args.message`.
+   */
+  subagentTitle?: string;
+  /** Tools the definition / allowlist named that the child could not get. */
+  subagentDroppedTools?: string[];
+  /** Capabilities the definition named that the parent does not grant. */
+  subagentDroppedCapabilities?: string[];
+  /** Permission axes narrowed below what the definition asked for (F-023). */
+  subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
 }
 
 export interface RetryRecord {
@@ -157,7 +169,13 @@ export interface TurnRecord {
    * the parking claim moves onto the record. At most one per turn (the
    * parking map's existing single-slot shape).
    */
-  pendingSubagent?: { label: string; childSessionId: string; startedAt: number };
+  pendingSubagent?: {
+    label: string;
+    childSessionId: string;
+    startedAt: number;
+    /** Dispatch-supplied title, when the session records one. */
+    title?: string;
+  };
   /**
    * Usage of this turn's compaction summarization call, when the provider
    * reported one. Compaction is not a visible step, so it rides the turn
@@ -322,6 +340,18 @@ export function buildTurnRecords(
    * running — the conversation view links the block from there).
    */
   const pendingSubagents = new Map<number, TranscriptEvent<"subagent_started">>();
+  // Dispatch disclosures, keyed by the child session they belong to. They are
+  // collected here and applied in a second pass because their ordering in the
+  // log relative to the tool_call they describe is not guaranteed (the SDK
+  // writes the start bracket while the runner buffers tool_call events).
+  const dropsByChild = new Map<
+    string,
+    { tools: string[]; capabilities: string[] }
+  >();
+  const downgradesByChild = new Map<
+    string,
+    Array<{ field: string; requested: string; effective: string }>
+  >();
 
   for (const event of events) {
     switch (event.type) {
@@ -501,6 +531,7 @@ export function buildTurnRecords(
         const pending = pendingSubagents.get(turn.turn);
         if (pending && data.name === pending.data.label && call.childSessionId === undefined) {
           call.childSessionId = pending.data.childSessionId;
+          if (pending.data.title !== undefined) call.subagentTitle = pending.data.title;
           pendingSubagents.delete(turn.turn);
         }
         break;
@@ -558,6 +589,27 @@ export function buildTurnRecords(
         break;
       }
 
+      case "subagent_tools_dropped": {
+        const data = event.data as TranscriptEventMap["subagent_tools_dropped"];
+        if (data.childSessionId !== undefined) {
+          const prev = dropsByChild.get(data.childSessionId);
+          dropsByChild.set(data.childSessionId, {
+            tools: [...(prev?.tools ?? []), ...data.droppedTools],
+            capabilities: [...(prev?.capabilities ?? []), ...data.droppedCapabilities],
+          });
+        }
+        break;
+      }
+
+      case "subagent_permission_downgraded": {
+        const data = event.data as TranscriptEventMap["subagent_permission_downgraded"];
+        if (data.childSessionId !== undefined) {
+          const prev = downgradesByChild.get(data.childSessionId) ?? [];
+          downgradesByChild.set(data.childSessionId, [...prev, ...data.downgrades]);
+        }
+        break;
+      }
+
       case "subagent_started": {
         const data = event.data as TranscriptEventMap["subagent_started"];
         const turn = turnFor(event);
@@ -569,6 +621,7 @@ export function buildTurnRecords(
         const call = lastUnlinkedCall(turn, data.label) ?? lastUnlinkedCall(turn);
         if (call) {
           call.childSessionId = data.childSessionId;
+          if (data.title !== undefined) call.subagentTitle = data.title;
           pendingSubagents.delete(turn.turn);
         } else {
           // The whole event is parked, not just its data: the dispatch start
@@ -617,6 +670,7 @@ export function buildTurnRecords(
         label: pending.data.label,
         childSessionId: pending.data.childSessionId,
         startedAt: pending.time,
+        ...(pending.data.title !== undefined ? { title: pending.data.title } : {}),
       };
     }
   }
@@ -625,6 +679,27 @@ export function buildTurnRecords(
     turn.steps.sort((a, b) => a.step - b.step);
     for (const step of turn.steps) {
       step.toolCalls.sort((a, b) => a.orderInBatch - b.orderInBatch);
+    }
+  }
+
+  // Apply the dispatch disclosures now that every call carries its child
+  // session link. A call keeps the arrays empty-free: absent means "nothing
+  // was dropped", which is different from an empty list nobody should render.
+  if (dropsByChild.size > 0 || downgradesByChild.size > 0) {
+    for (const turn of turns) {
+      for (const step of turn.steps) {
+        for (const call of step.toolCalls) {
+          const childId = call.childSessionId;
+          if (childId === undefined) continue;
+          const drops = dropsByChild.get(childId);
+          if (drops !== undefined) {
+            if (drops.tools.length > 0) call.subagentDroppedTools = drops.tools;
+            if (drops.capabilities.length > 0) call.subagentDroppedCapabilities = drops.capabilities;
+          }
+          const downgrades = downgradesByChild.get(childId);
+          if (downgrades !== undefined) call.subagentDowngrades = downgrades;
+        }
+      }
     }
   }
 
@@ -672,6 +747,12 @@ export interface ConversationToolCall {
   durationMs?: number;
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
+  /** Dispatch-supplied task title, when the session records one. */
+  subagentTitle?: string;
+  /** Tools the dispatch named that the child could not get. */
+  subagentDroppedTools?: string[];
+  /** Permission axes narrowed below what the definition asked for. */
+  subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
   /** When the call started (the subagent_started bracket's dispatch time). */
   startedAt?: number;
   /**
@@ -950,6 +1031,13 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                   ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
                   ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
+                  ...(call?.subagentTitle !== undefined ? { subagentTitle: call.subagentTitle } : {}),
+                  ...(call?.subagentDroppedTools !== undefined
+                    ? { subagentDroppedTools: call.subagentDroppedTools }
+                    : {}),
+                  ...(call?.subagentDowngrades !== undefined
+                    ? { subagentDowngrades: call.subagentDowngrades }
+                    : {}),
                   ...(call?.startedAt !== undefined ? { startedAt: call.startedAt } : {}),
                   ...(call?.approval !== undefined
                     ? {
@@ -977,6 +1065,9 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   args: block.input,
                   childSessionId: turn.pendingSubagent.childSessionId,
                   startedAt: turn.pendingSubagent.startedAt,
+                  ...(turn.pendingSubagent.title !== undefined
+                    ? { subagentTitle: turn.pendingSubagent.title }
+                    : {}),
                 },
               });
             } else {
@@ -1140,8 +1231,32 @@ export interface TrajectoryRow {
   metrics?: { ttftMs?: number; durationMs: number; usage?: TokenUsage };
   /** Present on a sub-agent row; the child's own session, read separately. */
   childSessionId?: string;
+  /** Dispatch-supplied task title, when the session records one. */
+  subagentTitle?: string;
+  /** `subagent_type` the dispatch named, when it named one. */
+  subagentType?: string;
+  /** Tools the dispatch named that the child could not get. */
+  subagentDroppedTools?: string[];
+  /** Capabilities the dispatch named that the parent does not grant. */
+  subagentDroppedCapabilities?: string[];
+  /** Permission axes narrowed below what the definition asked for. */
+  subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
   /** Set only on `kind:"reminder"` rows — which dynamic injection produced this. */
   reminderKind?: ContextReminderKind;
+}
+
+/** One-line trajectory summary for a delegation: its title, else its type. */
+function delegationSummary(call: ToolCallRecord): string {
+  if (call.subagentTitle !== undefined && call.subagentTitle !== "") {
+    return summarise(call.subagentTitle, 120);
+  }
+  const declared = call.input["title"];
+  if (typeof declared === "string" && declared !== "") return summarise(declared, 120);
+  const type = call.input["subagent_type"];
+  if (typeof type === "string" && type !== "") return type;
+  const message = call.input["message"];
+  if (typeof message === "string") return summarise(message.split("\n")[0] ?? "", 120);
+  return "task";
 }
 
 export interface TrajectoryView {
@@ -1296,7 +1411,12 @@ export function toTrajectoryView(
           kind: call.childSessionId !== undefined ? "subagent" : "tool",
           turn: turn.turn,
           step: step.step,
-          summary: `${call.name}(${summarise(JSON.stringify(call.input), 60)})`,
+          // A delegation reads as its task, not as a JSON blob: the row is a
+          // whole job, and the full args stay available in `inputDetail`.
+          summary:
+            call.childSessionId !== undefined
+              ? delegationSummary(call)
+              : `${call.name}(${summarise(JSON.stringify(call.input), 60)})`,
           startedAt: call.startedAt,
           ...(call.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
           ...(call.isError !== undefined ? { isError: call.isError } : {}),
@@ -1305,7 +1425,24 @@ export function toTrajectoryView(
           // own session file, and recursing would pull a whole task tree into
           // memory for one row.
           ...(call.childSessionId !== undefined
-            ? { childSessionId: call.childSessionId }
+            ? {
+                childSessionId: call.childSessionId,
+                ...(call.subagentTitle !== undefined
+                  ? { subagentTitle: call.subagentTitle }
+                  : {}),
+                ...(typeof call.input["subagent_type"] === "string"
+                  ? { subagentType: call.input["subagent_type"] }
+                  : {}),
+                ...(call.subagentDroppedTools !== undefined
+                  ? { subagentDroppedTools: call.subagentDroppedTools }
+                  : {}),
+                ...(call.subagentDroppedCapabilities !== undefined
+                  ? { subagentDroppedCapabilities: call.subagentDroppedCapabilities }
+                  : {}),
+                ...(call.subagentDowngrades !== undefined
+                  ? { subagentDowngrades: call.subagentDowngrades }
+                  : {}),
+              }
             : call.content !== undefined
               ? { outputDetail: toolResultText(call.content) }
               : {}),

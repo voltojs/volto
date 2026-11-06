@@ -66,22 +66,31 @@ describe("task sub-agent — messages isolation", () => {
       .join("|");
     expect(main1Text).toContain("Parent's question");
 
-    // Sub-agent — its first call MUST see exactly one user message that is
-    // the `task` tool's `message` argument, with NO trace of the parent
-    // conversation.
+    // Sub-agent — its first call sees the built-in sub-agent role prompt plus
+    // exactly one user message (the `task` tool's `message` argument), with
+    // NO trace of the parent conversation.
     const sub1 = spy.calls[1]!.messages;
-    expect(sub1).toHaveLength(1);
-    expect(sub1[0]!.role).toBe("user");
+    expect(sub1).toHaveLength(2);
+    expect(sub1[0]!.role).toBe("system");
+    expect(sub1[1]!.role).toBe("user");
     const sub1Text =
-      typeof sub1[0]!.content === "string"
-        ? sub1[0]!.content
-        : Array.isArray(sub1[0]!.content)
-          ? sub1[0]!.content
+      typeof sub1[1]!.content === "string"
+        ? sub1[1]!.content
+        : Array.isArray(sub1[1]!.content)
+          ? sub1[1]!.content
               .map((c) => (c.type === "text" ? c.text : ""))
               .join("")
           : "";
     expect(sub1Text).toBe("research");
     expect(sub1Text).not.toContain("Parent");
+    // The one system message is the built-in role prompt — never the host's
+    // system prompt, and never the parent's question.
+    const sub1System = sub1
+      .filter((m) => m.role === "system")
+      .map((m) => (typeof m.content === "string" ? m.content : ""))
+      .join("");
+    expect(sub1System).toContain("sub-agent");
+    expect(sub1System).not.toContain("Parent");
 
     // Main turn 2 — back to main, must include the task's tool_result.
     const main2 = spy.calls[2]!.messages;

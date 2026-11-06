@@ -9,12 +9,13 @@ import { formatDuration } from '@/lib/trajectory-view-model';
 import { cn } from '@/lib/utils';
 import type { BackgroundTaskItem } from '@/lib/background-tasks';
 
-function openSubagentChat(childSessionId: string): void {
+function openSubagentChat(item: BackgroundTaskItem): void {
   usePaneStore.getState().openTab({
     kind: 'subagent',
-    id: `subagent:${childSessionId}`,
-    childSessionId,
+    id: `subagent:${item.childSessionId}`,
+    childSessionId: item.childSessionId,
     view: 'chat',
+    ...(item.title !== '' ? { title: item.title } : {}),
   });
 }
 
@@ -39,7 +40,7 @@ function TaskRow({ item }: { item: BackgroundTaskItem }) {
     <button
       type="button"
       aria-label={item.title ? item.title : t('background.subagent', { suffix: item.childSessionId.slice(-6) })}
-      onClick={() => openSubagentChat(item.childSessionId)}
+      onClick={() => openSubagentChat(item)}
       className={cn(
         'bg-card/60 hover:bg-muted/60 flex w-full flex-col gap-1 rounded-md border px-2.5 py-2 text-left text-xs',
         item.status === 'error' && 'border-destructive/30 bg-destructive/5',
