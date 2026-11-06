@@ -242,9 +242,9 @@ describe("catalog provider registration", () => {
     // the message but does not treat it as a system instruction, so the
     // whole system prompt is silently demoted.
     const models = buildModels([
-      { kind: "catalog", id: "v", piProvider: "xiaomi-token-plan-cn", modelCodes: ["mimo-v2.5"] },
+      { kind: "catalog", id: "v", piProvider: "xiaomi-token-plan-cn", modelCodes: ["mimo-v2.6-pro"] },
     ]);
-    const model = models.getModel("xiaomi-token-plan-cn", "mimo-v2.5");
+    const model = models.getModel("xiaomi-token-plan-cn", "mimo-v2.6-pro");
     expect(model?.reasoning).toBe(true);
     expect(model?.compat).toMatchObject({ supportsDeveloperRole: false });
   });
