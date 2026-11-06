@@ -143,8 +143,11 @@ async function syncRunningTurn(sessionId: string): Promise<void> {
   if (tail === null) return;
   const chat = useChatStore.getState();
   if (chat.currentSessionId !== sessionId) return;
-  if (tail.events.length > 0) chat.seedEvents(tail.events);
+  // A settled session needs nothing: its history already comes from the
+  // detail endpoint, and seeding a crashed turn's leftover events would only
+  // add rows the projection has to dedupe again.
   if (!tail.running) return;
+  if (tail.events.length > 0) chat.seedEvents(tail.events);
   const events = useChatStore.getState().events;
   let lastStart = -1;
   let lastEnd = -1;
