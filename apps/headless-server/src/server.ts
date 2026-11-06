@@ -69,6 +69,7 @@ import {
   type ApprovalDecisionOutcome,
   type QueuedMessageAction,
 } from "./sessions.js";
+import { unfinishedTurnTail } from "./session-tail.js";
 import { forkSession, ForkError } from "./session-fork.js";
 import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
 import {
@@ -1734,9 +1735,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       const eventsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/events$/);
       if (eventsMatch) {
         const id = decodeURIComponent(eventsMatch[1]!);
+        // `?tail=1` (web reconnect): only the in-flight turn's events plus the
+        // live `running` flag, so a client that reloads mid-turn can rebuild
+        // the turn instead of starting from an empty buffer. The registry's
+        // flag is the truth — a crash can leave a turn_start with no
+        // turn_end, and replaying that would show a phantom "generating".
+        const tail = url.searchParams.get("tail") === "1";
         try {
           const record = await chatStore.readSession(id);
-          jsonResponse(res, 200, { sessionId: id, events: record?.events ?? [] });
+          const events = record?.events ?? [];
+          jsonResponse(res, 200, {
+            sessionId: id,
+            events: tail ? unfinishedTurnTail(events) : events,
+            ...(tail ? { running: registry.isRunning(id) } : {}),
+          });
         } catch (err: unknown) {
           if (err instanceof TranscriptFormatError) {
             jsonResponse(res, 410, {

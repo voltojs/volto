@@ -221,6 +221,43 @@ export async function fetchSessionEvents(
 }
 
 /**
+ * `GET /sessions/:id/events?tail=1` — the in-flight turn's events plus the
+ * gateway's live `running` flag. A client that reconnects mid-turn replays
+ * this tail so the composer can show generating and the turn's tool batch
+ * exists for a later `tool_result`; an idle session answers an empty tail and
+ * `running: false`.
+ */
+export interface SessionEventsTail {
+  sessionId: string;
+  events: TranscriptEventInput[];
+  running: boolean;
+}
+
+export async function fetchSessionEventsTail(id: string): Promise<SessionEventsTail> {
+  const response = await fetch(
+    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/events?tail=1`,
+    { credentials: 'include' },
+  );
+  if (!response.ok) {
+    const message = await readErrorMessage(
+      response,
+      `Failed to load events ${id}: HTTP ${response.status}`,
+    );
+    throw new TrajectoryUnavailableError(response.status, message);
+  }
+  const body = (await response.json()) as {
+    sessionId?: string;
+    events?: TranscriptEventInput[];
+    running?: boolean;
+  };
+  return {
+    sessionId: body.sessionId ?? id,
+    events: body.events ?? [],
+    running: body.running === true,
+  };
+}
+
+/**
  * `GET /sessions/:id/plan` — the session's current plan document (plan mode,
  * spec 2026-09-19 §3.5). 404 = no plan yet (the session has no project
  * binding, or `save_plan` never wrote one) and folds to `null` per the

@@ -6,6 +6,7 @@ import type {
   TranscriptEventInput,
 } from '@volto/sdk/sse';
 import type { ChatNotice } from '@/lib/projection';
+import { mergeEventTail } from '@/lib/event-tail';
 
 /**
  * Per-sub-agent transcript. One bucket per childSessionId; the bucket's
@@ -118,6 +119,13 @@ interface ChatState {
   resetSubagents: () => void;
   /** Replaces the whole log — used when loading a session from the server. */
   setEvents: (events: TranscriptEventInput[]) => void;
+  /**
+   * Prepend a replayed event tail (a turn that was already running when this
+   * connection opened) without dropping the deltas/notices the live stream
+   * may already have produced. Overlapping events are deduped by
+   * `mergeEventTail`, so calling this twice is harmless.
+   */
+  seedEvents: (events: TranscriptEventInput[]) => void;
   clear: () => void;
   setGenerating: (isGenerating: boolean) => void;
   setSessionId: (sessionId: string | null) => void;
@@ -211,6 +219,9 @@ export const useChatStore = create<ChatState>((set) => ({
   // session switch) or clearing it starts a fresh feed, so the notices go
   // with it — a tier fallback must never leak into the next session.
   setEvents: (events) => set({ events, deltas: [], notices: [] }),
+
+  seedEvents: (events) =>
+    set((state) => ({ events: mergeEventTail(events, state.events) })),
 
   clear: () => set({ events: [], deltas: [], notices: [] }),
 

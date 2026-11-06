@@ -15,6 +15,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { deltaChildId, eventChildId } from '@/lib/subagent-routing';
 import { tierNoticeFromEvent } from '@/lib/tier-notice';
 import { titleFromSessionMeta } from '@/lib/session-title';
+import { fetchSessionEventsTail } from '@/lib/sessions-api';
 import { useSessionStore } from '@/stores/session-store';
 
 type SSEClient = ReturnType<typeof createSSEClient>;
@@ -124,6 +125,36 @@ export async function updateQueue(
  * deltas, and the server echoes the user's own message back as a
  * `user_message` event, so nothing is optimistically added on send.
  */
+/**
+ * Rebuild a turn that was already running when this connection opened.
+ *
+ * The gateway's `?tail=1` answers the events after the last `turn_end` plus
+ * its live `running` flag. Seeding them restores three things a reload would
+ * otherwise lose: the generating state (the composer shows Stop), the
+ * assistant `tool_use` batch that a later `tool_result` resolves, and any
+ * `steering_queued` entry that should sit in the queue dock.
+ *
+ * `running` alone is not trusted for the flag: if a `turn_end` already
+ * arrived on this connection, the open-turn test below keeps the composer
+ * idle instead of pinning it to generating.
+ */
+async function syncRunningTurn(sessionId: string): Promise<void> {
+  const tail = await fetchSessionEventsTail(sessionId).catch(() => null);
+  if (tail === null) return;
+  const chat = useChatStore.getState();
+  if (chat.currentSessionId !== sessionId) return;
+  if (tail.events.length > 0) chat.seedEvents(tail.events);
+  if (!tail.running) return;
+  const events = useChatStore.getState().events;
+  let lastStart = -1;
+  let lastEnd = -1;
+  events.forEach((event, index) => {
+    if (event.type === 'turn_start') lastStart = index;
+    else if (event.type === 'turn_end') lastEnd = index;
+  });
+  if (lastStart > lastEnd) chat.setGenerating(true);
+}
+
 export function useChatAgent(): UseChatAgentReturn {
   const t = useTranslations('chat');
   const connectionRef = useRef<Connection | null>(null);
@@ -237,8 +268,15 @@ export function useChatAgent(): UseChatAgentReturn {
       ready.catch(() => {});
 
       client.connect();
-      connectionRef.current = { sessionId, client, ready };
-      return ready;
+      // A fresh EventSource gets no replay, so a page that reloads mid-turn
+      // would otherwise start with an empty buffer: the composer would show
+      // idle (no Stop) and a later `tool_result` would have no batch to land
+      // in. Rebuild the running turn from the gateway's persisted tail before
+      // this connection is considered ready.
+      const readyWithTail = ready.then(() => syncRunningTurn(sessionId));
+      readyWithTail.catch(() => {});
+      connectionRef.current = { sessionId, client, ready: readyWithTail };
+      return readyWithTail;
     },
     [],
   );
