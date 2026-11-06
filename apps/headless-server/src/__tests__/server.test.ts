@@ -1027,9 +1027,20 @@ describe("Headless server", () => {
 
       // The history side: what GET /sessions/:id projects from the persisted
       // transcript (readConversation = toConversationView(buildTurnRecords)).
-      const detail = await getJson(`/sessions/${sessionId}`, base, toolServer.launchToken);
-      expect(detail.status).toBe(200);
-      const stored = (detail.data as { messages: ConversationMessage[] }).messages;
+      // The runner streams `turn_end` before its final recorder flush lands,
+      // so an immediate read can observe a log that is one write behind the
+      // live stream. Wait (bounded) for the stored view to catch up rather
+      // than turning that scheduling race into a failure; content divergence
+      // still fails the deep-equality gate below.
+      let stored: ConversationMessage[] = [];
+      const deadline = Date.now() + 3000;
+      for (;;) {
+        const detail = await getJson(`/sessions/${sessionId}`, base, toolServer.launchToken);
+        expect(detail.status).toBe(200);
+        stored = (detail.data as { messages: ConversationMessage[] }).messages;
+        if (stored.length >= live.messages.length || Date.now() >= deadline) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
 
       // THE GATE: deep equality between the live view and the stored view.
       expect(live.messages).toEqual(stored);
