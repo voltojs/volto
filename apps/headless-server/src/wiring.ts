@@ -739,6 +739,10 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(opts.eventSink ? { eventSink: opts.eventSink } : {}),
     ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.initialMessages ? { initialMessages: opts.initialMessages } : {}),
+    // One model-driven repair prompt per turn: a timed-out tool call tells
+    // the model it may retry with a larger timeout or run_in_background.
+    // The model decides; the gateway never re-runs a tool.
+    selfCorrectionMax: 1,
     // Always forwarded, even when empty: createAgent holds the array by
     // reference as its seed (Task 7), and a rebuild may push entries into
     // it after construction (the D13 post-build reconcile).

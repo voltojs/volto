@@ -511,6 +511,15 @@ export interface CreateAgentOptions {
   initialMessages?: Message[];
 
   /**
+   * Budget for MODEL-DRIVEN repair prompts. Today the Runner uses it for one
+   * case: a tool call that reports `displayMetadata.timedOut` gets one
+   * repair prompt telling the model it may retry with a larger `timeout` or
+   * `run_in_background` — the model decides whether to re-call; the Runner
+   * never re-executes a tool itself. 0/undefined disables it.
+   */
+  selfCorrectionMax?: number;
+
+  /**
    * Seeds ReducerState.queuedUserInputs — the not-yet-delivered steering
    * queue a host rebuilds from its durable transcript (the D13 event fold)
    * after a process/config rebuild. Entries ride into the first turn's
@@ -2337,6 +2346,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     const effectiveMaxCostDollars = resolvedMaxDollarsPerTurn ?? resolvedMaxCostTokens;
     const initStateOverrides: Partial<ReducerState> = {
       ...(resolvedMaxIterations !== undefined ? { maxIterations: resolvedMaxIterations } : {}),
+      ...(opts.selfCorrectionMax !== undefined
+        ? { selfCorrectionMax: opts.selfCorrectionMax }
+        : {}),
       ...(resolvedTokenBudget !== undefined ? { tokenBudget: resolvedTokenBudget } : {}),
       ...(resolvedMaxToolCalls !== undefined ? { maxToolCalls: resolvedMaxToolCalls } : {}),
       ...(effectiveMaxCostDollars !== undefined ? { maxCostDollars: effectiveMaxCostDollars } : {}),

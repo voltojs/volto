@@ -2657,6 +2657,25 @@ export function createRunner(opts: RunnerOptions): Runner {
               }
             }
 
+            // A timed-out call is the one failure the model can usually fix
+            // itself (a larger `timeout`, or run_in_background). Queue ONE
+            // budgeted repair prompt so the model — not the Runner — decides
+            // whether to re-call the tool; the Runner never re-executes it.
+            if (result.displayMetadata?.["timedOut"] === true) {
+              const projectedCount =
+                state.selfCorrectionCount +
+                pendingSelfCorrects.filter((p) => p.consumesBudget).length;
+              if (projectedCount < (state.maxSelfCorrections ?? 0)) {
+                pendingSelfCorrects.push({
+                  repairPrompt:
+                    `[TOOL TIMEOUT] ${toolCall.name} was killed when its timeout expired. ` +
+                    "If the command is still needed, retry with a larger `timeout` (milliseconds) " +
+                    "or run_in_background=true; otherwise explain the timeout to the user.",
+                  consumesBudget: true,
+                });
+              }
+            }
+
             if (getStatus() !== "executing_tools") break;
           }
 

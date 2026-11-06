@@ -60,6 +60,79 @@ function createAlwaysFailValidator(name = "test-validator"): Validator {
   };
 }
 
+  it("a timed-out tool call queues one repair prompt for the model to decide on", async () => {
+    const bashTool: ToolDefinition = {
+      name: "bash",
+      description: "Run a command",
+      inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      requires: ["shell:exec"],
+      riskTier: "WRITE_HIGH",
+    };
+    const model = createMockModelPort([
+      toolCallScript("call_1", "bash", JSON.stringify({ command: "sleep 60" })),
+      textScript("The command timed out; I did not retry."),
+    ]);
+    const toolExecutor: ToolExecutor = async () => ({
+      modelContent: "[timeout] bash timed out after 120000ms",
+      isError: true,
+      displayMetadata: { timedOut: true },
+    });
+
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [bashTool], model: "test-model" },
+      toolExecutor,
+      availableCapabilities: new Set(["shell:exec"]),
+      selfCorrectionMax: 1,
+    });
+
+    const final = await runner.run({ type: "user_message", content: "run the slow command" });
+
+    expect(final.selfCorrectionCount).toBe(1);
+    // The model was called twice — the tool batch continues — but the Runner
+    // never re-executes the tool; it only hands the model a repair prompt.
+    expect(model.callCount).toBe(2);
+    const repair = final.messages.find(
+      (m) => m.role === "user" && String(m.content).includes("[TOOL TIMEOUT]"),
+    );
+    expect(repair).toBeDefined();
+    expect(String(repair?.content)).toContain("run_in_background");
+  });
+
+  it("does not queue a repair prompt when the budget is zero", async () => {
+    const bashTool: ToolDefinition = {
+      name: "bash",
+      description: "Run a command",
+      inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+      requires: ["shell:exec"],
+      riskTier: "WRITE_HIGH",
+    };
+    const model = createMockModelPort([
+      toolCallScript("call_1", "bash", JSON.stringify({ command: "sleep 60" })),
+      textScript("Timed out."),
+    ]);
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [bashTool], model: "test-model" },
+      toolExecutor: async () => ({
+        modelContent: "[timeout] bash timed out after 120000ms",
+        isError: true,
+        displayMetadata: { timedOut: true },
+      }),
+      availableCapabilities: new Set(["shell:exec"]),
+      // no selfCorrectionMax → budget 0
+    });
+
+    const final = await runner.run({ type: "user_message", content: "run the slow command" });
+
+    expect(final.selfCorrectionCount).toBe(0);
+    expect(
+      final.messages.some(
+        (m) => m.role === "user" && String(m.content).includes("[TOOL TIMEOUT]"),
+      ),
+    ).toBe(false);
+  });
+
 describe("Runner self-correction", () => {
   it("validator fails once, model corrects on second try → success", async () => {
     const validator = createFailingValidator(1);
