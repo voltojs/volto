@@ -45,7 +45,11 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      {/* 80% of the window on both axes: the old `sm:max-w-3xl` + 60vh
+          content box left the panels cramped (model tables, provider
+          forms). `flex flex-col` lets the tab body take the remaining
+          height instead of a fixed min-height. */}
+      <DialogContent className="flex h-[80vh] w-[80vw] flex-col sm:max-w-[80vw]">
         <DialogHeader>
           <DialogTitle>{t('dialog.title')}</DialogTitle>
         </DialogHeader>
@@ -57,7 +61,7 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
           orientation="vertical"
           value={tab}
           onValueChange={(value) => setTab(String(value))}
-          className="flex min-h-[60vh] min-w-0 flex-row gap-4"
+          className="flex min-h-0 min-w-0 flex-1 flex-row gap-4"
         >
           <TabsList className="h-auto w-40 shrink-0 flex-col items-stretch justify-start gap-0.5 self-start p-1">
             {TABS.map(({ value, labelKey, icon: Icon }) => (
@@ -74,7 +78,7 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
 
           {/* min-w-0 so a long model code inside the panel scrolls instead of
               stretching the dialog past its max width. */}
-          <div className="max-h-[60vh] min-w-0 flex-1 overflow-y-auto pr-1">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="models">
               <ProvidersPanel />
             </TabsContent>
