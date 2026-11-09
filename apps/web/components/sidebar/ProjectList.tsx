@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import {
+  GripVertical,
   ChevronRight,
   Copy,
   FolderGit2,
@@ -25,6 +26,7 @@ import { revealPath } from '@/lib/config-api';
 import { runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
 import {
+  applyDragEnd,
   pinSession,
   sortProjects,
   toggleProjectExpanded,
@@ -43,9 +45,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { cn } from '@/lib/utils';
 import { SectionHeader } from './SectionHeader';
 import { SessionItem } from './SessionItem';
+import { SortableRow } from './SortableRow';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 
 /**
@@ -96,6 +113,13 @@ export function ProjectList() {
   // guard's check-and-add is performed by `runSessionDelete`; this ref is
   // just the shared, mutable `Set` instance passed to it on every call.
   const deletingSessionIds = useRef<Set<string>>(new Set());
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  // A drag ends with a pointerup, after which the row's own click would fire
+  // and toggle the workspace open/closed. Swallow exactly that click.
+  const suppressClick = useRef(false);
 
   const ordered = sortProjects(projects, doc.sortModes.projects, {
     order: doc.projectOrder,
@@ -111,6 +135,20 @@ export function ProjectList() {
     (firstProjectId === null ? [] : [firstProjectId]);
   const expandedSet = new Set(expandedIds);
   const pinnedSet = new Set(doc.pinnedSessionIds);
+  const manual = doc.sortModes.projects === 'manual';
+  const renderedProjectIds = ordered.map((project) => project.id);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over === null || active.id === over.id) return;
+    const from = renderedProjectIds.indexOf(String(active.id));
+    const to = renderedProjectIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    suppressClick.current = true;
+    update((state) =>
+      applyDragEnd(state, 'projects', renderedProjectIds, from, to),
+    );
+  };
 
   const handleRemoveProject = async (projectId: string) => {
     setError(null);
@@ -232,6 +270,15 @@ export function ProjectList() {
         data-testid="workspace-rows"
         className={cn('space-y-0.5', doc.projectsCollapsed && 'hidden')}
       >
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={renderedProjectIds}
+            strategy={verticalListSortingStrategy}
+          >
         {ordered.map((project) => {
           const expanded = expandedSet.has(project.id);
           const projectSessions = sessions.filter(
@@ -243,6 +290,8 @@ export function ProjectList() {
 
           return (
             <div key={project.id}>
+              <SortableRow id={project.id} enabled={manual}>
+                {(handle) => (
               <div
                 data-testid={`project-row-${project.id}`}
                 className={cn(
@@ -252,10 +301,27 @@ export function ProjectList() {
                     'hover:bg-sidebar-accent': menuOpenProjectId !== project.id,
                   },
                 )}
-                onClick={() =>
-                  update((state) => toggleProjectExpanded(state, project.id))
-                }
+                onClick={() => {
+                  if (suppressClick.current) {
+                    suppressClick.current = false;
+                    return;
+                  }
+                  update((state) => toggleProjectExpanded(state, project.id));
+                }}
               >
+                {manual && (
+                  <button
+                    type="button"
+                    ref={handle.setActivatorNodeRef}
+                    {...handle.attributes}
+                    {...handle.listeners}
+                    aria-label={t('drag.handle')}
+                    className="text-muted-foreground hover:text-foreground -ml-0.5 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <GripVertical className="h-3 w-3" />
+                  </button>
+                )}
                 <ChevronRight
                   className={cn(
                     'text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150',
@@ -391,6 +457,8 @@ export function ProjectList() {
                   </Tooltip>
                 </div>
               </div>
+                )}
+              </SortableRow>
 
               {expanded && (
                 <div className="border-sidebar-border/70 ml-2.5 space-y-0.5 border-l py-0.5 pl-2.5">
@@ -441,6 +509,8 @@ export function ProjectList() {
             </div>
           );
         })}
+          </SortableContext>
+        </DndContext>
       </div>
 
       {/* projectId is immutable and a fresh add gets a new UUID, so deleting a

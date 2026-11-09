@@ -29,6 +29,8 @@ interface SessionItemProps {
   isPinned: boolean;
   /** Small trailing hint (the pinned rows label their workspace). */
   label?: string;
+  /** Rendered ahead of the leading slot — the drag handle when the section is manually ordered. */
+  dragHandle?: React.ReactNode;
   /**
    * True while this session's channel is actively streaming a turn. Deleting
    * such a session races the server's transcript writes: a delete landing
@@ -57,6 +59,7 @@ export function SessionItem({
   isActive,
   isPinned,
   label,
+  dragHandle,
   isGenerating,
   onTogglePin,
   onRename,
@@ -130,6 +133,7 @@ export function SessionItem({
             />
           }
         >
+          {dragHandle}
           {/* Leading slot: the message glyph is gone but the fixed-size box
               stays, so rows never re-flow when the spinner appears; a
               streaming session gets a spinning ring in it. */}

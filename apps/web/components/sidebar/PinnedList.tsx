@@ -2,6 +2,21 @@
 
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
@@ -10,11 +25,12 @@ import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
-import { sortPinned, unpinSession } from '@/lib/sidebar-layout';
+import { applyDragEnd, sortPinned, unpinSession } from '@/lib/sidebar-layout';
 import { cn } from '@/lib/utils';
 import type { PinnedSortMode } from '@/lib/sidebar-state-api';
 import { SectionHeader } from './SectionHeader';
 import { SessionItem } from './SessionItem';
+import { SortableRow } from './SortableRow';
 
 /**
  * The pinned section: sessions collected across every workspace, ordered by
@@ -36,6 +52,13 @@ export function PinnedList() {
   const doc = useSidebarStateStore((s) => s.state);
   const update = useSidebarStateStore((s) => s.update);
   const [error, setError] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  // A drag ends with a pointerup, after which the row's own click would fire
+  // and open the session. Swallow exactly that click.
+  const suppressClick = useRef(false);
   // Shared with `runSessionDelete`, which does the check-and-add itself.
   const deletingSessionIds = useRef<Set<string>>(new Set());
 
@@ -43,6 +66,18 @@ export function PinnedList() {
   if (pinned.length === 0) return null;
 
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+  const manual = doc.sortModes.pinned === 'manual';
+  const renderedIds = pinned.map((session) => session.id);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over === null || active.id === over.id) return;
+    const from = renderedIds.indexOf(String(active.id));
+    const to = renderedIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    suppressClick.current = true;
+    update((state) => applyDragEnd(state, 'pinned', renderedIds, from, to));
+  };
 
   const openSession = (sessionId: string, projectId: string | null) => {
     useSessionStore.getState().setCurrentSession(sessionId);
@@ -89,7 +124,18 @@ export function PinnedList() {
           doc.pinnedCollapsed && 'hidden',
         )}
       >
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={renderedIds}
+            strategy={verticalListSortingStrategy}
+          >
         {pinned.map((session) => (
+          <SortableRow key={session.id} id={session.id} enabled={manual}>
+            {(handle) => (
           <SessionItem
             key={session.id}
             session={session}
@@ -118,7 +164,28 @@ export function PinnedList() {
                 tc,
               );
             }}
-            onClick={() => openSession(session.id, session.projectId)}
+            dragHandle={
+              manual ? (
+                <button
+                  type="button"
+                  ref={handle.setActivatorNodeRef}
+                  {...handle.attributes}
+                  {...handle.listeners}
+                  aria-label={t('drag.handle')}
+                  className="text-muted-foreground hover:text-foreground -ml-1 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <GripVertical className="h-3 w-3" />
+                </button>
+              ) : undefined
+            }
+            onClick={() => {
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              openSession(session.id, session.projectId);
+            }}
             onDelete={() => {
               void runSessionDelete(
                 {
@@ -132,7 +199,11 @@ export function PinnedList() {
               );
             }}
           />
+            )}
+          </SortableRow>
         ))}
+          </SortableContext>
+        </DndContext>
       </div>
     </>
   );

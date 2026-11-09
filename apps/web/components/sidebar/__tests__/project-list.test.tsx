@@ -120,6 +120,23 @@ describe('ProjectList', () => {
     expect(screen.getByTestId('workspace-rows')).not.toHaveClass('hidden');
   });
 
+  it('shows one drag handle per workspace in manual order and none under a computed order', () => {
+    seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
+    const { unmount } = render(<ProjectList />);
+    expect(screen.getAllByRole('button', { name: '拖动排序' })).toHaveLength(2);
+    unmount();
+
+    seed({
+      ...base,
+      sidebar: {
+        ...DEFAULT_SIDEBAR_STATE,
+        sortModes: { pinned: 'manual', projects: 'name' },
+      },
+    });
+    render(<ProjectList />);
+    expect(screen.queryAllByRole('button', { name: '拖动排序' })).toHaveLength(0);
+  });
+
   it('writes an explicit [] when the last expanded project is collapsed', async () => {
     seed({
       ...base,

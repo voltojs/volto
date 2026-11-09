@@ -119,6 +119,23 @@ describe('PinnedList', () => {
     expect(titles).toEqual(['s-2-title', 's-1-title']);
   });
 
+  it('shows one drag handle per row in manual order and none under a computed order', () => {
+    seed(pinnedSeed);
+    const { unmount } = render(<PinnedList />);
+    expect(screen.getAllByRole('button', { name: '拖动排序' })).toHaveLength(2);
+    unmount();
+
+    seed({
+      ...pinnedSeed,
+      sidebar: {
+        ...pinnedSeed.sidebar,
+        sortModes: { pinned: 'recent', projects: 'manual' },
+      },
+    });
+    render(<PinnedList />);
+    expect(screen.queryAllByRole('button', { name: '拖动排序' })).toHaveLength(0);
+  });
+
   it('unpins a row without opening it', async () => {
     seed(pinnedSeed);
     render(<PinnedList />);

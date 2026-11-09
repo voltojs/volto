@@ -63,5 +63,8 @@
   "pin": {
     "pin": "Pin session",
     "unpin": "Unpin session"
+  },
+  "drag": {
+    "handle": "Drag to reorder"
   }
 }
