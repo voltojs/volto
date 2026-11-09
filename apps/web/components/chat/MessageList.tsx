@@ -83,6 +83,12 @@ export function MessageList({
   // Rows carry their turn so the card lands after the turn's last row — before
   // the next user bubble — rather than at the bottom of the whole feed.
   const changesByTurn = useMemo(() => collectTurnFileChanges(delivered), [delivered]);
+  // The summary belongs to the END of a turn: while the round is still
+  // generating (a turn_start without its turn_end), the last turn's card stays
+  // hidden and appears the moment the turn closes. Earlier turns keep theirs —
+  // only the turn in flight is incomplete.
+  const lastRow = rows[rows.length - 1];
+  const streamingTurn = isGenerating ? lastRow?.turn : undefined;
   const lastRowOfTurn = useMemo(() => {
     const last = new Map<string, number>();
     rows.forEach((row, index) => {
@@ -119,6 +125,7 @@ export function MessageList({
           const card =
             changes !== undefined &&
             changes.length > 0 &&
+            row.turn !== streamingTurn &&
             lastRowOfTurn.get(row.turn) === index ? (
               <FileChangesCard
                 key={`changes-${row.turn}-${index}`}

@@ -139,4 +139,19 @@ describe('MessageList turn summary placement', () => {
     render(<MessageList entries={[userEntry(1, 'hi'), assistantEntry(1, 1, 'hello', false)]} />);
     expect(screen.queryByTestId('file-changes-card')).toBeNull();
   });
+
+  it('keeps the running turn\'s summary hidden until the round ends', () => {
+    const turn: ChatEntry[] = [userEntry(1, 'first'), assistantEntry(1, 1, 'one', true)];
+    const { rerender } = render(<MessageList entries={turn} fileProjectId="p1" isGenerating />);
+    expect(screen.queryByTestId('file-changes-card')).toBeNull();
+    rerender(<MessageList entries={turn} fileProjectId="p1" isGenerating={false} />);
+    expect(screen.getAllByTestId('file-changes-card')).toHaveLength(1);
+  });
+
+  it('keeps a finished turn\'s summary visible while a later turn runs', () => {
+    render(<MessageList entries={entries} fileProjectId="p1" isGenerating />);
+    const cards = screen.getAllByTestId('file-changes-card');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.getAttribute('data-turn')).toBe('1');
+  });
 });
