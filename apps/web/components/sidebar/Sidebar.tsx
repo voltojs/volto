@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Plus, Settings, FolderPlus, Loader2 } from 'lucide-react';
 import { useSessionStore } from '@/stores/session-store';
+import { useSidebarStateStore } from '@/stores/sidebar-state-store';
 import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useAddProject } from '@/hooks/use-add-project';
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
+import { PinnedList } from './PinnedList';
 import { ProjectList } from './ProjectList';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
@@ -77,6 +79,9 @@ export function Sidebar() {
 
   useEffect(() => {
     void load();
+    // The sidebar layout document is independent of the gateway config load:
+    // it has its own endpoint and degrades to the default layout on failure.
+    void useSidebarStateStore.getState().load();
   }, [load]);
 
   useServerSessions();
@@ -148,34 +153,6 @@ export function Sidebar() {
 
         <Separator />
 
-        <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
-          <span className="text-muted-foreground font-mono text-[10px] font-medium tracking-[0.14em] uppercase">
-            {t('workspaces')}
-          </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => void addProjectViaPicker()}
-                  disabled={addingProject}
-                  aria-label={t('addWorkspace')}
-                />
-              }
-            >
-              {addingProject ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FolderPlus className="h-3.5 w-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipContent>
-              {addingProject ? t('waitingDialog') : t('addWorkspace')}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
         <div className="flex-1 overflow-y-auto px-2 pt-1 pb-2">
           {error ? (
             <div className="border-destructive/30 bg-destructive/10 text-destructive mx-1 mt-2 space-y-1.5 rounded-md border px-2.5 py-2 text-xs">
@@ -193,7 +170,41 @@ export function Sidebar() {
               ) : null}
             </div>
           ) : (
-            <ProjectList />
+            <>
+              {/* Pinned first: it is a cross-workspace shortcut, so it must
+                  not sit below the directories it shortcuts. */}
+              <PinnedList />
+
+              <div className="flex items-center justify-between px-2 pt-3 pb-1.5">
+                <span className="text-muted-foreground font-mono text-[10px] font-medium tracking-[0.14em] uppercase">
+                  {t('workspaces')}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => void addProjectViaPicker()}
+                        disabled={addingProject}
+                        aria-label={t('addWorkspace')}
+                      />
+                    }
+                  >
+                    {addingProject ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-3.5 w-3.5" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {addingProject ? t('waitingDialog') : t('addWorkspace')}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <ProjectList />
+            </>
           )}
         </div>
 

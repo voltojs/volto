@@ -27,6 +27,8 @@ interface SessionItemProps {
   isActive: boolean;
   /** True while this session sits in the pinned section. */
   isPinned: boolean;
+  /** Small trailing hint (the pinned rows label their workspace). */
+  label?: string;
   /**
    * True while this session's channel is actively streaming a turn. Deleting
    * such a session races the server's transcript writes: a delete landing
@@ -54,6 +56,7 @@ export function SessionItem({
   session,
   isActive,
   isPinned,
+  label,
   isGenerating,
   onTogglePin,
   onRename,
@@ -164,6 +167,11 @@ export function SessionItem({
             </span>
           </span>
 
+          {label !== undefined && (
+            <span className="text-muted-foreground/60 shrink-0 font-mono text-[10px]">
+              {label}
+            </span>
+          )}
           {/* Always mounted, revealed by CSS: mounting on hover unmounted the
               buttons the moment a pointer transition raced the click, which
               dropped clicks and tore dialogs down. */}
