@@ -125,6 +125,8 @@ export interface ModelInputLimits {
  */
 export interface ResolvedModelInfo {
   model: string;
+  /** Wire protocol the adapter will use for this model, when it has one. */
+  api?: string;
   contextWindow?: number;
   reasoning?: ModelReasoningInfo;
   /**
@@ -436,6 +438,8 @@ export interface SessionStore {
 
 export interface ChatSessionMeta {
   title?: string;
+  /** Wire protocol used by this session's model, when resolved. */
+  protocol?: string;
   /** Who produced the current title; decides what may overwrite it. */
   titleSource?: "user" | "model" | "heuristic";
   projectId: string | null;

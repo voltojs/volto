@@ -210,6 +210,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
       name: provider.name,
       baseURL: provider.baseURL,
       apiKeyMasked: masked,
+      ...(provider.protocol === undefined ? {} : { protocol: provider.protocol }),
+      ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+      ...(provider.headers === undefined ? {} : { headers: provider.headers }),
       models: provider.models,
     };
   }

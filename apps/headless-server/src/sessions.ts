@@ -91,6 +91,8 @@ interface ResolvedConfig {
   projectId: string | undefined;
   providerId: string | undefined;
   modelId: string | undefined;
+  /** Wire protocol resolved for this turn; part of the rebuild identity. */
+  protocol: string | undefined;
   /** Resolved from the provider record so an in-place edit is detected too. */
   baseURL: string | null | undefined;
   code: string | undefined;
@@ -183,6 +185,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
   projectId: undefined,
   providerId: undefined,
   modelId: undefined,
+  protocol: undefined,
   baseURL: undefined,
   code: undefined,
   maxOutputTokens: undefined,
@@ -1227,6 +1230,35 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * Also returns the raw credentials (if any) so `rebuild()` doesn't have to
    * call `resolveModel` a second time.
    */
+  /**
+   * Resolve the concrete wire protocol before the agent is built. Explicit
+   * config wins; an untouched catalog model asks the adapter's pure
+   * describeModel projection, never the network.
+   */
+  async function resolveProtocolForCredentials(
+    providerId: string,
+    credentials: ResolvedCredentials,
+  ): Promise<string | undefined> {
+    if (credentials.kind === "catalog") {
+      if (credentials.modelProtocol !== undefined) return credentials.modelProtocol;
+      if (credentials.protocol !== undefined && credentials.protocol !== "auto") {
+        return credentials.protocol;
+      }
+    } else if (credentials.protocol !== undefined) {
+      return credentials.protocol;
+    }
+    try {
+      const providerConfig = buildProviderConfig(providerId, credentials);
+      const port = createPiAiModelPort({
+        providers: [providerConfig],
+        defaultProviderId: providerConfig.id,
+      });
+      return (await port.describeModel!(credentials.code)).api;
+    } catch {
+      return undefined;
+    }
+  }
+
   async function resolveConfig(
     requested: TurnConfig,
   ): Promise<{ config: ResolvedConfig; credentials: ResolvedCredentials | null }> {
@@ -1266,6 +1298,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       projectId: requested.projectId,
       providerId: requested.providerId,
       modelId: requested.modelId,
+      protocol: await resolveProtocolForCredentials(requested.providerId, credentials),
       // Both kinds can carry one now, and it is part of a turn's identity:
       // sameConfig() compares it to decide whether to rebuild the agent.
       baseURL: credentials.baseURL,
@@ -1296,6 +1329,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.projectId === b.projectId &&
       a.providerId === b.providerId &&
       a.modelId === b.modelId &&
+      a.protocol === b.protocol &&
       a.baseURL === b.baseURL &&
       a.code === b.code &&
       a.maxOutputTokens === b.maxOutputTokens &&
@@ -1530,6 +1564,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
               projectId: config.projectId ?? null,
               providerId: config.providerId ?? null,
               modelId: config.modelId ?? null,
+              ...(config.protocol !== undefined ? { protocol: config.protocol } : {}),
               permissionMode: config.permissionMode ?? null,
               ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
             },

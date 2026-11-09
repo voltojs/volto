@@ -57,8 +57,8 @@ export function isProviderProtocol(value: unknown): value is ProviderProtocol {
 export function resolveProviderProtocol(
   config: PiAiProviderConfig,
   model: string,
-  catalogApi?: ProviderProtocol,
-): ProviderProtocol {
+  catalogApi?: string,
+): ProviderProtocol | undefined {
   const configured = config.kind === "catalog"
     ? config.modelProtocols?.[model] ?? config.protocol
     : config.models.find((entry) => entry.code === model)?.protocol ?? config.protocol;
@@ -71,12 +71,9 @@ export function resolveProviderProtocol(
     return configured;
   }
   if (catalogApi !== undefined) {
-    if (!isProviderProtocol(catalogApi)) {
-      throw new Error(
-        `pi-ai: catalog model "${model}" declares unsupported api "${String(catalogApi)}"`,
-      );
-    }
-    return catalogApi;
+    // Catalog providers outside the three first-class protocols keep their
+    // own API (Google, Bedrock, ...). `undefined` means "preserve catalog".
+    return isProviderProtocol(catalogApi) ? catalogApi : undefined;
   }
   return "openai-completions";
 }
@@ -440,18 +437,14 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
       // Local so `!== undefined` narrows the possibly-undefined indexed
       // read (noUncheckedIndexedAccess does not narrow element access).
       const inputOverride = config.inputOverrides?.[model.id];
-      const protocol = resolveProviderProtocol(
-        config,
-        model.id,
-        model.api as ProviderProtocol,
-      );
+      const protocol = resolveProviderProtocol(config, model.id, model.api);
       return {
         ...model,
-        api: protocol,
+        ...(protocol !== undefined ? { api: protocol } : {}),
         // A protocol override invalidates the catalog model's compat shape:
         // OpenAI compat keys do not describe an Anthropic request. Let pi-ai
         // auto-detect instead of carrying the old dialect's compat across.
-        ...(protocol !== model.api
+        ...(protocol !== undefined && protocol !== model.api
           ? { compat: undefined }
           : model.api === "openai-completions" || model.api === "openai-responses"
             ? {
@@ -492,24 +485,35 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
         config.piProvider,
         config.baseURL,
         inputOverride,
-        resolveProviderProtocol(config, code, source.getModels()[0]?.api as ProviderProtocol),
+        resolveProviderProtocol(config, code, source.getModels()[0]?.api) ?? "openai-completions",
       ),
     );
   }
 
   const apis = protocolApiMap(models);
-  // pi-ai requires at least one API implementation even when the user has
-  // enabled no models. Keep the empty provider registrable (existing
-  // behavior) by falling back to the most permissive implementation.
-  if (Object.keys(apis).length === 0) apis["openai-completions"] = openAICompletionsApi();
-  return createProvider({
+  // Catalog models outside the three first-class protocols keep the catalog
+  // provider's own implementation; supported models dispatch through the
+  // selected API implementation. A manual Provider keeps that fallback
+  // available (createProvider's API map has no per-model fallback).
+  const dispatch = <T>(model: Model<Api>, run: (streams: ProviderStreams) => T, fallback: () => T): T => {
+    const streams = apis[model.api as ProviderProtocol];
+    return streams !== undefined ? run(streams) : fallback();
+  };
+  return {
     id: config.piProvider,
     name: source.name,
     baseUrl: config.baseURL ?? source.baseUrl,
     auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
-    models: models as Model<ProviderProtocol>[],
-    api: apis,
-  });
+    getModels: () => models,
+    stream: (model, context, options) =>
+      dispatch(model, (streams) => streams.stream(model, context, options), () => source.stream(model, context, options)),
+    streamSimple: (model, context, options) =>
+      dispatch(
+        model,
+        (streams) => streams.streamSimple(model, context, options),
+        () => source.streamSimple(model, context, options),
+      ),
+  };
 }
 
 /**
@@ -580,7 +584,7 @@ export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
         config.id,
         config.baseURL,
         entry,
-        resolveProviderProtocol(config, entry.code),
+        resolveProviderProtocol(config, entry.code) ?? "openai-completions",
       ),
     );
     const provider = createProvider({
@@ -634,6 +638,7 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
 
   const info: ResolvedModelInfo = {
     model: code,
+    api: model.api,
     contextWindow: model.contextWindow,
   };
 
