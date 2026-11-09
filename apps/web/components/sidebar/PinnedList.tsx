@@ -67,6 +67,9 @@ export function PinnedList() {
   if (pinned.length === 0) return null;
 
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+  // What the workspaces section renders while `expandedProjectIds` is absent:
+  // the first workspace. Opening a pinned session must not collapse it.
+  const defaultExpandedId = projects[0]?.id ?? null;
   const manual = doc.sortModes.pinned === 'manual';
   const renderedIds = pinned.map((session) => session.id);
 
@@ -86,7 +89,9 @@ export function PinnedList() {
     // own section — but never override the user's whole-section collapse.
     if (projectId !== null) {
       update((state) => {
-        const expanded = state.expandedProjectIds ?? [];
+        const expanded =
+          state.expandedProjectIds ??
+          (defaultExpandedId === null ? [] : [defaultExpandedId]);
         if (expanded.includes(projectId)) return state;
         return { ...state, expandedProjectIds: [...expanded, projectId] };
       });

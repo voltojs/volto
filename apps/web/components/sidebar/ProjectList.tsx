@@ -304,7 +304,9 @@ export function ProjectList() {
                 )}
                 onClick={() => {
                   if (clickSuppressor.consume()) return;
-                  update((state) => toggleProjectExpanded(state, project.id));
+                  update((state) =>
+                    toggleProjectExpanded(state, project.id, expandedIds),
+                  );
                 }}
               >
                 {manual && (

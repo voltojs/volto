@@ -152,12 +152,18 @@ export function unpinSession(state: SidebarState, sessionId: string): SidebarSta
  * Adds or removes a project from the expand set. Always materialises an
  * explicit array — collapsing the last open project must be distinguishable
  * from "never set", which is what makes it survive a reload.
+ *
+ * `renderedIds` is the set the caller is actually showing, which is not the
+ * stored one while the field is absent (that case renders the first workspace
+ * expanded). Toggling against the stored value would silently collapse the
+ * visible one the moment the user expands a second workspace.
  */
 export function toggleProjectExpanded(
   state: SidebarState,
   projectId: string,
+  renderedIds: readonly string[] = state.expandedProjectIds ?? [],
 ): SidebarState {
-  const current = state.expandedProjectIds ?? [];
+  const current = renderedIds;
   const next = current.includes(projectId)
     ? current.filter((id) => id !== projectId)
     : [...current, projectId];

@@ -82,7 +82,8 @@ describe('PinnedList', () => {
   it('opens a pinned session and adds its project to the expanded set without expanding a collapsed section', async () => {
     seed({
       ...pinnedSeed,
-      sessions: [session({ id: 's-1', projectId: 'p-1' })],
+      sessions: [session({ id: 's-1', projectId: 'p-2' })],
+      projects: [project('p-1', 'volto'), project('p-2', 'other')],
       sidebar: {
         ...DEFAULT_SIDEBAR_STATE,
         pinnedSessionIds: ['s-1'],
@@ -92,8 +93,24 @@ describe('PinnedList', () => {
     render(<PinnedList />);
     await userEvent.click(screen.getByText('s-1-title'));
     expect(useSessionStore.getState().currentSessionId).toBe('s-1');
-    expect(useSidebarStateStore.getState().state.expandedProjectIds).toEqual(['p-1']);
+    // The default-expanded first workspace stays open; the session's own
+    // workspace is added beside it.
+    expect(useSidebarStateStore.getState().state.expandedProjectIds).toEqual(['p-1', 'p-2']);
     expect(useSidebarStateStore.getState().state.projectsCollapsed).toBe(true);
+  });
+
+  it('keeps the default-expanded first workspace when opening a pinned session from another one', async () => {
+    seed({
+      sessions: [
+        session({ id: 's-1', projectId: 'p-1' }),
+        session({ id: 's-pin', projectId: 'p-2' }),
+      ],
+      projects: [project('p-1', 'volto'), project('p-2', 'other')],
+      sidebar: { ...DEFAULT_SIDEBAR_STATE, pinnedSessionIds: ['s-pin'] },
+    });
+    render(<PinnedList />);
+    await userEvent.click(screen.getByText('s-pin-title'));
+    expect(useSidebarStateStore.getState().state.expandedProjectIds).toEqual(['p-1', 'p-2']);
   });
 
   it('persists collapse and sort changes', async () => {

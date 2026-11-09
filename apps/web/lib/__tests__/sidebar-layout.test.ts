@@ -68,6 +68,15 @@ describe("pin / unpin / toggle", () => {
     expect(pinSession(twice, "s-2").pinnedSessionIds).toEqual(["s-1", "s-2"]);
     expect(unpinSession(twice, "s-1").pinnedSessionIds).toEqual([]);
   });
+  it("toggles against the set the caller is actually rendering, not the stored one", () => {
+    // A fresh document renders the first project expanded while the field is
+    // still absent; expanding a second one must add to that visible set.
+    const both = toggleProjectExpanded(DEFAULT_SIDEBAR_STATE, "p-2", ["p-1"]);
+    expect(both.expandedProjectIds).toEqual(["p-1", "p-2"]);
+    // Collapsing a project that is only visible through the fallback works too.
+    expect(toggleProjectExpanded(both, "p-1", ["p-1", "p-2"]).expandedProjectIds).toEqual(["p-2"]);
+  });
+
   it("toggles membership, materialising an explicit array from the absent default", () => {
     const on = toggleProjectExpanded(DEFAULT_SIDEBAR_STATE, "p-a");
     expect(on.expandedProjectIds).toEqual(["p-a"]);

@@ -137,6 +137,18 @@ describe('ProjectList', () => {
     expect(screen.queryAllByRole('button', { name: '拖动排序' })).toHaveLength(0);
   });
 
+  it('keeps the visibly expanded first workspace open when a second one is expanded', async () => {
+    seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
+    render(<ProjectList />);
+    expect(screen.getByText('s-under-p1-title')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('other'));
+
+    expect(useSidebarStateStore.getState().state.expandedProjectIds).toEqual(['p-1', 'p-2']);
+    expect(screen.getByText('s-under-p1-title')).toBeInTheDocument();
+    expect(screen.getByText('s-under-p2-title')).toBeInTheDocument();
+  });
+
   it('writes an explicit [] when the last expanded project is collapsed', async () => {
     seed({
       ...base,
