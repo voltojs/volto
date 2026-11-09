@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { fetchCatalogProviders, type CatalogProvider } from '@/lib/config-api';
+import { fetchCatalogProviders, type CatalogProvider, type ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toCatalogDrafts, type DraftModel } from './ModelTable';
 
@@ -284,6 +284,9 @@ function CatalogProviderCard({
 
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
+  const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>(
+    provider.protocol ?? 'auto',
+  );
   const [models, setModels] = useState<DraftModel[]>(() =>
     toCatalogDrafts(provider.models),
   );
@@ -296,6 +299,7 @@ function CatalogProviderCard({
   if (provider !== syncedProvider && !dirty) {
     setSyncedProvider(provider);
     setBaseURL(provider.baseURL ?? '');
+    setProtocol(provider.protocol ?? 'auto');
     setModels(toCatalogDrafts(provider.models));
   }
 
@@ -324,6 +328,7 @@ function CatalogProviderCard({
         // pi-ai's own address — distinct from omitting the field, which the
         // gateway reads as "leave it alone".
         baseURL: baseURL.trim() || null,
+        protocol,
         models: models.map((m) => ({
           code: m.code,
           // An empty box means "no override" — send nothing rather than an
@@ -402,6 +407,23 @@ function CatalogProviderCard({
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
           {t('providers.modelsLabel')}
         </div>
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
+          <select
+            className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+            value={protocol}
+            onChange={(e) => {
+              setDirty(true);
+              setProtocol(e.target.value as 'auto' | ProviderProtocol);
+            }}
+          >
+            <option value="auto">{t('providers.protocolAuto')}</option>
+            <option value="openai-completions">{t('providers.protocolOpenAICompletions')}</option>
+            <option value="openai-responses">{t('providers.protocolOpenAIResponses')}</option>
+            <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
+          </select>
+        </label>
+
         {/* Model codes come from pi-ai's catalog, offered as autocomplete
             rather than a fixed list: a code this build's catalog doesn't know
             (a newly released model, or one the user configured before a pi-ai

@@ -223,6 +223,20 @@ describe("protocol-aware model construction", () => {
     expect(model?.compat).toBeUndefined();
   });
 
+  it("keeps an Anthropic-compatible baseURL verbatim", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://gateway.example/apps/anthropic",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(models.getModel("acme", "plain-model")?.baseUrl)
+      .toBe("https://gateway.example/apps/anthropic");
+  });
+
   it("builds a custom model with anthropic-messages", () => {
     const models = buildModels([
       {

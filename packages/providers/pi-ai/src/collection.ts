@@ -181,8 +181,13 @@ function fixedApiKeyAuth(providerId: string, apiKey: string | undefined): ApiKey
  * this, `https://api.openai.com` (no `/v1`) 404s and every pre-existing
  * `https://gateway.example` style config breaks.
  */
-function normalizeBaseUrl(baseUrl: string): string {
+function normalizeBaseUrl(baseUrl: string, protocol: ProviderProtocol): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
+  // The OpenAI SDK appends /chat/completions (or /responses) after /v1. The
+  // Anthropic SDK appends /v1/messages itself, so an Anthropic-compatible
+  // gateway must keep its configured path verbatim (e.g. Qwen's
+  // /apps/anthropic endpoint).
+  if (protocol === "anthropic-messages") return trimmed;
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
@@ -230,7 +235,7 @@ function buildModel(
     name: entry.name ?? entry.code,
     api: protocol,
     provider: providerId,
-    baseUrl: normalizeBaseUrl(providerBaseUrl),
+    baseUrl: normalizeBaseUrl(providerBaseUrl, protocol),
     reasoning: entry.reasoning ?? false,
     // Three-state, per spec §7 / D3: an undeclared custom model stays
     // image-capable on the wire — treating UNKNOWN as text-only would

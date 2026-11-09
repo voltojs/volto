@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useConfigStore, type Provider } from '@/stores/config-store';
+import type { ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toDraftModels, type DraftModel } from './ModelTable';
 
@@ -95,6 +96,9 @@ function CustomProviderCard({
   const [name, setName] = useState(provider.name);
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [apiKey, setApiKey] = useState('');
+  const [protocol, setProtocol] = useState<ProviderProtocol>(
+    provider.protocol ?? 'openai-completions',
+  );
   const [models, setModels] = useState<DraftModel[]>(() =>
     toDraftModels(provider.models),
   );
@@ -114,6 +118,7 @@ function CustomProviderCard({
     setSyncedProvider(provider);
     setName(provider.name);
     setBaseURL(provider.baseURL ?? '');
+    setProtocol(provider.protocol ?? 'openai-completions');
     setModels(toDraftModels(provider.models));
   }
 
@@ -137,6 +142,7 @@ function CustomProviderCard({
         // Empty means "leave the stored key alone" — the server treats an
         // omitted apiKey as unchanged.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        protocol,
         models: models.map((m) => ({
           id: m.id,
           name: m.name,
@@ -223,6 +229,22 @@ function CustomProviderCard({
           />
         </label>
       </div>
+
+      <label className="block space-y-1">
+        <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
+        <select
+          className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+          value={protocol}
+          onChange={(e) => {
+            setDirty(true);
+            setProtocol(e.target.value as ProviderProtocol);
+          }}
+        >
+          <option value="openai-completions">{t('providers.protocolOpenAICompletions')}</option>
+          <option value="openai-responses">{t('providers.protocolOpenAIResponses')}</option>
+          <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
+        </select>
+      </label>
 
       <ModelTable
         models={models}
