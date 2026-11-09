@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Plus, Settings, FolderPlus, Loader2 } from 'lucide-react';
+import { Plus, Settings } from 'lucide-react';
 import { useSessionStore } from '@/stores/session-store';
 import { useSidebarStateStore } from '@/stores/sidebar-state-store';
 import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
-import { useAddProject } from '@/hooks/use-add-project';
 import { useServerSessions } from '@/hooks/use-server-sessions';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -75,7 +74,6 @@ export function Sidebar() {
       : (currentSession?.projectId ?? null);
 
   const [showSettings, setShowSettings] = useState(false);
-  const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
 
   useEffect(() => {
     void load();
@@ -174,34 +172,6 @@ export function Sidebar() {
               {/* Pinned first: it is a cross-workspace shortcut, so it must
                   not sit below the directories it shortcuts. */}
               <PinnedList />
-
-              <div className="flex items-center justify-between px-2 pt-3 pb-1.5">
-                <span className="text-muted-foreground font-mono text-[10px] font-medium tracking-[0.14em] uppercase">
-                  {t('workspaces')}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => void addProjectViaPicker()}
-                        disabled={addingProject}
-                        aria-label={t('addWorkspace')}
-                      />
-                    }
-                  >
-                    {addingProject ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <FolderPlus className="h-3.5 w-3.5" />
-                    )}
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {addingProject ? t('waitingDialog') : t('addWorkspace')}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
 
               <ProjectList />
             </>
