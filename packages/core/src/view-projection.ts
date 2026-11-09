@@ -17,6 +17,7 @@ import type {
   TranscriptEvent,
   TranscriptEventMap,
   TurnEndReason,
+  UserMessageSource,
 } from "./ports.js";
 import { extractBlockText } from "./text-extract.js";
 import { totalUsageTokens } from "./pricing.js";
@@ -33,6 +34,8 @@ export interface UserInputRecord {
   origin: "direct" | "queued";
   content: string | ContentBlock[];
   time: number;
+  /** Non-human provenance; absent for a plain human message. */
+  source?: UserMessageSource;
   /**
    * Realization anchor (Task 6): set when a `steering_delivered` event
    * realized this queued input in its own turn — the input renders
@@ -130,6 +133,19 @@ export interface ToolCallRecord {
   subagentDroppedCapabilities?: string[];
   /** Permission axes narrowed below what the definition asked for (F-023). */
   subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
+  /** Pre-minted dispatch identity, shared with the subagent_started/finished bracket. */
+  taskId?: string;
+  /** True when this dispatch ran detached. */
+  background?: true;
+  /** Subagent type recorded by the start bracket, when it named one. */
+  subagentType?: string;
+  /** Child session a collected result points at (task_output), without upgrading this row. */
+  relatedSessionId?: string;
+  /** A routing tier that could not resolve and fell back to the parent model. */
+  subagentModelTierUnresolved?: {
+    tierId: string;
+    target?: { providerId: string; modelId: string };
+  };
 }
 
 export interface RetryRecord {
@@ -330,6 +346,28 @@ export function buildTurnRecords(
     return undefined;
   };
 
+  /** Find a call whose recorded result names this taskId. */
+  const findCallByTaskId = (turn: MutableTurn, taskId: string): ToolCallRecord | undefined => {
+    for (const step of turn.steps) {
+      for (const call of step.toolCalls) {
+        if (call.displayMetadata?.["taskId"] === taskId) return call;
+      }
+    }
+    return undefined;
+  };
+
+  /** Copy one start bracket's identity onto its call. */
+  const applyStart = (
+    call: ToolCallRecord,
+    data: TranscriptEventMap["subagent_started"],
+  ): void => {
+    call.childSessionId = data.childSessionId;
+    if (data.title !== undefined) call.subagentTitle = data.title;
+    if (data.taskId !== undefined) call.taskId = data.taskId;
+    if (data.background === true) call.background = true;
+    if (data.subagentType !== undefined) call.subagentType = data.subagentType;
+  };
+
   /**
    * `subagent_started` events parked because their tool call had not been
    * flushed yet, keyed by turn number. The SDK appends the bracket straight
@@ -340,6 +378,19 @@ export function buildTurnRecords(
    * running — the conversation view links the block from there).
    */
   const pendingSubagents = new Map<number, TranscriptEvent<"subagent_started">>();
+  /**
+   * New dispatches keyed by their pre-minted taskId. Unlike the legacy
+   * per-turn slot above, this map keeps parallel fan-out distinct: the
+   * matching tool_result carries the same taskId in displayMetadata, so the
+   * pairing never depends on event order or a label that differs from the
+   * tool name.
+   */
+  const pendingStartsByTaskId = new Map<string, TranscriptEvent<"subagent_started">>();
+  /** Unresolved model tiers, keyed by child session and applied after linking. */
+  const tierByChild = new Map<
+    string,
+    { tierId: string; target?: { providerId: string; modelId: string } }
+  >();
   // Dispatch disclosures, keyed by the child session they belong to. They are
   // collected here and applied in a second pass because their ordering in the
   // log relative to the tool_call they describe is not guaranteed (the SDK
@@ -397,7 +448,12 @@ export function buildTurnRecords(
       case "user_message": {
         const data = event.data as TranscriptEventMap["user_message"];
         const turn = turnFor(event);
-        const record: UserInputRecord = { origin: "direct", content: data.content, time: event.time };
+        const record: UserInputRecord = {
+          origin: "direct",
+          content: data.content,
+          time: event.time,
+          ...(data.source === undefined ? {} : { source: data.source }),
+        };
         turn.userInput.push(record);
         const opening = turnOpenings.get(turn.turn) ?? {};
         opening.userMessage = record;
@@ -546,7 +602,20 @@ export function buildTurnRecords(
         call.content = data.content;
         call.isError = data.isError;
         if (data.durationMs !== undefined) call.durationMs = data.durationMs;
-        if (data.displayMetadata !== undefined) call.displayMetadata = data.displayMetadata;
+        if (data.displayMetadata !== undefined) {
+          call.displayMetadata = data.displayMetadata;
+          const taskId = data.displayMetadata["taskId"];
+          if (typeof taskId === "string") {
+            call.taskId = taskId;
+            const pending = pendingStartsByTaskId.get(taskId);
+            if (pending !== undefined) {
+              applyStart(call, pending.data);
+              pendingStartsByTaskId.delete(taskId);
+            }
+          }
+          const related = data.displayMetadata["relatedSessionId"];
+          if (typeof related === "string") call.relatedSessionId = related;
+        }
         break;
       }
 
@@ -613,20 +682,36 @@ export function buildTurnRecords(
       case "subagent_started": {
         const data = event.data as TranscriptEventMap["subagent_started"];
         const turn = turnFor(event);
-        // The SDK appends this event straight to the store while the parent
-        // runner flushes its buffered tool_call at batch end, so it may
-        // precede its call on disk. Prefer the unlinked call this label
-        // names; fall back to the in-order behaviour (most recent unlinked
-        // call); with nothing linkable, park it until the call arrives.
+        if (data.taskId !== undefined) {
+          // Deterministic path: a result that already landed names the call;
+          // otherwise park the whole event until its tool_result arrives.
+          const call = findCallByTaskId(turn, data.taskId);
+          if (call !== undefined) applyStart(call, data);
+          else pendingStartsByTaskId.set(data.taskId, event as TranscriptEvent<"subagent_started">);
+          break;
+        }
+        // Legacy path (log written before taskId): prefer the unlinked call
+        // this label names; fall back to the most recent unlinked call; with
+        // nothing linkable, park it until the call arrives.
         const call = lastUnlinkedCall(turn, data.label) ?? lastUnlinkedCall(turn);
         if (call) {
-          call.childSessionId = data.childSessionId;
-          if (data.title !== undefined) call.subagentTitle = data.title;
+          applyStart(call, data);
           pendingSubagents.delete(turn.turn);
         } else {
           // The whole event is parked, not just its data: the dispatch start
           // time the surfaced `pendingSubagent` needs lives on the envelope.
           pendingSubagents.set(turn.turn, event as TranscriptEvent<"subagent_started">);
+        }
+        break;
+      }
+
+      case "subagent_model_tier_unresolved": {
+        const data = event.data as TranscriptEventMap["subagent_model_tier_unresolved"];
+        if (data.childSessionId !== undefined) {
+          tierByChild.set(data.childSessionId, {
+            tierId: data.tierId,
+            ...(data.target !== undefined ? { target: data.target } : {}),
+          });
         }
         break;
       }
@@ -672,6 +757,35 @@ export function buildTurnRecords(
         startedAt: pending.time,
         ...(pending.data.title !== undefined ? { title: pending.data.title } : {}),
       };
+    }
+  }
+
+  // A taskId start still parked at the end is either waiting for its result
+  // (the call exists already) or a dispatch whose call never flushed. Claim
+  // the former; surface the latter as the turn's in-flight subagent.
+  for (const [taskId, pending] of pendingStartsByTaskId) {
+    const turn = turns.find((candidate) => candidate.turn === (pending.turn ?? 0));
+    if (turn === undefined) continue;
+    const call = findCallByTaskId(turn, taskId);
+    if (call !== undefined) {
+      applyStart(call, pending.data);
+      continue;
+    }
+    turn.pendingSubagent = {
+      label: pending.data.label,
+      childSessionId: pending.data.childSessionId,
+      startedAt: pending.time,
+      ...(pending.data.title !== undefined ? { title: pending.data.title } : {}),
+    };
+  }
+
+  for (const turn of turns) {
+    for (const step of turn.steps) {
+      for (const call of step.toolCalls) {
+        if (call.childSessionId === undefined) continue;
+        const tier = tierByChild.get(call.childSessionId);
+        if (tier !== undefined) call.subagentModelTierUnresolved = tier;
+      }
     }
   }
 
@@ -1243,6 +1357,19 @@ export interface TrajectoryRow {
   subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
   /** Set only on `kind:"reminder"` rows — which dynamic injection produced this. */
   reminderKind?: ContextReminderKind;
+  /** Non-human provenance on a user row (parent dispatch / host continuation). */
+  messageSource?: UserMessageSource;
+  /** Dispatch identity on a subagent row. */
+  taskId?: string;
+  /** True when the subagent row ran detached. */
+  background?: true;
+  /** Collected child session on a tool row (task_output), without upgrading its kind. */
+  relatedSessionId?: string;
+  /** A routing tier that could not resolve for this dispatch. */
+  subagentModelTierUnresolved?: {
+    tierId: string;
+    target?: { providerId: string; modelId: string };
+  };
 }
 
 /** One-line trajectory summary for a delegation: its title, else its type. */
@@ -1343,6 +1470,9 @@ export function toTrajectoryView(
           summary: summarise(data.text),
           startedAt: event.time,
           outputDetail: data.text,
+          ...(typeof data.displayMetadata?.["childSessionId"] === "string"
+            ? { childSessionId: data.displayMetadata["childSessionId"] }
+            : {}),
         });
       }
     }
@@ -1357,6 +1487,7 @@ export function toTrajectoryView(
         summary: summarise(text),
         startedAt: input.time,
         inputDetail: text,
+        ...(input.source === undefined ? {} : { messageSource: input.source }),
       });
     });
 
@@ -1430,9 +1561,13 @@ export function toTrajectoryView(
                 ...(call.subagentTitle !== undefined
                   ? { subagentTitle: call.subagentTitle }
                   : {}),
-                ...(typeof call.input["subagent_type"] === "string"
-                  ? { subagentType: call.input["subagent_type"] }
-                  : {}),
+                ...(call.subagentType !== undefined
+                  ? { subagentType: call.subagentType }
+                  : typeof call.input["subagent_type"] === "string"
+                    ? { subagentType: call.input["subagent_type"] }
+                    : {}),
+                ...(call.taskId !== undefined ? { taskId: call.taskId } : {}),
+                ...(call.background === true ? { background: true as const } : {}),
                 ...(call.subagentDroppedTools !== undefined
                   ? { subagentDroppedTools: call.subagentDroppedTools }
                   : {}),
@@ -1442,10 +1577,17 @@ export function toTrajectoryView(
                 ...(call.subagentDowngrades !== undefined
                   ? { subagentDowngrades: call.subagentDowngrades }
                   : {}),
+                ...(call.subagentModelTierUnresolved !== undefined
+                  ? { subagentModelTierUnresolved: call.subagentModelTierUnresolved }
+                  : {}),
               }
-            : call.content !== undefined
-              ? { outputDetail: toolResultText(call.content) }
-              : {}),
+            : {
+                ...(call.content !== undefined ? { outputDetail: toolResultText(call.content) } : {}),
+                ...(call.relatedSessionId !== undefined
+                  ? { relatedSessionId: call.relatedSessionId }
+                  : {}),
+                ...(call.taskId !== undefined ? { taskId: call.taskId } : {}),
+              }),
           ...(header !== undefined
             ? { schemaDetail: JSON.stringify(header.tools.filter((t) => t.name === call.name), null, 2) }
             : {}),
