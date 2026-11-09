@@ -275,6 +275,9 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           id: provider.id,
           piProvider: provider.piProvider,
           ...(provider.baseURL ? { baseURL: provider.baseURL } : {}),
+          ...(provider.protocol === undefined ? {} : { protocol: provider.protocol }),
+          ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+          ...(provider.headers === undefined ? {} : { headers: provider.headers }),
           modelCodes: provider.models.map((m) => m.code),
           // Stored per-model overrides feed the ModelPort so describeModel
           // (and later turns) see the user's declared intent, not just pi-ai.

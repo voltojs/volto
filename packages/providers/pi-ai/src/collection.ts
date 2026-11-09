@@ -593,13 +593,17 @@ export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
         resolveProviderProtocol(config, entry.code) ?? "openai-completions",
       ),
     );
+    const apis = protocolApiMap(builtModels);
+    // An empty custom provider is valid while the user is still adding
+    // models; pi-ai still requires one API implementation at construction.
+    if (Object.keys(apis).length === 0) apis["openai-completions"] = openAICompletionsApi();
     const provider = createProvider({
       id: config.id,
       name: config.name,
       baseUrl: config.baseURL,
       auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
       models: builtModels,
-      api: protocolApiMap(builtModels),
+      api: apis,
     });
     models.setProvider(provider);
   }

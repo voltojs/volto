@@ -66,6 +66,15 @@ describe("buildModels", () => {
   });
 });
 
+describe("empty provider registration", () => {
+  it("registers a custom provider with no models", () => {
+    const models = buildModels([
+      { kind: "custom", id: "empty", baseURL: "https://empty.example/v1", models: [] },
+    ]);
+    expect(models.getModel("empty", "anything")).toBeUndefined();
+  });
+});
+
 describe("describeModelInfo", () => {
   it("omits `reasoning` entirely for a hand-declared model with no reasoning metadata", () => {
     const models = buildModels(twoProviderConfigs());
