@@ -11,6 +11,8 @@ import type { ApprovalDenialReason, FileWatchEvent, TokenUsage } from "./ports.j
 export interface UserMessageInput {
   type: "user_message";
   content: string | ContentBlock[];
+  /** Audit provenance for non-human input; absent for plain human messages. */
+  source?: import("./ports.js").UserMessageSource;
 }
 
 /**

@@ -463,6 +463,29 @@ export type ContextReminderKind =
  * moment; detail comes from the density of the vocabulary, not from any
  * single record being wide.
  */
+/**
+ * Where a user-role message came from when it was not typed by a human.
+ *
+ * `subagent-task` is the parent agent's dispatch into a child session;
+ * `host-continuation` is a host/user follow-up sent into a subagent session.
+ * The model-visible content is unchanged; this is audit provenance only.
+ */
+export type UserMessageSource =
+  | {
+      kind: "subagent-task";
+      /** Parent session that dispatched the task. */
+      parentSessionId: string;
+      /** Dispatch task id, shared with the parent's subagent events. */
+      taskId: string;
+      /** Human-readable dispatch label, when one existed. */
+      label?: string;
+    }
+  | {
+      kind: "host-continuation";
+      /** Parent session the continuation belongs to, when known. */
+      parentSessionId?: string;
+    };
+
 export interface TranscriptEventMap {
   // ── Lifecycle ──
   session_meta: ChatSessionMeta & {
@@ -592,7 +615,8 @@ export interface TranscriptEventMap {
   };
 
   // ── Input ──
-  user_message: { content: string | ContentBlock[] };
+  /** A user-role message's producer; absent on plain human input and old logs. */
+  user_message: { content: string | ContentBlock[]; source?: UserMessageSource };
   /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event.
    *  `id` is stamped at enqueue time (Id port) so projections can match the
    *  queued entry to its delivery. */

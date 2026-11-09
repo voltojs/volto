@@ -2951,7 +2951,10 @@ export function createRunner(opts: RunnerOptions): Runner {
         // realized by steering_delivered — recording it again here would
         // double-cover the same content.
         if (initialInput.type === "user_message") {
-          recorder.record("user_message", { content: initialInput.content });
+          recorder.record("user_message", {
+            content: initialInput.content,
+            ...(initialInput.source === undefined ? {} : { source: initialInput.source }),
+          });
         }
         // Persist the turn opening before any model I/O: a client that
         // reconnects mid-turn rebuilds the live state from this log tail

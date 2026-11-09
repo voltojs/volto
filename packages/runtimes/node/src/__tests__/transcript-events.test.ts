@@ -129,6 +129,43 @@ describe("Runner transcript capture", () => {
     expect(events.every((e) => e.turn === 3)).toBe(true);
   });
 
+  it("records the user message source from the opening input", async () => {
+    const model = createMockModelPort([[textDelta("hi"), modelDone("end_turn")]]);
+    const { store, events } = fakeChatStore();
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+    });
+
+    await runner.run({
+      type: "user_message",
+      content: "hi",
+      source: { kind: "host-continuation", parentSessionId: "parent-1" },
+    });
+
+    expect(firstOf(events, "user_message")).toMatchObject({
+      content: "hi",
+      source: { kind: "host-continuation", parentSessionId: "parent-1" },
+    });
+  });
+
+  it("omits source for a plain human message", async () => {
+    const model = createMockModelPort([[textDelta("hi"), modelDone("end_turn")]]);
+    const { store, events } = fakeChatStore();
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+    });
+
+    await runner.run({ type: "user_message", content: "hi" });
+
+    expect("source" in (firstOf(events, "user_message") ?? {})).toBe(false);
+  });
+
   it("records the assembled assistant message with its stop reason", async () => {
     const model = createMockModelPort([[textDelta("hello"), { type: "done", stopReason: "end_turn" }]]);
     const { store, events } = fakeChatStore();
