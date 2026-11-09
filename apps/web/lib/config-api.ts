@@ -184,7 +184,7 @@ export type ProviderInput =
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
       protocol?: 'auto' | ProviderProtocol;
-      auth?: ProviderAuth;
+      auth?: ProviderAuth | null;
       models: CatalogModelInput[];
     }
   | {
@@ -194,7 +194,7 @@ export type ProviderInput =
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
       protocol?: ProviderProtocol;
-      auth?: ProviderAuth;
+      auth?: ProviderAuth | null;
       models?: CustomModelInput[];
     };
 

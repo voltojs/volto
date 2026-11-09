@@ -321,7 +321,7 @@ export function ModelTable({
               <div className="border-muted-foreground/30 col-span-full space-y-2 border-l py-2 pl-3">
                 <label className="block space-y-1">
                   <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
-                    {t('providers.protocol')}
+                    {t('models.protocolOverride')}
                   </span>
                   <Select
                     items={[

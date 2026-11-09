@@ -137,7 +137,7 @@ export type ProviderInput =
       baseURL?: string | null;
       apiKey?: string | null;
       protocol?: ProviderProtocol;
-      auth?: ProviderAuth;
+      auth?: ProviderAuth | null;
       headers?: Record<string, string>;
       models?: Array<{
         id?: string;
@@ -382,7 +382,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
               baseURL: input.baseURL ?? null,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
               ...(input.protocol === undefined ? {} : { protocol: normalizeConfiguredProtocol(input.protocol) }),
-              ...(input.auth === undefined ? {} : { auth: normalizeAuth(input.auth) }),
+              ...(input.auth === undefined || input.auth === null ? {} : { auth: normalizeAuth(input.auth) }),
               ...(input.headers === undefined ? {} : { headers: normalizeHeaders(input.headers) }),
               models: normalizeCatalogModels(input.models),
             }
@@ -393,7 +393,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
               baseURL: input.baseURL ?? null,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
               ...(input.protocol === undefined ? {} : { protocol: normalizeProtocol(input.protocol) }),
-              ...(input.auth === undefined ? {} : { auth: normalizeAuth(input.auth) }),
+              ...(input.auth === undefined || input.auth === null ? {} : { auth: normalizeAuth(input.auth) }),
               ...(input.headers === undefined ? {} : { headers: normalizeHeaders(input.headers) }),
               models: normalizeModels(input.models),
             };
@@ -444,7 +444,11 @@ export function createProviderStore(dir: string = getConfigDir()) {
               catalogInput.baseURL === undefined ? current.baseURL ?? null : catalogInput.baseURL,
             apiKeyEnc,
             ...(catalogInput.protocol === undefined ? {} : { protocol: normalizeConfiguredProtocol(catalogInput.protocol) }),
-            ...(catalogInput.auth === undefined ? {} : { auth: normalizeAuth(catalogInput.auth) }),
+            ...(catalogInput.auth === undefined
+              ? {}
+              : catalogInput.auth === null
+                ? { auth: undefined }
+                : { auth: normalizeAuth(catalogInput.auth) }),
             ...(catalogInput.headers === undefined ? {} : { headers: normalizeHeaders(catalogInput.headers) }),
             models: catalogInput.models
               ? normalizeCatalogModels(catalogInput.models)
@@ -459,7 +463,11 @@ export function createProviderStore(dir: string = getConfigDir()) {
             baseURL: customInput.baseURL === undefined ? current.baseURL : customInput.baseURL,
             apiKeyEnc,
             ...(customInput.protocol === undefined ? {} : { protocol: normalizeProtocol(customInput.protocol) }),
-            ...(customInput.auth === undefined ? {} : { auth: normalizeAuth(customInput.auth) }),
+            ...(customInput.auth === undefined
+              ? {}
+              : customInput.auth === null
+                ? { auth: undefined }
+                : { auth: normalizeAuth(customInput.auth) }),
             ...(customInput.headers === undefined ? {} : { headers: normalizeHeaders(customInput.headers) }),
             models: customInput.models ? normalizeModels(customInput.models) : current.models,
           };

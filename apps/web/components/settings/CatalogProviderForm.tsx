@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   Select,
   SelectContent,
@@ -151,10 +156,10 @@ function CatalogProviderEditor({
   const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>(
     provider?.protocol ?? 'auto',
   );
-  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>(
-    provider?.auth?.kind
-      ?? (provider?.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
+  const [authKind, setAuthKind] = useState<ProviderAuth['kind'] | 'auto'>(
+    provider?.auth?.kind ?? 'auto',
   );
+  const [defaultsOpen, setDefaultsOpen] = useState(mode === 'create');
   const [authHeaderName, setAuthHeaderName] = useState(
     provider?.auth?.kind === 'header' ? provider.auth.name : '',
   );
@@ -172,10 +177,7 @@ function CatalogProviderEditor({
     setName(provider.name);
     setBaseURL(provider.baseURL ?? '');
     setProtocol(provider.protocol ?? 'auto');
-    setAuthKind(
-      provider.auth?.kind
-        ?? (provider.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
-    );
+    setAuthKind(provider.auth?.kind ?? 'auto');
     setAuthHeaderName(provider.auth?.kind === 'header' ? provider.auth.name : '');
     setModels(toCatalogDrafts(provider.models));
   }
@@ -229,9 +231,11 @@ function CatalogProviderEditor({
           ? (apiKey.trim() ? { apiKey: apiKey.trim() } : {})
           : { apiKey: apiKey.trim() || null }),
         protocol,
-        auth: authKind === 'header'
-          ? { kind: 'header' as const, name: authHeaderName.trim() }
-          : { kind: authKind },
+        auth: authKind === 'auto'
+          ? null
+          : authKind === 'header'
+            ? { kind: 'header' as const, name: authHeaderName.trim() }
+            : { kind: authKind },
         models: models
           .filter((m) => m.code.trim())
           .map((m) => ({
@@ -263,151 +267,210 @@ function CatalogProviderEditor({
     }
   };
 
+  const protocolLabel = protocol === 'auto'
+    ? t('providers.protocolAuto')
+    : protocol === 'openai-completions'
+      ? t('providers.protocolOpenAICompletions')
+      : protocol === 'openai-responses'
+        ? t('providers.protocolOpenAIResponses')
+        : t('providers.protocolAnthropicMessages');
+  const authLabel = authKind === 'auto'
+    ? t('providers.authAuto')
+    : authKind === 'bearer'
+      ? t('providers.authBearer')
+      : authKind === 'x-api-key'
+        ? t('providers.authXApiKey')
+        : t('providers.authHeader');
+
   const fields = (
     <>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">Provider</span>
-          <Select
-            items={(catalog ?? []).map((c) => ({ value: c.id, label: c.name }))}
-            value={piProvider || null}
-            disabled={editing}
-            onValueChange={(next) => {
-              if (editing) return;
-              const id = String(next);
-              setPiProvider(id);
-              setModels([]);
-              const found = catalog?.find((c) => c.id === id);
-              if (found) setName(found.name);
-            }}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue placeholder={t('providers.builtinPick')} />
-            </SelectTrigger>
-            <SelectContent width="content">
-              {(catalog ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.displayName')}</span>
-          <Input
-            className="h-8"
-            value={name}
-            onChange={(e) => {
-              setDirty(true);
-              setName(e.target.value);
-            }}
-            placeholder={t('providers.displayName')}
-          />
-        </label>
-      </div>
+      <p className="text-muted-foreground text-xs">
+        {t('providers.defaultsHint')}
+      </p>
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">baseURL</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            value={baseURL}
-            onChange={(e) => {
-              setDirty(true);
-              setBaseURL(e.target.value);
-            }}
-            placeholder={selected?.baseUrl ?? t('providers.baseUrlBuiltin')}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">apiKey</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setDirty(true);
-              setApiKey(e.target.value);
-            }}
-            placeholder={
-              provider?.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')
-            }
-          />
-        </label>
-      </div>
+      <Collapsible open={defaultsOpen} onOpenChange={setDefaultsOpen}>
+        <CollapsibleTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full justify-between"
+            />
+          }
+        >
+          <span>{t('providers.defaultsTitle')}</span>
+          <span className="text-muted-foreground flex items-center gap-2 text-xs">
+            <span>
+              {protocolLabel} · {authLabel}
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${defaultsOpen ? 'rotate-180' : ''}`}
+            />
+          </span>
+        </CollapsibleTrigger>
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
-          <Select
-            items={[
-              { value: 'auto', label: t('providers.protocolAuto') },
-              { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
-              { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
-              { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
-            ]}
-            value={protocol}
-            onValueChange={(next) => {
-              setDirty(true);
-              setProtocol(String(next) as 'auto' | ProviderProtocol);
-            }}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent width="content">
-              <SelectItem value="auto">{t('providers.protocolAuto')}</SelectItem>
-              <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
-              <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
-              <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
-          <Select
-            items={[
-              { value: 'bearer', label: t('providers.authBearer') },
-              { value: 'x-api-key', label: t('providers.authXApiKey') },
-              { value: 'header', label: t('providers.authHeader') },
-            ]}
-            value={authKind}
-            onValueChange={(next) => {
-              setDirty(true);
-              setAuthKind(String(next) as ProviderAuth['kind']);
-            }}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent width="content">
-              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
-              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
-              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-      </div>
+        <CollapsibleContent className="space-y-3 pt-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">Provider</span>
+              <Select
+                items={(catalog ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                value={piProvider || null}
+                disabled={editing}
+                onValueChange={(next) => {
+                  if (editing) return;
+                  const id = String(next);
+                  setPiProvider(id);
+                  setModels([]);
+                  const found = catalog?.find((c) => c.id === id);
+                  if (found) setName(found.name);
+                }}
+              >
+                <SelectTrigger className="h-8 w-full">
+                  <SelectValue placeholder={t('providers.builtinPick')} />
+                </SelectTrigger>
+                <SelectContent width="content">
+                  {(catalog ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">{t('providers.displayName')}</span>
+              <Input
+                className="h-8"
+                value={name}
+                onChange={(e) => {
+                  setDirty(true);
+                  setName(e.target.value);
+                }}
+                placeholder={t('providers.displayName')}
+              />
+            </label>
+          </div>
 
-      {authKind === 'header' && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            value={authHeaderName}
-            onChange={(e) => {
-              setDirty(true);
-              setAuthHeaderName(e.target.value);
-            }}
-            placeholder="x-api-key"
-          />
-        </label>
-      )}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">baseURL</span>
+              <Input
+                className="h-8 font-mono text-xs"
+                value={baseURL}
+                onChange={(e) => {
+                  setDirty(true);
+                  setBaseURL(e.target.value);
+                }}
+                placeholder={selected?.baseUrl ?? t('providers.baseUrlBuiltin')}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">apiKey</span>
+              <Input
+                className="h-8 font-mono text-xs"
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setDirty(true);
+                  setApiKey(e.target.value);
+                }}
+                placeholder={
+                  provider?.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')
+                }
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">
+                {t('providers.protocolDefault')}
+              </span>
+              <Select
+                items={[
+                  { value: 'auto', label: t('providers.protocolAuto') },
+                  { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
+                  { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
+                  { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
+                ]}
+                value={protocol}
+                onValueChange={(next) => {
+                  setDirty(true);
+                  setProtocol(String(next) as 'auto' | ProviderProtocol);
+                }}
+              >
+                <SelectTrigger className="h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent width="content">
+                  <SelectItem value="auto">{t('providers.protocolAuto')}</SelectItem>
+                  <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
+                  <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
+                  <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-muted-foreground text-[11px]">
+                {t('providers.auth')}
+              </span>
+              <Select
+                items={[
+                  { value: 'auto', label: t('providers.authAuto') },
+                  { value: 'bearer', label: t('providers.authBearer') },
+                  { value: 'x-api-key', label: t('providers.authXApiKey') },
+                  { value: 'header', label: t('providers.authHeader') },
+                ]}
+                value={authKind}
+                onValueChange={(next) => {
+                  setDirty(true);
+                  setAuthKind(String(next) as ProviderAuth['kind'] | 'auto');
+                }}
+              >
+                <SelectTrigger className="h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent width="content">
+                  <SelectItem value="auto">{t('providers.authAuto')}</SelectItem>
+                  <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
+                  <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
+                  <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+
+          <p className="text-muted-foreground text-[10px]">
+            {t('providers.authHint')}
+          </p>
+
+          {authKind === 'header' && (
+            <label className="block space-y-1">
+              <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
+              <Input
+                className="h-8 font-mono text-xs"
+                value={authHeaderName}
+                onChange={(e) => {
+                  setDirty(true);
+                  setAuthHeaderName(e.target.value);
+                }}
+                placeholder="x-api-key"
+              />
+            </label>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="space-y-1.5">
-        <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-          {t('providers.modelsLabel')}
+        <div className="flex items-center justify-between">
+          <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
+            {t('providers.modelsLabel')}
+          </div>
+          <span className="text-muted-foreground text-[10px]">
+            {t('providers.protocolPriority')}
+          </span>
         </div>
         <ModelTable
           models={models}

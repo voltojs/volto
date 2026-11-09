@@ -91,6 +91,19 @@ describe("createProviderStore", () => {
     });
   });
 
+  it("clears an explicit auth scheme when update sends auth: null", async () => {
+    const store = createProviderStore(dir);
+    const created = asCustom(await store.create({
+      ...INPUT,
+      auth: { kind: "bearer" },
+    }));
+    expect(created.auth).toEqual({ kind: "bearer" });
+
+    await store.update(created.id, { auth: null });
+    expect((await store.listPublic()).find((p) => p.id === created.id)?.auth)
+      .toBeUndefined();
+  });
+
   it("returns null when resolving an unknown provider or model", async () => {
     const store = createProviderStore(dir);
     const created = asCustom(await store.create(INPUT));

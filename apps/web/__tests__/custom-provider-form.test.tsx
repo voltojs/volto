@@ -66,6 +66,8 @@ describe('CustomProviderSection', () => {
     expect(screen.queryByDisplayValue('mimo-v2.5')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '编辑供应商' }));
+    // Provider defaults are collapsed by default; open them to edit them.
+    await user.click(screen.getByText('Provider 默认配置'));
 
     // All pre-existing fields are visible, pre-filled from the provider.
     expect(screen.getByDisplayValue('MiMo')).toBeInTheDocument();

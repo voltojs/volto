@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,6 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { probeProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
@@ -25,6 +30,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
   const [error, setError] = useState<string | null>(null);
   /** Id of the provider just created, so it opens straight into its form. */
   const [openId, setOpenId] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const handleAdd = async () => {
     setError(null);
@@ -38,7 +44,10 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
       });
       // A brand-new provider is empty by definition — collapsing it would
       // hide the only thing the user came here to do.
-      if (created) setOpenId(created.id);
+      if (created) {
+        setOpenId(created.id);
+        setCreatedId(created.id);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     }
@@ -58,6 +67,7 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
         <CustomProviderCard
           key={provider.id}
           provider={provider}
+          defaultOpen={createdId === provider.id}
           expanded={openId === provider.id}
           onToggle={() =>
             setOpenId((current) =>
@@ -89,10 +99,12 @@ export function CustomProviderSection({ providers }: { providers: Provider[] }) 
 /** One custom provider with an editable draft; changes are saved explicitly. */
 function CustomProviderCard({
   provider,
+  defaultOpen,
   expanded,
   onToggle,
 }: {
   provider: Extract<Provider, { kind: 'custom' }>;
+  defaultOpen: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -106,12 +118,13 @@ function CustomProviderCard({
   const [protocol, setProtocol] = useState<ProviderProtocol>(
     provider.protocol ?? 'openai-completions',
   );
-  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>(
-    provider.auth?.kind ?? 'bearer',
+  const [authKind, setAuthKind] = useState<ProviderAuth['kind'] | 'auto'>(
+    provider.auth?.kind ?? 'auto',
   );
   const [authHeaderName, setAuthHeaderName] = useState(
     provider.auth?.kind === 'header' ? provider.auth.name : '',
   );
+  const [defaultsOpen, setDefaultsOpen] = useState(defaultOpen);
   const [models, setModels] = useState<DraftModel[]>(() =>
     toDraftModels(provider.models),
   );
@@ -134,7 +147,7 @@ function CustomProviderCard({
     setName(provider.name);
     setBaseURL(provider.baseURL ?? '');
     setProtocol(provider.protocol ?? 'openai-completions');
-    setAuthKind(provider.auth?.kind ?? 'bearer');
+    setAuthKind(provider.auth?.kind ?? 'auto');
     setAuthHeaderName(provider.auth?.kind === 'header' ? provider.auth.name : '');
     setModels(toDraftModels(provider.models));
   }
@@ -180,9 +193,11 @@ function CustomProviderCard({
         // omitted apiKey as unchanged.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         protocol,
-        auth: authKind === 'header'
-          ? { kind: 'header', name: authHeaderName.trim() }
-          : { kind: authKind },
+        auth: authKind === 'auto'
+          ? null
+          : authKind === 'header'
+            ? { kind: 'header', name: authHeaderName.trim() }
+            : { kind: authKind },
         models: models.map((m) => ({
           id: m.id,
           name: m.name,
@@ -229,6 +244,30 @@ function CustomProviderCard({
       onToggle={onToggle}
       onRemove={() => void remove()}
     >
+      <p className="text-muted-foreground text-xs">
+        {t('providers.defaultsHint')}
+      </p>
+
+      <Collapsible open={defaultsOpen} onOpenChange={setDefaultsOpen}>
+        <CollapsibleTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full justify-between"
+            />
+          }
+        >
+          <span>{t('providers.defaultsTitle')}</span>
+          <span className="text-muted-foreground flex items-center gap-2 text-xs">
+            <span>{t('providers.protocolDefault')} · {t('providers.auth')}</span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${defaultsOpen ? 'rotate-180' : ''}`}
+            />
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 pt-3">
       <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
           <span className="text-muted-foreground text-[11px]">{t('providers.name')}</span>
@@ -272,7 +311,7 @@ function CustomProviderCard({
       </div>
 
       <label className="block space-y-1">
-        <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
+        <span className="text-muted-foreground text-[11px]">{t('providers.protocolDefault')}</span>
         <Select
           items={[
             { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
@@ -301,6 +340,7 @@ function CustomProviderCard({
           <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
           <Select
             items={[
+              { value: 'auto', label: t('providers.authAuto') },
               { value: 'bearer', label: t('providers.authBearer') },
               { value: 'x-api-key', label: t('providers.authXApiKey') },
               { value: 'header', label: t('providers.authHeader') },
@@ -308,13 +348,14 @@ function CustomProviderCard({
             value={authKind}
             onValueChange={(next) => {
               setDirty(true);
-              setAuthKind(String(next) as ProviderAuth['kind']);
+              setAuthKind(String(next) as ProviderAuth['kind'] | 'auto');
             }}
           >
             <SelectTrigger className="h-8 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent width="content">
+              <SelectItem value="auto">{t('providers.authAuto')}</SelectItem>
               <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
               <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
               <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
@@ -336,6 +377,9 @@ function CustomProviderCard({
           </label>
         )}
       </div>
+
+        </CollapsibleContent>
+      </Collapsible>
 
       <ModelTable
         models={models}

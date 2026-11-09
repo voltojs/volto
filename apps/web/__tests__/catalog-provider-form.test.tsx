@@ -259,6 +259,8 @@ describe('CatalogProviderSection', () => {
     await user.type(screen.getByLabelText('上下文窗口 1'), '200000');
     // User unchecks reasoning; the save body carries the explicit override.
     await user.click(reasoning);
+    // Provider-level fields live in the defaults panel, collapsed on edit.
+    await user.click(screen.getByText('Provider 默认配置'));
     // baseURL is editable here too, and empty means "use pi-ai's address".
     await user.type(
       screen.getByPlaceholderText('https://api.anthropic.com'),
