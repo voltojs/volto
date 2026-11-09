@@ -298,6 +298,24 @@ export const updateProvider = (id: string, input: ProviderUpdateInput) =>
     body: JSON.stringify(input),
   });
 
+export interface ProviderProbeResult {
+  live: false;
+  ok: boolean;
+  protocol?: string;
+  cache: 'none' | 'implicit' | 'explicit' | 'unknown';
+  checks: { model: boolean; auth: boolean; protocol: boolean };
+  error?: string;
+}
+
+export const probeProvider = (
+  id: string,
+  input: { modelId?: string; protocol?: ProviderProtocol } = {},
+) =>
+  request<ProviderProbeResult>(`/providers/${encodeURIComponent(id)}/probe`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
 export const deleteProvider = (id: string) =>
   request<void>(`/providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
 

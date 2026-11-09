@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { fetchCatalogProviders, type CatalogProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
+import { fetchCatalogProviders, probeProvider, type CatalogProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toCatalogDrafts, type DraftModel } from './ModelTable';
 
@@ -152,6 +152,7 @@ function CatalogAddForm({
           .filter((m) => m.code.trim())
           .map((m) => ({
             code: m.code.trim(),
+            ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
             ...(m.name.trim() ? { name: m.name.trim() } : {}),
             ...(m.contextWindow === undefined
               ? {}
@@ -298,6 +299,8 @@ function CatalogProviderCard({
     toCatalogDrafts(provider.models),
   );
   const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeText, setProbeText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Same untouched-only re-seed as the custom card: an external refresh must
   // reach a draft nobody is editing, and must not touch one that is.
@@ -326,6 +329,26 @@ function CatalogProviderCard({
     }
   };
 
+  const testRoute = async () => {
+    setProbing(true);
+    setProbeText(null);
+    setError(null);
+    try {
+      const first = provider.models[0];
+      if (!first) throw new Error(t('providers.routeFailed', { error: 'no model' }));
+      const result = await probeProvider(provider.id, { modelId: first.code });
+      setProbeText(result.ok
+        ? t('providers.routeOk')
+        : t('providers.routeFailed', { error: result.error ?? "probe failed" }));
+    } catch (err) {
+      setProbeText(t('providers.routeFailed', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setProbing(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -346,6 +369,7 @@ function CatalogProviderCard({
           : { kind: authKind },
         models: models.map((m) => ({
           code: m.code,
+          ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
           // An empty box means "no override" — send nothing rather than an
           // empty string, or it would shadow pi-ai's own catalog value.
           ...(m.name.trim() ? { name: m.name.trim() } : {}),
@@ -489,14 +513,27 @@ function CatalogProviderCard({
 
       {error && <p className="text-destructive text-xs">{error}</p>}
 
-      <Button
-        size="sm"
-        onClick={() => void save()}
-        disabled={saving}
-        className="w-full"
-      >
-        {saving ? t('providers.saving') : t('providers.save')}
-      </Button>
+      {probeText && <p className="text-muted-foreground text-xs">{probeText}</p>}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void testRoute()}
+          disabled={probing || provider.models.length === 0}
+          className="flex-1"
+        >
+          {probing ? t('providers.testingRoute') : t('providers.testRoute')}
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void save()}
+          disabled={saving}
+          className="flex-1"
+        >
+          {saving ? t('providers.saving') : t('providers.save')}
+        </Button>
+      </div>
     </ProviderShell>
   );
 }

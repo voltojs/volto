@@ -11,6 +11,7 @@ import type {
   CatalogProviderModel,
   ModelInputLimits,
   ModelInputValue,
+  ProviderProtocol,
 } from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
 
@@ -32,6 +33,8 @@ export interface DraftModel {
   id: string;
   name: string;
   code: string;
+  /** Per-model protocol override; preserved even when no UI control edits it. */
+  protocol?: ProviderProtocol;
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning: boolean;
@@ -47,6 +50,7 @@ export function toDraftModels(models: Model[]): DraftModel[] {
     id: m.id,
     name: m.name,
     code: m.code,
+    protocol: m.protocol,
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
@@ -66,6 +70,7 @@ export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
     id: '',
     name: m.name ?? '',
     code: m.code,
+    protocol: m.protocol,
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
@@ -307,6 +312,28 @@ export function ModelTable({
             </div>
             {openKeys.has(model.clientKey) && (
               <div className="border-muted-foreground/30 col-span-full space-y-2 border-l py-2 pl-3">
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
+                    {t('providers.protocol')}
+                  </span>
+                  <select
+                    className="border-input bg-background h-7 w-full rounded-md border px-2 font-mono text-xs"
+                    value={model.protocol ?? ''}
+                    aria-label={t('models.ariaProtocol', { n: index + 1 })}
+                    onChange={(e) =>
+                      patch(index, {
+                        protocol: e.target.value === ''
+                          ? undefined
+                          : (e.target.value as ProviderProtocol),
+                      })
+                    }
+                  >
+                    <option value="">{t('models.protocolInherit')}</option>
+                    <option value="openai-completions">{t('providers.protocolOpenAICompletions')}</option>
+                    <option value="openai-responses">{t('providers.protocolOpenAIResponses')}</option>
+                    <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
+                  </select>
+                </label>
                 <div className="space-y-1.5">
                   <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                     {t('models.inputTypes')}

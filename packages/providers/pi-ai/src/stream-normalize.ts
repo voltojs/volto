@@ -68,15 +68,20 @@ export async function* normalizeStream(
             totalTokens: usage.totalTokens,
             cacheReadTokens: usage.cacheRead,
             cacheWriteTokens: usage.cacheWrite,
-            // A provider that reports no cache buckets at all is "not
-            // reported", not a cache hit rate of zero. Presence of either
-            // bucket is the strongest signal pi-ai exposes.
+            // pi-ai normalizes missing cache fields to 0, so a zero cannot
+            // distinguish "reported zero" from "not reported". For implicit
+            // caches, only a positive bucket proves the provider reported
+            // it; a zero stays unknown instead of becoming a fake 0.0% hit
+            // rate. Anthropic's explicit protocol always reports both fields,
+            // so its zero is meaningful.
             cacheReporting:
               cacheMode === "none"
                 ? "unsupported"
-                : usage.cacheRead !== undefined || usage.cacheWrite !== undefined
+                : usage.cacheRead > 0 || usage.cacheWrite > 0
                   ? "reported"
-                  : "not-reported",
+                  : cacheMode === "explicit"
+                    ? "reported"
+                    : "not-reported",
             ...(usage.reasoning !== undefined ? { reasoningTokens: usage.reasoning } : {}),
           };
         }

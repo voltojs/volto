@@ -93,6 +93,10 @@ interface ResolvedConfig {
   modelId: string | undefined;
   /** Wire protocol resolved for this turn; part of the rebuild identity. */
   protocol: string | undefined;
+  /** Auth scheme/name, coalesced so a bearer→x-api-key edit rebuilds. */
+  authFingerprint: string | undefined;
+  /** Non-secret route headers, sorted for a stable fingerprint. */
+  headersFingerprint: string | undefined;
   /** Resolved from the provider record so an in-place edit is detected too. */
   baseURL: string | null | undefined;
   code: string | undefined;
@@ -186,6 +190,8 @@ const EMPTY_CONFIG: ResolvedConfig = {
   providerId: undefined,
   modelId: undefined,
   protocol: undefined,
+  authFingerprint: undefined,
+  headersFingerprint: undefined,
   baseURL: undefined,
   code: undefined,
   maxOutputTokens: undefined,
@@ -249,14 +255,15 @@ export function buildProviderConfig(providerId: string | undefined, credentials:
 }
 
 export interface ProviderProbeResult {
+  /** This is a route/capability probe, not a live generation probe. */
+  live: false;
   ok: boolean;
   protocol: string | undefined;
+  cache: "none" | "implicit" | "explicit" | "unknown";
   checks: {
     model: boolean;
     auth: boolean;
     protocol: boolean;
-    usage: boolean;
-    cache: boolean;
   };
   error?: string;
 }
@@ -292,19 +299,21 @@ export async function probeProviderProtocol(
       model: true,
       auth: credentials.apiKey !== null,
       protocol: protocol !== undefined,
-      usage: info.cache !== undefined,
-      cache: info.cache !== undefined && info.cache.mode !== "none",
     };
     return {
+      live: false,
       ok: Object.values(checks).every(Boolean),
       protocol,
+      cache: info.cache?.mode ?? "unknown",
       checks,
     };
   } catch (err) {
     return {
+      live: false,
       ok: false,
       protocol: undefined,
-      checks: { model: false, auth: false, protocol: false, usage: false, cache: false },
+      cache: "unknown",
+      checks: { model: false, auth: false, protocol: false },
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -1361,6 +1370,12 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       providerId: requested.providerId,
       modelId: requested.modelId,
       protocol: await resolveProtocolForCredentials(requested.providerId, credentials),
+      authFingerprint: credentials.auth === undefined
+        ? undefined
+        : `${credentials.auth.kind}:${credentials.auth.name ?? ""}`,
+      headersFingerprint: credentials.headers === undefined
+        ? undefined
+        : JSON.stringify(Object.entries(credentials.headers).sort(([a], [b]) => a.localeCompare(b))),
       // Both kinds can carry one now, and it is part of a turn's identity:
       // sameConfig() compares it to decide whether to rebuild the agent.
       baseURL: credentials.baseURL,
@@ -1392,6 +1407,8 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.providerId === b.providerId &&
       a.modelId === b.modelId &&
       a.protocol === b.protocol &&
+      a.authFingerprint === b.authFingerprint &&
+      a.headersFingerprint === b.headersFingerprint &&
       a.baseURL === b.baseURL &&
       a.code === b.code &&
       a.maxOutputTokens === b.maxOutputTokens &&

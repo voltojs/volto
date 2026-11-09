@@ -134,14 +134,24 @@ export function createPiAiModelPortFromModels(
           ? { kind: "x-api-key" as const }
           : { kind: "bearer" as const });
         const routeHeaders: Record<string, string | null> = { ...(route?.headers ?? {}) };
-        if (route?.apiKey !== undefined) {
+        // Only an explicitly configured auth scheme may synthesize headers.
+        // Untouched catalog providers keep their built-in SDK auth (and
+        // providers like Google/Bedrock must not receive a stray Bearer).
+        if (route?.auth !== undefined && route.apiKey !== undefined) {
           if (auth.kind === "bearer") {
             routeHeaders["authorization"] = `Bearer ${route.apiKey}`;
+            // Anthropic defaults to x-api-key; suppress it so a bearer-only
+            // compatible gateway never receives two credentials.
             routeHeaders["x-api-key"] = null;
           } else if (auth.kind === "x-api-key") {
             routeHeaders["x-api-key"] = route.apiKey;
+            // The OpenAI SDK would also emit Bearer from the resolved key.
+            routeHeaders["authorization"] = null;
           } else if (auth.kind === "header" && auth.name !== undefined) {
             routeHeaders[auth.name] = route.apiKey;
+            // A custom header is the only credential this route wants.
+            routeHeaders["authorization"] = null;
+            routeHeaders["x-api-key"] = null;
           }
         }
 

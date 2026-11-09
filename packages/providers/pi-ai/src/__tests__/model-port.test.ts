@@ -177,8 +177,7 @@ describe("createPiAiModelPortFromModels: route auth", () => {
     await collect(port.stream(baseRequest("plain-model")));
 
     const options = streamSimple.mock.calls[0]![2]!;
-    expect(options.headers).toMatchObject({ "x-api-key": "key-1" });
-    expect(options.headers?.["authorization"]).toBeUndefined();
+    expect(options.headers).toMatchObject({ "x-api-key": "key-1", "authorization": null });
   });
 
   it("uses a custom header name for header auth", async () => {
@@ -191,7 +190,11 @@ describe("createPiAiModelPortFromModels: route auth", () => {
 
     await collect(port.stream(baseRequest("plain-model")));
 
-    expect(streamSimple.mock.calls[0]![2]!.headers).toMatchObject({ "x-token": "key-1" });
+    expect(streamSimple.mock.calls[0]![2]!.headers).toMatchObject({
+      "x-token": "key-1",
+      "authorization": null,
+      "x-api-key": null,
+    });
   });
 });
 

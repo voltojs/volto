@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import type { ProviderAuth, ProviderProtocol } from '@/lib/config-api';
+import { probeProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toDraftModels, type DraftModel } from './ModelTable';
 
@@ -109,6 +109,8 @@ function CustomProviderCard({
     toDraftModels(provider.models),
   );
   const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeText, setProbeText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Tracks whether the user has touched this draft since it was last synced
   // with the server. `useState` only seeds from `provider` on mount, so
@@ -139,6 +141,26 @@ function CustomProviderCard({
     }
   };
 
+  const testRoute = async () => {
+    setProbing(true);
+    setProbeText(null);
+    setError(null);
+    try {
+      const first = provider.models[0];
+      if (!first) throw new Error(t('providers.routeFailed', { error: 'no model' }));
+      const result = await probeProvider(provider.id, { modelId: first.id });
+      setProbeText(result.ok
+        ? t('providers.routeOk')
+        : t('providers.routeFailed', { error: result.error ?? "probe failed" }));
+    } catch (err) {
+      setProbeText(t('providers.routeFailed', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setProbing(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -158,6 +180,7 @@ function CustomProviderCard({
           id: m.id,
           name: m.name,
           code: m.code,
+          ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
           ...(m.contextWindow === undefined
             ? {}
             : { contextWindow: m.contextWindow }),
@@ -299,14 +322,27 @@ function CustomProviderCard({
 
       {error && <p className="text-destructive text-xs">{error}</p>}
 
-      <Button
-        size="sm"
-        onClick={() => void save()}
-        disabled={saving}
-        className="w-full"
-      >
-        {saving ? t('providers.saving') : t('providers.save')}
-      </Button>
+      {probeText && <p className="text-muted-foreground text-xs">{probeText}</p>}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void testRoute()}
+          disabled={probing || provider.models.length === 0}
+          className="flex-1"
+        >
+          {probing ? t('providers.testingRoute') : t('providers.testRoute')}
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void save()}
+          disabled={saving}
+          className="flex-1"
+        >
+          {saving ? t('providers.saving') : t('providers.save')}
+        </Button>
+      </div>
     </ProviderShell>
   );
 }

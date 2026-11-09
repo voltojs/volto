@@ -109,6 +109,18 @@ describe("normalizeStream", () => {
     expect(envelope?.blocks[1]?.type).toBe("tool_use");
   });
 
+  it("treats a positive implicit cache bucket as reported", async () => {
+    const message = fauxAssistantMessage("hi");
+    const usage = { ...message.usage, cacheRead: 12 };
+    const events: AssistantMessageEvent[] = [
+      { type: "done", reason: "stop", message: { ...message, usage } },
+    ];
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model, "implicit"));
+    expect(normalized.find((event) => event.type === "usage")).toMatchObject({
+      cacheReporting: "reported",
+    });
+  });
+
   it("marks a protocol without cache support as unsupported", async () => {
     const message = fauxAssistantMessage("hi");
     const events: AssistantMessageEvent[] = [
@@ -125,18 +137,11 @@ describe("normalizeStream", () => {
 
   it("marks usage without cache buckets as not-reported", async () => {
     const message = fauxAssistantMessage("hi");
-    const usage = { ...message.usage } as Record<string, unknown>;
-    delete usage["cacheRead"];
-    delete usage["cacheWrite"];
     const events: AssistantMessageEvent[] = [
-      {
-        type: "done",
-        reason: "stop",
-        message: { ...message, usage: usage as unknown as AssistantMessage["usage"] },
-      },
+      { type: "done", reason: "stop", message },
     ];
 
-    const normalized = await collect(normalizeStream(asAsyncIterable(events), model));
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model, "implicit"));
     const usageEvent = normalized.find((event) => event.type === "usage");
     expect(usageEvent).toMatchObject({
       type: "usage",

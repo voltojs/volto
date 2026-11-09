@@ -35,12 +35,15 @@ describe("POST /providers/:id/probe", () => {
       const result = (await response.json()) as {
         ok: boolean;
         protocol?: string;
+        cache?: string;
         checks: Record<string, boolean>;
       };
       expect(result).toMatchObject({
+        live: false,
         ok: true,
         protocol: "anthropic-messages",
-        checks: { model: true, auth: true, protocol: true, usage: true, cache: true },
+        cache: "explicit",
+        checks: { model: true, auth: true, protocol: true },
       });
     } finally {
       await server.close();
@@ -114,7 +117,8 @@ describe("POST /providers/:id/probe", () => {
           protocol: "openai-responses",
         }),
       });
-      expect((await overridden.json()) as { protocol?: string }).toMatchObject({
+      expect((await overridden.json()) as { protocol?: string; live?: boolean }).toMatchObject({
+        live: false,
         protocol: "openai-responses",
       });
 

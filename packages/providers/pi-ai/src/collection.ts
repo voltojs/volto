@@ -437,6 +437,7 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   const catalogModels = source.getModels();
   const knownIds = new Set(catalogModels.map((m) => m.id));
 
+  const originalApis = new Map(catalogModels.map((model) => [model.id, model.api] as const));
   const models: Model<Api>[] = catalogModels
     .filter((model) => selected.has(model.id))
     .map((model) => {
@@ -502,6 +503,10 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   // selected API implementation. A manual Provider keeps that fallback
   // available (createProvider's API map has no per-model fallback).
   const dispatch = <T>(model: Model<Api>, run: (streams: ProviderStreams) => T, fallback: () => T): T => {
+    // Untouched catalog models keep the built-in provider wrapper (opencode's
+    // session header, cloudflare's URL placeholders, …). Only a model whose
+    // protocol was actually overridden needs a different API implementation.
+    if (originalApis.get(model.id) === model.api) return fallback();
     const streams = apis[model.api as ProviderProtocol];
     return streams !== undefined ? run(streams) : fallback();
   };
