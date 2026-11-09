@@ -34,7 +34,12 @@ export const LEGACY_FILES = {
   egress: "egress.json",
 } as const;
 
-export type ConfigSection = keyof typeof LEGACY_FILES;
+/**
+ * Section names the document may hold. `sidebar` is a runtime-only section:
+ * it replaced no legacy per-domain file, so it has no entry in
+ * `LEGACY_FILES` and the migration never writes it.
+ */
+export type ConfigSection = keyof typeof LEGACY_FILES | "sidebar";
 
 /**
  * Domains whose existing readers refuse to build on a corrupt config. The
