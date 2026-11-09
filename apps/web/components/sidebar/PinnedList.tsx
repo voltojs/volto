@@ -178,7 +178,7 @@ export function PinnedList() {
                   {...handle.attributes}
                   {...handle.listeners}
                   aria-label={t('drag.handle')}
-                  className="text-muted-foreground hover:text-foreground flex h-6 w-6 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  className="text-muted-foreground hover:text-foreground flex h-3.5 w-3.5 shrink-0 cursor-grab items-center justify-center"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <GripVertical className="h-3 w-3" />

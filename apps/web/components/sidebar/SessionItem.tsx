@@ -141,10 +141,23 @@ export function SessionItem({
         >
           {/* Leading slot: the message glyph is gone but the fixed-size box
               stays, so rows never re-flow when the spinner appears; a
-              streaming session gets a spinning ring in it. */}
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              streaming session gets a spinning ring in it. When the section
+              is manually ordered the drag handle shares this slot and takes
+              it over on hover — same spot, so no width is reserved twice. */}
+          <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
             {isGenerating && (
-              <LoaderCircle className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
+              <LoaderCircle
+                className={cn(
+                  'text-muted-foreground h-3.5 w-3.5 animate-spin',
+                  dragHandle !== undefined &&
+                    'transition-opacity group-hover:opacity-0',
+                )}
+              />
+            )}
+            {dragHandle !== undefined && (
+              <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                {dragHandle}
+              </span>
             )}
           </span>
           {/* Two boxes on purpose: the viewport clips (so the run can never
@@ -193,7 +206,6 @@ export function SessionItem({
                 : 'pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100',
             )}
           >
-              {dragHandle}
               <Button
                 variant="ghost"
                 size="icon-xs"

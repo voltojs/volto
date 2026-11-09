@@ -62,6 +62,7 @@ function renderRow(
     title?: string;
     isGenerating?: boolean;
     isPinned?: boolean;
+    dragHandle?: React.ReactNode;
     onTogglePin?: () => void;
     onRename?: (title: string) => void;
     onClick?: () => void;
@@ -75,6 +76,7 @@ function renderRow(
         isActive={false}
         isGenerating={overrides.isGenerating ?? false}
         isPinned={overrides.isPinned ?? false}
+        dragHandle={overrides.dragHandle}
         onTogglePin={overrides.onTogglePin ?? (() => {})}
         onRename={overrides.onRename ?? (() => {})}
         onClick={overrides.onClick ?? (() => {})}
@@ -215,6 +217,27 @@ describe('SessionItem overflowing title', () => {
         .querySelector('span[class*="h-3.5"]')!
         .className.includes('items-center'),
     ).toBe(true);
+  });
+});
+
+describe('SessionItem drag handle slot', () => {
+  it('shares the leading slot with the streaming ring instead of taking its own width', () => {
+    const { container } = renderRow({
+      isGenerating: true,
+      dragHandle: <button type="button" aria-label="拖动排序" />,
+    });
+    const slot = container.querySelector('span[class*="h-3.5"]');
+    expect(slot).not.toBeNull();
+    // One slot, two occupants: the ring and the handle are siblings inside it.
+    expect(within(slot as HTMLElement).getByRole('button', { name: '拖动排序' })).toBeInTheDocument();
+    expect(slot!.querySelector('.lucide-loader-circle')).not.toBeNull();
+  });
+
+  it('keeps its own width when no handle is offered', () => {
+    const { container } = renderRow({ isGenerating: true });
+    const slot = container.querySelector('span[class*="h-3.5"]');
+    expect(slot!.querySelector('.lucide-loader-circle')).not.toBeNull();
+    expect(within(slot as HTMLElement).queryByRole('button')).toBeNull();
   });
 });
 
