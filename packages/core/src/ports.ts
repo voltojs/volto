@@ -646,8 +646,20 @@ export interface TranscriptEventMap {
     depth: number;
     /** Dispatch-supplied one-line task label (absent on pre-title sessions). */
     title?: string;
+    /** Dispatch identity shared with the parent tool result; absent on old logs. */
+    taskId?: string;
+    /** True when this dispatch runs detached; absent for a synchronous dispatch. */
+    background?: true;
+    /** Resolved subagent_type, when the dispatch named one. */
+    subagentType?: string;
   };
-  subagent_finished: { childSessionId: string; isError: boolean; durationMs: number };
+  subagent_finished: {
+    childSessionId: string;
+    isError: boolean;
+    durationMs: number;
+    /** Dispatch identity shared with the parent tool result; absent on old logs. */
+    taskId?: string;
+  };
   /**
    * A definition (or a per-dispatch allowlist) named tools / capabilities the
    * assembled child could not get, because the intersection rule keeps only
