@@ -366,14 +366,21 @@ export function buildTurnRecords(
     lastUnlinkedCall(turn, "task") ?? undefined;
 
   /**
-   * The first unlinked `task` call in log order. Live starts are claimed in
-   * dispatch order; a later tool_result carrying the same taskId is still the
-   * authoritative join and corrects the assignment if the two orders differ.
+   * The first *running* `task` call in log order (no result yet). A finished
+   * call is never eligible: giving a new start to an old failed dispatch makes
+   * the card point at the wrong child. A later tool_result carrying the same
+   * taskId is still the authoritative join and corrects a provisional claim.
    */
-  const firstUnlinkedTaskCall = (turn: MutableTurn): ToolCallRecord | undefined => {
+  const firstRunningTaskCall = (turn: MutableTurn): ToolCallRecord | undefined => {
     for (const step of turn.steps) {
       for (const call of step.toolCalls) {
-        if (call.name === "task" && call.childSessionId === undefined) return call;
+        if (
+          call.name === "task"
+          && call.childSessionId === undefined
+          && call.content === undefined
+        ) {
+          return call;
+        }
       }
     }
     return undefined;
@@ -771,7 +778,7 @@ export function buildTurnRecords(
           if (call !== undefined) {
             applyStart(call, data);
           } else {
-            const live = firstUnlinkedTaskCall(turn);
+            const live = firstRunningTaskCall(turn);
             if (live !== undefined) applyStart(live, data);
             else pendingStartsByTaskId.set(data.taskId, event as TranscriptEvent<"subagent_started">);
           }

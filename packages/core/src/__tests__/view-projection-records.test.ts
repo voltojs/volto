@@ -829,6 +829,27 @@ describe("subagent task id joins", () => {
     ]);
   });
 
+  it("does not give a new start to a task call that already finished", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "tool_call", data: { callId: "old", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 121,
+        type: "tool_result",
+        data: { callId: "old", name: "task", content: "tier error", isError: true, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "tool_call", data: { callId: "new", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 131, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1" }, turn: 1, step: 1 },
+    ]));
+    const calls = records[0]!.steps[0]!.toolCalls;
+    expect(calls.map((call) => [call.callId, call.childSessionId])).toEqual([
+      ["old", undefined],
+      ["new", "child-1"],
+    ]);
+  });
+
   it("links an errored sync dispatch when its tool result carries no metadata", () => {
     const records = buildTurnRecords(synthetic([
       ...turnShell(),
