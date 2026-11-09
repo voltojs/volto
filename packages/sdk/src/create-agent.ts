@@ -3242,15 +3242,6 @@ function extractInputText(input: AgentInput): string {
 }
 
 /**
- * An EventSink envelope carrying the transcript stamp top-level — the
- * toSinkEvent isomorphism (see runner.ts). The gateway's frame() drops
- * unstamped envelopes (`asTranscriptEvent` requires `typeof event.time ===
- * "number"`), so parent-level events emitted from here are stamped at the
- * emit site, like the subagent brackets — never patched downstream.
- */
-type StampedSinkEvent = { type: string; data: Record<string, unknown>; time: number };
-
-/**
  * The dispatch bookkeeping records that belong on the parent's log and main
  * feed: the start bracket plus the two "asked for more than it got" events.
  * A narrow union (rather than the whole event map) keeps them assignable to
@@ -3882,7 +3873,7 @@ function createSubAgentExecutor(
     // main feed — so a model swap that silently fell back to the parent's
     // model never goes unnoticed.
     if (tierUnresolved !== undefined) {
-      const tierUnresolvedEvent: StampedSinkEvent = {
+      const tierUnresolvedEvent: TranscriptEventInput<"subagent_model_tier_unresolved"> = {
         time: nowMs(),
         type: "subagent_model_tier_unresolved",
         data: {
@@ -3893,6 +3884,9 @@ function createSubAgentExecutor(
           ...(tierUnresolved.target !== undefined ? { target: tierUnresolved.target } : {}),
         },
       };
+      if (chatStore && parentChatSessionId) {
+        bestEffortAppend(chatStore, parentChatSessionId, [tierUnresolvedEvent]);
+      }
       currentSink?.emit(tierUnresolvedEvent);
     }
 

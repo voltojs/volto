@@ -683,6 +683,19 @@ export interface TranscriptEventMap {
     downgrades: Array<{ field: string; requested: string; effective: string }>;
   };
 
+  /**
+   * A dispatch named a routing tier that could not resolve to a model port
+   * and degraded to the parent model. Durable alongside the live sink event so
+   * a reload/export keeps the visible fallback.
+   */
+  subagent_model_tier_unresolved: {
+    childSessionId?: string;
+    subagentType?: string;
+    tierId: string;
+    turn: number;
+    target?: { providerId: string; modelId: string };
+  };
+
   // ── Other ──
   budget_exceeded: { reason: string };
   error: { message: string };
