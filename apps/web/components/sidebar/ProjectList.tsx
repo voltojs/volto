@@ -21,6 +21,7 @@ import { useChatStore } from '@/stores/chat-store';
 import { useSidebarStateStore } from '@/stores/sidebar-state-store';
 import { useAddProject } from '@/hooks/use-add-project';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { createClickSuppressor } from '@/lib/click-suppressor';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { revealPath } from '@/lib/config-api';
 import { runManualRename } from '@/lib/session-title';
@@ -119,7 +120,7 @@ export function ProjectList() {
   );
   // A drag ends with a pointerup, after which the row's own click would fire
   // and toggle the workspace open/closed. Swallow exactly that click.
-  const suppressClick = useRef(false);
+  const clickSuppressor = useRef(createClickSuppressor()).current;
 
   const ordered = sortProjects(projects, doc.sortModes.projects, {
     order: doc.projectOrder,
@@ -144,7 +145,7 @@ export function ProjectList() {
     const from = renderedProjectIds.indexOf(String(active.id));
     const to = renderedProjectIds.indexOf(String(over.id));
     if (from < 0 || to < 0) return;
-    suppressClick.current = true;
+    clickSuppressor.suppress();
     update((state) =>
       applyDragEnd(state, 'projects', renderedProjectIds, from, to),
     );
@@ -302,10 +303,7 @@ export function ProjectList() {
                   },
                 )}
                 onClick={() => {
-                  if (suppressClick.current) {
-                    suppressClick.current = false;
-                    return;
-                  }
+                  if (clickSuppressor.consume()) return;
                   update((state) => toggleProjectExpanded(state, project.id));
                 }}
               >

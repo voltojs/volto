@@ -22,6 +22,7 @@ import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useSidebarStateStore } from '@/stores/sidebar-state-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
+import { createClickSuppressor } from '@/lib/click-suppressor';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
@@ -58,7 +59,7 @@ export function PinnedList() {
   );
   // A drag ends with a pointerup, after which the row's own click would fire
   // and open the session. Swallow exactly that click.
-  const suppressClick = useRef(false);
+  const clickSuppressor = useRef(createClickSuppressor()).current;
   // Shared with `runSessionDelete`, which does the check-and-add itself.
   const deletingSessionIds = useRef<Set<string>>(new Set());
 
@@ -75,7 +76,7 @@ export function PinnedList() {
     const from = renderedIds.indexOf(String(active.id));
     const to = renderedIds.indexOf(String(over.id));
     if (from < 0 || to < 0) return;
-    suppressClick.current = true;
+    clickSuppressor.suppress();
     update((state) => applyDragEnd(state, 'pinned', renderedIds, from, to));
   };
 
@@ -180,10 +181,7 @@ export function PinnedList() {
               ) : undefined
             }
             onClick={() => {
-              if (suppressClick.current) {
-                suppressClick.current = false;
-                return;
-              }
+              if (clickSuppressor.consume()) return;
               openSession(session.id, session.projectId);
             }}
             onDelete={() => {

@@ -37,6 +37,13 @@ interface SidebarStateStore {
 export const useSidebarStateStore = create<SidebarStateStore>()((set, get) => {
   /** Newest document awaiting a PUT; null when nothing is pending. */
   let pending: SidebarState | null = null;
+  /**
+   * Changes made before the server document arrived. Kept as updaters, not as
+   * snapshots: replaying them on top of the loaded document is what stops a
+   * pre-load click from writing "default + one change" back over the server's
+   * pins and order.
+   */
+  let queuedBeforeLoad: Array<(current: SidebarState) => SidebarState> = [];
   /** True while one PUT is in flight. */
   let saving = false;
   /** In-flight `load()` so concurrent mounts share one request. */
@@ -68,16 +75,30 @@ export const useSidebarStateStore = create<SidebarStateStore>()((set, get) => {
       if (get().loaded) return;
       if (loading !== null) return loading;
       loading = (async () => {
-        const state = await fetchSidebarState();
+        const loaded = await fetchSidebarState();
+        const queued = queuedBeforeLoad;
+        queuedBeforeLoad = [];
+        // Replay the user's pre-load changes on top of the server document so
+        // neither side is silently dropped.
+        const state = queued.reduce((current, updater) => updater(current), loaded);
         set({ state, loaded: true });
         loading = null;
-        // Anything the user changed before the load landed is still pending.
-        await flush();
+        if (queued.length > 0) {
+          pending = state;
+          await flush();
+        }
       })();
       return loading;
     },
 
     update: (updater) => {
+      // Before the server document is in memory, remember the change and
+      // apply it optimistically; the PUT waits for `load()` to rebase it.
+      if (!get().loaded) {
+        queuedBeforeLoad.push(updater);
+        set({ state: updater(get().state) });
+        return;
+      }
       const next = updater(get().state);
       set({ state: next });
       pending = next;
