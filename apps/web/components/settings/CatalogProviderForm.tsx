@@ -288,14 +288,18 @@ function CatalogProviderEditor({
         {t('providers.defaultsHint')}
       </p>
 
-      <Collapsible open={defaultsOpen} onOpenChange={setDefaultsOpen}>
+      <Collapsible
+        open={defaultsOpen}
+        onOpenChange={setDefaultsOpen}
+        className="bg-muted/20 overflow-hidden rounded-lg border"
+      >
         <CollapsibleTrigger
           render={
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="w-full justify-between"
+              className="h-auto w-full justify-between rounded-none px-3 py-2"
             />
           }
         >
@@ -310,7 +314,8 @@ function CatalogProviderEditor({
           </span>
         </CollapsibleTrigger>
 
-        <CollapsibleContent className="space-y-3 pt-3">
+        <CollapsibleContent className="border-t px-3 py-3">
+          <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
               <span className="text-muted-foreground text-[11px]">Provider</span>
@@ -460,10 +465,11 @@ function CatalogProviderEditor({
               />
             </label>
           )}
+          </div>
         </CollapsibleContent>
       </Collapsible>
 
-      <div className="space-y-1.5">
+      <div className="bg-muted/20 space-y-2 rounded-lg border p-3">
         <div className="flex items-center justify-between">
           <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
             {t('providers.modelsLabel')}
