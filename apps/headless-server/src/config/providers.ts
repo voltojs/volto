@@ -493,6 +493,10 @@ export function createProviderStore(dir: string = getConfigDir()) {
           baseURL: string | null;
           apiKey: string | null;
           code: string;
+          protocol?: ConfiguredProtocol;
+          modelProtocol?: ProviderProtocol;
+          auth?: ProviderAuth;
+          headers?: Record<string, string>;
           maxOutputTokens?: number;
           /** Declared context window; absent = follow the pi-ai catalog. */
           contextWindow?: number;
@@ -505,6 +509,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
           baseURL: string | null;
           apiKey: string | null;
           code: string;
+          protocol?: ProviderProtocol;
+          auth?: ProviderAuth;
+          headers?: Record<string, string>;
           maxOutputTokens?: number;
           /** Declared context window; absent = the adapter's 128k fallback. */
           contextWindow?: number;

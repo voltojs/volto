@@ -203,7 +203,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
  * I/O — `describeModel` on the resulting port is a pure, synchronous
  * projection of already-known config/catalog data, never a network call).
  */
-function buildProviderConfig(providerId: string | undefined, credentials: ResolvedCredentials): PiAiProviderConfig {
+export function buildProviderConfig(providerId: string | undefined, credentials: ResolvedCredentials): PiAiProviderConfig {
   return credentials.kind === "catalog"
     ? {
         kind: "catalog",
@@ -246,6 +246,68 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
           },
         ],
       };
+}
+
+export interface ProviderProbeResult {
+  ok: boolean;
+  protocol: string | undefined;
+  checks: {
+    model: boolean;
+    auth: boolean;
+    protocol: boolean;
+    usage: boolean;
+    cache: boolean;
+  };
+  error?: string;
+}
+
+/**
+ * Validate one provider route without making a network call. This is a
+ * route/capability probe: it answers whether the configured model resolves,
+ * whether auth is present, and which protocol/cache behavior the adapter
+ * declares. Live text/tool probes belong to the caller's integration test.
+ */
+export async function probeProviderProtocol(
+  providerStore: Pick<ReturnType<typeof createProviderStore>, "resolveModel">,
+  providerId: string,
+  modelId: string,
+  protocolOverride?: ProviderProtocol,
+): Promise<ProviderProbeResult | null> {
+  const resolved = await providerStore.resolveModel(providerId, modelId);
+  if (!resolved) return null;
+  const credentials: ResolvedCredentials = protocolOverride === undefined
+    ? resolved
+    : resolved.kind === "catalog"
+      ? { ...resolved, modelProtocol: protocolOverride }
+      : { ...resolved, protocol: protocolOverride };
+  try {
+    const providerConfig = buildProviderConfig(providerId, credentials);
+    const port = createPiAiModelPort({
+      providers: [providerConfig],
+      defaultProviderId: providerConfig.id,
+    });
+    const info = await port.describeModel!(credentials.code);
+    const protocol = info.api;
+    const checks = {
+      model: true,
+      auth: credentials.apiKey !== null,
+      protocol: protocol !== undefined,
+      usage: info.cache !== undefined,
+      cache: info.cache !== undefined && info.cache.mode !== "none",
+    };
+    return {
+      ok: Object.values(checks).every(Boolean),
+      protocol,
+      checks,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      protocol: undefined,
+      checks: { model: false, auth: false, protocol: false, usage: false, cache: false },
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
