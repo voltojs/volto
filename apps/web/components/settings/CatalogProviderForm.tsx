@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { fetchCatalogProviders, type CatalogProvider, type ProviderProtocol } from '@/lib/config-api';
+import { fetchCatalogProviders, type CatalogProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toCatalogDrafts, type DraftModel } from './ModelTable';
 
@@ -287,6 +287,13 @@ function CatalogProviderCard({
   const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>(
     provider.protocol ?? 'auto',
   );
+  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>(
+    provider.auth?.kind
+      ?? (provider.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
+  );
+  const [authHeaderName, setAuthHeaderName] = useState(
+    provider.auth?.kind === 'header' ? provider.auth.name : '',
+  );
   const [models, setModels] = useState<DraftModel[]>(() =>
     toCatalogDrafts(provider.models),
   );
@@ -300,6 +307,11 @@ function CatalogProviderCard({
     setSyncedProvider(provider);
     setBaseURL(provider.baseURL ?? '');
     setProtocol(provider.protocol ?? 'auto');
+    setAuthKind(
+      provider.auth?.kind
+        ?? (provider.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
+    );
+    setAuthHeaderName(provider.auth?.kind === 'header' ? provider.auth.name : '');
     setModels(toCatalogDrafts(provider.models));
   }
 
@@ -329,6 +341,9 @@ function CatalogProviderCard({
         // gateway reads as "leave it alone".
         baseURL: baseURL.trim() || null,
         protocol,
+        auth: authKind === 'header'
+          ? { kind: 'header', name: authHeaderName.trim() }
+          : { kind: authKind },
         models: models.map((m) => ({
           code: m.code,
           // An empty box means "no override" — send nothing rather than an
@@ -401,6 +416,38 @@ function CatalogProviderCard({
             className="h-8 font-mono text-xs"
           />
         </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
+          <select
+            className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+            value={authKind}
+            onChange={(e) => {
+              setDirty(true);
+              setAuthKind(e.target.value as ProviderAuth['kind']);
+            }}
+          >
+            <option value="bearer">{t('providers.authBearer')}</option>
+            <option value="x-api-key">{t('providers.authXApiKey')}</option>
+            <option value="header">{t('providers.authHeader')}</option>
+          </select>
+        </label>
+        {authKind === 'header' && (
+          <label className="block space-y-1">
+            <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
+            <Input
+              className="h-8 font-mono text-xs"
+              value={authHeaderName}
+              onChange={(e) => {
+                setDirty(true);
+                setAuthHeaderName(e.target.value);
+              }}
+              placeholder="x-api-key"
+            />
+          </label>
+        )}
       </div>
 
       <div className="space-y-1.5">

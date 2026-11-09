@@ -19,6 +19,11 @@ export type ProviderProtocol =
   | 'openai-responses'
   | 'anthropic-messages';
 
+export type ProviderAuth =
+  | { kind: 'bearer' }
+  | { kind: 'x-api-key' }
+  | { kind: 'header'; name: string };
+
 /** One selectable reasoning-effort tier for a model. The id is opaque — never hardcode or parse it. */
 export interface ReasoningEffort {
   id: string;
@@ -141,6 +146,7 @@ export type Provider =
       baseURL: string | null;
       apiKeyMasked: string | null;
       protocol?: 'auto' | ProviderProtocol;
+      auth?: ProviderAuth;
       models: CatalogProviderModel[];
     }
   | {
@@ -150,6 +156,7 @@ export type Provider =
       baseURL: string | null;
       apiKeyMasked: string | null;
       protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
       models: Model[];
     };
 
@@ -177,6 +184,7 @@ export type ProviderInput =
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
       protocol?: 'auto' | ProviderProtocol;
+      auth?: ProviderAuth;
       models: CatalogModelInput[];
     }
   | {
@@ -186,6 +194,7 @@ export type ProviderInput =
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
       protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
       models?: CustomModelInput[];
     };
 

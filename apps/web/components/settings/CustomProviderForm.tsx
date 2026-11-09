@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import type { ProviderProtocol } from '@/lib/config-api';
+import type { ProviderAuth, ProviderProtocol } from '@/lib/config-api';
 import { ProviderShell } from './ProviderShell';
 import { ModelTable, toDraftModels, type DraftModel } from './ModelTable';
 
@@ -99,6 +99,12 @@ function CustomProviderCard({
   const [protocol, setProtocol] = useState<ProviderProtocol>(
     provider.protocol ?? 'openai-completions',
   );
+  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>(
+    provider.auth?.kind ?? 'bearer',
+  );
+  const [authHeaderName, setAuthHeaderName] = useState(
+    provider.auth?.kind === 'header' ? provider.auth.name : '',
+  );
   const [models, setModels] = useState<DraftModel[]>(() =>
     toDraftModels(provider.models),
   );
@@ -119,6 +125,8 @@ function CustomProviderCard({
     setName(provider.name);
     setBaseURL(provider.baseURL ?? '');
     setProtocol(provider.protocol ?? 'openai-completions');
+    setAuthKind(provider.auth?.kind ?? 'bearer');
+    setAuthHeaderName(provider.auth?.kind === 'header' ? provider.auth.name : '');
     setModels(toDraftModels(provider.models));
   }
 
@@ -143,6 +151,9 @@ function CustomProviderCard({
         // omitted apiKey as unchanged.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         protocol,
+        auth: authKind === 'header'
+          ? { kind: 'header', name: authHeaderName.trim() }
+          : { kind: authKind },
         models: models.map((m) => ({
           id: m.id,
           name: m.name,
@@ -245,6 +256,38 @@ function CustomProviderCard({
           <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
         </select>
       </label>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
+          <select
+            className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+            value={authKind}
+            onChange={(e) => {
+              setDirty(true);
+              setAuthKind(e.target.value as ProviderAuth['kind']);
+            }}
+          >
+            <option value="bearer">{t('providers.authBearer')}</option>
+            <option value="x-api-key">{t('providers.authXApiKey')}</option>
+            <option value="header">{t('providers.authHeader')}</option>
+          </select>
+        </label>
+        {authKind === 'header' && (
+          <label className="block space-y-1">
+            <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
+            <Input
+              className="h-8 font-mono text-xs"
+              value={authHeaderName}
+              onChange={(e) => {
+                setDirty(true);
+                setAuthHeaderName(e.target.value);
+              }}
+              placeholder="x-api-key"
+            />
+          </label>
+        )}
+      </div>
 
       <ModelTable
         models={models}
