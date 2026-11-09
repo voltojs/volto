@@ -28,7 +28,6 @@ import {
   pinSession,
   sortProjects,
   toggleProjectExpanded,
-  unpinSession,
 } from '@/lib/sidebar-layout';
 import type { ProjectSortMode } from '@/lib/sidebar-state-api';
 import { Button } from '@/components/ui/button';
