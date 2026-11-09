@@ -4195,6 +4195,16 @@ function createSubAgentExecutor(
       const finalState = await subRunner.run({
         type: "user_message",
         content: message,
+        ...(parentChatSessionId === undefined
+          ? {}
+          : {
+              source: {
+                kind: "subagent-task" as const,
+                parentSessionId: parentChatSessionId,
+                taskId,
+                label: agentLabel,
+              },
+            }),
       });
       finishSubAgent(false);
 

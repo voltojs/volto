@@ -74,7 +74,7 @@ describe("task_output", () => {
       status: "completed",
       usage: { inputTokens: 10, outputTokens: 5 },
     });
-    expect(result.displayMetadata).toEqual({ taskId: "t9" });
+    expect(result.displayMetadata).toEqual({ taskId: "t9", relatedSessionId: "sess-sub-2" });
   });
 
   it("F-144 task_output error stays plain-text isError", async () => {
