@@ -15,7 +15,7 @@ import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, Compact
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
-import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol } from "@volto/provider-pi-ai";
 import { t } from "@volto/i18n";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
@@ -121,6 +121,10 @@ export type ResolvedCredentials =
       baseURL: string | null;
       apiKey: string | null;
       code: string;
+      protocol?: ConfiguredProtocol;
+      modelProtocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       maxOutputTokens?: number;
       /** Declared context window; absent = follow the catalog. */
       contextWindow?: number;
@@ -134,6 +138,9 @@ export type ResolvedCredentials =
       baseURL: string | null;
       apiKey: string | null;
       code: string;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       maxOutputTokens?: number;
       /** Declared context window; absent = the adapter's 128k fallback. */
       contextWindow?: number;
@@ -203,6 +210,12 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // Only when overridden: an absent baseURL leaves pi-ai's own catalog
         // address in place (collection.ts's buildCatalogProvider).
         ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
+        ...(credentials.protocol === undefined ? {} : { protocol: credentials.protocol }),
+        ...(credentials.modelProtocol === undefined
+          ? {}
+          : { modelProtocols: { [credentials.code]: credentials.modelProtocol } }),
+        ...(credentials.auth === undefined ? {} : { auth: credentials.auth }),
+        ...(credentials.headers === undefined ? {} : { headers: credentials.headers }),
         modelCodes: [credentials.code],
         // Same for reasoning: only a stored override is forwarded, so an
         // untouched model keeps tracking pi-ai's catalog flag.
@@ -219,6 +232,9 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // Mirrors provider-openai's own default when no baseURL is resolved.
         baseURL: credentials.baseURL ?? "https://api.openai.com",
         apiKey: credentials.apiKey ?? undefined,
+        ...(credentials.protocol === undefined ? {} : { protocol: credentials.protocol }),
+        ...(credentials.auth === undefined ? {} : { auth: credentials.auth }),
+        ...(credentials.headers === undefined ? {} : { headers: credentials.headers }),
         models: [
           {
             code: credentials.code,

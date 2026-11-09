@@ -83,7 +83,7 @@ function registerFakeProvider(streamSimple: Provider["streamSimple"]): ReturnTyp
 
 describe("createPiAiModelPortFromModels: stream()", () => {
   it("streams a full text conversation: text_delta ... done", async () => {
-    const streamSimple = vi.fn(() => textConversationStream());
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
     const models = registerFakeProvider(streamSimple);
     const port = createPiAiModelPortFromModels(models, "acme");
 
@@ -118,7 +118,7 @@ describe("createPiAiModelPortFromModels: stream()", () => {
   });
 
   it("rejects an unsupported reasoning effort WITHOUT attempting any I/O", async () => {
-    const streamSimple = vi.fn(() => textConversationStream());
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
     const models = registerFakeProvider(streamSimple);
     const port = createPiAiModelPortFromModels(models, "acme");
 
@@ -134,7 +134,7 @@ describe("createPiAiModelPortFromModels: stream()", () => {
   });
 
   it("produces an error event (not a thrown exception) for an unknown model", async () => {
-    const streamSimple = vi.fn(() => textConversationStream());
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
     const models = registerFakeProvider(streamSimple);
     const port = createPiAiModelPortFromModels(models, "acme");
 
@@ -143,6 +143,55 @@ describe("createPiAiModelPortFromModels: stream()", () => {
     expect(streamSimple).not.toHaveBeenCalled();
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "error", retriable: false });
+  });
+});
+
+describe("createPiAiModelPortFromModels: route auth", () => {
+  it("sends bearer auth and suppresses the Anthropic x-api-key default", async () => {
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
+    const models = registerFakeProvider(streamSimple);
+    const port = createPiAiModelPortFromModels(models, "acme", undefined, "key-1", {
+      auth: { kind: "bearer" },
+      headers: { "x-extra": "1" },
+      apiKey: "key-1",
+    });
+
+    await collect(port.stream(baseRequest("plain-model")));
+
+    const options = streamSimple.mock.calls[0]![2]!;
+    expect(options.headers).toMatchObject({
+      authorization: "Bearer key-1",
+      "x-api-key": null,
+      "x-extra": "1",
+    });
+  });
+
+  it("sends x-api-key auth without an authorization header", async () => {
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
+    const models = registerFakeProvider(streamSimple);
+    const port = createPiAiModelPortFromModels(models, "acme", undefined, "key-1", {
+      auth: { kind: "x-api-key" },
+      apiKey: "key-1",
+    });
+
+    await collect(port.stream(baseRequest("plain-model")));
+
+    const options = streamSimple.mock.calls[0]![2]!;
+    expect(options.headers).toMatchObject({ "x-api-key": "key-1" });
+    expect(options.headers?.["authorization"]).toBeUndefined();
+  });
+
+  it("uses a custom header name for header auth", async () => {
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
+    const models = registerFakeProvider(streamSimple);
+    const port = createPiAiModelPortFromModels(models, "acme", undefined, undefined, {
+      auth: { kind: "header", name: "x-token" },
+      apiKey: "key-1",
+    });
+
+    await collect(port.stream(baseRequest("plain-model")));
+
+    expect(streamSimple.mock.calls[0]![2]!.headers).toMatchObject({ "x-token": "key-1" });
   });
 });
 

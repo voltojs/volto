@@ -528,6 +528,10 @@ export function createProviderStore(dir: string = getConfigDir()) {
           baseURL: provider.baseURL ?? null,
           apiKey,
           code: model.code,
+          ...(provider.protocol === undefined ? {} : { protocol: provider.protocol }),
+          ...(model.protocol === undefined ? {} : { modelProtocol: model.protocol }),
+          ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+          ...(provider.headers === undefined ? {} : { headers: provider.headers }),
           ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
           ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
           ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
@@ -543,6 +547,11 @@ export function createProviderStore(dir: string = getConfigDir()) {
         baseURL: provider.baseURL,
         apiKey,
         code: model.code,
+        ...(model.protocol ?? provider.protocol
+          ? { protocol: model.protocol ?? provider.protocol }
+          : {}),
+        ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+        ...(provider.headers === undefined ? {} : { headers: provider.headers }),
         ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
         ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
         ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
