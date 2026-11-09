@@ -215,6 +215,44 @@ describe("provider protocol resolution", () => {
   });
 });
 
+describe("protocol-aware model construction", () => {
+  it("switches a catalog model to anthropic-messages and clears old compat", () => {
+    const models = buildModels([catalogConfig({ protocol: "anthropic-messages" })]);
+    const model = models.getModel("deepseek", "deepseek-flash");
+    expect(model?.api).toBe("anthropic-messages");
+    expect(model?.compat).toBeUndefined();
+  });
+
+  it("builds a custom model with anthropic-messages", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(models.getModel("acme", "plain-model")?.api).toBe("anthropic-messages");
+  });
+
+  it("keeps openai-responses distinct from openai-completions", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        models: [
+          { code: "chat-model", protocol: "openai-completions" },
+          { code: "responses-model", protocol: "openai-responses" },
+        ],
+      },
+    ]);
+    expect(models.getModel("acme", "chat-model")?.api).toBe("openai-completions");
+    expect(models.getModel("acme", "responses-model")?.api).toBe("openai-responses");
+  });
+});
+
 describe("catalog provider registration", () => {
   it("resolves a catalog model via getModel(pi-ai provider id, code)", () => {
     const models = buildModels([catalogConfig()]);
