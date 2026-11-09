@@ -62,6 +62,8 @@ export interface TurnUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Aggregate cache-reporting status; absent for old transcripts. */
+  cacheReporting?: "reported" | "not-reported" | "unsupported";
   /**
    * inputTokens + outputTokens + cacheRead + cacheWrite，与 provider 自己报的
    * total 同口径（复用 pricing 的 totalUsageTokens，避免第二份公式）。
@@ -905,6 +907,7 @@ function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
   let cacheWriteTokens = 0;
   let reported = 0;
   let missingUsageCalls = 0;
+  let cacheReporting: "reported" | "not-reported" | "unsupported" | undefined;
   let source: RouteSource | undefined;
 
   for (const step of turn.steps) {
@@ -920,6 +923,7 @@ function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
     outputTokens += usage.outputTokens;
     cacheReadTokens += usage.cacheReadTokens ?? 0;
     cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+    cacheReporting = mergeCacheReporting(cacheReporting, usage.cacheReporting);
   }
 
   // Compaction is a real model call but not a step: fold its usage into the
@@ -931,6 +935,7 @@ function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
     outputTokens += compactionUsage.outputTokens;
     cacheReadTokens += compactionUsage.cacheReadTokens ?? 0;
     cacheWriteTokens += compactionUsage.cacheWriteTokens ?? 0;
+    cacheReporting = mergeCacheReporting(cacheReporting, compactionUsage.cacheReporting);
   }
 
   if (reported === 0) return undefined;
@@ -948,7 +953,19 @@ function summariseTurnUsage(turn: TurnRecord): TurnUsage | undefined {
     }),
     ...(source !== undefined ? { source } : {}),
     missingUsageCalls,
+    ...(cacheReporting !== undefined ? { cacheReporting } : {}),
   };
+}
+
+/** Worst state wins: unsupported > not-reported > reported. */
+function mergeCacheReporting(
+  current: "reported" | "not-reported" | "unsupported" | undefined,
+  next: "reported" | "not-reported" | "unsupported" | undefined,
+): "reported" | "not-reported" | "unsupported" | undefined {
+  if (next === undefined) return current;
+  if (current === undefined) return next;
+  const rank = { reported: 0, "not-reported": 1, unsupported: 2 } as const;
+  return rank[next] > rank[current] ? next : current;
 }
 
 /**

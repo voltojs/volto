@@ -10,8 +10,7 @@ import {
 import type { TurnUsage } from '@volto/sdk/sse';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import {
-  cacheHitRate,
-  formatCacheHitRate,
+  cacheHitLabel,
   formatExactTokens,
 } from '@/lib/turn-usage-model';
 import { PopoverRow } from './PopoverRow';
@@ -26,7 +25,7 @@ export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
   const t = useTranslations('chat');
   const summary = t('usage.conversationSummary', {
     tokens: formatCompactTokens(usage.totalTokens),
-    rate: formatCacheHitRate(cacheHitRate(usage)),
+    rate: cacheHitLabel(usage, t),
   });
 
   return (
@@ -53,7 +52,7 @@ export function ConversationUsageChip({ usage }: { usage: TurnUsage }) {
         <ul className="mt-2 space-y-1 text-xs">
           <PopoverRow
             label={t('usage.cacheHit')}
-            value={formatCacheHitRate(cacheHitRate(usage))}
+            value={cacheHitLabel(usage, t)}
           />
           <PopoverRow
             label={t('usage.uncachedInput')}

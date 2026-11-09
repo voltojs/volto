@@ -109,6 +109,27 @@ describe("normalizeStream", () => {
     expect(envelope?.blocks[1]?.type).toBe("tool_use");
   });
 
+  it("marks usage without cache buckets as not-reported", async () => {
+    const message = fauxAssistantMessage("hi");
+    const usage = { ...message.usage } as Record<string, unknown>;
+    delete usage["cacheRead"];
+    delete usage["cacheWrite"];
+    const events: AssistantMessageEvent[] = [
+      {
+        type: "done",
+        reason: "stop",
+        message: { ...message, usage: usage as unknown as AssistantMessage["usage"] },
+      },
+    ];
+
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model));
+    const usageEvent = normalized.find((event) => event.type === "usage");
+    expect(usageEvent).toMatchObject({
+      type: "usage",
+      cacheReporting: "not-reported",
+    });
+  });
+
   it("normalizes an error response into an error ModelEvent instead of throwing", async () => {
     const faux = fauxProvider();
     const fauxModel = faux.getModel();

@@ -67,6 +67,13 @@ export async function* normalizeStream(
             totalTokens: usage.totalTokens,
             cacheReadTokens: usage.cacheRead,
             cacheWriteTokens: usage.cacheWrite,
+            // A provider that reports no cache buckets at all is "not
+            // reported", not a cache hit rate of zero. Presence of either
+            // bucket is the strongest signal pi-ai exposes.
+            cacheReporting:
+              usage.cacheRead !== undefined || usage.cacheWrite !== undefined
+                ? "reported"
+                : "not-reported",
             ...(usage.reasoning !== undefined ? { reasoningTokens: usage.reasoning } : {}),
           };
         }

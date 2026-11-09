@@ -52,6 +52,11 @@ export interface TokenUsage {
   cacheWriteTokens?: number;
   /** Reasoning/thinking tokens when the provider bills them separately. */
   reasoningTokens?: number;
+  /**
+   * Whether this provider/protocol reports prompt-cache buckets at all.
+   * Absent on old events/adapters and treated as "reported" by the UI.
+   */
+  cacheReporting?: "reported" | "not-reported" | "unsupported";
 }
 
 export interface ModelEventUsage extends TokenUsage {

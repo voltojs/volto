@@ -12,8 +12,7 @@ import { useConfigStore } from '@/stores/config-store';
 import { PopoverRow } from './PopoverRow';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import {
-  cacheHitRate,
-  formatCacheHitRate,
+  cacheHitLabel,
   formatExactTokens,
   formatRoute,
 } from '@/lib/turn-usage-model';
@@ -55,7 +54,7 @@ export function TurnUsageChip({ usage }: { usage: TurnUsage }) {
         </div>
         <ul className="mt-2 space-y-1 text-xs">
           <PopoverRow label={t('usage.providerModel')} value={route} />
-          <PopoverRow label={t('usage.cacheHit')} value={formatCacheHitRate(cacheHitRate(usage))} />
+          <PopoverRow label={t('usage.cacheHit')} value={cacheHitLabel(usage, t)} />
           <PopoverRow label={t('usage.uncachedInput')} value={`${formatExactTokens(usage.inputTokens)} tok`} />
           <PopoverRow label={t('usage.cacheRead')} value={`${formatExactTokens(usage.cacheReadTokens)} tok`} />
           <PopoverRow label={t('usage.cacheWrite')} value={`${formatExactTokens(usage.cacheWriteTokens)} tok`} />
