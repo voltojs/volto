@@ -47,6 +47,47 @@ describe("POST /providers/:id/probe", () => {
     }
   });
 
+  it("probes all three protocol routes on one provider", async () => {
+    const server = await startTestServer();
+    try {
+      const protocols = [
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+      ] as const;
+      const created = await fetch(`${server.url}/providers`, {
+        method: "POST",
+        headers: auth(server.token),
+        body: JSON.stringify({
+          kind: "custom",
+          name: "Three protocol routes",
+          baseURL: "https://example.invalid/v1",
+          apiKey: "sk-three",
+          models: protocols.map((protocol) => ({
+            name: protocol,
+            code: protocol,
+            protocol,
+          })),
+        }),
+      });
+      const provider = (await created.json()) as {
+        id: string;
+        models: Array<{ id: string; code: string }>;
+      };
+      for (const protocol of protocols) {
+        const model = provider.models.find((m) => m.code === protocol)!;
+        const response = await fetch(`${server.url}/providers/${provider.id}/probe`, {
+          method: "POST",
+          headers: auth(server.token),
+          body: JSON.stringify({ modelId: model.id }),
+        });
+        expect(await response.json()).toMatchObject({ ok: true, protocol });
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
   it("accepts a protocol override and rejects an unknown protocol", async () => {
     const server = await startTestServer();
     try {
