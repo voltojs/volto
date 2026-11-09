@@ -138,6 +138,9 @@ export async function ensureSessionDetail(
       providerId: detail.providerId,
       modelId: detail.modelId,
       permissionMode: normalisePermissionMode(detail.permissionMode),
+      ...(detail.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: detail.reasoningEffort }),
     });
   })().finally(() => {
     inFlight.delete(id);
@@ -192,6 +195,9 @@ export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
       providerId: summary.providerId,
       modelId: summary.modelId,
       permissionMode: normalisePermissionMode(summary.permissionMode),
+      ...(summary.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: summary.reasoningEffort }),
       contextUsage: null,
     })),
   ]);
