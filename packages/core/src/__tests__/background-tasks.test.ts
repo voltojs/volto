@@ -57,6 +57,50 @@ describe("background task state", () => {
     expect(JSON.stringify(reminder)).toContain("background_task");
   });
 
+  it("links the completion reminder to the collected child session", () => {
+    const started = step(
+      createInitialState(),
+      { type: "background_task_started", taskId: "t1" },
+      ctx,
+    ).state;
+    const { effects } = step(
+      started,
+      {
+        type: "background_task_completed",
+        taskId: "t1",
+        childSessionId: "child-1",
+        text: "x",
+        isError: true,
+      },
+      ctx,
+    );
+    const reminder = effects.find(
+      (e) => e.type === "emit" && (e.event as { type: string }).type === "context_reminder",
+    ) as { event: { data: { displayMetadata: Record<string, unknown> } } } | undefined;
+    expect(reminder?.event.data.displayMetadata).toEqual({
+      taskId: "t1",
+      isError: true,
+      childSessionId: "child-1",
+    });
+  });
+
+  it("omits childSessionId from a collector that does not report one", () => {
+    const started = step(
+      createInitialState(),
+      { type: "background_task_started", taskId: "t1" },
+      ctx,
+    ).state;
+    const { effects } = step(
+      started,
+      { type: "background_task_completed", taskId: "t1", text: "x" },
+      ctx,
+    );
+    const reminder = effects.find(
+      (e) => e.type === "emit" && (e.event as { type: string }).type === "context_reminder",
+    ) as { event: { data: { displayMetadata: Record<string, unknown> } } } | undefined;
+    expect(reminder?.event.data.displayMetadata).not.toHaveProperty("childSessionId");
+  });
+
   it("clears the table at the turn boundary", () => {
     const started = step(
       createInitialState(),

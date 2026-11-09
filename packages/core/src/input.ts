@@ -297,6 +297,8 @@ export interface BackgroundTaskStartedInput {
 export interface BackgroundTaskCompletedInput {
   type: "background_task_completed";
   taskId: string;
+  /** Collected child session, when the registry reports one. */
+  childSessionId?: string;
   text: string;
   isError?: boolean;
 }

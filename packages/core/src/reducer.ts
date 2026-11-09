@@ -567,7 +567,11 @@ export function step(
         data: {
           kind: "background_task",
           text,
-          displayMetadata: { taskId: input.taskId, isError: input.isError ?? false },
+          displayMetadata: {
+            taskId: input.taskId,
+            isError: input.isError ?? false,
+            ...(input.childSessionId === undefined ? {} : { childSessionId: input.childSessionId }),
+          },
         },
       },
     };

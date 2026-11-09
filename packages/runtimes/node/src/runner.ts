@@ -569,7 +569,7 @@ export const defaultAuditSink: AuditSink = {
  * SDK registry satisfies it structurally.
  */
 export interface BackgroundTaskCollector {
-  collect(taskId: string): Promise<{ text: string } | { error: string }>;
+  collect(taskId: string): Promise<{ text: string; childSessionId?: string } | { error: string }>;
   /**
    * True when this id's result was already collected — e.g. the model
    * picked it up mid-turn via the task_output tool. The drain skips those
@@ -606,7 +606,7 @@ export async function drainBackgroundTasks(opts: {
     // fails it with an explanation, which is exactly what F-036 wants.
     if (opts.registry.isCollected?.(task.id) === true) continue;
 
-    let result: { text: string } | { error: string };
+    let result: { text: string; childSessionId?: string } | { error: string };
     try {
       result = await opts.registry.collect(task.id);
     } catch (err) {
@@ -625,6 +625,7 @@ export async function drainBackgroundTasks(opts: {
       opts.feed({
         type: "background_task_completed",
         taskId: task.id,
+        ...(result.childSessionId === undefined ? {} : { childSessionId: result.childSessionId }),
         text: result.text,
       });
     }
