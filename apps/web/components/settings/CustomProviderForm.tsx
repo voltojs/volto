@@ -5,6 +5,13 @@ import { useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { probeProvider, type ProviderAuth, type ProviderProtocol } from '@/lib/config-api';
@@ -266,35 +273,53 @@ function CustomProviderCard({
 
       <label className="block space-y-1">
         <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
-        <select
-          className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+        <Select
+          items={[
+            { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
+            { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
+            { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
+          ]}
           value={protocol}
-          onChange={(e) => {
+          onValueChange={(next) => {
             setDirty(true);
-            setProtocol(e.target.value as ProviderProtocol);
+            setProtocol(String(next) as ProviderProtocol);
           }}
         >
-          <option value="openai-completions">{t('providers.protocolOpenAICompletions')}</option>
-          <option value="openai-responses">{t('providers.protocolOpenAIResponses')}</option>
-          <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
-        </select>
+          <SelectTrigger className="h-8 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent width="content">
+            <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
+            <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
+            <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
+          </SelectContent>
+        </Select>
       </label>
 
       <div className="grid grid-cols-2 gap-2">
         <label className="block space-y-1">
           <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
-          <select
-            className="border-input bg-background h-8 w-full rounded-md border px-2 font-mono text-xs"
+          <Select
+            items={[
+              { value: 'bearer', label: t('providers.authBearer') },
+              { value: 'x-api-key', label: t('providers.authXApiKey') },
+              { value: 'header', label: t('providers.authHeader') },
+            ]}
             value={authKind}
-            onChange={(e) => {
+            onValueChange={(next) => {
               setDirty(true);
-              setAuthKind(e.target.value as ProviderAuth['kind']);
+              setAuthKind(String(next) as ProviderAuth['kind']);
             }}
           >
-            <option value="bearer">{t('providers.authBearer')}</option>
-            <option value="x-api-key">{t('providers.authXApiKey')}</option>
-            <option value="header">{t('providers.authHeader')}</option>
-          </select>
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent width="content">
+              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
+              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
+              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
         {authKind === 'header' && (
           <label className="block space-y-1">

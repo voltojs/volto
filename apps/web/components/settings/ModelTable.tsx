@@ -6,6 +6,13 @@ import { ChevronRight, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Model } from '@/stores/config-store';
 import type {
   CatalogProviderModel,
@@ -316,23 +323,35 @@ export function ModelTable({
                   <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                     {t('providers.protocol')}
                   </span>
-                  <select
-                    className="border-input bg-background h-7 w-full rounded-md border px-2 font-mono text-xs"
-                    value={model.protocol ?? ''}
-                    aria-label={t('models.ariaProtocol', { n: index + 1 })}
-                    onChange={(e) =>
+                  <Select
+                    items={[
+                      { value: 'inherit', label: t('models.protocolInherit') },
+                      { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
+                      { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
+                      { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
+                    ]}
+                    value={model.protocol ?? 'inherit'}
+                    onValueChange={(next) =>
                       patch(index, {
-                        protocol: e.target.value === ''
+                        protocol: String(next) === 'inherit'
                           ? undefined
-                          : (e.target.value as ProviderProtocol),
+                          : (String(next) as ProviderProtocol),
                       })
                     }
                   >
-                    <option value="">{t('models.protocolInherit')}</option>
-                    <option value="openai-completions">{t('providers.protocolOpenAICompletions')}</option>
-                    <option value="openai-responses">{t('providers.protocolOpenAIResponses')}</option>
-                    <option value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</option>
-                  </select>
+                    <SelectTrigger
+                      className="h-7 w-full font-mono text-xs"
+                      aria-label={t('models.ariaProtocol', { n: index + 1 })}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent width="content">
+                      <SelectItem value="inherit">{t('models.protocolInherit')}</SelectItem>
+                      <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
+                      <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
+                      <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </label>
                 <div className="space-y-1.5">
                   <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
