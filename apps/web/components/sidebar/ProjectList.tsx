@@ -309,19 +309,6 @@ export function ProjectList() {
                   );
                 }}
               >
-                {manual && (
-                  <button
-                    type="button"
-                    ref={handle.setActivatorNodeRef}
-                    {...handle.attributes}
-                    {...handle.listeners}
-                    aria-label={t('drag.handle')}
-                    className="text-muted-foreground hover:text-foreground -ml-0.5 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <GripVertical className="h-3 w-3" />
-                  </button>
-                )}
                 <ChevronRight
                   className={cn(
                     'text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150',
@@ -363,6 +350,19 @@ export function ProjectList() {
                     },
                   )}
                 >
+                  {manual && (
+                    <button
+                      type="button"
+                      ref={handle.setActivatorNodeRef}
+                      {...handle.attributes}
+                      {...handle.listeners}
+                      aria-label={t('drag.handle')}
+                      className="text-muted-foreground hover:text-foreground flex h-6 w-6 shrink-0 cursor-grab items-center justify-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical className="h-3 w-3" />
+                    </button>
+                  )}
                   <DropdownMenu
                     onOpenChange={(open) => {
                       if (open) {
@@ -383,6 +383,7 @@ export function ProjectList() {
                           variant="ghost"
                           size="icon-xs"
                           aria-label={t('project.menuAria')}
+                          className="aria-expanded:bg-transparent"
                           onClick={(e) => e.stopPropagation()}
                         />
                       }

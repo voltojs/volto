@@ -133,7 +133,6 @@ export function SessionItem({
             />
           }
         >
-          {dragHandle}
           {/* Leading slot: the message glyph is gone but the fixed-size box
               stays, so rows never re-flow when the spinner appears; a
               streaming session gets a spinning ring in it. */}
@@ -188,6 +187,7 @@ export function SessionItem({
                 : 'pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100',
             )}
           >
+              {dragHandle}
               <Button
                 variant="ghost"
                 size="icon-xs"
@@ -217,6 +217,7 @@ export function SessionItem({
                       variant="ghost"
                       size="icon-xs"
                       aria-label={t('session.more')}
+                      className="aria-expanded:bg-transparent"
                       onClick={(e) => e.stopPropagation()}
                     />
                   }
