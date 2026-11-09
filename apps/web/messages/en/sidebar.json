@@ -42,5 +42,19 @@
     "deleteConfirm": "Delete session “{title}”? This cannot be undone."
   },
   "cancel": "Cancel",
-  "delete": "Delete"
+  "delete": "Delete",
+  "sort": {
+    "label": "Sort by",
+    "manual": "Manual order",
+    "recent": "Recent activity",
+    "name": "Name"
+  },
+  "section": {
+    "collapse": "Collapse {title}",
+    "expand": "Expand {title}"
+  },
+  "pinned": {
+    "title": "Pinned",
+    "count": "{count}"
+  }
 }

@@ -42,5 +42,19 @@
     "deleteConfirm": "确定删除会话「{title}」吗？此操作无法撤销。"
   },
   "cancel": "取消",
-  "delete": "删除"
+  "delete": "删除",
+  "sort": {
+    "label": "排序方式",
+    "manual": "手动排序",
+    "recent": "最近活跃",
+    "name": "名称"
+  },
+  "section": {
+    "collapse": "收起{title}",
+    "expand": "展开{title}"
+  },
+  "pinned": {
+    "title": "置顶",
+    "count": "{count} 个"
+  }
 }
