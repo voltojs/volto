@@ -124,6 +124,12 @@ export function SessionItem({
               className={cn(
                 'group text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-foreground relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors',
                 isActive && 'bg-sidebar-accent text-sidebar-foreground font-medium',
+                // The action cluster carries the row's own background so the
+                // title can scroll underneath it. While a menu is open the
+                // pointer leaves the row, the CSS hover is lost, and that
+                // background turns into a floating block behind the icons —
+                // so keep the row highlighted for as long as the menu lives.
+                menuOpen && 'bg-sidebar-accent',
               )}
               onClick={onClick}
               onMouseEnter={() => setShowActions(true)}

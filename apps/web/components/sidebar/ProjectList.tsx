@@ -296,7 +296,10 @@ export function ProjectList() {
               <div
                 data-testid={`project-row-${project.id}`}
                 className={cn(
-                  'group text-sidebar-foreground relative flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors',
+                  // pl-4 lines the row's chevron up with the section header's;
+                  // without the old in-flow drag handle the row sat ~10px
+                  // further left than everything above it.
+                  'group text-sidebar-foreground relative flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1.5 pl-4 transition-colors',
                   {
                     'bg-sidebar-accent': menuOpenProjectId === project.id,
                     'hover:bg-sidebar-accent': menuOpenProjectId !== project.id,
