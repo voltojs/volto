@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, mergeQueuedEdit, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput } from "@volto/core";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput, ChatSessionMeta, UserMessageSource } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -564,8 +564,16 @@ const TITLE_SOURCE_RANK: Record<TitleSource, number> = {
  */
 export type TitleWriteResult = "written" | "outranked" | "missing";
 
+type SessionMeta = ChatSessionMeta & {
+  parentSessionId?: string;
+  delegationDepth?: number;
+  origin?: "subagent";
+};
+
 interface Session {
   id: string;
+  /** Durable metadata, loaded once per live Session object (null = no meta). */
+  meta?: SessionMeta | null;
   agent: Awaited<ReturnType<typeof createWiredAgent>> | null;
   /**
    * The seed queue array handed to the current agent as `initialQueuedInputs`
@@ -674,6 +682,22 @@ function asTranscriptEvent(event: ChannelEvent): TranscriptEventInput | null {
  * rather than hold the session latch forever.
  */
 const AUTO_FLUSH_MAX_ROUNDS = 50;
+
+/** Give a host-delivered turn its provenance when the session is a subagent. */
+function attributeTurnInput(
+  message: string | AgentInput,
+  meta: SessionMeta | null | undefined,
+): string | AgentInput {
+  if (meta?.origin !== "subagent") return message;
+  const source: UserMessageSource = {
+    kind: "host-continuation",
+    ...(meta.parentSessionId === undefined ? {} : { parentSessionId: meta.parentSessionId }),
+  };
+  if (typeof message === "string") {
+    return { type: "user_message", content: message, source };
+  }
+  return message.type === "user_message" ? { ...message, source } : message;
+}
 
 export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
   const {
@@ -1750,6 +1774,16 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     }
     session.running = true;
 
+    // Provenance is decided from the durable session_meta, never from the
+    // request: a client cannot self-report that it is the parent host. The
+    // first idle turn after process start loads it once and caches it on the
+    // live Session; origin is only ever written by the SDK's dispatch path.
+    if (chatStore && session.meta === undefined) {
+      const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
+      session.meta = persisted?.meta ?? null;
+    }
+    const turnMessage = attributeTurnInput(message, session.meta);
+
     // Captures whatever history this turn produced (success or failure)
     // before the turn closes. Durable persistence of messages/errors is now
     // handled inside createAgent() itself (via chatStore/chatSessionId), so
@@ -1830,7 +1864,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       }
 
       turnReachedStream = true;
-      await streamTurn(message);
+      await streamTurn(turnMessage);
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : String(err);
       push(session, session.mapper.error(text));
