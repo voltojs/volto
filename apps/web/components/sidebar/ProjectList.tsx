@@ -337,7 +337,6 @@ export function ProjectList() {
                     </button>
                   )}
                 </span>
-                <FolderGit2 className="text-primary/80 h-4 w-4 shrink-0" />
                 <Tooltip>
                   <TooltipTrigger
                     render={

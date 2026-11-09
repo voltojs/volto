@@ -98,6 +98,14 @@ describe('ProjectList', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not show a folder icon on workspace rows', () => {
+    seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
+    render(<ProjectList />);
+    expect(
+      screen.getByTestId('project-row-p-1').querySelector('.lucide-folder-git-2'),
+    ).toBeNull();
+  });
+
   it('reorders projects by the chosen sort mode', async () => {
     seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
     render(<ProjectList />);
