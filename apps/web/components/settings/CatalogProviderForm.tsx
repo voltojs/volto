@@ -128,6 +128,9 @@ function CatalogAddForm({
   const [name, setName] = useState(catalog[0]?.name ?? '');
   const [baseURL, setBaseURL] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>('auto');
+  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>('bearer');
+  const [authHeaderName, setAuthHeaderName] = useState('');
   // Starts empty rather than seeded with the provider's whole catalog:
   // several providers list dozens of models, where deleting the unwanted
   // rows is more work than adding the wanted ones. Each row's model ID box
@@ -148,6 +151,10 @@ function CatalogAddForm({
         piProvider,
         baseURL: baseURL.trim() || null,
         apiKey: apiKey.trim() || null,
+        protocol,
+        auth: authKind === 'header'
+          ? { kind: 'header', name: authHeaderName.trim() }
+          : { kind: authKind },
         models: models
           .filter((m) => m.code.trim())
           .map((m) => ({
@@ -234,6 +241,65 @@ function CatalogAddForm({
           />
         </label>
       </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
+          <Select
+            items={[
+              { value: 'auto', label: t('providers.protocolAuto') },
+              { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
+              { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
+              { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
+            ]}
+            value={protocol}
+            onValueChange={(next) => setProtocol(String(next) as 'auto' | ProviderProtocol)}
+          >
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent width="content">
+              <SelectItem value="auto">{t('providers.protocolAuto')}</SelectItem>
+              <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
+              <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
+              <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
+          <Select
+            items={[
+              { value: 'bearer', label: t('providers.authBearer') },
+              { value: 'x-api-key', label: t('providers.authXApiKey') },
+              { value: 'header', label: t('providers.authHeader') },
+            ]}
+            value={authKind}
+            onValueChange={(next) => setAuthKind(String(next) as ProviderAuth['kind'])}
+          >
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent width="content">
+              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
+              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
+              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+      </div>
+
+      {authKind === 'header' && (
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
+          <Input
+            className="h-8 font-mono text-xs"
+            value={authHeaderName}
+            onChange={(e) => setAuthHeaderName(e.target.value)}
+            placeholder="x-api-key"
+          />
+        </label>
+      )}
 
       <div className="space-y-1.5">
         <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
