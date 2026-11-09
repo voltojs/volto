@@ -18,6 +18,66 @@ import type {
   ResolvedModelInfo,
 } from "@volto/core";
 
+/** The three protocols Volto exposes as first-class routes. */
+export type ProviderProtocol =
+  | "openai-completions"
+  | "openai-responses"
+  | "anthropic-messages";
+
+/** `auto` is a config-only value; resolution must produce one concrete protocol. */
+export type ConfiguredProtocol = ProviderProtocol | "auto";
+
+export interface ProviderAuth {
+  kind: "bearer" | "x-api-key" | "header";
+  /** Header name for `kind: "header"`; the value comes from the apiKey. */
+  name?: string;
+}
+
+const PROVIDER_PROTOCOLS: readonly ProviderProtocol[] = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+];
+
+export function isProviderProtocol(value: unknown): value is ProviderProtocol {
+  return typeof value === "string"
+    && (PROVIDER_PROTOCOLS as readonly string[]).includes(value);
+}
+
+/**
+ * Resolve one model's protocol without side effects.
+ *
+ * Priority: model override > provider default > catalog api > custom default.
+ * `auto` at the provider level means "follow the catalog"; custom providers
+ * have no catalog entry, so they fall back to openai-completions.
+ */
+export function resolveProviderProtocol(
+  config: PiAiProviderConfig,
+  model: string,
+  catalogApi?: ProviderProtocol,
+): ProviderProtocol {
+  const configured = config.kind === "catalog"
+    ? config.modelProtocols?.[model] ?? config.protocol
+    : config.models.find((entry) => entry.code === model)?.protocol ?? config.protocol;
+  if (configured !== undefined && configured !== "auto") {
+    if (!isProviderProtocol(configured)) {
+      throw new Error(
+        `pi-ai: unknown protocol "${String(configured)}" for provider "${config.id}" model "${model}"`,
+      );
+    }
+    return configured;
+  }
+  if (catalogApi !== undefined) {
+    if (!isProviderProtocol(catalogApi)) {
+      throw new Error(
+        `pi-ai: catalog model "${model}" declares unsupported api "${String(catalogApi)}"`,
+      );
+    }
+    return catalogApi;
+  }
+  return "openai-completions";
+}
+
 /**
  * One configured pi-ai provider. Either a reference into pi-ai's built-in
  * catalog (`kind: "catalog"`) or a hand-declared OpenAI-completions gateway
@@ -43,6 +103,14 @@ export type PiAiProviderConfig =
       baseURL?: string;
       /** User-selected model codes; an empty array means no usable models. */
       modelCodes: string[];
+      /** Provider-level protocol default; `auto` follows the catalog api. */
+      protocol?: ConfiguredProtocol;
+      /** Per-model protocol override, winning over `protocol`. */
+      modelProtocols?: Record<string, ProviderProtocol>;
+      /** How the API key is sent; omitted derives from the protocol. */
+      auth?: ProviderAuth;
+      /** Extra non-secret request headers. */
+      headers?: Record<string, string>;
       /**
        * Per-model user override of pi-ai's catalog `reasoning` flag.
        * `false` forces the model non-reasoning; `true` forces reasoning
@@ -63,9 +131,17 @@ export type PiAiProviderConfig =
       name?: string;
       baseURL: string;
       apiKey?: string;
+      /** Default protocol for every model; omitted means openai-completions. */
+      protocol?: ProviderProtocol;
+      /** How the API key is sent; omitted derives from the protocol. */
+      auth?: ProviderAuth;
+      /** Extra non-secret request headers. */
+      headers?: Record<string, string>;
       models: Array<{
         code: string;
         name?: string;
+        /** Per-model protocol override. */
+        protocol?: ProviderProtocol;
         contextWindow?: number;
         maxOutputTokens?: number;
         reasoning?: boolean;
@@ -417,6 +493,24 @@ export function registryProviderId(providers: PiAiProviderConfig[], configId: st
 }
 
 export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
+  for (const provider of providers) {
+    if (provider.kind === "catalog") {
+      if (provider.protocol !== undefined && provider.protocol !== "auto"
+        && !isProviderProtocol(provider.protocol)) {
+        throw new Error(`pi-ai: unknown protocol "${String(provider.protocol)}" for provider "${provider.id}"`);
+      }
+      for (const code of provider.modelCodes) {
+        resolveProviderProtocol(provider, code);
+      }
+    } else {
+      if (provider.protocol !== undefined && !isProviderProtocol(provider.protocol)) {
+        throw new Error(`pi-ai: unknown protocol "${String(provider.protocol)}" for provider "${provider.id}"`);
+      }
+      for (const model of provider.models) {
+        resolveProviderProtocol(provider, model.code);
+      }
+    }
+  }
   const models = createModels();
   // setProvider silently replaces an existing registration, so a collision
   // would drop one provider's models AND its API key without a word. Both

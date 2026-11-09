@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import { buildModels, describeModelInfo, resolveConfiguredApiKey, type PiAiProviderConfig } from "../collection.js";
+import { buildModels, describeModelInfo, resolveConfiguredApiKey, resolveProviderProtocol, type PiAiProviderConfig, type ProviderProtocol } from "../collection.js";
 import { createPiAiModelPortFromModels } from "../model-port.js";
 
 // A model literal with reasoning metadata, constructed by hand per the
@@ -182,6 +182,38 @@ function catalogConfig(overrides: Partial<Extract<PiAiProviderConfig, { kind: "c
     ...overrides,
   };
 }
+
+describe("provider protocol resolution", () => {
+  it("defaults to the catalog api", () => {
+    const config = catalogConfig({ protocol: "auto" });
+    expect(resolveProviderProtocol(config, "deepseek-flash", "openai-completions"))
+      .toBe("openai-completions");
+  });
+
+  it("lets a model protocol override the provider protocol", () => {
+    const config = catalogConfig({
+      protocol: "openai-responses",
+      modelProtocols: { "deepseek-flash": "anthropic-messages" },
+    });
+    expect(resolveProviderProtocol(config, "deepseek-flash", "openai-completions"))
+      .toBe("anthropic-messages");
+  });
+
+  it("defaults custom providers to openai-completions", () => {
+    const config: PiAiProviderConfig = {
+      kind: "custom",
+      id: "acme",
+      baseURL: "https://acme.example/v1",
+      models: [{ code: "plain-model" }],
+    };
+    expect(resolveProviderProtocol(config, "plain-model")).toBe("openai-completions");
+  });
+
+  it("rejects an unknown protocol instead of silently degrading", () => {
+    const config = catalogConfig({ protocol: "nope" as ProviderProtocol });
+    expect(() => buildModels([config])).toThrow(/protocol/i);
+  });
+});
 
 describe("catalog provider registration", () => {
   it("resolves a catalog model via getModel(pi-ai provider id, code)", () => {

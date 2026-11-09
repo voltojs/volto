@@ -10,6 +10,7 @@
 
 import * as crypto from "node:crypto";
 import type { ModelInputValue } from "@volto/core";
+import { isProviderProtocol, type ConfiguredProtocol, type ProviderAuth, type ProviderProtocol } from "@volto/provider-pi-ai";
 import { createCipher } from "./crypto.js";
 import { getConfigDir } from "./paths.js";
 import { getConfigStore } from "./store.js";
@@ -18,6 +19,8 @@ export interface Model {
   id: string;
   name: string;
   code: string;
+  /** Per-model protocol override; absent follows the provider default. */
+  protocol?: ProviderProtocol;
   /** Max context window in tokens; optional — the context meter hides the percentage when unset. */
   contextWindow?: number;
   /** Max output tokens per model call; optional — omitted means the provider's own default. */
@@ -41,6 +44,8 @@ export interface Model {
  */
 export interface CatalogModel {
   code: string;
+  /** Per-model protocol override; absent follows the provider/catalog. */
+  protocol?: ProviderProtocol;
   /** Display name; omitted means pi-ai's catalog name. */
   name?: string;
   contextWindow?: number;
@@ -70,6 +75,10 @@ export type Provider =
       /** Replaces pi-ai's own address for this provider; null means "use it". */
       baseURL: string | null;
       apiKeyEnc: string | null;
+      /** Protocol default; absent/auto follows pi-ai's catalog api. */
+      protocol?: ConfiguredProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models: CatalogModel[];
     }
   | {
@@ -78,6 +87,10 @@ export type Provider =
       name: string;
       baseURL: string | null;
       apiKeyEnc: string | null;
+      /** Protocol default; absent means openai-completions. */
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models: Model[];
     };
 
@@ -89,6 +102,9 @@ export type PublicProvider =
       piProvider: string;
       baseURL: string | null;
       apiKeyMasked: string | null;
+      protocol?: ConfiguredProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models: CatalogModel[];
     }
   | {
@@ -97,6 +113,9 @@ export type PublicProvider =
       name: string;
       baseURL: string | null;
       apiKeyMasked: string | null;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models: Model[];
     };
 
@@ -107,6 +126,9 @@ export type ProviderInput =
       piProvider: string;
       baseURL?: string | null;
       apiKey?: string | null;
+      protocol?: ConfiguredProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models: CatalogModel[];
     }
   | {
@@ -114,10 +136,14 @@ export type ProviderInput =
       name: string;
       baseURL?: string | null;
       apiKey?: string | null;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       models?: Array<{
         id?: string;
         name: string;
         code: string;
+        protocol?: ProviderProtocol;
         contextWindow?: number;
         maxOutputTokens?: number;
         reasoning?: boolean;
@@ -172,6 +198,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
         piProvider: provider.piProvider,
         baseURL: provider.baseURL ?? null,
         apiKeyMasked: masked,
+        ...(provider.protocol === undefined ? {} : { protocol: provider.protocol }),
+        ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+        ...(provider.headers === undefined ? {} : { headers: provider.headers }),
         models: provider.models,
       };
     }
@@ -206,6 +235,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         id: m.id || crypto.randomUUID(),
         name: m.name,
         code: m.code,
+        ...(m.protocol === undefined ? {} : { protocol: normalizeProtocol(m.protocol, m.code) }),
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
         ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
@@ -218,6 +248,51 @@ export function createProviderStore(dir: string = getConfigDir()) {
    * The only two legal modality lists (D3: text is always present, so
    * `input: []` and single-modality ["image"] cannot occur).
    */
+  function normalizeProtocol(value: unknown, model?: string): ProviderProtocol | undefined {
+    if (value === undefined) return undefined;
+    if (!isProviderProtocol(value)) {
+      throw new Error(`Unsupported protocol${model === undefined ? "" : ` for model ${model}`}: ${String(value)}`);
+    }
+    return value;
+  }
+
+  function normalizeConfiguredProtocol(value: unknown): ConfiguredProtocol | undefined {
+    if (value === undefined) return undefined;
+    if (value === "auto") return "auto";
+    return normalizeProtocol(value);
+  }
+
+  function normalizeAuth(value: unknown): ProviderAuth | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null) throw new Error("auth must be an object");
+    const record = value as Record<string, unknown>;
+    const kind = record["kind"];
+    if (kind !== "bearer" && kind !== "x-api-key" && kind !== "header") {
+      throw new Error(`Unsupported auth kind: ${String(kind)}`);
+    }
+    if (kind === "header") {
+      if (typeof record["name"] !== "string" || record["name"].trim() === "") {
+        throw new Error("auth.name is required for header auth");
+      }
+      return { kind, name: record["name"] };
+    }
+    return { kind };
+  }
+
+  function normalizeHeaders(value: unknown): Record<string, string> | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null) throw new Error("headers must be an object");
+    const out: Record<string, string> = {};
+    for (const [name, headerValue] of Object.entries(value)) {
+      if (typeof headerValue !== "string") throw new Error(`header ${name} must be a string`);
+      if (/authorization|x-api-key/i.test(name)) {
+        throw new Error("API credentials must be configured as apiKey/auth, not headers");
+      }
+      out[name] = headerValue;
+    }
+    return Object.keys(out).length === 0 ? undefined : out;
+  }
+
   function normalizeInput(input: ModelInputValue | undefined): ModelInputValue | undefined {
     if (input === undefined) return undefined;
     const legal =
@@ -253,6 +328,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
       const normalizedInput = normalizeInput(m.input);
       return {
         code: m.code,
+        ...(m.protocol === undefined ? {} : { protocol: normalizeProtocol(m.protocol, m.code) }),
         ...(m.name === undefined || m.name === "" ? {} : { name: m.name }),
         ...(m.contextWindow === undefined ? {} : { contextWindow: m.contextWindow }),
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
@@ -302,6 +378,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
               piProvider: input.piProvider,
               baseURL: input.baseURL ?? null,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
+              ...(input.protocol === undefined ? {} : { protocol: normalizeConfiguredProtocol(input.protocol) }),
+              ...(input.auth === undefined ? {} : { auth: normalizeAuth(input.auth) }),
+              ...(input.headers === undefined ? {} : { headers: normalizeHeaders(input.headers) }),
               models: normalizeCatalogModels(input.models),
             }
           : {
@@ -310,6 +389,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
               name: input.name,
               baseURL: input.baseURL ?? null,
               apiKeyEnc: input.apiKey ? await cipher.encrypt(input.apiKey) : null,
+              ...(input.protocol === undefined ? {} : { protocol: normalizeProtocol(input.protocol) }),
+              ...(input.auth === undefined ? {} : { auth: normalizeAuth(input.auth) }),
+              ...(input.headers === undefined ? {} : { headers: normalizeHeaders(input.headers) }),
               models: normalizeModels(input.models),
             };
       await store.update<Provider[]>("providers", (current) => [
@@ -358,6 +440,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
             baseURL:
               catalogInput.baseURL === undefined ? current.baseURL ?? null : catalogInput.baseURL,
             apiKeyEnc,
+            ...(catalogInput.protocol === undefined ? {} : { protocol: normalizeConfiguredProtocol(catalogInput.protocol) }),
+            ...(catalogInput.auth === undefined ? {} : { auth: normalizeAuth(catalogInput.auth) }),
+            ...(catalogInput.headers === undefined ? {} : { headers: normalizeHeaders(catalogInput.headers) }),
             models: catalogInput.models
               ? normalizeCatalogModels(catalogInput.models)
               : current.models,
@@ -370,6 +455,9 @@ export function createProviderStore(dir: string = getConfigDir()) {
             name,
             baseURL: customInput.baseURL === undefined ? current.baseURL : customInput.baseURL,
             apiKeyEnc,
+            ...(customInput.protocol === undefined ? {} : { protocol: normalizeProtocol(customInput.protocol) }),
+            ...(customInput.auth === undefined ? {} : { auth: normalizeAuth(customInput.auth) }),
+            ...(customInput.headers === undefined ? {} : { headers: normalizeHeaders(customInput.headers) }),
             models: customInput.models ? normalizeModels(customInput.models) : current.models,
           };
         }
