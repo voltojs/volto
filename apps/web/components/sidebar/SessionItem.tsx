@@ -27,8 +27,8 @@ interface SessionItemProps {
   isActive: boolean;
   /** True while this session sits in the pinned section. */
   isPinned: boolean;
-  /** Small trailing hint (the pinned rows label their workspace). */
-  label?: string;
+  /** Workspace name; shown in the row's tooltip rather than inline. */
+  projectName?: string;
   /** Rendered ahead of the leading slot — the drag handle when the section is manually ordered. */
   dragHandle?: React.ReactNode;
   /**
@@ -58,7 +58,7 @@ export function SessionItem({
   session,
   isActive,
   isPinned,
-  label,
+  projectName,
   dragHandle,
   isGenerating,
   onTogglePin,
@@ -189,11 +189,6 @@ export function SessionItem({
             </span>
           </span>
 
-          {label !== undefined && (
-            <span className="text-muted-foreground/60 shrink-0 font-mono text-[10px]">
-              {label}
-            </span>
-          )}
           {/* Always mounted, revealed by CSS: mounting on hover unmounted the
               buttons the moment a pointer transition raced the click, which
               dropped clicks and tore dialogs down. */}
@@ -277,6 +272,11 @@ export function SessionItem({
             <span className="font-medium">
               {session.title || t('session.untitled')}
             </span>
+            {projectName !== undefined && (
+              <span className="text-muted-foreground font-mono text-[10px]">
+                {projectName}
+              </span>
+            )}
             <span className="opacity-70">
               {t('session.updatedAt', { time: formatShortDateTime(session.updatedAt, locale) })}
             </span>

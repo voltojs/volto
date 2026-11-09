@@ -148,7 +148,7 @@ export function PinnedList() {
             isActive={currentSessionId === session.id}
             isGenerating={generatingSessionId === session.id}
             isPinned
-            label={
+            projectName={
               session.projectId === null
                 ? undefined
                 : projectNames.get(session.projectId)

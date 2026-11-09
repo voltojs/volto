@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PinnedList } from '../PinnedList';
 import { useSessionStore, type Session } from '@/stores/session-store';
@@ -71,12 +71,26 @@ describe('PinnedList', () => {
     expect(screen.queryByText('置顶')).not.toBeInTheDocument();
   });
 
-  it('lists pinned sessions in the stored manual order and labels their workspace', () => {
+  it('lists pinned sessions in the stored manual order without an inline workspace label', () => {
     seed(pinnedSeed);
     render(<PinnedList />);
     const titles = screen.getAllByText(/^s-[12]-title$/).map((n) => n.textContent);
     expect(titles).toEqual(['s-2-title', 's-1-title']);
-    expect(screen.getAllByText('volto')).toHaveLength(2);
+    // The workspace name is not part of the row; it lives in the tooltip.
+    expect(screen.queryByText('volto')).not.toBeInTheDocument();
+  });
+
+  it('shows the workspace name in the row tooltip in small type', async () => {
+    seed(pinnedSeed);
+    render(<PinnedList />);
+    await userEvent.hover(screen.getAllByText(/^s-[12]-title$/)[0]!);
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="tooltip-content"]')).not.toBeNull(),
+    );
+    const tooltip = within(
+      document.querySelector('[data-slot="tooltip-content"]') as HTMLElement,
+    );
+    expect(tooltip.getByText('volto')).toBeInTheDocument();
   });
 
   it('opens a pinned session and adds its project to the expanded set without expanding a collapsed section', async () => {
