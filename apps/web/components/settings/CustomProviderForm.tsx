@@ -125,6 +125,7 @@ function CustomProviderCard({
     provider.auth?.kind === 'header' ? provider.auth.name : '',
   );
   const [defaultsOpen, setDefaultsOpen] = useState(defaultOpen);
+  const [modelsOpen, setModelsOpen] = useState(true);
   const [models, setModels] = useState<DraftModel[]>(() =>
     toDraftModels(provider.models),
   );
@@ -387,23 +388,42 @@ function CustomProviderCard({
         </CollapsibleContent>
       </Collapsible>
 
-      <div className="bg-muted/20 space-y-2 rounded-lg border p-3">
-        <div className="flex items-center justify-between">
-          <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-            {t('providers.modelsLabel')}
-          </div>
-          <span className="text-muted-foreground text-[10px]">
-            {t('providers.protocolPriority')}
+      <Collapsible
+        open={modelsOpen}
+        onOpenChange={setModelsOpen}
+        className="bg-muted/20 overflow-hidden rounded-lg border"
+      >
+        <CollapsibleTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto w-full justify-between rounded-none px-3 py-2"
+            />
+          }
+        >
+          <span>{t('providers.modelsLabel')}</span>
+          <span className="text-muted-foreground flex items-center gap-2 text-xs">
+            <span>
+              {t('providers.modelCount', { count: models.length })} ·{' '}
+              {t('providers.protocolPriority')}
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${modelsOpen ? 'rotate-180' : ''}`}
+            />
           </span>
-        </div>
-        <ModelTable
-          models={models}
-          onChange={(next) => {
-            setDirty(true);
-            setModels(next);
-          }}
-        />
-      </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="border-t p-3">
+          <ModelTable
+            models={models}
+            onChange={(next) => {
+              setDirty(true);
+              setModels(next);
+            }}
+          />
+        </CollapsibleContent>
+      </Collapsible>
 
       {error && <p className="text-destructive text-xs">{error}</p>}
 
