@@ -83,6 +83,7 @@ import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } fr
 import { getConfigDir } from "./config/paths.js";
 import { ensureConfigMigrated } from "./config/store.js";
 import { activeLocale, patchPreferences, readPreferences } from "./config/preferences.js";
+import { createSidebarStateStore, InvalidSidebarStateError } from "./config/sidebar-state.js";
 import { createPlanStore } from "./config/plan-store.js";
 import {
   collectTierReferences,
@@ -496,6 +497,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const cwd = agentOpts.cwd ?? process.cwd();
   const projectStore = createProjectStore();
   const providerStore = createProviderStore();
+  const sidebarStateStore = createSidebarStateStore();
   const directoryPicker =
     opts.directoryPicker ?? createDirectoryPicker({ locale: await activeLocale() });
   const pathRevealer = opts.pathRevealer ?? createPathRevealer();
@@ -1284,6 +1286,37 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         }
         jsonResponse(res, 200, await patchPreferences(patch));
       } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /sidebar-state — the sidebar's layout document (pinned sessions and
+    // their order, workspace order, sort modes, collapse flags). It is view
+    // state, deliberately kept out of the session transcript, so a fork or an
+    // export never inherits "pinned".
+    if (req.method === "GET" && url.pathname === "/sidebar-state") {
+      try {
+        jsonResponse(res, 200, { sidebar: await sidebarStateStore.read() });
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // PUT /sidebar-state — replace the whole document. A full replace (not a
+    // patch) makes "last write wins" explicit: the client always holds the
+    // complete document, so there is no merge rule to get wrong.
+    if (req.method === "PUT" && url.pathname === "/sidebar-state") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { sidebar?: unknown };
+        jsonResponse(res, 200, { sidebar: await sidebarStateStore.write(body.sidebar) });
+      } catch (err: unknown) {
+        if (respondBodyError(err)) return;
+        if (err instanceof InvalidSidebarStateError) {
+          jsonResponse(res, 400, { error: err.message });
+          return;
+        }
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
