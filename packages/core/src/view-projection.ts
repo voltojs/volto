@@ -1470,6 +1470,9 @@ export function toTrajectoryView(
           summary: summarise(data.text),
           startedAt: event.time,
           outputDetail: data.text,
+          ...(typeof data.displayMetadata?.["taskId"] === "string"
+            ? { taskId: data.displayMetadata["taskId"] }
+            : {}),
           ...(typeof data.displayMetadata?.["childSessionId"] === "string"
             ? { childSessionId: data.displayMetadata["childSessionId"] }
             : {}),
