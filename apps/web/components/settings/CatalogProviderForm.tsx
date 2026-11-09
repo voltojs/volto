@@ -71,8 +71,9 @@ export function CatalogProviderSection({
       </div>
 
       {catalogProviders.map((provider) => (
-        <CatalogProviderCard
+        <CatalogProviderEditor
           key={provider.id}
+          mode="edit"
           provider={provider}
           catalog={catalog}
           expanded={openId === provider.id}
@@ -92,7 +93,8 @@ export function CatalogProviderSection({
       {loadError && <p className="text-destructive text-xs">{loadError}</p>}
 
       {adding && catalog && (
-        <CatalogAddForm
+        <CatalogProviderEditor
+          mode="create"
           catalog={available}
           onDone={() => setAdding(false)}
         />
@@ -114,266 +116,60 @@ export function CatalogProviderSection({
   );
 }
 
-/** Inline form for creating a new catalog-kind provider. */
-function CatalogAddForm({
+/**
+ * One editor for both modes. Add and edit differ only in how the final save is
+ * dispatched and whether the card is wrapped by ProviderShell; every field,
+ * default and validation path is shared so the two screens cannot drift.
+ */
+function CatalogProviderEditor({
+  mode,
   catalog,
+  provider,
+  expanded = true,
+  onToggle,
   onDone,
 }: {
-  catalog: CatalogProvider[];
-  onDone: () => void;
+  mode: 'create' | 'edit';
+  catalog: CatalogProvider[] | null;
+  provider?: CatalogKindProvider;
+  expanded?: boolean;
+  onToggle?: () => void;
+  onDone?: () => void;
 }) {
   const t = useTranslations('settings');
   const addProvider = useConfigStore((s) => s.addProvider);
-  const [piProvider, setPiProvider] = useState(catalog[0]?.id ?? '');
-  const [name, setName] = useState(catalog[0]?.name ?? '');
-  const [baseURL, setBaseURL] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>('auto');
-  const [authKind, setAuthKind] = useState<ProviderAuth['kind']>('bearer');
-  const [authHeaderName, setAuthHeaderName] = useState('');
-  // Starts empty rather than seeded with the provider's whole catalog:
-  // several providers list dozens of models, where deleting the unwanted
-  // rows is more work than adding the wanted ones. Each row's model ID box
-  // autocompletes from that provider's catalog.
-  const [models, setModels] = useState<DraftModel[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const selected = catalog.find((c) => c.id === piProvider);
-
-  const create = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await addProvider({
-        kind: 'catalog',
-        name: name.trim() || selected?.name || piProvider,
-        piProvider,
-        baseURL: baseURL.trim() || null,
-        apiKey: apiKey.trim() || null,
-        protocol,
-        auth: authKind === 'header'
-          ? { kind: 'header', name: authHeaderName.trim() }
-          : { kind: authKind },
-        models: models
-          .filter((m) => m.code.trim())
-          .map((m) => ({
-            code: m.code.trim(),
-            ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
-            ...(m.name.trim() ? { name: m.name.trim() } : {}),
-            ...(m.contextWindow === undefined
-              ? {}
-              : { contextWindow: m.contextWindow }),
-            ...(m.maxOutputTokens === undefined
-              ? {}
-              : { maxOutputTokens: m.maxOutputTokens }),
-            reasoning: m.reasoning,
-            ...(m.input === undefined ? {} : { input: m.input }),
-          })),
-      });
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('providers.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="bg-card/50 space-y-3 rounded-lg border p-3">
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">Provider</span>
-          <Select
-            items={catalog.map((c) => ({ value: c.id, label: c.name }))}
-            value={piProvider || null}
-            onValueChange={(next) => {
-              const id = String(next);
-              setPiProvider(id);
-              // Rows belong to the previous provider's catalog; switching
-              // provider invalidates them.
-              setModels([]);
-              const found = catalog.find((c) => c.id === id);
-              if (found) setName(found.name);
-            }}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue placeholder={t('providers.builtinPick')} />
-            </SelectTrigger>
-            <SelectContent width="content">
-              {catalog.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.displayName')}</span>
-          <Input
-            className="h-8"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('providers.displayName')}
-          />
-        </label>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">baseURL</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            value={baseURL}
-            onChange={(e) => setBaseURL(e.target.value)}
-            placeholder={selected?.baseUrl ?? t('providers.baseUrlBuiltin')}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">apiKey</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="apiKey"
-          />
-        </label>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
-          <Select
-            items={[
-              { value: 'auto', label: t('providers.protocolAuto') },
-              { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
-              { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
-              { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
-            ]}
-            value={protocol}
-            onValueChange={(next) => setProtocol(String(next) as 'auto' | ProviderProtocol)}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent width="content">
-              <SelectItem value="auto">{t('providers.protocolAuto')}</SelectItem>
-              <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
-              <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
-              <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
-          <Select
-            items={[
-              { value: 'bearer', label: t('providers.authBearer') },
-              { value: 'x-api-key', label: t('providers.authXApiKey') },
-              { value: 'header', label: t('providers.authHeader') },
-            ]}
-            value={authKind}
-            onValueChange={(next) => setAuthKind(String(next) as ProviderAuth['kind'])}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent width="content">
-              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
-              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
-              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-      </div>
-
-      {authKind === 'header' && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
-          <Input
-            className="h-8 font-mono text-xs"
-            value={authHeaderName}
-            onChange={(e) => setAuthHeaderName(e.target.value)}
-            placeholder="x-api-key"
-          />
-        </label>
-      )}
-
-      <div className="space-y-1.5">
-        <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-          {t('providers.modelsLabel')}
-        </div>
-        <ModelTable
-          models={models}
-          onChange={setModels}
-          codeListId="catalog-models-new"
-          emptyHint={t('providers.modelsEmptyHint')}
-          {...(selected ? { codeOptions: selected.models } : {})}
-        />
-      </div>
-
-      {error && <p className="text-destructive text-xs">{error}</p>}
-
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={() => void create()}
-          disabled={saving || !piProvider}
-          className="flex-1"
-        >
-          {saving ? t('providers.creating') : t('providers.create')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDone}>
-          {t('providers.cancel')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** One existing catalog provider: apiKey + model-selection can still change; `piProvider`/`kind` cannot. */
-function CatalogProviderCard({
-  provider,
-  catalog,
-  expanded,
-  onToggle,
-}: {
-  provider: CatalogKindProvider;
-  catalog: CatalogProvider[] | null;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const t = useTranslations('settings');
   const editProvider = useConfigStore((s) => s.editProvider);
   const removeProvider = useConfigStore((s) => s.removeProvider);
 
+  const firstCatalog = catalog?.[0];
+  const [piProvider, setPiProvider] = useState(
+    provider?.piProvider ?? firstCatalog?.id ?? '',
+  );
+  const [name, setName] = useState(provider?.name ?? firstCatalog?.name ?? '');
+  const [baseURL, setBaseURL] = useState(provider?.baseURL ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [protocol, setProtocol] = useState<'auto' | ProviderProtocol>(
-    provider.protocol ?? 'auto',
+    provider?.protocol ?? 'auto',
   );
   const [authKind, setAuthKind] = useState<ProviderAuth['kind']>(
-    provider.auth?.kind
-      ?? (provider.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
+    provider?.auth?.kind
+      ?? (provider?.protocol === 'anthropic-messages' ? 'x-api-key' : 'bearer'),
   );
   const [authHeaderName, setAuthHeaderName] = useState(
-    provider.auth?.kind === 'header' ? provider.auth.name : '',
+    provider?.auth?.kind === 'header' ? provider.auth.name : '',
   );
   const [models, setModels] = useState<DraftModel[]>(() =>
-    toCatalogDrafts(provider.models),
+    provider ? toCatalogDrafts(provider.models) : [],
   );
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [probeText, setProbeText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Same untouched-only re-seed as the custom card: an external refresh must
-  // reach a draft nobody is editing, and must not touch one that is.
   const [dirty, setDirty] = useState(false);
   const [syncedProvider, setSyncedProvider] = useState(provider);
-  if (provider !== syncedProvider && !dirty) {
+  if (mode === 'edit' && provider !== undefined && provider !== syncedProvider && !dirty) {
     setSyncedProvider(provider);
+    setName(provider.name);
     setBaseURL(provider.baseURL ?? '');
     setProtocol(provider.protocol ?? 'auto');
     setAuthKind(
@@ -384,9 +180,11 @@ function CatalogProviderCard({
     setModels(toCatalogDrafts(provider.models));
   }
 
-  const catalogEntry = catalog?.find((c) => c.id === provider.piProvider);
+  const selected = catalog?.find((c) => c.id === piProvider);
+  const editing = mode === 'edit' && provider !== undefined;
 
   const remove = async () => {
+    if (!provider) return;
     setError(null);
     try {
       await removeProvider(provider.id);
@@ -396,6 +194,7 @@ function CatalogProviderCard({
   };
 
   const testRoute = async () => {
+    if (!provider) return;
     setProbing(true);
     setProbeText(null);
     setError(null);
@@ -419,41 +218,44 @@ function CatalogProviderCard({
     setSaving(true);
     setError(null);
     try {
-      await editProvider(provider.id, {
-        kind: 'catalog',
-        // `piProvider` never changes from this card — the immutable-kind
-        // contract extends in spirit to "which pi-ai provider": switching it
-        // is a different set of models entirely, so that's a delete+recreate,
-        // same as switching kind.
-        // Empty clears the override (null), returning this provider to
-        // pi-ai's own address — distinct from omitting the field, which the
-        // gateway reads as "leave it alone".
+      const input = {
+        kind: 'catalog' as const,
+        name: name.trim() || selected?.name || piProvider,
+        piProvider,
         baseURL: baseURL.trim() || null,
+        // On edit an empty key means "keep the stored key"; on create it
+        // means "no key yet". Never send null from the edit path.
+        ...(editing
+          ? (apiKey.trim() ? { apiKey: apiKey.trim() } : {})
+          : { apiKey: apiKey.trim() || null }),
         protocol,
         auth: authKind === 'header'
-          ? { kind: 'header', name: authHeaderName.trim() }
+          ? { kind: 'header' as const, name: authHeaderName.trim() }
           : { kind: authKind },
-        models: models.map((m) => ({
-          code: m.code,
-          ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
-          // An empty box means "no override" — send nothing rather than an
-          // empty string, or it would shadow pi-ai's own catalog value.
-          ...(m.name.trim() ? { name: m.name.trim() } : {}),
-          ...(m.contextWindow === undefined
-            ? {}
-            : { contextWindow: m.contextWindow }),
-          ...(m.maxOutputTokens === undefined
-            ? {}
-            : { maxOutputTokens: m.maxOutputTokens }),
-          // Explicit boolean: the checkbox is the user's declared intent for
-          // this model, stored as an override of pi-ai's catalog flag.
-          reasoning: m.reasoning,
-          ...(m.input === undefined ? {} : { input: m.input }),
-        })),
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      });
-      setApiKey('');
-      setDirty(false);
+        models: models
+          .filter((m) => m.code.trim())
+          .map((m) => ({
+            code: m.code.trim(),
+            ...(m.protocol === undefined ? {} : { protocol: m.protocol }),
+            ...(m.name.trim() ? { name: m.name.trim() } : {}),
+            ...(m.contextWindow === undefined
+              ? {}
+              : { contextWindow: m.contextWindow }),
+            ...(m.maxOutputTokens === undefined
+              ? {}
+              : { maxOutputTokens: m.maxOutputTokens }),
+            reasoning: m.reasoning,
+            ...(m.input === undefined ? {} : { input: m.input }),
+          })),
+      };
+      if (editing && provider) {
+        await editProvider(provider.id, input);
+        setApiKey('');
+        setDirty(false);
+      } else {
+        await addProvider(input);
+        onDone?.();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('providers.saveFailed'));
     } finally {
@@ -461,28 +263,50 @@ function CatalogProviderCard({
     }
   };
 
-  return (
-    <ProviderShell
-      name={provider.name}
-      badges={
-        <>
-          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {provider.piProvider}
-          </Badge>
-          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {t('providers.modelCount', { count: provider.models.length })}
-          </Badge>
-          {provider.apiKeyMasked && (
-            <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-              {provider.apiKeyMasked}
-            </Badge>
-          )}
-        </>
-      }
-      expanded={expanded}
-      onToggle={onToggle}
-      onRemove={() => void remove()}
-    >
+  const fields = (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">Provider</span>
+          <Select
+            items={(catalog ?? []).map((c) => ({ value: c.id, label: c.name }))}
+            value={piProvider || null}
+            disabled={editing}
+            onValueChange={(next) => {
+              if (editing) return;
+              const id = String(next);
+              setPiProvider(id);
+              setModels([]);
+              const found = catalog?.find((c) => c.id === id);
+              if (found) setName(found.name);
+            }}
+          >
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue placeholder={t('providers.builtinPick')} />
+            </SelectTrigger>
+            <SelectContent width="content">
+              {(catalog ?? []).map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.displayName')}</span>
+          <Input
+            className="h-8"
+            value={name}
+            onChange={(e) => {
+              setDirty(true);
+              setName(e.target.value);
+            }}
+            placeholder={t('providers.displayName')}
+          />
+        </label>
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <label className="space-y-1">
           <span className="text-muted-foreground text-[11px]">baseURL</span>
@@ -493,67 +317,28 @@ function CatalogProviderCard({
               setDirty(true);
               setBaseURL(e.target.value);
             }}
-            placeholder={catalogEntry?.baseUrl ?? t('providers.baseUrlBuiltin')}
+            placeholder={selected?.baseUrl ?? t('providers.baseUrlBuiltin')}
           />
         </label>
         <label className="space-y-1">
           <span className="text-muted-foreground text-[11px]">apiKey</span>
           <Input
+            className="h-8 font-mono text-xs"
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={provider.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')}
-            className="h-8 font-mono text-xs"
+            onChange={(e) => {
+              setDirty(true);
+              setApiKey(e.target.value);
+            }}
+            placeholder={
+              provider?.apiKeyMasked ? t('providers.keyKeep') : t('providers.apiKey')
+            }
           />
         </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
-          <Select
-            items={[
-              { value: 'bearer', label: t('providers.authBearer') },
-              { value: 'x-api-key', label: t('providers.authXApiKey') },
-              { value: 'header', label: t('providers.authHeader') },
-            ]}
-            value={authKind}
-            onValueChange={(next) => {
-              setDirty(true);
-              setAuthKind(String(next) as ProviderAuth['kind']);
-            }}
-          >
-            <SelectTrigger className="h-8 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent width="content">
-              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
-              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
-              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-        {authKind === 'header' && (
-          <label className="block space-y-1">
-            <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
-            <Input
-              className="h-8 font-mono text-xs"
-              value={authHeaderName}
-              onChange={(e) => {
-                setDirty(true);
-                setAuthHeaderName(e.target.value);
-              }}
-              placeholder="x-api-key"
-            />
-          </label>
-        )}
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
-          {t('providers.modelsLabel')}
-        </div>
-        <label className="block space-y-1">
+        <label className="space-y-1">
           <span className="text-muted-foreground text-[11px]">{t('providers.protocol')}</span>
           <Select
             items={[
@@ -579,33 +364,76 @@ function CatalogProviderCard({
             </SelectContent>
           </Select>
         </label>
+        <label className="space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.auth')}</span>
+          <Select
+            items={[
+              { value: 'bearer', label: t('providers.authBearer') },
+              { value: 'x-api-key', label: t('providers.authXApiKey') },
+              { value: 'header', label: t('providers.authHeader') },
+            ]}
+            value={authKind}
+            onValueChange={(next) => {
+              setDirty(true);
+              setAuthKind(String(next) as ProviderAuth['kind']);
+            }}
+          >
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent width="content">
+              <SelectItem value="bearer">{t('providers.authBearer')}</SelectItem>
+              <SelectItem value="x-api-key">{t('providers.authXApiKey')}</SelectItem>
+              <SelectItem value="header">{t('providers.authHeader')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+      </div>
 
-        {/* Model codes come from pi-ai's catalog, offered as autocomplete
-            rather than a fixed list: a code this build's catalog doesn't know
-            (a newly released model, or one the user configured before a pi-ai
-            downgrade) must still be typeable, and must not vanish from a list
-            it is already in. */}
+      {authKind === 'header' && (
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-[11px]">{t('providers.authHeaderName')}</span>
+          <Input
+            className="h-8 font-mono text-xs"
+            value={authHeaderName}
+            onChange={(e) => {
+              setDirty(true);
+              setAuthHeaderName(e.target.value);
+            }}
+            placeholder="x-api-key"
+          />
+        </label>
+      )}
+
+      <div className="space-y-1.5">
+        <div className="text-muted-foreground font-mono text-[10px] font-medium tracking-widest uppercase">
+          {t('providers.modelsLabel')}
+        </div>
         <ModelTable
           models={models}
           onChange={(next) => {
             setDirty(true);
             setModels(next);
           }}
-          codeListId={`catalog-models-${provider.id}`}
-          {...(catalogEntry ? { codeOptions: catalogEntry.models } : {})}
+          codeListId={editing ? `catalog-models-${provider.id}` : 'catalog-models-new'}
+          emptyHint={editing ? undefined : t('providers.modelsEmptyHint')}
+          {...(selected ? { codeOptions: selected.models } : {})}
         />
       </div>
 
       {error && <p className="text-destructive text-xs">{error}</p>}
+    </>
+  );
 
+  const actions = editing ? (
+    <>
       {probeText && <p className="text-muted-foreground text-xs">{probeText}</p>}
-
       <div className="flex gap-2">
         <Button
           size="sm"
           variant="outline"
           onClick={() => void testRoute()}
-          disabled={probing || provider.models.length === 0}
+          disabled={probing || models.length === 0}
           className="flex-1"
         >
           {probing ? t('providers.testingRoute') : t('providers.testRoute')}
@@ -619,6 +447,56 @@ function CatalogProviderCard({
           {saving ? t('providers.saving') : t('providers.save')}
         </Button>
       </div>
+    </>
+  ) : (
+    <div className="flex gap-2">
+      <Button
+        size="sm"
+        onClick={() => void save()}
+        disabled={saving || !piProvider}
+        className="flex-1"
+      >
+        {saving ? t('providers.creating') : t('providers.create')}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onDone}>
+        {t('providers.cancel')}
+      </Button>
+    </div>
+  );
+
+  if (!editing) {
+    return (
+      <div className="bg-card/50 space-y-3 rounded-lg border p-3">
+        {fields}
+        {actions}
+      </div>
+    );
+  }
+
+  return (
+    <ProviderShell
+      name={provider.name}
+      badges={
+        <>
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+            {provider.piProvider}
+          </Badge>
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+            {t('providers.modelCount', { count: provider.models.length })}
+          </Badge>
+          {provider.apiKeyMasked && (
+            <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+              {provider.apiKeyMasked}
+            </Badge>
+          )}
+        </>
+      }
+      expanded={expanded}
+      onToggle={onToggle ?? (() => {})}
+      onRemove={() => void remove()}
+    >
+      {fields}
+      {actions}
     </ProviderShell>
   );
 }
