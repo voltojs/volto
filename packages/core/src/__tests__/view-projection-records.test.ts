@@ -796,8 +796,55 @@ describe("subagent task id joins", () => {
         turn: 1,
       },
     ]);
-    expect(toTrajectoryView(buildTurnRecords(events), events).rows[0]?.messageSource)
+    const userRow = toTrajectoryView(buildTurnRecords(events), events).rows[0];
+    expect(userRow?.messageSource)
       .toEqual({ kind: "subagent-task", parentSessionId: "parent-1", taskId: "t1", label: "explore" });
+    expect(userRow?.taskId).toBe("t1");
+  });
+
+  it("links an errored sync dispatch when its tool result carries no metadata", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+      { time: 121, type: "subagent_finished", data: { childSessionId: "child-1", taskId: "t1", isError: true, durationMs: 5 }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 300,
+        type: "tool_result",
+        data: { callId: "c1", name: "task", content: "Sub-agent error: boom", isError: true, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]).toMatchObject({
+      childSessionId: "child-1",
+      taskId: "t1",
+      subagentType: "explore",
+    });
+    expect(records[0]!.pendingSubagent).toBeUndefined();
+  });
+
+  it("backfills a failed background reminder's child session from its task id", () => {
+    const events = synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "task", depth: 1, taskId: "t1", background: true }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 140,
+        type: "tool_result",
+        data: { callId: "c1", name: "task", content: "started", isError: false, orderInBatch: 0, displayMetadata: { taskId: "t1", background: true } },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 300,
+        type: "context_reminder",
+        data: { kind: "background_task", text: "failed", displayMetadata: { taskId: "t1", isError: true } },
+        turn: 1,
+      },
+    ]);
+    const view = toTrajectoryView(buildTurnRecords(events), events);
+    expect(view.rows.find((row) => row.kind === "reminder")?.childSessionId).toBe("child-1");
   });
 
   it("attaches the unresolved tier to the linked subagent row", () => {

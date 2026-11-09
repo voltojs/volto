@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TrajectoryDrawer } from '@/components/trajectory/TrajectoryDrawer';
 import { usePaneStore } from '@/stores/pane-store';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import { buildTurnRecords, toTrajectoryView } from '@volto/sdk/sse';
+import type { TrajectoryRow, TranscriptEvent } from '@volto/sdk/sse';
 
 const row = (over: Partial<TrajectoryRow> = {}): TrajectoryRow =>
   ({ id: 'r1', kind: 'assistant', summary: '回答了问题', startedAt: 1, outputDetail: 'hello', ...over }) as TrajectoryRow;
@@ -42,17 +43,27 @@ describe('TrajectoryDrawer', () => {
   });
 
   it('shows parent dispatch attribution, parent session and task id', () => {
-    const userRow = row({
-      kind: 'user',
-      summary: '子任务输入',
-      messageSource: {
-        kind: 'subagent-task',
-        parentSessionId: 'parent-9',
-        taskId: 't1',
-        label: 'explore',
+    // Consume the real core projection instead of hand-crafting the row: the
+    // task id must reach the drawer from user_message.source, not from the test.
+    const events = [
+      { seq: 0, time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      {
+        seq: 1,
+        time: 110,
+        type: 'user_message',
+        data: {
+          content: '子任务输入',
+          source: {
+            kind: 'subagent-task',
+            parentSessionId: 'parent-9',
+            taskId: 't1',
+            label: 'explore',
+          },
+        },
+        turn: 1,
       },
-      taskId: 't1',
-    });
+    ] as unknown as TranscriptEvent[];
+    const userRow = toTrajectoryView(buildTurnRecords(events), events).rows[0]!;
     render(<TrajectoryDrawer row={userRow} open onOpenChange={() => {}} />);
     expect(screen.getByText('父代理派发')).toBeInTheDocument();
     expect(screen.getByText('parent-9')).toBeInTheDocument();

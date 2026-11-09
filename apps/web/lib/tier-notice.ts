@@ -18,8 +18,8 @@ const TIER_UNRESOLVED_EVENT = 'subagent_model_tier_unresolved';
  * Projects a `subagent_model_tier_unresolved` frame into the conversation's
  * trailing notice row; `null` for every other frame.
  *
- * The event is emitted loosely through `EventSink`, outside core's
- * `TranscriptEventMap`, so it is read leniently on purpose: only `tierId` is
+ * The event belongs to core's `TranscriptEventMap` and is also emitted through
+ * the live `EventSink`, so it is read leniently on purpose: only `tierId` is
  * required (the sole field the copy interpolates) and everything else the
  * data may carry — `subagentType`, `turn`, `childSessionId`, the failing
  * `target`, future additions — is ignored, never validated away. A frame

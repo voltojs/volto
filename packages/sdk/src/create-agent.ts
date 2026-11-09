@@ -3876,6 +3876,7 @@ function createSubAgentExecutor(
       const tierUnresolvedEvent: TranscriptEventInput<"subagent_model_tier_unresolved"> = {
         time: nowMs(),
         type: "subagent_model_tier_unresolved",
+        turn,
         data: {
           ...(childSessionId !== undefined ? { childSessionId } : {}),
           ...(subagentType !== undefined ? { subagentType } : {}),

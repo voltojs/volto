@@ -346,15 +346,24 @@ export function buildTurnRecords(
     return undefined;
   };
 
-  /** Find a call whose recorded result names this taskId. */
+  /**
+   * Find the dispatch call whose recorded result names this taskId. Only a
+   * `task` call may be upgraded: a `task_output` result carries the same
+   * taskId but is a collection row, not a delegation.
+   */
   const findCallByTaskId = (turn: MutableTurn, taskId: string): ToolCallRecord | undefined => {
     for (const step of turn.steps) {
       for (const call of step.toolCalls) {
-        if (call.displayMetadata?.["taskId"] === taskId) return call;
+        if (call.name === "task" && call.displayMetadata?.["taskId"] === taskId) return call;
       }
     }
     return undefined;
   };
+
+  /** The most recent unlinked `task` call; used only when an errored result
+   *  has no taskId metadata to join on. */
+  const lastUnlinkedTaskCall = (turn: MutableTurn): ToolCallRecord | undefined =>
+    lastUnlinkedCall(turn, "task") ?? undefined;
 
   /** Copy one start bracket's identity onto its call. */
   const applyStart = (
@@ -386,6 +395,8 @@ export function buildTurnRecords(
    * tool name.
    */
   const pendingStartsByTaskId = new Map<string, TranscriptEvent<"subagent_started">>();
+  /** Dispatches that already emitted their finish bracket. */
+  const finishedTaskIds = new Set<string>();
   /** Unresolved model tiers, keyed by child session and applied after linking. */
   const tierByChild = new Map<
     string,
@@ -586,8 +597,7 @@ export function buildTurnRecords(
         // parked start whose call never arrives simply stays parked.
         const pending = pendingSubagents.get(turn.turn);
         if (pending && data.name === pending.data.label && call.childSessionId === undefined) {
-          call.childSessionId = pending.data.childSessionId;
-          if (pending.data.title !== undefined) call.subagentTitle = pending.data.title;
+          applyStart(call, pending.data);
           pendingSubagents.delete(turn.turn);
         }
         break;
@@ -679,6 +689,24 @@ export function buildTurnRecords(
         break;
       }
 
+      case "subagent_finished": {
+        const data = event.data as TranscriptEventMap["subagent_finished"];
+        if (data.taskId === undefined) break;
+        finishedTaskIds.add(data.taskId);
+        const pending = pendingStartsByTaskId.get(data.taskId);
+        if (pending === undefined) break;
+        const turn = turnFor(event);
+        // Success results normally consumed the pending start already; this
+        // path exists for an errored result, whose task tool result carries no
+        // displayMetadata. Close the start on the call if it is on disk now.
+        const call = findCallByTaskId(turn, data.taskId) ?? lastUnlinkedTaskCall(turn);
+        if (call !== undefined) {
+          applyStart(call, pending.data);
+          pendingStartsByTaskId.delete(data.taskId);
+        }
+        break;
+      }
+
       case "subagent_started": {
         const data = event.data as TranscriptEventMap["subagent_started"];
         const turn = turnFor(event);
@@ -766,7 +794,8 @@ export function buildTurnRecords(
   for (const [taskId, pending] of pendingStartsByTaskId) {
     const turn = turns.find((candidate) => candidate.turn === (pending.turn ?? 0));
     if (turn === undefined) continue;
-    const call = findCallByTaskId(turn, taskId);
+    const call = findCallByTaskId(turn, taskId)
+      ?? (finishedTaskIds.has(taskId) ? lastUnlinkedTaskCall(turn) : undefined);
     if (call !== undefined) {
       applyStart(call, pending.data);
       continue;
@@ -1343,7 +1372,7 @@ export interface TrajectoryRow {
   /** The model-visible tool schema as it stood at call time. */
   schemaDetail?: string;
   metrics?: { ttftMs?: number; durationMs: number; usage?: TokenUsage };
-  /** Present on a sub-agent row; the child's own session, read separately. */
+  /** A sub-agent row's child session, or a background reminder's linked child. */
   childSessionId?: string;
   /** Dispatch-supplied task title, when the session records one. */
   subagentTitle?: string;
@@ -1359,7 +1388,7 @@ export interface TrajectoryRow {
   reminderKind?: ContextReminderKind;
   /** Non-human provenance on a user row (parent dispatch / host continuation). */
   messageSource?: UserMessageSource;
-  /** Dispatch identity on a subagent row. */
+  /** Dispatch identity on a subagent or background-reminder row. */
   taskId?: string;
   /** True when the subagent row ran detached. */
   background?: true;
@@ -1491,6 +1520,7 @@ export function toTrajectoryView(
         startedAt: input.time,
         inputDetail: text,
         ...(input.source === undefined ? {} : { messageSource: input.source }),
+        ...(input.source?.kind === "subagent-task" ? { taskId: input.source.taskId } : {}),
       });
     });
 
@@ -1610,6 +1640,23 @@ export function toTrajectoryView(
         outputDetail: turn.error,
       });
     }
+  }
+
+  // A failed background task's completion notice has no childSessionId: the
+  // registry normalizes the rejection before the child outcome is available,
+  // but both events share taskId. Backfill from the dispatch row so the
+  // failure is still navigable.
+  for (const row of rows) {
+    if (row.kind !== "reminder" || row.childSessionId !== undefined || row.taskId === undefined) {
+      continue;
+    }
+    const dispatch = rows.find(
+      (candidate) =>
+        candidate.kind === "subagent"
+        && candidate.taskId === row.taskId
+        && candidate.childSessionId !== undefined,
+    );
+    if (dispatch?.childSessionId !== undefined) row.childSessionId = dispatch.childSessionId;
   }
 
   rows.sort((a, b) => a.startedAt - b.startedAt);

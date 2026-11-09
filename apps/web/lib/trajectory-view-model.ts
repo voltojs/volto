@@ -36,6 +36,11 @@ export const USER_SOURCE_LABEL_KEYS: Record<UserMessageSource['kind'], string> =
   'host-continuation': 'source.hostContinuation',
 };
 
+/** Unknown future source kinds degrade to a generic label rather than a raw key. */
+export function userSourceLabelKey(kind: string): string {
+  return USER_SOURCE_LABEL_KEYS[kind as UserMessageSource['kind']] ?? 'source.unknown';
+}
+
 export const REMINDER_KIND_LABEL_KEYS: Record<ContextReminderKind, string> = {
   permission_boundary: 'reminder.permission_boundary',
   self_correction: 'reminder.self_correction',

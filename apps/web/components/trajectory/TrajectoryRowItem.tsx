@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import {
   KIND_BADGE_CLASS,
   KIND_LABEL_KEYS,
-  USER_SOURCE_LABEL_KEYS,
+  userSourceLabelKey,
   formatDuration,
   locationTextRef,
 } from '@/lib/trajectory-view-model';
@@ -45,7 +45,7 @@ export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: Traj
       </span>
       {row.messageSource && (
         <span className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1 font-mono text-[10px]">
-          {t(USER_SOURCE_LABEL_KEYS[row.messageSource.kind])}
+          {t(userSourceLabelKey(row.messageSource.kind))}
         </span>
       )}
       <span className="text-foreground/90 min-w-0 flex-1 truncate">{row.summary}</span>

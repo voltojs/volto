@@ -459,11 +459,6 @@ export type ContextReminderKind =
   | "background_task";
 
 /**
- * The vocabulary of the durable session log. One entry per significant
- * moment; detail comes from the density of the vocabulary, not from any
- * single record being wide.
- */
-/**
  * Where a user-role message came from when it was not typed by a human.
  *
  * `subagent-task` is the parent agent's dispatch into a child session;
@@ -486,6 +481,11 @@ export type UserMessageSource =
       parentSessionId?: string;
     };
 
+/**
+ * The vocabulary of the durable session log. One entry per significant
+ * moment; detail comes from the density of the vocabulary, not from any
+ * single record being wide.
+ */
 export interface TranscriptEventMap {
   // ── Lifecycle ──
   session_meta: ChatSessionMeta & {

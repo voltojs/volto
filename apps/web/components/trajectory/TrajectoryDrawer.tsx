@@ -16,7 +16,7 @@ import {
   KIND_LABEL_KEYS,
   REMINDER_KIND_LABEL_KEYS,
   TAB_LABEL_KEYS,
-  USER_SOURCE_LABEL_KEYS,
+  userSourceLabelKey,
   drawerTabsFor,
   formatDuration,
   locationTextRef,
@@ -82,7 +82,7 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
       </Field>
       {source !== undefined && (
         <Field label={t('drawer.messageSource')}>
-          <Cell text={t(USER_SOURCE_LABEL_KEYS[source.kind])} />
+          <Cell text={t(userSourceLabelKey(source.kind))} />
         </Field>
       )}
       {source?.parentSessionId !== undefined && (

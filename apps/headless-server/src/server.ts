@@ -688,7 +688,8 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (req.method === "POST" && url.pathname === "/messages") {
       try {
         const body = JSON.parse(await readBody(req)) as {
-          message?: string;
+          /** Validated below: a non-string body is rejected, never trusted. */
+          message?: unknown;
           sessionId?: string;
           projectId?: string;
           providerId?: string;
@@ -699,7 +700,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         };
         const sessionId = body.sessionId ?? DEFAULT_SESSION_ID;
 
-        if (!body.message) {
+        if (typeof body.message !== "string" || body.message.length === 0) {
           jsonResponse(res, 400, { error: "message is required" });
           return;
         }

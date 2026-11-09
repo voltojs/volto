@@ -11,7 +11,7 @@
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
 import { sse, mergeQueuedEdit, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput, ChatSessionMeta, UserMessageSource } from "@volto/core";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput, TranscriptEventMap, UserMessageSource } from "@volto/core";
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
@@ -564,11 +564,7 @@ const TITLE_SOURCE_RANK: Record<TitleSource, number> = {
  */
 export type TitleWriteResult = "written" | "outranked" | "missing";
 
-type SessionMeta = ChatSessionMeta & {
-  parentSessionId?: string;
-  delegationDepth?: number;
-  origin?: "subagent";
-};
+type SessionMeta = TranscriptEventMap["session_meta"];
 
 interface Session {
   id: string;
@@ -688,7 +684,14 @@ function attributeTurnInput(
   message: string | AgentInput,
   meta: SessionMeta | null | undefined,
 ): string | AgentInput {
-  if (meta?.origin !== "subagent") return message;
+  if (meta?.origin !== "subagent") {
+    // A main session never carries provenance. Strip any source a direct
+    // registry caller supplied instead of trusting it.
+    if (typeof message === "string" || message.type !== "user_message") return message;
+    if (message.source === undefined) return message;
+    const { source: _source, ...rest } = message;
+    return rest;
+  }
   const source: UserMessageSource = {
     kind: "host-continuation",
     ...(meta.parentSessionId === undefined ? {} : { parentSessionId: meta.parentSessionId }),
@@ -1780,7 +1783,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
     // live Session; origin is only ever written by the SDK's dispatch path.
     if (chatStore && session.meta === undefined) {
       const persisted = await chatStore.readSession(sessionId).catch(() => undefined);
-      session.meta = persisted?.meta ?? null;
+      // A read failure is not "this session has no meta" — leave it unloaded
+      // so a later turn retries instead of permanently losing provenance.
+      if (persisted !== undefined) session.meta = persisted.meta;
     }
     const turnMessage = attributeTurnInput(message, session.meta);
 
