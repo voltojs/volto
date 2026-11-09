@@ -68,7 +68,7 @@ import {
   renderLoopReminder,
   renderLoopIntervention,
 } from "@volto/core";
-import type { PromptAnchorState, StepContext, ReducerState } from "@volto/core";
+import type { PromptAnchorState, StepContext, ReducerState, TurnEndReason } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
 import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
@@ -497,6 +497,9 @@ const RAG_TRUNCATION_MARKER = "\n(truncated)";
 export interface Runner {
   run(initialInput: AgentInput): Promise<ReducerState>;
   getState(): ReducerState;
+  /** The most recently closed turn's outcome, for callers that need to know
+   *  whether a resolved run() ended in error rather than normal completion. */
+  getLastTurnEnd(): { reason: TurnEndReason; error?: string } | undefined;
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
   /**
@@ -694,6 +697,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   // actually cut off. First writer wins — a later, unrelated error must not
   // overwrite the reason the turn actually closed.
   let turnTerminalError: string | undefined;
+  /** Last closed turn's reason, exposed to embedders such as sub-agent dispatch. */
+  let lastTurnEnd: { reason: TurnEndReason; error?: string } | undefined;
   // Track whether this turn ended because a budget was exceeded — a more
   // specific turn_end reason than "error", checked first when both could
   // apply (the budget check can fire after a turn has already seen an error).
@@ -2868,9 +2873,17 @@ export function createRunner(opts: RunnerOptions): Runner {
    */
   function recordTurnEnd(): void {
     if (state.status === "waiting_for_approval") return;
+    const reason: TurnEndReason = turnHadBudgetExceeded
+      ? "budget_exceeded"
+      : turnHadError
+        ? "error"
+        : cancelled
+          ? "cancelled"
+          : "done";
+    lastTurnEnd = { reason, ...(turnTerminalError !== undefined ? { error: turnTerminalError } : {}) };
     recorder.record("turn_end", {
       turn: opts.turn ?? 0,
-      reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
+      reason,
       // Without this a turn cut off by a cap / guard / truncated stream is
       // indistinguishable from a clean completion in the transcript and on
       // the wire (the reducer's raw error emit is never persisted).
@@ -2888,6 +2901,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         turnHadError = false;
         turnHadBudgetExceeded = false;
         turnTerminalError = undefined;
+        lastTurnEnd = undefined;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
@@ -3010,6 +3024,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       return state;
     },
 
+    getLastTurnEnd() {
+      return lastTurnEnd;
+    },
+
     send(input: AgentInput): void {
       // Before the turn opens, an input the idle state would turn into a
       // turn opener (user_message / steering_flush / file_changed) is held
@@ -3090,6 +3108,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       // The validation throws above deliberately sit OUTSIDE the bracket — no
       // turn ran in this runner yet, so there is nothing to close.
       try {
+        lastTurnEnd = undefined;
         // The paused turn is already open: anything send() buffered before
         // this resume lands in its queue (waiting_for_approval queues, D4).
         turnOpened = true;

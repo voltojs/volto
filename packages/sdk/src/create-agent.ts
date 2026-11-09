@@ -4186,6 +4186,7 @@ function createSubAgentExecutor(
       }),
     });
 
+    let errorReported = false;
     try {
       const finalState = await subRunner.run({
         type: "user_message",
@@ -4201,6 +4202,15 @@ function createSubAgentExecutor(
               },
             }),
       });
+      const turnEnd = subRunner.getLastTurnEnd();
+      if (turnEnd !== undefined && turnEnd.reason !== "done") {
+        // A child turn can end in error without run() rejecting (a model
+        // timeout is normalized into turn_end). Treat it as a failed dispatch
+        // so the parent gets an isError result and an error bracket.
+        errorReported = true;
+        finishSubAgent(true);
+        throw new Error(turnEnd.error ?? `Sub-agent turn ended with ${turnEnd.reason}`);
+      }
       finishSubAgent(false);
 
       const lastMsg = finalState.messages[finalState.messages.length - 1];
@@ -4211,7 +4221,7 @@ function createSubAgentExecutor(
         ...(usageTotal !== undefined ? { usage: usageTotal } : {}),
       };
     } catch (err) {
-      finishSubAgent(true);
+      if (!errorReported) finishSubAgent(true);
       throw err;
     }
   };
