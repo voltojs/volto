@@ -109,6 +109,20 @@ describe("normalizeStream", () => {
     expect(envelope?.blocks[1]?.type).toBe("tool_use");
   });
 
+  it("marks a protocol without cache support as unsupported", async () => {
+    const message = fauxAssistantMessage("hi");
+    const events: AssistantMessageEvent[] = [
+      { type: "done", reason: "stop", message },
+    ];
+
+    const normalized = await collect(normalizeStream(asAsyncIterable(events), model, "none"));
+    const usageEvent = normalized.find((event) => event.type === "usage");
+    expect(usageEvent).toMatchObject({
+      type: "usage",
+      cacheReporting: "unsupported",
+    });
+  });
+
   it("marks usage without cache buckets as not-reported", async () => {
     const message = fauxAssistantMessage("hi");
     const usage = { ...message.usage } as Record<string, unknown>;

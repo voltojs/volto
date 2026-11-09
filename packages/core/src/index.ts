@@ -70,6 +70,7 @@ export type {
   ResolvedModelInfo,
   ModelInputValue,
   ModelInputLimits,
+  ModelCacheCapability,
 } from "./ports.js";
 
 // Types — Ports

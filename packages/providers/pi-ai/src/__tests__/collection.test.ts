@@ -236,6 +236,37 @@ describe("protocol-aware model construction", () => {
     expect(models.getModel("acme", "plain-model")?.api).toBe("anthropic-messages");
   });
 
+  it("exposes explicit cache capability for anthropic-messages", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(describeModelInfo(models, "acme", "plain-model").cache).toMatchObject({
+      mode: "explicit",
+      maxMarkers: 4,
+      writeUsageField: "cache_creation_input_tokens",
+    });
+  });
+
+  it("exposes implicit cache capability for openai routes", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        models: [{ code: "plain-model", protocol: "openai-responses" }],
+      },
+    ]);
+    expect(describeModelInfo(models, "acme", "plain-model").cache).toMatchObject({
+      mode: "implicit",
+    });
+  });
+
   it("keeps openai-responses distinct from openai-completions", () => {
     const models = buildModels([
       {

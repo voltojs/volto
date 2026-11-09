@@ -15,6 +15,7 @@ import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.l
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type {
+  ModelCacheCapability,
   ModelInputValue,
   ModelReasoningInfo,
   ReasoningEffortId,
@@ -619,6 +620,27 @@ function displayName(level: string): string {
   return level.length === 0 ? level : level[0]!.toUpperCase() + level.slice(1);
 }
 
+/** Cache support implied by the wire protocol and pi-ai's promptCache metadata. */
+export function cacheCapability(model: Model<Api>): ModelCacheCapability {
+  if (model.api === "anthropic-messages") {
+    return {
+      mode: "explicit",
+      minTokens: 1024,
+      maxMarkers: 4,
+      blockWindow: 20,
+      ...(model.promptCache?.short !== undefined ? { ttlSeconds: model.promptCache.short } : {}),
+      writeUsageField: "cache_creation_input_tokens",
+    };
+  }
+  if (model.api === "openai-completions" || model.api === "openai-responses") {
+    return {
+      mode: "implicit",
+      ...(model.promptCache?.short !== undefined ? { minTokens: 1024 } : {}),
+    };
+  }
+  return { mode: "none" };
+}
+
 /**
  * Resolve capability metadata for one exact model. `reasoning` is present
  * only when the model is flagged `reasoning: true` and
@@ -639,6 +661,7 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
   const info: ResolvedModelInfo = {
     model: code,
     api: model.api,
+    cache: cacheCapability(model),
     contextWindow: model.contextWindow,
   };
 

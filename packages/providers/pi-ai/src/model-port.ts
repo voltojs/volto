@@ -2,6 +2,7 @@ import type { Models, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@volto/core";
 import {
   buildModels,
+  cacheCapability,
   describeModelInfo,
   registryProviderId,
   resolveConfiguredApiKey,
@@ -169,7 +170,7 @@ export function createPiAiModelPortFromModels(
         });
 
         // Step 5: normalize pi-ai's event stream into volto's ModelEvent stream.
-        yield* normalizeStream(events, model.id);
+        yield* normalizeStream(events, model.id, cacheCapability(model).mode);
       } catch (err) {
         yield {
           type: "error",

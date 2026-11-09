@@ -128,10 +128,24 @@ export interface ModelInputLimits {
  * off-only list, since "off" that translates to omitting the parameter is
  * byte-for-byte the same request as naming no effort.
  */
+export type ModelCacheCapability =
+  | { mode: "none" }
+  | { mode: "implicit"; minTokens?: number }
+  | {
+      mode: "explicit";
+      minTokens: number;
+      maxMarkers: number;
+      blockWindow: number;
+      ttlSeconds?: number;
+      writeUsageField?: "cache_write_tokens" | "cache_creation_input_tokens";
+    };
+
 export interface ResolvedModelInfo {
   model: string;
   /** Wire protocol the adapter will use for this model, when it has one. */
   api?: string;
+  /** Prompt-cache support declared by the adapter/catalog. */
+  cache?: ModelCacheCapability;
   contextWindow?: number;
   reasoning?: ModelReasoningInfo;
   /**
