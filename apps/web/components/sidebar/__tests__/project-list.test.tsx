@@ -149,6 +149,14 @@ describe('ProjectList', () => {
     expect(screen.getByText('s-under-p2-title')).toBeInTheDocument();
   });
 
+  it('puts the drag handle in the chevron slot instead of adding its own', () => {
+    seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
+    render(<ProjectList />);
+    const handle = screen.getAllByRole('button', { name: '拖动排序' })[0]!;
+    // Same slot as the collapse chevron, so the name column does not move.
+    expect(handle.parentElement?.querySelector('.lucide-chevron-right')).not.toBeNull();
+  });
+
   it('writes an explicit [] when the last expanded project is collapsed', async () => {
     seed({
       ...base,

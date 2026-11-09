@@ -312,12 +312,31 @@ export function ProjectList() {
                   );
                 }}
               >
-                <ChevronRight
-                  className={cn(
-                    'text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform duration-150',
-                    { 'rotate-90': expanded },
+                {/* Chevron and drag handle share this slot: the handle only
+                    appears on hover, when it takes the chevron's place. A
+                    second slot would shift the name right by its width. */}
+                <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                  <ChevronRight
+                    className={cn(
+                      'text-muted-foreground h-3.5 w-3.5 transition-transform duration-150',
+                      { 'rotate-90': expanded },
+                      manual && 'transition-opacity group-hover:opacity-0',
+                    )}
+                  />
+                  {manual && (
+                    <button
+                      type="button"
+                      ref={handle.setActivatorNodeRef}
+                      {...handle.attributes}
+                      {...handle.listeners}
+                      aria-label={t('drag.handle')}
+                      className="text-muted-foreground hover:text-foreground absolute inset-0 flex cursor-grab items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical className="h-3 w-3" />
+                    </button>
                   )}
-                />
+                </span>
                 <FolderGit2 className="text-primary/80 h-4 w-4 shrink-0" />
                 <Tooltip>
                   <TooltipTrigger
@@ -353,19 +372,6 @@ export function ProjectList() {
                     },
                   )}
                 >
-                  {manual && (
-                    <button
-                      type="button"
-                      ref={handle.setActivatorNodeRef}
-                      {...handle.attributes}
-                      {...handle.listeners}
-                      aria-label={t('drag.handle')}
-                      className="text-muted-foreground hover:text-foreground flex h-6 w-6 shrink-0 cursor-grab items-center justify-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <GripVertical className="h-3 w-3" />
-                    </button>
-                  )}
                   <DropdownMenu
                     onOpenChange={(open) => {
                       if (open) {
