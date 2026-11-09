@@ -26,6 +26,19 @@ describe("turn-boundary drain", () => {
       .toEqual(["t1", "t2"]);
   });
 
+  it("drain forwards the collected child session id", async () => {
+    const fed: Array<Record<string, unknown>> = [];
+    await drainBackgroundTasks({
+      state: stateWithRunning(["t1"]),
+      registry: {
+        collect: async () => ({ text: "done", childSessionId: "child-1" }),
+      } as never,
+      feed: (input) => { fed.push(input as unknown as Record<string, unknown>); },
+    });
+    const completion = fed.find((f) => f["type"] === "background_task_completed")!;
+    expect(completion["childSessionId"]).toBe("child-1");
+  });
+
   it("fails a task the resumed Runner has no handle for, instead of waiting", async () => {
     const fed: Array<Record<string, unknown>> = [];
     await drainBackgroundTasks({

@@ -60,7 +60,7 @@ describe("background registry", () => {
 
 import { createAgent } from "../create-agent.js";
 import { toolCallScript, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
+import type { ModelPort, ModelRequest, TranscriptEventInput } from "@volto/core";
 
 /**
  * Content-routed mock: the sub-agent's request carries its dispatch message
@@ -162,6 +162,47 @@ describe("background dispatch wiring", () => {
 
     const last = state.messages[state.messages.length - 1]!;
     expect(last.role).toBe("assistant");
+  });
+
+  it("keeps the collected child session as relatedSessionId on the task_output result", async () => {
+    const SUB_MSG = "Collect the background answer";
+    const bySession = new Map<string, TranscriptEventInput[]>();
+    const store = {
+      async appendEvents(sessionId: string, events: TranscriptEventInput[]) {
+        const list = bySession.get(sessionId) ?? [];
+        list.push(...events);
+        bySession.set(sessionId, list);
+      },
+    };
+    const modelPort = contentRoutedPort({
+      subMessage: SUB_MSG,
+      subReply: "collected answer",
+      mainCalls: [
+        () => toolCallScript("m1", "task", JSON.stringify({ message: SUB_MSG, run_in_background: true })),
+        (req) => toolCallScript("m2", "task_output", JSON.stringify({ task_id: extractTaskId(req) })),
+        () => textScript("Done."),
+      ],
+    });
+
+    const agent = createAgent({
+      modelPort,
+      enableTaskTool: true,
+      chatStore: store,
+      chatSessionId: "parent-1",
+      chatMeta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+    });
+    await agent.run("go");
+
+    const parent = bySession.get("parent-1") ?? [];
+    const started = parent.find((event) => event.type === "subagent_started");
+    const childId = (started?.data as Record<string, unknown> | undefined)?.["childSessionId"];
+    const output = parent.find((event) =>
+      event.type === "tool_result"
+      && (event.data as Record<string, unknown>)["name"] === "task_output");
+    const metadata = (output?.data as Record<string, unknown> | undefined)?.["displayMetadata"] as
+      Record<string, unknown> | undefined;
+    expect(metadata?.["relatedSessionId"]).toBe(childId);
+    expect(metadata).not.toHaveProperty("childSessionId");
   });
 
   it("surfaces an unknown task_id from task_output as an error result", async () => {

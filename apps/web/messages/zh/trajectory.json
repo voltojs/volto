@@ -19,7 +19,13 @@
     "source": "来源",
     "title": "轨迹详情",
     "startTime": "开始时间",
-    "length": "时长"
+    "length": "时长",
+    "messageSource": "消息来源",
+    "parentSession": "父会话",
+    "taskId": "任务 ID",
+    "background": "后台任务",
+    "backgroundYes": "是",
+    "modelTier": "模型档位"
   },
   "panel": {
     "empty": "选择一个会话后查看轨迹",
@@ -63,5 +69,10 @@
   },
   "common": {
     "empty": "（无）"
+  },
+  "source": {
+    "subagentTask": "父代理派发",
+    "hostContinuation": "宿主继续",
+    "unknown": "未知来源"
   }
 }

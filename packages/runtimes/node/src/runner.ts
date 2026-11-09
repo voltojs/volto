@@ -68,7 +68,7 @@ import {
   renderLoopReminder,
   renderLoopIntervention,
 } from "@volto/core";
-import type { PromptAnchorState, StepContext, ReducerState } from "@volto/core";
+import type { PromptAnchorState, StepContext, ReducerState, TurnEndReason } from "@volto/core";
 import type { OffloadCandidate } from "@volto/core";
 import type { Hook, HookContext } from "@volto/core";
 import { runHookPipeline } from "@volto/core";
@@ -497,6 +497,9 @@ const RAG_TRUNCATION_MARKER = "\n(truncated)";
 export interface Runner {
   run(initialInput: AgentInput): Promise<ReducerState>;
   getState(): ReducerState;
+  /** The most recently closed turn's outcome, for callers that need to know
+   *  whether a resolved run() ended in error rather than normal completion. */
+  getLastTurnEnd(): { reason: TurnEndReason; error?: string } | undefined;
   /** Resume from a checkpoint with an approval decision */
   resume(sessionId: string, decision: "allow" | "deny"): Promise<ReducerState>;
   /**
@@ -569,7 +572,7 @@ export const defaultAuditSink: AuditSink = {
  * SDK registry satisfies it structurally.
  */
 export interface BackgroundTaskCollector {
-  collect(taskId: string): Promise<{ text: string } | { error: string }>;
+  collect(taskId: string): Promise<{ text: string; childSessionId?: string } | { error: string }>;
   /**
    * True when this id's result was already collected — e.g. the model
    * picked it up mid-turn via the task_output tool. The drain skips those
@@ -606,7 +609,7 @@ export async function drainBackgroundTasks(opts: {
     // fails it with an explanation, which is exactly what F-036 wants.
     if (opts.registry.isCollected?.(task.id) === true) continue;
 
-    let result: { text: string } | { error: string };
+    let result: { text: string; childSessionId?: string } | { error: string };
     try {
       result = await opts.registry.collect(task.id);
     } catch (err) {
@@ -625,6 +628,7 @@ export async function drainBackgroundTasks(opts: {
       opts.feed({
         type: "background_task_completed",
         taskId: task.id,
+        ...(result.childSessionId === undefined ? {} : { childSessionId: result.childSessionId }),
         text: result.text,
       });
     }
@@ -693,6 +697,8 @@ export function createRunner(opts: RunnerOptions): Runner {
   // actually cut off. First writer wins — a later, unrelated error must not
   // overwrite the reason the turn actually closed.
   let turnTerminalError: string | undefined;
+  /** Last closed turn's reason, exposed to embedders such as sub-agent dispatch. */
+  let lastTurnEnd: { reason: TurnEndReason; error?: string } | undefined;
   // Track whether this turn ended because a budget was exceeded — a more
   // specific turn_end reason than "error", checked first when both could
   // apply (the budget check can fire after a turn has already seen an error).
@@ -2867,9 +2873,17 @@ export function createRunner(opts: RunnerOptions): Runner {
    */
   function recordTurnEnd(): void {
     if (state.status === "waiting_for_approval") return;
+    const reason: TurnEndReason = turnHadBudgetExceeded
+      ? "budget_exceeded"
+      : turnHadError
+        ? "error"
+        : cancelled
+          ? "cancelled"
+          : "done";
+    lastTurnEnd = { reason, ...(turnTerminalError !== undefined ? { error: turnTerminalError } : {}) };
     recorder.record("turn_end", {
       turn: opts.turn ?? 0,
-      reason: turnHadBudgetExceeded ? "budget_exceeded" : turnHadError ? "error" : cancelled ? "cancelled" : "done",
+      reason,
       // Without this a turn cut off by a cap / guard / truncated stream is
       // indistinguishable from a clean completion in the transcript and on
       // the wire (the reducer's raw error emit is never persisted).
@@ -2887,6 +2901,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         turnHadError = false;
         turnHadBudgetExceeded = false;
         turnTerminalError = undefined;
+        lastTurnEnd = undefined;
         // M13: session:start hook
         await runHookPipeline(opts.hooks ?? [], "session:start", {
           sessionId: opts.sessionId,
@@ -2951,7 +2966,10 @@ export function createRunner(opts: RunnerOptions): Runner {
         // realized by steering_delivered — recording it again here would
         // double-cover the same content.
         if (initialInput.type === "user_message") {
-          recorder.record("user_message", { content: initialInput.content });
+          recorder.record("user_message", {
+            content: initialInput.content,
+            ...(initialInput.source === undefined ? {} : { source: initialInput.source }),
+          });
         }
         // Persist the turn opening before any model I/O: a client that
         // reconnects mid-turn rebuilds the live state from this log tail
@@ -3004,6 +3022,10 @@ export function createRunner(opts: RunnerOptions): Runner {
 
     getState(): ReducerState {
       return state;
+    },
+
+    getLastTurnEnd() {
+      return lastTurnEnd;
     },
 
     send(input: AgentInput): void {
@@ -3086,6 +3108,7 @@ export function createRunner(opts: RunnerOptions): Runner {
       // The validation throws above deliberately sit OUTSIDE the bracket — no
       // turn ran in this runner yet, so there is nothing to close.
       try {
+        lastTurnEnd = undefined;
         // The paused turn is already open: anything send() buffered before
         // this resume lands in its queue (waiting_for_approval queues, D4).
         turnOpened = true;

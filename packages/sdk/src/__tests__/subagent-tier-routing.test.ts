@@ -141,6 +141,76 @@ describe("sub-agent model tier routing", () => {
     expect(typeof unresolved!.time).toBe("number");
   });
 
+  it("records the unresolved tier durably alongside the sink event", async () => {
+    const { sink, events } = captureSink();
+    const bySession = new Map<string, TranscriptEventInput[]>();
+    const store = {
+      async appendEvents(sessionId: string, batch: TranscriptEventInput[]) {
+        const list = bySession.get(sessionId) ?? [];
+        list.push(...batch);
+        bySession.set(sessionId, list);
+      },
+    };
+    const { port } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "ghosty" })),
+      textScript("sub done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      eventSink: sink,
+      chatStore: store,
+      chatSessionId: "parent-1",
+      chatMeta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+      routingTiers: [PREMIUM_TIER],
+      agentSpecs: [agentEntry({ name: "ghosty", model: "ghost" })],
+    });
+
+    await agent.run("dispatch the ghosty agent");
+
+    const persisted = (bySession.get("parent-1") ?? []).find(
+      (event) => event.type === "subagent_model_tier_unresolved",
+    );
+    expect(persisted).toBeDefined();
+    expect(events.some((event) => event.type === "subagent_model_tier_unresolved")).toBe(true);
+    expect(persisted!.data).toMatchObject({ subagentType: "ghosty", tierId: "ghost" });
+  });
+
+  it("keeps target absent when the unresolved tier never named one", async () => {
+    const bySession = new Map<string, TranscriptEventInput[]>();
+    const store = {
+      async appendEvents(sessionId: string, batch: TranscriptEventInput[]) {
+        const list = bySession.get(sessionId) ?? [];
+        list.push(...batch);
+        bySession.set(sessionId, list);
+      },
+    };
+    const { port } = recordingModelPort([
+      toolCallScript("c1", "task", JSON.stringify({ message: "go", subagent_type: "ghosty" })),
+      textScript("sub done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      chatStore: store,
+      chatSessionId: "parent-1",
+      chatMeta: { projectId: null, providerId: null, modelId: null, permissionMode: null },
+      routingTiers: [PREMIUM_TIER],
+      agentSpecs: [agentEntry({ name: "ghosty", model: "ghost" })],
+    });
+
+    await agent.run("dispatch the ghosty agent");
+
+    const persisted = (bySession.get("parent-1") ?? []).find(
+      (event) => event.type === "subagent_model_tier_unresolved",
+    );
+    expect(persisted!.data).not.toHaveProperty("target");
+  });
+
   it("unassigned null-target tier degrades without calling the factory", async () => {
     // Task-9 brief cases 2 and 6, PINNING (written green — no RED phase):
     // task 8 already landed this guard while adapting `target: null` for the

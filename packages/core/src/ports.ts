@@ -459,6 +459,29 @@ export type ContextReminderKind =
   | "background_task";
 
 /**
+ * Where a user-role message came from when it was not typed by a human.
+ *
+ * `subagent-task` is the parent agent's dispatch into a child session;
+ * `host-continuation` is a host/user follow-up sent into a subagent session.
+ * The model-visible content is unchanged; this is audit provenance only.
+ */
+export type UserMessageSource =
+  | {
+      kind: "subagent-task";
+      /** Parent session that dispatched the task. */
+      parentSessionId: string;
+      /** Dispatch task id, shared with the parent's subagent events. */
+      taskId: string;
+      /** Human-readable dispatch label, when one existed. */
+      label?: string;
+    }
+  | {
+      kind: "host-continuation";
+      /** Parent session the continuation belongs to, when known. */
+      parentSessionId?: string;
+    };
+
+/**
  * The vocabulary of the durable session log. One entry per significant
  * moment; detail comes from the density of the vocabulary, not from any
  * single record being wide.
@@ -592,7 +615,8 @@ export interface TranscriptEventMap {
   };
 
   // ── Input ──
-  user_message: { content: string | ContentBlock[] };
+  /** A user-role message's producer; absent on plain human input and old logs. */
+  user_message: { content: string | ContentBlock[]; source?: UserMessageSource };
   /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event.
    *  `id` is stamped at enqueue time (Id port) so projections can match the
    *  queued entry to its delivery. */
@@ -622,8 +646,20 @@ export interface TranscriptEventMap {
     depth: number;
     /** Dispatch-supplied one-line task label (absent on pre-title sessions). */
     title?: string;
+    /** Dispatch identity shared with the parent tool result; absent on old logs. */
+    taskId?: string;
+    /** True when this dispatch runs detached; absent for a synchronous dispatch. */
+    background?: true;
+    /** Resolved subagent_type, when the dispatch named one. */
+    subagentType?: string;
   };
-  subagent_finished: { childSessionId: string; isError: boolean; durationMs: number };
+  subagent_finished: {
+    childSessionId: string;
+    isError: boolean;
+    durationMs: number;
+    /** Dispatch identity shared with the parent tool result; absent on old logs. */
+    taskId?: string;
+  };
   /**
    * A definition (or a per-dispatch allowlist) named tools / capabilities the
    * assembled child could not get, because the intersection rule keeps only
@@ -645,6 +681,19 @@ export interface TranscriptEventMap {
     childSessionId?: string;
     subagentType: string;
     downgrades: Array<{ field: string; requested: string; effective: string }>;
+  };
+
+  /**
+   * A dispatch named a routing tier that could not resolve to a model port
+   * and degraded to the parent model. Durable alongside the live sink event so
+   * a reload/export keeps the visible fallback.
+   */
+  subagent_model_tier_unresolved: {
+    childSessionId?: string;
+    subagentType?: string;
+    tierId: string;
+    turn: number;
+    target?: { providerId: string; modelId: string };
   };
 
   // ── Other ──

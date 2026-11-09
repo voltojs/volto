@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { ConversationView } from '@volto/sdk/sse';
+import { buildTurnRecords, toConversationView } from '@volto/sdk/sse';
+import type { ConversationView, TranscriptEvent } from '@volto/sdk/sse';
 import {
   collectBackgroundTasks,
   subagentTaskTitle,
@@ -54,6 +55,36 @@ describe('collectBackgroundTasks', () => {
       title: 'explore',
       status: 'running',
       startedAt: 100,
+    });
+  });
+
+  it('shows a dispatch while it is still running, before its result lands', () => {
+    const events = [
+      { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      {
+        time: 105,
+        type: 'assistant_message',
+        data: {
+          content: [{ type: 'tool_use', id: 'c1', name: 'task', input: { message: 'go' } }],
+          durationMs: 1,
+        },
+        turn: 1,
+        step: 1,
+      },
+      { time: 110, type: 'tool_call', data: { callId: 'c1', name: 'task', input: { message: 'go' } }, turn: 1, step: 1 },
+      {
+        time: 111,
+        type: 'subagent_started',
+        data: { childSessionId: 'child-1', label: 'explore', depth: 1, taskId: 't1' },
+        turn: 1,
+        step: 1,
+      },
+    ] as unknown as TranscriptEvent[];
+    const items = collectBackgroundTasks(toConversationView(buildTurnRecords(events)));
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      childSessionId: 'child-1',
+      status: 'running',
     });
   });
 

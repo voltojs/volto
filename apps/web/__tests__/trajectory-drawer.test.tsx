@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TrajectoryDrawer } from '@/components/trajectory/TrajectoryDrawer';
 import { usePaneStore } from '@/stores/pane-store';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import { buildTurnRecords, toTrajectoryView } from '@volto/sdk/sse';
+import type { TrajectoryRow, TranscriptEvent } from '@volto/sdk/sse';
 
 const row = (over: Partial<TrajectoryRow> = {}): TrajectoryRow =>
   ({ id: 'r1', kind: 'assistant', summary: '回答了问题', startedAt: 1, outputDetail: 'hello', ...over }) as TrajectoryRow;
@@ -39,6 +40,62 @@ describe('TrajectoryDrawer', () => {
     expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:child-9'))
       .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
     expect(usePaneStore.getState().activeTabId).toBe('subagent:child-9');
+  });
+
+  it('shows parent dispatch attribution, parent session and task id', () => {
+    // Consume the real core projection instead of hand-crafting the row: the
+    // task id must reach the drawer from user_message.source, not from the test.
+    const events = [
+      { seq: 0, time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      {
+        seq: 1,
+        time: 110,
+        type: 'user_message',
+        data: {
+          content: '子任务输入',
+          source: {
+            kind: 'subagent-task',
+            parentSessionId: 'parent-9',
+            taskId: 't1',
+            label: 'explore',
+          },
+        },
+        turn: 1,
+      },
+    ] as unknown as TranscriptEvent[];
+    const userRow = toTrajectoryView(buildTurnRecords(events), events).rows[0]!;
+    render(<TrajectoryDrawer row={userRow} open onOpenChange={() => {}} />);
+    expect(screen.getByText('父代理派发')).toBeInTheDocument();
+    expect(screen.getByText('parent-9')).toBeInTheDocument();
+    expect(screen.getByText('t1')).toBeInTheDocument();
+  });
+
+  it('offers the child link for a task_output related session without upgrading it', () => {
+    const outputRow = row({
+      kind: 'tool',
+      summary: '收集后台结果',
+      relatedSessionId: 'child-9',
+      taskId: 't1',
+    });
+    render(<TrajectoryDrawer row={outputRow} open onOpenChange={() => {}} />);
+    expect(screen.queryByText('子agent')).toBeNull();
+    fireEvent.click(screen.getByText(/查看执行过程/));
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:child-9'))
+      .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
+  });
+
+  it('offers the child link for a background reminder', () => {
+    const reminderRow = row({
+      kind: 'reminder',
+      reminderKind: 'background_task',
+      summary: '后台任务完成',
+      childSessionId: 'child-9',
+      taskId: 't1',
+    });
+    render(<TrajectoryDrawer row={reminderRow} open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByText(/查看执行过程/));
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:child-9'))
+      .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
   });
 
   it('shows the tools a dispatch could not get, and the narrowed permission axes', () => {

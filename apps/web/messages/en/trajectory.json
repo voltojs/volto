@@ -19,7 +19,13 @@
     "source": "Source",
     "title": "Trace details",
     "startTime": "Started at",
-    "length": "Length"
+    "length": "Length",
+    "messageSource": "Message source",
+    "parentSession": "Parent session",
+    "taskId": "Task ID",
+    "background": "Background",
+    "backgroundYes": "Yes",
+    "modelTier": "Model tier"
   },
   "panel": {
     "empty": "Select a session to see its trace",
@@ -63,5 +69,10 @@
   },
   "common": {
     "empty": "(none)"
+  },
+  "source": {
+    "subagentTask": "Parent dispatch",
+    "hostContinuation": "Host continuation",
+    "unknown": "Unknown source"
   }
 }

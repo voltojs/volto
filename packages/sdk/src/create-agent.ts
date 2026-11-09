@@ -112,6 +112,10 @@ import type { ToolVisibility } from "./tool-scope-default.js";
  */
 type SyncSubAgentRequest = {
   message: string;
+  /** Pre-minted dispatch identity, shared by started/finished and the tool result. */
+  taskId: string;
+  /** True for a detached dispatch. */
+  background?: true;
   subagentType?: string;
   model?: string;
   title?: string;
@@ -1819,8 +1823,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       model,
       ...refinements
     }) => {
+      const taskId = idPort.next();
       if (background) {
-        const taskId = idPort.next();
         // Fire the executor detached; the registry normalizes a rejection so
         // an uncollected failure can never surface as an unhandled rejection
         // or take the parent loop down. The full outcome (text + child
@@ -1830,6 +1834,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
           taskId,
           executor({
             message,
+            taskId,
+            background: true,
             ...(subagentType !== undefined ? { subagentType } : {}),
             ...(model !== undefined ? { model } : {}),
             ...refinements,
@@ -1849,12 +1855,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // every dispatch in a session, so a UI could not tell two apart.
       const outcome = await executor({
         message,
+        taskId,
         ...(subagentType !== undefined ? { subagentType } : {}),
         ...(model !== undefined ? { model } : {}),
         ...refinements,
       });
       return {
-        taskId: idPort.next(),
+        taskId,
         text: outcome.text,
         ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
         ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
@@ -3235,15 +3242,6 @@ function extractInputText(input: AgentInput): string {
 }
 
 /**
- * An EventSink envelope carrying the transcript stamp top-level — the
- * toSinkEvent isomorphism (see runner.ts). The gateway's frame() drops
- * unstamped envelopes (`asTranscriptEvent` requires `typeof event.time ===
- * "number"`), so parent-level events emitted from here are stamped at the
- * emit site, like the subagent brackets — never patched downstream.
- */
-type StampedSinkEvent = { type: string; data: Record<string, unknown>; time: number };
-
-/**
  * The dispatch bookkeeping records that belong on the parent's log and main
  * feed: the start bracket plus the two "asked for more than it got" events.
  * A narrow union (rather than the whole event map) keeps them assignable to
@@ -3440,6 +3438,8 @@ function createSubAgentExecutor(
 ): SyncSubAgentExecutor {
   return async ({
     message,
+    taskId,
+    background: dispatchBackground,
     subagentType,
     model,
     title,
@@ -3736,14 +3736,16 @@ function createSubAgentExecutor(
           background: _background,
           ...nestedRefinements
         } = req;
+        const taskId = idPort.next();
         const outcome = await nestedExecutor({
           message,
+          taskId,
           ...(nestedType !== undefined ? { subagentType: nestedType } : {}),
           ...(nestedModel !== undefined ? { model: nestedModel } : {}),
           ...nestedRefinements,
         });
         return {
-          taskId: idPort.next(),
+          taskId,
           text: outcome.text,
           ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
           ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
@@ -3783,7 +3785,15 @@ function createSubAgentExecutor(
       parentDispatchEvents.push({
         time: startedAt,
         type: "subagent_started",
-        data: { childSessionId, label: agentLabel, depth, ...(title !== undefined ? { title } : {}) },
+        data: {
+          childSessionId,
+          label: agentLabel,
+          depth,
+          taskId,
+          ...(dispatchBackground === true ? { background: true as const } : {}),
+          ...(subagentType !== undefined ? { subagentType } : {}),
+          ...(title !== undefined ? { title } : {}),
+        },
         turn,
       });
     }
@@ -3863,9 +3873,10 @@ function createSubAgentExecutor(
     // main feed — so a model swap that silently fell back to the parent's
     // model never goes unnoticed.
     if (tierUnresolved !== undefined) {
-      const tierUnresolvedEvent: StampedSinkEvent = {
+      const tierUnresolvedEvent: TranscriptEventInput<"subagent_model_tier_unresolved"> = {
         time: nowMs(),
         type: "subagent_model_tier_unresolved",
+        turn,
         data: {
           ...(childSessionId !== undefined ? { childSessionId } : {}),
           ...(subagentType !== undefined ? { subagentType } : {}),
@@ -3874,6 +3885,9 @@ function createSubAgentExecutor(
           ...(tierUnresolved.target !== undefined ? { target: tierUnresolved.target } : {}),
         },
       };
+      if (chatStore && parentChatSessionId) {
+        bestEffortAppend(chatStore, parentChatSessionId, [tierUnresolvedEvent]);
+      }
       currentSink?.emit(tierUnresolvedEvent);
     }
 
@@ -3883,7 +3897,7 @@ function createSubAgentExecutor(
           {
             time: nowMs(),
             type: "subagent_finished",
-            data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+            data: { childSessionId, taskId, isError, durationMs: nowMs() - startedAt },
             turn,
           },
         ]);
@@ -3892,7 +3906,7 @@ function createSubAgentExecutor(
         const finishedBracket: TranscriptEventInput<"subagent_finished"> = {
           time: nowMs(),
           type: "subagent_finished",
-          data: { childSessionId, isError, durationMs: nowMs() - startedAt },
+          data: { childSessionId, taskId, isError, durationMs: nowMs() - startedAt },
           turn,
         };
         currentSink?.emit(finishedBracket);
@@ -4172,11 +4186,31 @@ function createSubAgentExecutor(
       }),
     });
 
+    let errorReported = false;
     try {
       const finalState = await subRunner.run({
         type: "user_message",
         content: message,
+        ...(parentChatSessionId === undefined
+          ? {}
+          : {
+              source: {
+                kind: "subagent-task" as const,
+                parentSessionId: parentChatSessionId,
+                taskId,
+                label: agentLabel,
+              },
+            }),
       });
+      const turnEnd = subRunner.getLastTurnEnd();
+      if (turnEnd !== undefined && turnEnd.reason !== "done") {
+        // A child turn can end in error without run() rejecting (a model
+        // timeout is normalized into turn_end). Treat it as a failed dispatch
+        // so the parent gets an isError result and an error bracket.
+        errorReported = true;
+        finishSubAgent(true);
+        throw new Error(turnEnd.error ?? `Sub-agent turn ended with ${turnEnd.reason}`);
+      }
       finishSubAgent(false);
 
       const lastMsg = finalState.messages[finalState.messages.length - 1];
@@ -4187,7 +4221,7 @@ function createSubAgentExecutor(
         ...(usageTotal !== undefined ? { usage: usageTotal } : {}),
       };
     } catch (err) {
-      finishSubAgent(true);
+      if (!errorReported) finishSubAgent(true);
       throw err;
     }
   };

@@ -5,12 +5,14 @@
 
 import type { ContentBlock, TodoItem, ToolResultBlock } from "./state.js";
 import type { ErrorKind } from "./error-taxonomy.js";
-import type { ApprovalDenialReason, FileWatchEvent, TokenUsage } from "./ports.js";
+import type { ApprovalDenialReason, FileWatchEvent, TokenUsage, UserMessageSource } from "./ports.js";
 
 /** User sent a message */
 export interface UserMessageInput {
   type: "user_message";
   content: string | ContentBlock[];
+  /** Audit provenance for non-human input; absent for plain human messages. */
+  source?: UserMessageSource;
 }
 
 /**
@@ -295,6 +297,8 @@ export interface BackgroundTaskStartedInput {
 export interface BackgroundTaskCompletedInput {
   type: "background_task_completed";
   taskId: string;
+  /** Collected child session, when the registry reports one. */
+  childSessionId?: string;
   text: string;
   isError?: boolean;
 }

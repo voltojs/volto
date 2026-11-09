@@ -660,3 +660,257 @@ describe("buildTurnRecords — steering queue realization", () => {
     ]);
   });
 });
+
+describe("subagent task id joins", () => {
+  type LooseEvent = Omit<TranscriptEvent, "seq">;
+
+  function synthetic(entries: unknown[]): TranscriptEvent[] {
+    return log(entries as LooseEvent[]);
+  }
+
+  function turnShell(): unknown[] {
+    return [
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      { time: 110, type: "user_message", data: { content: "go" }, turn: 1 },
+    ];
+  }
+
+  function taskResult(callId: string, taskId: string, childSessionId: string) {
+    return {
+      time: 300,
+      type: "tool_result",
+      data: {
+        callId,
+        name: "task",
+        content: "done",
+        isError: false,
+        orderInBatch: callId === "c1" ? 0 : 1,
+        displayMetadata: { taskId, background: false, sessionId: childSessionId },
+      },
+      turn: 1,
+      step: 1,
+    };
+  }
+
+  it("joins parallel dispatches by taskId regardless of event order", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+      { time: 121, type: "subagent_started", data: { childSessionId: "child-2", label: "explore", depth: 1, taskId: "t2", subagentType: "explore" }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 131, type: "tool_call", data: { callId: "c2", name: "task", input: {} }, turn: 1, step: 1 },
+      taskResult("c2", "t2", "child-2"),
+      taskResult("c1", "t1", "child-1"),
+    ]));
+    const calls = records[0]!.steps[0]!.toolCalls;
+    expect(calls.map((call) => [call.callId, call.childSessionId, call.taskId])).toEqual([
+      ["c1", "child-1", "t1"],
+      ["c2", "child-2", "t2"],
+    ]);
+  });
+
+  it("matches a typed dispatch whose start label differs from the tool name", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      taskResult("c1", "t1", "child-1"),
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]).toMatchObject({
+      childSessionId: "child-1",
+      taskId: "t1",
+      subagentType: "explore",
+    });
+  });
+
+  it("keeps the label fallback for a legacy start without taskId", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 135, type: "subagent_started", data: { childSessionId: "child-1", label: "task", depth: 1 }, turn: 1, step: 1 },
+      {
+        time: 300,
+        type: "tool_result",
+        data: { callId: "c1", name: "task", content: "done", isError: false, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]!.childSessionId).toBe("child-1");
+  });
+
+  it("keeps task_output a tool row with relatedSessionId", () => {
+    const events = synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task_output", input: { task_id: "t1" } }, turn: 1, step: 1 },
+      {
+        time: 300,
+        type: "tool_result",
+        data: {
+          callId: "c1",
+          name: "task_output",
+          content: "collected",
+          isError: false,
+          orderInBatch: 0,
+          displayMetadata: { taskId: "t1", relatedSessionId: "child-9" },
+        },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+    const records = buildTurnRecords(events);
+    expect(records[0]!.steps[0]!.toolCalls[0]!.relatedSessionId).toBe("child-9");
+    const row = toTrajectoryView(records, events).rows.find((candidate) => candidate.kind === "tool")!;
+    expect(row.relatedSessionId).toBe("child-9");
+    expect(row.childSessionId).toBeUndefined();
+  });
+
+  it("carries the child id from a background reminder", () => {
+    const events = synthetic([
+      ...turnShell(),
+      {
+        time: 300,
+        type: "context_reminder",
+        data: {
+          kind: "background_task",
+          text: "background done",
+          displayMetadata: { taskId: "t1", childSessionId: "child-9", isError: false },
+        },
+        turn: 1,
+      },
+    ]);
+    const view = toTrajectoryView(buildTurnRecords(events), events);
+    expect(view.rows.find((row) => row.kind === "reminder")?.childSessionId).toBe("child-9");
+  });
+
+  it("carries user message provenance onto the row", () => {
+    const events = synthetic([
+      { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+      {
+        time: 110,
+        type: "user_message",
+        data: {
+          content: "child task",
+          source: { kind: "subagent-task", parentSessionId: "parent-1", taskId: "t1", label: "explore" },
+        },
+        turn: 1,
+      },
+    ]);
+    const userRow = toTrajectoryView(buildTurnRecords(events), events).rows[0];
+    expect(userRow?.messageSource)
+      .toEqual({ kind: "subagent-task", parentSessionId: "parent-1", taskId: "t1", label: "explore" });
+    expect(userRow?.taskId).toBe("t1");
+  });
+
+  it("links a running dispatch live when the call was flushed before the start", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: { message: "go" } }, turn: 1, step: 1 },
+      { time: 131, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]).toMatchObject({
+      childSessionId: "child-1",
+      taskId: "t1",
+      subagentType: "explore",
+    });
+  });
+
+  it("claims parallel running dispatches in call order when results are still pending", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 131, type: "tool_call", data: { callId: "c2", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 132, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1" }, turn: 1, step: 1 },
+      { time: 133, type: "subagent_started", data: { childSessionId: "child-2", label: "explore", depth: 1, taskId: "t2" }, turn: 1, step: 1 },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls.map((call) => call.childSessionId)).toEqual([
+      "child-1",
+      "child-2",
+    ]);
+  });
+
+  it("does not give a new start to a task call that already finished", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "tool_call", data: { callId: "old", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 121,
+        type: "tool_result",
+        data: { callId: "old", name: "task", content: "tier error", isError: true, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+      { time: 130, type: "tool_call", data: { callId: "new", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 131, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1" }, turn: 1, step: 1 },
+    ]));
+    const calls = records[0]!.steps[0]!.toolCalls;
+    expect(calls.map((call) => [call.callId, call.childSessionId])).toEqual([
+      ["old", undefined],
+      ["new", "child-1"],
+    ]);
+  });
+
+  it("links an errored sync dispatch when its tool result carries no metadata", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+      { time: 121, type: "subagent_finished", data: { childSessionId: "child-1", taskId: "t1", isError: true, durationMs: 5 }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 300,
+        type: "tool_result",
+        data: { callId: "c1", name: "task", content: "Sub-agent error: boom", isError: true, orderInBatch: 0 },
+        turn: 1,
+        step: 1,
+      },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]).toMatchObject({
+      childSessionId: "child-1",
+      taskId: "t1",
+      subagentType: "explore",
+    });
+    expect(records[0]!.pendingSubagent).toBeUndefined();
+  });
+
+  it("backfills a failed background reminder's child session from its task id", () => {
+    const events = synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "task", depth: 1, taskId: "t1", background: true }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      {
+        time: 140,
+        type: "tool_result",
+        data: { callId: "c1", name: "task", content: "started", isError: false, orderInBatch: 0, displayMetadata: { taskId: "t1", background: true } },
+        turn: 1,
+        step: 1,
+      },
+      {
+        time: 300,
+        type: "context_reminder",
+        data: { kind: "background_task", text: "failed", displayMetadata: { taskId: "t1", isError: true } },
+        turn: 1,
+      },
+    ]);
+    const view = toTrajectoryView(buildTurnRecords(events), events);
+    expect(view.rows.find((row) => row.kind === "reminder")?.childSessionId).toBe("child-1");
+  });
+
+  it("attaches the unresolved tier to the linked subagent row", () => {
+    const events = synthetic([
+      ...turnShell(),
+      { time: 120, type: "subagent_started", data: { childSessionId: "child-1", label: "task", depth: 1, taskId: "t1" }, turn: 1, step: 1 },
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      taskResult("c1", "t1", "child-1"),
+      {
+        time: 310,
+        type: "subagent_model_tier_unresolved",
+        data: { childSessionId: "child-1", tierId: "premium", target: { providerId: "p1", modelId: "big" } },
+        turn: 1,
+        step: 1,
+      },
+    ]);
+    const view = toTrajectoryView(buildTurnRecords(events), events);
+    expect(view.rows.find((row) => row.kind === "subagent")?.subagentModelTierUnresolved)
+      .toEqual({ tierId: "premium", target: { providerId: "p1", modelId: "big" } });
+  });
+});

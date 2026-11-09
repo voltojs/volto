@@ -49,7 +49,12 @@ export function createTaskOutputTool(collect: SubAgentOutputCollector) {
             childSessionId: result.childSessionId,
             usage: result.usage,
           }),
-          displayMetadata: { taskId: input.task_id },
+          displayMetadata: {
+            taskId: input.task_id,
+            ...(result.childSessionId !== undefined
+              ? { relatedSessionId: result.childSessionId }
+              : {}),
+          },
         };
       } catch (err: unknown) {
         const error = err instanceof Error ? err.message : String(err);

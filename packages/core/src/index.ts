@@ -107,6 +107,7 @@ export type {
   SessionSnapshot,
   SessionStore,
   ChatSessionMeta,
+  UserMessageSource,
   TokenUsage,
   TurnEndReason,
   TranscriptEventMap,

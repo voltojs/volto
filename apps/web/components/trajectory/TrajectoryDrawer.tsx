@@ -16,6 +16,7 @@ import {
   KIND_LABEL_KEYS,
   REMINDER_KIND_LABEL_KEYS,
   TAB_LABEL_KEYS,
+  userSourceLabelKey,
   drawerTabsFor,
   formatDuration,
   locationTextRef,
@@ -59,9 +60,11 @@ function Code({ text }: { text: string }) {
 function OverviewTab({ row }: { row: TrajectoryRow }) {
   const t = useTranslations('trajectory');
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
-  // 守卫保持原 truthiness 判断；落到 const 是因为属性收窄不带入 onClick 闭包。
-  const childSessionId =
-    row.kind === 'subagent' && row.childSessionId ? row.childSessionId : null;
+  // Keep the original truthiness guard; the const also carries the narrowing
+  // into the onClick closure. relatedSessionId is the collected task_output
+  // link and must stay a tool row, while reminder rows carry childSessionId.
+  const linkedChildId = row.childSessionId || row.relatedSessionId || null;
+  const source = row.messageSource;
   return (
     <div className="divide-y">
       <Field label={t('drawer.layer')}>
@@ -77,6 +80,37 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
           {t(KIND_LABEL_KEYS[row.kind])}
         </span>
       </Field>
+      {source !== undefined && (
+        <Field label={t('drawer.messageSource')}>
+          <Cell text={t(userSourceLabelKey(source.kind))} />
+        </Field>
+      )}
+      {source?.parentSessionId !== undefined && (
+        <Field label={t('drawer.parentSession')}>
+          <Cell text={source.parentSessionId} />
+        </Field>
+      )}
+      {row.taskId !== undefined && (
+        <Field label={t('drawer.taskId')}>
+          <Cell text={row.taskId} />
+        </Field>
+      )}
+      {row.background === true && (
+        <Field label={t('drawer.background')}>
+          <Cell text={t('drawer.backgroundYes')} />
+        </Field>
+      )}
+      {row.subagentModelTierUnresolved !== undefined && (
+        <Field label={t('drawer.modelTier')}>
+          <Cell
+            text={
+              row.subagentModelTierUnresolved.target === undefined
+                ? row.subagentModelTierUnresolved.tierId
+                : `${row.subagentModelTierUnresolved.tierId} → ${row.subagentModelTierUnresolved.target.providerId}/${row.subagentModelTierUnresolved.target.modelId}`
+            }
+          />
+        </Field>
+      )}
       <Field label={t('drawer.status')}>
         {row.isError ? (
           <span className="text-destructive">{t('drawer.failed')}</span>
@@ -144,19 +178,19 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
           />
         </Field>
       )}
-      {childSessionId !== null && (
+      {linkedChildId !== null && (
         <Field label={t('drawer.childSession')}>
           <div className="flex items-center justify-between gap-2">
             <code className="text-muted-foreground min-w-0 truncate font-mono text-[11px]">
-              {childSessionId}
+              {linkedChildId}
             </code>
             <button
               type="button"
               onClick={() =>
                 usePaneStore.getState().openTab({
                   kind: 'subagent',
-                  id: `subagent:${childSessionId}`,
-                  childSessionId,
+                  id: `subagent:${linkedChildId}`,
+                  childSessionId: linkedChildId,
                   view: 'trajectory',
                   // Carry the dispatch facts the row already knows, so the
                   // pane header does not have to re-derive them from the

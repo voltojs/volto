@@ -65,6 +65,7 @@ export type {
   TrajectoryView,
   TrajectoryRow,
   TodoItem,
+  UserMessageSource,
 } from "@volto/core";
 export {
   emptyContextUsageFold,
