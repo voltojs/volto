@@ -365,6 +365,20 @@ export function buildTurnRecords(
   const lastUnlinkedTaskCall = (turn: MutableTurn): ToolCallRecord | undefined =>
     lastUnlinkedCall(turn, "task") ?? undefined;
 
+  /**
+   * The first unlinked `task` call in log order. Live starts are claimed in
+   * dispatch order; a later tool_result carrying the same taskId is still the
+   * authoritative join and corrects the assignment if the two orders differ.
+   */
+  const firstUnlinkedTaskCall = (turn: MutableTurn): ToolCallRecord | undefined => {
+    for (const step of turn.steps) {
+      for (const call of step.toolCalls) {
+        if (call.name === "task" && call.childSessionId === undefined) return call;
+      }
+    }
+    return undefined;
+  };
+
   /** Copy one start bracket's identity onto its call. */
   const applyStart = (
     call: ToolCallRecord,
@@ -375,6 +389,15 @@ export function buildTurnRecords(
     if (data.taskId !== undefined) call.taskId = data.taskId;
     if (data.background === true) call.background = true;
     if (data.subagentType !== undefined) call.subagentType = data.subagentType;
+  };
+
+  /** Drop a provisional start link that a later taskId join proved wrong. */
+  const clearStart = (call: ToolCallRecord): void => {
+    delete call.childSessionId;
+    delete call.taskId;
+    delete call.background;
+    delete call.subagentType;
+    delete call.subagentTitle;
   };
 
   /**
@@ -395,6 +418,8 @@ export function buildTurnRecords(
    * tool name.
    */
   const pendingStartsByTaskId = new Map<string, TranscriptEvent<"subagent_started">>();
+  /** Every start bracket, including one already shown live on a call. */
+  const startedByTaskId = new Map<string, TranscriptEvent<"subagent_started">>();
   /** Dispatches that already emitted their finish bracket. */
   const finishedTaskIds = new Set<string>();
   /** Unresolved model tiers, keyed by child session and applied after linking. */
@@ -600,6 +625,15 @@ export function buildTurnRecords(
           applyStart(call, pending.data);
           pendingSubagents.delete(turn.turn);
         }
+        // A start parked before its call flushed: with a single candidate the
+        // pairing is unambiguous, so show it live instead of waiting for the
+        // result. Parallel fan-out leaves multiple candidates for the result
+        // join to resolve deterministically.
+        if (data.name === "task" && call.childSessionId === undefined && pendingStartsByTaskId.size === 1) {
+          const [taskId, start] = pendingStartsByTaskId.entries().next().value!;
+          applyStart(call, start.data);
+          pendingStartsByTaskId.delete(taskId);
+        }
         break;
       }
 
@@ -617,9 +651,23 @@ export function buildTurnRecords(
           const taskId = data.displayMetadata["taskId"];
           if (typeof taskId === "string") {
             call.taskId = taskId;
-            const pending = pendingStartsByTaskId.get(taskId);
-            if (pending !== undefined) {
-              applyStart(call, pending.data);
+            // Only a dispatch call owns the start bracket. A task_output
+            // result carries the same taskId, but is a collection row.
+            const start = call.name === "task"
+              ? startedByTaskId.get(taskId) ?? pendingStartsByTaskId.get(taskId)
+              : undefined;
+            if (start !== undefined) {
+              // The result is authoritative: if a live claim had attached this
+              // task's child to a different call, drop that provisional link
+              // and let that call's own result re-link it.
+              for (const otherStep of turn.steps) {
+                for (const other of otherStep.toolCalls) {
+                  if (other.callId !== call.callId && other.childSessionId === start.data.childSessionId) {
+                    clearStart(other);
+                  }
+                }
+              }
+              applyStart(call, start.data);
               pendingStartsByTaskId.delete(taskId);
             }
           }
@@ -693,13 +741,16 @@ export function buildTurnRecords(
         const data = event.data as TranscriptEventMap["subagent_finished"];
         if (data.taskId === undefined) break;
         finishedTaskIds.add(data.taskId);
-        const pending = pendingStartsByTaskId.get(data.taskId);
+        const pending = startedByTaskId.get(data.taskId);
         if (pending === undefined) break;
         const turn = turnFor(event);
-        // Success results normally consumed the pending start already; this
-        // path exists for an errored result, whose task tool result carries no
+        // Success results normally consumed the start already; this path exists
+        // for an errored result, whose task tool result carries no
         // displayMetadata. Close the start on the call if it is on disk now.
-        const call = findCallByTaskId(turn, data.taskId) ?? lastUnlinkedTaskCall(turn);
+        const call = findCallByTaskId(turn, data.taskId)
+          ?? turn.steps.flatMap((step) => step.toolCalls)
+            .find((candidate) => candidate.childSessionId === pending.data.childSessionId)
+          ?? lastUnlinkedTaskCall(turn);
         if (call !== undefined) {
           applyStart(call, pending.data);
           pendingStartsByTaskId.delete(data.taskId);
@@ -711,11 +762,19 @@ export function buildTurnRecords(
         const data = event.data as TranscriptEventMap["subagent_started"];
         const turn = turnFor(event);
         if (data.taskId !== undefined) {
+          startedByTaskId.set(data.taskId, event as TranscriptEvent<"subagent_started">);
           // Deterministic path: a result that already landed names the call;
-          // otherwise park the whole event until its tool_result arrives.
+          // otherwise a live claim keeps the running card visible, and the
+          // first unclaimed task call in log order is the dispatch it belongs
+          // to. A later tool_result with this taskId remains authoritative.
           const call = findCallByTaskId(turn, data.taskId);
-          if (call !== undefined) applyStart(call, data);
-          else pendingStartsByTaskId.set(data.taskId, event as TranscriptEvent<"subagent_started">);
+          if (call !== undefined) {
+            applyStart(call, data);
+          } else {
+            const live = firstUnlinkedTaskCall(turn);
+            if (live !== undefined) applyStart(live, data);
+            else pendingStartsByTaskId.set(data.taskId, event as TranscriptEvent<"subagent_started">);
+          }
           break;
         }
         // Legacy path (log written before taskId): prefer the unlinked call

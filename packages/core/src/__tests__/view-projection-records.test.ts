@@ -802,6 +802,33 @@ describe("subagent task id joins", () => {
     expect(userRow?.taskId).toBe("t1");
   });
 
+  it("links a running dispatch live when the call was flushed before the start", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: { message: "go" } }, turn: 1, step: 1 },
+      { time: 131, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1", subagentType: "explore" }, turn: 1, step: 1 },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls[0]).toMatchObject({
+      childSessionId: "child-1",
+      taskId: "t1",
+      subagentType: "explore",
+    });
+  });
+
+  it("claims parallel running dispatches in call order when results are still pending", () => {
+    const records = buildTurnRecords(synthetic([
+      ...turnShell(),
+      { time: 130, type: "tool_call", data: { callId: "c1", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 131, type: "tool_call", data: { callId: "c2", name: "task", input: {} }, turn: 1, step: 1 },
+      { time: 132, type: "subagent_started", data: { childSessionId: "child-1", label: "explore", depth: 1, taskId: "t1" }, turn: 1, step: 1 },
+      { time: 133, type: "subagent_started", data: { childSessionId: "child-2", label: "explore", depth: 1, taskId: "t2" }, turn: 1, step: 1 },
+    ]));
+    expect(records[0]!.steps[0]!.toolCalls.map((call) => call.childSessionId)).toEqual([
+      "child-1",
+      "child-2",
+    ]);
+  });
+
   it("links an errored sync dispatch when its tool result carries no metadata", () => {
     const records = buildTurnRecords(synthetic([
       ...turnShell(),
