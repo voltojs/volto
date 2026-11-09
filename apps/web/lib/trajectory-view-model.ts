@@ -3,7 +3,7 @@
  * 详情抽屉的 per-kind tab 结构。无 React、无副作用，独立可测。
  */
 
-import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
+import type { TrajectoryRow, ContextReminderKind, UserMessageSource } from '@volto/sdk/sse';
 
 /** Catalog key per row kind; components translate it with the `trajectory`
  * namespace. Keeping keys here (not rendered text) lets the label follow the
@@ -28,6 +28,12 @@ export const KIND_BADGE_CLASS: Record<TrajectoryRow['kind'], string> = {
   compaction: 'border-border bg-muted text-muted-foreground',
   error: 'border-destructive/30 bg-destructive/10 text-destructive',
   reminder: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+};
+
+/** Catalog key for the non-human producer of a user row. */
+export const USER_SOURCE_LABEL_KEYS: Record<UserMessageSource['kind'], string> = {
+  'subagent-task': 'source.subagentTask',
+  'host-continuation': 'source.hostContinuation',
 };
 
 export const REMINDER_KIND_LABEL_KEYS: Record<ContextReminderKind, string> = {

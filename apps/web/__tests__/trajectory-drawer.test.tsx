@@ -41,6 +41,52 @@ describe('TrajectoryDrawer', () => {
     expect(usePaneStore.getState().activeTabId).toBe('subagent:child-9');
   });
 
+  it('shows parent dispatch attribution, parent session and task id', () => {
+    const userRow = row({
+      kind: 'user',
+      summary: '子任务输入',
+      messageSource: {
+        kind: 'subagent-task',
+        parentSessionId: 'parent-9',
+        taskId: 't1',
+        label: 'explore',
+      },
+      taskId: 't1',
+    });
+    render(<TrajectoryDrawer row={userRow} open onOpenChange={() => {}} />);
+    expect(screen.getByText('父代理派发')).toBeInTheDocument();
+    expect(screen.getByText('parent-9')).toBeInTheDocument();
+    expect(screen.getByText('t1')).toBeInTheDocument();
+  });
+
+  it('offers the child link for a task_output related session without upgrading it', () => {
+    const outputRow = row({
+      kind: 'tool',
+      summary: '收集后台结果',
+      relatedSessionId: 'child-9',
+      taskId: 't1',
+    });
+    render(<TrajectoryDrawer row={outputRow} open onOpenChange={() => {}} />);
+    expect(screen.queryByText('子agent')).toBeNull();
+    fireEvent.click(screen.getByText(/查看执行过程/));
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:child-9'))
+      .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
+  });
+
+  it('offers the child link for a background reminder', () => {
+    const reminderRow = row({
+      kind: 'reminder',
+      reminderKind: 'background_task',
+      summary: '后台任务完成',
+      childSessionId: 'child-9',
+      taskId: 't1',
+    });
+    render(<TrajectoryDrawer row={reminderRow} open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByText(/查看执行过程/));
+    expect(usePaneStore.getState().tabs.find((t) => t.id === 'subagent:child-9'))
+      .toMatchObject({ kind: 'subagent', childSessionId: 'child-9', view: 'trajectory' });
+  });
+
   it('shows the tools a dispatch could not get, and the narrowed permission axes', () => {
     const childRow = row({
       kind: 'subagent',

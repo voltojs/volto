@@ -8,6 +8,7 @@ import {
   locationTextRef,
   parseSystemLayers,
   REMINDER_KIND_LABEL_KEYS,
+  USER_SOURCE_LABEL_KEYS,
 } from '@/lib/trajectory-view-model';
 import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
 
@@ -21,6 +22,13 @@ describe('KIND_LABEL_KEYS / KIND_BADGE_CLASS', () => {
     expect(KIND_LABEL_KEYS.user).toBe('kind.user');
     expect(KIND_LABEL_KEYS.error).toBe('kind.error');
     expect(KIND_BADGE_CLASS.error).toContain('destructive');
+  });
+});
+
+describe('USER_SOURCE_LABEL_KEYS', () => {
+  it('maps each user message source to a catalog key', () => {
+    expect(USER_SOURCE_LABEL_KEYS['subagent-task']).toBe('source.subagentTask');
+    expect(USER_SOURCE_LABEL_KEYS['host-continuation']).toBe('source.hostContinuation');
   });
 });
 
