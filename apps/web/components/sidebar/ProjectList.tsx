@@ -14,6 +14,8 @@ import {
 import { toast } from 'sonner';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
+import { useSidebarStateStore } from '@/stores/sidebar-state-store';
+import { pinSession, unpinSession } from '@/lib/sidebar-layout';
 import { useChatStore } from '@/stores/chat-store';
 import { ensureSessionDetail } from '@/hooks/use-server-sessions';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
@@ -54,8 +56,8 @@ export function ProjectList() {
   const [expandedId, setExpandedId] = useState<string | null>(
     projects[0]?.id ?? null,
   );
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState('');
+  const pinnedSessionIds = useSidebarStateStore((s) => s.state.pinnedSessionIds);
+  const updateSidebarState = useSidebarStateStore((s) => s.update);
   const [error, setError] = useState<string | null>(null);
   // The project whose deletion is awaiting confirmation. One piece of state
   // for the whole list rather than one dialog per row: only one confirmation
@@ -303,38 +305,35 @@ export function ProjectList() {
                     session={session}
                     isActive={currentSessionId === session.id}
                     isGenerating={generatingSessionId === session.id}
-                    isEditing={editingSessionId === session.id}
-                    editingTitle={editingTitle}
-                    onEditTitleChange={setEditingTitle}
-                    onStartEdit={() => {
-                      setEditingSessionId(session.id);
-                      setEditingTitle(session.title);
+                    isPinned={pinnedSessionIds.includes(session.id)}
+                    onTogglePin={() => {
+                      updateSidebarState((state) =>
+                        state.pinnedSessionIds.includes(session.id)
+                          ? unpinSession(state, session.id)
+                          : pinSession(state, session.id),
+                      );
                     }}
-                    onFinishEdit={() => {
-                      const title = editingTitle.trim();
-                      if (title) {
-                        // The server ranks title sources, so nothing needs
-                        // cancelling here: a generated title that lands later
-                        // cannot overwrite the name sent below.
-                        // Ordering, the single delayed retry, and the
-                        // rollback-on-final-failure live in `runManualRename`
-                        // so they're unit-testable without rendering this
-                        // component — see apps/web/lib/session-title.ts.
-                        // `setError` reuses this component's existing inline
-                        // error affordance.
-                        void runManualRename({
-                          sessionId: session.id,
-                          title,
-                          previousTitle: session.title,
-                          setTitle: (id, t) =>
-                            useSessionStore
-                              .getState()
-                              .updateSessionTitle(id, t),
-                          rename: renameServerSession,
-                          setError,
-                        }, tc);
-                      }
-                      setEditingSessionId(null);
+                    onRename={(title) => {
+                      // The server ranks title sources, so nothing needs
+                      // cancelling here: a generated title that lands later
+                      // cannot overwrite the name sent below.
+                      // Ordering, the single delayed retry, and the
+                      // rollback-on-final-failure live in `runManualRename`
+                      // so they're unit-testable without rendering this
+                      // component — see apps/web/lib/session-title.ts.
+                      // `setError` reuses this component's existing inline
+                      // error affordance.
+                      void runManualRename({
+                        sessionId: session.id,
+                        title,
+                        previousTitle: session.title,
+                        setTitle: (id, newTitle) =>
+                          useSessionStore
+                            .getState()
+                            .updateSessionTitle(id, newTitle),
+                        rename: renameServerSession,
+                        setError,
+                      }, tc);
                     }}
                     onClick={() => openSession(session.id)}
                     onDelete={() => handleDeleteSession(session.id)}

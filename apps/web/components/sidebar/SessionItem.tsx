@@ -4,22 +4,29 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { formatShortDateTime } from '@/lib/time-format';
 import { useLocale } from 'next-intl';
 import { useTranslations } from 'next-intl';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
+import { RenameSessionDialog } from './RenameSessionDialog';
 import { cn } from '@/lib/utils';
-import { LoaderCircle, Trash2, Pencil } from 'lucide-react';
+import { LoaderCircle, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
 
 interface SessionItemProps {
   session: { id: string; title: string; updatedAt: number };
   isActive: boolean;
-  isEditing: boolean;
-  editingTitle: string;
+  /** True while this session sits in the pinned section. */
+  isPinned: boolean;
   /**
    * True while this session's channel is actively streaming a turn. Deleting
    * such a session races the server's transcript writes: a delete landing
@@ -30,9 +37,10 @@ interface SessionItemProps {
    * ordinary user can trigger by disabling delete while generating.
    */
   isGenerating: boolean;
-  onEditTitleChange: (title: string) => void;
-  onStartEdit: () => void;
-  onFinishEdit: () => void;
+  /** Toggles this session's pinned membership. */
+  onTogglePin: () => void;
+  /** Applies the title the rename dialog produced (already trimmed). */
+  onRename: (title: string) => void;
   onClick: () => void;
   onDelete: () => void;
 }
@@ -45,12 +53,10 @@ const MARQUEE_EDGE_PADDING = 4;
 export function SessionItem({
   session,
   isActive,
-  isEditing,
-  editingTitle,
+  isPinned,
   isGenerating,
-  onEditTitleChange,
-  onStartEdit,
-  onFinishEdit,
+  onTogglePin,
+  onRename,
   onClick,
   onDelete,
 }: SessionItemProps) {
@@ -58,6 +64,14 @@ export function SessionItem({
   const locale = useLocale();
   const [showActions, setShowActions] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  /**
+   * The row's action block unmounts when the pointer leaves it. A portaled
+   * menu needs its trigger to stay mounted or the popup loses its anchor and
+   * jumps to the origin, so the menu holds the block open until it closes —
+   * same rule as the workspace rows.
+   */
+  const [menuOpen, setMenuOpen] = useState(false);
   const titleRef = useRef<HTMLSpanElement>(null);
   /**
    * Pixels the marquee must travel to reveal the title's tail; 0 = the title
@@ -80,8 +94,8 @@ export function SessionItem({
         setMarqueeShift(0);
         return;
       }
-      // While hovered, the rename/delete buttons sit absolutely over the
-      // row's right edge — travel must cover them too, or the title's tail
+      // While hovered, the action buttons sit absolutely over the row's
+      // right edge — travel must cover them too, or the title's tail
       // ends up scrolling underneath them. The buttons mount with
       // `showActions`, so re-measuring on that state is what picks them up.
       const coveredByActions = actionsRef.current?.offsetWidth ?? 0;
@@ -90,13 +104,14 @@ export function SessionItem({
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [session.title, isEditing, showActions]);
+  }, [session.title, showActions, menuOpen]);
 
-  const marqueeActive = showActions && !isEditing && marqueeShift > 0;
+  const marqueeActive = showActions && marqueeShift > 0;
+  const actionsVisible = showActions || menuOpen;
 
   return (
     <>
-      <Tooltip disabled={isEditing}>
+      <Tooltip>
         <TooltipTrigger
           render={
             <div
@@ -106,7 +121,9 @@ export function SessionItem({
               )}
               onClick={onClick}
               onMouseEnter={() => setShowActions(true)}
-              onMouseLeave={() => setShowActions(false)}
+              onMouseLeave={() => {
+                if (!menuOpen) setShowActions(false);
+              }}
             />
           }
         >
@@ -118,82 +135,111 @@ export function SessionItem({
               <LoaderCircle className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
             )}
           </span>
-          {isEditing ? (
-            <Input
-              value={editingTitle}
-              onChange={(e) => onEditTitleChange(e.target.value)}
-              onBlur={onFinishEdit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onFinishEdit();
-                if (e.key === 'Escape') onFinishEdit();
-              }}
-              className="h-6 text-xs"
-              autoFocus
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            // Two boxes on purpose: the viewport clips (so the run can never
-            // slide out of the row), while the run inside owns the ellipsis
-            // at rest and the translation while scrolling — translating a
-            // truncate box itself would both escape the row and keep the
-            // ellipsis visible the whole way.
-            <span className="min-w-0 flex-1 overflow-hidden">
-              <span
-                ref={titleRef}
-                className={cn(
-                  'block text-[13px]',
-                  marqueeActive
-                    ? 'session-title-marquee whitespace-nowrap'
-                    : 'truncate',
-                )}
-                style={
-                  marqueeActive
-                    ? ({
-                        '--marquee-shift': `${marqueeShift}px`,
-                        '--marquee-duration': `${(
-                          marqueeShift / MARQUEE_PX_PER_SECOND
-                        ).toFixed(1)}s`,
-                      } as React.CSSProperties)
-                    : undefined
-                }
-              >
-                {session.title || t('session.untitled')}
-              </span>
-            </span>
-          )}
-
-          {showActions && !isEditing && (
-            <div
-              ref={actionsRef}
-              className="bg-sidebar-accent absolute right-1 flex items-center gap-0.5 pl-1"
+          {/* Two boxes on purpose: the viewport clips (so the run can never
+              slide out of the row), while the run inside owns the ellipsis
+              at rest and the translation while scrolling — translating a
+              truncate box itself would both escape the row and keep the
+              ellipsis visible the whole way. */}
+          <span className="min-w-0 flex-1 overflow-hidden">
+            <span
+              ref={titleRef}
+              className={cn(
+                'block text-[13px]',
+                marqueeActive
+                  ? 'session-title-marquee whitespace-nowrap'
+                  : 'truncate',
+              )}
+              style={
+                marqueeActive
+                  ? ({
+                      '--marquee-shift': `${marqueeShift}px`,
+                      '--marquee-duration': `${(
+                        marqueeShift / MARQUEE_PX_PER_SECOND
+                      ).toFixed(1)}s`,
+                    } as React.CSSProperties)
+                  : undefined
+              }
             >
+              {session.title || t('session.untitled')}
+            </span>
+          </span>
+
+          {/* Always mounted, revealed by CSS: mounting on hover unmounted the
+              buttons the moment a pointer transition raced the click, which
+              dropped clicks and tore dialogs down. */}
+          <div
+            ref={actionsRef}
+            className={cn(
+              'bg-sidebar-accent absolute right-1 flex items-center gap-0.5 pl-1',
+              actionsVisible
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100',
+            )}
+          >
               <Button
                 variant="ghost"
                 size="icon-xs"
+                aria-pressed={isPinned}
+                aria-label={isPinned ? t('pin.unpin') : t('pin.pin')}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onStartEdit();
+                  onTogglePin();
                 }}
-                aria-label={t('session.rename')}
               >
-                <Pencil className="h-3 w-3" />
+                {isPinned ? (
+                  <PinOff className="h-3 w-3" />
+                ) : (
+                  <Pin className="h-3 w-3" />
+                )}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 disabled:pointer-events-auto disabled:opacity-40"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmOpen(true);
+              <DropdownMenu
+                open={menuOpen}
+                onOpenChange={setMenuOpen}
+                onOpenChangeComplete={(open) => {
+                  if (!open) setMenuOpen(false);
                 }}
-                disabled={isGenerating}
-                aria-label={isGenerating ? t('session.deleteBlocked') : t('session.delete')}
-                title={isGenerating ? t('session.deleteBlocked') : undefined}
               >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          )}
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={t('session.more')}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  }
+                >
+                  <MoreHorizontal className="h-3 w-3" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setRenameOpen(true);
+                    }}
+                  >
+                    <Pencil />
+                    {t('session.rename')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={isGenerating}
+                    aria-label={
+                      isGenerating ? t('session.deleteBlocked') : undefined
+                    }
+                    onClick={() => {
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    <Trash2 />
+                    {t('session.delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </TooltipTrigger>
         <TooltipContent side="right" align="start">
           <span className="flex flex-col gap-1">
@@ -217,6 +263,16 @@ export function SessionItem({
         description={t('session.deleteConfirm', { title: session.title || t('session.untitled') })}
         onConfirm={onDelete}
       />
+
+      {/* Mounted per open so the draft always starts from the current title. */}
+      {renameOpen && (
+        <RenameSessionDialog
+          open
+          onOpenChange={setRenameOpen}
+          initialTitle={session.title}
+          onSubmit={onRename}
+        />
+      )}
     </>
   );
 }

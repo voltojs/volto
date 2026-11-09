@@ -39,7 +39,10 @@
     "delete": "删除会话",
     "deleteBlocked": "会话正在生成中，无法删除",
     "updatedAt": "更新于 {time}",
-    "deleteConfirm": "确定删除会话「{title}」吗？此操作无法撤销。"
+    "deleteConfirm": "确定删除会话「{title}」吗？此操作无法撤销。",
+    "more": "更多操作",
+    "renameTitle": "重命名会话",
+    "renameSave": "保存"
   },
   "cancel": "取消",
   "delete": "删除",
@@ -56,5 +59,9 @@
   "pinned": {
     "title": "置顶",
     "count": "{count} 个"
+  },
+  "pin": {
+    "pin": "置顶会话",
+    "unpin": "取消置顶"
   }
 }

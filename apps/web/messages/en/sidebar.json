@@ -39,7 +39,10 @@
     "delete": "Delete session",
     "deleteBlocked": "Generating — cannot delete",
     "updatedAt": "Updated {time}",
-    "deleteConfirm": "Delete session “{title}”? This cannot be undone."
+    "deleteConfirm": "Delete session “{title}”? This cannot be undone.",
+    "more": "More actions",
+    "renameTitle": "Rename session",
+    "renameSave": "Save"
   },
   "cancel": "Cancel",
   "delete": "Delete",
@@ -56,5 +59,9 @@
   "pinned": {
     "title": "Pinned",
     "count": "{count}"
+  },
+  "pin": {
+    "pin": "Pin session",
+    "unpin": "Unpin session"
   }
 }

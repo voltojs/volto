@@ -1,9 +1,10 @@
 /**
  * Sidebar session rows: an overflowing title scrolls its full text through
- * on hover (marquee), and a tooltip carries the full title plus the
- * session's updated time. The marquee must not move titles that fit.
+ * on hover (marquee), the tooltip carries the full title plus the updated
+ * time, and the hover actions are the pin toggle plus a "more" menu whose
+ * rename entry opens a dialog (never an inline input).
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -57,7 +58,14 @@ const updatedLabel = new Intl.DateTimeFormat('zh-CN', {
 }).format(UPDATED_AT);
 
 function renderRow(
-  overrides: { title?: string; isEditing?: boolean; isGenerating?: boolean } = {},
+  overrides: {
+    title?: string;
+    isGenerating?: boolean;
+    isPinned?: boolean;
+    onTogglePin?: () => void;
+    onRename?: (title: string) => void;
+    onClick?: () => void;
+  } = {},
 ) {
   const user = userEvent.setup({ pointerEventsCheck: 0 });
   const view = render(
@@ -65,13 +73,11 @@ function renderRow(
       <SessionItem
         session={{ id: 's1', title: overrides.title ?? LONG_TITLE, updatedAt: UPDATED_AT }}
         isActive={false}
-        isEditing={overrides.isEditing ?? false}
-        editingTitle=""
         isGenerating={overrides.isGenerating ?? false}
-        onEditTitleChange={() => {}}
-        onStartEdit={() => {}}
-        onFinishEdit={() => {}}
-        onClick={() => {}}
+        isPinned={overrides.isPinned ?? false}
+        onTogglePin={overrides.onTogglePin ?? (() => {})}
+        onRename={overrides.onRename ?? (() => {})}
+        onClick={overrides.onClick ?? (() => {})}
         onDelete={() => {}}
       />
     </TooltipProvider>,
@@ -210,12 +216,53 @@ describe('SessionItem overflowing title', () => {
         .className.includes('items-center'),
     ).toBe(true);
   });
+});
 
-  it('keeps the tooltip out of the way while the title is being edited', async () => {
-    const { user } = renderRow({ isEditing: true });
+describe('SessionItem actions', () => {
+  it('shows a pin button and a more menu instead of inline rename', async () => {
+    const onTogglePin = vi.fn();
+    const onClick = vi.fn();
+    const { user } = renderRow({ onTogglePin, onClick });
 
-    await user.hover(screen.getByRole('textbox'));
+    await user.hover(screen.getByText(LONG_TITLE));
+    expect(screen.getByRole('button', { name: '置顶会话' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重命名' })).not.toBeInTheDocument();
 
-    expect(tooltipContent()).toBeNull();
+    await user.click(screen.getByRole('button', { name: '置顶会话' }));
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('marks a pinned row with aria-pressed and offers unpin', async () => {
+    const { user } = renderRow({ isPinned: true });
+
+    await user.hover(screen.getByText(LONG_TITLE));
+    expect(screen.getByRole('button', { name: '取消置顶' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('opens the rename dialog from the more menu with the current title prefilled', async () => {
+    const { user } = renderRow();
+
+    await user.hover(screen.getByText(LONG_TITLE));
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    await user.click(await screen.findByRole('menuitem', { name: '重命名' }));
+
+    const input = await screen.findByRole('textbox');
+    expect(input).toHaveValue(LONG_TITLE);
+    // Base UI focuses the dialog's first field after the portal mounts.
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it('keeps delete disabled while generating', async () => {
+    const { user } = renderRow({ isGenerating: true });
+
+    await user.hover(screen.getByText(LONG_TITLE));
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(
+      await screen.findByRole('menuitem', { name: '会话正在生成中，无法删除' }),
+    ).toHaveAttribute('aria-disabled', 'true');
   });
 });
