@@ -630,6 +630,24 @@ export interface CreateAgentOptions {
   initialAnnouncedWorkflowMode?: string;
 
   /**
+   * Resolve the conversation's workspace announcement (working directory +
+   * git branch) from the directory the session is actually in. Called at the
+   * start of every turn and again at each sub-agent dispatch — a dispatch can
+   * follow a `cd` into a fresh worktree, and the child must know where it
+   * really is, not where the turn started (spec 2026-11-10 D2). The SDK owns
+   * no git vocabulary: the host returns both the fingerprint `key` and the
+   * model-facing `announce` text, or undefined when it has nothing to say.
+   * The reducer injects on change only, so a stable workspace costs nothing.
+   *
+   * Deliberately NOT seeded across rebuilds (spec D8): a rebuilt instance
+   * re-announces once, which is idempotent and self-heals a workspace that
+   * changed during the rebuild.
+   */
+  resolveWorkspaceReminder?: (
+    cwd: string,
+  ) => Promise<{ key: string; announce: string } | undefined>;
+
+  /**
    * Seeds the internal turn counter so a rebuilt agent instance continues
    * numbering instead of restarting at 1. This is the ordinal of the LAST
    * turn already present in the durable transcript (chatStore) — the next
@@ -1424,6 +1442,38 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     return shellSession;
   }
 
+  /**
+   * Read the session's directory WITHOUT creating a session. `getSession()`
+   * spawns a persistent shell on first call, and its documented contract is
+   * "lazily created on the first non-isolated bash call" — reading the cwd
+   * must not spend a process per session just to fill a reminder.
+   */
+  function peekSessionCwd(): string | undefined {
+    if (agentDisposed) return undefined;
+    return shellSession?.cwd?.();
+  }
+
+  /**
+   * Resolve the workspace announcement for a directory. Errors are swallowed:
+   * a failing git probe must never break a turn (spec D2, error-normalization
+   * discipline), and "no announcement" is a supported state.
+   */
+  const workspaceAnnouncements = new Map<string, string>();
+  async function resolveWorkspaceReminderOnce(
+    cwd: string,
+  ): Promise<{ key: string; announce: string } | undefined> {
+    if (!opts.resolveWorkspaceReminder) return undefined;
+    try {
+      const reminder = await opts.resolveWorkspaceReminder(cwd);
+      // Remember the wording so the bash confirmation line can name the
+      // branch without the tool layer ever touching git.
+      if (reminder !== undefined) workspaceAnnouncements.set(cwd, reminder.announce);
+      return reminder;
+    } catch {
+      return undefined;
+    }
+  }
+
   // ── Identifier port ───────────────────────
   // Use injected Id port for sessionId generation; deterministic replays
   // require a seeded Id (e.g. counter-based) — the default falls back to
@@ -1556,7 +1606,20 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   }
   if (opts.shell) {
     adapterTools.push(
-      createBashTool(effectiveShell!, { getSession }),
+      createBashTool(effectiveShell!, {
+        getSession,
+        // Name the branch on the confirmation line when this instance has
+        // already resolved that directory; a cache miss reports the bare
+        // path instead of guessing (spec 2026-11-10 §4.5).
+        describeWorkspace: (cwd) => {
+          const announce = workspaceAnnouncements.get(cwd);
+          if (announce === undefined) return undefined;
+          const branch = /^Git branch: (.+)$/m.exec(announce)?.[1];
+          const repo = /Git repository: (.+)$/m.exec(announce)?.[1];
+          const suffix = branch ?? repo;
+          return suffix === undefined ? undefined : `${cwd} (branch: ${suffix})`;
+        },
+      }),
       createBashOutputTool(effectiveShell!),
       createKillShellTool(effectiveShell!),
     );
@@ -1834,6 +1897,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       agentSpecs,
       getSession,
       ragWiring,
+      resolveWorkspaceReminderOnce,
+      peekSessionCwd,
     );
     // Assign into the outer binding so createNextRunner's runnerOpts can
     // hand the registry to each Runner for turn-boundary draining.
@@ -2380,7 +2445,18 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // turns accumulate only messages after it. No per-turn re-resolve, no
     // second injection channel, no prefix churn.
     const layers = await resolveContextLayersOnce(inputText, lastFinalState?.contextLayers);
-    const turnStepContext: StepContext = { ...stepContext, contextLayers: layers };
+    // Workspace facts for THIS turn: the directory the shell is really in
+    // (a `cd` last turn moved it), not the one the agent was built with.
+    const turnWorkspaceReminder = await resolveWorkspaceReminderOnce(
+      peekSessionCwd() ?? opts.cwd ?? process.cwd(),
+    );
+    const turnStepContext: StepContext = {
+      ...stepContext,
+      contextLayers: layers,
+      ...(turnWorkspaceReminder !== undefined
+        ? { workspaceReminder: turnWorkspaceReminder }
+        : {}),
+    };
 
     // Reset only after resolveContextLayers has succeeded — if it rejects,
     // lastRunner/lastFinalState must remain untouched so a subsequent retry
@@ -3459,6 +3535,12 @@ function createSubAgentExecutor(
   // must see the same cd/export state the parent built up.
   getSession?: () => BashSessionLike | undefined,
   ragWiring: { rag?: NonNullable<Parameters<typeof createRunner>[0]["rag"]> } = {},
+  // Dispatch-time workspace resolution (spec 2026-11-10 D2). Passed from the
+  // owning instance so the map it fills stays the one the bash tool reads.
+  resolveWorkspaceReminderOnce: (
+    cwd: string,
+  ) => Promise<{ key: string; announce: string } | undefined> = async () => undefined,
+  peekSessionCwd: () => string | undefined = () => undefined,
 ): SyncSubAgentExecutor {
   return async ({
     message,
@@ -3741,6 +3823,8 @@ function createSubAgentExecutor(
         agentSpecs,
         getSession,
         ragWiring,
+        resolveWorkspaceReminderOnce,
+        peekSessionCwd,
       );
       const nestedDispatch: SubAgentDispatch = async (req) => {
         if (req.background) {
@@ -3989,6 +4073,15 @@ function createSubAgentExecutor(
     // and widening that is a design change, not this fix's scope.
     const subCatalogLayer = await buildSkillCatalogLayer(opts.skillRegistry, opts.skillCatalogDescriptionMaxLength);
 
+    // Where the child will actually work. `getSession()` is fine here (unlike
+    // the per-turn peek): a dispatch that reached this point is about to run a
+    // child agent, and a session created for it serves that child's own bash
+    // calls. Reading the existing session's cwd only avoids spawning when the
+    // parent never used bash — i.e. exactly the peek semantics.
+    const subWorkspaceReminder = await resolveWorkspaceReminderOnce(
+      getSession?.()?.cwd?.() ?? peekSessionCwd() ?? opts.cwd ?? process.cwd(),
+    );
+
     // Every model setting the definition declares outranks the parent's for
     // this dispatch; anything it leaves out is inherited. A retrieval
     // sub-agent pinned to a small model at temperature 0 is the whole point
@@ -4064,6 +4157,13 @@ function createSubAgentExecutor(
         ? { responseFormat: resolvedSubResponseFormat }
         : {}),
       ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
+      // Re-resolved at DISPATCH time, not copied from the parent's turn: the
+      // parent may have cd'd into a worktree since this turn started, and a
+      // child that answers from the stale directory is worse than no reminder
+      // at all. Runs before any child Runner or provider I/O exists.
+      ...(subWorkspaceReminder !== undefined
+        ? { workspaceReminder: subWorkspaceReminder }
+        : {}),
     };
 
     // currentSink was read at the top of this dispatch (the brackets emitted
