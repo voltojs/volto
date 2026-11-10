@@ -16,6 +16,35 @@ const row = (over: Partial<TrajectoryRow> = {}): TrajectoryRow =>
 beforeEach(() => usePaneStore.setState({ tabs: [], activeTabId: null }));
 
 describe('TrajectoryDrawer', () => {
+  it('labels a workspace reminder row and keeps its full text readable', () => {
+    // F-15: the row is produced by the real projection from a real
+    // `context_reminder(kind=workspace)` event — the same component renders a
+    // parent's and a sub-agent's trajectory, so this covers the label in both.
+    const events = [
+      { seq: 0, time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
+      { seq: 1, time: 110, type: 'user_message', data: { content: '你在哪个目录？' }, turn: 1 },
+      {
+        seq: 2,
+        time: 111,
+        type: 'context_reminder',
+        data: {
+          kind: 'workspace',
+          text: 'Working directory: /repo-wt (project: volto)\nGit branch: feat/x',
+        },
+        turn: 1,
+      },
+    ] as unknown as TranscriptEvent[];
+    const rows = toTrajectoryView(buildTurnRecords(events), events).rows;
+    const reminderRow = rows.find((r) => r.kind === 'reminder');
+    expect(reminderRow).toBeDefined();
+
+    render(<TrajectoryDrawer row={reminderRow!} open onOpenChange={() => {}} />);
+    expect(screen.getByText('工作目录')).toBeInTheDocument();
+    // The reminder's own text lives in the output tab, verbatim.
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(screen.getByText(/Git branch: feat\/x/)).toBeInTheDocument();
+  });
+
   it('renders the overview fields of the row', () => {
     render(<TrajectoryDrawer row={row()} open onOpenChange={() => {}} />);
     expect(screen.getByText('回答了问题')).toBeInTheDocument();
