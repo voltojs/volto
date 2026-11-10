@@ -36,7 +36,7 @@
 1. **决策—执行闭环完成** — 纯核心产出 `Effect` → Runner 调对应 port → 结果作为 `AgentInput` 回喂核心。
 2. **工具接线完成** — 工具经 ToolRouter 校验 + 能力门控后可被模型选用；缺失对应 port 的工具自动从可见集摘除。
 3. **错误不中断循环** — 工具 / 模型错误一律归一化为 `isError: true` 的 `ToolResult` 或 `ModelError` input 回喂，**绝不抛异常中断主循环**。
-4. **可验证** — `pnpm turbo run typecheck lint test` 通过 + 给出手工验收步骤（或对应 Phase 的 Acceptance Criteria 全绿）。
+4. **可验证** — 受影响包的 `pnpm turbo run typecheck lint test --filter <包>` 通过（见 §3 的过滤规则）+ 给出手工验收步骤（或对应 Phase 的 Acceptance Criteria 全绿）。
 
 ## 2.1 沙箱与边界测试纪律（不可协商）
 
@@ -50,7 +50,15 @@
 
 ## 3. 代码改动硬性约束
 
-- **每次代码改动后必须运行 `pnpm turbo run typecheck lint test`**（受影响包即可，用 `--filter`），通过才算完成。
+- **只跑受影响包的静态门**：`pnpm turbo run typecheck lint test --filter <受影响包>`。**默认不要跑全仓**——全量类型检查 + 测试慢且吃内存（一次十几分钟、数个 GB），对单包改动没有额外信息量。全仓只在以下情形跑：**跨包契约变更（改了 core 的公开类型/port 契约）、发版前、或明确要求时**。
+- **`@volto/desktop-app` 一律排除**：它依赖 Electron 二进制、构建慢且对本次改动无验证价值，测试/类型检查命令里必须显式过滤掉：
+  ```bash
+  # 受影响包（推荐）
+  pnpm turbo run typecheck lint test --filter @volto/sdk
+  # 需要跨包验证时，排除桌面端
+  pnpm turbo run typecheck lint test --filter '!@volto/desktop-app'
+  ```
+- **改完依赖链上的包要重建 dist**：`tools-*` / `runtimes-*` / `sdk` 之间存在 `dist` 消费（不是源码直连），跨包测试跑在旧构建上会假绿/假红。跨包改动时先 `pnpm turbo run build --filter <上游包>`，或直接用 `--filter` 带上上游包让 turbo 按依赖图构建。
 - **依赖单向向下** — `core ← tools-*/providers-*/runtimes-*/stores-* ← sdk ← apps/*`。**`zod` 只允许出现在 `tools/*` 与 `sdk`**，核心只认抽象 `JSONSchema`。
   - **type-import only（适用于 tools-* / providers-* / stores-*）**：这些包只消费 core 的**接口类型**（port 契约、`ToolDefinition` / `ModelEvent` 等），一律 `import type`，不得值导入 core，以免与具体实现耦合。
   - **Runner / sdk 例外**：薄解释器(`runtimes-*` 的 Runner)与 SDK 门面是内核的**执行者**，必须值导入纯函数内核（`step` / `createInitialState` 等)——这是 functional-core / imperative-shell 的本意，导入纯函数不破坏可移植性,不属违规。
@@ -62,7 +70,7 @@
 # 工作流与质量门
 
 - **能力门控 vs 权限策略** 职责分离：门控（ToolRouter）决定"工具是否对模型可见"，权限（PermissionPolicy）决定"可见工具是否放行（allow / deny / ask）"。改动二者之一时勿混淆职责。
-- 静态门:`pnpm turbo run typecheck`、`pnpm turbo run lint`、`pnpm turbo run test`。
+- 静态门:`pnpm turbo run typecheck lint test --filter <受影响包>`（**不要默认全仓，`@volto/desktop-app` 一律排除**，见 §3）。
 - **计划最终要出自测报告时,用 `writing-selftest-reports` skill —— 在写 plan 时就用,不是等到最后要报告时**。它要求 plan 顶部建功能点台账、每个 task 末尾追加证据、末尾单独一个 task 由全新上下文生成报告。到最后才想起来,执行痕迹只剩 git 历史,报告只能靠考古重建。
 
 ---
