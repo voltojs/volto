@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createAgent } from "../create-agent.js";
+import { createAgent, type CreateAgentOptions } from "../create-agent.js";
 import type {
   Message,
   ModelEvent,
@@ -150,6 +150,15 @@ describe("workspace reminder", () => {
 
     expect(calls).toBe(1);
     expect(allText(requests[0])).toContain("Working directory: /repo-wt");
+  });
+
+  it("exposes no rebuild seed for the workspace fingerprint (D8)", () => {
+    // A guard against re-introducing the plumbing D8 rejected: if someone adds
+    // `initialAnnouncedWorkspace`, this line stops compiling.
+    const opts: CreateAgentOptions = { modelPort: rec([]).port };
+    // @ts-expect-error — spec 2026-11-10 D8: a rebuild re-announces, never seeds.
+    void opts.initialAnnouncedWorkspace;
+    expect(opts).toBeDefined();
   });
 
   it("does not spawn a shell on dispatch when the parent never used bash", async () => {
