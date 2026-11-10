@@ -154,6 +154,72 @@ describe("createTaskTool", () => {
   });
 });
 
+describe("createTaskTool with routing tiers", () => {
+  const tiers = [
+    { id: "premium", label: "高级", description: "复杂任务与深度推理", assignable: true },
+    { id: "economy", label: "经济", description: "省成本，批量与低风险子任务", assignable: true },
+    { id: "fast", label: "快速", description: "低延迟", assignable: false },
+  ];
+
+  it("lists the assignable tiers in the description, unassigned ones excluded", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "ok" }), { tiers });
+    expect(tool.definition.description).toContain(
+      "Available model tier values for `model`",
+    );
+    expect(tool.definition.description).toContain("economy (经济): 省成本，批量与低风险子任务");
+    expect(tool.definition.description).toContain("premium (高级): 复杂任务与深度推理");
+    // An unassigned tier must not be offered: a menu-following model would
+    // bounce straight into its "no assigned model" error.
+    expect(tool.definition.description).not.toContain("fast (快速)");
+  });
+
+  it("rejects a raw model code at validation instead of reaching dispatch", async () => {
+    const seen: Array<{ model?: string }> = [];
+    const tool = createTaskTool(
+      async (req) => {
+        seen.push({ model: req.model });
+        return { taskId: "t1", text: "ok" };
+      },
+      { tiers },
+    );
+    const result = await tool.handler({ message: "go", model: "sonnet" });
+    expect(result.isError).toBe(true);
+    expect(seen).toHaveLength(0);
+    // The zod enum names the legal ids, so the model self-corrects.
+    expect(String(result.modelContent)).toContain("economy");
+  });
+
+  it("accepts a tier id and passes it to dispatch; unassigned ids reach the dispatch check", async () => {
+    const seen: Array<{ model?: string }> = [];
+    const tool = createTaskTool(
+      async (req) => {
+        seen.push({ model: req.model });
+        return { taskId: "t1", text: "ok" };
+      },
+      { tiers },
+    );
+    await tool.handler({ message: "go", model: "economy" });
+    expect(seen).toEqual([{ model: "economy" }]);
+    // The enum covers ALL ids: an unassigned one must still reach the
+    // dispatch layer's dedicated "no assigned model" error, not a zod rejection.
+    const result = await tool.handler({ message: "go", model: "fast" });
+    expect(result.isError).toBeUndefined();
+    expect(seen).toEqual([{ model: "economy" }, { model: "fast" }]);
+  });
+
+  it("tells the model to omit `model` when the table has nothing assignable", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "ok" }), {
+      tiers: [{ id: "economy", assignable: false }],
+    });
+    expect(tool.definition.description).toContain("none has an assigned model yet");
+  });
+
+  it("keeps `model` free text when no tier table is configured (legacy chain)", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1", text: "ok" }));
+    expect(tool.definition.description).not.toContain("Available model tier values");
+  });
+});
+
 describe("createTaskOutputTool", () => {
   it("requires both the task capability and the depth budget", () => {
     const tool = createTaskOutputTool(async () => ({ text: "done" }));

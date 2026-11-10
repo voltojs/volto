@@ -89,7 +89,7 @@ import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgr
 import { createNodeSpillStore } from "@volto/runtime-node";
 import type { EgressPolicy } from "@volto/runtime-node";
 import type { Tool } from "@volto/tools-common";
-import type { SubAgentDispatch, AgentTypeSummary } from "@volto/tools-agent";
+import type { SubAgentDispatch, AgentTypeSummary, AgentTierSummary } from "@volto/tools-agent";
 import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@volto/tools-agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
@@ -366,6 +366,25 @@ function dispatchableTierIds(
     .map((t) => t.id)
     .join(", ");
   return ids === "" ? "(none assignable)" : ids;
+}
+
+/**
+ * The tier menu the parent model sees BEFORE choosing: every id goes into the
+ * schema enum (an unassigned id must still reach its dedicated dispatch-time
+ * error), while the rendered description lists only assignable ones — see
+ * `AgentTierSummary`. Empty when no table is configured (legacy chain: raw
+ * model codes stay free text).
+ */
+function tierSummariesForTool(
+  tiers: CreateAgentOptions["routingTiers"],
+): AgentTierSummary[] {
+  if (tiers === undefined) return [];
+  return tiers.map((t) => ({
+    id: t.id,
+    ...(t.label !== undefined ? { label: t.label } : {}),
+    ...(t.description !== undefined ? { description: t.description } : {}),
+    assignable: t.target !== null,
+  }));
 }
 
 /**
@@ -666,6 +685,10 @@ export interface CreateAgentOptions {
   routingTiers?: ReadonlyArray<{
     id: string;
     target: { providerId: string; modelId: string } | null;
+    /** Tier display name, surfaced to the parent model in the task tool menu. */
+    label?: string;
+    /** Tier purpose text, surfaced to the parent model in the task tool menu. */
+    description?: string;
     /** Spec v2 D10: effort this tier carries; absent = inherit the parent's. */
     reasoningEffort?: string;
   }>;
@@ -1883,6 +1906,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     allCustomTools.push(
       createTaskTool(dispatch, {
         types: buildAgentTypeSummaries(agentSpecs, inheritableToolNames),
+        tiers: tierSummariesForTool(opts.routingTiers),
       }),
     );
     // task_output collects a previously dispatched background task; the
@@ -3755,6 +3779,7 @@ function createSubAgentExecutor(
         ...childTools,
         createTaskTool(nestedDispatch, {
           types: buildAgentTypeSummaries(agentSpecs, nestedToolNames),
+          tiers: tierSummariesForTool(opts.routingTiers),
         }),
       ];
     }

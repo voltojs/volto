@@ -82,6 +82,24 @@ export interface AgentTypeSummary {
   builtIn?: boolean;
 }
 
+/**
+ * One model routing tier, rendered into the tool description so the parent
+ * model can pick a tier id informed — without the menu it can only guess raw
+ * model codes, which tier mode rejects.
+ */
+export interface AgentTierSummary {
+  id: string;
+  label?: string;
+  description?: string;
+  /**
+   * False when the tier has no assigned model. Unassigned tiers stay in the
+   * schema enum (so a per-dispatch reference still reaches its dedicated
+   * "no assigned model" error) but never appear in the menu: offering one
+   * would bounce a menu-following model straight into that error.
+   */
+  assignable: boolean;
+}
+
 const NO_OUTPUT = "(Sub-agent completed with no output)";
 
 /**
@@ -113,11 +131,20 @@ export function buildResultBlocks(
  * enum, not free text: a model that decides "general-purpose" but emits a
  * drifting value must fail validation (isError → self-correct) instead of
  * silently landing on whichever definition the string happens to name.
+ * With a tier table the same rule applies to `model`: in tier mode every
+ * per-dispatch reference is a tier id, so a raw model code must fail
+ * validation rather than reach the provider. The enum covers ALL ids —
+ * unassigned ones included — so their dedicated dispatch-time error stays
+ * reachable; the menu in the description only lists assignable ones.
  */
-function buildTaskSchema(types: AgentTypeSummary[]) {
+function buildTaskSchema(types: AgentTypeSummary[], tiers: AgentTierSummary[]) {
   const subagentType =
     types.length > 0
       ? z.enum(types.map((t) => t.name) as [string, ...string[]])
+      : z.string();
+  const model =
+    tiers.length > 0
+      ? z.enum(tiers.map((t) => t.id) as [string, ...string[]])
       : z.string();
   return z.object({
     message: z.string().describe(
@@ -133,8 +160,12 @@ function buildTaskSchema(types: AgentTypeSummary[]) {
       "Return a task id immediately instead of waiting for the result. " +
         "Use for dispatches expected to run long, or when fanning out several in parallel.",
     ),
-    model: z.string().optional().describe(
-      "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
+    model: model.optional().describe(
+      tiers.length > 0
+        ? "Model routing tier id for this dispatch only; overrides the agent definition's tier. " +
+          "Raw model codes are NOT accepted here — pick a tier id from the list in the tool " +
+          "description. Omit to use the definition's tier (or the parent's model)."
+        : "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
     ),
     title: z.string().min(1).max(120).optional().describe(
       "One-line human-readable label for this dispatch, shown in the UI " +
@@ -173,18 +204,34 @@ function buildTaskSchema(types: AgentTypeSummary[]) {
   });
 }
 
-function renderDescription(types: AgentTypeSummary[]): string {
+function renderDescription(types: AgentTypeSummary[], tiers: AgentTierSummary[]): string {
   const base =
     "Spawn a sub-agent to perform a task in isolation. " +
     "The sub-agent has its own context window and cannot see this conversation. " +
     "Pass `title` (one short line) so the user can identify this dispatch in the UI, " +
     "and `max_iterations` to bound a quick one instead of leaving the child unbounded.";
-  if (types.length === 0) return base;
-  const list = types.map((t) => renderTypeLine(t)).join("\n");
-  return (
-    `${base}\n\nAvailable subagent_type values (tool lists are what the child ` +
-    `actually gets after assembly):\n${list}`
-  );
+  const parts = [base];
+  if (types.length > 0) {
+    const list = types.map((t) => renderTypeLine(t)).join("\n");
+    parts.push(
+      `Available subagent_type values (tool lists are what the child ` +
+        `actually gets after assembly):\n${list}`,
+    );
+  }
+  if (tiers.length > 0) {
+    const menu = tiers.filter((t) => t.assignable).map(renderTierLine).join("\n");
+    parts.push(
+      menu === ""
+        ? "Model routing tiers are configured, but none has an assigned model yet — omit `model`."
+        : `Available model tier values for \`model\` (each dispatch runs on that tier's assigned model):\n${menu}`,
+    );
+  }
+  return parts.join("\n\n");
+}
+
+function renderTierLine(t: AgentTierSummary): string {
+  const name = t.label === undefined || t.label === t.id ? t.id : `${t.id} (${t.label})`;
+  return `- ${name}${t.description ? `: ${t.description}` : ""}`;
 }
 
 function renderTypeLine(t: AgentTypeSummary): string {
@@ -210,13 +257,14 @@ function renderTypeList(types: AgentTypeSummary[]): string {
 
 export function createTaskTool(
   dispatch: SubAgentDispatch,
-  opts?: { types?: AgentTypeSummary[] },
+  opts?: { types?: AgentTypeSummary[]; tiers?: AgentTierSummary[] },
 ) {
   const types = opts?.types ?? [];
+  const tiers = opts?.tiers ?? [];
   return defineTool({
     name: "task",
-    description: renderDescription(types),
-    schema: buildTaskSchema(types),
+    description: renderDescription(types, tiers),
+    schema: buildTaskSchema(types, tiers),
     requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
     riskTier: "WRITE_LOW",
     run: async (input): Promise<ToolResult> => {

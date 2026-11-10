@@ -100,11 +100,39 @@ describe("sub-agent model tier routing", () => {
 
     const result = await taskTool!.handler({ message: "go", model: "nope" });
 
+    // With the tier table configured the schema turns `model` into an enum of
+    // tier ids, so a raw code is rejected at validation — before dispatch —
+    // and the zod message names the legal ids for self-correction.
     expect(result.isError).toBe(true);
-    expect(textOf(result.modelContent)).toMatch(
-      /Unknown model tier "nope"\. Available tiers: premium/,
-    );
+    expect(textOf(result.modelContent)).toMatch(/Invalid input for task: model/);
+    expect(textOf(result.modelContent)).toContain("premium");
     expect(requests).toHaveLength(0);
+  });
+
+  it("shows the parent model the tier menu before it chooses", () => {
+    // The bug this pins: the routing table was only consulted at dispatch
+    // validation, never surfaced to the model — so a "use the cheap model"
+    // request guessed raw codes ("sonnet") and only learned the real ids by
+    // failing. The task tool description must carry the assignable tiers.
+    const { port } = recordingModelPort([]);
+    const agent = createAgent({
+      modelPort: port,
+      model: "parent-model",
+      enableTaskTool: true,
+      routingTiers: [
+        { id: "economy", label: "经济", description: "省成本，批量与低风险子任务", target: { providerId: "p1", modelId: "small" } },
+        { id: "fast", label: "快速", description: "低延迟", target: null },
+      ],
+    });
+    const taskTool = agent.tools.find((t) => t.definition.name === "task");
+    expect(taskTool).toBeDefined();
+
+    expect(taskTool!.definition.description).toContain(
+      "Available model tier values for `model`",
+    );
+    expect(taskTool!.definition.description).toContain("economy (经济): 省成本，批量与低风险子任务");
+    // Unassigned tiers stay out of the menu (same rule as the error list).
+    expect(taskTool!.definition.description).not.toContain("fast (快速)");
   });
 
   it("spec 引用未知档位 → 降级继承 + 事件", async () => {
@@ -579,10 +607,11 @@ describe("sub-agent model tier routing — null targets and tier effort", () => 
     expect(requests).toHaveLength(0);
   });
 
-  it("an all-unassigned table lists (none assignable) for an unknown tier id", async () => {
-    // The same empty-menu form on the unknown-id throw (review fix round 1):
-    // the caller asked for "nope", and with nothing dispatchable the reply
-    // must say so instead of printing a dead menu.
+  it("an all-unassigned table rejects an unknown tier id at validation, not with a dead menu", async () => {
+    // With the schema enum in tier mode, "nope" never reaches the dispatch
+    // throw — zod rejects it and names the table's ids. The "(none
+    // assignable)" empty-menu form stays reachable for in-table ids through
+    // the dispatch backstop (the sibling test above pins it via "economy").
     const { port, requests } = recordingModelPort([]);
     const agent = createAgent({
       modelPort: port,
@@ -599,9 +628,7 @@ describe("sub-agent model tier routing — null targets and tier effort", () => 
     const result = await taskTool!.handler({ message: "go", model: "nope" });
 
     expect(result.isError).toBe(true);
-    expect(textOf(result.modelContent)).toContain(
-      'Unknown model tier "nope". Available tiers: (none assignable)',
-    );
+    expect(textOf(result.modelContent)).toMatch(/Invalid input for task: model/);
     expect(requests).toHaveLength(0);
   });
 
