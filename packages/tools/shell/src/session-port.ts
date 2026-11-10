@@ -22,6 +22,12 @@ export interface BashSessionRunResult {
    * sessions without a determinable timeout path keep the old behavior.
    */
   timedOut?: boolean;
+  /**
+   * The session's directory once the command finished. Absent when the shell
+   * never reported one (timeout rebuild, or the shell died first) — the tool
+   * then says nothing about the cwd rather than guessing.
+   */
+  cwdAfter?: string;
 }
 
 export interface BashSessionLike {
@@ -29,4 +35,9 @@ export interface BashSessionLike {
     cmd: string,
     opts?: { cwd?: string; timeout?: number },
   ): Promise<BashSessionRunResult>;
+  /**
+   * The directory the session is in right now. Optional: a session that
+   * cannot report it simply never triggers the cwd confirmation note.
+   */
+  cwd?: () => string | undefined;
 }

@@ -45,6 +45,13 @@ export interface BashToolOptions {
    * isolated / run_in_background, bash routes through session.run.
    */
   getSession?: () => BashSessionLike | undefined;
+  /**
+   * Describe a directory for the cwd confirmation line, e.g.
+   * `"/repo-wt (branch: feat/x)"`. The tool layer never asks git itself —
+   * the host supplies this from its own cache. Returning undefined (a cache
+   * miss) makes the note report the bare path rather than invent a branch.
+   */
+  describeWorkspace?: (cwd: string) => string | undefined;
 }
 
 export function createBashTool(shell: Shell, options?: BashToolOptions) {
@@ -105,6 +112,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       const session = options?.getSession?.();
       if (!isolated && session) {
         try {
+          const cwdBefore = session.cwd?.();
           const r = await session.run(command, {
             cwd,
             timeout: effectiveTimeout,
@@ -136,8 +144,16 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           const sessionTimeoutNote = r.timedOut
             ? `${renderTimeoutSignature("bash", effectiveTimeout)}\n\n`
             : "";
+          // Confirm a directory change where the model will read it: the tail
+          // of the result for the command that caused it. Appended AFTER the
+          // truncation cut (and excluded from OUTPUT_LIMIT) — a cd the model
+          // cannot see is worse than a few extra characters.
+          const cwdNote =
+            r.cwdAfter !== undefined && r.cwdAfter !== cwdBefore
+              ? `\n\n[cwd: ${options?.describeWorkspace?.(r.cwdAfter) ?? r.cwdAfter}]`
+              : "";
           return {
-            modelContent: `${sessionTimeoutNote}${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}`,
+            modelContent: `${sessionTimeoutNote}${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}${cwdNote}`,
             ...(r.timedOut ? { isError: true } : {}),
             displayMetadata: {
               exitCode: r.exitCode,
@@ -147,6 +163,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
               totalLength: combined.length,
               ...(backgroundUnavailable ? { backgroundFallback: true } : {}),
               ...(r.timedOut ? { timedOut: true } : {}),
+              ...(r.cwdAfter !== undefined ? { cwdAfter: r.cwdAfter } : {}),
             },
           };
         } catch (error) {
