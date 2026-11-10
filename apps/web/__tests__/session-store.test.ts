@@ -589,3 +589,29 @@ describe('permission mode migration', () => {
     expect(session?.permissionMode).toBe('ask');
   });
 });
+
+describe('sidebar width', () => {
+  it('seeds from localStorage at module init — the store number never reaches the DOM', async () => {
+    // The sidebar renders `var(--volto-sidebar-width)` (restored pre-paint
+    // by the layout's inline script), so the store value is pure drag math
+    // and can seed eagerly without any hydration risk.
+    window.localStorage.setItem('volto.sidebar.width', '374');
+    vi.resetModules();
+    const mod = await import('@/stores/session-store');
+    expect(mod.useSessionStore.getState().sidebarWidth).toBe(374);
+    window.localStorage.removeItem('volto.sidebar.width');
+  });
+
+  it('clamps setSidebarWidth into [200, 480], persists, and publishes the CSS variable', () => {
+    useSessionStore.getState().setSidebarWidth(50);
+    expect(useSessionStore.getState().sidebarWidth).toBe(200);
+    useSessionStore.getState().setSidebarWidth(9999);
+    expect(useSessionStore.getState().sidebarWidth).toBe(480);
+    expect(window.localStorage.getItem('volto.sidebar.width')).toBe('480');
+    expect(
+      document.documentElement.style.getPropertyValue('--volto-sidebar-width'),
+    ).toBe('480px');
+    window.localStorage.removeItem('volto.sidebar.width');
+    document.documentElement.style.removeProperty('--volto-sidebar-width');
+  });
+});

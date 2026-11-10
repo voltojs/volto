@@ -59,6 +59,11 @@
  * a different product.
  */
 :root {
+    /* Sidebar width preference. The SSR HTML references this variable; a
+       blocking inline script in the layout head overwrites it from
+       localStorage before the first paint, so the very first rendered frame
+       already carries the persisted width (no default-width flash). */
+    --volto-sidebar-width: 288px;
     --background: oklch(0.985 0.004 80);
     --foreground: oklch(0.2 0.014 60);
     --card: oklch(0.995 0.003 80);

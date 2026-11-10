@@ -6,6 +6,7 @@ import { LocalePreferenceSync } from '@/components/locale-sync';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
+import { sidebarWidthRestoreScript } from '@/lib/sidebar-width';
 import { NextIntlClientProvider } from 'next-intl';
 import { cookies } from 'next/headers';
 import { getLocale, getTranslations } from 'next-intl/server';
@@ -58,6 +59,13 @@ export default async function RootLayout({
         'font-sans',
       )}
     >
+      <head>
+        {/* Runs during HTML parsing, before the first paint: restores the
+            persisted sidebar width into the CSS variable the layout reads,
+            so the first visible frame already carries it (no default-width
+            flash, no hydration mismatch — both sides render `var(...)`). */}
+        <script dangerouslySetInnerHTML={{ __html: sidebarWidthRestoreScript() }} />
+      </head>
       <body>
         <NextIntlClientProvider>
           <LocalePreferenceSync />

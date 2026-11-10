@@ -80,8 +80,9 @@ export function Sidebar() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Right-edge drag handle: drag widens the sidebar, double-click resets —
-  // mirrors the RightPane's left-edge handle.
-  const sidebarWidth = useSessionStore((s) => s.sidebarWidth);
+  // mirrors the RightPane's left-edge handle. The store number only feeds the
+  // drag math; the DOM follows the CSS variable that `setSidebarWidth`
+  // publishes, so no width subscription is needed here.
   const setSidebarWidth = useSessionStore((s) => s.setSidebarWidth);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   // Width transition is for open/close only; while dragging it would lag the pointer.
@@ -142,13 +143,16 @@ export function Sidebar() {
         'bg-sidebar text-sidebar-foreground flex h-full shrink-0 items-stretch overflow-hidden',
         !resizing && 'transition-[width] duration-200 ease-out',
       )}
-      style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+      // The DOM reads the CSS variable (seeded pre-paint by the layout's
+      // inline script, live-updated by setSidebarWidth during drags), never
+      // the store number — so SSR HTML and hydration trivially agree.
+      style={{ width: sidebarOpen ? 'var(--volto-sidebar-width)' : 0 }}
     >
       {/* Fixed-width column with shrink-0: the collapse animation clips it
           via the outer overflow-hidden instead of squashing the text. */}
       <div
         className="border-sidebar-border flex h-full shrink-0 flex-col border-r"
-        style={{ width: sidebarWidth - 4 }}
+        style={{ width: 'calc(var(--volto-sidebar-width) - 4px)' }}
       >
         {/* Nameplate */}
         <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">

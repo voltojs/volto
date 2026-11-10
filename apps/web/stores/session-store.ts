@@ -6,6 +6,12 @@ import type {
 } from '@volto/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import type { QueuedSeed } from '@/lib/projection';
+import {
+  SIDEBAR_WIDTH_KEY,
+  applySidebarWidthVar,
+  clampSidebarWidth,
+  loadSidebarWidth,
+} from '@/lib/sidebar-width';
 import { useConfigStore } from './config-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 
@@ -186,28 +192,20 @@ interface SessionState {
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
-  /** Sidebar width in px; driven by the right-edge drag handle. */
+  /**
+   * Sidebar width in px; drives the right-edge drag math. The DOM renders
+   * the CSS variable instead of this number (see lib/sidebar-width.ts), so
+   * seeding from localStorage here cannot mismatch hydration.
+   */
   sidebarWidth: number;
   setSidebarWidth: (n: number) => void;
 }
 
-export const SIDEBAR_WIDTH_MIN = 200;
-export const SIDEBAR_WIDTH_MAX = 480;
-/** Matches the original fixed `w-72`. */
-export const SIDEBAR_WIDTH_DEFAULT = 288;
-
-const SIDEBAR_WIDTH_KEY = 'volto.sidebar.width';
-
-function clampSidebarWidth(n: number): number {
-  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)));
-}
-
-function loadSidebarWidth(): number {
-  if (typeof window === 'undefined') return SIDEBAR_WIDTH_DEFAULT;
-  const raw = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
-  const n = raw === null ? Number.NaN : Number(raw);
-  return Number.isFinite(n) ? clampSidebarWidth(n) : SIDEBAR_WIDTH_DEFAULT;
-}
+export {
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_DEFAULT,
+} from '@/lib/sidebar-width';
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
@@ -425,6 +423,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     const width = clampSidebarWidth(n);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+      applySidebarWidthVar(width);
     }
     set({ sidebarWidth: width });
   },
