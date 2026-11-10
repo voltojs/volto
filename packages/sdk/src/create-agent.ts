@@ -1485,8 +1485,10 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       workspaceAnnouncements.get(cwd) ??
       (await resolveWorkspaceReminderOnce(cwd))?.announce;
     if (announce === undefined) return undefined;
-    const state = /^Git (?:branch|repository): (.+)$/m.exec(announce)?.[1];
-    return state === undefined ? undefined : `${cwd} (branch: ${state})`;
+    const branch = /^Git branch: (.+)$/m.exec(announce)?.[1];
+    if (branch !== undefined) return `${cwd} (branch: ${branch})`;
+    // "no repository" is not a branch named none — say what it is.
+    return /^Git repository: none$/m.test(announce) ? `${cwd} (no git repository)` : undefined;
   }
 
   // ── Identifier port ───────────────────────
@@ -1623,22 +1625,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     adapterTools.push(
       createBashTool(effectiveShell!, {
         getSession,
-        // Name the branch on the confirmation line when this instance has
-        // already resolved that directory; a cache miss reports the bare
-        // path instead of guessing (spec 2026-11-10 §4.5).
-        describeWorkspace: async (cwd) => {
-          if (process.env.VOLTO_DEBUG_WORKSPACE === "1") console.error("[dbg] describeWorkspace", cwd);
-          // Cache hit is free; a miss resolves now, so the line the model
-          // reads can name the branch of the directory it just moved into.
-          const announce =
-            workspaceAnnouncements.get(cwd) ??
-            (await resolveWorkspaceReminderOnce(cwd))?.announce;
-          if (announce === undefined) return undefined;
-          const branch = /^Git branch: (.+)$/m.exec(announce)?.[1];
-          const repo = /Git repository: (.+)$/m.exec(announce)?.[1];
-          const suffix = branch ?? repo;
-          return suffix === undefined ? undefined : `${cwd} (branch: ${suffix})`;
-        },
+        // Shared with the Runner-side executor closure: one implementation,
+        // so the tool and the abort path cannot drift (see describeWorkspaceForBash).
+        describeWorkspace: describeWorkspaceForBash,
       }),
       createBashOutputTool(effectiveShell!),
       createKillShellTool(effectiveShell!),
@@ -4127,13 +4116,12 @@ function createSubAgentExecutor(
       ...(subCatalogLayer ? [subCatalogLayer] : []),
     ];
 
-    // Where the child will actually work. `getSession()` is fine here (unlike
-    // the per-turn peek): a dispatch that reached this point is about to run a
-    // child agent, and a session created for it serves that child's own bash
-    // calls. Reading the existing session's cwd only avoids spawning when the
-    // parent never used bash — i.e. exactly the peek semantics.
+    // Where the child will actually work. Peek only: `getSession()` CREATES the
+    // persistent shell, and a parent that has never run bash must not get one
+    // just because it dispatched (the lazy-spawn contract). If the parent did
+    // run bash, the session already exists and its cwd is what this reads.
     const subWorkspaceReminder = await resolveWorkspaceReminderOnce(
-      getSession?.()?.cwd?.() ?? peekSessionCwd() ?? opts.cwd ?? process.cwd(),
+      peekSessionCwd() ?? opts.cwd ?? process.cwd(),
     );
 
     // Every model setting the definition declares outranks the parent's for

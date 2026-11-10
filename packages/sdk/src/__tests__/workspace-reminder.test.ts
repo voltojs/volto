@@ -127,6 +127,59 @@ describe("workspace reminder", () => {
     expect(childSystem).not.toContain("Working directory: /repo (project: volto)");
   });
 
+  it("re-announces once on the first turn of a rebuilt instance", async () => {
+    // Spec D8: the fingerprint deliberately does NOT cross a rebuild, so the
+    // rebuilt conversation says where it is again — idempotent, and it
+    // self-heals a workspace that changed while the instance was down.
+    const { port, requests } = rec([textScript("ok")]);
+    let calls = 0;
+    const agent = createAgent({
+      modelPort: port,
+      cwd: "/repo-wt",
+      resolveWorkspaceReminder: async () => {
+        calls += 1;
+        return { key: "/repo-wt\0feat/x", announce: "Working directory: /repo-wt (project: volto)" };
+      },
+    });
+
+    await agent.run("continue");
+
+    expect(calls).toBe(1);
+    expect(allText(requests[0])).toContain("Working directory: /repo-wt");
+  });
+
+  it("does not spawn a shell on dispatch when the parent never used bash", async () => {
+    // The dispatch-time cwd read must peek: `getSession()` would create the
+    // persistent shell, so a parent that only delegated would still pay a
+    // process it never asked for.
+    const { port } = rec([
+      toolCallScript("c1", "task", JSON.stringify({ message: "look" })),
+      textScript("child done"),
+      textScript("parent done"),
+    ]);
+    let spawns = 0;
+    const agent = createAgent({
+      modelPort: port,
+      cwd: "/repo",
+      enableTaskTool: true,
+      shell: {
+        // eslint-disable-next-line require-yield
+        async *exec() {
+          throw new Error("unused");
+        },
+      },
+      sessionSpawner: () => {
+        spawns += 1;
+        throw new Error("must not spawn");
+      },
+      resolveWorkspaceReminder: async () => ({ key: "k", announce: "Working directory: /repo" }),
+    });
+
+    await agent.run("delegate only");
+
+    expect(spawns).toBe(0);
+  });
+
   it("degrades silently when the host resolver throws", async () => {
     const { port, requests } = rec([textScript("fine")]);
     const agent = createAgent({
