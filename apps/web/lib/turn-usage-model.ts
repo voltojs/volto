@@ -16,9 +16,22 @@ export function promptTokens(usage: TurnUsage): number {
 
 /** 缓存命中率 0..1；prompt 为 0 时无意义 → null（显示为「—」，不显示 0%）。 */
 export function cacheHitRate(usage: TurnUsage): number | null {
+  if (usage.cacheReporting === 'not-reported' || usage.cacheReporting === 'unsupported') {
+    return null;
+  }
   const total = promptTokens(usage);
   if (total <= 0) return null;
   return usage.cacheReadTokens / total;
+}
+
+/** Human-readable cache value; null means the protocol never reports it. */
+export function cacheHitLabel(
+  usage: TurnUsage,
+  t: (key: string) => string,
+): string {
+  if (usage.cacheReporting === 'unsupported') return t('usage.cacheUnsupported');
+  if (usage.cacheReporting === 'not-reported') return t('usage.cacheUnreported');
+  return formatCacheHitRate(cacheHitRate(usage));
 }
 
 /** '99.9%'；null → '—'。 */

@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  cacheHitLabel,
   cacheHitRate,
   formatCacheHitRate,
   formatExactTokens,
@@ -74,6 +75,15 @@ describe('turn usage formatting', () => {
     };
     expect(cacheHitRate(zeroPrompt)).toBeNull();
     expect(formatCacheHitRate(null)).toBe('—');
+  });
+
+  it('reports unknown cache state instead of a misleading zero', () => {
+    const notReported: TurnUsage = { ...GOLD, cacheReporting: 'not-reported' };
+    expect(cacheHitRate(notReported)).toBeNull();
+    const t = (key: string) => key;
+    expect(cacheHitLabel(notReported, t)).toBe('usage.cacheUnreported');
+    expect(cacheHitLabel({ ...GOLD, cacheReporting: 'unsupported' }, t))
+      .toBe('usage.cacheUnsupported');
   });
 
   it('renders a fully cached prompt as 100.0%', () => {

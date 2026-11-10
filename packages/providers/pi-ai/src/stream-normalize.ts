@@ -14,6 +14,7 @@ import { toReplayEnvelope } from "./replay.js";
 export async function* normalizeStream(
   events: AsyncIterable<AssistantMessageEvent>,
   model: string,
+  cacheMode?: "none" | "implicit" | "explicit",
 ): AsyncIterable<ModelEvent> {
   for await (const event of events) {
     switch (event.type) {
@@ -67,6 +68,20 @@ export async function* normalizeStream(
             totalTokens: usage.totalTokens,
             cacheReadTokens: usage.cacheRead,
             cacheWriteTokens: usage.cacheWrite,
+            // pi-ai normalizes missing cache fields to 0, so a zero cannot
+            // distinguish "reported zero" from "not reported". For implicit
+            // caches, only a positive bucket proves the provider reported
+            // it; a zero stays unknown instead of becoming a fake 0.0% hit
+            // rate. Anthropic's explicit protocol always reports both fields,
+            // so its zero is meaningful.
+            cacheReporting:
+              cacheMode === "none"
+                ? "unsupported"
+                : usage.cacheRead > 0 || usage.cacheWrite > 0
+                  ? "reported"
+                  : cacheMode === "explicit"
+                    ? "reported"
+                    : "not-reported",
             ...(usage.reasoning !== undefined ? { reasoningTokens: usage.reasoning } : {}),
           };
         }

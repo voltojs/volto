@@ -2,13 +2,24 @@ import type { Models, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@volto/core";
 import {
   buildModels,
+  cacheCapability,
   describeModelInfo,
   registryProviderId,
   resolveConfiguredApiKey,
   type PiAiProviderConfig,
+  type ProviderAuth,
 } from "./collection.js";
 import { toPiContext } from "./context.js";
 import { normalizeStream } from "./stream-normalize.js";
+
+export interface RouteRequestOptions {
+  /** How the API key is sent; absent derives from the model protocol. */
+  auth?: ProviderAuth;
+  /** Non-secret headers from the provider route. */
+  headers?: Record<string, string>;
+  /** The route's raw key, used to build auth headers without exposing it. */
+  apiKey?: string;
+}
 
 export interface CreatePiAiModelPortOptions {
   providers: PiAiProviderConfig[];
@@ -33,6 +44,7 @@ export function createPiAiModelPort(opts: CreatePiAiModelPortOptions): ModelPort
   const configId = resolveProviderId(opts);
   const models = buildModels(opts.providers);
   const apiKey = resolveConfiguredApiKey(opts.providers, configId);
+  const config = opts.providers.find((provider) => provider.id === configId);
   // Lookups go through the registry key, which for a catalog provider is
   // pi-ai's own provider id rather than volto's config id (collection.ts).
   return createPiAiModelPortFromModels(
@@ -40,6 +52,13 @@ export function createPiAiModelPort(opts: CreatePiAiModelPortOptions): ModelPort
     registryProviderId(opts.providers, configId),
     opts.defaultModel,
     apiKey,
+    config === undefined
+      ? undefined
+      : {
+          ...(config.auth === undefined ? {} : { auth: config.auth }),
+          ...(config.headers === undefined ? {} : { headers: config.headers }),
+          ...(config.apiKey === undefined ? {} : { apiKey: config.apiKey }),
+        },
   );
 }
 
@@ -60,6 +79,7 @@ export function createPiAiModelPortFromModels(
    * `fixedApiKeyAuth` by `buildModels()`.
    */
   requestApiKey?: string,
+  route?: RouteRequestOptions,
 ): ModelPort {
   return {
     async *stream(req: ModelRequest): AsyncIterable<ModelEvent> {
@@ -107,6 +127,34 @@ export function createPiAiModelPortFromModels(
           }
         }
 
+        // Step 2b: resolve auth headers for this protocol. A bearer route
+        // must suppress the Anthropic SDK's default x-api-key; pi-ai treats a
+        // null header value as "remove this default".
+        const auth = route?.auth ?? (model.api === "anthropic-messages"
+          ? { kind: "x-api-key" as const }
+          : { kind: "bearer" as const });
+        const routeHeaders: Record<string, string | null> = { ...(route?.headers ?? {}) };
+        // Only an explicitly configured auth scheme may synthesize headers.
+        // Untouched catalog providers keep their built-in SDK auth (and
+        // providers like Google/Bedrock must not receive a stray Bearer).
+        if (route?.auth !== undefined && route.apiKey !== undefined) {
+          if (auth.kind === "bearer") {
+            routeHeaders["authorization"] = `Bearer ${route.apiKey}`;
+            // Anthropic defaults to x-api-key; suppress it so a bearer-only
+            // compatible gateway never receives two credentials.
+            routeHeaders["x-api-key"] = null;
+          } else if (auth.kind === "x-api-key") {
+            routeHeaders["x-api-key"] = route.apiKey;
+            // The OpenAI SDK would also emit Bearer from the resolved key.
+            routeHeaders["authorization"] = null;
+          } else if (auth.kind === "header" && auth.name !== undefined) {
+            routeHeaders[auth.name] = route.apiKey;
+            // A custom header is the only credential this route wants.
+            routeHeaders["authorization"] = null;
+            routeHeaders["x-api-key"] = null;
+          }
+        }
+
         // Step 3: translate core's Message[] into a pi-ai Context.
         const context = toPiContext(req, model);
 
@@ -128,10 +176,11 @@ export function createPiAiModelPortFromModels(
             : {}),
           ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          ...(Object.keys(routeHeaders).length > 0 ? { headers: routeHeaders } : {}),
         });
 
         // Step 5: normalize pi-ai's event stream into volto's ModelEvent stream.
-        yield* normalizeStream(events, model.id);
+        yield* normalizeStream(events, model.id, cacheCapability(model).mode);
       } catch (err) {
         yield {
           type: "error",

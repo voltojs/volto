@@ -14,6 +14,16 @@ export interface Project {
   createdAt: number;
 }
 
+export type ProviderProtocol =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'anthropic-messages';
+
+export type ProviderAuth =
+  | { kind: 'bearer' }
+  | { kind: 'x-api-key' }
+  | { kind: 'header'; name: string };
+
 /** One selectable reasoning-effort tier for a model. The id is opaque — never hardcode or parse it. */
 export interface ReasoningEffort {
   id: string;
@@ -43,6 +53,8 @@ export interface Model {
   id: string;
   name: string;
   code: string;
+  /** Per-model protocol override; absent follows the provider default. */
+  protocol?: ProviderProtocol;
   /** 最大上下文窗口（tokens）。可选：未设置时上下文环显示灰态。 */
   contextWindow?: number;
   /** 单次模型调用的最大输出 token 数。可选：未设置时沿用供应商默认值。 */
@@ -74,6 +86,8 @@ export interface Model {
  */
 export interface CatalogProviderModel {
   code: string;
+  /** Per-model protocol override; absent follows the provider default. */
+  protocol?: ProviderProtocol;
   /**
    * Overrides of what pi-ai's catalog reports for this model. Absent means
    * "use the catalog's value", so these are only ever written by the user.
@@ -100,6 +114,7 @@ export interface CatalogProviderModel {
 /** One catalog-provider model entry, as sent in a create/update request body. */
 export interface CatalogModelInput {
   code: string;
+  protocol?: ProviderProtocol;
   name?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
@@ -130,6 +145,8 @@ export type Provider =
       /** Replaces pi-ai's own address for this provider; null means "use it". */
       baseURL: string | null;
       apiKeyMasked: string | null;
+      protocol?: 'auto' | ProviderProtocol;
+      auth?: ProviderAuth;
       models: CatalogProviderModel[];
     }
   | {
@@ -138,6 +155,8 @@ export type Provider =
       name: string;
       baseURL: string | null;
       apiKeyMasked: string | null;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
       models: Model[];
     };
 
@@ -146,6 +165,7 @@ export interface CustomModelInput {
   id?: string;
   name: string;
   code: string;
+  protocol?: ProviderProtocol;
   contextWindow?: number;
   maxOutputTokens?: number;
   /** Whether this model supports reasoning/thinking. */
@@ -163,6 +183,8 @@ export type ProviderInput =
       baseURL?: string | null;
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
+      protocol?: 'auto' | ProviderProtocol;
+      auth?: ProviderAuth | null;
       models: CatalogModelInput[];
     }
   | {
@@ -171,6 +193,8 @@ export type ProviderInput =
       baseURL?: string | null;
       /** Omit to keep the stored key unchanged. */
       apiKey?: string | null;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth | null;
       models?: CustomModelInput[];
     };
 
@@ -271,6 +295,24 @@ export const createProvider = (input: ProviderInput) =>
 export const updateProvider = (id: string, input: ProviderUpdateInput) =>
   request<Provider>(`/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
+    body: JSON.stringify(input),
+  });
+
+export interface ProviderProbeResult {
+  live: false;
+  ok: boolean;
+  protocol?: string;
+  cache: 'none' | 'implicit' | 'explicit' | 'unknown';
+  checks: { model: boolean; auth: boolean; protocol: boolean };
+  error?: string;
+}
+
+export const probeProvider = (
+  id: string,
+  input: { modelId?: string; protocol?: ProviderProtocol } = {},
+) =>
+  request<ProviderProbeResult>(`/providers/${encodeURIComponent(id)}/probe`, {
+    method: 'POST',
     body: JSON.stringify(input),
   });
 

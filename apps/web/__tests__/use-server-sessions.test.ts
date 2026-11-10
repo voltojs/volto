@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ConversationMessage } from '@volto/sdk/sse';
 import { useSessionStore, type Session } from '@/stores/session-store';
 import {
+  applyServerSummaries,
   ensureSessionDetail,
   needsQueueResync,
   selectUnpersistedSessions,
@@ -56,6 +57,38 @@ function serverSummary(id: string): ServerSessionSummary {
 // never be visible through this file's binding. The module-level `inFlight`
 // map self-cleans (each promise deletes its own entry in `.finally`), so
 // nothing needs resetting between tests anyway.
+describe('server session reasoning hydration', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [], currentSessionId: null });
+  });
+
+  it('restores reasoningEffort from the session list summary', () => {
+    applyServerSummaries([
+      { ...serverSummary('a'), reasoningEffort: 'eff-high' },
+    ]);
+    expect(useSessionStore.getState().sessions[0]!.reasoningEffort).toBe('eff-high');
+  });
+
+  it('restores reasoningEffort from the session detail payload', async () => {
+    useSessionStore.setState({ sessions: [summary('a')] });
+    fetchServerSessionDetail.mockResolvedValue({
+      id: 'a',
+      messages: [],
+      contextUsage: null,
+      projectId: null,
+      providerId: null,
+      modelId: null,
+      permissionMode: 'ask',
+      reasoningEffort: 'eff-low',
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    await ensureSessionDetail('a');
+    expect(useSessionStore.getState().sessions[0]!.reasoningEffort).toBe('eff-low');
+  });
+});
+
 describe('ensureSessionDetail', () => {
   beforeEach(() => {
     useSessionStore.setState({ sessions: [], currentSessionId: null });

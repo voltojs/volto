@@ -107,6 +107,8 @@
     "turnSummary": "{tokens} tok",
     "contextUsage": "Context usage",
     "cacheHit": "Cache hit",
+    "cacheUnreported": "Cache not reported",
+    "cacheUnsupported": "Caching unsupported",
     "uncachedInput": "Uncached input",
     "cacheRead": "Cache read",
     "cacheWrite": "Cache write",

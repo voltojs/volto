@@ -230,7 +230,13 @@ describe("chat transcript wiring (jsonl)", () => {
     await registry.runTurn("s1", "one", config);
 
     const built = builds[0]!;
-    expect(built["chatMeta"]).toEqual({ projectId: "p1", providerId: "v1", modelId: "m1", permissionMode: "ask" });
+    expect(built["chatMeta"]).toEqual({
+      projectId: "p1",
+      providerId: "v1",
+      modelId: "m1",
+      protocol: "openai-completions",
+      permissionMode: "ask",
+    });
     expect(JSON.stringify(built["chatMeta"])).not.toContain("sk-secret");
   });
 

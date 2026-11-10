@@ -8,15 +8,76 @@ import {
   type Models,
   type MutableModels,
   type Provider,
+  type ProviderStreams,
 } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type {
+  ModelCacheCapability,
   ModelInputValue,
   ModelReasoningInfo,
   ReasoningEffortId,
   ResolvedModelInfo,
 } from "@volto/core";
+
+/** The three protocols Volto exposes as first-class routes. */
+export type ProviderProtocol =
+  | "openai-completions"
+  | "openai-responses"
+  | "anthropic-messages";
+
+/** `auto` is a config-only value; resolution must produce one concrete protocol. */
+export type ConfiguredProtocol = ProviderProtocol | "auto";
+
+export interface ProviderAuth {
+  kind: "bearer" | "x-api-key" | "header";
+  /** Header name for `kind: "header"`; the value comes from the apiKey. */
+  name?: string;
+}
+
+const PROVIDER_PROTOCOLS: readonly ProviderProtocol[] = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+];
+
+export function isProviderProtocol(value: unknown): value is ProviderProtocol {
+  return typeof value === "string"
+    && (PROVIDER_PROTOCOLS as readonly string[]).includes(value);
+}
+
+/**
+ * Resolve one model's protocol without side effects.
+ *
+ * Priority: model override > provider default > catalog api > custom default.
+ * `auto` at the provider level means "follow the catalog"; custom providers
+ * have no catalog entry, so they fall back to openai-completions.
+ */
+export function resolveProviderProtocol(
+  config: PiAiProviderConfig,
+  model: string,
+  catalogApi?: string,
+): ProviderProtocol | undefined {
+  const configured = config.kind === "catalog"
+    ? config.modelProtocols?.[model] ?? config.protocol
+    : config.models.find((entry) => entry.code === model)?.protocol ?? config.protocol;
+  if (configured !== undefined && configured !== "auto") {
+    if (!isProviderProtocol(configured)) {
+      throw new Error(
+        `pi-ai: unknown protocol "${String(configured)}" for provider "${config.id}" model "${model}"`,
+      );
+    }
+    return configured;
+  }
+  if (catalogApi !== undefined) {
+    // Catalog providers outside the three first-class protocols keep their
+    // own API (Google, Bedrock, ...). `undefined` means "preserve catalog".
+    return isProviderProtocol(catalogApi) ? catalogApi : undefined;
+  }
+  return "openai-completions";
+}
 
 /**
  * One configured pi-ai provider. Either a reference into pi-ai's built-in
@@ -43,6 +104,14 @@ export type PiAiProviderConfig =
       baseURL?: string;
       /** User-selected model codes; an empty array means no usable models. */
       modelCodes: string[];
+      /** Provider-level protocol default; `auto` follows the catalog api. */
+      protocol?: ConfiguredProtocol;
+      /** Per-model protocol override, winning over `protocol`. */
+      modelProtocols?: Record<string, ProviderProtocol>;
+      /** How the API key is sent; omitted derives from the protocol. */
+      auth?: ProviderAuth;
+      /** Extra non-secret request headers. */
+      headers?: Record<string, string>;
       /**
        * Per-model user override of pi-ai's catalog `reasoning` flag.
        * `false` forces the model non-reasoning; `true` forces reasoning
@@ -63,9 +132,17 @@ export type PiAiProviderConfig =
       name?: string;
       baseURL: string;
       apiKey?: string;
+      /** Default protocol for every model; omitted means openai-completions. */
+      protocol?: ProviderProtocol;
+      /** How the API key is sent; omitted derives from the protocol. */
+      auth?: ProviderAuth;
+      /** Extra non-secret request headers. */
+      headers?: Record<string, string>;
       models: Array<{
         code: string;
         name?: string;
+        /** Per-model protocol override. */
+        protocol?: ProviderProtocol;
         contextWindow?: number;
         maxOutputTokens?: number;
         reasoning?: boolean;
@@ -104,8 +181,13 @@ function fixedApiKeyAuth(providerId: string, apiKey: string | undefined): ApiKey
  * this, `https://api.openai.com` (no `/v1`) 404s and every pre-existing
  * `https://gateway.example` style config breaks.
  */
-function normalizeBaseUrl(baseUrl: string): string {
+function normalizeBaseUrl(baseUrl: string, protocol: ProviderProtocol): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
+  // The OpenAI SDK appends /chat/completions (or /responses) after /v1. The
+  // Anthropic SDK appends /v1/messages itself, so an Anthropic-compatible
+  // gateway must keep its configured path verbatim (e.g. Qwen's
+  // /apps/anthropic endpoint).
+  if (protocol === "anthropic-messages") return trimmed;
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
@@ -142,13 +224,18 @@ const inputDeclarations = new WeakMap<object, ModelInputValue | undefined>();
  * confirms this is the intended shape (dist/providers/openai.js:9 sets
  * `baseUrl` on the model, not just the provider).
  */
-function buildModel(providerId: string, providerBaseUrl: string, entry: CustomModelEntry): Model<"openai-completions"> {
-  const model: Model<"openai-completions"> = {
+function buildModel(
+  providerId: string,
+  providerBaseUrl: string,
+  entry: CustomModelEntry,
+  protocol: ProviderProtocol,
+): Model<ProviderProtocol> {
+  const model: Model<ProviderProtocol> = {
     id: entry.code,
     name: entry.name ?? entry.code,
-    api: "openai-completions",
+    api: protocol,
     provider: providerId,
-    baseUrl: normalizeBaseUrl(providerBaseUrl),
+    baseUrl: normalizeBaseUrl(providerBaseUrl, protocol),
     reasoning: entry.reasoning ?? false,
     // Three-state, per spec §7 / D3: an undeclared custom model stays
     // image-capable on the wire — treating UNKNOWN as text-only would
@@ -266,6 +353,7 @@ function synthesizeUnknownCatalogModel(
   piProvider: string,
   baseURL: string | undefined,
   inputOverride: ModelInputValue | undefined,
+  protocol: ProviderProtocol,
 ): Model<Api> {
   const catalogModels = source.getModels();
   const reasoningTemplate = catalogModels.find((m) => m.reasoning);
@@ -276,6 +364,8 @@ function synthesizeUnknownCatalogModel(
       ...structural,
       id: code,
       name: code,
+      api: protocol,
+      ...(protocol !== structural.api ? { compat: undefined } : {}),
       reasoning: true,
       // No reasoning template: drop any inherited map so the default level
       // set applies. `undefined` is equivalent to absent for the optional
@@ -305,7 +395,7 @@ function synthesizeUnknownCatalogModel(
   const stub = {
     id: code,
     name: code,
-    api: "openai-completions",
+    api: protocol,
     provider: piProvider,
     baseUrl: baseURL ?? source.baseUrl ?? "https://api.openai.com",
     reasoning: true,
@@ -316,9 +406,25 @@ function synthesizeUnknownCatalogModel(
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MAX_TOKENS,
-  } satisfies Model<"openai-completions"> as Model<Api>;
+  } as Model<Api>;
   inputDeclarations.set(stub, inputOverride);
   return stub;
+}
+
+const PROTOCOL_API = {
+  "openai-completions": openAICompletionsApi,
+  "openai-responses": openAIResponsesApi,
+  "anthropic-messages": anthropicMessagesApi,
+} as const;
+
+/** One implementation per protocol actually used by this provider. */
+function protocolApiMap(models: readonly Model<Api>[]): Partial<Record<ProviderProtocol, ProviderStreams>> {
+  const used = new Set(models.map((model) => model.api).filter(isProviderProtocol));
+  const out: Partial<Record<ProviderProtocol, ProviderStreams>> = {};
+  for (const protocol of used) {
+    out[protocol] = PROTOCOL_API[protocol]();
+  }
+  return out;
 }
 
 function buildCatalogProvider(config: CatalogProviderConfig): Provider {
@@ -331,26 +437,30 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
   const catalogModels = source.getModels();
   const knownIds = new Set(catalogModels.map((m) => m.id));
 
-  const models = catalogModels
+  const originalApis = new Map(catalogModels.map((model) => [model.id, model.api] as const));
+  const models: Model<Api>[] = catalogModels
     .filter((model) => selected.has(model.id))
     .map((model) => {
       // Local so `!== undefined` narrows the possibly-undefined indexed
       // read (noUncheckedIndexedAccess does not narrow element access).
       const inputOverride = config.inputOverrides?.[model.id];
+      const protocol = resolveProviderProtocol(config, model.id, model.api);
       return {
         ...model,
-        // Explicit, so it no longer depends on detectCompat's "unknown provider
-        // is a standard OpenAI endpoint" default — see supportsDeveloperRole.
-        // Only the two OpenAI dialects read this key; the anthropic-messages
-        // and bedrock compat shapes do not declare it, so leave theirs alone.
-        ...(model.api === "openai-completions" || model.api === "openai-responses"
-          ? {
-              compat: {
-                ...model.compat,
-                supportsDeveloperRole: supportsDeveloperRole(config.piProvider, model.id),
-              },
-            }
-          : {}),
+        ...(protocol !== undefined ? { api: protocol } : {}),
+        // A protocol override invalidates the catalog model's compat shape:
+        // OpenAI compat keys do not describe an Anthropic request. Let pi-ai
+        // auto-detect instead of carrying the old dialect's compat across.
+        ...(protocol !== undefined && protocol !== model.api
+          ? { compat: undefined }
+          : model.api === "openai-completions" || model.api === "openai-responses"
+            ? {
+                compat: {
+                  ...model.compat,
+                  supportsDeveloperRole: supportsDeveloperRole(config.piProvider, model.id),
+                },
+              }
+            : {}),
         // User override wins over the catalog's own flag. Setting `reasoning:
         // true` on a catalog model that declares none still yields the default
         // thinking-level set via getSupportedThinkingLevels (see buildModel).
@@ -382,18 +492,38 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
         config.piProvider,
         config.baseURL,
         inputOverride,
+        resolveProviderProtocol(config, code, source.getModels()[0]?.api) ?? "openai-completions",
       ),
     );
   }
 
+  const apis = protocolApiMap(models);
+  // Catalog models outside the three first-class protocols keep the catalog
+  // provider's own implementation; supported models dispatch through the
+  // selected API implementation. A manual Provider keeps that fallback
+  // available (createProvider's API map has no per-model fallback).
+  const dispatch = <T>(model: Model<Api>, run: (streams: ProviderStreams) => T, fallback: () => T): T => {
+    // Untouched catalog models keep the built-in provider wrapper (opencode's
+    // session header, cloudflare's URL placeholders, …). Only a model whose
+    // protocol was actually overridden needs a different API implementation.
+    if (originalApis.get(model.id) === model.api) return fallback();
+    const streams = apis[model.api as ProviderProtocol];
+    return streams !== undefined ? run(streams) : fallback();
+  };
   return {
     id: config.piProvider,
     name: source.name,
     baseUrl: config.baseURL ?? source.baseUrl,
     auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
     getModels: () => models,
-    stream: (model, context, options) => source.stream(model, context, options),
-    streamSimple: (model, context, options) => source.streamSimple(model, context, options),
+    stream: (model, context, options) =>
+      dispatch(model, (streams) => streams.stream(model, context, options), () => source.stream(model, context, options)),
+    streamSimple: (model, context, options) =>
+      dispatch(
+        model,
+        (streams) => streams.streamSimple(model, context, options),
+        () => source.streamSimple(model, context, options),
+      ),
   };
 }
 
@@ -417,6 +547,24 @@ export function registryProviderId(providers: PiAiProviderConfig[], configId: st
 }
 
 export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
+  for (const provider of providers) {
+    if (provider.kind === "catalog") {
+      if (provider.protocol !== undefined && provider.protocol !== "auto"
+        && !isProviderProtocol(provider.protocol)) {
+        throw new Error(`pi-ai: unknown protocol "${String(provider.protocol)}" for provider "${provider.id}"`);
+      }
+      for (const code of provider.modelCodes) {
+        resolveProviderProtocol(provider, code);
+      }
+    } else {
+      if (provider.protocol !== undefined && !isProviderProtocol(provider.protocol)) {
+        throw new Error(`pi-ai: unknown protocol "${String(provider.protocol)}" for provider "${provider.id}"`);
+      }
+      for (const model of provider.models) {
+        resolveProviderProtocol(provider, model.code);
+      }
+    }
+  }
   const models = createModels();
   // setProvider silently replaces an existing registration, so a collision
   // would drop one provider's models AND its API key without a word. Both
@@ -442,13 +590,25 @@ export function buildModels(providers: PiAiProviderConfig[]): MutableModels {
     }
     claim(config.id, config.id);
 
+    const builtModels = config.models.map((entry) =>
+      buildModel(
+        config.id,
+        config.baseURL,
+        entry,
+        resolveProviderProtocol(config, entry.code) ?? "openai-completions",
+      ),
+    );
+    const apis = protocolApiMap(builtModels);
+    // An empty custom provider is valid while the user is still adding
+    // models; pi-ai still requires one API implementation at construction.
+    if (Object.keys(apis).length === 0) apis["openai-completions"] = openAICompletionsApi();
     const provider = createProvider({
       id: config.id,
       name: config.name,
       baseUrl: config.baseURL,
       auth: { apiKey: fixedApiKeyAuth(config.id, config.apiKey) },
-      models: config.models.map((entry) => buildModel(config.id, config.baseURL, entry)),
-      api: openAICompletionsApi(),
+      models: builtModels,
+      api: apis,
     });
     models.setProvider(provider);
   }
@@ -474,6 +634,27 @@ function displayName(level: string): string {
   return level.length === 0 ? level : level[0]!.toUpperCase() + level.slice(1);
 }
 
+/** Cache support implied by the wire protocol and pi-ai's promptCache metadata. */
+export function cacheCapability(model: Model<Api>): ModelCacheCapability {
+  if (model.api === "anthropic-messages") {
+    return {
+      mode: "explicit",
+      minTokens: 1024,
+      maxMarkers: 4,
+      blockWindow: 20,
+      ...(model.promptCache?.short !== undefined ? { ttlSeconds: model.promptCache.short } : {}),
+      writeUsageField: "cache_creation_input_tokens",
+    };
+  }
+  if (model.api === "openai-completions" || model.api === "openai-responses") {
+    return {
+      mode: "implicit",
+      ...(model.promptCache?.short !== undefined ? { minTokens: 1024 } : {}),
+    };
+  }
+  return { mode: "none" };
+}
+
 /**
  * Resolve capability metadata for one exact model. `reasoning` is present
  * only when the model is flagged `reasoning: true` and
@@ -493,6 +674,8 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
 
   const info: ResolvedModelInfo = {
     model: code,
+    api: model.api,
+    cache: cacheCapability(model),
     contextWindow: model.contextWindow,
   };
 

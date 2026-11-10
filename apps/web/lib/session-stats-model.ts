@@ -87,6 +87,7 @@ export function conversationUsage(
   let cacheReadTokens = 0;
   let cacheWriteTokens = 0;
   let missingUsageCalls = 0;
+  let cacheReporting: "reported" | "not-reported" | "unsupported" | undefined;
 
   for (const row of rows) {
     if (!isAssistant(row) || row.metrics === undefined) continue;
@@ -99,6 +100,11 @@ export function conversationUsage(
     outputTokens += usage.outputTokens;
     cacheReadTokens += usage.cacheReadTokens ?? 0;
     cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+    const next = usage.cacheReporting;
+    if (next !== undefined) {
+      const rank = { reported: 0, "not-reported": 1, unsupported: 2 } as const;
+      if (cacheReporting === undefined || rank[next] > rank[cacheReporting]) cacheReporting = next;
+    }
   }
 
   return {
@@ -108,6 +114,7 @@ export function conversationUsage(
     cacheWriteTokens,
     totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens,
     missingUsageCalls,
+    ...(cacheReporting !== undefined ? { cacheReporting } : {}),
   };
 }
 

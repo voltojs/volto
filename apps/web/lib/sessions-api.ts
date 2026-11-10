@@ -69,6 +69,8 @@ export interface ServerSessionSummary {
   providerId: string | null;
   modelId: string | null;
   permissionMode: string | null;
+  /** Opaque selected reasoning-effort id; absent means the model default. */
+  reasoningEffort?: string;
   messageCount: number;
   title: string;
   createdAt: number;
@@ -81,6 +83,8 @@ export interface ServerSessionDetail {
   providerId: string | null;
   modelId: string | null;
   permissionMode: string | null;
+  /** Opaque selected reasoning-effort id; absent means the model default. */
+  reasoningEffort?: string;
   messages: ConversationMessage[];
   contextUsage: ContextUsageSnapshot | null;
   /** Standing todos folded from the durable event log; null when never written. */

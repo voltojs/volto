@@ -15,7 +15,7 @@ import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, Compact
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
 import { scopeToWorkspace } from "@volto/store-jsonl";
-import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol } from "@volto/provider-pi-ai";
 import { t } from "@volto/i18n";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
@@ -91,6 +91,12 @@ interface ResolvedConfig {
   projectId: string | undefined;
   providerId: string | undefined;
   modelId: string | undefined;
+  /** Wire protocol resolved for this turn; part of the rebuild identity. */
+  protocol: string | undefined;
+  /** Auth scheme/name, coalesced so a bearer→x-api-key edit rebuilds. */
+  authFingerprint: string | undefined;
+  /** Non-secret route headers, sorted for a stable fingerprint. */
+  headersFingerprint: string | undefined;
   /** Resolved from the provider record so an in-place edit is detected too. */
   baseURL: string | null | undefined;
   code: string | undefined;
@@ -121,6 +127,10 @@ export type ResolvedCredentials =
       baseURL: string | null;
       apiKey: string | null;
       code: string;
+      protocol?: ConfiguredProtocol;
+      modelProtocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       maxOutputTokens?: number;
       /** Declared context window; absent = follow the catalog. */
       contextWindow?: number;
@@ -134,6 +144,9 @@ export type ResolvedCredentials =
       baseURL: string | null;
       apiKey: string | null;
       code: string;
+      protocol?: ProviderProtocol;
+      auth?: ProviderAuth;
+      headers?: Record<string, string>;
       maxOutputTokens?: number;
       /** Declared context window; absent = the adapter's 128k fallback. */
       contextWindow?: number;
@@ -176,6 +189,9 @@ const EMPTY_CONFIG: ResolvedConfig = {
   projectId: undefined,
   providerId: undefined,
   modelId: undefined,
+  protocol: undefined,
+  authFingerprint: undefined,
+  headersFingerprint: undefined,
   baseURL: undefined,
   code: undefined,
   maxOutputTokens: undefined,
@@ -193,7 +209,7 @@ const EMPTY_CONFIG: ResolvedConfig = {
  * I/O — `describeModel` on the resulting port is a pure, synchronous
  * projection of already-known config/catalog data, never a network call).
  */
-function buildProviderConfig(providerId: string | undefined, credentials: ResolvedCredentials): PiAiProviderConfig {
+export function buildProviderConfig(providerId: string | undefined, credentials: ResolvedCredentials): PiAiProviderConfig {
   return credentials.kind === "catalog"
     ? {
         kind: "catalog",
@@ -203,6 +219,12 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // Only when overridden: an absent baseURL leaves pi-ai's own catalog
         // address in place (collection.ts's buildCatalogProvider).
         ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
+        ...(credentials.protocol === undefined ? {} : { protocol: credentials.protocol }),
+        ...(credentials.modelProtocol === undefined
+          ? {}
+          : { modelProtocols: { [credentials.code]: credentials.modelProtocol } }),
+        ...(credentials.auth === undefined ? {} : { auth: credentials.auth }),
+        ...(credentials.headers === undefined ? {} : { headers: credentials.headers }),
         modelCodes: [credentials.code],
         // Same for reasoning: only a stored override is forwarded, so an
         // untouched model keeps tracking pi-ai's catalog flag.
@@ -219,6 +241,9 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
         // Mirrors provider-openai's own default when no baseURL is resolved.
         baseURL: credentials.baseURL ?? "https://api.openai.com",
         apiKey: credentials.apiKey ?? undefined,
+        ...(credentials.protocol === undefined ? {} : { protocol: credentials.protocol }),
+        ...(credentials.auth === undefined ? {} : { auth: credentials.auth }),
+        ...(credentials.headers === undefined ? {} : { headers: credentials.headers }),
         models: [
           {
             code: credentials.code,
@@ -227,6 +252,71 @@ function buildProviderConfig(providerId: string | undefined, credentials: Resolv
           },
         ],
       };
+}
+
+export interface ProviderProbeResult {
+  /** This is a route/capability probe, not a live generation probe. */
+  live: false;
+  ok: boolean;
+  protocol: string | undefined;
+  cache: "none" | "implicit" | "explicit" | "unknown";
+  checks: {
+    model: boolean;
+    auth: boolean;
+    protocol: boolean;
+  };
+  error?: string;
+}
+
+/**
+ * Validate one provider route without making a network call. This is a
+ * route/capability probe: it answers whether the configured model resolves,
+ * whether auth is present, and which protocol/cache behavior the adapter
+ * declares. Live text/tool probes belong to the caller's integration test.
+ */
+export async function probeProviderProtocol(
+  providerStore: Pick<ReturnType<typeof createProviderStore>, "resolveModel">,
+  providerId: string,
+  modelId: string,
+  protocolOverride?: ProviderProtocol,
+): Promise<ProviderProbeResult | null> {
+  const resolved = await providerStore.resolveModel(providerId, modelId);
+  if (!resolved) return null;
+  const credentials: ResolvedCredentials = protocolOverride === undefined
+    ? resolved
+    : resolved.kind === "catalog"
+      ? { ...resolved, modelProtocol: protocolOverride }
+      : { ...resolved, protocol: protocolOverride };
+  try {
+    const providerConfig = buildProviderConfig(providerId, credentials);
+    const port = createPiAiModelPort({
+      providers: [providerConfig],
+      defaultProviderId: providerConfig.id,
+    });
+    const info = await port.describeModel!(credentials.code);
+    const protocol = info.api;
+    const checks = {
+      model: true,
+      auth: credentials.apiKey !== null,
+      protocol: protocol !== undefined,
+    };
+    return {
+      live: false,
+      ok: Object.values(checks).every(Boolean),
+      protocol,
+      cache: info.cache?.mode ?? "unknown",
+      checks,
+    };
+  } catch (err) {
+    return {
+      live: false,
+      ok: false,
+      protocol: undefined,
+      cache: "unknown",
+      checks: { model: false, auth: false, protocol: false },
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -1238,6 +1328,35 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
    * Also returns the raw credentials (if any) so `rebuild()` doesn't have to
    * call `resolveModel` a second time.
    */
+  /**
+   * Resolve the concrete wire protocol before the agent is built. Explicit
+   * config wins; an untouched catalog model asks the adapter's pure
+   * describeModel projection, never the network.
+   */
+  async function resolveProtocolForCredentials(
+    providerId: string,
+    credentials: ResolvedCredentials,
+  ): Promise<string | undefined> {
+    if (credentials.kind === "catalog") {
+      if (credentials.modelProtocol !== undefined) return credentials.modelProtocol;
+      if (credentials.protocol !== undefined && credentials.protocol !== "auto") {
+        return credentials.protocol;
+      }
+    } else if (credentials.protocol !== undefined) {
+      return credentials.protocol;
+    }
+    try {
+      const providerConfig = buildProviderConfig(providerId, credentials);
+      const port = createPiAiModelPort({
+        providers: [providerConfig],
+        defaultProviderId: providerConfig.id,
+      });
+      return (await port.describeModel!(credentials.code)).api;
+    } catch {
+      return undefined;
+    }
+  }
+
   async function resolveConfig(
     requested: TurnConfig,
   ): Promise<{ config: ResolvedConfig; credentials: ResolvedCredentials | null }> {
@@ -1277,6 +1396,13 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       projectId: requested.projectId,
       providerId: requested.providerId,
       modelId: requested.modelId,
+      protocol: await resolveProtocolForCredentials(requested.providerId, credentials),
+      authFingerprint: credentials.auth === undefined
+        ? undefined
+        : `${credentials.auth.kind}:${credentials.auth.name ?? ""}`,
+      headersFingerprint: credentials.headers === undefined
+        ? undefined
+        : JSON.stringify(Object.entries(credentials.headers).sort(([a], [b]) => a.localeCompare(b))),
       // Both kinds can carry one now, and it is part of a turn's identity:
       // sameConfig() compares it to decide whether to rebuild the agent.
       baseURL: credentials.baseURL,
@@ -1307,6 +1433,9 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
       a.projectId === b.projectId &&
       a.providerId === b.providerId &&
       a.modelId === b.modelId &&
+      a.protocol === b.protocol &&
+      a.authFingerprint === b.authFingerprint &&
+      a.headersFingerprint === b.headersFingerprint &&
       a.baseURL === b.baseURL &&
       a.code === b.code &&
       a.maxOutputTokens === b.maxOutputTokens &&
@@ -1541,6 +1670,7 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
               projectId: config.projectId ?? null,
               providerId: config.providerId ?? null,
               modelId: config.modelId ?? null,
+              ...(config.protocol !== undefined ? { protocol: config.protocol } : {}),
               permissionMode: config.permissionMode ?? null,
               ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
             },

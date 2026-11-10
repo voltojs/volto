@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import { buildModels, describeModelInfo, resolveConfiguredApiKey, type PiAiProviderConfig } from "../collection.js";
+import { buildModels, describeModelInfo, resolveConfiguredApiKey, resolveProviderProtocol, type PiAiProviderConfig, type ProviderProtocol } from "../collection.js";
 import { createPiAiModelPortFromModels } from "../model-port.js";
 
 // A model literal with reasoning metadata, constructed by hand per the
@@ -63,6 +63,15 @@ describe("buildModels", () => {
 
     expect(models.getModel("nope", "plain-model")).toBeUndefined();
     expect(models.getModel("acme", "nope")).toBeUndefined();
+  });
+});
+
+describe("empty provider registration", () => {
+  it("registers a custom provider with no models", () => {
+    const models = buildModels([
+      { kind: "custom", id: "empty", baseURL: "https://empty.example/v1", models: [] },
+    ]);
+    expect(models.getModel("empty", "anything")).toBeUndefined();
   });
 });
 
@@ -182,6 +191,121 @@ function catalogConfig(overrides: Partial<Extract<PiAiProviderConfig, { kind: "c
     ...overrides,
   };
 }
+
+describe("provider protocol resolution", () => {
+  it("defaults to the catalog api", () => {
+    const config = catalogConfig({ protocol: "auto" });
+    expect(resolveProviderProtocol(config, "deepseek-flash", "openai-completions"))
+      .toBe("openai-completions");
+  });
+
+  it("lets a model protocol override the provider protocol", () => {
+    const config = catalogConfig({
+      protocol: "openai-responses",
+      modelProtocols: { "deepseek-flash": "anthropic-messages" },
+    });
+    expect(resolveProviderProtocol(config, "deepseek-flash", "openai-completions"))
+      .toBe("anthropic-messages");
+  });
+
+  it("defaults custom providers to openai-completions", () => {
+    const config: PiAiProviderConfig = {
+      kind: "custom",
+      id: "acme",
+      baseURL: "https://acme.example/v1",
+      models: [{ code: "plain-model" }],
+    };
+    expect(resolveProviderProtocol(config, "plain-model")).toBe("openai-completions");
+  });
+
+  it("rejects an unknown protocol instead of silently degrading", () => {
+    const config = catalogConfig({ protocol: "nope" as ProviderProtocol });
+    expect(() => buildModels([config])).toThrow(/protocol/i);
+  });
+});
+
+describe("protocol-aware model construction", () => {
+  it("switches a catalog model to anthropic-messages and clears old compat", () => {
+    const models = buildModels([catalogConfig({ protocol: "anthropic-messages" })]);
+    const model = models.getModel("deepseek", "deepseek-flash");
+    expect(model?.api).toBe("anthropic-messages");
+    expect(model?.compat).toBeUndefined();
+  });
+
+  it("keeps an Anthropic-compatible baseURL verbatim", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://gateway.example/apps/anthropic",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(models.getModel("acme", "plain-model")?.baseUrl)
+      .toBe("https://gateway.example/apps/anthropic");
+  });
+
+  it("builds a custom model with anthropic-messages", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(models.getModel("acme", "plain-model")?.api).toBe("anthropic-messages");
+  });
+
+  it("exposes explicit cache capability for anthropic-messages", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        protocol: "anthropic-messages",
+        models: [{ code: "plain-model" }],
+      },
+    ]);
+    expect(describeModelInfo(models, "acme", "plain-model").cache).toMatchObject({
+      mode: "explicit",
+      maxMarkers: 4,
+      writeUsageField: "cache_creation_input_tokens",
+    });
+  });
+
+  it("exposes implicit cache capability for openai routes", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        models: [{ code: "plain-model", protocol: "openai-responses" }],
+      },
+    ]);
+    expect(describeModelInfo(models, "acme", "plain-model").cache).toMatchObject({
+      mode: "implicit",
+    });
+  });
+
+  it("keeps openai-responses distinct from openai-completions", () => {
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "acme",
+        baseURL: "https://acme.example/v1",
+        models: [
+          { code: "chat-model", protocol: "openai-completions" },
+          { code: "responses-model", protocol: "openai-responses" },
+        ],
+      },
+    ]);
+    expect(models.getModel("acme", "chat-model")?.api).toBe("openai-completions");
+    expect(models.getModel("acme", "responses-model")?.api).toBe("openai-responses");
+  });
+});
 
 describe("catalog provider registration", () => {
   it("resolves a catalog model via getModel(pi-ai provider id, code)", () => {

@@ -1,9 +1,20 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { ChevronDown, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 /**
  * Collapsed-by-default shell shared by both provider kinds.
@@ -31,16 +42,20 @@ export function ProviderShell({
   children: ReactNode;
 }) {
   const t = useTranslations('settings');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   return (
     <div className="bg-card/50 overflow-hidden rounded-lg border">
       <div className="flex items-center gap-2 px-3 py-2">
-        {/* The whole row toggles: a one-line row is a small target, and the
-            pencil below is kept only as the affordance that says so. */}
-        <button
+        {/* The whole row toggles; the pencil was redundant because clicking
+            the row is the edit affordance. Delete stays a separate action
+            and opens a confirmation dialog. */}
+        <Button
           type="button"
+          variant="ghost"
           onClick={onToggle}
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-label={expanded ? t('providers.shellCollapse') : t('providers.shellEdit')}
+          className="h-auto min-w-0 flex-1 justify-start gap-2 rounded-none px-0 text-left font-normal hover:bg-transparent"
         >
           <ChevronDown
             className={`text-muted-foreground h-3.5 w-3.5 shrink-0 transition-transform ${
@@ -49,21 +64,12 @@ export function ProviderShell({
           />
           <span className="truncate font-medium">{name}</span>
           {badges}
-        </button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onToggle}
-          aria-label={expanded ? t('providers.shellCollapse') : t('providers.shellEdit')}
-          className="shrink-0"
-        >
-          <Pencil className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"
           size="icon-sm"
           className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
-          onClick={onRemove}
+          onClick={() => setConfirmDeleteOpen(true)}
           aria-label={t('providers.delete')}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -72,6 +78,34 @@ export function ProviderShell({
       {expanded && (
         <div className="space-y-3 border-t px-3 py-3">{children}</div>
       )}
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Trash2 className="text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {t('providers.deleteTitle', { name })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('providers.deleteBody')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('providers.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setConfirmDeleteOpen(false);
+                onRemove();
+              }}
+            >
+              {t('providers.deleteConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

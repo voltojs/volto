@@ -68,6 +68,7 @@ import {
   STEER_AGENT_WAIT_MS,
   type ApprovalDecisionOutcome,
   type QueuedMessageAction,
+  probeProviderProtocol,
 } from "./sessions.js";
 import { unfinishedTurnTail } from "./session-tail.js";
 import { forkSession, ForkError } from "./session-fork.js";
@@ -79,6 +80,7 @@ import {
   unknownProjectMessage,
 } from "./config/projects.js";
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
+import { isProviderProtocol, type ProviderProtocol } from "@volto/provider-pi-ai";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
 import { ensureConfigMigrated } from "./config/store.js";
@@ -274,6 +276,9 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           id: provider.id,
           piProvider: provider.piProvider,
           ...(provider.baseURL ? { baseURL: provider.baseURL } : {}),
+          ...(provider.protocol === undefined ? {} : { protocol: provider.protocol }),
+          ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+          ...(provider.headers === undefined ? {} : { headers: provider.headers }),
           modelCodes: provider.models.map((m) => m.code),
           // Stored per-model overrides feed the ModelPort so describeModel
           // (and later turns) see the user's declared intent, not just pi-ai.
@@ -1366,6 +1371,48 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           updated ? 200 : 404,
           updated ? (await withReasoningCapability([updated]))[0] : { error: "Not found" },
         );
+      } catch (err: unknown) {
+        if (respondBodyError(err)) return;
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // POST /providers/:id/probe
+    if (req.method === "POST" && url.pathname.startsWith("/providers/") && url.pathname.endsWith("/probe")) {
+      try {
+        const id = decodeURIComponent(
+          url.pathname.slice("/providers/".length, -"/probe".length),
+        );
+        const body = JSON.parse(await readBody(req)) as {
+          modelId?: string;
+          protocol?: string;
+        };
+        if (body.protocol !== undefined && !isProviderProtocol(body.protocol)) {
+          jsonResponse(res, 400, { error: `Unsupported protocol: ${body.protocol}` });
+          return;
+        }
+        const provider = (await providerStore.listPublic()).find((p) => p.id === id);
+        if (!provider) {
+          jsonResponse(res, 404, { error: "Not found" });
+          return;
+        }
+        const firstModel = provider.models[0];
+        const modelId = body.modelId
+          ?? (provider.kind === "catalog"
+            ? firstModel?.code
+            : (firstModel as { id?: string } | undefined)?.id);
+        if (modelId === undefined) {
+          jsonResponse(res, 400, { error: "Provider has no model to probe" });
+          return;
+        }
+        const result = await probeProviderProtocol(
+          providerStore,
+          id,
+          modelId,
+          body.protocol as ProviderProtocol | undefined,
+        );
+        jsonResponse(res, result ? 200 : 404, result ?? { error: "Model not found" });
       } catch (err: unknown) {
         if (respondBodyError(err)) return;
         jsonResponse(res, 400, { error: err instanceof Error ? err.message : String(err) });

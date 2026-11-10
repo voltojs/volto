@@ -63,6 +63,47 @@ describe("createProviderStore", () => {
     });
   });
 
+  it("persists protocol/auth/headers and returns them from resolveModel", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      kind: "catalog",
+      name: "Protocol provider",
+      piProvider: "deepseek",
+      apiKey: "sk-protocol",
+      protocol: "anthropic-messages",
+      auth: { kind: "bearer" },
+      headers: { "x-routing": "volto" },
+      models: [{ code: "deepseek-flash", protocol: "openai-responses" }],
+    });
+    expect(created).toMatchObject({
+      protocol: "anthropic-messages",
+      auth: { kind: "bearer" },
+      headers: { "x-routing": "volto" },
+    });
+    expect(created.models[0]).toMatchObject({ protocol: "openai-responses" });
+
+    const resolved = await store.resolveModel(created.id, "deepseek-flash");
+    expect(resolved).toMatchObject({
+      protocol: "anthropic-messages",
+      modelProtocol: "openai-responses",
+      auth: { kind: "bearer" },
+      headers: { "x-routing": "volto" },
+    });
+  });
+
+  it("clears an explicit auth scheme when update sends auth: null", async () => {
+    const store = createProviderStore(dir);
+    const created = asCustom(await store.create({
+      ...INPUT,
+      auth: { kind: "bearer" },
+    }));
+    expect(created.auth).toEqual({ kind: "bearer" });
+
+    await store.update(created.id, { auth: null });
+    expect((await store.listPublic()).find((p) => p.id === created.id)?.auth)
+      .toBeUndefined();
+  });
+
   it("returns null when resolving an unknown provider or model", async () => {
     const store = createProviderStore(dir);
     const created = asCustom(await store.create(INPUT));

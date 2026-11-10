@@ -6,11 +6,19 @@ import { ChevronRight, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Model } from '@/stores/config-store';
 import type {
   CatalogProviderModel,
   ModelInputLimits,
   ModelInputValue,
+  ProviderProtocol,
 } from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
 
@@ -32,6 +40,8 @@ export interface DraftModel {
   id: string;
   name: string;
   code: string;
+  /** Per-model protocol override; preserved even when no UI control edits it. */
+  protocol?: ProviderProtocol;
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning: boolean;
@@ -47,6 +57,7 @@ export function toDraftModels(models: Model[]): DraftModel[] {
     id: m.id,
     name: m.name,
     code: m.code,
+    protocol: m.protocol,
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
@@ -66,6 +77,7 @@ export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
     id: '',
     name: m.name ?? '',
     code: m.code,
+    protocol: m.protocol,
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     reasoning: Boolean(m.reasoning),
@@ -307,6 +319,40 @@ export function ModelTable({
             </div>
             {openKeys.has(model.clientKey) && (
               <div className="border-muted-foreground/30 col-span-full space-y-2 border-l py-2 pl-3">
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
+                    {t('models.protocolOverride')}
+                  </span>
+                  <Select
+                    items={[
+                      { value: 'inherit', label: t('models.protocolInherit') },
+                      { value: 'openai-completions', label: t('providers.protocolOpenAICompletions') },
+                      { value: 'openai-responses', label: t('providers.protocolOpenAIResponses') },
+                      { value: 'anthropic-messages', label: t('providers.protocolAnthropicMessages') },
+                    ]}
+                    value={model.protocol ?? 'inherit'}
+                    onValueChange={(next) =>
+                      patch(index, {
+                        protocol: String(next) === 'inherit'
+                          ? undefined
+                          : (String(next) as ProviderProtocol),
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-7 w-full font-mono text-xs"
+                      aria-label={t('models.ariaProtocol', { n: index + 1 })}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent width="content">
+                      <SelectItem value="inherit">{t('models.protocolInherit')}</SelectItem>
+                      <SelectItem value="openai-completions">{t('providers.protocolOpenAICompletions')}</SelectItem>
+                      <SelectItem value="openai-responses">{t('providers.protocolOpenAIResponses')}</SelectItem>
+                      <SelectItem value="anthropic-messages">{t('providers.protocolAnthropicMessages')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
                 <div className="space-y-1.5">
                   <div className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
                     {t('models.inputTypes')}

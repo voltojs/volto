@@ -107,6 +107,8 @@
     "turnSummary": "用量 {tokens} tok",
     "contextUsage": "上下文用量",
     "cacheHit": "缓存命中",
+    "cacheUnreported": "缓存未上报",
+    "cacheUnsupported": "此协议不支持缓存",
     "uncachedInput": "未缓存输入",
     "cacheRead": "缓存读取",
     "cacheWrite": "缓存写入",
