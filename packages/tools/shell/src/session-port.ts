@@ -28,6 +28,13 @@ export interface BashSessionRunResult {
    * then says nothing about the cwd rather than guessing.
    */
   cwdAfter?: string;
+  /**
+   * True only when the command moved the session from a previously REPORTED
+   * directory. The session owns this comparison: the spawn cwd and the shell's
+   * `$PWD` may spell one directory two ways, and comparing them here would
+   * report a move on every first command.
+   */
+  cwdChanged?: boolean;
 }
 
 export interface BashSessionLike {

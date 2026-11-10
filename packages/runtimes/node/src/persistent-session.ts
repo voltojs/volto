@@ -24,6 +24,14 @@ export interface SessionCommandResult {
    * does NOT move the session, so this stays the session's own directory.
    */
   cwdAfter?: string;
+  /**
+   * True only when this command moved the session away from the directory it
+   * was already known to be in. Computed HERE, against the last REPORTED
+   * directory, because the spawn cwd and the shell's `$PWD` may spell the same
+   * place differently (macOS `/var` vs `/private/var`): comparing them in the
+   * consumer would report a spurious "moved" on every session's first command.
+   */
+  cwdChanged?: boolean;
 }
 
 export interface SessionSpawnHandle {
@@ -131,6 +139,8 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
    * a directory their next command does not run in.
    */
   let currentCwd: string | undefined = options.cwd;
+  /** Set once the shell has reported a directory; before that, no change. */
+  let reportedCwd: string | undefined;
   // Both streams are retention-capped: eviction happens on append so memory
   // is bounded even between commands. Evicted characters are counted per run
   // and disclosed on return — a cap that silently hides a gap would be
@@ -284,6 +294,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     // The rebuilt shell starts at options.cwd; the pre-rebuild directory is
     // gone with the old process, so reporting it would be a lie.
     currentCwd = options.cwd;
+    reportedCwd = undefined;
     attachStreams(handle);
     alive = true;
     return {
@@ -341,12 +352,16 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         resetRunBuffers();
         // Post-marker tail (background writer) carries into the next run.
         stdoutBuf = remainder;
-        if (cwd !== undefined) currentCwd = cwd;
+        const cwdChanged = cwd !== undefined && reportedCwd !== undefined && cwd !== reportedCwd;
+        if (cwd !== undefined) {
+          currentCwd = cwd;
+          reportedCwd = cwd;
+        }
         return {
           stdout,
           stderr,
           exitCode: Number.isFinite(code) ? code : 1,
-          ...(cwd !== undefined ? { cwdAfter: cwd } : {}),
+          ...(cwd !== undefined ? { cwdAfter: cwd, cwdChanged } : {}),
         };
       }
       // Shell died before printing a sentinel (e.g. the command called exit).

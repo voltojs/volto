@@ -112,7 +112,6 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
       const session = options?.getSession?.();
       if (!isolated && session) {
         try {
-          const cwdBefore = session.cwd?.();
           const r = await session.run(command, {
             cwd,
             timeout: effectiveTimeout,
@@ -149,7 +148,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           // truncation cut (and excluded from OUTPUT_LIMIT) — a cd the model
           // cannot see is worse than a few extra characters.
           const cwdNote =
-            r.cwdAfter !== undefined && r.cwdAfter !== cwdBefore
+            r.cwdChanged === true && r.cwdAfter !== undefined
               ? `\n\n[cwd: ${options?.describeWorkspace?.(r.cwdAfter) ?? r.cwdAfter}]`
               : "";
           return {

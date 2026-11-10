@@ -40,9 +40,20 @@ afterEach(async () => {
 describe("session cwd reporting", () => {
   it("reports the cwd the command left behind", async () => {
     const s = makeSession();
+    // First command only reports the baseline: the shell's `$PWD` may spell
+    // the spawn directory differently, and that is not a move.
+    await s.run("true");
     const r = await s.run("cd /tmp");
     expect(r.cwdAfter).toBe("/tmp");
+    expect(r.cwdChanged).toBe(true);
     expect(s.cwd?.()).toBe("/tmp");
+  });
+
+  it("does not report a move on the first command of a session", async () => {
+    const s = makeSession();
+    const r = await s.run("true");
+    expect(r.cwdAfter).toBeDefined();
+    expect(r.cwdChanged).toBe(false);
   });
 
   it("is not fooled by a command that prints sentinel lookalikes", async () => {
