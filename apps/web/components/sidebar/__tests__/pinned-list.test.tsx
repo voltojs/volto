@@ -175,4 +175,35 @@ describe('PinnedList', () => {
     expect(useSidebarStateStore.getState().state.pinnedSessionIds).toEqual(['s-1']);
     expect(useSessionStore.getState().currentSessionId).toBeNull();
   });
+
+  it('previews 5 pinned sessions, then expands and collapses the rest on demand', async () => {
+    const ids = Array.from({ length: 7 }, (_, i) => `s-${i}`);
+    seed({
+      sessions: ids.map((id, i) =>
+        session({ id, projectId: 'p-1', updatedAt: i }),
+      ),
+      projects: [project('p-1', 'volto')],
+      sidebar: { ...DEFAULT_SIDEBAR_STATE, pinnedSessionIds: ids },
+    });
+    render(<PinnedList />);
+    for (let i = 0; i < 5; i += 1) {
+      expect(screen.getByText(`s-${i}-title`)).toBeInTheDocument();
+    }
+    expect(screen.queryByText('s-5-title')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '展开剩余 2 个会话' }));
+    expect(screen.getByText('s-5-title')).toBeInTheDocument();
+    expect(screen.getByText('s-6-title')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '收起' }));
+    expect(screen.queryByText('s-5-title')).not.toBeInTheDocument();
+  });
+
+  it('hides the pinned expand row when 5 or fewer sessions are pinned', () => {
+    seed(pinnedSeed);
+    render(<PinnedList />);
+    expect(
+      screen.queryByRole('button', { name: /展开剩余 \d+ 个会话/ }),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -31,6 +31,7 @@ import {
   pinSession,
   sortProjects,
   toggleProjectExpanded,
+  SESSION_PREVIEW_COUNT,
 } from '@/lib/sidebar-layout';
 import type { ProjectSortMode } from '@/lib/sidebar-state-api';
 import { Button } from '@/components/ui/button';
@@ -108,6 +109,22 @@ export function ProjectList() {
   const [menuOpenProjectId, setMenuOpenProjectId] = useState<string | null>(
     null,
   );
+  // Workspaces whose session list is expanded past the preview count. Local
+  // transient view state — the persisted layout doc only tracks which
+  // workspaces are open, not how deep each list is scrolled.
+  const [showAllProjectIds, setShowAllProjectIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const toggleShowAll = (projectId: string) =>
+    setShowAllProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
   // Guards against a double-click firing two DELETE requests for the same
   // session: a ref (not state) so the check is up to date even if the second
   // click lands before a re-render from the first click's state update. The
@@ -288,6 +305,15 @@ export function ProjectList() {
           const visibleSessions = projectSessions.filter(
             (s) => !pinnedSet.has(s.id),
           );
+          const showAll = showAllProjectIds.has(project.id);
+          const hiddenCount = Math.max(
+            0,
+            visibleSessions.length - SESSION_PREVIEW_COUNT,
+          );
+          const listedSessions =
+            showAll || hiddenCount === 0
+              ? visibleSessions
+              : visibleSessions.slice(0, SESSION_PREVIEW_COUNT);
 
           return (
             <div key={project.id}>
@@ -476,7 +502,7 @@ export function ProjectList() {
                       {t('project.noSessions')}
                     </div>
                   )}
-                  {visibleSessions.map((session) => (
+                  {listedSessions.map((session) => (
                     <SessionItem
                       key={session.id}
                       session={session}
@@ -513,6 +539,22 @@ export function ProjectList() {
                       onDelete={() => handleDeleteSession(session.id)}
                     />
                   ))}
+                  {/* Bottom affordance: expand the remainder, then collapse
+                      back to the preview once expanded. */}
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleShowAll(project.id)}
+                      className="text-muted-foreground hover:text-foreground hover:bg-sidebar-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left font-mono text-[11px] transition-colors"
+                    >
+                      {/* Spacer mirroring the session row's leading icon slot,
+                          so this line's text aligns with the titles above. */}
+                      <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                      {showAll
+                        ? t('showLessSessions')
+                        : t('showMoreSessions', { count: hiddenCount })}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

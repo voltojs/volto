@@ -66,5 +66,7 @@
   },
   "drag": {
     "handle": "拖动排序"
-  }
+  },
+  "showMoreSessions": "展开剩余 {count} 个会话",
+  "showLessSessions": "收起"
 }

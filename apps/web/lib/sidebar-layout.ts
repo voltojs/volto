@@ -9,6 +9,12 @@
 
 import type { PinnedSortMode, ProjectSortMode, SidebarState } from './sidebar-state-api';
 
+/**
+ * Sessions a list shows before collapsing the rest behind a "show more"
+ * row — shared by the pinned section and every workspace's session list.
+ */
+export const SESSION_PREVIEW_COUNT = 5;
+
 /** The minimum a project needs to be ordered. */
 export interface ProjectLike {
   id: string;

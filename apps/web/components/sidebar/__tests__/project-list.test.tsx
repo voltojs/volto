@@ -174,4 +174,43 @@ describe('ProjectList', () => {
     await userEvent.click(screen.getByText('volto'));
     expect(useSidebarStateStore.getState().state.expandedProjectIds).toEqual([]);
   });
+
+  it('previews 5 sessions, then expands and collapses the rest on demand', async () => {
+    const sessions = Array.from({ length: 7 }, (_, i) =>
+      session({ id: `s-${i}`, projectId: 'p-1', updatedAt: i }),
+    );
+    seed({
+      ...base,
+      sessions,
+      sidebar: { ...DEFAULT_SIDEBAR_STATE, expandedProjectIds: ['p-1'] },
+    });
+    render(<ProjectList />);
+    // Only the preview shows; the remaining 2 wait behind a clickable row.
+    for (let i = 0; i < 5; i += 1) {
+      expect(screen.getByText(`s-${i}-title`)).toBeInTheDocument();
+    }
+    expect(screen.queryByText('s-5-title')).not.toBeInTheDocument();
+    expect(screen.queryByText('s-6-title')).not.toBeInTheDocument();
+    expect(screen.queryByText('收起')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '展开剩余 2 个会话' }));
+    expect(screen.getByText('s-5-title')).toBeInTheDocument();
+    expect(screen.getByText('s-6-title')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '收起' }));
+    expect(screen.queryByText('s-5-title')).not.toBeInTheDocument();
+  });
+
+  it('hides the expand row when a workspace has 5 or fewer sessions', () => {
+    seed({ ...base, sidebar: DEFAULT_SIDEBAR_STATE });
+    render(<ProjectList />);
+    // Exact wording, not a bare /收起/: the workspace section header's own
+    // collapse button is named 「收起工作区」 and must not be matched here.
+    expect(
+      screen.queryByRole('button', { name: /展开剩余 \d+ 个会话/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '收起' }),
+    ).not.toBeInTheDocument();
+  });
 });

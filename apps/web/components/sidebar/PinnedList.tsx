@@ -26,7 +26,7 @@ import { createClickSuppressor } from '@/lib/click-suppressor';
 import { deleteServerSession, renameServerSession } from '@/lib/sessions-api';
 import { runManualRename } from '@/lib/session-title';
 import { runSessionDelete } from '@/lib/session-delete';
-import { applyDragEnd, sortPinned, unpinSession } from '@/lib/sidebar-layout';
+import { applyDragEnd, sortPinned, unpinSession, SESSION_PREVIEW_COUNT } from '@/lib/sidebar-layout';
 import { cn } from '@/lib/utils';
 import type { PinnedSortMode } from '@/lib/sidebar-state-api';
 import { SectionHeader } from './SectionHeader';
@@ -53,6 +53,9 @@ export function PinnedList() {
   const doc = useSidebarStateStore((s) => s.state);
   const update = useSidebarStateStore((s) => s.update);
   const [error, setError] = useState<string | null>(null);
+  // Whether the pinned list is expanded past the preview count. Local
+  // transient view state, same as the workspace lists' per-project flag.
+  const [showAll, setShowAll] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -72,6 +75,11 @@ export function PinnedList() {
   const defaultExpandedId = projects[0]?.id ?? null;
   const manual = doc.sortModes.pinned === 'manual';
   const renderedIds = pinned.map((session) => session.id);
+  const hiddenCount = Math.max(0, pinned.length - SESSION_PREVIEW_COUNT);
+  const listedPinned =
+    showAll || hiddenCount === 0
+      ? pinned
+      : pinned.slice(0, SESSION_PREVIEW_COUNT);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -139,7 +147,7 @@ export function PinnedList() {
             items={renderedIds}
             strategy={verticalListSortingStrategy}
           >
-        {pinned.map((session) => (
+        {listedPinned.map((session) => (
           <SortableRow key={session.id} id={session.id} enabled={manual}>
             {(handle) => (
           <SessionItem
@@ -207,6 +215,22 @@ export function PinnedList() {
         ))}
           </SortableContext>
         </DndContext>
+        {/* Bottom affordance: expand the remainder, then collapse back to
+            the preview once expanded — mirrors the workspace lists. */}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="text-muted-foreground hover:text-foreground hover:bg-sidebar-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left font-mono text-[11px] transition-colors"
+          >
+            {/* Spacer mirroring the session row's leading icon slot, so this
+                line's text aligns with the titles above. */}
+            <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            {showAll
+              ? t('showLessSessions')
+              : t('showMoreSessions', { count: hiddenCount })}
+          </button>
+        )}
       </div>
     </>
   );
