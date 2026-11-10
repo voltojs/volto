@@ -52,7 +52,8 @@
     "retrieval": "检索片段",
     "todo_list": "任务清单",
     "background_task": "后台任务",
-    "workflow_mode": "工作流模式"
+    "workflow_mode": "工作流模式",
+    "workspace": "工作目录"
   },
   "tab": {
     "overview": "概述",

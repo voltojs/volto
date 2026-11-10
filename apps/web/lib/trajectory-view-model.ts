@@ -50,6 +50,8 @@ export const REMINDER_KIND_LABEL_KEYS: Record<ContextReminderKind, string> = {
   todo_list: 'reminder.todo_list',
   background_task: 'reminder.background_task',
   workflow_mode: 'reminder.workflow_mode',
+  // Working directory + branch announcement (spec 2026-11-10 D7).
+  workspace: 'reminder.workspace',
 };
 
 /** 无耗时返回 null（调用方渲染 EMPTY_CELL）；<1s 用 ms，其余一位小数秒。 */

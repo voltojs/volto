@@ -52,7 +52,8 @@
     "retrieval": "Retrieval",
     "todo_list": "Todo list",
     "background_task": "Background task",
-    "workflow_mode": "Workflow mode"
+    "workflow_mode": "Workflow mode",
+    "workspace": "Workspace"
   },
   "tab": {
     "overview": "Overview",

@@ -95,6 +95,11 @@ describe('drawerTabsFor', () => {
     // Tool rows keep the arguments wording.
     expect(tabLabelKey('tool', 'input')).toBe('tab.input');
   });
+  it('labels the workspace reminder', () => {
+    expect(REMINDER_KIND_LABEL_KEYS.workspace).toBe('reminder.workspace');
+    // Full text stays readable in the drawer, same as every other reminder.
+    expect(drawerTabsFor('reminder')).toEqual(['overview', 'output']);
+  });
   it('gives reminder and compaction rows an output tab so the full text is readable', () => {
     expect(drawerTabsFor('reminder')).toEqual(['overview', 'output']);
     expect(drawerTabsFor('compaction')).toEqual(['overview', 'output']);
