@@ -117,6 +117,38 @@ describe("sub-agent host instruction layers", () => {
     expect(childSystem).not.toContain("PROJECT RULE 42");
   });
 
+  it("keeps handing layers to the child on a later turn of the same instance", async () => {
+    // Review M3: the layers are stamped onto the instance so every later turn
+    // — and every dispatch from it — sees them, including a turn whose layers
+    // were carried in rather than resolved. Without the stamp, `getCurrentHost
+    // Layers()` returned an empty set and the child lost AGENTS.md again.
+    const { port, requests } = rec([
+      textScript("turn one"),
+      toolCallScript("c1", "task", JSON.stringify({ message: "do it" })),
+      textScript("child done"),
+      textScript("turn two"),
+    ]);
+    let resolved = 0;
+    const agent = createAgent({
+      modelPort: port,
+      enableTaskTool: true,
+      resolveContextLayers: async () => {
+        resolved += 1;
+        return [{ id: "project", text: "PROJECT RULE 42" }];
+      },
+    });
+
+    await agent.run("first");
+    await agent.run("second");
+
+    // Resolved once per conversation, not per turn.
+    expect(resolved).toBe(1);
+    // The second turn's dispatch still carries the layer.
+    const childRequest = requests[2];
+    expect(allSystemText(childRequest)).toContain("PROJECT RULE 42");
+    expect(count(allSystemText(childRequest), "PROJECT RULE 42")).toBe(1);
+  });
+
   it("keeps host layers but drops the stale catalog on a rebuilt instance", async () => {
     // A rebuild seeds `initialContextLayers` with the previous header's
     // system layers — which already include the parent's skill catalog, so

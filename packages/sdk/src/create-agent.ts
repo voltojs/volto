@@ -1458,17 +1458,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    * a failing git probe must never break a turn (spec D2, error-normalization
    * discipline), and "no announcement" is a supported state.
    */
-  const workspaceAnnouncements = new Map<string, string>();
   async function resolveWorkspaceReminderOnce(
     cwd: string,
   ): Promise<{ key: string; announce: string } | undefined> {
     if (!opts.resolveWorkspaceReminder) return undefined;
     try {
-      const reminder = await opts.resolveWorkspaceReminder(cwd);
-      // Remember the wording so the bash confirmation line can name the
-      // branch without the tool layer ever touching git.
-      if (reminder !== undefined) workspaceAnnouncements.set(cwd, reminder.announce);
-      return reminder;
+      return await opts.resolveWorkspaceReminder(cwd);
     } catch {
       return undefined;
     }

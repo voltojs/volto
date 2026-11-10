@@ -246,58 +246,97 @@ function requestCount(requests: ModelRequest[]): number {
  * script.
  */
 describe("workspace reminder — with a real session", () => {
-  it("asks about the session cwd, and re-reads the branch after a cd back", async () => {
+  /** Spawn a real bash rooted at `cwd`; the fake port only supplies the script. */
+  function sessionSpawnerAt(cwd: string) {
+    return () => ({
+      child: spawn("/bin/bash", ["-s"], { cwd, stdio: ["pipe", "pipe", "pipe"] }),
+    });
+  }
+
+  const shellStub = {
+    // eslint-disable-next-line require-yield
+    async *exec() {
+      throw new Error("the session path must be used");
+    },
+  };
+
+  it("re-asks about a directory instead of reusing its cached branch", async () => {
+    // Review I1: the confirmation line follows a `cd` back into a directory
+    // whose announcement was read BEFORE the branch changed. Re-resolving is
+    // what keeps the line honest.
     const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "volto-ws-a-"));
     const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "volto-ws-b-"));
     try {
-      // The fake host: the branch is whatever this variable says, so a test
-      // can change it between commands.
-      const branch = "main";
       const asked: string[] = [];
       const { port } = rec([
         toolCallScript("c1", "bash", JSON.stringify({ command: `cd '${dirB}'` })),
         toolCallScript("c2", "bash", JSON.stringify({ command: `cd '${dirA}'` })),
         textScript("done"),
       ]);
-
       const agent = createAgent({
         modelPort: port,
         cwd: dirA,
-        shell: {
-          // eslint-disable-next-line require-yield
-          async *exec() {
-            throw new Error("the session path must be used");
-          },
-        },
-        sessionSpawner: () => ({
-          child: spawn("/bin/bash", ["-s"], {
-            cwd: dirA,
-            stdio: ["pipe", "pipe", "pipe"],
-          }),
-        }),
+        shell: shellStub,
+        sessionSpawner: sessionSpawnerAt(dirA),
         resolveWorkspaceReminder: async (cwd) => {
           asked.push(cwd);
-          return { key: `${cwd}\0${branch}`, announce: `Working directory: ${cwd}\nGit branch: ${branch}` };
+          return { key: `${cwd}\0main`, announce: `Working directory: ${cwd}\nGit branch: main` };
         },
       });
-
       try {
         await agent.run("move around");
       } finally {
         await agent.dispose();
       }
 
-      // I2: the turn-start resolution reads the shell's directory, not opts.cwd.
-      // `$PWD` is the LOGICAL path (macOS `/var` stays `/var`).
-      expect(asked[0]).toBe(dirA);
-      // It also re-resolves after the shell moved, so the next turn is current.
-      expect(asked).toContain(dirB);
-
-      // I1: the confirmation line for `cd <dirA>` re-asks instead of reusing
-      // dirA's earlier answer — a branch switched in between would otherwise be
-      // reported stale. (dirA is asked once at turn start, once for the line.)
+      // dirA is asked at turn start AND again for the confirmation line after
+      // `cd dirA` — a cached answer would be asked exactly once.
       expect(asked.filter((cwd) => cwd === dirA).length).toBeGreaterThanOrEqual(2);
-      expect(branch).toBe("main");
+      expect(asked).toContain(dirB);
+    } finally {
+      fs.rmSync(dirA, { recursive: true, force: true });
+      fs.rmSync(dirB, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves the NEXT turn against the directory the shell is in", async () => {
+    // Review I2: one turn can be satisfied by the `opts.cwd` fallback. Only a
+    // second turn, started while the shell sits elsewhere, proves the peek is
+    // reading the session.
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "volto-ws-2a-"));
+    const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "volto-ws-2b-"));
+    try {
+      const turnStarts: string[] = [];
+      const { port } = rec([
+        toolCallScript("c1", "bash", JSON.stringify({ command: `cd '${dirB}'` })),
+        textScript("first turn done"),
+        textScript("second turn done"),
+      ]);
+      let turn = 0;
+      const agent = createAgent({
+        modelPort: port,
+        cwd: dirA,
+        shell: shellStub,
+        sessionSpawner: sessionSpawnerAt(dirA),
+        // Recorded per CALL, and the first call of a turn is the turn-start one
+        // only when no dispatch happened; that holds here (no task tool).
+        resolveWorkspaceReminder: async (cwd) => {
+          turnStarts.push(cwd);
+          return { key: `${cwd}\0main`, announce: `Working directory: ${cwd}\nGit branch: main` };
+        },
+      });
+      try {
+        await agent.run("move");
+        turn = turnStarts.length;
+        await agent.run("where am I now?");
+      } finally {
+        await agent.dispose();
+      }
+
+      // The second turn's opening resolution must have seen dirB, the shell's
+      // real directory — not opts.cwd (dirA).
+      expect(turnStarts.length).toBeGreaterThan(turn);
+      expect(turnStarts[turn]).toBe(dirB);
     } finally {
       fs.rmSync(dirA, { recursive: true, force: true });
       fs.rmSync(dirB, { recursive: true, force: true });
