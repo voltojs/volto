@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import { Plus, Settings } from 'lucide-react';
-import { useSessionStore } from '@/stores/session-store';
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  useSessionStore,
+} from '@/stores/session-store';
 import { useSidebarStateStore } from '@/stores/sidebar-state-store';
 import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
@@ -75,6 +79,33 @@ export function Sidebar() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  // Right-edge drag handle: drag widens the sidebar, double-click resets —
+  // mirrors the RightPane's left-edge handle.
+  const sidebarWidth = useSessionStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useSessionStore((s) => s.setSidebarWidth);
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  // Width transition is for open/close only; while dragging it would lag the pointer.
+  const [resizing, setResizing] = useState(false);
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    drag.current = {
+      startX: e.clientX,
+      startWidth: useSessionStore.getState().sidebarWidth,
+    };
+    setResizing(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (drag.current === null) return;
+      setSidebarWidth(drag.current.startWidth + (e.clientX - drag.current.startX));
+    },
+    [setSidebarWidth],
+  );
+  const onPointerUp = useCallback(() => {
+    drag.current = null;
+    setResizing(false);
+  }, []);
+
   useEffect(() => {
     void load();
     // The sidebar layout document is independent of the gateway config load:
@@ -108,11 +139,17 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        'border-sidebar-border bg-sidebar text-sidebar-foreground flex h-full flex-col overflow-hidden border-r transition-[width] duration-200 ease-out',
-        sidebarOpen ? 'w-72' : 'w-0',
+        'bg-sidebar text-sidebar-foreground flex h-full shrink-0 items-stretch overflow-hidden',
+        !resizing && 'transition-[width] duration-200 ease-out',
       )}
+      style={{ width: sidebarOpen ? sidebarWidth : 0 }}
     >
-      <div className="flex h-full w-72 shrink-0 flex-col">
+      {/* Fixed-width column with shrink-0: the collapse animation clips it
+          via the outer overflow-hidden instead of squashing the text. */}
+      <div
+        className="border-sidebar-border flex h-full shrink-0 flex-col border-r"
+        style={{ width: sidebarWidth - 4 }}
+      >
         {/* Nameplate */}
         <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
           <svg
@@ -214,6 +251,21 @@ export function Sidebar() {
           </Button>
         </div>
       </div>
+
+      {/* Right-edge drag handle: drag to resize, double-click to reset —
+          the mirror of the RightPane's left-edge handle. */}
+      {sidebarOpen && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          className="hover:bg-primary/20 w-1 shrink-0 cursor-col-resize"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onDoubleClick={() => setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
+        />
+      )}
 
       <SettingsDialog open={showSettings} onOpenChange={setShowSettings} projectId={settingsProjectId} />
     </div>

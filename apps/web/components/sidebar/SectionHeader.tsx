@@ -76,7 +76,8 @@ export function SectionHeader({
           </span>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      {/* Trailing controls (sort, add workspace) stay muted until hover. */}
+      <div className="text-muted-foreground flex shrink-0 items-center gap-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

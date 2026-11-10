@@ -186,6 +186,27 @@ interface SessionState {
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  /** Sidebar width in px; driven by the right-edge drag handle. */
+  sidebarWidth: number;
+  setSidebarWidth: (n: number) => void;
+}
+
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 480;
+/** Matches the original fixed `w-72`. */
+export const SIDEBAR_WIDTH_DEFAULT = 288;
+
+const SIDEBAR_WIDTH_KEY = 'volto.sidebar.width';
+
+function clampSidebarWidth(n: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(n)));
+}
+
+function loadSidebarWidth(): number {
+  if (typeof window === 'undefined') return SIDEBAR_WIDTH_DEFAULT;
+  const raw = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  const n = raw === null ? Number.NaN : Number(raw);
+  return Number.isFinite(n) ? clampSidebarWidth(n) : SIDEBAR_WIDTH_DEFAULT;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -397,4 +418,14 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+  sidebarWidth: loadSidebarWidth(),
+
+  setSidebarWidth: (n) => {
+    const width = clampSidebarWidth(n);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    }
+    set({ sidebarWidth: width });
+  },
 }));
