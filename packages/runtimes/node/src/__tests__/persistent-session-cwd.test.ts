@@ -50,12 +50,24 @@ describe("session cwd reporting", () => {
   });
 
   it("does not call the spawn directory a move just because the spelling differs", async () => {
-    // The shell reports the logical `$PWD`; a spawn cwd that resolves
-    // elsewhere (macOS /var vs /private/var) is the same place.
-    const s = makeSession({ cwd: fs.realpathSync(process.cwd()) });
-    const r = await s.run("true");
-    expect(r.cwdAfter).toBeDefined();
-    expect(r.cwdChanged).toBe(false);
+    // Build the real case instead of trusting the machine to have one: a
+    // symlinked path and its target are the same directory, and a comparison
+    // on raw strings would report a move on the very first command.
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "volto-link-target-"));
+    const link = `${target}-link`;
+    fs.symlinkSync(target, link);
+    try {
+      const s = makeSession({ cwd: link });
+      const r = await s.run("true");
+      expect(r.cwdAfter).toBeDefined();
+      // The shell may report either spelling; neither is a move.
+      expect(r.cwdChanged).toBe(false);
+      const again = await s.run("true");
+      expect(again.cwdChanged).toBe(false);
+    } finally {
+      fs.unlinkSync(link); // a symlink is removed as a file, not as a directory
+      fs.rmSync(target, { recursive: true, force: true });
+    }
   });
 
   it("announces a move on the very first command", async () => {
@@ -116,6 +128,31 @@ describe("session cwd reporting", () => {
     // The shell was rebuilt at options.cwd — reporting the old /tmp would
     // point the model at a directory its next command never runs in.
     expect(s.cwd?.()).toBe(process.cwd());
+  });
+
+  it("does not truncate the marker on a directory name containing a newline", async () => {
+    // A newline is legal in a POSIX path. Raw, it would cut the marker line
+    // short and leave a nonexistent path in cwdAfter (and in every later
+    // reminder). The shell strips it before printing.
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "volto-nl-"));
+    const weird = path.join(parent, "a\nb");
+    fs.mkdirSync(weird);
+    try {
+      const s = makeSession({ cwd: parent });
+      await s.run("true");
+      const r = await s.run("cd 'a\nb'");
+      expect(r.cwdChanged).toBe(true);
+      // Either the clean path or "no report" is honest; a truncated path is not.
+      if (r.cwdAfter !== undefined) {
+        // Escaped, not invented: the newline becomes a literal backslash-n, so
+        // no physical newline reaches the marker and no neighbouring path is
+        // fabricated. (Spelling may be physical /private/var or logical /var.)
+        expect(r.cwdAfter).not.toContain("\n");
+        expect(r.cwdAfter.endsWith("/a\\nb")).toBe(true);
+      }
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   it("keeps the last known cwd when the shell dies without a sentinel", async () => {

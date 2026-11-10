@@ -1481,9 +1481,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
    * there than a few milliseconds of latency.
    */
   async function describeWorkspaceForBash(cwd: string): Promise<string | undefined> {
-    const announce =
-      workspaceAnnouncements.get(cwd) ??
-      (await resolveWorkspaceReminderOnce(cwd))?.announce;
+    // Always re-resolve; never trust a remembered announcement. The cache is
+    // keyed by directory only, so a branch switched since the directory was
+    // last seen would be reported stale — and this line exists precisely to
+    // tell the truth right after the command that moved the shell. A `cd` is
+    // rare enough that one probe (~10ms) is the cheaper mistake.
+    const announce = (await resolveWorkspaceReminderOnce(cwd))?.announce;
     if (announce === undefined) return undefined;
     const branch = /^Git branch: (.+)$/m.exec(announce)?.[1];
     if (branch !== undefined) return `${cwd} (branch: ${branch})`;
@@ -2389,7 +2392,14 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     fromState: ContextLayer[] | undefined,
   ): Promise<ContextLayer[]> {
     const existing = fromState ?? resolvedContextLayers;
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      // Stamp it: `getCurrentHostLayers` (the sub-agent assembly) reads this
+      // field, and a resume that only carried the layers in through
+      // `lastFinalState` would otherwise hand sub-agents an empty set — the
+      // exact gap this feature exists to close.
+      resolvedContextLayers = existing;
+      return existing;
+    }
     const hostLayers = opts.resolveContextLayers
       ? await opts.resolveContextLayers(inputText)
       : undefined;

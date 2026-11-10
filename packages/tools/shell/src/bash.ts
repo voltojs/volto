@@ -149,10 +149,19 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           // of the result for the command that caused it. Appended AFTER the
           // truncation cut (and excluded from OUTPUT_LIMIT) — a cd the model
           // cannot see is worse than a few extra characters.
-          const cwdNote =
-            r.cwdChanged === true && r.cwdAfter !== undefined
-              ? `\n\n[cwd: ${(await options?.describeWorkspace?.(r.cwdAfter)) ?? r.cwdAfter}]`
-              : "";
+          // A failing describer must never destroy a successful result: the
+          // command already ran, and an isError result would invite a retry
+          // with doubled side effects. Degrade to the bare path.
+          let cwdNote = "";
+          if (r.cwdChanged === true && r.cwdAfter !== undefined) {
+            let described: string | undefined;
+            try {
+              described = await options?.describeWorkspace?.(r.cwdAfter);
+            } catch {
+              described = undefined;
+            }
+            cwdNote = `\n\n[cwd: ${described ?? r.cwdAfter}]`;
+          }
           return {
             modelContent: `${sessionTimeoutNote}${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}${cwdNote}`,
             ...(r.timedOut ? { isError: true } : {}),

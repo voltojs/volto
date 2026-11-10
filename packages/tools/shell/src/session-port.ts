@@ -42,9 +42,4 @@ export interface BashSessionLike {
     cmd: string,
     opts?: { cwd?: string; timeout?: number },
   ): Promise<BashSessionRunResult>;
-  /**
-   * The directory the session is in right now. Optional: a session that
-   * cannot report it simply never triggers the cwd confirmation note.
-   */
-  cwd?: () => string | undefined;
 }

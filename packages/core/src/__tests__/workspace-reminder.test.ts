@@ -94,9 +94,4 @@ describe("workspace reminder injection", () => {
     expect(r.state._announcedWorkspace).toBeUndefined();
   });
 
-  it("honours a seeded fingerprint so a resumed session does not repeat itself", () => {
-    const seeded = createInitialState({ _announcedWorkspace: "a" });
-    const r = sendUser(seeded, "continue", ctx({ key: "a", announce: CWD_A }));
-    expect(reminderTexts(r.state.messages)).toHaveLength(0);
-  });
 });

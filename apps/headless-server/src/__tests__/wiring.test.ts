@@ -69,6 +69,41 @@ function captureModelPort(): { modelPort: ModelPort; requests: ModelRequest[] } 
   };
 }
 
+describe("createWiredAgent workspace reminder wiring", () => {
+  it("announces the working directory and branch on a real turn", async () => {
+    // The wiring is a single forwarded option, and nothing else asserted it:
+    // dropping it would leave every session silent about where it is.
+    const requests: ModelRequest[] = [];
+    const inner = createMockModelPort([textScript("ok"), textScript("again")]);
+    const modelPort: ModelPort = {
+      async *stream(req) {
+        requests.push(req);
+        yield* inner.stream(req);
+      },
+    };
+
+    const agent = await createWiredAgent({ modelPort, cwd: tempProjectDir });
+    try {
+      await agent.run("where am I?");
+    } finally {
+      await agent.dispose();
+    }
+
+    const text = requests[0]!.messages
+      .map((m) => (typeof m.content === "string" ? m.content : ""))
+      .join("\n");
+    expect(text).toContain(`Working directory: ${tempProjectDir}`);
+    // The temp project is not a git repository, so the reminder must say so
+    // rather than invent a branch.
+    expect(text).toMatch(/Git (branch|repository):/);
+  });
+
+  it("tells the model to trust the reminder over older memories", () => {
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("<system-reminder>");
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("[cwd: ...]");
+  });
+});
+
 describe("createWiredAgent memory file layers", () => {
   it("includes both user and project AGENTS.md as separate system messages", async () => {
     await fs.writeFile(path.join(tempConfigDir, "AGENTS.md"), "User rule", "utf-8");

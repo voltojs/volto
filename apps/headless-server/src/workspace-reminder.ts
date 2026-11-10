@@ -67,11 +67,30 @@ export async function buildWorkspaceReminder(
 
   const state = await resolveGitState(git);
   const announce = [
-    `Working directory: ${cwd}`,
+    `Working directory: ${safeInline(cwd)}`,
     ...(state !== undefined ? [state.line] : []),
   ].join("\n");
 
   return { key: `${cwd}\u0000${state?.fingerprint ?? ""}`, announce };
+}
+
+/**
+ * Keep a path from breaking out of the `<system-reminder>` wrapper the reducer
+ * puts around this text. A directory name is user-controlled input, so `<` and
+ * `>` are percent-encoded: the model still reads an unambiguous path, but no
+ * name can close the block and add instructions inside it.
+ */
+function safeInline(value: string): string {
+  // Control characters are filtered by code point rather than by a regex
+  // range: a control-character character class is exactly what the lint rule
+  // `no-control-regex` forbids, and this is clearer about the intent anyway.
+  const printable = Array.from(value)
+    .filter((ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      return code > 0x1f && code !== 0x7f;
+    })
+    .join("");
+  return printable.replace(/</g, "%3C").replace(/>/g, "%3E");
 }
 
 /** One trustworthy git fact: how it reads to the model, and its key fragment. */

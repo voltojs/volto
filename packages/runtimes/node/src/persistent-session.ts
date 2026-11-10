@@ -343,9 +343,14 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     // output does not end with a newline. `$PWD` rides the same line: the
     // sentinel is already stripped from the model-visible output, so the
     // working directory costs no extra protocol and cannot leak.
+    // `$PWD` is escaped shell-side: a directory name may legally contain a
+    // newline, which would cut the marker line short and leave a BOGUS path in
+    // `cwdAfter` (and in every later reminder). Escaping it as a literal `\n`
+    // keeps the report faithful instead of inventing a neighbouring path.
     const payload =
       `${cmd}\n` +
-      `__volto_rc=$?; printf '\\n__VOLTO_DONE_${nonce}:%d:%s\\n' "$__volto_rc" "$PWD"\n`;
+      `__volto_rc=$?; __volto_pwd="\${PWD//$'\\n'/\\\\n}"; ` +
+      `printf '\\n__VOLTO_DONE_${nonce}:%d:%s\\n' "$__volto_rc" "$__volto_pwd"\n`;
     handle.child.stdin?.write(payload);
 
     const start = Date.now();
