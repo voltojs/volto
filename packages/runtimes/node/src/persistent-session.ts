@@ -16,6 +16,14 @@ export interface SessionCommandResult {
    * consumers can trust its absence as "not a timeout".
    */
   timedOut?: boolean;
+  /**
+   * The session's working directory once this command finished. Absent when
+   * the shell never reported it (timeout/kill rebuild, or the shell died
+   * before printing the sentinel) — consumers must treat absence as "unknown"
+   * rather than guessing. A per-call `cwd` runs in a subshell and therefore
+   * does NOT move the session, so this stays the session's own directory.
+   */
+  cwdAfter?: string;
 }
 
 export interface SessionSpawnHandle {
@@ -48,6 +56,11 @@ export interface PersistentSession {
   readonly id: string;
   readonly alive: boolean;
   run(cmd: string, opts?: { cwd?: string; timeout?: number }): Promise<SessionCommandResult>;
+  /**
+   * The directory the shell is in right now: the last reported one, or the
+   * spawn cwd before any command has reported. Never spawns anything.
+   */
+  cwd(): string | undefined;
   kill(): Promise<void>;
 }
 
@@ -111,6 +124,13 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   let handle: SessionSpawnHandle = options.spawn({ cwd: options.cwd });
   let alive = true;
   let childExitCode: number | null = null;
+  /**
+   * Last working directory the shell reported. Seeded with the spawn cwd and
+   * reset whenever the shell is rebuilt — a rebuilt shell starts at
+   * `options.cwd`, so keeping the pre-rebuild value would point consumers at
+   * a directory their next command does not run in.
+   */
+  let currentCwd: string | undefined = options.cwd;
   // Both streams are retention-capped: eviction happens on append so memory
   // is bounded even between commands. Evicted characters are counted per run
   // and disclosed on return — a cap that silently hides a gap would be
@@ -126,7 +146,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
   // time; eviction freezes while a match is pending, so the consume step can
   // map them back with a plain subtraction.
   let activeMarkerRe: RegExp | null = null;
-  let stdoutMatch: { startAbs: number; endAbs: number; code: number } | null = null;
+  let stdoutMatch: { startAbs: number; endAbs: number; code: number; cwd?: string } | null = null;
 
   function resetRunBuffers(): void {
     stdoutBuf = "";
@@ -179,6 +199,7 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
             startAbs: stdoutDropped + m.index,
             endAbs: stdoutDropped + m.index + m[0].length,
             code,
+            ...(m[2] !== undefined && m[2] !== "" ? { cwd: m[2] } : {}),
           };
         }
       }
@@ -260,6 +281,9 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     cleanedUp = false;
     resetRunBuffers();
     childExitCode = null;
+    // The rebuilt shell starts at options.cwd; the pre-rebuild directory is
+    // gone with the old process, so reporting it would be a lie.
+    currentCwd = options.cwd;
     attachStreams(handle);
     alive = true;
     return {
@@ -287,15 +311,19 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     // timeout and resets cd/export state. The per-command random nonce is
     // what rules out a false positive (spec §6.1) — the anchor was a
     // redundant second lock that cost more than it bought.
-    const markerRe = new RegExp(`\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+)\\n`);
+    const markerRe = new RegExp(
+      `\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+):([^\\n]*)\\n`,
+    );
     resetRunBuffers();
     activeMarkerRe = markerRe;
     // The printf is a separate stdin line so `$?` captures the user command.
     // A leading `\n` keeps the marker readable even when the command's own
-    // output does not end with a newline.
+    // output does not end with a newline. `$PWD` rides the same line: the
+    // sentinel is already stripped from the model-visible output, so the
+    // working directory costs no extra protocol and cannot leak.
     const payload =
       `${cmd}\n` +
-      `__volto_rc=$?; printf '\\n__VOLTO_DONE_${nonce}:%d\\n' "$__volto_rc"\n`;
+      `__volto_rc=$?; printf '\\n__VOLTO_DONE_${nonce}:%d:%s\\n' "$__volto_rc" "$PWD"\n`;
     handle.child.stdin?.write(payload);
 
     const start = Date.now();
@@ -309,11 +337,17 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         const stdout = droppedNote(stdoutDropped) + stdoutBuf.slice(0, pos);
         const remainder = stdoutBuf.slice(end);
         const stderr = droppedNote(stderrDropped) + stderrBuf;
-        const { code } = match;
+        const { code, cwd } = match;
         resetRunBuffers();
         // Post-marker tail (background writer) carries into the next run.
         stdoutBuf = remainder;
-        return { stdout, stderr, exitCode: Number.isFinite(code) ? code : 1 };
+        if (cwd !== undefined) currentCwd = cwd;
+        return {
+          stdout,
+          stderr,
+          exitCode: Number.isFinite(code) ? code : 1,
+          ...(cwd !== undefined ? { cwdAfter: cwd } : {}),
+        };
       }
       // Shell died before printing a sentinel (e.g. the command called exit).
       // Surface the process exit code so `run("exit 3")` yields 3.
@@ -339,6 +373,9 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     id,
     get alive() {
       return alive;
+    },
+    cwd() {
+      return currentCwd;
     },
     async run(cmd, opts) {
       const task = queue.then(async () => {
