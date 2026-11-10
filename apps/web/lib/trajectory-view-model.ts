@@ -93,6 +93,10 @@ const ASSISTANT_TABS: readonly DrawerTabKey[] = ['overview', 'output', 'thinking
 const CONTEXT_TABS: readonly DrawerTabKey[] = ['overview', 'layers', 'schema'];
 const INFO_TABS: readonly DrawerTabKey[] = ['overview'];
 const REMINDER_TABS: readonly DrawerTabKey[] = ['overview', 'output'];
+// A user row's inputDetail is the full message (the summary is truncated) —
+// it gets its own tab so the dispatch prompt / steering text is readable
+// whole, same rule as the reminder rows' full text.
+const USER_TABS: readonly DrawerTabKey[] = ['overview', 'input'];
 
 /** 抽屉 tab 结构按行类型裁剪（spec §四 表格的唯一实现处）。 */
 export function drawerTabsFor(kind: TrajectoryRow['kind']): readonly DrawerTabKey[] {
@@ -107,9 +111,24 @@ export function drawerTabsFor(kind: TrajectoryRow['kind']): readonly DrawerTabKe
     case 'reminder':
     case 'compaction':
       return REMINDER_TABS;
+    case 'user':
+      return USER_TABS;
     default:
       return INFO_TABS;
   }
+}
+
+/**
+ * Tab label key, context-aware: a user row's `input` tab holds the message
+ * itself, so it reads "内容 / Content" — the tool row's "参数 / Input"
+ * (call arguments) wording would mislabel it.
+ */
+export function tabLabelKey(
+  kind: TrajectoryRow['kind'],
+  tab: DrawerTabKey,
+): string {
+  if (tab === 'input' && kind === 'user') return 'tab.content';
+  return TAB_LABEL_KEYS[tab];
 }
 
 export interface ParsedSystemLayer {

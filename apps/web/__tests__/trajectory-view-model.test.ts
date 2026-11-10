@@ -4,6 +4,7 @@ import {
   KIND_BADGE_CLASS,
   formatDuration,
   drawerTabsFor,
+  tabLabelKey,
   TAB_LABEL_KEYS,
   locationTextRef,
   parseSystemLayers,
@@ -84,8 +85,15 @@ describe('drawerTabsFor', () => {
     expect(drawerTabsFor('context')).toEqual(['overview', 'layers', 'schema']);
   });
   it('gives simple rows only the overview', () => {
-    expect(drawerTabsFor('user')).toEqual(['overview']);
     expect(drawerTabsFor('error')).toEqual(['overview']);
+  });
+  it('gives user rows a content tab so the full message is readable', () => {
+    // The summary is truncated; inputDetail carries the whole user message
+    // (and the whole dispatch prompt for a sub-agent's turn-0 row).
+    expect(drawerTabsFor('user')).toEqual(['overview', 'input']);
+    expect(tabLabelKey('user', 'input')).toBe('tab.content');
+    // Tool rows keep the arguments wording.
+    expect(tabLabelKey('tool', 'input')).toBe('tab.input');
   });
   it('gives reminder and compaction rows an output tab so the full text is readable', () => {
     expect(drawerTabsFor('reminder')).toEqual(['overview', 'output']);

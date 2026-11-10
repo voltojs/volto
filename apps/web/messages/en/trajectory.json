@@ -61,7 +61,8 @@
     "schema": "Schema",
     "thinking": "Thinking",
     "layers": "System layers",
-    "timing": "Timing"
+    "timing": "Timing",
+    "content": "Content"
   },
   "location": {
     "turn": "Turn {turn}",

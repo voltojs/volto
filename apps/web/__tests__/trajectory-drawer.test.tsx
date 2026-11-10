@@ -70,6 +70,22 @@ describe('TrajectoryDrawer', () => {
     expect(screen.getByText('t1')).toBeInTheDocument();
   });
 
+  it('exposes the full user message through the content tab', () => {
+    // The row summary is a one-line truncation (core `summarise`, 120 chars);
+    // the drawer must still show the whole message — both for a parent turn
+    // and for a sub-agent's dispatch prompt (turn-0 user row).
+    const long = '请分析当前工作区中的项目。要求：' + '详细展开'.repeat(60);
+    const events = [
+      { seq: 0, time: 100, type: 'turn_start', data: { turn: 0 }, turn: 0 },
+      { seq: 1, time: 110, type: 'user_message', data: { content: long }, turn: 0 },
+    ] as unknown as TranscriptEvent[];
+    const userRow = toTrajectoryView(buildTurnRecords(events), events).rows[0]!;
+    expect(userRow.summary.length).toBeLessThan(long.length);
+    render(<TrajectoryDrawer row={userRow} open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole('tab', { name: '内容' }));
+    expect(document.querySelector('pre')?.textContent).toBe(long);
+  });
+
   it('offers the child link for a task_output related session without upgrading it', () => {
     const outputRow = row({
       kind: 'tool',

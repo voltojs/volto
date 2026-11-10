@@ -61,7 +61,8 @@
     "schema": "Schema",
     "thinking": "思考",
     "layers": "系统层",
-    "timing": "计时"
+    "timing": "计时",
+    "content": "内容"
   },
   "location": {
     "turn": "第{turn}轮",

@@ -15,7 +15,7 @@ import {
   KIND_BADGE_CLASS,
   KIND_LABEL_KEYS,
   REMINDER_KIND_LABEL_KEYS,
-  TAB_LABEL_KEYS,
+  tabLabelKey,
   userSourceLabelKey,
   drawerTabsFor,
   formatDuration,
@@ -239,7 +239,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
           <TabsList className="mx-4 mt-3">
             {tabs.map((key) => (
               <TabsTrigger key={key} value={key}>
-                {t(TAB_LABEL_KEYS[key])}
+                {t(tabLabelKey(row.kind, key))}
               </TabsTrigger>
             ))}
           </TabsList>
