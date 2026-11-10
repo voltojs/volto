@@ -48,10 +48,12 @@ export interface BashToolOptions {
   /**
    * Describe a directory for the cwd confirmation line, e.g.
    * `"/repo-wt (branch: feat/x)"`. The tool layer never asks git itself —
-   * the host supplies this from its own cache. Returning undefined (a cache
-   * miss) makes the note report the bare path rather than invent a branch.
+   * the host supplies this, and may resolve it on demand (the note follows
+   * the command that moved the shell, so waiting a few ms for the branch is
+   * worth more than printing a bare path). Returning undefined makes the note
+   * report the bare path rather than invent a branch.
    */
-  describeWorkspace?: (cwd: string) => string | undefined;
+  describeWorkspace?: (cwd: string) => string | undefined | Promise<string | undefined>;
 }
 
 export function createBashTool(shell: Shell, options?: BashToolOptions) {
@@ -149,7 +151,7 @@ export function createBashTool(shell: Shell, options?: BashToolOptions) {
           // cannot see is worse than a few extra characters.
           const cwdNote =
             r.cwdChanged === true && r.cwdAfter !== undefined
-              ? `\n\n[cwd: ${options?.describeWorkspace?.(r.cwdAfter) ?? r.cwdAfter}]`
+              ? `\n\n[cwd: ${(await options?.describeWorkspace?.(r.cwdAfter)) ?? r.cwdAfter}]`
               : "";
           return {
             modelContent: `${sessionTimeoutNote}${content}${exitNote}${truncationNote}${resetNote}${backgroundNote}${cwdNote}`,

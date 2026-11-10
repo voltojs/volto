@@ -12,12 +12,25 @@ export interface CreateShellToolExecutorOptions {
    * options and silently drop session-routed calls onto one-shot exec.
    */
   getSession?: () => BashSessionLike | undefined;
+  /**
+   * Forwarded to the bash tool so the cwd confirmation line can name the
+   * branch. The executor rebuilds the bash tool for abort support, and a
+   * dropped option here is invisible in the tool's own tests — it only shows
+   * up as a bare `[cwd: …]` in a real run.
+   */
+  describeWorkspace?: BashToolOptions["describeWorkspace"];
 }
 
 export function createShellToolExecutor(options: CreateShellToolExecutorOptions): ToolExecutor {
-  const bashOptions: BashToolOptions | undefined = options.getSession
-    ? { getSession: options.getSession }
-    : undefined;
+  const bashOptions: BashToolOptions | undefined =
+    options.getSession || options.describeWorkspace
+      ? {
+          ...(options.getSession ? { getSession: options.getSession } : {}),
+          ...(options.describeWorkspace
+            ? { describeWorkspace: options.describeWorkspace }
+            : {}),
+        }
+      : undefined;
   const tools: ShellTool[] = [
     createBashTool(options.shell, bashOptions),
     createBashOutputTool(options.shell),

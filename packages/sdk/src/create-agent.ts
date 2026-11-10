@@ -1474,6 +1474,21 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
   }
 
+  /**
+   * Render the cwd confirmation line's body for the bash tool. A cache hit is
+   * free; a miss resolves now (awaiting a git probe), because the line follows
+   * the command that moved the shell and a branch-less path is less useful
+   * there than a few milliseconds of latency.
+   */
+  async function describeWorkspaceForBash(cwd: string): Promise<string | undefined> {
+    const announce =
+      workspaceAnnouncements.get(cwd) ??
+      (await resolveWorkspaceReminderOnce(cwd))?.announce;
+    if (announce === undefined) return undefined;
+    const state = /^Git (?:branch|repository): (.+)$/m.exec(announce)?.[1];
+    return state === undefined ? undefined : `${cwd} (branch: ${state})`;
+  }
+
   // ── Identifier port ───────────────────────
   // Use injected Id port for sessionId generation; deterministic replays
   // require a seeded Id (e.g. counter-based) — the default falls back to
@@ -1611,8 +1626,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         // Name the branch on the confirmation line when this instance has
         // already resolved that directory; a cache miss reports the bare
         // path instead of guessing (spec 2026-11-10 §4.5).
-        describeWorkspace: (cwd) => {
-          const announce = workspaceAnnouncements.get(cwd);
+        describeWorkspace: async (cwd) => {
+          if (process.env.VOLTO_DEBUG_WORKSPACE === "1") console.error("[dbg] describeWorkspace", cwd);
+          // Cache hit is free; a miss resolves now, so the line the model
+          // reads can name the branch of the directory it just moved into.
+          const announce =
+            workspaceAnnouncements.get(cwd) ??
+            (await resolveWorkspaceReminderOnce(cwd))?.announce;
           if (announce === undefined) return undefined;
           const branch = /^Git branch: (.+)$/m.exec(announce)?.[1];
           const repo = /Git repository: (.+)$/m.exec(announce)?.[1];
@@ -1900,6 +1920,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       resolveWorkspaceReminderOnce,
       peekSessionCwd,
       () => (resolvedContextLayers ?? []).filter((l) => l.id !== SKILL_CATALOG_LAYER_ID),
+      describeWorkspaceForBash,
     );
     // Assign into the outer binding so createNextRunner's runnerOpts can
     // hand the registry to each Runner for turn-boundary draining.
@@ -2176,7 +2197,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       })
     : undefined;
   const shellExecutor = effectiveShell
-    ? createShellToolExecutor({ shell: effectiveShell, getSession })
+    ? createShellToolExecutor({
+        shell: effectiveShell,
+        getSession,
+        describeWorkspace: describeWorkspaceForBash,
+      })
     : undefined;
   const networkExecutor = network ? createNetworkToolExecutor({ network }) : undefined;
 
@@ -3554,6 +3579,7 @@ function createSubAgentExecutor(
   // separately, so a rebuilt instance — whose layers arrive pre-seeded and
   // never re-resolve — still hands them to the child (spec 2026-11-10 D6).
   getCurrentHostLayers: () => ContextLayer[] = () => [],
+  describeWorkspaceForBash: (cwd: string) => Promise<string | undefined> = async () => undefined,
 ): SyncSubAgentExecutor {
   return async ({
     message,
@@ -3839,6 +3865,7 @@ function createSubAgentExecutor(
         resolveWorkspaceReminderOnce,
         peekSessionCwd,
         getCurrentHostLayers,
+        describeWorkspaceForBash,
       );
       const nestedDispatch: SubAgentDispatch = async (req) => {
         if (req.background) {
@@ -4063,7 +4090,11 @@ function createSubAgentExecutor(
         })
       : undefined;
     const subShellExecutor = shellOverride
-      ? createShellToolExecutor({ shell: shellOverride, getSession })
+      ? createShellToolExecutor({
+        shell: shellOverride,
+        getSession,
+        describeWorkspace: describeWorkspaceForBash,
+      })
       : undefined;
     const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
 

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
 import type { ChildProcess } from "node:child_process";
 
 export interface SessionCommandResult {
@@ -25,11 +26,11 @@ export interface SessionCommandResult {
    */
   cwdAfter?: string;
   /**
-   * True only when this command moved the session away from the directory it
-   * was already known to be in. Computed HERE, against the last REPORTED
-   * directory, because the spawn cwd and the shell's `$PWD` may spell the same
-   * place differently (macOS `/var` vs `/private/var`): comparing them in the
-   * consumer would report a spurious "moved" on every session's first command.
+   * True only when this command moved the session to a DIFFERENT directory.
+   * Computed here, against the directory the session was known to be in, with
+   * both sides resolved to their physical path: the spawn cwd and the shell's
+   * `$PWD` may spell one place two ways (macOS `/var` vs `/private/var`), and a
+   * spelling difference is not a move.
    */
   cwdChanged?: boolean;
 }
@@ -90,6 +91,19 @@ function wrapWithCwd(cmd: string, cwd?: string): string {
   return `(cd '${escaped}' && ${cmd})`;
 }
 
+/**
+ * The directory a path really points at, for change detection only. A path
+ * that no longer exists (the shell moved out of a deleted dir) falls back to
+ * its own spelling — "different" is still the honest answer there.
+ */
+function physicalPath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -139,8 +153,6 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
    * a directory their next command does not run in.
    */
   let currentCwd: string | undefined = options.cwd;
-  /** Set once the shell has reported a directory; before that, no change. */
-  let reportedCwd: string | undefined;
   // Both streams are retention-capped: eviction happens on append so memory
   // is bounded even between commands. Evicted characters are counted per run
   // and disclosed on return — a cap that silently hides a gap would be
@@ -294,7 +306,6 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     // The rebuilt shell starts at options.cwd; the pre-rebuild directory is
     // gone with the old process, so reporting it would be a lie.
     currentCwd = options.cwd;
-    reportedCwd = undefined;
     attachStreams(handle);
     alive = true;
     return {
@@ -352,11 +363,13 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         resetRunBuffers();
         // Post-marker tail (background writer) carries into the next run.
         stdoutBuf = remainder;
-        const cwdChanged = cwd !== undefined && reportedCwd !== undefined && cwd !== reportedCwd;
-        if (cwd !== undefined) {
-          currentCwd = cwd;
-          reportedCwd = cwd;
-        }
+        // Compare physical paths: the shell reports the logical `$PWD`, and a
+        // symlinked or differently-spelled spawn cwd must not read as a move.
+        const cwdChanged =
+          cwd !== undefined &&
+          currentCwd !== undefined &&
+          physicalPath(cwd) !== physicalPath(currentCwd);
+        if (cwd !== undefined) currentCwd = cwd;
         return {
           stdout,
           stderr,

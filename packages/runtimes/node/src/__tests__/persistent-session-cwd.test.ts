@@ -49,11 +49,22 @@ describe("session cwd reporting", () => {
     expect(s.cwd?.()).toBe("/tmp");
   });
 
-  it("does not report a move on the first command of a session", async () => {
-    const s = makeSession();
+  it("does not call the spawn directory a move just because the spelling differs", async () => {
+    // The shell reports the logical `$PWD`; a spawn cwd that resolves
+    // elsewhere (macOS /var vs /private/var) is the same place.
+    const s = makeSession({ cwd: fs.realpathSync(process.cwd()) });
     const r = await s.run("true");
     expect(r.cwdAfter).toBeDefined();
     expect(r.cwdChanged).toBe(false);
+  });
+
+  it("announces a move on the very first command", async () => {
+    // A session whose first command is `cd` still has to say where it landed:
+    // the model's next command depends on it.
+    const s = makeSession();
+    const r = await s.run("cd /tmp");
+    expect(r.cwdAfter).toBe("/tmp");
+    expect(r.cwdChanged).toBe(true);
   });
 
   it("is not fooled by a command that prints sentinel lookalikes", async () => {
@@ -94,7 +105,10 @@ describe("session cwd reporting", () => {
 
   it("reports no cwdAfter on a timeout and resets the tracked cwd to the spawn cwd", async () => {
     const s = makeSession({ defaultTimeoutMs: 40 });
-    await s.run("cd /tmp");
+    // A generous explicit timeout: the short default is for the `sleep` below,
+    // and a 40ms `cd` under parallel test load would time out and rebuild —
+    // failing this test for the wrong reason.
+    await s.run("cd /tmp", { timeout: 10_000 });
     expect(s.cwd?.()).toBe("/tmp");
     const r = await s.run("sleep 5", { timeout: 40 });
     expect(r.timedOut).toBe(true);
