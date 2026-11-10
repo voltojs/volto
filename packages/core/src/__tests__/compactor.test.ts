@@ -7,6 +7,7 @@ import {
   isToolInteraction,
   isKeyMessage,
   isPermissionReminder,
+  isEnvironmentReminder,
   buildSummaryPrompt,
 } from "../compactor.js";
 import { buildPermissionReminder } from "../permission-prompt.js";
@@ -116,6 +117,51 @@ describe("isKeyMessage — permission reminders", () => {
     // both must survive compaction, so both must be recognised here.
     expect(isKeyMessage({ id: "m9", role: "user", content: buildPermissionReminder(config) })).toBe(true);
     expect(isKeyMessage({ id: "m10", role: "user", content: buildPermissionReminder(config, previous) })).toBe(true);
+  });
+});
+
+describe("decideCompaction — the workspace reminder is exempt, not merely last", () => {
+  /** A workspace announcement exactly as the reducer injects it. */
+  const workspaceReminder = (): Message =>
+    userMsg(
+      "<system-reminder>\nWorking directory: /repo (project: volto)\nGit branch: main\n</system-reminder>",
+    );
+
+  function historyWithWorkspace(): Message[] {
+    const filler: Message[] = [];
+    for (let i = 0; i < 12; i++) {
+      filler.push(toolUseMsg("read_file", `t${i}`), toolResultMsg(`t${i}`, `result ${i}`));
+    }
+    return [
+      sysMsg("System prompt"),
+      workspaceReminder(),
+      ...filler,
+      userMsg("latest"),
+      assistantMsg("ok"),
+    ];
+  }
+
+  it("keeps the workspace reminder even when the budget forces everything else out", () => {
+    // Summarising the location away while the fingerprint stays equal means it
+    // is never re-announced: the model would run the rest of the session not
+    // knowing which directory or branch it is in.
+    const decision = decideCompaction(historyWithWorkspace(), {
+      maxTokens: 1,
+      recentKeepCount: 2,
+      tokenizer: createFixedTokenizer(100),
+    });
+
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.compressibleMessages.some(isEnvironmentReminder)).toBe(false);
+    expect(decision.preservedMessages.some(isEnvironmentReminder)).toBe(true);
+  });
+
+  it("does not exempt an unrelated system-reminder", () => {
+    // The exemption must be narrow: every reminder is a <system-reminder>, so
+    // a predicate keyed on the tag alone would freeze the whole history.
+    const unrelated = userMsg("<system-reminder>\nloop guard fired\n</system-reminder>");
+    expect(isEnvironmentReminder(unrelated)).toBe(false);
+    expect(isEnvironmentReminder(workspaceReminder())).toBe(true);
   });
 });
 

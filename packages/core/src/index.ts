@@ -250,6 +250,7 @@ export {
   isToolInteraction,
   isKeyMessage,
   isPermissionReminder,
+  isEnvironmentReminder,
   buildSummaryPrompt,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";

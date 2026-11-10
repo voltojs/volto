@@ -181,13 +181,37 @@ export function isPermissionReminder(msg: Message): boolean {
 }
 
 /**
+ * A workspace reminder states where the session is: its directory and git
+ * branch. Summarising it away leaves the model operating on a stale mental map
+ * — every relative path and every git command is judged against the wrong
+ * root — and, like the permission boundary, the fingerprint has not changed,
+ * so it is never re-announced. Exempt it outright.
+ *
+ * Matched on the reminder's own opening line, not on `<system-reminder>` alone:
+ * every reminder carries that tag, and exempting all of them would freeze the
+ * history the compactor exists to shrink.
+ */
+export function isEnvironmentReminder(msg: Message): boolean {
+  return (
+    typeof msg.content === "string" &&
+    msg.content.includes("<system-reminder>") &&
+    /\nWorking directory: /.test(msg.content)
+  );
+}
+
+/**
  * A message is "key" when it carries information the model must not lose
  * across a compaction: file paths, incomplete todos, or permission
  * boundaries. This is a SORT KEY — key messages are compressed LAST, not
  * exempted. Only pinned messages and permission reminders are truly exempt.
  */
 export function isKeyMessage(msg: Message): boolean {
-  return isPermissionReminder(msg) || hasIncompleteTodos(msg) || extractFilePaths(msg).length > 0;
+  return (
+    isPermissionReminder(msg) ||
+    isEnvironmentReminder(msg) ||
+    hasIncompleteTodos(msg) ||
+    extractFilePaths(msg).length > 0
+  );
 }
 
 // ──────────────────────────────────────────────
@@ -258,7 +282,10 @@ export function decideCompaction(
   // never re-announced and the model silently stops knowing what it may do.
   const pinned = new Set(opts.pinnedMessageIds ?? []);
   const compressible = recencyEligible.filter(
-    (item) => !pinned.has(item.msg.id) && !isPermissionReminder(item.msg),
+    (item) =>
+      !pinned.has(item.msg.id) &&
+      !isPermissionReminder(item.msg) &&
+      !isEnvironmentReminder(item.msg),
   );
 
   // Among compressible, prefer compressing old tool interactions,
