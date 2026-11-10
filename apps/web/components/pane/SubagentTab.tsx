@@ -35,9 +35,10 @@ import type { PaneTab } from '@/stores/pane-store';
  * 覆盖载荷，本组件不持视图状态）。对话视图原样平移旧版独立执行分栏的
  * 行为矩阵（加载 → 错误+重试 → 运行中桶 → entries 空判无记录 → 列表）
  * 并 keepMounted 保滚动；轨迹视图是盘上快照（useStoredRows 缓存）。
- * 对话视图底部是继续对话输入框：配置继承标签载入时的父会话
- * （`parentSessionId`），模型 / 推理等级 / 权限覆盖只活在本组件 state
- * （标签 remount 即重置）。
+ * 对话视图底部是继续对话输入框：项目与权限继承标签载入时的父会话
+ * （`parentSessionId`），模型默认取子会话本轮实际运行的档位解析结果
+ * （无用量时回落父会话绑定）；模型 / 推理等级 / 权限覆盖只活在本组件
+ * state（标签 remount 即重置）。
  * 关闭职责归 RightPane 标签栏，本组件不渲染关闭按钮。
  */
 export function SubagentTab({ tab }: { tab: PaneTab }) {
@@ -82,12 +83,36 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
     PermissionMode | undefined
   >(undefined);
 
-  // Effective model for the pickers + efforts list: override wins, parent
-  // fills in. Effort ids are model-scoped, so efforts follow the effective
-  // model rather than the parent's frozen one.
+  // The model this child's conversation actually ran on: the route reported
+  // by its last usage-bearing assistant turn (tier-resolved at dispatch).
+  // The picker and continued turns must default to THAT model — the usage
+  // card already names it per message, and continuing a sub-agent chat on
+  // the parent's binding would silently switch models mid-conversation.
+  // Absent (no completed turn, or a provider that reports no usage) falls
+  // back to the parent's binding, exactly as before. Plain derivation, no
+  // memo: the React Compiler owns memoization, and an explicit `useMemo`
+  // here fails its preserve-manual-memoization check.
+  let childModel: { providerId: string | null; modelId: string } | null = null;
+  for (let i = feed.entries.length - 1; i >= 0; i -= 1) {
+    const entry = feed.entries[i]!;
+    if (entry.kind !== 'message' || entry.message.role !== 'assistant') {
+      continue;
+    }
+    const source = entry.message.turnUsage?.source;
+    if (source !== undefined) {
+      childModel = { providerId: source.providerId ?? null, modelId: source.modelId };
+      break;
+    }
+  }
+
+  // Effective model for the pickers + efforts list: override wins, the
+  // child's own model fills in, the parent is the last resort. Effort ids
+  // are model-scoped, so efforts follow the effective model rather than the
+  // parent's frozen one.
   const effectiveProviderId =
-    overrideModel?.providerId ?? parent?.providerId ?? null;
-  const effectiveModelId = overrideModel?.modelId ?? parent?.modelId ?? null;
+    overrideModel?.providerId ?? childModel?.providerId ?? parent?.providerId ?? null;
+  const effectiveModelId =
+    overrideModel?.modelId ?? childModel?.modelId ?? parent?.modelId ?? null;
   const reasoning = useConfigStore((s) =>
     s.getModelReasoning(effectiveProviderId, effectiveModelId),
   );
@@ -203,9 +228,11 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
           <InputBar
             onSubmit={(text) =>
               void agent.sendMessage(text, {
-                modelId: overrideModel?.modelId ?? parent?.modelId,
+                modelId:
+                  overrideModel?.modelId ?? childModel?.modelId ?? parent?.modelId,
                 // Provider must follow a model override.
-                providerId: overrideModel?.providerId ?? parent?.providerId,
+                providerId:
+                  overrideModel?.providerId ?? childModel?.providerId ?? parent?.providerId,
                 reasoningEffort: overrideEffort ?? parent?.reasoningEffort,
                 permissionMode: overridePermission ?? parent?.permissionMode,
               })

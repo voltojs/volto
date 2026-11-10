@@ -21,6 +21,10 @@ const sendMessage = vi.hoisted(() => vi.fn(async () => {}));
 const stopGeneration = vi.hoisted(() => vi.fn(async () => {}));
 const useSubagentChatAgentMock = vi.hoisted(() => vi.fn());
 const agentRuntime = vi.hoisted(() => ({ isGenerating: false }));
+// Feed entries the mocked `useSubagentConversation` returns; cases push an
+// assistant message carrying `turnUsage.source` to simulate a child that ran
+// on a tier-resolved model.
+const conversationRuntime = vi.hoisted(() => ({ entries: [] as unknown[] }));
 
 vi.mock('@/hooks/use-subagent-chat-agent', () => ({
   useSubagentChatAgent: (options: unknown) => {
@@ -39,7 +43,7 @@ vi.mock('@/lib/sessions-api', () => ({
 
 vi.mock('@/hooks/use-subagent-conversation', () => ({
   useSubagentConversation: () => ({
-    entries: [],
+    entries: conversationRuntime.entries,
     status: 'done',
     isLoading: false,
     error: null,
@@ -126,6 +130,41 @@ const PROVIDER: Provider = {
   ],
 };
 
+// The economy tier's target — a different provider than the parent session,
+// exactly the q849t9jlu/6331cu2xz shape: the child ran here, the parent on
+// MiMo, and the tab must show the child's model by default.
+const QWEN_PROVIDER: Provider = {
+  kind: 'custom',
+  id: 'q1',
+  name: 'Qwen Token Plan CN',
+  baseURL: 'https://example.com/q1',
+  apiKeyMasked: null,
+  models: [{ id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', code: 'qwen3.6-flash' }],
+};
+
+/** One projected assistant entry carrying the child turn's route source. */
+function childAssistantEntry(source: { providerId?: string; modelId: string }) {
+  return {
+    kind: 'message',
+    message: {
+      id: 'child-a1',
+      role: 'assistant',
+      blocks: [],
+      content: 'child done',
+      timestamp: 1,
+      turnUsage: {
+        inputTokens: 13001,
+        outputTokens: 867,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 13868,
+        source,
+        missingUsageCalls: 0,
+      },
+    },
+  };
+}
+
 const PARENT_SESSION = {
   id: 's1',
   title: 'parent',
@@ -168,12 +207,13 @@ describe('SubagentTab input', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     agentRuntime.isGenerating = false;
+    conversationRuntime.entries = [];
     useChatStore.setState({
       subagents: { c1: { events: [], deltas: [], status: 'done', durationMs: 10 } },
     });
     useConfigStore.setState({
       projects: [{ id: 'p1', path: '/tmp/p1', name: 'p1', createdAt: 0 }],
-      providers: [PROVIDER],
+      providers: [PROVIDER, QWEN_PROVIDER],
       catalogProviders: [],
       loaded: true,
       error: null,
@@ -342,5 +382,55 @@ describe('SubagentTab input', () => {
   it('renders the context meter beside the model picker', () => {
     render(<SubagentTab tab={chatTab} />);
     expect(screen.getByLabelText('上下文用量')).toBeDefined();
+  });
+
+  it('defaults the picker to the child tier-resolved model, not the parent binding', () => {
+    // 6331cu2xz: the economy tier ran the child on Qwen3.6 Flash while the
+    // parent stayed on MiMo. The usage card said Qwen; the picker must agree.
+    conversationRuntime.entries = [
+      childAssistantEntry({ providerId: 'q1', modelId: 'qwen3.6-flash' }),
+    ];
+    render(<SubagentTab tab={chatTab} />);
+    expect(
+      screen.getByRole('button', { name: /模型与推理等级/ }),
+    ).toHaveTextContent('Qwen3.6 Flash');
+  });
+
+  it('continued turns stay on the child model unless overridden', () => {
+    conversationRuntime.entries = [
+      childAssistantEntry({ providerId: 'q1', modelId: 'qwen3.6-flash' }),
+    ];
+    render(<SubagentTab tab={chatTab} />);
+    const editor = screen.getByTestId('subagent-input-editor') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'more please' } });
+    fireEvent.submit(screen.getByTestId('subagent-input-bar'));
+    expect(sendMessage).toHaveBeenCalledWith('more please', {
+      modelId: 'qwen3.6-flash',
+      providerId: 'q1',
+      reasoningEffort: 'high',
+      permissionMode: 'ask',
+    });
+  });
+
+  it('falls back to the parent binding when the child turn carries no usage', () => {
+    // A child whose provider reports no usage leaves messages without
+    // `turnUsage`: the picker stays on the parent's model — the pre-tier
+    // behavior, unchanged.
+    conversationRuntime.entries = [
+      {
+        kind: 'message',
+        message: {
+          id: 'child-a1',
+          role: 'assistant',
+          blocks: [],
+          content: 'child done',
+          timestamp: 1,
+        },
+      },
+    ];
+    render(<SubagentTab tab={chatTab} />);
+    expect(
+      screen.getByRole('button', { name: /模型与推理等级/ }),
+    ).toHaveTextContent('MiMo');
   });
 });
