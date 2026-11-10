@@ -247,7 +247,11 @@ describe("task sub-agent — skill catalog context layer", () => {
     expect(subSystemContents.some((c) => c.includes("hidden"))).toBe(false);
   });
 
-  it("gives a dispatched subagent no contextLayers when there is no skill registry (regression guard)", async () => {
+  // plan-015's "sub-agents start from a clean context" was superseded for HOST
+  // instruction layers by spec 2026-11-10 D6 (see sub-agent-instructions.test.ts).
+  // What this guard still pins is the shape when the host resolves nothing at
+  // all: no layers, so the child's request stays byte-identical to before.
+  it("gives a dispatched subagent no contextLayers when the host resolves none (regression guard)", async () => {
     const capturedRequests: ModelRequest[] = [];
     const inner = createMockModelPort([
       toolCallScript("main-call-1", "task", JSON.stringify({ message: "Do research" })),

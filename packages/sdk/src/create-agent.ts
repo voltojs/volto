@@ -1899,6 +1899,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       ragWiring,
       resolveWorkspaceReminderOnce,
       peekSessionCwd,
+      () => (resolvedContextLayers ?? []).filter((l) => l.id !== SKILL_CATALOG_LAYER_ID),
     );
     // Assign into the outer binding so createNextRunner's runnerOpts can
     // hand the registry to each Runner for turn-boundary draining.
@@ -3237,6 +3238,13 @@ export function renderSkillCatalog(
  * no registry, or when the registry lists zero model-invocable skills — an
  * empty catalog layer would only spend tokens for nothing.
  */
+/**
+ * Context-layer id of the skill catalog. The sub-agent assembly filters the
+ * parent's resolved layers by this id: the child rebuilds its own catalog, and
+ * a rebuilt instance's `initialContextLayers` already contains the parent's.
+ */
+const SKILL_CATALOG_LAYER_ID = "skill-catalog";
+
 async function buildSkillCatalogLayer(
   skillRegistry: SkillRegistry | undefined,
   descriptionMaxLength: number | undefined,
@@ -3247,7 +3255,7 @@ async function buildSkillCatalogLayer(
     .sort(compareSkillSummariesByName);
   if (summaries.length === 0) return undefined;
   return {
-    id: "skill-catalog",
+    id: SKILL_CATALOG_LAYER_ID,
     text: renderSkillCatalog(summaries, descriptionMaxLength),
   };
 }
@@ -3541,6 +3549,11 @@ function createSubAgentExecutor(
     cwd: string,
   ) => Promise<{ key: string; announce: string } | undefined> = async () => undefined,
   peekSessionCwd: () => string | undefined = () => undefined,
+  // The host's instruction layers this instance resolved (global + project
+  // AGENTS.md, …). Derived by filtering the resolved set rather than cached
+  // separately, so a rebuilt instance — whose layers arrive pre-seeded and
+  // never re-resolve — still hands them to the child (spec 2026-11-10 D6).
+  getCurrentHostLayers: () => ContextLayer[] = () => [],
 ): SyncSubAgentExecutor {
   return async ({
     message,
@@ -3825,6 +3838,7 @@ function createSubAgentExecutor(
         ragWiring,
         resolveWorkspaceReminderOnce,
         peekSessionCwd,
+        getCurrentHostLayers,
       );
       const nestedDispatch: SubAgentDispatch = async (req) => {
         if (req.background) {
@@ -4072,6 +4086,15 @@ function createSubAgentExecutor(
     // memory, …) — plan-015 decided subagents start from a clean context,
     // and widening that is a design change, not this fix's scope.
     const subCatalogLayer = await buildSkillCatalogLayer(opts.skillRegistry, opts.skillCatalogDescriptionMaxLength);
+    // Host instruction layers (global + project AGENTS.md, …) DO cross the
+    // dispatch boundary (spec 2026-11-10 D6, superseding plan-015's clean
+    // context): a child that edits files, runs git or answers a user must
+    // follow the same project rules as its parent. The parent's own catalog is
+    // filtered out — the child gets the freshly built one below.
+    const subContextLayers: ContextLayer[] = [
+      ...getCurrentHostLayers(),
+      ...(subCatalogLayer ? [subCatalogLayer] : []),
+    ];
 
     // Where the child will actually work. `getSession()` is fine here (unlike
     // the per-turn peek): a dispatch that reached this point is about to run a
@@ -4156,7 +4179,7 @@ function createSubAgentExecutor(
       ...(resolvedSubResponseFormat !== undefined
         ? { responseFormat: resolvedSubResponseFormat }
         : {}),
-      ...(subCatalogLayer ? { contextLayers: [subCatalogLayer] } : {}),
+      ...(subContextLayers.length > 0 ? { contextLayers: subContextLayers } : {}),
       // Re-resolved at DISPATCH time, not copied from the parent's turn: the
       // parent may have cd'd into a worktree since this turn started, and a
       // child that answers from the stale directory is worse than no reminder
