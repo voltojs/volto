@@ -79,6 +79,17 @@ export interface StepContext {
    */
   workflowReminder?: { key?: string; announce: string };
   /**
+   * Workspace-environment announcement channel (spec 2026-11-10). Same
+   * fingerprint discipline as `workflowReminder` — tail user-role
+   * `<system-reminder>`, injected only when `key` changes, never a static
+   * prefix layer, so a mid-session `cd` into a worktree costs zero prompt-cache
+   * invalidation. The host owns both the key vocabulary and the wording;
+   * unlike `workflowReminder`, `key` is REQUIRED: there is no "no workspace"
+   * state, and an optional key would compare `undefined !== undefined` and
+   * never announce at all.
+   */
+  workspaceReminder?: { key: string; announce: string };
+  /**
    * Optional id source; when set, messages appended to state.messages get
    * id: ctx.id.next(). Absent → messages keep their construction-time id.
    */
@@ -724,6 +735,36 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       announcedWorkflow = ctx.workflowReminder.key;
     }
 
+    // Announce the working directory / branch exactly like the two channels
+    // above: tail, user-role, never the static prefix. A session that `cd`s
+    // into a worktree changes what every path and git command means, so the
+    // model has to learn it — but describing it up front would invalidate the
+    // cached prefix on every workspace change. Unchanged key = no message, no
+    // tokens. See `workspaceReminder`'s doc comment for why the key is
+    // mandatory here.
+    let announcedWorkspace = state._announcedWorkspace;
+    if (ctx.workspaceReminder && ctx.workspaceReminder.key !== announcedWorkspace) {
+      const workspaceText = ctx.workspaceReminder.announce;
+      announcements.push(
+        stamp(
+          {
+            id: "",
+            role: "user" as const,
+            content: `<system-reminder>\n${workspaceText}\n</system-reminder>`,
+          },
+          ctx,
+        ),
+      );
+      emittedReminders.push({
+        type: "emit",
+        event: {
+          type: "context_reminder",
+          data: { kind: "workspace", text: workspaceText },
+        },
+      });
+      announcedWorkspace = ctx.workspaceReminder.key;
+    }
+
     // D11b — a queue that survived into idle is older than the opening
     // message: flush it first ([...olderQueue, newUserMsg]) and announce
     // only the flushed older entries with steering_delivered. The new
@@ -738,6 +779,7 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       _announcedPermission: announced,
       _announcedPermissionConfig: announcedConfig,
       _announcedWorkflowMode: announcedWorkflow,
+      _announcedWorkspace: announcedWorkspace,
     };
     const effects: Effect[] = [
       ...flushed.delivered,

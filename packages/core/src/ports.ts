@@ -479,7 +479,8 @@ export type ContextReminderKind =
   | "loop_intervention"
   | "retrieval"
   | "todo_list"
-  | "background_task";
+  | "background_task"
+  | "workspace";
 
 /**
  * Where a user-role message came from when it was not typed by a human.

@@ -333,4 +333,13 @@ export interface AgentState {
    * note never fires (spec 2026-09-25 §3.1-0).
    */
   _announcedWorkflowMode?: string;
+  /**
+   * Fingerprint of the workspace reminder last announced to the model (opaque
+   * host key — cwd + branch in the gateway). Lives in AgentState so a
+   * checkpoint carries it within the conversation. Deliberately NOT re-seeded
+   * across host rebuilds (spec 2026-11-10 D8): a rebuild re-announces once,
+   * which is idempotent and self-heals a workspace that changed underneath
+   * the rebuild.
+   */
+  _announcedWorkspace?: string;
 }
