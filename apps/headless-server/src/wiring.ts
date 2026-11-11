@@ -605,11 +605,11 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // bash-launched processes are untouched by design.
   const egressPolicy = await loadEgressPolicy(getConfigDir());
 
-  // Parameter permission rules (path / host) from ~/.volto/permissions.json.
+  // Parameter permission rules (path / host) from config.json's `permissions` section.
   // Same reload discipline and same fail-closed stance as the egress policy.
   const permissionRules = await loadPermissionRules(getConfigDir());
 
-  // Language → server table from ~/.volto/lsp.json. Re-read on every session
+  // Language → server table from config.json's `lsp` section. Re-read on every session
   // build (an edit reaches new sessions without a restart) and fail-closed on
   // a malformed document or entry: a user who wrote one expects it enforced.
   // An absent file means the built-in TypeScript default (spec D2); an explicit

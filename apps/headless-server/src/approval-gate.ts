@@ -37,7 +37,7 @@ import type {
  *
  * The "remember" feature (spec 2026-09-20) takes a fundamentally different
  * path: the user explicitly chooses to write a rule to the *visible,
- * user-editable* file `~/.volto/permissions.json`, subject to the same
+ * user-editable* `permissions` section of `~/.volto/config.json`, subject to the same
  * ceiling clamp and R1/R2 caveats as hand-written rules.  The file is
  * user-level (applies to every project) and takes effect on the *next*
  * turn — the current turn may still ask again.  This is not a session-

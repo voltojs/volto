@@ -251,7 +251,8 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
               ))}
             </div>
             <p className="text-muted-foreground mt-2 text-xs">
-              {t('approval.willWrite')} <code>~/.volto/permissions.json</code>：
+              {t('approval.willWrite')} <code>~/.volto/config.json</code>
+              {t('approval.rulesPath')}：
               <code className="ml-1">{JSON.stringify({ toolName: 'bash', commandPrefix: selectedPrefix, decision: 'allow' })}</code>
               {t('approval.userLevel')}
             </p>

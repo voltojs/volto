@@ -72,6 +72,14 @@ describe('ApprovalCard remember 功能', () => {
     expect(await screen.findByText(/已被现有更宽规则覆盖/)).toBeInTheDocument();
   });
 
+  it('记住规则的提示指向 config.json 的 permissions 分区，而不是已迁移的旧文件', () => {
+    render(<ApprovalCard approval={bashApproval('pnpm test')} onDecide={onDecide} />);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('~/.volto/config.json');
+    expect(text).toContain('permissions.rules');
+    expect(text).not.toContain('permissions.json');
+  });
+
   it('非 bash 工具不展示 remember 入口', () => {
     render(
       <ApprovalCard

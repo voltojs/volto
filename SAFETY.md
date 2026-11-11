@@ -26,18 +26,18 @@ volto 是实验性软件，未经过安全审计，不应用于生产环境。
 
 后端为 macOS seatbelt (`sandbox-exec`) 与 Linux bubblewrap (`bwrap`)。两者语义并不等价，例如 Linux 侧的 denied-read 是用空 tmpfs 掩蔽实现的，已持有 fd 的进程仍可继续读——这类差异在代码注释里逐条标注为 PARITY NOTE。其他平台目前没有隔离后端。
 
-**Network port 的出口策略是工具级的，不是系统级的。** `~/.volto/egress.json` 的 allow/deny 列表只作用于 `web_fetch` / `web_search` / `http_query` 三个工具：精确主机名匹配，denylist 优先，被拒请求得到结构化 403。模型自身的传输不经此通道（配置出口策略影响不了与供应商的连接），bash 里启动的任何进程（curl、pip 等）同样不经此通道——上一段"`workspace-write` 下的命令可以正常联网"不会因为配置了出口策略而改变。把这份名单当机器出站防火墙用是错误的。
+**Network port 的出口策略是工具级的，不是系统级的。** `~/.volto/config.json` 的 `egress` 分区（旧的 `egress.json` 仍会被读取）里的 allow/deny 列表只作用于 `web_fetch` / `web_search` / `http_query` 三个工具：精确主机名匹配，denylist 优先，被拒请求得到结构化 403。模型自身的传输不经此通道（配置出口策略影响不了与供应商的连接），bash 里启动的任何进程（curl、pip 等）同样不经此通道——上一段"`workspace-write` 下的命令可以正常联网"不会因为配置了出口策略而改变。把这份名单当机器出站防火墙用是错误的。
 
-**参数级权限规则只作用于声明了参数的具名工具。** `~/.volto/permissions.json` 的
+**参数级权限规则只作用于声明了参数的具名工具。** `~/.volto/config.json` 的 `permissions` 分区（旧 `permissions.json` 仍会被读取）中的
 `pathPattern` 只对被声明了路径入参的工具生效（`read_file` / `write_file` / `edit_file`
 / `ls` / `grep` 等），`hostPattern` 只对 `web_fetch` / `http_query` 生效。`bash`
 两个都没声明——它的命令体是自由文本，不在入参里——因此**任何路径规则都约束不了
-它**，`curl` 也不受 `hostPattern` 影响。想禁止访问某域名请配 `egress.json`（它同样
+它**，`curl` 也不受 `hostPattern` 影响。想禁止访问某域名请配 `egress` 分区（它同样
 挡不住 bash 里的 curl，见上一段）。规则永远不能越过 sandbox ceiling：在
 `read-only` 会话里，一条 `allow` 规则也不会让写入发生。
 
 **命令前缀规则同样不是边界，且它的文本与效果之间存在已知偏差。**
-`~/.volto/permissions.json` 的 `commandPrefix` 只对声明了命令入参的工具（当前仅 `bash`）生效，
+`~/.volto/config.json` 的 `permissions` 分区的 `commandPrefix` 只对声明了命令入参的工具（当前仅 `bash`）生效，
 且只接受"不含任何 shell 元字符的单一简单命令"；任何复合命令、命令替换、环境变量赋值
 或带引号展开的写法都会照旧询问。因此它的失败方向是**多问**，不是少拦——这与 SAFETY.md
 否决的"危险命令分类器"（漏判即放行）方向相反。但两处偏差必须知道：bash 默认使用持久
@@ -46,13 +46,13 @@ volto 是实验性软件，未经过安全审计，不应用于生产环境。
 而不是"允许运行某个程序"。想真正限制 bash 能做什么，请收紧沙箱档位或使用一次性环境。
 
 **一键保存只是替你手写规则，不会提高任何上限。** 审批卡上"始终允许…"按钮写入的是
-`~/.volto/permissions.json` 里的一条 `commandPrefix` 规则——与你手动编辑该文件添加的
+`~/.volto/config.json` 的 `permissions` 分区里的一条 `commandPrefix` 规则——与你手动编辑该文件添加的
 规则完全等价。它受同样的 ceiling 夹紧（`read-only` 下 `allow` 规则不会放行写入）、
 同样的 R1/R2 风险（跨项目生效、当前轮内仍会再问一次）、同样的已知偏差（持久会话的
 alias / `PATH` / `cwd` 不受约束）。保存失败时本次调用仍按"允许一次"执行，不会因为
 记账失败而拒掉工具调用。要撤销，编辑文件删除对应条目即可。
 
-**`~/.volto/hooks.json` 里的命令 hook 在宿主进程执行，不经沙箱。** 它与 `permissions.json` / `egress.json` 同信任级：用户编辑面、宿主读取、模型不可见。**沙箱档位下**模型写不了 `~/.volto`（可写范围只有工作区与临时目录，凭据目录的读取拒绝见下段；`danger-full-access` 档不隔离，经 bash 可写——该档的信任前提本就是宿主全权），因此能注入 hooks.json 的前提是有本地文件系统权限——这属于宿主信任域，与"能在工作区里放一个 `.git/hooks` 脚本"是同一等级的威胁，不是新的攻击面。三条执行语义要知道：hook 的 **stdout 永不进入模型上下文**——只有退出码与（deny 时的）stderr 首行参与决策，一个 hook 打印再多内容也污染不了提示词；每个 hook **10 秒超时**，到点 SIGTERM 并按 fail-closed 拒绝处理；**畸形的 hooks.json 拒绝的是这份配置而不是会话**——加载失败时打一条启动警告、照常构建无配置 hook 的会话。这与 egress.json 的 fail-closed（坏配置拒绝整个构建）方向相反，是刻意的：egress 拒的是一条"放行"的缺省，hooks 拒的只是"规则没装上"，让整个服务停摆换不来安全增益。另有两条只有 hook 才有的面要记住：hook 的 **stdin 携带的是模型可控数据**——preToolUse / postToolUse 的 ctx 里有工具输入与工具结果，都是模型产出的内容，一个不加分辨就把 stdin 内容当命令执行的 hook（`eval`、`jq -r` 直接接进 shell）等于在宿主信任域里执行模型输出，把"防模型犯错"的立场整个交了出去；hook 子进程**原样继承宿主环境变量**——与沙箱子进程剥离 `*API_KEY*` / `*TOKEN*` 等凭据变量的做法不同，hook 拿到的是完整环境，需要干净环境的 hook 必须自己先清一遍再干活。代价是：如果你依赖某个 hook 拦截危险操作，而 hooks.json 恰好写坏了，那次会话会在**没有这条拦截**的情况下运行——hook 是护栏不是边界，边界在上一节。
+**`~/.volto/config.json` 的 `hooks` 分区里的命令 hook 在宿主进程执行，不经沙箱。** 它与 `permissions` / `egress` 两个分区同信任级：用户编辑面、宿主读取、模型不可见。**沙箱档位下**模型写不了 `~/.volto`（可写范围只有工作区与临时目录，凭据目录的读取拒绝见下段；`danger-full-access` 档不隔离，经 bash 可写——该档的信任前提本就是宿主全权），因此能注入 hooks 配置的前提是有本地文件系统权限——这属于宿主信任域，与"能在工作区里放一个 `.git/hooks` 脚本"是同一等级的威胁，不是新的攻击面。三条执行语义要知道：hook 的 **stdout 永不进入模型上下文**——只有退出码与（deny 时的）stderr 首行参与决策，一个 hook 打印再多内容也污染不了提示词；每个 hook **10 秒超时**，到点 SIGTERM 并按 fail-closed 拒绝处理；**畸形（或非法）的 hooks 配置拒绝的是这份配置而不是会话**——加载失败时打一条启动警告、照常构建无配置 hook 的会话。这与 `egress` 的 fail-closed（坏配置拒绝整个构建）方向相反，是刻意的：egress 拒的是一条"放行"的缺省，hooks 拒的只是"规则没装上"，让整个服务停摆换不来安全增益。另有两条只有 hook 才有的面要记住：hook 的 **stdin 携带的是模型可控数据**——preToolUse / postToolUse 的 ctx 里有工具输入与工具结果，都是模型产出的内容，一个不加分辨就把 stdin 内容当命令执行的 hook（`eval`、`jq -r` 直接接进 shell）等于在宿主信任域里执行模型输出，把"防模型犯错"的立场整个交了出去；hook 子进程**原样继承宿主环境变量**——与沙箱子进程剥离 `*API_KEY*` / `*TOKEN*` 等凭据变量的做法不同，hook 拿到的是完整环境，需要干净环境的 hook 必须自己先清一遍再干活。代价是：如果你依赖某个 hook 拦截危险操作，而 hooks 配置恰好写坏了，那次会话会在**没有这条拦截**的情况下运行——hook 是护栏不是边界，边界在上一节。
 
 **`~/.volto/memory/` 是模型可写的项目长期记忆，必须按不可信参考内容对待。** T11 的记忆由模型通过 `memory` 工具的 `remember` 动作写入，按项目隔离（`<projectId>.jsonl`；`global` 只保留数据模型，T11 没有用户写入入口），存放在 `~/.volto/memory`、与凭据/附件同级，沙箱内进程读不到。检索注入的文本带固定的“参考而非指令”头，并记录 `context_reminder(kind: "retrieval")` 审计事件；即便如此，**记忆投毒不在本项目的防御承诺内**——模型可以写入任意文本、并在后续会话中被再次检索，这与模型可写文件/计划同档，是“防模型犯错、不承诺防模型被诱导”的直接结果。另一个已知边界：记忆是单进程 append-only，没有跨进程锁；多进程同时写同一项目文件可能丢更新。
 
@@ -65,7 +65,7 @@ alias / `PATH` / `cwd` 不受约束）。保存失败时本次调用仍按"允�
 会出现 `~/.volto/spill/`，它是 spill 数据，凭据拒绝读取的代码路径从不读它（经全分支 review
 核实），两者永远不应被"顺手合并"。spill 写盘发生在宿主侧的 runner 进程，不经沙箱子进程。
 
-**语言服务器（LSP）子进程用与会话同档的 `SandboxConfig` 启动，读边界与 shell / 文件工具一样宽（同样只排除 `deniedReadPaths`），但配置并非照抄那一份。** 它**不开 `network`**（Seatbelt `(deny network*)` / bwrap `--unshare-net`）、另加 `strippedEnvPatterns`，凭据目录 `~/.volto` 就在 `deniedReadPaths` 里，`*API_KEY*` / `*TOKEN*` / `*SECRET*` 一类变量在进入子进程前被剥离——语言服务器不需要网络，封掉它零成本。但沙箱只界定**可写范围与少数拒绝读路径**：除 `deniedReadPaths` 外的全盘仍可读，因此 `lsp_hover` 与诊断在原理上能把工作区外文件的内容带回模型上下文（"读边界"的已知形态）。另外三条已知限度：只读档下语言服务器写不了自己的缓存（超大仓变慢，是隔离的代价）；在途 LSP 请求**不可取消**，最长等待由请求超时界定，超时会 kill 该子进程、下次调用重起一个；非 TS/JS 语言**没有内置默认**，需要 `~/.volto/lsp.json`，未配置时返回可复制的配置片段而不是构建失败。语言服务器本身是**第三方二进制**，按"沙箱内的不可信子进程"对待——受限档下它拿不到网络与 provider 凭据（`danger-full-access` 档不隔离，与 shell / 文件工具一致：那时它继承宿主进程的网络与环境，含 provider 凭据），但读得到它能读的一切。
+**语言服务器（LSP）子进程用与会话同档的 `SandboxConfig` 启动，读边界与 shell / 文件工具一样宽（同样只排除 `deniedReadPaths`），但配置并非照抄那一份。** 它**不开 `network`**（Seatbelt `(deny network*)` / bwrap `--unshare-net`）、另加 `strippedEnvPatterns`，凭据目录 `~/.volto` 就在 `deniedReadPaths` 里，`*API_KEY*` / `*TOKEN*` / `*SECRET*` 一类变量在进入子进程前被剥离——语言服务器不需要网络，封掉它零成本。但沙箱只界定**可写范围与少数拒绝读路径**：除 `deniedReadPaths` 外的全盘仍可读，因此 `lsp_hover` 与诊断在原理上能把工作区外文件的内容带回模型上下文（"读边界"的已知形态）。另外三条已知限度：只读档下语言服务器写不了自己的缓存（超大仓变慢，是隔离的代价）；在途 LSP 请求**不可取消**，最长等待由请求超时界定，超时会 kill 该子进程、下次调用重起一个；非 TS/JS 语言**没有内置默认**，需要在 `~/.volto/config.json` 的 `lsp` 分区登记，未配置时返回可复制的配置片段而不是构建失败。语言服务器本身是**第三方二进制**，按"沙箱内的不可信子进程"对待——受限档下它拿不到网络与 provider 凭据（`danger-full-access` 档不隔离，与 shell / 文件工具一致：那时它继承宿主进程的网络与环境，含 provider 凭据），但读得到它能读的一切。
 
 **sqlite 句柄不受沙箱管辖，边界来自三层明确规则。** sqlite 是网关**进程内**的连接，沙箱（只管子进程的文件效果）对它无效，因此约束写在 opener 里：① 库文件路径经 realpath 校验并必须落在工作区内，越界 fail-closed；② `db_query` 用只读句柄（`readonly` + `PRAGMA query_only = ON`），写语句由 SQLite 引擎拒绝而非正则预筛；③ 显式拒绝 `ATTACH` / `DETACH` / `VACUUM INTO` / `load_extension`——`query_only` 对这四条无效，而每一条都能绕过工作区包含性去打开任意文件。写能力按档位拆分：`db:write` 只在宿主判定会话非只读（`plan` / `read-only` 档为假）时授予，为假时 `db_exec` **根本不注册**（模型看不到），为真时仍是 `WRITE_HIGH` 并受只读 ceiling 再摘一次。`better-sqlite3` 是原生模块，未安装时首次打开返回带安装命令的 `isError`。
 

@@ -183,6 +183,7 @@
     "paramsMissing": "（该调用的参数已不在回放缓冲区内，无法显示）",
     "alwaysAllow": "始终允许…",
     "willWrite": "将写入",
+    "rulesPath": "（permissions.rules 分区）",
     "userLevel": "（用户级，对所有项目生效；下一轮生效）",
     "remember": "记住并允许",
     "allowOnce": "允许一次",

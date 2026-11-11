@@ -183,6 +183,7 @@
     "paramsMissing": "(The arguments are no longer in the replay buffer and cannot be shown)",
     "alwaysAllow": "Always allow…",
     "willWrite": "Will write to",
+    "rulesPath": " (the permissions.rules section)",
     "userLevel": "(user level, applies to every project; takes effect next turn)",
     "remember": "Remember and allow",
     "allowOnce": "Allow once",
