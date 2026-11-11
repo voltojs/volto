@@ -122,6 +122,9 @@ describe('SubagentTab permission display', () => {
     // any menu, so it gets its own assertion.
     const badge = screen.getByTestId('subagent-permission-badge');
     expect(badge).toHaveTextContent('只读');
+    // The badge is the only place that explains what it constrains; a bare
+    // "只读" invites reading it as an OS sandbox promise.
+    expect(badge).toHaveAttribute('title', expect.stringContaining('工具权限'));
     expect(screen.queryByTestId('subagent-permission-badge')).toHaveTextContent(/^(?!完全)/);
     expect(screen.queryByText('完全')).not.toBeInTheDocument();
   });

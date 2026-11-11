@@ -2,6 +2,11 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useChatStore } from '@/stores/chat-store';
 import {
   useSessionStore,
@@ -212,13 +217,23 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         {/* The child's own boundary, so a read-only dispatch never looks
             like a full-access one (spec 2026-11-11 G2). */}
         {showPermissionBadge && (
-          <span
-            data-testid="subagent-permission-badge"
-            title={t('subagent.permissionTooltip')}
-            className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]"
-          >
-            {tp(PERMISSION_BADGE_KEYS[effectivePermission])}
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  data-testid="subagent-permission-badge"
+                  // Native `title` as well: the styled tooltip needs a
+                  // pointer-capable device, and the badge is the only place
+                  // that explains what "只读" here actually constrains.
+                  title={t('subagent.permissionTooltip')}
+                  className="border-border bg-muted text-muted-foreground shrink-0 cursor-help rounded border px-1.5 py-0.5 font-mono text-[10px]"
+                >
+                  {tp(PERMISSION_BADGE_KEYS[effectivePermission])}
+                </span>
+              }
+            />
+            <TooltipContent>{t('subagent.permissionTooltip')}</TooltipContent>
+          </Tooltip>
         )}
         <span className="text-muted-foreground/60 ml-auto min-w-0 max-w-40 truncate font-mono text-[10px]">
           {childId}
