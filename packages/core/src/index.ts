@@ -25,6 +25,17 @@ export type {
   BackgroundTask,
   AgentState,
 } from "./state.js";
+export {
+  PERMISSION_PRESETS,
+  isPermissionPreset,
+  permissionConfigOf,
+  presetOf,
+  isWiderThan,
+  allowedPresetsFor,
+  narrowToParent,
+} from "./permission-presets.js";
+export type { PermissionPreset } from "./permission-presets.js";
+
 export { normalizeToolResultContent } from "./state.js";
 
 // Types — Input
