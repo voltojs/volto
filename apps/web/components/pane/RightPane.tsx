@@ -11,6 +11,7 @@ import {
   FolderTree,
   GitGraph,
   ListTodo,
+  PanelRightClose,
   Plus,
   ScrollText,
   X,
@@ -25,6 +26,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { BackgroundTasksTab } from './BackgroundTasksTab';
 import { FileDiffTab } from './FileDiffTab';
 import { FilePreviewTab } from './FilePreviewTab';
@@ -171,6 +177,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
   const setActive = usePaneStore((s) => s.setActive);
   const closeTab = usePaneStore((s) => s.closeTab);
   const setWidth = usePaneStore((s) => s.setWidth);
+  const setHidden = usePaneStore((s) => s.setHidden);
 
   // Keep the active tab visible: openings land at the strip's end and a
   // switch can target a tab outside the horizontally scrolled viewport.
@@ -229,58 +236,84 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
         onDoubleClick={() => setWidth(PANE_WIDTH_DEFAULT)}
       />
       <div className="flex min-w-0 flex-1 flex-col border-l">
-        {activeTab !== null && (
-          <div ref={stripRef} className="flex min-h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1.5">
-            {tabs.map((tab) => {
-              const Icon = tabIcon(tab);
-              const title =
-                tab.kind === 'file-preview' || tab.kind === 'file-diff'
-                  ? (tab.path.split('/').at(-1) ?? tab.path)
-                  : // A sub-agent tab is labelled with the dispatch's own task
-                    // title when there is one; the session-id suffix stays the
-                    // fallback so legacy tabs and unnamed dispatches still
-                    // read distinctly.
-                    tab.kind === 'subagent' && tab.title !== undefined
-                    ? tab.title
-                    : t(tabTitleKey(tab), { suffix: tab.kind === 'subagent' ? tab.childSessionId.slice(-6) : '' });
-              const active = tab.id === activeTab.id;
-              return (
-                <div
-                  key={tab.id}
-                  data-tab-id={tab.id}
-                  className={`flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-xs ${
-                    active
-                      ? 'border-primary text-foreground'
-                      : 'text-muted-foreground hover:text-foreground border-transparent'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    title={
-                      tab.kind === 'file-preview' || tab.kind === 'file-diff'
-                        ? tab.path
-                        : undefined
-                    }
-                    onClick={() => setActive(tab.id)}
-                    className="flex min-w-0 items-center gap-1.5"
+        {/* Header row: the scrollable tab strip plus a collapse control pinned
+            to the pane's far right. Rendered even with zero tabs so the
+            collapse affordance stays reachable while the pane is expanded. */}
+        <div className="flex min-h-12 shrink-0 items-center gap-0.5 border-b px-1.5">
+          {activeTab !== null ? (
+            <div ref={stripRef} className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+              {tabs.map((tab) => {
+                const Icon = tabIcon(tab);
+                const title =
+                  tab.kind === 'file-preview' || tab.kind === 'file-diff'
+                    ? (tab.path.split('/').at(-1) ?? tab.path)
+                    : // A sub-agent tab is labelled with the dispatch's own task
+                      // title when there is one; the session-id suffix stays the
+                      // fallback so legacy tabs and unnamed dispatches still
+                      // read distinctly.
+                      tab.kind === 'subagent' && tab.title !== undefined
+                      ? tab.title
+                      : t(tabTitleKey(tab), { suffix: tab.kind === 'subagent' ? tab.childSessionId.slice(-6) : '' });
+                const active = tab.id === activeTab.id;
+                return (
+                  <div
+                    key={tab.id}
+                    data-tab-id={tab.id}
+                    className={`flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-xs ${
+                      active
+                        ? 'border-primary text-foreground'
+                        : 'text-muted-foreground hover:text-foreground border-transparent'
+                    }`}
                   >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="max-w-40 truncate">{title}</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('tabs.close', { title })}
-                    onClick={() => closeTab(tab.id)}
-                    className="hover:bg-muted hover:text-foreground rounded p-0.5"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              );
-            })}
-            {projectId !== null && <PlusMenu projectId={projectId} />}
-          </div>
-        )}
+                    <button
+                      type="button"
+                      title={
+                        tab.kind === 'file-preview' || tab.kind === 'file-diff'
+                          ? tab.path
+                          : undefined
+                      }
+                      onClick={() => setActive(tab.id)}
+                      className="flex min-w-0 items-center gap-1.5"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="max-w-40 truncate">{title}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('tabs.close', { title })}
+                      onClick={() => closeTab(tab.id)}
+                      className="hover:bg-muted hover:text-foreground rounded p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+              {projectId !== null && <PlusMenu projectId={projectId} />}
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1" />
+          )}
+          {/* Collapse lives at the pane's own right edge (not the chat
+              header): the control sits where the pane ends, matching the
+              habit of closing a panel from its far side. Outside the
+              scrollable strip so tab overflow never pushes it away. */}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={t('collapse')}
+                  onClick={() => setHidden(true)}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded"
+                />
+              }
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </TooltipTrigger>
+            <TooltipContent>{t('collapse')}</TooltipContent>
+          </Tooltip>
+        </div>
         <div className="flex min-h-0 flex-1 flex-col">
           {activeTab !== null ? (
             <ActiveTabBody tab={activeTab} onExecutePlan={onExecutePlan} />

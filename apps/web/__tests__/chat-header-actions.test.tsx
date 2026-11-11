@@ -33,8 +33,10 @@ describe('ChatHeader actions menu', () => {
     expect(screen.queryByRole('button', { name: '导出会话' })).toBeNull();
     expect(screen.queryByRole('button', { name: '压缩上下文' })).toBeNull();
     expect(screen.getByRole('button', { name: '更多操作' })).toBeDefined();
-    // The pane toggle stays outside the menu.
-    expect(screen.getByRole('button', { name: '收起面板' })).toBeDefined();
+    // The collapse control moved into the pane's own toolbar: while the pane
+    // is visible the header offers no pane toggle at all.
+    expect(screen.queryByRole('button', { name: '收起面板' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '展开面板' })).toBeNull();
   });
 
   it('opens the menu with the secondary actions and their disabled states', () => {

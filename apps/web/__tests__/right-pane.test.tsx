@@ -217,3 +217,43 @@ describe('RightPane tab strip', () => {
     expect(second.getAttribute('data-tab-id')).toBe('preview:p1:a.ts');
   });
 });
+
+describe('RightPane collapse control', () => {
+  it('pins the collapse button to the toolbar far right, outside the scroll strip', () => {
+    usePaneStore.setState({
+      tabs: [subagentTab('a')],
+      activeTabId: 'subagent:a',
+      open: true,
+    });
+    render(<RightPane projectId="p1" />);
+    const button = screen.getByRole('button', { name: '收起面板' });
+    const toolbar = button.parentElement!;
+    // Rightmost child of the header row…
+    expect(toolbar.lastElementChild).toBe(button);
+    // …and never inside the horizontally scrollable tab strip, so tab
+    // overflow cannot push the affordance out of reach.
+    expect(button.closest('.overflow-x-auto')).toBeNull();
+    expect(toolbar.querySelector('.overflow-x-auto')).not.toBeNull();
+  });
+
+  it('collapses the pane while keeping its tabs', () => {
+    usePaneStore.setState({
+      tabs: [subagentTab('a')],
+      activeTabId: 'subagent:a',
+      open: true,
+    });
+    const view = render(<RightPane projectId="p1" />);
+    fireEvent.click(screen.getByRole('button', { name: '收起面板' }));
+    expect(usePaneStore.getState().hidden).toBe(true);
+    expect(usePaneStore.getState().tabs).toHaveLength(1);
+    expect(view.container.querySelector('[data-testid="right-pane"]')).toBeNull();
+  });
+
+  it('keeps the collapse affordance in the zero-tab overview', () => {
+    usePaneStore.setState({ open: true, hidden: false, tabs: [] });
+    const view = render(<RightPane projectId="p1" />);
+    fireEvent.click(screen.getByRole('button', { name: '收起面板' }));
+    expect(usePaneStore.getState().hidden).toBe(true);
+    expect(view.container.querySelector('[data-testid="right-pane"]')).toBeNull();
+  });
+});

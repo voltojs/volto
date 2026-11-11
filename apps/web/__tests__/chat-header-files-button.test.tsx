@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 
 describe('ChatHeader 面板切换按钮', () => {
-  it('renders the collapse affordance and calls onToggle when visible', () => {
+  it('renders no toggle while the pane is visible — collapse lives in the pane', () => {
     const onToggle = vi.fn();
     render(
       <ChatHeader title="会话标题" paneToggle={{ visible: true, disabled: false, onToggle }} />,
     );
     expect(screen.getByText('会话标题')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '收起面板' }));
-    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '收起面板' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '展开面板' })).toBeNull();
   });
 
   it('renders the open affordance when the pane is hidden', () => {

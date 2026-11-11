@@ -489,10 +489,12 @@ export function ChatPanel() {
     currentProject?.name ||
     t('welcome.tagline');
 
-  // 右侧面板切换：可见时点击折叠（标签保留）；折叠时点击恢复；从未打开
-  // 且无项目（总览开不了）时禁用。无 tab 时打开空面板（总览），不再直接
-  // 开文件树。会话界面用会话绑定项目；欢迎界面用已选的 pending 项目，选
-  // 中后即可查看文件 / Git 图谱。
+  // Right-pane toggle: the header only offers expand while the pane is
+  // hidden; the collapse control lives at the pane's own far right
+  // (RightPane). Collapsing keeps tabs; expanding with no tabs opens the
+  // empty overview. Disabled when the pane was never opened and there is no
+  // project to overview. Session views use the session-bound project; the
+  // welcome view uses the selected pending project.
   const paneTabs = usePaneStore((s) => s.tabs);
   const paneOpen = usePaneStore((s) => s.open);
   const paneHidden = usePaneStore((s) => s.hidden);
@@ -728,46 +730,54 @@ export function ChatPanel() {
   // if it failed — never a permanently silent skeleton.
   if (currentSessionId && currentSession && !currentSession.detailLoaded) {
     return (
-      <div className="flex h-full flex-col">
-        <ChatHeader
-          title={headerTitle}
-          paneToggle={paneToggle}
-          compactAction={compactAction}
-          forkAction={forkAction}
-          rewindAction={rewindAction}
-          exportAction={exportAction}
-        />
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          {currentSession.detailError ? (
-            <>
-              <p
-                className={cn(
-                  'text-sm',
-                  currentSession.detailErrorKind === 'legacy'
-                    ? 'text-muted-foreground'
-                    : 'text-destructive',
-                )}
-              >
-                {currentSession.detailError}
-              </p>
-              {/* A legacy-format transcript will 410 on every retry — offering
-                  one would be worse than none, since it can never succeed. */}
-              {currentSession.detailErrorKind !== 'legacy' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    void ensureSessionDetail(currentSessionId, t).catch(() => {})
-                  }
+      <div className="flex h-full min-h-0 flex-row">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <ChatHeader
+            title={headerTitle}
+            paneToggle={paneToggle}
+            compactAction={compactAction}
+            forkAction={forkAction}
+            rewindAction={rewindAction}
+            exportAction={exportAction}
+          />
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            {currentSession.detailError ? (
+              <>
+                <p
+                  className={cn(
+                    'text-sm',
+                    currentSession.detailErrorKind === 'legacy'
+                      ? 'text-muted-foreground'
+                      : 'text-destructive',
+                  )}
                 >
-                  {t('common.retry')}
-                </Button>
-              )}
-            </>
-          ) : (
-            <div className="text-muted-foreground text-sm">{t('status.loadingSession')}</div>
-          )}
+                  {currentSession.detailError}
+                </p>
+                {/* A legacy-format transcript will 410 on every retry — offering
+                    one would be worse than none, since it can never succeed. */}
+                {currentSession.detailErrorKind !== 'legacy' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void ensureSessionDetail(currentSessionId, t).catch(() => {})
+                    }
+                  >
+                    {t('common.retry')}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <div className="text-muted-foreground text-sm">{t('status.loadingSession')}</div>
+            )}
+          </div>
         </div>
+        {/* Keep the pane (and its collapse control) mounted while the session
+            loads, so an expanded pane never loses its affordance mid-switch. */}
+        <RightPane
+          projectId={paneProjectId}
+          onExecutePlan={handleExecutePlan}
+        />
       </div>
     );
   }

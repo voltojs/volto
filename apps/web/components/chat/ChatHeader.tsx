@@ -21,8 +21,7 @@ import {
   History,
   Minimize2,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
+  PanelRightOpen,
   Plus,
 } from 'lucide-react';
 
@@ -30,9 +29,9 @@ interface ChatHeaderProps {
   /** 会话标题 / 项目名 / 欢迎语——由 ChatPanel 按当前状态解析。 */
   title: string;
   /**
-   * Right-pane toggle button. visible = pane is shown (click collapses);
-   * otherwise click expands (with no tabs it opens the project overview).
-   * Omitted → button not rendered.
+   * Right-pane expand button. Only rendered while the pane is NOT visible:
+   * the collapse control lives at the pane's own far right (RightPane), so
+   * the header only offers the way back in. Omitted → button not rendered.
    */
   paneToggle?: {
     visible: boolean;
@@ -150,28 +149,22 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {paneToggle && (
+        {paneToggle && !paneToggle.visible && (
           <Tooltip>
             <TooltipTrigger
               render={
                 <button
                   type="button"
-                  aria-label={paneToggle.visible ? t('header.paneCollapse') : t('header.paneExpand')}
+                  aria-label={t('header.paneExpand')}
                   onClick={paneToggle.onToggle}
                   disabled={paneToggle.disabled}
                   className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
                 />
               }
             >
-              {paneToggle.visible ? (
-                <PanelLeftClose className="h-4 w-4" />
-              ) : (
-                <PanelLeftOpen className="h-4 w-4" />
-              )}
+              <PanelRightOpen className="h-4 w-4" />
             </TooltipTrigger>
-            <TooltipContent>
-              {paneToggle.visible ? t('header.paneCollapse') : t('header.paneExpand')}
-            </TooltipContent>
+            <TooltipContent>{t('header.paneExpand')}</TooltipContent>
           </Tooltip>
         )}
       </div>
