@@ -43,6 +43,7 @@
     "@volto/tools-web": "workspace:*",
     "@volto/runtime-node": "workspace:*",
     "@volto/store-memory": "workspace:*",
-    "@volto/tools-memory": "workspace:*"
+    "@volto/tools-memory": "workspace:*",
+    "zod": "^4.4.3"
   }
 }
