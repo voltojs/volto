@@ -1,4 +1,4 @@
-import type { PermissionPreset, TokenUsage, ToolResult } from "@volto/core";
+import type { DispatchVerification, PermissionPreset, TokenUsage, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
@@ -25,6 +25,17 @@ export interface SubAgentResult {
   sessionId?: string;
   /** Present when usage events were captured for the child run. */
   usage?: TokenUsage;
+  /**
+   * Acceptance verdict carried alongside the result when the dispatch named
+   * acceptance criteria. Absent — never null — when no criteria were given.
+   */
+  verification?: DispatchVerification;
+  /**
+   * True when the dispatch exhausted its acceptance reworks without meeting
+   * the criteria; the tool result is then an `isError` result whose body
+   * lists the failures.
+   */
+  rejected?: boolean;
 }
 
 /**
@@ -38,6 +49,8 @@ export interface SubAgentResult {
  */
 export type SubAgentDispatch = (req: {
   message: string;
+  /** Acceptance criteria the executor verifies the child's work against. */
+  acceptance?: string;
   subagentType?: string;
   background?: boolean;
   /** Per-dispatch model override; takes precedence over the agent definition's model. */
@@ -116,7 +129,12 @@ const NO_OUTPUT = "(Sub-agent completed with no output)";
  */
 export function buildResultBlocks(
   text: string | undefined,
-  meta: { childSessionId?: string; usage?: TokenUsage },
+  meta: {
+    childSessionId?: string;
+    usage?: TokenUsage;
+    verification?: DispatchVerification;
+    rejected?: boolean;
+  },
 ): NonNullable<ToolResult["modelContent"]> {
   const envelope = {
     ...(meta.childSessionId !== undefined
@@ -124,9 +142,16 @@ export function buildResultBlocks(
       : {}),
     status: "completed" as const,
     ...(meta.usage !== undefined ? { usage: meta.usage } : {}),
+    ...(meta.verification !== undefined ? { verification: meta.verification } : {}),
   };
+  let body = text || NO_OUTPUT;
+  if (meta.rejected === true && meta.verification !== undefined) {
+    const { attempts, failures } = meta.verification;
+    const list = failures.map((failure) => `- ${failure}`).join("\n");
+    body += `\n\nAcceptance not met after ${attempts} attempt(s):\n${list}`;
+  }
   return [
-    { type: "text", text: text || NO_OUTPUT },
+    { type: "text", text: body },
     { type: "text", text: JSON.stringify(envelope) },
   ];
 }
@@ -160,6 +185,10 @@ function buildTaskSchema(types: AgentTypeSummary[], tiers: AgentTierSummary[]) {
     subagent_type: subagentType.optional().describe(
       "Which agent definition to use. Omit (or use \"general-purpose\") unless the " +
         "task clearly matches a listed specialist.",
+    ),
+    acceptance: z.string().max(2000).optional().describe(
+      "Acceptance criteria the sub-agent must meet; the dispatch is verified against it " +
+        "and reworked once by default.",
     ),
     run_in_background: z.boolean().optional().describe(
       "Return a task id immediately instead of waiting for the result. " +
@@ -222,7 +251,9 @@ function renderDescription(types: AgentTypeSummary[], tiers: AgentTierSummary[])
     "Spawn a sub-agent to perform a task in isolation. " +
     "The sub-agent has its own context window and cannot see this conversation. " +
     "Pass `title` (one short line) so the user can identify this dispatch in the UI, " +
-    "and `max_iterations` to bound a quick one instead of leaving the child unbounded.";
+    "and `max_iterations` to bound a quick one instead of leaving the child unbounded. " +
+    "When you write `acceptance` criteria, the sub-agent's work is verified against them; " +
+    "criteria it fails trigger one automatic rework round before the dispatch returns as an error.";
   const parts = [base];
   if (types.length > 0) {
     const list = types.map((t) => renderTypeLine(t)).join("\n");
@@ -300,6 +331,10 @@ export function createTaskTool(
       try {
         const result = await dispatch({
           message: input.message,
+          // The 2,000-char cap mirrors ACCEPTANCE_LIMITS.maxAcceptanceChars in
+          // @volto/core (spec §4.1); tools-* consumes core types only, so the
+          // literal is repeated here rather than value-imported.
+          ...(input.acceptance !== undefined ? { acceptance: input.acceptance } : {}),
           subagentType: input.subagent_type,
           background: input.run_in_background,
           model: input.model,
@@ -338,11 +373,17 @@ export function createTaskTool(
           modelContent: buildResultBlocks(result.text, {
             childSessionId: result.sessionId,
             usage: result.usage,
+            ...(result.verification !== undefined ? { verification: result.verification } : {}),
+            ...(result.rejected === true ? { rejected: true } : {}),
           }),
+          // Omit the key entirely on success — never write `isError: false` —
+          // so the no-acceptance result shape stays byte-identical.
+          ...(result.rejected === true ? { isError: true } : {}),
           displayMetadata: {
             taskId: result.taskId,
             background: false,
             ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+            ...(result.verification !== undefined ? { verification: result.verification } : {}),
           },
         };
       } catch (err: unknown) {

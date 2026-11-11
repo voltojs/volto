@@ -1,4 +1,4 @@
-import type { TokenUsage, ToolResult } from "@volto/core";
+import type { DispatchVerification, TokenUsage, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
@@ -14,7 +14,14 @@ import { buildResultBlocks } from "./task.js";
 export type SubAgentOutputCollector = (
   taskId: string,
 ) => Promise<
-  { text: string; childSessionId?: string; usage?: TokenUsage } | { error: string }
+  | {
+      text: string;
+      childSessionId?: string;
+      usage?: TokenUsage;
+      verification?: DispatchVerification;
+      rejected?: boolean;
+    }
+  | { error: string }
 >;
 
 const taskOutputSchema = z.object({
@@ -48,12 +55,20 @@ export function createTaskOutputTool(collect: SubAgentOutputCollector) {
           modelContent: buildResultBlocks(result.text, {
             childSessionId: result.childSessionId,
             usage: result.usage,
+            ...(result.verification !== undefined ? { verification: result.verification } : {}),
+            ...(result.rejected === true ? { rejected: true } : {}),
           }),
+          // A background dispatch that exhausted its acceptance reworks is a
+          // failed collection, not an empty success — same semantics as the
+          // sync path (spec §4.5). Omit the key on success so the legacy
+          // shape stays untouched.
+          ...(result.rejected === true ? { isError: true } : {}),
           displayMetadata: {
             taskId: input.task_id,
             ...(result.childSessionId !== undefined
               ? { relatedSessionId: result.childSessionId }
               : {}),
+            ...(result.verification !== undefined ? { verification: result.verification } : {}),
           },
         };
       } catch (err: unknown) {
