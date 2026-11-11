@@ -59,6 +59,7 @@ export type {
   ConversationBlock,
   ConversationSegment,
   ConversationToolCall,
+  VerificationSummary,
   FileChange,
   TurnUsage,
   RouteSource,

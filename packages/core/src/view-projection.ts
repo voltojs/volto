@@ -20,6 +20,7 @@ import type {
   TranscriptEventMap,
   TurnEndReason,
   UserMessageSource,
+  VerificationSummary,
 } from "./ports.js";
 import { extractBlockText } from "./text-extract.js";
 import { totalUsageTokens } from "./pricing.js";
@@ -141,6 +142,8 @@ export interface ToolCallRecord {
   taskId?: string;
   /** True when this dispatch ran detached. */
   background?: true;
+  /** Acceptance verdict for a verified dispatch; absent on old logs and unverified dispatches. */
+  verification?: VerificationSummary;
   /** Subagent type recorded by the start bracket, when it named one. */
   subagentType?: string;
   /** Child session a collected result points at (task_output), without upgrading this row. */
@@ -228,6 +231,50 @@ function newStep(step: number, startedAt: number, headerHash: string): MutableSt
 }
 
 /**
+ * Pure: read an acceptance verdict out of untrusted persisted metadata (a
+ * tool result's displayMetadata or a finish bracket). Anything malformed
+ * yields undefined — old logs and truncated payloads project no field
+ * rather than half a verdict.
+ */
+function asVerificationSummary(value: unknown): VerificationSummary | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const status = raw["status"];
+  const attempts = raw["attempts"];
+  const failures = raw["failures"];
+  if (status !== "passed" && status !== "failed" && status !== "error") return undefined;
+  if (typeof attempts !== "number") return undefined;
+  if (!Array.isArray(failures)) return undefined;
+  const reasons: string[] = [];
+  for (const entry of failures) {
+    if (typeof entry !== "string") return undefined;
+    reasons.push(entry);
+  }
+  const verifierError = raw["verifierError"];
+  return {
+    status,
+    attempts,
+    failures: reasons,
+    ...(typeof verifierError === "string" ? { verifierError } : {}),
+  };
+}
+
+/**
+ * Watermark count: calls carrying a verdict. A late `subagent_finished`
+ * stamps one onto a closed turn without changing any length, so identity
+ * reuse must compare this too. Computed on demand — no TurnRecord field.
+ */
+function verifiedCallCount(turn: TurnRecord): number {
+  let count = 0;
+  for (const step of turn.steps) {
+    for (const call of step.toolCalls) {
+      if (call.verification !== undefined) count += 1;
+    }
+  }
+  return count;
+}
+
+/**
  * Groups a session's events into turns and steps.
  *
  * A `subagent_started` is linked to the tool call that spawned it even when
@@ -240,8 +287,10 @@ function newStep(step: number, startedAt: number, headerHash: string): MutableSt
  * memoising per row re-renders only the turn still in flight. Passing a `prev`
  * from a different session cannot corrupt the result — identity is reused only
  * when the turn number and end time match and a cheap structural watermark
- * agrees: same user-input count, same step count, and same tool-call count on
- * the last step. A log extended after the turn closed (e.g. a pre-fix resume
+ * agrees: same user-input count, same step count, same tool-call count on
+ * the last step, and same verified-call count (a late subagent_finished
+ * verdict stamps a closed turn's call without changing any length). A log
+ * extended after the turn closed (e.g. a pre-fix resume
  * appending past a paused turn's bracket) keeps its end time but fails the
  * watermark, so it is rebuilt instead of served stale from `prev`.
  */
@@ -684,6 +733,9 @@ export function buildTurnRecords(
           }
           const related = data.displayMetadata["relatedSessionId"];
           if (typeof related === "string") call.relatedSessionId = related;
+          // A sync dispatch's verdict rides its result envelope's metadata.
+          const verification = asVerificationSummary(data.displayMetadata["verification"]);
+          if (verification !== undefined) call.verification = verification;
         }
         break;
       }
@@ -750,21 +802,38 @@ export function buildTurnRecords(
 
       case "subagent_finished": {
         const data = event.data as TranscriptEventMap["subagent_finished"];
-        if (data.taskId === undefined) break;
-        finishedTaskIds.add(data.taskId);
-        const pending = startedByTaskId.get(data.taskId);
-        if (pending === undefined) break;
-        const turn = turnFor(event);
-        // Success results normally consumed the start already; this path exists
-        // for an errored result, whose task tool result carries no
-        // displayMetadata. Close the start on the call if it is on disk now.
-        const call = findCallByTaskId(turn, data.taskId)
-          ?? turn.steps.flatMap((step) => step.toolCalls)
-            .find((candidate) => candidate.childSessionId === pending.data.childSessionId)
-          ?? lastUnlinkedTaskCall(turn);
-        if (call !== undefined) {
-          applyStart(call, pending.data);
-          pendingStartsByTaskId.delete(data.taskId);
+        if (data.taskId !== undefined) {
+          finishedTaskIds.add(data.taskId);
+          const pending = startedByTaskId.get(data.taskId);
+          if (pending !== undefined) {
+            const turn = turnFor(event);
+            // Success results normally consumed the start already; this path exists
+            // for an errored result, whose task tool result carries no
+            // displayMetadata. Close the start on the call if it is on disk now.
+            const call = findCallByTaskId(turn, data.taskId)
+              ?? turn.steps.flatMap((step) => step.toolCalls)
+                .find((candidate) => candidate.childSessionId === pending.data.childSessionId)
+              ?? lastUnlinkedTaskCall(turn);
+            if (call !== undefined) {
+              applyStart(call, pending.data);
+              pendingStartsByTaskId.delete(data.taskId);
+            }
+          }
+        }
+        // A background dispatch's verdict arrives after its turn closed.
+        // Stamp it onto the owning turn's dispatch call — taskId join first,
+        // childSessionId fallback. A truncated log with no linkable call is
+        // silently ignored; the lookup never opens a turn shell.
+        const verdict = asVerificationSummary(data.verification);
+        if (verdict !== undefined) {
+          const turn = turns.find((candidate) => candidate.turn === (event.turn ?? 0));
+          if (turn !== undefined) {
+            const call =
+              (data.taskId !== undefined ? findCallByTaskId(turn, data.taskId) : undefined)
+              ?? turn.steps.flatMap((step) => step.toolCalls)
+                .find((candidate) => candidate.name === "task" && candidate.childSessionId === data.childSessionId);
+            if (call !== undefined) call.verification = verdict;
+          }
         }
         break;
       }
@@ -832,7 +901,7 @@ export function buildTurnRecords(
 
       default:
         // Log-only: session_meta, request_header, context_assembled,
-        // context_reminder, budget_exceeded, subagent_finished.
+        // context_reminder, budget_exceeded.
         // They carry audit detail the trajectory view reads straight off the
         // event list, and structurally never enter a TurnRecord — which is
         // why toConversationView (built from TurnRecord[], not raw events)
@@ -923,11 +992,12 @@ export function buildTurnRecords(
   // and the structural watermark below must all agree: events appended after
   // a turn_end (a pre-fix resume-shaped log) keep the same end time but grow
   // one of these lengths, and lengths are cheap to compare while content is
-  // not. The watermark compares only lengths, so same-length in-place content
-  // growth on the last step (e.g. a tool_result filling a call without adding
-  // a step) is not detected — unreachable from current write-side shapes
-  // (post-pause turns keep endedAt undefined) and acceptable as
-  // defense-in-depth.
+  // not. A late subagent_finished verdict is the one in-place growth a closed
+  // turn legitimately sees — it changes no length, so the verified-call count
+  // joins the watermark. Other same-length content growth (e.g. a tool_result
+  // filling a call without adding a step) stays undetected — unreachable from
+  // current write-side shapes (post-pause turns keep endedAt undefined) and
+  // acceptable as defense-in-depth.
   return turns.map((turn, i) => {
     const before = prev[i];
     if (
@@ -938,7 +1008,8 @@ export function buildTurnRecords(
       before.userInput.length === turn.userInput.length &&
       before.steps.length === turn.steps.length &&
       before.steps[before.steps.length - 1]?.toolCalls.length ===
-        turn.steps[turn.steps.length - 1]?.toolCalls.length
+        turn.steps[turn.steps.length - 1]?.toolCalls.length &&
+      verifiedCallCount(before) === verifiedCallCount(turn)
     ) {
       return before;
     }
@@ -972,6 +1043,8 @@ export interface ConversationToolCall {
   subagentDroppedTools?: string[];
   /** Permission axes narrowed below what the definition asked for. */
   subagentDowngrades?: Array<{ field: string; requested: string; effective: string }>;
+  /** Acceptance verdict for a verified dispatch; absent on old logs and unverified dispatches. */
+  verification?: VerificationSummary;
   /** When the call started (the subagent_started bracket's dispatch time). */
   startedAt?: number;
   /**
@@ -1286,6 +1359,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   ...(call?.subagentDowngrades !== undefined
                     ? { subagentDowngrades: call.subagentDowngrades }
                     : {}),
+                  ...(call?.verification !== undefined ? { verification: call.verification } : {}),
                   ...(call?.startedAt !== undefined ? { startedAt: call.startedAt } : {}),
                   ...(call?.approval !== undefined
                     ? {
