@@ -66,23 +66,28 @@ describe("task sub-agent — messages isolation", () => {
       .join("|");
     expect(main1Text).toContain("Parent's question");
 
-    // Sub-agent — its first call sees the built-in sub-agent role prompt plus
-    // exactly one user message (the `task` tool's `message` argument), with
-    // NO trace of the parent conversation.
+    // Sub-agent — its first call sees the built-in sub-agent role prompt, the
+    // permission boundary announcement (spec 2026-11-11 G1: the child must
+    // know the boundary instead of learning it by being refused), and exactly
+    // one real user message (the `task` tool's `message` argument) — with NO
+    // trace of the parent conversation.
     const sub1 = spy.calls[1]!.messages;
-    expect(sub1).toHaveLength(2);
-    expect(sub1[0]!.role).toBe("system");
-    expect(sub1[1]!.role).toBe("user");
-    const sub1Text =
-      typeof sub1[1]!.content === "string"
-        ? sub1[1]!.content
-        : Array.isArray(sub1[1]!.content)
-          ? sub1[1]!.content
+    const sub1Roles = sub1.map((m) => m.role);
+    expect(sub1Roles[0]).toBe("system");
+    expect(sub1Roles).toContain("user");
+    const sub1Texts = sub1.map((m) =>
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
               .map((c) => (c.type === "text" ? c.text : ""))
               .join("")
-          : "";
-    expect(sub1Text).toBe("research");
-    expect(sub1Text).not.toContain("Parent");
+          : "",
+    );
+    expect(sub1Texts.join("\n")).toContain("Permission boundary for this session");
+    // The dispatch message itself is still the only content it was given.
+    expect(sub1Texts).toContain("research");
+    expect(sub1Texts.join("\n")).not.toContain("Parent");
     // The one system message is the built-in role prompt — never the host's
     // system prompt, and never the parent's question.
     const sub1System = sub1

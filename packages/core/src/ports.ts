@@ -676,6 +676,17 @@ export interface TranscriptEventMap {
     background?: true;
     /** Resolved subagent_type, when the dispatch named one. */
     subagentType?: string;
+    /**
+     * The boundary the child actually ran under (spec 2026-11-11 D6). Absent
+     * on logs written before the field existed. `preset` is present only when
+     * the effective pair is exactly one of the named presets — an
+     * unexpressible pair stays raw so the UI does not invent a label.
+     */
+    permission?: {
+      sandbox: string;
+      approval: string;
+      preset?: string;
+    };
   };
   subagent_finished: {
     childSessionId: string;

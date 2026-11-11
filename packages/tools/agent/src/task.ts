@@ -1,4 +1,4 @@
-import type { TokenUsage, ToolResult } from "@volto/core";
+import type { PermissionPreset, TokenUsage, ToolResult } from "@volto/core";
 import { z } from "zod";
 import { defineTool } from "@volto/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
@@ -42,6 +42,11 @@ export type SubAgentDispatch = (req: {
   background?: boolean;
   /** Per-dispatch model override; takes precedence over the agent definition's model. */
   model?: string;
+  /**
+   * Permission preset for this dispatch only. Narrowing only: a preset wider
+   * than the parent's sandbox boundary is an error the model can correct.
+   */
+  permission?: PermissionPreset;
   /** One-line task label for the UI surfaces (card / tab / trajectory / tasks list). */
   title?: string;
   /** Supplementary instructions APPENDED after the child's role prompt / definition body. */
@@ -167,6 +172,14 @@ function buildTaskSchema(types: AgentTypeSummary[], tiers: AgentTierSummary[]) {
           "description. Omit to use the definition's tier (or the parent's model)."
         : "Model tier id for this dispatch only; overrides the agent definition's tier. Omit to use the definition's tier (or the parent's model).",
     ),
+    permission: z
+      .enum(["read-only", "ask", "auto", "full"])
+      .optional()
+      .describe(
+        "Permission preset for the child: read-only | ask | auto | full. " +
+          "Narrowing only — a preset wider than this session's boundary is rejected " +
+          "with the list of presets you may use. Omit to inherit this session's permission.",
+      ),
     title: z.string().min(1).max(120).optional().describe(
       "One-line human-readable label for this dispatch, shown in the UI " +
         "(conversation card, execution panel tab, trajectory). Never sent to the child.",
@@ -290,6 +303,7 @@ export function createTaskTool(
           subagentType: input.subagent_type,
           background: input.run_in_background,
           model: input.model,
+          ...(input.permission !== undefined ? { permission: input.permission } : {}),
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.system_prompt !== undefined
             ? { systemPrompt: input.system_prompt }

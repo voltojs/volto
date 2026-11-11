@@ -64,6 +64,11 @@ import {
   ReasoningEffortId,
   CAP_MODEL_VISION,
   narrowPermission,
+  narrowToParent,
+  isWiderThan,
+  type PermissionPreset,
+  allowedPresetsFor,
+  presetOf,
   CAP_AGENT_DEPTH_AVAILABLE,
   deriveCompactionMaxTokens,
   resolvePruneOptions,
@@ -118,6 +123,8 @@ type SyncSubAgentRequest = {
   background?: true;
   subagentType?: string;
   model?: string;
+  /** Permission preset for this dispatch; narrowing only (spec 2026-11-11). */
+  permission?: PermissionPreset;
   title?: string;
   systemPrompt?: string;
   tools?: string[];
@@ -3581,6 +3588,7 @@ function createSubAgentExecutor(
     background: dispatchBackground,
     subagentType,
     model,
+    permission,
     title,
     systemPrompt: dispatchSystemPrompt,
     tools: dispatchTools,
@@ -3621,6 +3629,19 @@ function createSubAgentExecutor(
       opts.config?.config,
       "permissionConfig",
     );
+    // Dispatch permission (spec 2026-11-11 D3/D4). A widening request is the
+    // caller's own mistake and fails here — before any child runner, and thus
+    // before any provider I/O — with the presets it may actually use.
+    const parentPolicyForDispatch =
+      parentPolicyResolved ?? createDefaultPermissionConfig();
+    if (permission !== undefined && isWiderThan(permission, parentPolicyForDispatch)) {
+      throw new Error(
+        `Permission "${permission}" is wider than this session allows. ` +
+          `Available presets: ${allowedPresetsFor(parentPolicyForDispatch).join(", ")}`,
+      );
+    }
+    const dispatchPolicy = narrowToParent(parentPolicyForDispatch, permission).config;
+
     const parentToolsForChild = [
       ...parentCustomTools.filter(
         (t) => t.definition.name !== "task" && t.definition.name !== "task_output",
@@ -3645,7 +3666,7 @@ function createSubAgentExecutor(
     // General-purpose path keeps the parent's resolved value as-is (possibly
     // undefined → the Runner applies no permission layer, matching prior
     // behavior). A typed path always gets a concrete narrowed policy.
-    let childPermissionConfig: PermissionConfig | undefined = parentPolicyResolved;
+    let childPermissionConfig: PermissionConfig | undefined = dispatchPolicy;
     let downgrades: AssembledSubAgent["downgrades"] = [];
     // The resolved definition, kept for the settings the Runner reads below
     // (prompt, model). Undefined on the omit path.
@@ -3676,7 +3697,9 @@ function createSubAgentExecutor(
         // keeps narrowPermission total: a parent that never configured a
         // policy still cannot be widened past workspace-write + ask by a
         // definition file the agent itself can write.
-        parentPolicy: parentPolicyResolved ?? createDefaultPermissionConfig(),
+        // The definition narrows the DISPATCH policy, so a definition can only
+        // tighten what the dispatch already asked for (D4: never re-widen).
+        parentPolicy: dispatchPolicy,
         parentCapabilities: parentCapabilitiesForChild,
       });
       childTools = assembled.tools;
@@ -3934,6 +3957,21 @@ function createSubAgentExecutor(
           label: agentLabel,
           depth,
           taskId,
+          // The effective boundary the child runs under (spec 2026-11-11 D6):
+          // the UI shows this instead of guessing from the parent's session,
+          // and an audit can tell "asked for read-only" from "ended up
+          // read-only because the definition said so".
+          ...(childPermissionConfig !== undefined
+            ? {
+                permission: {
+                  sandbox: childPermissionConfig.sandbox,
+                  approval: childPermissionConfig.approval,
+                  ...(presetOf(childPermissionConfig) !== undefined
+                    ? { preset: presetOf(childPermissionConfig)! }
+                    : {}),
+                },
+              }
+            : {}),
           ...(dispatchBackground === true ? { background: true as const } : {}),
           ...(subagentType !== undefined ? { subagentType } : {}),
           ...(title !== undefined ? { title } : {}),
@@ -4204,6 +4242,12 @@ function createSubAgentExecutor(
         ? { responseFormat: resolvedSubResponseFormat }
         : {}),
       ...(subContextLayers.length > 0 ? { contextLayers: subContextLayers } : {}),
+      // G1 (spec 2026-11-11): the child's reducer needs the boundary in order
+      // to ANNOUNCE it. The Runner enforces the same config; without this the
+      // model only learned its boundary by being refused.
+      ...(childPermissionConfig !== undefined
+        ? { permissionConfig: childPermissionConfig }
+        : {}),
       // Re-resolved at DISPATCH time, not copied from the parent's turn: the
       // parent may have cd'd into a worktree since this turn started, and a
       // child that answers from the stale directory is worse than no reminder
