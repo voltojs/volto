@@ -210,6 +210,20 @@ export function useChatAgent(): UseChatAgentReturn {
         // session notice that the projection appends after the feed.
         const tierNotice = tierNoticeFromEvent(event, t);
         if (tierNotice) chat.pushNotice(tierNotice);
+        if (event.type === 'subagent_started') {
+          // The boundary the child runs under rides the started bracket; the
+          // sub-agent pane reads it from the bucket (spec 2026-11-11 D7).
+          const started = event.data as {
+            childSessionId?: string;
+            permission?: { sandbox: string; approval: string; preset?: string };
+          };
+          // The main feed saw the bracket before any of the child's own
+          // events, so the bucket may not exist yet — markSubagentStarted
+          // creates it.
+          if (typeof started.childSessionId === 'string') {
+            chat.markSubagentStarted(started.childSessionId, started.permission);
+          }
+        }
         if (event.type === 'subagent_finished') {
           const data = event.data as {
             childSessionId?: string;

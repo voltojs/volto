@@ -23,9 +23,41 @@ export interface SubagentBucket {
   deltas: TranscriptDelta[];
   status: 'running' | 'done' | 'error';
   durationMs?: number;
+  /**
+   * The boundary this child actually ran under, as reported on its
+   * `subagent_started` bracket (spec 2026-11-11 D7). Absent for old sessions
+   * and for children whose dispatch never reported one — the pane then falls
+   * back to the parent session's permission.
+   */
+  permission?: { sandbox: string; approval: string; preset?: string };
   /** Whether this child is currently streaming. Independent of the global
    * `isGenerating` flag, which only tracks the main-chat turn. */
   isGenerating?: boolean;
+}
+
+/** The `subagent_started` bracket data the store keeps for the pane. */
+interface SubagentStartedData {
+  childSessionId?: unknown;
+  permission?: { sandbox?: unknown; approval?: unknown; preset?: unknown };
+}
+
+/** Read a started bracket's permission into the bucket shape, if present. */
+function permissionFromStarted(
+  data: SubagentStartedData | undefined,
+): SubagentBucket['permission'] | undefined {
+  const p = data?.permission;
+  if (
+    p === undefined ||
+    typeof p.sandbox !== 'string' ||
+    typeof p.approval !== 'string'
+  ) {
+    return undefined;
+  }
+  return {
+    sandbox: p.sandbox,
+    approval: p.approval,
+    ...(typeof p.preset === 'string' ? { preset: p.preset } : {}),
+  };
 }
 
 /** The `subagent_finished` bracket data the store needs to close a bucket. */
@@ -58,7 +90,22 @@ function ensureBucket(
 ): Record<string, SubagentBucket> {
   if (subagents[childId]) return subagents;
   const bracket = mainEvents.find((event) => isFinishBracketFor(event, childId));
-  let bucket: SubagentBucket = { events: [], deltas: [], status: 'running' };
+  // A late joiner (refresh) still has the started bracket in the buffer, so
+  // the pane can describe the child's boundary without the live event.
+  const started = mainEvents.find(
+    (event) =>
+      event.type === 'subagent_started' &&
+      (event.data as SubagentStartedData).childSessionId === childId,
+  );
+  const permission = permissionFromStarted(
+    started?.data as SubagentStartedData | undefined,
+  );
+  let bucket: SubagentBucket = {
+    events: [],
+    deltas: [],
+    status: 'running',
+    ...(permission !== undefined ? { permission } : {}),
+  };
   if (bracket) {
     const data = bracket.data as SubagentFinishData;
     bucket = {
@@ -104,6 +151,15 @@ interface ChatState {
    * bracket. A missing bucket is created empty — the "sub-agent crashed with
    * zero output" case still gets its card.
    */
+  /**
+   * Record the dispatch's effective permission on the child's bucket. The
+   * started bracket rides the MAIN feed, so it never lands in the bucket on
+   * its own.
+   */
+  markSubagentStarted: (
+    childId: string,
+    permission?: { sandbox: string; approval: string; preset?: string },
+  ) => void;
   markSubagentFinished: (
     childId: string,
     isError: boolean,
@@ -184,6 +240,14 @@ export const useChatStore = create<ChatState>((set) => ({
           [childId]: { ...bucket, deltas: [...bucket.deltas, delta] },
         },
       };
+    }),
+
+  markSubagentStarted: (childId, permission) =>
+    set((state) => {
+      if (permission === undefined) return state;
+      const subagents = ensureBucket(state.subagents, childId, state.events);
+      const bucket = subagents[childId]!;
+      return { subagents: { ...subagents, [childId]: { ...bucket, permission } } };
     }),
 
   markSubagentFinished: (childId, isError, durationMs) =>

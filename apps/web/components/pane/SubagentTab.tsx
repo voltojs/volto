@@ -30,6 +30,19 @@ import { TrajectoryList } from '@/components/trajectory/TrajectoryList';
 import type { PaneTab } from '@/stores/pane-store';
 
 /**
+ * Short preset labels the header badge reuses from the permission picker.
+ * `plan` is a session mode, not a dispatchable preset (spec 2026-11-11 D2), so
+ * a child cannot be in it — the entry only satisfies the record type.
+ */
+const PERMISSION_BADGE_KEYS: Record<PermissionMode, string> = {
+  'read-only': 'permission.readOnly',
+  plan: 'permission.readOnly',
+  ask: 'permission.ask',
+  auto: 'permission.auto',
+  full: 'permission.full',
+};
+
+/**
  * RightPane 的子代理标签体：对话 / 轨迹两个子视图，受控于标签载荷的
  * `view` 字段（卡片点击开对话，「查看执行过程」开轨迹——openTab 同 id
  * 覆盖载荷，本组件不持视图状态）。对话视图原样平移旧版独立执行分栏的
@@ -122,6 +135,16 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
     s.findModel(effectiveProviderId, effectiveModelId),
   );
 
+  // The boundary THIS child ran under (spec 2026-11-11 D7). Read from its
+  // bucket; old sessions (and children whose dispatch never reported one)
+  // fall back to the parent session, which is what the pane showed before.
+  const childPermission = bucket?.permission;
+  const effectivePermission: PermissionMode =
+    overridePermission ??
+    ((childPermission?.preset as PermissionMode | undefined) ??
+      (parent?.permissionMode ?? 'ask'));
+  const showPermissionBadge = childPermission?.preset !== undefined;
+
   const usage = useSubagentContextUsage(childId ?? null);
 
   const agent = useSubagentChatAgent({
@@ -174,6 +197,16 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
               : t('subagent.done'))}
           {bucket?.status === 'error' && <span className="text-destructive">{t('subagent.failed')}</span>}
         </span>
+        {/* The child's own boundary, so a read-only dispatch never looks
+            like a full-access one (spec 2026-11-11 G2). */}
+        {showPermissionBadge && (
+          <span
+            data-testid="subagent-permission-badge"
+            className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]"
+          >
+            {t(PERMISSION_BADGE_KEYS[effectivePermission])}
+          </span>
+        )}
         <span className="text-muted-foreground/60 ml-auto min-w-0 max-w-40 truncate font-mono text-[10px]">
           {childId}
         </span>
@@ -234,7 +267,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
                 providerId:
                   overrideModel?.providerId ?? childModel?.providerId ?? parent?.providerId,
                 reasoningEffort: overrideEffort ?? parent?.reasoningEffort,
-                permissionMode: overridePermission ?? parent?.permissionMode,
+                permissionMode: effectivePermission,
               })
             }
             disabled={running || missing}
@@ -250,7 +283,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
             }
             toolbar={
               <PermissionPicker
-                value={overridePermission ?? parent?.permissionMode ?? 'ask'}
+                value={effectivePermission}
                 onChange={setOverridePermission}
               />
             }
