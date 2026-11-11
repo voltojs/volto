@@ -26,7 +26,7 @@ import type { Tool } from "@volto/tools-common";
 import { createRunner } from "@volto/runtime-node";
 import type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
 import { createAutoAllowGate, createNodeSpillStore } from "@volto/runtime-node";
-import { createInitialState, ceilingOf } from "@volto/core";
+import { createInitialState, ceilingOf, narrowToParent } from "@volto/core";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
@@ -107,8 +107,27 @@ export function createOrchestrator(opts: OrchestratorOptions): {
     // agentOpts per node, and the store is a stateless view over rootDir.
     const spillStore = createNodeSpillStore({ rootDir: agentOpts.cwd ?? process.cwd() });
 
+    // One dispatch-permission decision for this node, shared with the task
+    // tool's chain (spec 2026-11-11 D8/D9): the node's preset narrows the
+    // agent's policy, and an over-broad request collapses instead of throwing.
+    const parentPolicy = agentOpts.permissionConfig;
+    const nodePermissionConfig =
+      parentPolicy === undefined
+        ? node.permission !== undefined
+          ? narrowToParent(
+              // No agent policy at all: the node's own request IS the policy,
+              // because there is nothing to narrow against.
+              { sandbox: "danger-full-access", approval: "never" },
+              node.permission,
+            ).config
+          : undefined
+        : narrowToParent(parentPolicy, node.permission).config;
+
     const stepCtx: StepContext = {
       tools: toolDefs,
+      ...(nodePermissionConfig !== undefined
+        ? { permissionConfig: nodePermissionConfig }
+        : {}),
       model: node.model ?? topology.model ?? agentOpts.model,
       maxTokens: agentOpts.maxTokens,
       temperature: agentOpts.temperature,
@@ -119,13 +138,11 @@ export function createOrchestrator(opts: OrchestratorOptions): {
       stepContext: stepCtx,
       toolExecutor: executor,
       availableCapabilities: nodeCaps,
-      permissionConfig: agentOpts.permissionConfig,
+      permissionConfig: nodePermissionConfig,
       // Same ceiling derivation as createAgent's Runners: with a policy in
       // force, above-ceiling tools leave the node's visible set instead of
       // only being refused after the model tries them.
-      riskCeiling: agentOpts.permissionConfig
-        ? ceilingOf(agentOpts.permissionConfig.sandbox)
-        : undefined,
+      riskCeiling: nodePermissionConfig ? ceilingOf(nodePermissionConfig.sandbox) : undefined,
       approvalGate: createAutoAllowGate(),
       eventSink,
       spill: { store: spillStore },

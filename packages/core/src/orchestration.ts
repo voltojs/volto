@@ -3,6 +3,8 @@
  * Defines the shapes for supervisor and pipeline multi-agent topologies.
  */
 
+import type { PermissionPreset } from "./permission-presets.js";
+
 /** Node in a topology graph */
 export interface TopologyNodeSpec {
   /** Unique node name */
@@ -11,6 +13,13 @@ export interface TopologyNodeSpec {
   systemPrompt: string;
   /** Model override (optional — falls back to topology default) */
   model?: string;
+  /**
+   * Permission preset for this node (spec 2026-11-11 D9). Narrowing only: a
+   * value wider than the agent's own policy collapses to that policy rather
+   * than failing — the author writes topologies by hand, so a build-time throw
+   * would surface as an unrunnable topology instead of a safe default.
+   */
+  permission?: PermissionPreset;
   /** Tools available to this node's agent (by name from registry) */
   tools?: string[];
   /** Capabilities required for this node */
