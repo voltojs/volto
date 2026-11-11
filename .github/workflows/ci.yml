@@ -49,3 +49,12 @@ jobs:
 
       - name: Core zero-deps check
         run: node scripts/check-core-zero-deps.mjs
+
+      # User docs gate: generated reference pages must match their inputs,
+      # links/anchors must resolve, every tool must have a Chinese note, the
+      # integrator examples must compile, and a user-visible surface change
+      # must be acknowledged in the same commit.
+      - name: User docs check
+        run: |
+          pnpm turbo run build
+          pnpm docs:check

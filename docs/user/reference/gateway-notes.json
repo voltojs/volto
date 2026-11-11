@@ -1,0 +1,42 @@
+{
+  "public": [
+    { "method": "POST", "path": "/messages", "note": "触发一轮对话；流式事件从该会话的 `GET /events` 返回。" },
+    { "method": "GET", "path": "/events", "note": "一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。" },
+    { "method": "POST", "path": "/messages/queue", "note": "编辑或撤回尚未送达模型的排队消息。" },
+    { "method": "POST", "path": "/approvals", "note": "对一个待审批的工具调用给出 allow / deny / 回答。" },
+    { "method": "POST", "path": "/interrupt", "note": "取消当前正在进行的回合。" },
+    { "method": "POST", "path": "/run", "note": "一次性执行并返回最终状态（旧接口，多轮请用 /messages）。" },
+    { "method": "POST", "path": "/resume", "note": "带人工决策恢复一次挂起执行（旧接口）。" },
+    { "method": "GET", "path": "/stream", "note": "一次性 SSE，吐出原始内部事件（旧接口）。" },
+    { "method": "GET", "path": "/sessions", "note": "会话列表，供会话恢复与侧边栏使用。" },
+    { "method": "GET", "path": "/projects", "note": "已注册的工作区列表。" },
+    { "method": "POST", "path": "/projects", "note": "注册一个工作区目录。" },
+    { "method": "GET", "path": "/providers", "note": "已配置的模型供应商（密钥只以密文形式存在，不返回明文）。" },
+    { "method": "POST", "path": "/providers", "note": "新增一个供应商及其模型清单。" },
+    { "method": "GET", "path": "/catalog/providers", "note": "内置供应商目录，供「添加供应商」表单选择。" },
+    { "method": "GET", "path": "/preferences", "note": "界面默认值：下一段对话从哪一档权限、哪种语言与主题开始。" },
+    { "method": "PUT", "path": "/preferences", "note": "把给定的键合并进默认值。" },
+    { "method": "GET", "path": "/sidebar-state", "note": "侧边栏布局文档（置顶、顺序）。" },
+    { "method": "PUT", "path": "/sidebar-state", "note": "整体替换侧边栏布局文档。" },
+    { "method": "GET", "path": "/commands", "note": "斜杠命令的模板列表，`/` 面板的数据源。" },
+    { "method": "GET", "path": "/skills", "note": "技能目录（含用户可主动调用的技能）。" },
+    { "method": "GET", "path": "/tools", "note": "工具目录，供「配置子代理」时勾选工具范围。" },
+    { "method": "GET", "path": "/agents", "note": "子代理定义列表（项目 / 用户 / 插件三个来源合并）。" },
+    { "method": "POST", "path": "/agents", "note": "在指定作用域新建一个子代理定义。" },
+    { "method": "GET", "path": "/config/routing-tiers", "note": "模型路由档位表；首次写入前是出厂模板。" },
+    { "method": "PUT", "path": "/config/routing-tiers", "note": "整体替换路由档位表；删除仍被引用的档位会返回 409。" },
+    { "method": "GET", "path": "/health", "note": "存活检查：网关进程是否已就绪。" }
+  ],
+  "internal": [
+    "/file-refs",
+    "/fs/file",
+    "/fs/search",
+    "/fs/tree",
+    "/fs/pick-directory",
+    "/fs/reveal",
+    "/git/branches",
+    "/git/checkout",
+    "/git/graph",
+    "/git/summary"
+  ]
+}

@@ -43,3 +43,6 @@ pnpm-debug.log*
 .superpowers/
 
 .volto
+
+# Transient TypeScript snippets extracted by docs:check
+docs/user/.snippets/
