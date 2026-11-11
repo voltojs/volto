@@ -1,0 +1,5 @@
+{
+  "surfaceHash": "71b089216a31692f195d808ba0917b84a1209bced56a49c76330aa01b2a307ab:22813c38efc38e5af29f92614e37d5b88e39a8c204550e6742dd41c75671ce1c:d270172e9548b17c2742e88a1221351f605a6ff00cd7526eb9a41f59f6bf7c6e:f70896155502d634d8e0616b604fc1e32b7923ce795252b6d9dbec350feba8e7:cda5bc18cbeb93b3aaaff5710b6ab858f3e2c240bcfe39543b955c7f6b256ad6:21a7110a80a538fce8568ad4f16440a6d02aef604341291aae53ec1c58d6b743",
+  "note": "验收面已同步：subagents-and-tasks 与 events-and-ui 补验收判定，sdk-api 补 maxAcceptanceReworks，tools/sdk-exports 生成页已重建；ports-and-defaults 与 01-embed-agent 核对后无需改动（端口契约未变）",
+  "at": "2026-11-11"
+}

@@ -52,7 +52,7 @@ data: {"type":"tool_result","data":{"callId":"…","isError":false,"content":"�
 | `turn_start` / `turn_end` | `turn`；`turn_end.reason` = `done` / `error` / `cancelled` / `budget_exceeded` | 一轮的边界 |
 | `model_call_start` / `assistant_message` | `assistant_message.content`、`stopReason`、**`usage`** | 一次模型调用；token 用量在这里，不在单独的事件里 |
 | `tool_call` | `callId`、`name`、`input` | 工具调用已完整（参数收齐、即将执行） |
-| `tool_result` | `callId`、`name?`、`content`、`isError?` | 工具结束；`content` 是字符串或内容块数组 |
+| `tool_result` | `callId`、`name?`、`content`、`isError?`、`displayMetadata?` | 工具结束；`content` 是字符串或内容块数组 |
 | `approval_asked` / `approval_decision` | `callId`、`name`、`riskTier` | 弹审批卡 / 记录决定与原因 |
 | `model_error` / `model_retry` | `error`、`retriable`；`attempt`、`delayMs` | 可读错误与自动重试 |
 | `compaction` | `replacedCount`、`summaryText` | 上下文被压缩了 |
@@ -63,6 +63,28 @@ data: {"type":"tool_result","data":{"callId":"…","isError":false,"content":"�
 | `budget_exceeded` / `error` | `reason` / `message` | 为什么停下、为什么失败 |
 
 **完整词表以 `packages/core/src/ports.ts` 的转录事件表为准**，`GET /sessions/:id/events` 能取到原始的落盘事件，和界面看到的是同一份。
+
+### 子代理的验收判定
+
+派发带了验收标准（`task` 的 `acceptance` 参数）时，两处携带同一份判定：
+
+- `subagent_finished.verification` —— 可选字段；没写标准的派发与旧日志里缺席。
+- `tool_result.displayMetadata.verification` —— `task` 的结果（后台任务则是 `task_output` 的结果）携带同一份判定，工具卡不用 join 事件就能渲染徽标。
+
+```text
+verification?: {
+  status: "passed" | "failed" | "error";
+  attempts: number;        // 子代理实际跑了几次，判定调用不计入
+  failures: string[];      // 失败原因，最多 5 条
+  verifierError?: string;  // 判定器自身为何没跑成
+}
+```
+
+`status` 只用于展示与文案：`failed` 表示返工用尽仍未达标，对应的 `tool_result` 是 `isError: true`；`error` 表示判定器自身没跑成（超时 / 输出无法解析），不是实质失败，结果也不是错误。判断「这次派发是否失败」请读 `isError`（`tool_result` 或 `subagent_finished` 上都有），不要读 `status`。
+
+事件里只有上面四个字段；`displayMetadata.verification` 与结果正文的信封还可能带 `retryHint`（修复建议）和 `usage`（判定调用的消耗，独立累计，不并入子代理自身用量）。
+
+后台派发的 `subagent_finished` 在派遣回合关闭之后才到，判定会补盖到原派遣卡上；模型一直没调用 `task_output` 时，完成通知（`context_reminder`，`kind: "background_task"`）正文的第一行是 `[background task <taskId> finished]` 标题，`[verification: …]` 判定行紧随其后——解析判定不要只读第一行。
 
 ## 三条使用原则
 

@@ -84,6 +84,7 @@ createAgent(options) → AgentInstance
 | `tools` / `toolSources` / `plugins` | 追加或替换工具来源 |
 | `toolVisibility: { scope, limit }` 覆盖默认推导；`capabilities` 收窄可见集 | 见 [工具契约](./tool-contract.md) 与 [工具装配与权限策略](../guides/tools-and-policy.md) |
 | `agentSpecs` / `maxAgentDepth` | 子代理定义与嵌套深度 |
+| `maxAcceptanceReworks` | 带验收标准的派发不达标时最多返工几次：默认 1，上限 2，0 = 只判定不返工。判定调用固定 60 秒超时（`ACCEPTANCE_VERIFY_TIMEOUT_MS`，不可配置），超时按 `status: "error"` 报告，不算实质失败 |
 | `skillRegistry` | 技能目录 |
 | `routingTiers` / `model` / `providerId` / `resolveSubagentModelPort` | 模型选择、分档与子代理取值 |
 | `workflowReminder` / `resolveWorkspaceReminder` | 注入工作流模式、工作目录与分支提醒 |

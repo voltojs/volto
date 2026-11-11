@@ -129,8 +129,9 @@
       ]
     },
     "sdkExports": {
-      "hash": "471c4353924cff67e2a246f204ce2d879fa17e2243297fd950b24a0292163532",
+      "hash": "f70896155502d634d8e0616b604fc1e32b7923ce795252b6d9dbec350feba8e7",
       "names": [
+        "ACCEPTANCE_VERIFY_TIMEOUT_MS",
         "AgentEntry",
         "AgentInput",
         "AgentInstance",
@@ -156,6 +157,7 @@
         "CostMeterResult",
         "CreateAgentOptions",
         "CreateAgentStoreOptions",
+        "DEFAULT_ACCEPTANCE_MAX_REWORKS",
         "DEFAULT_SESSION_SECRET_ENV_PATTERNS",
         "DebuggerOptions",
         "EXPLORE_NAME",
@@ -172,10 +174,10 @@
         "HookOutcome",
         "HookPatch",
         "LoadAgentSpecOptions",
+        "MAX_ACCEPTANCE_REWORKS",
         "MergeStrategy",
         "ModelPort",
         "ModelRouterOptions",
-        "OrchestratorOptions",
         "PermissionConfig",
         "Plugin",
         "PluginAgentSpec",
@@ -219,7 +221,6 @@
         "createDefaultSessionStore",
         "createInitialState",
         "createModelRouter",
-        "createOrchestrator",
         "createPluginRegistry",
         "createPluginToolSource",
         "createStreamChannel",
@@ -254,7 +255,7 @@
       ]
     },
     "sdkTypes": {
-      "hash": "de66386a2fc77583bd73f06db25ac430fef21bd652019670158245646bf10456",
+      "hash": "cda5bc18cbeb93b3aaaff5710b6ab858f3e2c240bcfe39543b955c7f6b256ad6",
       "names": []
     },
     "uiCatalog": {

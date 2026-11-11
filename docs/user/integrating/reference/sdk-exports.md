@@ -14,17 +14,20 @@ verified: 2026-11-11
 
 `@volto/sdk` 的公开导出。逐项语义见 [SDK 导读](./sdk-api.md)。
 
-## 值（函数 / 常量 / 类）· 51 个
+## 值（函数 / 常量 / 类）· 53 个
 
 | 导出 |
 | --- |
+| `ACCEPTANCE_VERIFY_TIMEOUT_MS` |
 | `BUILTIN_AGENTS` |
 | `BUILTIN_EXPLORE` |
 | `BUILTIN_GENERAL_PURPOSE` |
 | `CompactionBusyError` |
+| `DEFAULT_ACCEPTANCE_MAX_REWORKS` |
 | `DEFAULT_SESSION_SECRET_ENV_PATTERNS` |
 | `EXPLORE_NAME` |
 | `GENERAL_PURPOSE_NAME` |
+| `MAX_ACCEPTANCE_REWORKS` |
 | `assembleSubAgent` |
 | `buildDefaultToolVisibility` |
 | `collectPlugins` |
@@ -37,7 +40,6 @@ verified: 2026-11-11
 | `createDefaultSessionStore` |
 | `createInitialState` |
 | `createModelRouter` |
-| `createOrchestrator` |
 | `createPluginRegistry` |
 | `createPluginToolSource` |
 | `createStreamChannel` |
@@ -70,7 +72,7 @@ verified: 2026-11-11
 | `scanAgentSources` |
 | `sse` |
 
-## 类型 · 69 个
+## 类型 · 68 个
 
 | 导出 |
 | --- |
@@ -111,7 +113,6 @@ verified: 2026-11-11
 | `MergeStrategy` |
 | `ModelPort` |
 | `ModelRouterOptions` |
-| `OrchestratorOptions` |
 | `PermissionConfig` |
 | `Plugin` |
 | `PluginAgentSpec` |
