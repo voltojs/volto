@@ -90,8 +90,16 @@ export function narrowToParent(
   requested?: PermissionPreset,
 ): { config: PermissionConfig; requestedPreset?: PermissionPreset } {
   if (requested === undefined) return { config: { ...parent } };
+  const wanted = permissionConfigOf(requested);
+  // Same boundary as the parent: return the parent untouched. Running it
+  // through `narrowPermission` would rebuild the config from the preset and
+  // silently drop the parent's own `rules`, so "asked for the preset it
+  // already has" would behave differently from "asked for nothing".
+  if (wanted.sandbox === parent.sandbox && wanted.approval === parent.approval) {
+    return { config: { ...parent }, requestedPreset: requested };
+  }
   return {
-    config: narrowPermission(parent, permissionConfigOf(requested)),
+    config: narrowPermission(parent, wanted),
     requestedPreset: requested,
   };
 }

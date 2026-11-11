@@ -56,6 +56,10 @@ const PERMISSION_BADGE_KEYS: Record<PermissionMode, string> = {
  */
 export function SubagentTab({ tab }: { tab: PaneTab }) {
   const t = useTranslations('pane');
+  // The preset labels live in the chat catalog (they describe the permission
+  // concept, not the pane), and the picker beside this badge reads them from
+  // there — so the badge must resolve them the same way.
+  const tp = useTranslations('chat');
   // hooks 无条件调用（rules-of-hooks）：kind 窄化走三元派生，非本类标签
   // 在渲染处返回 null。tab.kind 对同一挂载实例恒定（换 kind 即换组件类型
   // → remount），钩子顺序稳定。
@@ -204,7 +208,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
             data-testid="subagent-permission-badge"
             className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]"
           >
-            {t(PERMISSION_BADGE_KEYS[effectivePermission])}
+            {tp(PERMISSION_BADGE_KEYS[effectivePermission])}
           </span>
         )}
         <span className="text-muted-foreground/60 ml-auto min-w-0 max-w-40 truncate font-mono text-[10px]">

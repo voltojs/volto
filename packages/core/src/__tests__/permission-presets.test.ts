@@ -81,6 +81,18 @@ describe("permission presets", () => {
     expect(inherited.requestedPreset).toBeUndefined();
   });
 
+  it("keeps the parent's rules when the request names the boundary it already has", () => {
+    // Narrowing through the preset would rebuild the config and lose `rules`,
+    // making "ask for auto on an auto session" behave unlike "ask for nothing".
+    const parent: PermissionConfig = {
+      sandbox: "workspace-write",
+      approval: "never",
+      rules: [{ capability: "net:fetch", decision: "deny" }],
+    };
+    const narrowed = narrowToParent(parent, "auto");
+    expect(narrowed.config.rules).toEqual([{ capability: "net:fetch", decision: "deny" }]);
+  });
+
   it("never widens, even when asked", () => {
     // The author-facing face relies on this: an over-broad request collapses
     // to the parent instead of failing a build.

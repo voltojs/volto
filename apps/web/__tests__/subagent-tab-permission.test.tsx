@@ -114,8 +114,12 @@ describe('SubagentTab permission display', () => {
     seedBucket({ sandbox: 'read-only', approval: 'never', preset: 'read-only' });
     render(<SubagentTab tab={chatTab} />);
 
-    // The parent is `full`; the child ran read-only. The pane must say 只读.
-    expect(screen.getAllByText('只读').length).toBeGreaterThan(0);
+    // The parent is `full`; the child ran read-only. Both the badge and the
+    // picker must say 只读 — the badge is what the user reads without opening
+    // any menu, so it gets its own assertion.
+    const badge = screen.getByTestId('subagent-permission-badge');
+    expect(badge).toHaveTextContent('只读');
+    expect(screen.queryByTestId('subagent-permission-badge')).toHaveTextContent(/^(?!完全)/);
     expect(screen.queryByText('完全')).not.toBeInTheDocument();
   });
 
@@ -124,5 +128,7 @@ describe('SubagentTab permission display', () => {
     render(<SubagentTab tab={chatTab} />);
 
     expect(screen.getAllByText('完全').length).toBeGreaterThan(0);
+    // No badge: the bucket has nothing to say, so the pane must not invent one.
+    expect(screen.queryByTestId('subagent-permission-badge')).not.toBeInTheDocument();
   });
 });

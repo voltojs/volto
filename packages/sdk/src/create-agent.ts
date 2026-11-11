@@ -358,6 +358,54 @@ function resolveConfigValue<T>(
 }
 
 /**
+ * Per-dispatch overrides shared by every dispatch surface (spec 2026-11-11
+ * D8). Today only `permission` travels through it — the extension point exists
+ * so the next knob does not get re-implemented per surface, which is how the
+ * tier, workspace-reminder and host-layer channels drifted onto `task` only.
+ *
+ * Definition narrowing is deliberately NOT part of this type: a definition's
+ * own policy is applied by `assembleSubAgent` (it owns the intersection and
+ * the downgrade events), so a caller that also owns a definition must not
+ * narrow it twice.
+ */
+export interface DispatchOverrides {
+  /** Permission preset for this dispatch; narrowing only. */
+  permission?: PermissionPreset;
+}
+
+/**
+ * Resolve the boundary a dispatch runs under: the parent's policy narrowed by
+ * the requested preset. Callers are responsible for rejecting an over-broad
+ * request BEFORE calling this (the model-facing task tool does; the
+ * author-facing topology does not) — this function only narrows.
+ */
+export function resolveDispatchPermission(
+  parent: PermissionConfig | undefined,
+  overrides: DispatchOverrides,
+): PermissionConfig | undefined {
+  if (parent === undefined) {
+    // No policy at all: a request is the whole policy, narrowed against the
+    // widest possible one so the preset still means what it says.
+    return overrides.permission === undefined
+      ? undefined
+      : narrowToParent(
+          { sandbox: "danger-full-access", approval: "never" },
+          overrides.permission,
+        ).config;
+  }
+  return narrowToParent(parent, overrides.permission).config;
+}
+
+/**
+ * The presets a dispatch may name. `plan` is a session mode, not a dispatchable
+ * boundary (spec 2026-11-11 D2): its config equals `read-only`, and the task
+ * schema does not accept it.
+ */
+function dispatchablePresets(presets: readonly PermissionPreset[]): PermissionPreset[] {
+  return presets.filter((p) => p !== "plan");
+}
+
+/**
  * The tier-error self-correction menu: the ids a dispatch can actually land
  * on. A `target: null` tier cannot run — listing one would bounce a
  * menu-following model straight back into the same error — and an
@@ -3637,10 +3685,16 @@ function createSubAgentExecutor(
     if (permission !== undefined && isWiderThan(permission, parentPolicyForDispatch)) {
       throw new Error(
         `Permission "${permission}" is wider than this session allows. ` +
-          `Available presets: ${allowedPresetsFor(parentPolicyForDispatch).join(", ")}`,
+          // Only presets the task schema accepts: `plan` is not dispatchable
+          // (spec D2), and a menu listing an unusable id bounces a
+          // menu-following model straight back into a schema error.
+          `Available presets: ${dispatchablePresets(allowedPresetsFor(parentPolicyForDispatch)).join(", ")}`,
       );
     }
-    const dispatchPolicy = narrowToParent(parentPolicyForDispatch, permission).config;
+    const dispatchPolicy =
+      resolveDispatchPermission(parentPolicyForDispatch, {
+        ...(permission !== undefined ? { permission } : {}),
+      }) ?? parentPolicyForDispatch;
 
     const parentToolsForChild = [
       ...parentCustomTools.filter(
@@ -3863,7 +3917,13 @@ function createSubAgentExecutor(
         "task",
       ]);
       const nestedExecutor = createSubAgentExecutor(
-        opts,
+        // The grandchild narrows against THIS child's effective policy, not
+        // the root agent's: a child dispatched at `auto` under a `full` root
+        // must not hand its own children a `full` boundary. Without this the
+        // narrowing was per-level fiction (review Critical).
+        childPermissionConfig !== undefined
+          ? { ...opts, permissionConfig: childPermissionConfig }
+          : opts,
         childTools,
         [],
         childCapabilities,

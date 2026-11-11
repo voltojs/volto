@@ -183,6 +183,69 @@ describe("sub-agent dispatch permission", () => {
     );
   });
 
+  it("narrows a grandchild against the child's policy, not the root's", async () => {
+    // Review Critical: the nested executor used to be rebuilt from the ROOT
+    // opts, so a child dispatched at `auto` under a `full` root could hand its
+    // own children `full` again — the narrowing was per-level fiction.
+    const sinkEvents: TranscriptEventInput[] = [];
+    const sink: EventSink = { emit: (e) => sinkEvents.push(e as TranscriptEventInput) };
+    const { port } = rec([
+      toolCallScript("c1", "task", JSON.stringify({ message: "outer", permission: "auto" })),
+      // The child dispatches its own child, asking for the root's boundary.
+      toolCallScript("c2", "task", JSON.stringify({ message: "inner", permission: "full" })),
+      textScript("grandchild done"),
+      textScript("child done"),
+      textScript("parent done"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      enableTaskTool: true,
+      maxAgentDepth: 3,
+      eventSink: sink,
+      chatSessionId: "sess-parent",
+      permissionConfig: { sandbox: "danger-full-access", approval: "never" },
+    });
+
+    await agent.run("delegate twice");
+
+    const started = sinkEvents.filter((e) => e.type === "subagent_started");
+    // Exactly one dispatch exists: the outer `auto` child. The grandchild was
+    // never created, because the child could only offer workspace-write and
+    // the request asked for more.
+    expect(started).toHaveLength(1);
+    expect(
+      (started[0]!.data as { permission?: { sandbox: string } }).permission?.sandbox,
+    ).toBe("workspace-write");
+    // The refusal happens INSIDE the child's own turn (its task tool catches
+    // it into an isError result), so the parent never sees a second bracket —
+    // which is exactly what "no grandchild was created" means here.
+  });
+
+  it("lists only presets the task schema accepts", async () => {
+    // `plan` is not dispatchable (D2); a menu that offers it bounces a
+    // menu-following model straight back into a schema error.
+    const { port } = rec([
+      toolCallScript("c1", "task", JSON.stringify({ message: "look", permission: "full" })),
+      textScript("recovered"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      enableTaskTool: true,
+      // workspace-write: the parent may still dispatch (a read-only parent
+      // loses `task` at the ceiling), while `full` is wider than it.
+      permissionConfig: { sandbox: "workspace-write", approval: "never" },
+    });
+
+    const state = await agent.run("delegate");
+    const toolText = state.messages
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .map((b) => (b as { content?: unknown }).content)
+      .map((c) => textOf(c))
+      .join("\n");
+    expect(toolText).toContain("Available presets: read-only");
+    expect(toolText).not.toContain("plan");
+  });
+
   it("publishes the effective permission on the start bracket", async () => {
     const { port } = rec(dispatchScript());
     const sinkEvents: TranscriptEventInput[] = [];

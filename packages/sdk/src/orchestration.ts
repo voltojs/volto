@@ -26,7 +26,8 @@ import type { Tool } from "@volto/tools-common";
 import { createRunner } from "@volto/runtime-node";
 import type { Runner, RunnerOptions, ToolExecutor } from "@volto/runtime-node";
 import { createAutoAllowGate, createNodeSpillStore } from "@volto/runtime-node";
-import { createInitialState, ceilingOf, narrowToParent } from "@volto/core";
+import { createInitialState, ceilingOf } from "@volto/core";
+import { resolveDispatchPermission } from "./create-agent.js";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
@@ -110,18 +111,9 @@ export function createOrchestrator(opts: OrchestratorOptions): {
     // One dispatch-permission decision for this node, shared with the task
     // tool's chain (spec 2026-11-11 D8/D9): the node's preset narrows the
     // agent's policy, and an over-broad request collapses instead of throwing.
-    const parentPolicy = agentOpts.permissionConfig;
-    const nodePermissionConfig =
-      parentPolicy === undefined
-        ? node.permission !== undefined
-          ? narrowToParent(
-              // No agent policy at all: the node's own request IS the policy,
-              // because there is nothing to narrow against.
-              { sandbox: "danger-full-access", approval: "never" },
-              node.permission,
-            ).config
-          : undefined
-        : narrowToParent(parentPolicy, node.permission).config;
+    const nodePermissionConfig = resolveDispatchPermission(agentOpts.permissionConfig, {
+      ...(node.permission !== undefined ? { permission: node.permission } : {}),
+    });
 
     const stepCtx: StepContext = {
       tools: toolDefs,

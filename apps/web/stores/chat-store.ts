@@ -113,6 +113,9 @@ function ensureBucket(
       deltas: [],
       status: data.isError === true ? 'error' : 'done',
       durationMs: typeof data.durationMs === 'number' ? data.durationMs : undefined,
+      // The started bracket may already carry the boundary; a refresh that
+      // replays both must not lose it here (review #4).
+      ...(permission !== undefined ? { permission } : {}),
     };
   }
   return { ...subagents, [childId]: bucket };
@@ -260,9 +263,19 @@ export const useChatStore = create<ChatState>((set) => ({
             durationMs: durationMs ?? existing.durationMs,
           }
         : // The bracket landed with no bucket behind it: the child produced
-          // nothing before finishing (or crashed). An empty closed bucket
-          // keeps the card visible with its "no execution record" empty state.
-          { events: [], deltas: [], status: isError ? 'error' : 'done', durationMs };
+          // nothing before finishing (or crashed). Recover what the started
+          // bracket already told us — a refresh lands exactly here, and
+          // dropping `permission` would send the pane back to the parent's
+          // session permission (spec 2026-11-11 G2).
+          {
+            ...(ensureBucket(state.subagents, childId, state.events)[childId] ?? {
+              events: [],
+              deltas: [],
+              status: 'running' as const,
+            }),
+            status: isError ? 'error' : 'done',
+            durationMs,
+          };
       return { subagents: { ...state.subagents, [childId]: bucket } };
     }),
 

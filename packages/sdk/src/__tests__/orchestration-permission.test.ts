@@ -23,6 +23,18 @@ function writeProbe() {
   return { definition: writeTool, handler: async () => ({ modelContent: "wrote" }) };
 }
 
+const irreversibleTool: ToolDefinition = {
+  name: "irreversible_probe",
+  description: "Above a workspace-write ceiling.",
+  inputSchema: { type: "object", properties: {}, required: [] },
+  requires: [],
+  riskTier: "IRREVERSIBLE",
+};
+
+function irreversibleProbe() {
+  return { definition: irreversibleTool, handler: async () => ({ modelContent: "boom" }) };
+}
+
 function recordingPort(script: Parameters<typeof createMockModelPort>[0]) {
   const requests: ModelRequest[] = [];
   const inner = createMockModelPort(script);
@@ -97,14 +109,17 @@ describe("orchestration — node permission", () => {
         modelPort: port,
         permissionConfig: { sandbox: "workspace-write", approval: "never" },
       },
-      adapterTools: [writeProbe()],
+      adapterTools: [writeProbe(), irreversibleProbe()],
       capabilities: new Set(["test:write"]),
     } as never);
 
     await orchestrator.run("go");
 
-    // Narrowed to workspace-write → a WRITE_HIGH tool is inside that ceiling,
-    // so it stays available (the proof is that it is offered, not dropped).
-    expect(requests[0]!.tools.map((t) => t.name)).toContain("write_probe");
+    // Narrowed to workspace-write. Prove it with a tool above that ceiling —
+    // a WRITE_HIGH probe survives BOTH workspace-write and danger-full-access,
+    // so the old assertion could not tell the two apart.
+    const names = requests[0]!.tools.map((t) => t.name);
+    expect(names).not.toContain("irreversible_probe");
+    expect(names).toContain("write_probe");
   });
 });

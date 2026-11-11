@@ -85,8 +85,13 @@ describe("task sub-agent — messages isolation", () => {
           : "",
     );
     expect(sub1Texts.join("\n")).toContain("Permission boundary for this session");
-    // The dispatch message itself is still the only content it was given.
-    expect(sub1Texts).toContain("research");
+    // Exactly two non-system messages: the boundary announcement (itself a
+    // user-role reminder, which the reducer injects) and the dispatch message
+    // verbatim. "contains research" alone would let parent history ride along.
+    const nonSystemTexts = sub1Texts.filter((_, i) => sub1[i]!.role !== "system");
+    expect(nonSystemTexts).toHaveLength(2);
+    expect(nonSystemTexts[0]).toContain("Permission boundary for this session");
+    expect(nonSystemTexts[1]).toBe("research");
     expect(sub1Texts.join("\n")).not.toContain("Parent");
     // The one system message is the built-in role prompt — never the host's
     // system prompt, and never the parent's question.
