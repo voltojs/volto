@@ -97,6 +97,22 @@ describe("marker protocol", () => {
     expect(r.exitCode).toBe(0);
   });
 
+  it("keeps output a background job writes while the session is idle", async () => {
+    // The marker only ends THIS command; a `&` job keeps writing afterwards.
+    // That output used to be wiped by the next run's buffer reset, so it was
+    // lost with no truncation note — the model simply never saw it.
+    const s = makeSession();
+    await s.run("(sleep 0.1; echo BACKGROUND_MARK) &");
+    // Let the background writer land while no command is running.
+    await new Promise((r) => setTimeout(r, 400));
+    const r = await s.run("echo next-command");
+
+    expect(r.stdout).toContain("BACKGROUND_MARK");
+    expect(r.stdout).toContain("next-command");
+    // Order: the idle output came first.
+    expect(r.stdout.indexOf("BACKGROUND_MARK")).toBeLessThan(r.stdout.indexOf("next-command"));
+  });
+
   it("completes while a background job keeps writing to the shared stdout", async () => {
     // A job left running with `&` inherits the session's stdout and keeps
     // appending AFTER the sentinel. The sentinel must still be recognised —

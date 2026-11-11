@@ -336,6 +336,12 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
     const markerRe = new RegExp(
       `\\n__VOLTO_DONE_${escapeRegex(nonce)}:(\\d+):([^\\n]*)\\n`,
     );
+    // Anything still in the buffers belongs to the PREVIOUS command's tail or
+    // to a background writer that ran while the session was idle. The reset
+    // below clears them, so hold on to the text and prepend it to this run's
+    // result — otherwise it is discarded with no trace.
+    const pendingStdout = stdoutBuf;
+    const pendingStderr = stderrBuf;
     resetRunBuffers();
     activeMarkerRe = markerRe;
     // The printf is a separate stdin line so `$?` captures the user command.
@@ -361,9 +367,10 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
         // match time, so mapping back is a plain subtraction.
         const pos = Math.max(0, match.startAbs - stdoutDropped);
         const end = Math.max(0, match.endAbs - stdoutDropped);
-        const stdout = droppedNote(stdoutDropped) + stdoutBuf.slice(0, pos);
+        const stdout =
+          pendingStdout + droppedNote(stdoutDropped) + stdoutBuf.slice(0, pos);
         const remainder = stdoutBuf.slice(end);
-        const stderr = droppedNote(stderrDropped) + stderrBuf;
+        const stderr = pendingStderr + droppedNote(stderrDropped) + stderrBuf;
         const { code, cwd } = match;
         resetRunBuffers();
         // Post-marker tail (background writer) carries into the next run.
@@ -385,8 +392,8 @@ export function createPersistentSession(options: PersistentSessionOptions): Pers
       // Shell died before printing a sentinel (e.g. the command called exit).
       // Surface the process exit code so `run("exit 3")` yields 3.
       if (!alive) {
-        const stdout = droppedNote(stdoutDropped) + stdoutBuf;
-        const stderr = droppedNote(stderrDropped) + stderrBuf;
+        const stdout = pendingStdout + droppedNote(stdoutDropped) + stdoutBuf;
+        const stderr = pendingStderr + droppedNote(stderrDropped) + stderrBuf;
         resetRunBuffers();
         return {
           stdout,
