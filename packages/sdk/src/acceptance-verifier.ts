@@ -44,6 +44,8 @@ export async function verifyDispatch(input: VerifyDispatchInput): Promise<Verify
   const timeoutMs = input.timeoutMs ?? ACCEPTANCE_VERIFY_TIMEOUT_MS;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Outside consume() so error/timeout exits still report usage seen so far.
+  let usage: TokenUsage | undefined;
 
   const consume = async (): Promise<VerifyDispatchResult> => {
     const request: ModelRequest = {
@@ -68,7 +70,6 @@ export async function verifyDispatch(input: VerifyDispatchInput): Promise<Verify
     };
 
     let text = "";
-    let usage: TokenUsage | undefined;
     for await (const event of input.modelPort.stream(request)) {
       if (event.type === "text_delta") {
         text += event.text;
@@ -76,7 +77,7 @@ export async function verifyDispatch(input: VerifyDispatchInput): Promise<Verify
         const { type: _type, ...tokens } = event;
         usage = tokens;
       } else if (event.type === "error") {
-        return { verdict: errorVerdict(event.error) };
+        return { verdict: errorVerdict(event.error), ...(usage !== undefined ? { usage } : {}) };
       } else if (event.type === "done") {
         break;
       }
@@ -96,12 +97,18 @@ export async function verifyDispatch(input: VerifyDispatchInput): Promise<Verify
       controller.abort();
       // The abandoned stream may still reject later; keep it handled.
       consumed.catch(() => {});
-      return { verdict: errorVerdict(`acceptance verification timed out after ${timeoutMs}ms`) };
+      return {
+        verdict: errorVerdict(`acceptance verification timed out after ${timeoutMs}ms`),
+        ...(usage !== undefined ? { usage } : {}),
+      };
     }
     return raced;
   } catch (err) {
     controller.abort();
-    return { verdict: errorVerdict(err instanceof Error ? err.message : String(err)) };
+    return {
+      verdict: errorVerdict(err instanceof Error ? err.message : String(err)),
+      ...(usage !== undefined ? { usage } : {}),
+    };
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

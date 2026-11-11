@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ModelPort } from "@volto/core";
-import { createMockModelPort, textDelta, usage, modelDone } from "@volto/core";
+import { createMockModelPort, textDelta, usage, modelDone, modelError } from "@volto/core";
 import { parseAcceptanceVerdict, verifyDispatch } from "../acceptance-verifier.js";
 
 describe("parseAcceptanceVerdict", () => {
@@ -29,6 +29,17 @@ describe("verifyDispatch", () => {
     });
     expect(out.verdict.status).toBe("passed");
     expect(out.usage).toMatchObject({ inputTokens: 120, outputTokens: 8 });
+  });
+
+  it("keeps usage already reported when the stream ends in a model error", async () => {
+    const port = createMockModelPort([[
+      usage(120, 8), modelError("verifier model exploded"),
+    ]]);
+    const out = await verifyDispatch({
+      modelPort: port, acceptance: "tests pass", task: "do it", output: "done", evidence: "", model: "m",
+    });
+    expect(out.verdict.status).toBe("error");
+    expect(out.usage).toEqual({ inputTokens: 120, outputTokens: 8 });
   });
 
   it("times out into an error verdict instead of hanging", async () => {
