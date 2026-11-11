@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   Effect,
   ModelPort,
+  VerificationSummary,
   EventSink,
   PendingToolCall,
   ModelEvent,
@@ -54,6 +55,7 @@ import {
   estimateToolDefinitionTokens,
   estimateTokens,
   pruneOversizedToolResults,
+  renderVerificationNotice,
   classifyError,
   annotateUntrusted,
   decideSelfCorrect,
@@ -572,7 +574,19 @@ export const defaultAuditSink: AuditSink = {
  * SDK registry satisfies it structurally.
  */
 export interface BackgroundTaskCollector {
-  collect(taskId: string): Promise<{ text: string; childSessionId?: string } | { error: string }>;
+  collect(
+    taskId: string,
+  ): Promise<
+    | {
+        text: string;
+        childSessionId?: string;
+        /** Acceptance verdict carried by a verified dispatch (Task 7 SDK envelope). */
+        verification?: VerificationSummary;
+        /** True when the final verdict failed after exhausting reworks. */
+        rejected?: boolean;
+      }
+    | { error: string }
+  >;
   /**
    * True when this id's result was already collected — e.g. the model
    * picked it up mid-turn via the task_output tool. The drain skips those
@@ -609,7 +623,9 @@ export async function drainBackgroundTasks(opts: {
     // fails it with an explanation, which is exactly what F-036 wants.
     if (opts.registry.isCollected?.(task.id) === true) continue;
 
-    let result: { text: string; childSessionId?: string } | { error: string };
+    let result:
+      | { text: string; childSessionId?: string; verification?: VerificationSummary; rejected?: boolean }
+      | { error: string };
     try {
       result = await opts.registry.collect(task.id);
     } catch (err) {
@@ -625,11 +641,20 @@ export async function drainBackgroundTasks(opts: {
         isError: true,
       });
     } else {
+      // This is the path where the model never called task_output: a
+      // failed acceptance verdict must not arrive as an ordinary
+      // completion, so the drain prefixes the verdict notice and flips
+      // the input to an error when the SDK marked the task rejected.
+      const text =
+        result.verification === undefined
+          ? result.text
+          : renderVerificationNotice(result.verification) + "\n" + result.text;
       opts.feed({
         type: "background_task_completed",
         taskId: task.id,
         ...(result.childSessionId === undefined ? {} : { childSessionId: result.childSessionId }),
-        text: result.text,
+        text,
+        ...(result.rejected === true ? { isError: true } : {}),
       });
     }
   }
