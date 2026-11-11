@@ -1,0 +1,20 @@
+{
+  "tools": [
+    "using/reference/tools.md",
+    "using/guides/permissions-and-approvals.md",
+    "integrating/reference/tool-contract.md"
+  ],
+  "httpRoutes": ["integrating/reference/gateway-api.md"],
+  "config": [
+    "using/reference/config.md",
+    "using/guides/permissions-and-approvals.md",
+    "using/guides/models-and-providers.md"
+  ],
+  "sdkExports": ["integrating/reference/sdk-exports.md", "integrating/reference/sdk-api.md"],
+  "sdkTypes": [
+    "integrating/reference/sdk-api.md",
+    "integrating/guides/ports-and-defaults.md",
+    "integrating/tutorial/01-embed-agent.md"
+  ],
+  "uiCatalog": ["using/tutorial/02-first-conversation.md", "using/tutorial/03-review-changes.md"]
+}

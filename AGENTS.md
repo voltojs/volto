@@ -73,6 +73,16 @@
 - 静态门:`pnpm turbo run typecheck lint test --filter <受影响包>`（**不要默认全仓，`@volto/desktop-app` 一律排除**，见 §3）。
 - **计划最终要出自测报告时,用 `writing-selftest-reports` skill —— 在写 plan 时就用,不是等到最后要报告时**。它要求 plan 顶部建功能点台账、每个 task 末尾追加证据、末尾单独一个 task 由全新上下文生成报告。到最后才想起来,执行痕迹只剩 git 历史,报告只能靠考古重建。
 
+## 用户文档（`docs/user/`）—— 改到用户感知面就必须同步
+
+用户文档与开发文档受众不同：`docs/superpowers/` 写「为什么这样设计」，`docs/user/` 只写「怎么用」。写作规范见 `docs/user/WRITING.md`。
+
+- **判定**：这次改动是否影响**使用者**看得见 / 配得了 / 能感知的东西（界面文案、菜单、配置键与默认值、错误信息、权限语义、工具可见性、安装步骤），或**集成者**依赖的公开面（`@volto/sdk` 导出、`createAgent` 选项、端口契约、事件类型、网关路由）。命中就必须在**同一提交**内更新 `docs/user/`。
+- **生成页不许手改**：`using/reference/tools.md`、`using/reference/config.md`、`integrating/reference/gateway-api.md`、`integrating/reference/sdk-exports.md` 由 `pnpm docs:gen` 产出；改代码或改对应 notes JSON（`docs/user/reference/*-notes.json` / `config-sections.json`）再生成。新增工具 / 配置字段 / 路由却不补 notes，`docs:check` 直接失败——这是有意的。
+- **收尾跑 `pnpm docs:check`**（需要先 `pnpm turbo run build`）。表面变了但没同步基线时它会失败并点名该改哪几页；确认对用户无感则 `pnpm docs:ack "理由"`，理由会进 diff。
+- **不要把 spec / plan 的内容搬进用户文档**，也不要在 `using/` 里解释实现细节（reducer / port / Effect 这类词属于 `integrating/`）。
+- 新建页必须在 `docs/user/README.md` 登记，否则孤儿页检查失败。
+
 ---
 
 <details>
@@ -143,6 +153,7 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 
 | 文档                | 路径                        | 用途                                                     | 时效 |
 | ------------------- | --------------------------- | -------------------------------------------------------- | ---- |
+| **用户文档**        | `docs/user/`                | 面向使用者与集成者的手册；改到用户感知面时必须同步（见「用户文档」一节） | 随代码演进 |
 | 架构设计文档        | `docs/pure-agent-core.md`   | 纯函数内核架构、模块分解、ports 契约——纯度铁律的出处      | 长期有效 |
 | **安全立场**        | `SAFETY.md`                 | 威胁模型：防「模型犯错」，**不承诺**防「模型被诱导」；边界的实际强度与已知不保护项 | 长期有效 |
 | 特性设计（spec）    | `docs/superpowers/specs/`   | 每个特性的设计取舍，文件名带日期                          | 写作时点的决策记录 |

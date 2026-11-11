@@ -1,0 +1,80 @@
+---
+title: 权限与审批
+type: guide
+source:
+  - apps/headless-server/src/permission-modes.ts
+  - apps/headless-server/src/config/permissions.ts
+  - packages/core/src/permission-presets.ts
+  - apps/web/components/chat/ApprovalCard.tsx
+generated: false
+verified: 2026-11-11
+---
+
+# 权限与审批
+
+> 读完你会：知道四档权限各挡什么、什么时候会弹审批卡，以及怎么用规则减少打扰而不放宽边界。
+
+## 四档权限
+
+每段对话有一个权限档位，新会话从「设置 → 通用设置 → 新会话默认权限」取默认值。
+
+| 档位 | 沙箱 | 审批 | 适合 |
+| --- | --- | --- | --- |
+| 只读 | 只读 | 从不询问 | 只想让 agent 看代码、出方案 |
+| 询问 | 可写工作区 | 每次写/执行前问 | 默认，最常用 |
+| 自动 | 可写工作区 | 不询问 | 信任当前任务，想少点打断 |
+| 完全 | 不隔离 | 不询问 | 只有在你完全信任任务时；开启前有确认弹窗 |
+
+**计划模式**不是第五档：它是「只读 + 先出计划」的工作方式，用 `/plan` 进入，批准计划后退出。
+
+档位改变只影响**之后新建的会话**；进行中的会话保持它开始时的档位。
+
+## 审批卡上的三个选择
+
+- 允许一次
+- 拒绝（agent 会收到拒绝并换做法，不会卡住）
+- 始终允许…（只对合格的 `bash` 命令出现）
+
+「始终允许」会把命令前缀写进规则，**下一轮起**生效，且是用户级（对所有项目生效）。写入失败（只读目录、磁盘满）时本次仍按「允许一次」执行，卡片上会说明失败原因。
+
+## 用规则减少打扰
+
+规则的形状（`~/.volto/config.json` 的 `permissions` 分区）：
+
+```json
+{
+  "rules": [
+    { "pathPattern": "**/.env", "decision": "ask" },
+    { "toolName": "write_file", "pathPattern": "src/**", "decision": "allow" },
+    { "toolName": "bash", "commandPrefix": ["pnpm", "test"], "decision": "allow" }
+  ]
+}
+```
+
+按顺序匹配，**第一条命中生效**；`allow` / `deny` / `ask` 三档。
+
+## 边界的真实形状
+
+这三条比任何示例都重要：
+
+1. **规则只能收紧，不能越界。** 只读档下写再多 `allow` 规则也不会放行写入。
+2. **路径规则只约束声明了路径入参的工具。** `bash` 不声明路径入参，所以 `pathPattern` 管不到 shell——shell 的边界是沙箱本身。
+3. **域名规则不是防火墙。** `hostPattern` 只过滤声明了 URL 入参的工具的审批；真正拦网络的是 `egress` 分区，而它只作用于三个网络工具，不拦 bash 里跑的 `curl`。
+
+同样的老实话说两遍：这套东西挡的是「模型手滑」，不是「模型被诱导」。完整威胁模型见 [安全模型](../../concepts/safety-model.md)。
+
+## 命令前缀规则的门槛
+
+`commandPrefix` 只对**单一简单命令**生效。命令里出现 `;` `&` `|` `<` `>` 反引号 `$` `(` `)` 通配符、前置环境变量赋值（`FOO=1 cmd`）或未闭合引号时，一律照旧询问。
+
+它按 argv 逐 token 前缀匹配：`pnpm test --filter x` 命中，`pnpm test2` 不命中。
+
+**它不构成安全边界**：等价的其它写法（`bash -c 'pnpm test'`）仍会被询问；bash 会话里先前留下的 alias 也可能让文本相同的命令做别的事。
+
+## 改完什么时候生效
+
+`permissions` 分区在下一次会话构建时重读。改了规则想立刻看到效果，新建一段会话。
+
+配置写坏（JSON 语法错、字段名拼错）会**拒绝启动**而不是静默丢掉规则——这是有意的：静默失效比报错危险得多。
+
+字段全集见 [配置文件参考](../reference/config.md)。
