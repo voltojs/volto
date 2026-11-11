@@ -19,7 +19,7 @@ verified: 2026-11-11
 | --- | --- | --- | --- |
 | macOS | seatbelt（系统自带 `sandbox-exec`） | 完整隔离 | 无隔离，可用 |
 | Linux | bubblewrap（需自行安装 `bwrap`） | 隔离可用，个别语义与 macOS 不同 | 无隔离，可用 |
-| Windows / 其它 | 无 | **拒绝启动并报错** | 无隔离，可用 |
+| Windows / 其它 | 无 | **拒绝启动并报错** | 需要显式绕过后端检查（见下），网关自身没有入口 |
 
 **后端缺失时显式拒绝启动，绝不静默裸跑。** 宁可你看到一条报错，也不要你以为有沙箱而实际上没有。
 
@@ -52,7 +52,7 @@ sudo apt install bubblewrap
 
 ## 出问题怎么办
 
-- **启动就报「没有可用的沙箱后端」** → Linux 上装 `bwrap`；Windows 上只能切到完全档。
+- **启动就报 `[sandbox] No sandbox backend available on this platform`** → Linux 上装 `bwrap` 后重启。Windows 上目前没有可用后端：网关启动时用的是只读档，后端缺失即拒绝启动，界面上没有切换档位的机会。错误信息里的两条出路（改用 `danger-full-access`、或设 `failIfUnavailable: false`）是给**自建宿主**用的，不是界面开关。
 - **命令莫名报 `Operation not permitted` / `Read-only file system`** → 这正是沙箱在工作。要写这个路径，换档位或换目录，而不是关沙箱。
 - **只读档下语言服务器很慢** → 它在尝试写缓存被拒，属预期代价。
 

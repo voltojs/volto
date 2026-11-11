@@ -51,9 +51,13 @@
       ]
     },
     "httpRoutes": {
-      "hash": "62d8030d914a846d5bfc8f7f1efc9ed720f1c4e4aa1817504719e0b8e59f49ca",
+      "hash": "22813c38efc38e5af29f92614e37d5b88e39a8c204550e6742dd41c75671ce1c",
       "names": [
         "* /config/routing-tiers",
+        "DELETE /agents/*",
+        "DELETE /projects/*",
+        "DELETE /providers/*",
+        "DELETE /sessions/*",
         "GET /agents",
         "GET /catalog/providers",
         "GET /commands",
@@ -70,10 +74,12 @@
         "GET /projects",
         "GET /providers",
         "GET /sessions",
+        "GET /sessions/*",
         "GET /sidebar-state",
         "GET /skills",
         "GET /stream",
         "GET /tools",
+        "PATCH /sessions/*",
         "POST /agents",
         "POST /approvals",
         "POST /fs/pick-directory",
@@ -85,9 +91,12 @@
         "POST /messages/queue",
         "POST /projects",
         "POST /providers",
+        "POST /providers/*",
         "POST /resume",
         "POST /run",
+        "PUT /agents/*",
         "PUT /preferences",
+        "PUT /providers/*",
         "PUT /sidebar-state"
       ]
     },
@@ -120,9 +129,8 @@
       ]
     },
     "sdkExports": {
-      "hash": "3ac5f69e124be349e2c69cc4818fcdb40101f57deaf566e2c7a3876b2db590c9",
+      "hash": "471c4353924cff67e2a246f204ce2d879fa17e2243297fd950b24a0292163532",
       "names": [
-        "// M8: new port defaults\n  defaultToolSource",
         "AgentEntry",
         "AgentInput",
         "AgentInstance",
@@ -228,6 +236,7 @@
         "defaultSecrets",
         "defaultTelemetry",
         "defaultTokenizer",
+        "defaultToolSource",
         "diffState",
         "findBuiltInAgent",
         "findCommand",
@@ -240,7 +249,8 @@
         "renderCommand",
         "resolveAgentSpec",
         "runHookPipeline",
-        "scanAgentSources"
+        "scanAgentSources",
+        "sse"
       ]
     },
     "sdkTypes": {

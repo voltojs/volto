@@ -25,10 +25,10 @@ verified: 2026-11-11
 
 ### 2. 添加一个供应商
 
-点「添加供应商」，两种类型选一种：
+两个入口，按供应商类型选一个：
 
-- **内置目录**：从内置的供应商目录里选（Anthropic、OpenAI 及一批兼容厂商），只需填 API Key，模型清单可从目录自动补全。
-- **自定义**：自己填一个 OpenAI 兼容端点（base URL）和模型 ID，适合自建网关或私有部署。
+- **新增内置 Provider**：从内置的供应商目录里选（Anthropic、OpenAI 及一批兼容厂商），只需填 API Key，模型清单可从目录自动补全。
+- **新增自定义 Provider**：自己填一个 OpenAI 兼容端点（base URL）和模型 ID，适合自建网关或私有部署。
 
 填完点保存。**API Key 加密后存在服务端**（`~/.volto/config.json` 的 `providers` 分区），不会进入浏览器存储。
 

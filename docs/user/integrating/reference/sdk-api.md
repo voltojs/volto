@@ -21,6 +21,7 @@ createAgent(options) → AgentInstance
   .run(input)      跑完一轮，返回最终状态
   .stream(input)   边跑边产出事件
   .steer(input)    向进行中的回合插话（不开启新回合）
+  .updateQueue(...) 改写或撤回仍在排队、尚未送达模型的消息
   .resume(...)     带人工决策恢复挂起的执行
   .compactNow()    手动压缩一次上下文
   .getState()      读当前状态快照
@@ -69,9 +70,9 @@ createAgent(options) → AgentInstance
 | 选项 | 作用 |
 | --- | --- |
 | `sessionStore` | 会话状态持久化 |
-| `chatStore` + `chatSessionId` + `chatMeta` | 对话记录持久化（可恢复） |
+| `chatStore` + `chatSessionId` + `chatMeta` | 对话记录持久化。`chatStore` 是**只写**的转录（`TranscriptStore`），恢复靠 `sessionStore` 快照或 `initialMessages` 种子，不靠读转录 |
+| `eventSink` | 把过程事件送到界面（见 [事件流与界面](../guides/events-and-ui.md)） |
 | `memoryStore` + `embedder` | 跨会话长期记忆 |
-| `chatStore`（转录）+ `auditSink`（审计流水） | 对话记录与审计轨迹 |
 | `planStore` | 计划文档存储 |
 | `initialMessages` / `initialTurn` / `initialStep` | 从快照恢复时的种子值 |
 
@@ -84,7 +85,7 @@ createAgent(options) → AgentInstance
 | `toolVisibility: { scope, limit }` 覆盖默认推导；`capabilities` 收窄可见集 | 见 [工具契约](./tool-contract.md) 与 [工具装配与权限策略](../guides/tools-and-policy.md) |
 | `agentSpecs` / `maxAgentDepth` | 子代理定义与嵌套深度 |
 | `skillRegistry` | 技能目录 |
-| `routingTiers` / `model` / `providerId` | 模型选择与分档 |
+| `routingTiers` / `model` / `providerId` / `resolveSubagentModelPort` | 模型选择、分档与子代理取值 |
 | `workflowReminder` / `resolveWorkspaceReminder` | 注入工作流模式、工作目录与分支提醒 |
 | `hooks` / `policyEngine` | 生命周期钩子与策略判定 |
 

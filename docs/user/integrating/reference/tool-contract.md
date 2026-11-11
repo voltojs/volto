@@ -20,7 +20,7 @@ const definition = {
   name: "read_file",
   description: "读文件，带行号。",           // 模型靠这句话决定用不用
   inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
-  requires: ["fs:read"],                    // 能力：没有这个能力就不对模型可见
+  requires: ["filesystem:read"],             // 能力：没有这个能力就不对模型可见
   riskTier: "READ_ONLY",                    // 权限策略按它分档
   pathInputs: ["path"],                     // 路径入参：让 pathPattern 规则能匹配
   hostInputs: [],                           // URL 入参：让 hostPattern 规则能匹配

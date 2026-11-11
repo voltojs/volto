@@ -12,7 +12,13 @@ verified: 2026-11-11
 
 # 配置文件参考
 
-所有用户级配置集中在 `~/.volto/config.json`（可用 `VOLTO_CONFIG_DIR` 改目录）。每个分区对应一个对象，**未知字段会被拒绝**：拼错一个键，网关会拒绝启动而不是静默忽略。
+所有用户级配置集中在 `~/.volto/config.json`（可用 `VOLTO_CONFIG_DIR` 改目录）。
+
+分区形状不一：多数是对象（`preferences`、`providers`、`permissions`、`egress`、`lsp`、`hooks`、`sidebar`），`projects` 与 `routingTiers` 是数组。校验强度也不一：
+
+- `egress` / `permissions` / `lsp` / `hooks`：未知键会让网关**拒绝启动**（拼错等于明确报错，这是有意的）。
+- `preferences` / `sidebar`：未知键被忽略，非法值回落到默认。
+- **顶层分区名写错不会报错**：那一段配置只是不生效。改完请用界面或接口确认真的生效了。
 
 怎么改、什么时候生效、改坏了怎么办，见 [权限与审批](../guides/permissions-and-approvals.md) 与 [模型与供应商](../guides/models-and-providers.md)；本文只列字段。
 
@@ -39,7 +45,7 @@ verified: 2026-11-11
 | `args` | 启动参数数组。 |
 | `command` | 启动命令，例如 `rust-analyzer`。 |
 | `initializationParams` | 透传给语言服务器的初始化参数。 |
-| `servers` | 按扩展名索引的语言服务器表。 |
+| `servers` | 按**语言 id** 索引（如 `typescript`、`python`），不是文件扩展名；文件路径先映射到语言 id 再查这张表。 |
 
 ## `permissions`
 

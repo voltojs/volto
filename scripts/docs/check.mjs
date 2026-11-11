@@ -211,7 +211,10 @@ for (const route of extractHttpRoutes()) {
   }
 }
 for (const entry of gatewayNotes.public ?? []) {
-  if (!serverSource.includes(`"${entry.path}"`)) {
+  // Param routes are matched by a regex or a prefix, so check the static part:
+  // `GET /sessions/*` → `"/sessions/"`, `/providers/:id` → `"/providers/"`.
+  const literal = (entry.path.includes(":") ? entry.path.split(":")[0] : entry.path.replace(/\*$/, "")) || "/";
+  if (!serverSource.includes(`"${literal}"`)) {
     error("docs/user/reference/gateway-notes.json", `public 里的 \`${entry.path}\` 在 server.ts 中已找不到`);
   }
 }

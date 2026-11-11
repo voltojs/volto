@@ -22,6 +22,8 @@ verified: 2026-11-11
 | --- | --- | --- |
 | `GET` | `/agents` | 子代理定义列表（项目 / 用户 / 插件三个来源合并）。 |
 | `POST` | `/agents` | 在指定作用域新建一个子代理定义。 |
+| `DELETE` | `/agents/*` | 删除一个子代理定义；内置类型不可删（可被同名覆盖）。 |
+| `PUT` | `/agents/*` | 替换一个子代理定义；插件来源的条目返回 409。 |
 | `POST` | `/approvals` | 对一个待审批的工具调用给出 allow / deny / 回答。 |
 | `GET` | `/catalog/providers` | 内置供应商目录，供「添加供应商」表单选择。 |
 | `GET` | `/commands` | 斜杠命令的模板列表，`/` 面板的数据源。 |
@@ -36,11 +38,18 @@ verified: 2026-11-11
 | `PUT` | `/preferences` | 把给定的键合并进默认值。 |
 | `GET` | `/projects` | 已注册的工作区列表。 |
 | `POST` | `/projects` | 注册一个工作区目录。 |
+| `DELETE` | `/projects/*` | 从注册表移除一个工作区（不动磁盘目录）。 |
 | `GET` | `/providers` | 已配置的模型供应商（密钥只以密文形式存在，不返回明文）。 |
 | `POST` | `/providers` | 新增一个供应商及其模型清单。 |
+| `DELETE` | `/providers/*` | 删除一个供应商及其模型配置。 |
+| `POST` | `/providers/*` | 供应商的单个动作族：目前是 `POST /providers/:id/probe`（用当前配置真发一次最小请求，验证路由可用）。 |
+| `PUT` | `/providers/*` | 整体替换一个供应商的配置（模型清单连同覆盖项）。 |
 | `POST` | `/resume` | 带人工决策恢复一次挂起执行（旧接口）。 |
 | `POST` | `/run` | 一次性执行并返回最终状态（旧接口，多轮请用 /messages）。 |
 | `GET` | `/sessions` | 会话列表，供会话恢复与侧边栏使用。 |
+| `DELETE` | `/sessions/*` | 删除一段会话及其转录。 |
+| `GET` | `/sessions/*` | 单条会话的读取族：完整转录、轨迹、原始事件、计划文档、导出。具体子路径见 server.ts 的 `/sessions/:id/...` 注释。 |
+| `PATCH` | `/sessions/*` | 重命名会话（标题按最后写入生效）。 |
 | `GET` | `/sidebar-state` | 侧边栏布局文档（置顶、顺序）。 |
 | `PUT` | `/sidebar-state` | 整体替换侧边栏布局文档。 |
 | `GET` | `/skills` | 技能目录（含用户可主动调用的技能）。 |
@@ -51,7 +60,6 @@ verified: 2026-11-11
 
 | 方法 | 路径 | 归类 |
 | --- | --- | --- |
-| `*` | `/config/routing-tiers` | ·待补· |
 | `GET` | `/file-refs` | 内部 |
 | `GET` | `/fs/file` | 内部 |
 | `GET` | `/fs/search` | 内部 |

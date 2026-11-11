@@ -17,7 +17,7 @@ verified: 2026-11-11
 
 - **Node.js ≥ 22**（`node -v` 确认）
 - pnpm 10
-- macOS 或 Linux。Windows 没有沙箱后端，只能用「完全」权限档，见 [沙箱与平台](../guides/sandbox-and-platforms.md)
+- **macOS 或 Linux**。Windows 及其它没有沙箱后端的平台目前**起不来网关**：默认档位要求隔离，缺失后端时会直接拒绝启动（详见 [沙箱与平台](../guides/sandbox-and-platforms.md)）
 
 ## 步骤
 

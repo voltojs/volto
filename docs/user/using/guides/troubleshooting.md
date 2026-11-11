@@ -18,7 +18,7 @@ verified: 2026-11-11
 | 症状 | 原因 | 动作 |
 | --- | --- | --- |
 | `Cannot find module .../dist/server.js` | 没构建 | `pnpm turbo run build` |
-| 启动即报「没有可用的沙箱后端」 | 平台无后端，或 Linux 缺 `bwrap` | 装 `bwrap`；或切「完全」档（无隔离） |
+| 启动日志出现 `[sandbox] No sandbox backend available on this platform` | 平台无后端，或 Linux 缺 `bwrap` | Linux 装 `bwrap` 后重启；Windows 目前无解（网关默认档要求隔离） |
 | 启动即报配置损坏 | `config.json` 语法错或字段名拼错 | 修 `~/.volto/config.json`；坏文件会被拒绝而不是忽略 |
 | 端口 3100 / 6100 被占用 | 旧进程还在 | 停掉旧进程 |
 

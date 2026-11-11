@@ -200,25 +200,35 @@ export function extractTools() {
   );
 }
 
-/** Gateway routes: `req.method === "GET" && url.pathname === "/events"` and friends. */
+/**
+ * Gateway routes, harvested from the shapes the handlers actually use:
+ *   `req.method === "GET" && url.pathname === "/events"`
+ *   `url.pathname.startsWith("/sessions/")`     (method checked separately)
+ *
+ * Regex-matched routes (`url.pathname.match(/^\/sessions\/([^/]+)\/plan$/)`)
+ * are not extracted here; their `:param` forms are supplied by
+ * gateway-notes.json, and the notes check keeps them honest against this file.
+ */
 export function extractHttpRoutes() {
   const file = path.join(ROOT, "apps/headless-server/src/server.ts");
   if (!fs.existsSync(file)) return [];
   const source = readText(file);
   const routes = new Set();
-  const withMethod =
-    /req\.method === "(GET|POST|PUT|DELETE|PATCH)"\s*&&\s*url\.pathname\s*(===|startsWith)\s*"([^"]+)"/g;
-  for (const match of source.matchAll(withMethod)) {
-    routes.add(`${match[1]} ${match[3]}${match[2] === "startsWith" ? "*" : ""}`);
+  const methodRe =
+    /req\.method === "(GET|POST|PUT|DELETE|PATCH)"[^\n]*?url\.pathname\s*(?:===|\.\s*startsWith\s*\()\s*"([^"]+)"/g;
+  for (const match of source.matchAll(methodRe)) {
+    const wildcard = match[0].includes("startsWith") ? "*" : "";
+    routes.add(`${match[1]} ${match[2]}${wildcard}`);
   }
-  const anyMethod = /url\.pathname\s*(===|startsWith)\s*"([^"]+)"/g;
   const coveredPaths = new Set([...routes].map((route) => route.split(" ")[1]));
-  for (const match of source.matchAll(anyMethod)) {
-    const routePath = `${match[2]}${match[1] === "startsWith" ? "*" : ""}`;
-    // A path already listed with an explicit method does not need an extra
-    // "<any method>" row: it would double the table without adding a fact.
-    if (coveredPaths.has(routePath)) continue;
-    routes.add(`* ${routePath}`);
+  const prefixRe = /url\.pathname\s*\.\s*startsWith\s*\(\s*"([^"]+)"/g;
+  for (const match of source.matchAll(prefixRe)) {
+    const routePath = `${match[1]}*`;
+    if (!coveredPaths.has(routePath)) routes.add(`* ${routePath}`);
+  }
+  const exactRe = /url\.pathname\s*===\s*"([^"]+)"/g;
+  for (const match of source.matchAll(exactRe)) {
+    if (!coveredPaths.has(match[1])) routes.add(`* ${match[1]}`);
   }
   return [...routes].sort();
 }
@@ -253,21 +263,46 @@ export function extractConfigKeys() {
   );
 }
 
-/** Public names exported from the SDK barrel. */
-export function extractSdkExports() {
+/**
+ * Public exports of the SDK barrel, with their value/type kind.
+ *
+ * Comment lines inside an `export { ... }` block are stripped before parsing:
+ * the barrel groups its re-exports with `// M8: …` markers, and a split on
+ * commas would otherwise turn a marker into a fake export name.
+ */
+export function extractSdkExportDetail() {
   const file = path.join(ROOT, "packages/sdk/src/index.ts");
   if (!fs.existsSync(file)) return [];
   const source = readText(file);
-  const names = new Set();
-  for (const match of source.matchAll(/export\s+(?:type\s+)?\{([\s\S]*?)\}\s*from/g)) {
-    for (const part of match[1].split(",")) {
+  const exports = new Map();
+  for (const match of source.matchAll(/export\s+(type\s+)?\{([\s\S]*?)\}\s*from/g)) {
+    const blockKind = match[1] ? "type" : "value";
+    const block = match[2]
+      .replace(/\/\/[^\n]*/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const part of block.split(",")) {
       const trimmed = part.trim();
       if (!trimmed) continue;
-      const aliased = /^(\w+)\s+as\s+(\w+)$/.exec(trimmed);
-      names.add(aliased ? aliased[2] : trimmed.replace(/^type\s+/, ""));
+      const inlineType = /^type\s+/.test(trimmed);
+      const cleaned = trimmed.replace(/^type\s+/, "");
+      const aliased = /^(\w+)\s+as\s+(\w+)$/.exec(cleaned);
+      const name = aliased ? aliased[2] : cleaned;
+      if (!/^\w+$/.test(name)) continue;
+      exports.set(name, blockKind === "type" || inlineType ? "type" : "value");
     }
   }
-  return [...names].sort();
+  // `export * as ns from "./x.js"` — a namespace value export, not a name list.
+  for (const match of source.matchAll(/export\s+\*\s+as\s+(\w+)\s+from/g)) {
+    exports.set(match[1], "value");
+  }
+  return [...exports.entries()]
+    .map(([name, kind]) => ({ name, kind }))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/** Public names exported from the SDK barrel. */
+export function extractSdkExports() {
+  return extractSdkExportDetail().map((entry) => entry.name);
 }
 
 /**
@@ -443,7 +478,13 @@ export function buildConfigPage(sections, keys, notes) {
     "",
     "# 配置文件参考",
     "",
-    "所有用户级配置集中在 `~/.volto/config.json`（可用 `VOLTO_CONFIG_DIR` 改目录）。每个分区对应一个对象，**未知字段会被拒绝**：拼错一个键，网关会拒绝启动而不是静默忽略。",
+    "所有用户级配置集中在 `~/.volto/config.json`（可用 `VOLTO_CONFIG_DIR` 改目录）。",
+    "",
+    "分区形状不一：多数是对象（`preferences`、`providers`、`permissions`、`egress`、`lsp`、`hooks`、`sidebar`），`projects` 与 `routingTiers` 是数组。校验强度也不一：",
+    "",
+    "- `egress` / `permissions` / `lsp` / `hooks`：未知键会让网关**拒绝启动**（拼错等于明确报错，这是有意的）。",
+    "- `preferences` / `sidebar`：未知键被忽略，非法值回落到默认。",
+    "- **顶层分区名写错不会报错**：那一段配置只是不生效。改完请用界面或接口确认真的生效了。",
     "",
     "怎么改、什么时候生效、改坏了怎么办，见 [权限与审批](../guides/permissions-and-approvals.md) 与 [模型与供应商](../guides/models-and-providers.md)；本文只列字段。",
     "",
@@ -464,8 +505,12 @@ export function buildGatewayPage(routes, notes) {
   const publicRows = publicRoutes
     .sort((a, b) => (a.path === b.path ? a.method.localeCompare(b.method) : a.path.localeCompare(b.path)))
     .map((entry) => [`\`${entry.method}\``, `\`${entry.path}\``, entry.note]);
+  const documentedPaths = new Set(
+    [...publicKeys].map((key) => key.split(" ").slice(1).join(" ").replace(/\*$/, "")),
+  );
   const internalRows = routes
     .filter((route) => !publicKeys.has(route))
+    .filter((route) => !documentedPaths.has(route.split(" ")[1].replace(/\*$/, "")))
     .map((route) => {
       const [method, routePath] = route.split(" ");
       return [`\`${method}\``, `\`${routePath}\``, internal.has(routePath) ? "内部" : "·待补·"];
@@ -504,16 +549,10 @@ export function buildGatewayPage(routes, notes) {
   ].join("\n");
 }
 
-export function buildSdkExportsPage(names) {
-  const groups = {
-    门面: (name) => /^(createAgent|assembleSubAgent|mergeQueuedEdit|createBackgroundRegistry)$/.test(name),
-    模型: (name) => /Model|Cost|Pricing|Router|Meter/i.test(name),
-    组合: (name) => /^(createOrchestrator|createPlugin|createHook|Hook)/.test(name),
-  };
-  const rows = names.map((name) => {
-    const group = Object.entries(groups).find(([, test]) => test(name))?.[0] ?? "其它";
-    return [`\`${name}\``, group];
-  });
+export function buildSdkExportsPage(detail) {
+  const values = detail.filter((entry) => entry.kind === "value");
+  const types = detail.filter((entry) => entry.kind === "type");
+  const rows = (list) => list.map((entry) => [`\`${entry.name}\``]);
   return [
     frontMatter({
       title: "SDK 导出清单",
@@ -528,7 +567,13 @@ export function buildSdkExportsPage(names) {
     "",
     "`@volto/sdk` 的公开导出。逐项语义见 [SDK 导读](./sdk-api.md)。",
     "",
-    table(["导出", "分类"], rows),
+    `## 值（函数 / 常量 / 类）· ${values.length} 个`,
+    "",
+    table(["导出"], rows(values)),
+    "",
+    `## 类型 · ${types.length} 个`,
+    "",
+    table(["导出"], rows(types)),
     "",
     "> 这张表由 `pnpm docs:gen` 生成。**`@volto/sdk` 目前不发布 npm**：集成方式是 workspace 依赖或源码引用，因此没有版本号与 peer 依赖契约。",
     "",
@@ -555,7 +600,7 @@ export function generatedPages() {
     {
       rel: "integrating/reference/sdk-exports.md",
       notes: null,
-      build: (surfaces) => buildSdkExportsPage(extractSdkExports()),
+      build: () => buildSdkExportsPage(extractSdkExportDetail()),
     },
   ];
 }

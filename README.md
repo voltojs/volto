@@ -27,7 +27,7 @@ cd apps/web && pnpm dev                  # 终端 2：Web 界面（:6100）
 | **贡献者** | [AGENTS.md](AGENTS.md) — 开发规约、质量门、目录结构 |
 | **想知道边界** | [用户版安全模型](docs/user/concepts/safety-model.md) · [完整威胁模型](SAFETY.md) |
 
-平台支持：macOS 用系统自带 seatbelt，Linux 需自装 `bubblewrap`，Windows 只能跑「完全」档（无沙箱后端时显式拒绝启动）。见 [沙箱与平台支持](docs/user/using/guides/sandbox-and-platforms.md)。
+平台支持：macOS 用系统自带 seatbelt，Linux 需自装 `bubblewrap`；没有沙箱后端的平台（含 Windows）网关会**拒绝启动**，而不是静默裸跑。见 [沙箱与平台支持](docs/user/using/guides/sandbox-and-platforms.md)。
 
 用户级数据都在 `~/.volto/`：配置集中在 `config.json`（分区字段见[配置参考](docs/user/using/reference/config.md)），会话库、附件、agents、skills 各自独立目录。
 

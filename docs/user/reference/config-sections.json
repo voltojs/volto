@@ -57,7 +57,7 @@
   "lsp": {
     "summary": "语言服务器配置。内置只覆盖 TS/JS；其他语言在这里登记。非法配置会拒绝启动，而不是静默失效。",
     "fields": {
-      "servers": "按扩展名索引的语言服务器表。",
+      "servers": "按**语言 id** 索引（如 `typescript`、`python`），不是文件扩展名；文件路径先映射到语言 id 再查这张表。",
       "command": "启动命令，例如 `rust-analyzer`。",
       "args": "启动参数数组。",
       "initializationParams": "透传给语言服务器的初始化参数。"
