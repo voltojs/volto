@@ -71,6 +71,12 @@ export interface StepContext {
    */
   permissionConfig?: PermissionConfig;
   /**
+   * Who can answer an `ask` decision. Defaults to "interactive" (the main
+   * session). A sub-agent has no human and no approval channel, so the
+   * reminder must say so instead of promising a prompt nobody will see.
+   */
+  permissionAudience?: "interactive" | "child";
+  /**
    * Workflow-mode announcement channel (spec 2026-09-25). Pure data: the
    * reducer compares `key` against `state._announcedWorkflowMode` and, on a
    * change, injects `announce` as a tail system-reminder — never a static
@@ -696,7 +702,11 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
     if (ctx.permissionConfig) {
       const fingerprint = permissionFingerprint(ctx.permissionConfig);
       if (fingerprint !== announced) {
-        const reminderText = buildPermissionReminder(ctx.permissionConfig, announcedConfig);
+        const reminderText = buildPermissionReminder(
+          ctx.permissionConfig,
+          announcedConfig,
+          ctx.permissionAudience ?? "interactive",
+        );
         announcements.push(stamp({ id: "", role: "user" as const, content: reminderText }, ctx));
         emittedReminders.push({
           type: "emit",

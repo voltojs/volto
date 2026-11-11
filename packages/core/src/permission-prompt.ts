@@ -62,10 +62,20 @@ function writeBoundaryLine(config: PermissionConfig): string {
   }
 }
 
-function approvalLine(config: PermissionConfig): string {
-  return config.approval === "ask"
-    ? "- Higher-risk tool calls stop and ask you before they run."
-    : "- This session will not stop to ask for confirmation; the policy decides everything on its own.";
+/**
+ * Who is on the other end of an `ask` decision. A sub-agent has nobody: its
+ * approval gate refuses every prompt, so promising a confirmation would
+ * describe a channel that does not exist.
+ */
+export type PermissionAudience = "interactive" | "child";
+
+function approvalLine(config: PermissionConfig, audience: PermissionAudience): string {
+  if (config.approval !== "ask") {
+    return "- This session will not stop to ask for confirmation; the policy decides everything on its own.";
+  }
+  return audience === "child"
+    ? "- No human is available to confirm: an operation that would require confirmation is refused."
+    : "- Higher-risk tool calls stop and ask you before they run.";
 }
 
 /**
@@ -108,6 +118,19 @@ const NO_ROUTING_AROUND =
   "tell the user what was refused and which permission setting would allow it.";
 
 /**
+ * Same boundary, addressed to a sub-agent: its only channel back is the report
+ * it returns to the parent, so "tell the user" would name a conversation it
+ * cannot have.
+ */
+const NO_ROUTING_AROUND_CHILD =
+  "If a tool is refused by this policy, that is a boundary the parent set, " +
+  "not a malfunction. Do not route around a refusal: do not reach the refused " +
+  "effect through a different tool, and in particular do not use `bash` to " +
+  "perform an operation a named tool just refused. Picking a different tool for " +
+  "work that was not refused is ordinary tool selection and stays fine. Report " +
+  "the refusal in your final answer, with which setting would have allowed it.";
+
+/**
  * Build the reminder text for a permission configuration.
  *
  * @param previous - the configuration the model was last told about. When
@@ -118,14 +141,23 @@ const NO_ROUTING_AROUND =
 export function buildPermissionReminder(
   config: PermissionConfig,
   previous?: PermissionConfig,
+  audience: PermissionAudience = "interactive",
 ): string {
   const opening = previous
     ? "The permission boundary for this session has changed. It is now:"
     : "Permission boundary for this session:";
 
-  const lines = [writeBoundaryLine(config), approvalLine(config)];
+  const lines = [writeBoundaryLine(config), approvalLine(config, audience)];
   const ceiling = ceilingLine(config);
   if (ceiling) lines.push(ceiling);
+  if (audience === "child") {
+    // Dispatch narrows the tool profile only; the OS sandbox is the parent
+    // process's (spec 2026-11-11 D5a).
+    lines.push(
+      "- The filesystem sandbox is inherited from the parent session; this profile constrains which tools you may use.",
+    );
+  }
 
-  return `<system-reminder>\n${opening}\n\n${lines.join("\n")}\n\n${NO_ROUTING_AROUND}\n</system-reminder>`;
+  const closing = audience === "child" ? NO_ROUTING_AROUND_CHILD : NO_ROUTING_AROUND;
+  return `<system-reminder>\n${opening}\n\n${lines.join("\n")}\n\n${closing}\n</system-reminder>`;
 }

@@ -246,6 +246,36 @@ describe("sub-agent dispatch permission", () => {
     expect(toolText).not.toContain("plan");
   });
 
+  it("rejects a widening request immediately even for a background dispatch", async () => {
+    // A background dispatch returns a task id right away; the caller-side
+    // mistake must not be deferred to task_output (review #11).
+    const { port, requests } = rec([
+      toolCallScript(
+        "c1",
+        "task",
+        JSON.stringify({ message: "look", permission: "full", run_in_background: true }),
+      ),
+      textScript("parent recovered"),
+    ]);
+    const agent = createAgent({
+      modelPort: port,
+      enableTaskTool: true,
+      permissionConfig: { sandbox: "workspace-write", approval: "never" },
+    });
+
+    const state = await agent.run("delegate in background");
+
+    const toolText = state.messages
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .map((b) => (b as { content?: unknown }).content)
+      .map((c) => textOf(c))
+      .join("\n");
+    expect(toolText).toMatch(/wider than this session allows/);
+    // No task was registered, so nothing was dispatched.
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes("taskId"))).toBe(false);
+    expect(requests).toHaveLength(2);
+  });
+
   it("publishes the effective permission on the start bracket", async () => {
     const { port } = rec(dispatchScript());
     const sinkEvents: TranscriptEventInput[] = [];

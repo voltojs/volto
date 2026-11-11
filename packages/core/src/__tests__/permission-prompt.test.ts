@@ -54,6 +54,27 @@ describe("buildPermissionReminder", () => {
     }
   });
 
+  it("tells a sub-agent that nobody can confirm, instead of promising a prompt", () => {
+    // A child's approval gate refuses every prompt (createSubAgentApprovalGate),
+    // so the interactive wording would describe a channel that does not exist.
+    const child = buildPermissionReminder(ask, undefined, "child");
+    expect(child).toMatch(/no human is available/i);
+    expect(child).toMatch(/refused/i);
+    expect(child).not.toMatch(/stop and ask you/i);
+    // And it must not tell a child to "tell the user" — its only channel is the
+    // report that goes back to the parent.
+    expect(child).toMatch(/final answer/i);
+    expect(child).not.toMatch(/tell the user/i);
+  });
+
+  it("discloses that the filesystem sandbox is inherited, for a child", () => {
+    // Dispatch narrows the TOOL profile; the OS sandbox comes from the parent
+    // process. Saying otherwise would be the lie spec 2026-11-11 D5a forbids.
+    expect(buildPermissionReminder(ask, undefined, "child")).toMatch(/sandbox.*inherited/i);
+    // The parent's reminder stays silent about it: the sandbox is its own.
+    expect(buildPermissionReminder(ask)).not.toMatch(/inherited/i);
+  });
+
   it("says writes are confined under workspace-write", () => {
     expect(buildPermissionReminder(ask)).toMatch(/confined to the workspace/i);
   });

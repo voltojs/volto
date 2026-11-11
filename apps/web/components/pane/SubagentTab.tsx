@@ -206,6 +206,7 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
         {showPermissionBadge && (
           <span
             data-testid="subagent-permission-badge"
+            title={t('subagent.permissionTooltip')}
             className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]"
           >
             {tp(PERMISSION_BADGE_KEYS[effectivePermission])}

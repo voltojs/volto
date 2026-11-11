@@ -64,7 +64,8 @@
     "empty": "No execution record",
     "retry": "Retry",
     "runningHint": "The subagent is still running; you can continue the conversation when it finishes",
-    "missingHint": "The parent session is unavailable or lacks a project or model binding"
+    "missingHint": "The parent session is unavailable or lacks a project or model binding",
+    "permissionTooltip": "Tool permission: which tools this sub-agent may use; the filesystem sandbox is inherited from the parent session"
   },
   "diff": {
     "truncated": "The diff is truncated and shows only its beginning",

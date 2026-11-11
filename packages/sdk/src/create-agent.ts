@@ -1968,13 +1968,34 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // hand the registry to each Runner for turn-boundary draining.
     const registry = createBackgroundRegistry();
     backgroundRegistry = registry;
+    /**
+     * Validate the dispatch's permission BEFORE any task is registered or any
+     * child runner exists. A background dispatch returns a task id
+     * immediately, so validating only inside the executor would defer a
+     * caller-side mistake to `task_output` — after the model believed the
+     * dispatch had been accepted (review #11).
+     */
+    const assertDispatchPermission = (requested: PermissionPreset | undefined): void => {
+      const parent =
+        resolveConfigValue(opts.permissionConfig, opts.config?.config, "permissionConfig") ??
+        createDefaultPermissionConfig();
+      if (requested !== undefined && isWiderThan(requested, parent)) {
+        throw new Error(
+          `Permission "${requested}" is wider than this session allows. ` +
+            `Available presets: ${dispatchablePresets(allowedPresetsFor(parent)).join(", ")}`,
+        );
+      }
+    };
+
     const dispatch: SubAgentDispatch = async ({
       message,
       subagentType,
       background,
       model,
+      permission,
       ...refinements
     }) => {
+      assertDispatchPermission(permission);
       const taskId = idPort.next();
       if (background) {
         // Fire the executor detached; the registry normalizes a rejection so
@@ -2010,6 +2031,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         taskId,
         ...(subagentType !== undefined ? { subagentType } : {}),
         ...(model !== undefined ? { model } : {}),
+        // `permission` is destructured above (so the background branch can
+        // validate it up front) and must be forwarded explicitly here.
+        ...(permission !== undefined ? { permission } : {}),
         ...refinements,
       });
       return {
@@ -4307,6 +4331,11 @@ function createSubAgentExecutor(
       // model only learned its boundary by being refused.
       ...(childPermissionConfig !== undefined
         ? { permissionConfig: childPermissionConfig }
+        : {}),
+      // A child has no human to confirm with, and its OS sandbox is the
+      // parent process's (spec 2026-11-11 review #3 / D5a).
+      ...(childPermissionConfig !== undefined
+        ? { permissionAudience: "child" as const }
         : {}),
       // Re-resolved at DISPATCH time, not copied from the parent's turn: the
       // parent may have cd'd into a worktree since this turn started, and a
