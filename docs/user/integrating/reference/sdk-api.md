@@ -71,7 +71,7 @@ createAgent(options) → AgentInstance
 | `sessionStore` | 会话状态持久化 |
 | `chatStore` + `chatSessionId` + `chatMeta` | 对话记录持久化（可恢复） |
 | `memoryStore` + `embedder` | 跨会话长期记忆 |
-| `transcriptStore` / `auditSink` | 审计轨迹 |
+| `chatStore`（转录）+ `auditSink`（审计流水） | 对话记录与审计轨迹 |
 | `planStore` | 计划文档存储 |
 | `initialMessages` / `initialTurn` / `initialStep` | 从快照恢复时的种子值 |
 
@@ -81,7 +81,7 @@ createAgent(options) → AgentInstance
 | --- | --- |
 | `systemPrompt` | 系统提示；`resolveContextLayers` / `initialContextLayers` 追加指令层 |
 | `tools` / `toolSources` / `plugins` | 追加或替换工具来源 |
-| `toolScope` 由 SDK 按装配情况推导；`capabilities` 收窄 | 见 [工具契约](./tool-contract.md) |
+| `toolVisibility: { scope, limit }` 覆盖默认推导；`capabilities` 收窄可见集 | 见 [工具契约](./tool-contract.md) 与 [工具装配与权限策略](../guides/tools-and-policy.md) |
 | `agentSpecs` / `maxAgentDepth` | 子代理定义与嵌套深度 |
 | `skillRegistry` | 技能目录 |
 | `routingTiers` / `model` / `providerId` | 模型选择与分档 |

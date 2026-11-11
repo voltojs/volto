@@ -37,20 +37,20 @@ verified: 2026-11-11
 | `clock` / `id` / `random` | 真实时间、自增 + 时间戳的 id、`Math.random` |
 | `tokenizer` | 按字符数估算（够用，不精确） |
 | `sessionStore` | 内存，进程结束即丢 |
-| `chatStore` / `transcriptStore` | 不持久化 |
+| `chatStore`（转录实现） | 不持久化：对话记录不落盘 |
 | `eventSink` | 丢弃所有事件 |
-| `memoryStore` / `embedder` | 空实现，`memory` 工具不可见 |
+| `memoryStore` / `embedder` | 记忆库是内存实现；`embedder` 调用即抛错 |
 | `telemetry` / `auditSink` | 空实现 |
-| `sandbox` | 无隔离（等价「完全」档） |
-| `secrets` | 调用即抛错（明确告诉你不支持） |
-| `scheduler` | 定时任务工具不可见 |
-| `policyEngine` | 不做策略判定 |
+| `sandbox` | 调用即抛错：明确要求你注入真实实现（不会静默裸跑）。注意隔离实际由 `fs` / `shell` 实现负责，见下 |
+| `secrets` | 所有查询返回 `undefined`（当作没有该密钥） |
+| `scheduler` | 空实现：`sleep` 立即返回、`schedule` 发出即忘 |
+| `policyEngine` | 一律返回 `allow`（等于没有策略） |
 
 ## 沙箱与文件系统要一起看
 
-`fs` 是你自己的实现，所以**沙箱不是自动的**。正确做法是让宿主的 `FileSystem` 实现跑在沙箱装饰里（仓库里 `packages/runtimes/node` 的 `sandboxed-filesystem.ts` 就是这么做的），而不是指望内核帮你隔离。
+`fs` 与 `shell` 都是你自己的实现，所以**沙箱不是自动的**。内核从不调用沙箱：它产出「执行命令」效果，由你注入的实现去做。正确做法是把它们包在沙箱装饰里——runtime-node 的 `createSandboxedShell` / `createSandboxedFileSystem` 就是这么做的，官方网关在装配时调用它们。
 
-同理，`shell` 的隔离也由实现负责。**「有沙箱」是运行时事实，不是配置声明**——如果你的实现忽略了 `sandboxConfig`，那这个会话就是没有沙箱。
+`SandboxConfig` 只是配置。**「有沙箱」是运行时事实**：如果你的实现忽略了它，这个会话就是没有沙箱，而此时 `sandbox` 端口仍可能挂着默认实现——它一调用就抛错，绝不会静默裸跑。
 
 ## 事件流是宿主的界面契约
 

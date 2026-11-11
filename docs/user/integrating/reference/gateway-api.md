@@ -66,7 +66,7 @@ verified: 2026-11-11
 
 ## 鉴权与传输
 
-- 除登录跳转与 `/health` 外，请求需携带启动时打印的一次性 token；Web UI 在 URL 上完成换取后写入 cookie。
+- 除 `/health` 外都要鉴权：带 `Authorization: Bearer <launchToken>`，或先访问任意路径并在查询串上带 `?token=<launchToken>`——网关会换取一个 cookie 并重定向回干净路径，token 不再留在地址栏。
 - 请求与响应体为 JSON；一轮对话的流式事件走 `GET /events` 的 SSE 长连接（`@volto/sdk/sse` 有对应客户端）。
 
 > 这张表由 `pnpm docs:gen` 从 `server.ts` 抽取路由，用途来自 `docs/user/reference/gateway-notes.json`。新增或删除路由会让 `pnpm docs:check` 失败，直到 notes 同步。

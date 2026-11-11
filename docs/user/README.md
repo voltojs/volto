@@ -15,8 +15,13 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 常用手册：
 
 - [模型与供应商](using/guides/models-and-providers.md) — 配 Key、模型能力、路由档位
+- [工作区与会话](using/guides/workspace-and-sessions.md) — 工作区、会话找回、附件、导出
 - [权限与审批](using/guides/permissions-and-approvals.md) — 四档权限、规则、一键记住
 - [沙箱与平台支持](using/guides/sandbox-and-platforms.md) — 哪些平台能隔离、挡什么
+- [网络出口名单](using/guides/network-egress.md) — 限制 agent 联网，以及它的边界
+- [子代理与后台任务](using/guides/subagents-and-tasks.md) — 派活、收窄权限、自定义类型
+- [技能与 MCP](using/guides/skills-and-mcp.md) — 写技能；MCP 现在能用在哪
+- [代码智能与数据库](using/guides/lsp-and-database.md) — 语言服务器与 SQLite
 - [故障排查](using/guides/troubleshooting.md) — 按症状查原因
 
 查表：
@@ -32,6 +37,12 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 | 1 | [把 agent 嵌进自己的宿主](integrating/tutorial/01-embed-agent.md) | 三十行代码跑通一轮对话 |
 
 - [端口与默认实现](integrating/guides/ports-and-defaults.md) — 哪些必须自己接，哪些留默认
+- [模型连接](integrating/guides/model-provider.md) — 自己实现 ModelPort，或判断现成适配器够不够
+- [工具装配与权限策略](integrating/guides/tools-and-policy.md) — 四段流水线、可见性裁剪、审批门
+- [事件流与界面](integrating/guides/events-and-ui.md) — 哪些事件可以依赖、断线怎么恢复
+- [持久化与恢复](integrating/guides/persistence.md) — 快照、转录、压缩与导出
+- [沙箱与钩子](integrating/guides/sandbox-and-hooks.md) — 隔离是否真的生效、钩子怎么写
+- [自建宿主](integrating/guides/custom-host.md) — 官方网关做了什么，最小宿主怎么拼
 - [SDK 导读](integrating/reference/sdk-api.md) — 选项分类、实例方法、错误契约
 - [工具契约](integrating/reference/tool-contract.md) — 写一个能被正确调度的工具
 - [SDK 导出清单](integrating/reference/sdk-exports.md) — 公开导出的完整列表
@@ -41,6 +52,7 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 
 - [一轮对话发生了什么](concepts/how-a-turn-works.md)
 - [可见性与放行是两件事](concepts/tools-and-permissions.md)
+- [为什么一切经端口注入](concepts/determinism-and-ports.md)
 - [安全模型（用户版）](concepts/safety-model.md)
 
 ## 关于这份文档

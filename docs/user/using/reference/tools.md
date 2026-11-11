@@ -23,9 +23,9 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | browser_click | browser | 在打开的网页里点击元素。 |
 | browser_get_page_text | browser | 取当前网页的正文文本。 |
 | browser_navigate | browser | 让浏览器打开一个 URL 并返回标题。 |
-| browser_screenshot | browser | 截当前网页的图，供模型看图。 |
+| browser_screenshot | browser | 截当前网页，并把可见内容转成一段文字描述返回（返回的是描述，不是图片本身）。 |
 | browser_type | browser | 往网页输入框里输入文字。 |
-| build | vcs | 跑项目自己的构建命令。 |
+| build | vcs | 在给定的构建命令下执行一次构建，返回成功/失败与错误摘要（命令由调用方传入）。 |
 | cancel_task | schedule | 取消一个已排定的定时任务。 |
 | db_exec | data | 执行写 SQL；只有宿主授予写权限时才出现。 |
 | db_query | data | 执行只读 SQL 查询。 |
@@ -45,11 +45,11 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | lsp_hover | code | 看某个符号的类型签名与文档。 |
 | lsp_references | code | 找出某个符号被引用的所有位置。 |
 | lsp_rename | code | 预览重命名会改哪些地方（不落盘）。 |
-| memory | memory | 读写跨会话的长期记忆。 |
+| memory | memory | 读写跨会话的长期记忆：按关键词检索、写入一条记忆。 |
 | multi_edit | fs | 对同一个文件做多处替换，要么全成要么全不改。 |
 | read_document | document | 读 PDF / DOCX / XLSX / 图片并转成文本。 |
 | read_file | fs | 读文件（带行号）；也能读图片与 PDF 页面。 |
-| run_tests | vcs | 跑项目的测试命令。 |
+| run_tests | vcs | 在给定的测试命令下执行，解析常见测试输出并列出失败的用例名（命令由调用方传入）。 |
 | schedule_task | schedule | 安排一个延时任务，到点后唤醒会话。 |
 | skill | skill | 加载某个技能包的完整说明。 |
 | task | agent | 派一个子代理去干一件独立的子任务。 |

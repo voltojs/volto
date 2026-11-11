@@ -373,6 +373,41 @@ if (!baseline) {
 }
 
 // ──────────────────────────────────────────────
+// 9. references in prose exist in the code
+// ──────────────────────────────────────────────
+
+// A page that names an endpoint or a config field is making a factual claim.
+// Both are cheap to verify, and both rot silently: nothing else in the repo
+// notices when `POST /messages/queue` is renamed or a config key disappears.
+const allRoutes = extractHttpRoutes();
+const allSections = extractConfigSections();
+const allKeys = extractConfigKeys();
+for (const page of pages) {
+  const prose = stripFences(page.body);
+  for (const match of prose.matchAll(/`(GET|POST|PUT|DELETE|PATCH)\s+(\/[^\s`]*)`/g)) {
+    const [, method, routePath] = match;
+    const known =
+      allRoutes.includes(`${method} ${routePath}`) ||
+      allRoutes.includes(`${method} ${routePath}*`) ||
+      allRoutes.includes(`* ${routePath}`);
+    if (known) continue;
+    // Routes with a `:param` are matched by a regex in the handler, which the
+    // extractor does not model; accept them when their static prefix is real.
+    const prefix = routePath.split(":")[0];
+    if (prefix.length > 1 && serverSource.includes(`"${prefix}"`)) continue;
+    error(page.rel, `引用了不存在的接口：\`${method} ${routePath}\``);
+  }
+  for (const match of prose.matchAll(/`([a-z][A-Za-z]*)\.([a-z][A-Za-z]*)`/g)) {
+    const [, section, field] = match;
+    if (!allSections.includes(section)) continue;
+    const known =
+      (allKeys[section] ?? []).includes(field) ||
+      Object.hasOwn(configNotes[section]?.fields ?? {}, field);
+    if (!known) error(page.rel, `引用了不存在的配置字段：\`${section}.${field}\``);
+  }
+}
+
+// ──────────────────────────────────────────────
 // Report
 // ──────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ verified: 2026-11-11
 
 | 字段 | 说明 |
 | --- | --- |
-| `allowHosts` | 允许访问的主机名列表（为空表示不限制）。 |
+| `allowHosts` | 允许访问的主机名列表。**一旦写了这个字段就进入白名单模式**：不在名单里的主机全部拒绝；`[]` 表示拒绝全部。 |
 | `denyHosts` | 拒绝访问的主机名列表，优先于 allowHosts。 |
 
 ## `hooks`
@@ -88,8 +88,9 @@ verified: 2026-11-11
 | `baseURL` | 覆盖目录里的地址；null 表示用默认。 |
 | `headers` | 自定义请求头。 |
 | `id` | 供应商在本机的唯一 id。 |
-| `kind` | `catalog`（内置目录，按模型 code 选）或 `custom`（自定义 OpenAI 兼容端点）。 |
-| `models` | 模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input`。 |
+| `kind` | `catalog`（内置目录，按模型 code 选）或 `custom`（自定义 OpenAI 兼容端点）；早期记录可能没有这个字段，读时按 `custom` 处理。 |
+| `modelCodes` | 早期写法：只存模型 code 的数组。读取时会转成 `models`，新写入用 `models`。 |
+| `models` | 模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`。 |
 | `name` | 显示名。 |
 | `piProvider` | catalog 供应商对应的内置目录标识。 |
 | `protocol` | 该供应商默认的线上协议（可被单个模型覆盖）。 |
