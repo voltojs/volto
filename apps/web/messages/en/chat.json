@@ -271,7 +271,11 @@
     "tools": "{count} tools",
     "background": "background",
     "unavailable": "{count} unavailable",
-    "unavailableDetail": "Dropped on dispatch: {tools}"
+    "unavailableDetail": "Tools dropped on dispatch: {tools}",
+    "verified": "Verified",
+    "verificationFailed": "Not accepted ({count} attempts)",
+    "verificationError": "Unverifiable",
+    "verificationFailures": "Not accepted: {reasons}"
   },
   "fileChanges": {
     "title": "Edited {count} files",

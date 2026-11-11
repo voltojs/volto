@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
+import { verificationBadge } from '@/lib/verification-badge';
 import { toolCallFileRef } from '@volto/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 import { TraceRow } from './TraceRow';
@@ -48,6 +49,9 @@ export function toolCallCardComparator(
     a.call.id === b.call.id &&
     a.call.result === b.call.result &&
     a.call.isError === b.call.isError &&
+    // The verdict arrives with the collected result; content comparison keeps
+    // the memo honest across projection rebuilds.
+    JSON.stringify(a.call.verification) === JSON.stringify(b.call.verification) &&
     a.call.approval?.decision === b.call.approval?.decision &&
     a.label === b.label &&
     a.fileProjectId === b.fileProjectId
@@ -67,6 +71,10 @@ export const ToolCallCard = memo(function ToolCallCard({
   // run the card mounts while the tool is still running and the failure only
   // lands later. A user's collapse wins until the next failure.
   const summary = label !== undefined && label !== call.name ? label : undefined;
+  // A collected background dispatch carries its acceptance verdict on the
+  // task_output row; other tool calls never do.
+  const verification =
+    call.name === 'task_output' ? verificationBadge(t, call.verification) : undefined;
   const ref = toolCallFileRef(call.name, call.args);
   const renderDetail = () => {
     if (summary === undefined) return undefined;
@@ -89,6 +97,19 @@ export const ToolCallCard = memo(function ToolCallCard({
       icon={toolIcon(call.name)}
       label={call.name}
       detail={renderDetail()}
+      {...(verification !== undefined
+        ? {
+            // A passed verdict is a quiet badge; a failed or unverifiable one
+            // takes the amber warning slot with its reasons on hover, matching
+            // SubagentCard's row vocabulary.
+            ...(verification.warningDetail === undefined
+              ? { badges: [verification.badge] }
+              : {
+                  warning: verification.badge,
+                  warningDetail: verification.warningDetail,
+                }),
+          }
+        : {})}
       meta={call.durationMs === undefined ? undefined : `${call.durationMs}ms`}
       status={<StatusIcon call={call} />}
       failed={failed}

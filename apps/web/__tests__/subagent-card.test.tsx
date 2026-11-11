@@ -88,7 +88,7 @@ describe('SubagentCard', () => {
     expect(marker).toBeDefined();
     expect(marker).toHaveAttribute(
       'title',
-      '派发时被丢弃：run_bash_command、search_files',
+      '工具派发时被丢弃：run_bash_command、search_files',
     );
   });
 

@@ -271,7 +271,11 @@
     "tools": "{count} 个工具",
     "background": "后台",
     "unavailable": "{count} 项不可用",
-    "unavailableDetail": "派发时被丢弃：{tools}"
+    "unavailableDetail": "工具派发时被丢弃：{tools}",
+    "verified": "已验收",
+    "verificationFailed": "未通过（{count} 次）",
+    "verificationError": "未能验收",
+    "verificationFailures": "未通过：{reasons}"
   },
   "fileChanges": {
     "title": "已编辑 {count} 个文件",

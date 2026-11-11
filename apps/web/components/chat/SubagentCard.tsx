@@ -6,6 +6,7 @@ import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
 import type { ConversationToolCall } from '@volto/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
 import { subagentTaskTitle, subagentTypeOf } from '@/lib/background-tasks';
+import { verificationBadge } from '@/lib/verification-badge';
 import { TraceRow } from './TraceRow';
 
 /** Dispatch facts the pane needs to label its tab before the child loads. */
@@ -46,6 +47,8 @@ export function subagentCardComparator(
     // their identity, or the memo would miss on every frame.
     (a.call.subagentDroppedTools?.join('\u0000') ?? '') ===
       (b.call.subagentDroppedTools?.join('\u0000') ?? '') &&
+    // The verdict lands after the result; without this the badge never paints.
+    JSON.stringify(a.call.verification) === JSON.stringify(b.call.verification) &&
     a.onOpenSubagent === b.onOpenSubagent
   );
 }
@@ -98,6 +101,38 @@ export const SubagentCard = memo(function SubagentCard({
   if (Array.isArray(call.args.tools)) {
     badges.push(t('subagentCard.tools', { count: call.args.tools.length }));
   }
+  // The acceptance verdict rides the row vocabulary: a passed verdict is a
+  // quiet badge; a failed or unverifiable one takes the amber warning slot —
+  // the same marker dropped tools use — with its reasons on hover.
+  const v = verificationBadge(t, call.verification);
+  if (v !== undefined && v.warningDetail === undefined) badges.push(v.badge);
+  const droppedWarning =
+    call.subagentDroppedTools !== undefined && call.subagentDroppedTools.length > 0
+      ? {
+          warning: t('subagentCard.unavailable', {
+            count: call.subagentDroppedTools.length,
+          }),
+          warningDetail: t('subagentCard.unavailableDetail', {
+            tools: call.subagentDroppedTools.join('、'),
+          }),
+        }
+      : undefined;
+  // One slot, two possible sources: merged, the marker keeps both texts —
+  // dropped-tools count and the verdict badge — joined with " · ", and the
+  // hover detail merges both explanations the same way.
+  const warningProps =
+    droppedWarning !== undefined && v !== undefined
+      ? {
+          warning: `${droppedWarning.warning} · ${v.badge}`,
+          warningDetail:
+            v.warningDetail !== undefined
+              ? `${droppedWarning.warningDetail} · ${v.warningDetail}`
+              : droppedWarning.warningDetail,
+        }
+      : (droppedWarning ??
+        (v !== undefined && v.warningDetail !== undefined
+          ? { warning: v.badge, warningDetail: v.warningDetail }
+          : undefined));
 
   return (
     <TraceRow
@@ -107,19 +142,10 @@ export const SubagentCard = memo(function SubagentCard({
       label={agentType ?? 'general-purpose'}
       detail={title === '' ? undefined : title}
       badges={badges}
-      // Declared-but-unavailable tools are a warning, not a task fact: folded
-      // into a tinted marker whose detail names them on hover, so the row
-      // stays one line.
-      {...(call.subagentDroppedTools !== undefined && call.subagentDroppedTools.length > 0
-        ? {
-            warning: t('subagentCard.unavailable', {
-              count: call.subagentDroppedTools.length,
-            }),
-            warningDetail: t('subagentCard.unavailableDetail', {
-              tools: call.subagentDroppedTools.join('、'),
-            }),
-          }
-        : {})}
+      // Declared-but-unavailable tools and acceptance failures share the one
+      // warning slot: folded into a tinted marker whose detail names them on
+      // hover, so the row stays one line.
+      {...(warningProps ?? {})}
       meta={isRunning ? undefined : (duration ?? undefined)}
       failed={call.isError === true}
       status={
