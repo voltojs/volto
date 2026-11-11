@@ -175,6 +175,17 @@ export interface StartTestServerOptions {
    * without paying the production default.
    */
   steerAgentWaitMs?: number;
+  /**
+   * Acceptance rework budget forwarded to the wiring option of the same name
+   * (spec 2026-11-11 acceptance verification, D6). Omit for the SDK default.
+   */
+  maxAcceptanceReworks?: number;
+  /**
+   * System prompt override forwarded to the wiring: `null` runs the session
+   * with no system message, which content-routed test ports rely on to tell
+   * the parent (no system message) from a sub-agent (always one).
+   */
+  systemPrompt?: string | null;
 }
 
 /** Rejects every append while `gate.failing`; delegates reads verbatim. */
@@ -234,6 +245,12 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
       : {}),
     ...(opts.agentFactory !== undefined ? { agentFactory: opts.agentFactory } : {}),
     ...(opts.steerAgentWaitMs !== undefined ? { steerAgentWaitMs: opts.steerAgentWaitMs } : {}),
+    ...(opts.maxAcceptanceReworks !== undefined
+      ? { maxAcceptanceReworks: opts.maxAcceptanceReworks }
+      : {}),
+    // `!== undefined`, not truthiness: null is the meaningful "no system
+    // message" value and must survive the spread.
+    ...(opts.systemPrompt !== undefined ? { systemPrompt: opts.systemPrompt } : {}),
   });
 
   await new Promise<void>((resolve) => server.on("listening", resolve));

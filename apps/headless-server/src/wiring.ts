@@ -148,6 +148,14 @@ export interface WiringOptions {
    */
   maxLoopCount?: number;
   /**
+   * Acceptance rework budget for sub-agent dispatches that name `acceptance`
+   * criteria, forwarded verbatim to createAgent()'s `maxAcceptanceReworks`
+   * (spec 2026-11-11 acceptance verification, D6): how many extra child runs
+   * a failed verification may trigger. Omit for the SDK default (1); pass 0
+   * to verify the first attempt but never rework.
+   */
+  maxAcceptanceReworks?: number;
+  /**
    * Max model calls per turn, forwarded verbatim to createAgent()'s
    * `maxIterations`. Omit for no step cap (long tasks run until the model
    * finishes, the user cancels, or a resource budget fires). A host that
@@ -738,6 +746,9 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(allHooks.length > 0 ? { hooks: allHooks } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.maxLoopCount !== undefined ? { maxLoopCount: opts.maxLoopCount } : {}),
+    ...(opts.maxAcceptanceReworks !== undefined
+      ? { maxAcceptanceReworks: opts.maxAcceptanceReworks }
+      : {}),
     ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
     // Resolved above from the model port (or an explicit override); lets
     // createAgent derive a window-aware compaction threshold.
