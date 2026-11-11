@@ -78,7 +78,7 @@ import {
   renderReworkMessage,
   renderEvidenceDigest,
 } from "@volto/core";
-import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState, AcceptanceAttempt, AcceptanceVerdict, DispatchVerification } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState, AcceptanceAttempt, AcceptanceVerdict, DispatchVerification, VerificationSummary } from "@volto/core";
 import { verifyDispatch, ACCEPTANCE_VERIFY_TIMEOUT_MS } from "./acceptance-verifier.js";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
@@ -502,7 +502,8 @@ function bestEffortAppend(
  * normalized error. The success side carries the same optional envelope
  * inputs as a sync dispatch — absent keys are omitted, never null. */
 export type BackgroundCollectResult =
-  | { text: string; childSessionId?: string; usage?: TokenUsage }
+  | { text: string; childSessionId?: string; usage?: TokenUsage;
+      verification?: DispatchVerification; rejected?: boolean }
   | { error: string };
 
 /**
@@ -539,12 +540,15 @@ export function createBackgroundRegistry(): BackgroundRegistry {
       // Normalize once at registration so an early rejection never becomes an
       // unhandled rejection while the task is still running detached. The
       // success side keeps the full outcome: text plus the optional envelope
-      // inputs (child session id, accumulated usage), omitted when absent.
+      // inputs (child session id, accumulated usage, acceptance verdict and
+      // rejection flag), omitted when absent.
       const normalized = promise.then<BackgroundCollectResult, BackgroundCollectResult>(
         (outcome) => ({
           text: outcome.text,
           ...(outcome.sessionId !== undefined ? { childSessionId: outcome.sessionId } : {}),
           ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
+          ...(outcome.verification !== undefined ? { verification: outcome.verification } : {}),
+          ...(outcome.rejected === true ? { rejected: true } : {}),
         }),
         (err: unknown) => ({
           error: err instanceof Error ? err.message : String(err),
@@ -4207,26 +4211,41 @@ function createSubAgentExecutor(
       currentSink?.emit(tierUnresolvedEvent);
     }
 
-    const finishSubAgent = (isError: boolean): void => {
-      if (chatStore && parentChatSessionId && childSessionId) {
-        bestEffortAppend(chatStore, parentChatSessionId, [
-          {
-            time: nowMs(),
-            type: "subagent_finished",
-            data: { childSessionId, taskId, isError, durationMs: nowMs() - startedAt },
-            turn,
-          },
-        ]);
+    const finishSubAgent = (isError: boolean, verification?: DispatchVerification): void => {
+      if (!childSessionId) return;
+      // The bracket carries the verdict SUMMARY only — usage and retryHint
+      // are result-envelope concerns, never transcript ones. One event object
+      // feeds both channels so the durable log and the live sink agree.
+      const summary: VerificationSummary | undefined =
+        verification === undefined
+          ? undefined
+          : {
+              status: verification.status,
+              attempts: verification.attempts,
+              failures: verification.failures,
+              ...(verification.verifierError !== undefined
+                ? { verifierError: verification.verifierError }
+                : {}),
+            };
+      const finishedBracket: TranscriptEventInput<"subagent_finished"> = {
+        time: nowMs(),
+        type: "subagent_finished",
+        data: {
+          childSessionId,
+          taskId,
+          isError,
+          durationMs: nowMs() - startedAt,
+          ...(summary !== undefined ? { verification: summary } : {}),
+        },
+        // The dispatch turn captured at dispatch time — a background child
+        // can finish turns later, and the projection's late-update path
+        // applies the verdict to the dispatching turn's call.
+        turn,
+      };
+      if (chatStore && parentChatSessionId) {
+        bestEffortAppend(chatStore, parentChatSessionId, [finishedBracket]);
       }
-      if (childSessionId) {
-        const finishedBracket: TranscriptEventInput<"subagent_finished"> = {
-          time: nowMs(),
-          type: "subagent_finished",
-          data: { childSessionId, taskId, isError, durationMs: nowMs() - startedAt },
-          turn,
-        };
-        currentSink?.emit(finishedBracket);
-      }
+      currentSink?.emit(finishedBracket);
     };
 
     const subToolDefs: ToolDefinition[] = childTools.map((t) => t.definition);
@@ -4700,7 +4719,7 @@ function createSubAgentExecutor(
       };
       // Exactly one finished bracket, after the final outcome is known: an
       // exhausted dispatch is a failed bracket.
-      finishSubAgent(composition.isError);
+      finishSubAgent(composition.isError, verification);
       return {
         text,
         ...(childSessionId !== undefined ? { sessionId: childSessionId } : {}),

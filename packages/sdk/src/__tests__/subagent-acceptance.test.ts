@@ -32,9 +32,12 @@ function fakeChatStore() {
 }
 
 // Route scripts by request content, avoiding parent / child / verifier call
-// order races.
+// order races. A slot is either a script queue or a handler function called
+// on every request of that kind (the background parent parses the real task
+// id out of the previous tool result instead of relying on id order).
 type Kind = "parent" | "child" | "verifier";
-function routedPort(scripts: Record<Kind, ModelEvent[][]>) {
+type PortSlot = ModelEvent[][] | ((req: ModelRequest) => ModelEvent[]);
+function routedPort(scripts: Record<Kind, PortSlot>) {
   const idx: Record<Kind, number> = { parent: 0, child: 0, verifier: 0 };
   const counts: Record<Kind, number> = { parent: 0, child: 0, verifier: 0 };
   return {
@@ -45,7 +48,8 @@ function routedPort(scripts: Record<Kind, ModelEvent[][]>) {
         : req.messages.some((m) => m.role === "system") ? "child"
         : "parent";
       counts[kind] += 1;
-      const events = scripts[kind][idx[kind]++]!;
+      const slot = scripts[kind];
+      const events = typeof slot === "function" ? slot(req) : slot[idx[kind]++]!;
       for (const event of events) yield event;
     },
   } as ModelPort & { counts: typeof counts };
@@ -77,6 +81,27 @@ function lastToolResult(agent: AgentInstance): ToolResultMessage {
     if (message.role === "tool") return message;
   }
   throw new Error("no tool result message in agent state");
+}
+
+/** Like lastToolResult, but selects by tool name: each tool_result block's
+ * toolUseId is paired with the tool_use block that produced it. */
+function lastToolResultByName(agent: AgentInstance, name: string): ToolResultMessage {
+  const messages = agent.getState().messages;
+  const callNames = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use") callNames.set(block.id, block.name);
+    }
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role !== "tool") continue;
+    if (message.content.some((block) => callNames.get(block.toolUseId) === name)) {
+      return message;
+    }
+  }
+  throw new Error(`no ${name} tool result message in agent state`);
 }
 
 /** Parse the JSON envelope — the second text block of the tool result. */
@@ -292,5 +317,93 @@ describe("subagent acceptance verification", () => {
       return JSON.stringify(agent.getState().messages);
     };
     expect(await run()).toBe(await run());
+  });
+});
+
+// ──────────────────────────────────────────────
+// Acceptance verification on background dispatch
+// ──────────────────────────────────────────────
+
+// The background parent: dispatch on the first call, collect via task_output
+// on the second (parsing the REAL task id out of the dispatch's tool result
+// text — no id-order coupling), then finish once the collection landed.
+function backgroundParent(req: ModelRequest): ModelEvent[] {
+  const toolMsgs = req.messages.filter((m) => m.role === "tool");
+  const toolMsg = toolMsgs[0];
+  if (toolMsg === undefined) {
+    return toolCallScript("c1", "task", JSON.stringify({
+      message: "do it", acceptance: "tests pass", run_in_background: true,
+    }));
+  }
+  if (toolMsgs.length > 1) return textScript("parent done");
+  const text = toolMsg.content
+    .flatMap((block) => block.content)
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+  const taskId = /Task (\S+) started in background/.exec(text)?.[1];
+  if (taskId === undefined) {
+    throw new Error(`no background task id in tool result text: ${text}`);
+  }
+  return toolCallScript("c2", "task_output", JSON.stringify({ task_id: taskId }));
+}
+
+describe("subagent acceptance verification on background dispatch", () => {
+  it("carries verification through task_output", async () => {
+    const port = routedPort({
+      parent: backgroundParent,
+      child: [textScript("child output")],
+      verifier: [textScript('{"passed":false,"failures":["no tests"]}')],
+    });
+    const { agent } = makeAgent(port, { maxAcceptanceReworks: 0 });
+    for await (const _ of agent.stream("start")) { /* drain */ }
+    const collected = lastToolResultByName(agent, "task_output");
+    expect(envelope(collected).verification).toMatchObject({ status: "failed", attempts: 1 });
+    expect(collected.content[0]!.isError).toBe(true);
+    expect(port.counts).toEqual({ parent: 3, child: 1, verifier: 1 });
+  });
+
+  it("emits the verdict on subagent_finished with the dispatch turn", async () => {
+    const events: Array<{ type: string; turn?: number; data: Record<string, unknown> }> = [];
+    const port = routedPort({
+      parent: backgroundParent,
+      child: [textScript("child output")],
+      // retry_hint + verifier usage exist on the envelope's verification but
+      // must NOT leak into the bracket's summary.
+      verifier: [textScript('{"passed":false,"failures":["no tests"],"retry_hint":"run pnpm test"}', 11, 3)],
+    });
+    const { agent } = makeAgent(port, {
+      maxAcceptanceReworks: 0,
+      eventSink: {
+        emit(event) {
+          events.push({
+            type: event.type,
+            turn: (event as { turn?: number }).turn,
+            data: event.data,
+          });
+        },
+      },
+    });
+    // run() (not stream()): the turn's live sink is opts.eventSink here —
+    // stream() routes events into its own channel instead.
+    await agent.run("start");
+    const started = events.find((e) => e.type === "subagent_started")!;
+    const finished = events.find((e) => e.type === "subagent_finished")!;
+    expect(finished).toBeDefined();
+    // Summary only: {status, attempts, failures, verifierError?} — no usage,
+    // no retryHint. toEqual proves the excluded keys are really absent.
+    expect(finished.data["verification"]).toEqual({
+      status: "failed",
+      attempts: 1,
+      failures: ["no tests"],
+    });
+    // An exhausted dispatch is an error bracket (the composed outcome).
+    expect(finished.data["isError"]).toBe(true);
+    // The bracket keeps the DISPATCH turn captured at dispatch time — the
+    // started bracket is stamped with it — even though the child finishes
+    // while the parent is still inside the same turn (task_output blocks on
+    // the collection). Parent turns are 1-based, so the literal value is the
+    // started bracket's, not a hardcoded 0.
+    expect(typeof started.turn).toBe("number");
+    expect(finished.turn).toBe(started.turn);
   });
 });
