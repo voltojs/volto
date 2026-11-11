@@ -1,6 +1,9 @@
 // @volto/sdk — facade: createAgent, run / stream / resume
 
 export { createAgent, assembleSubAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "./create-agent.js";
+// Acceptance verification budgets and verifier timeout (spec 2026-11-11).
+export { DEFAULT_ACCEPTANCE_MAX_REWORKS, MAX_ACCEPTANCE_REWORKS } from "./create-agent.js";
+export { ACCEPTANCE_VERIFY_TIMEOUT_MS } from "./acceptance-verifier.js";
 // D16 queued-edit merge: exported so the gateway's seed-path persistence
 // writes the SAME merged content (edit text + preserved attachments) the
 // live path delivers — one source of truth for the merge rule.

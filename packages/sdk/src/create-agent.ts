@@ -72,8 +72,14 @@ import {
   CAP_AGENT_DEPTH_AVAILABLE,
   deriveCompactionMaxTokens,
   resolvePruneOptions,
+  decideAcceptance,
+  composeAcceptanceOutcome,
+  renderAcceptanceNotice,
+  renderReworkMessage,
+  renderEvidenceDigest,
 } from "@volto/core";
-import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState } from "@volto/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState, AcceptanceAttempt, AcceptanceVerdict, DispatchVerification } from "@volto/core";
+import { verifyDispatch, ACCEPTANCE_VERIFY_TIMEOUT_MS } from "./acceptance-verifier.js";
 import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
 import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
 import {
@@ -117,6 +123,8 @@ import type { ToolVisibility } from "./tool-scope-default.js";
  */
 type SyncSubAgentRequest = {
   message: string;
+  /** Acceptance criteria the child's work is verified against after each run. */
+  acceptance?: string;
   /** Pre-minted dispatch identity, shared by started/finished and the tool result. */
   taskId: string;
   /** True for a detached dispatch. */
@@ -140,7 +148,15 @@ type SyncSubAgentRequest = {
  * child's token accounting for the whole run, accumulated from its event
  * stream; absent when no sink was available to tap.
  */
-type SyncSubAgentOutcome = { text: string; sessionId?: string; usage?: TokenUsage };
+type SyncSubAgentOutcome = {
+  text: string;
+  sessionId?: string;
+  usage?: TokenUsage;
+  /** Present only when the dispatch named acceptance criteria. */
+  verification?: DispatchVerification;
+  /** True when the composed acceptance outcome is an error (exhausted reworks). */
+  rejected?: boolean;
+};
 type SyncSubAgentExecutor = (req: SyncSubAgentRequest) => Promise<SyncSubAgentOutcome>;
 import {
   createReadFileTool,
@@ -333,6 +349,12 @@ function withPluginAgentSpecs(
 
 /** Default delegation depth budget: main agent (0), one level of sub-agents (1). */
 const DEFAULT_MAX_AGENT_DEPTH = 2;
+
+/** Default acceptance rework budget: one rework after a failed first attempt. */
+export const DEFAULT_ACCEPTANCE_MAX_REWORKS = 1;
+
+/** Hard cap on acceptance reworks — bounds the verify/rework loop amplification. */
+export const MAX_ACCEPTANCE_REWORKS = 2;
 
 /**
  * Default loop-ladder threshold (K). Long-horizon tasks need a no-progress
@@ -1061,6 +1083,14 @@ export interface CreateAgentOptions {
    * using.
    */
   maxAgentDepth?: number;
+
+  /**
+   * Acceptance rework budget for dispatches that name `acceptance` criteria:
+   * how many extra child runs a failed verification may trigger. Defaults to
+   * DEFAULT_ACCEPTANCE_MAX_REWORKS (1) and is clamped to 0..MAX_ACCEPTANCE_REWORKS.
+   * 0 verifies the first attempt but never reworks.
+   */
+  maxAcceptanceReworks?: number;
 
   /**
    * Host-owned skill registry — enables progressive skill disclosure:
@@ -2041,6 +2071,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         text: outcome.text,
         ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
         ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
+        ...(outcome.verification !== undefined ? { verification: outcome.verification } : {}),
+        ...(outcome.rejected === true ? { rejected: true } : {}),
       };
     };
     // The tool names a child could inherit: this agent's custom tools (task
@@ -3656,6 +3688,7 @@ function createSubAgentExecutor(
 ): SyncSubAgentExecutor {
   return async ({
     message,
+    acceptance,
     taskId,
     background: dispatchBackground,
     subagentType,
@@ -3671,6 +3704,15 @@ function createSubAgentExecutor(
   }: SyncSubAgentRequest): Promise<SyncSubAgentOutcome> => {
     const nowMs = (): number => opts.clock?.now() ?? Date.now();
     const turn = getCurrentTurn();
+
+    // Acceptance criteria: a blank string is no criteria. The rework budget
+    // is clamped so a host configuration can never amplify the loop past the
+    // hard cap (spec 2026-11-11 §4.1).
+    const acceptanceCriteria = acceptance?.trim() || undefined;
+    const maxReworks = Math.min(
+      MAX_ACCEPTANCE_REWORKS,
+      Math.max(0, opts.maxAcceptanceReworks ?? DEFAULT_ACCEPTANCE_MAX_REWORKS),
+    );
 
     // A sub-agent writes its own session file rather than sharing the parent's.
     // Sharing would collide: both Runners number their steps from 1 within the
@@ -3999,6 +4041,8 @@ function createSubAgentExecutor(
           text: outcome.text,
           ...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
           ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
+          ...(outcome.verification !== undefined ? { verification: outcome.verification } : {}),
+          ...(outcome.rejected === true ? { rejected: true } : {}),
         };
       };
       childTools = [
@@ -4411,48 +4455,62 @@ function createSubAgentExecutor(
       };
     }
 
-    const subRunner = createRunner({
-      // A tier hit swaps in the factory's port (cross-provider dispatch,
-      // spec D6); otherwise the child runs on the parent's.
-      modelPort: resolvedTier?.modelPort ?? opts.modelPort,
-      // Subagents work inside the same project; project-scoped memory is part
-      // of that context, so they get the parent RAG wiring verbatim.
-      ...ragWiring,
-      stepContext: subStepContext,
-      toolExecutor: subExecutor,
-      availableCapabilities: childCapabilities,
-      permissionConfig: childPermissionConfig,
-      // Derived from the child's OWN (narrowed) policy, not the parent's: a
-      // definition narrowed to read-only must lose its write tools from the
-      // visible set exactly like a parent session configured read-only.
-      riskCeiling: childPermissionConfig
-        ? ceilingOf(childPermissionConfig.sandbox)
-        : undefined,
-      // Same spill root as the parent (the shared cwd), so a sub-agent's
-      // oversized tool results land beside the parent's spills. A fresh store
-      // is fine: createNodeSpillStore is a stateless view over rootDir.
-      spill: { store: createNodeSpillStore({ rootDir: opts.cwd ?? process.cwd() }) },
-      pathRoot: opts.cwd ?? process.cwd(),
-      // A sub-agent is a separate conversation: its usage baseline must not
-      // leak into the parent's anchor (or vice versa).
-      promptAnchor: {},
-      // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
-      // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
-      // never silently executed in the child.
-      approvalGate: createSubAgentApprovalGate(),
-      eventSink: usageTapSink ?? taggedSink,
-      sessionStore: createDefaultSessionStore(),
-      compaction: subCompactionConfig,
-      sessionId: `sub-${idPort.next()}`,
-      // Guarded on parentChatSessionId too: without a parent session there
-      // is no valid childSessionId (see above), so never hand the Runner a
-      // chatStore it would use to write an orphaned "undefined-sub-…" session.
-      chatStore: parentChatSessionId ? chatStore : undefined,
-      chatSessionId: childSessionId,
-      clock: opts.clock,
-      attachmentStore,
-      // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
-      initialState: createInitialState({
+    // Child sessions number their own turns from 0, independent of the
+    // parent's turn counter; each rework attempt claims the next one.
+    const baseTurn = 0;
+
+    // One factory for every attempt. A rework turn is a NEW Runner seeded
+    // with the prior attempt's state — never a second run() on a settled
+    // Runner. All attempts share the same usageTapSink, so the outcome's
+    // usage accumulates across the whole dispatch.
+    const createSubRunner = (initialState: ReducerState, turnNumber: number): Runner =>
+      createRunner({
+        // A tier hit swaps in the factory's port (cross-provider dispatch,
+        // spec D6); otherwise the child runs on the parent's.
+        modelPort: resolvedTier?.modelPort ?? opts.modelPort,
+        // Subagents work inside the same project; project-scoped memory is part
+        // of that context, so they get the parent RAG wiring verbatim.
+        ...ragWiring,
+        stepContext: subStepContext,
+        toolExecutor: subExecutor,
+        availableCapabilities: childCapabilities,
+        permissionConfig: childPermissionConfig,
+        // Derived from the child's OWN (narrowed) policy, not the parent's: a
+        // definition narrowed to read-only must lose its write tools from the
+        // visible set exactly like a parent session configured read-only.
+        riskCeiling: childPermissionConfig
+          ? ceilingOf(childPermissionConfig.sandbox)
+          : undefined,
+        // Same spill root as the parent (the shared cwd), so a sub-agent's
+        // oversized tool results land beside the parent's spills. A fresh store
+        // is fine: createNodeSpillStore is a stateless view over rootDir.
+        spill: { store: createNodeSpillStore({ rootDir: opts.cwd ?? process.cwd() }) },
+        pathRoot: opts.cwd ?? process.cwd(),
+        // A sub-agent is a separate conversation: its usage baseline must not
+        // leak into the parent's anchor (or vice versa).
+        promptAnchor: {},
+        // Sub-agents cannot prompt the parent's human mid-turn; "ask" resolves
+        // to "deny" so a WRITE_HIGH tool needing confirmation in the parent is
+        // never silently executed in the child.
+        approvalGate: createSubAgentApprovalGate(),
+        eventSink: usageTapSink ?? taggedSink,
+        sessionStore: createDefaultSessionStore(),
+        compaction: subCompactionConfig,
+        sessionId: `sub-${idPort.next()}`,
+        // Guarded on parentChatSessionId too: without a parent session there
+        // is no valid childSessionId (see above), so never hand the Runner a
+        // chatStore it would use to write an orphaned "undefined-sub-…" session.
+        chatStore: parentChatSessionId ? chatStore : undefined,
+        chatSessionId: childSessionId,
+        clock: opts.clock,
+        attachmentStore,
+        turn: turnNumber,
+        // P2-9: inherit parent budget limits so sub-agents respect cost/wallclock caps
+        initialState,
+      });
+
+    const subRunner = createSubRunner(
+      createInitialState({
         // The child's system prompt: a file definition's body, or the built-in
         // role prompt (explicit built-in type, or omit == general-purpose).
         // Seeded the same way the parent seeds its own (a system message ahead
@@ -4495,41 +4553,160 @@ function createSubAgentExecutor(
           ? { maxWallclockMs: resolveConfigValue(opts.maxWallclockMs, opts.config?.config, "maxWallclockMs") }
           : {}),
       }),
-    });
+      baseTurn,
+    );
+
+    // Dispatch provenance shared by the opening message and every rework
+    // message (same taskId), so the child log attributes all attempts to one
+    // dispatch.
+    const taskSource =
+      parentChatSessionId === undefined
+        ? undefined
+        : {
+            kind: "subagent-task" as const,
+            parentSessionId: parentChatSessionId,
+            taskId,
+            label: agentLabel,
+          };
+
+    // The criteria are a visible contract (spec D12): the child must see the
+    // standard it will be judged against before it starts working.
+    const firstContent =
+      acceptanceCriteria !== undefined
+        ? `${message}\n\n${renderAcceptanceNotice(acceptanceCriteria)}`
+        : message;
+
+    const childText = (state: ReducerState): string => {
+      const lastMsg = state.messages[state.messages.length - 1];
+      return lastMsg && lastMsg.role === "assistant" ? extractPlainText(lastMsg) : "";
+    };
+
+    // One child run. A turn end other than "done" is a crashed attempt —
+    // normalized here (run() does not reject on model errors) so the
+    // acceptance loop can record it instead of throwing.
+    const runChildAttempt = async (
+      runner: Runner,
+      content: string,
+    ): Promise<{ state: ReducerState; error?: string }> => {
+      const state = await runner.run({
+        type: "user_message",
+        content,
+        ...(taskSource !== undefined ? { source: taskSource } : {}),
+      });
+      const turnEnd = runner.getLastTurnEnd();
+      if (turnEnd !== undefined && turnEnd.reason !== "done") {
+        return { state, error: turnEnd.error ?? `Sub-agent turn ended with ${turnEnd.reason}` };
+      }
+      return { state };
+    };
 
     let errorReported = false;
     try {
-      const finalState = await subRunner.run({
-        type: "user_message",
-        content: message,
-        ...(parentChatSessionId === undefined
-          ? {}
-          : {
-              source: {
-                kind: "subagent-task" as const,
-                parentSessionId: parentChatSessionId,
-                taskId,
-                label: agentLabel,
-              },
-            }),
-      });
-      const turnEnd = subRunner.getLastTurnEnd();
-      if (turnEnd !== undefined && turnEnd.reason !== "done") {
-        // A child turn can end in error without run() rejecting (a model
-        // timeout is normalized into turn_end). Treat it as a failed dispatch
-        // so the parent gets an isError result and an error bracket.
-        errorReported = true;
-        finishSubAgent(true);
-        throw new Error(turnEnd.error ?? `Sub-agent turn ended with ${turnEnd.reason}`);
-      }
-      finishSubAgent(false);
+      const first = await runChildAttempt(subRunner, firstContent);
+      let lastState = first.state;
+      let text = childText(lastState);
 
-      const lastMsg = finalState.messages[finalState.messages.length - 1];
-      const text = lastMsg && lastMsg.role === "assistant" ? extractPlainText(lastMsg) : "";
+      if (acceptanceCriteria === undefined) {
+        // No criteria: legacy behavior — a crashed dispatch rejects so the
+        // task tool renders its plain-text error result.
+        if (first.error !== undefined) {
+          errorReported = true;
+          finishSubAgent(true);
+          throw new Error(first.error);
+        }
+        finishSubAgent(false);
+        return {
+          text,
+          ...(childSessionId !== undefined ? { sessionId: childSessionId } : {}),
+          ...(usageTotal !== undefined ? { usage: usageTotal } : {}),
+        };
+      }
+
+      // ── Acceptance loop: verify → decide → rework (spec §4.4) ──
+      const attempts: AcceptanceAttempt[] = [];
+      let verifierUsage: TokenUsage | undefined;
+      const verify = async (output: string, state: ReducerState): Promise<AcceptanceVerdict> => {
+        const result = await verifyDispatch({
+          modelPort: resolvedTier?.modelPort ?? opts.modelPort,
+          model: subStepContext.model,
+          acceptance: acceptanceCriteria,
+          task: message,
+          output,
+          evidence: renderEvidenceDigest(state.messages),
+          timeoutMs: ACCEPTANCE_VERIFY_TIMEOUT_MS,
+        });
+        // Verifier usage is summed across calls and kept separate from the
+        // child's own usage — never merged into it.
+        if (result.usage !== undefined) {
+          const prev = verifierUsage;
+          verifierUsage = {
+            inputTokens: (prev?.inputTokens ?? 0) + (result.usage.inputTokens ?? 0),
+            outputTokens: (prev?.outputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+            ...(prev?.cacheReadTokens !== undefined || result.usage.cacheReadTokens !== undefined
+              ? { cacheReadTokens: (prev?.cacheReadTokens ?? 0) + (result.usage.cacheReadTokens ?? 0) }
+              : {}),
+            ...(prev?.cacheWriteTokens !== undefined || result.usage.cacheWriteTokens !== undefined
+              ? { cacheWriteTokens: (prev?.cacheWriteTokens ?? 0) + (result.usage.cacheWriteTokens ?? 0) }
+              : {}),
+          };
+        }
+        return result.verdict;
+      };
+
+      if (first.error !== undefined) {
+        // A crashed first run is a substantive failure: nothing to verify,
+        // and nothing concrete to rework.
+        attempts.push({ completed: false, error: first.error });
+      } else {
+        let verdict = await verify(text, lastState);
+        attempts.push({ completed: true, verdict });
+        let action = decideAcceptance({ verdict, attempts: attempts.length, maxReworks });
+        while (action === "rework") {
+          const attemptIndex = attempts.length;
+          const reworkRunner = createSubRunner(
+            resetTurnForNextInput(lastState),
+            baseTurn + attemptIndex,
+          );
+          const rework = await runChildAttempt(
+            reworkRunner,
+            renderReworkMessage({
+              acceptance: acceptanceCriteria,
+              failures: verdict.failures,
+              ...(verdict.retryHint !== undefined ? { retryHint: verdict.retryHint } : {}),
+            }),
+          );
+          lastState = rework.state;
+          if (rework.error !== undefined) {
+            // A crashed rework run stays a failure; it is never verified.
+            attempts.push({ completed: false, error: rework.error });
+            break;
+          }
+          text = childText(lastState);
+          verdict = await verify(text, lastState);
+          attempts.push({ completed: true, verdict });
+          action = decideAcceptance({ verdict, attempts: attempts.length, maxReworks });
+        }
+      }
+
+      const composition = composeAcceptanceOutcome(attempts);
+      const lastVerdict = attempts[attempts.length - 1]?.verdict;
+      const verification: DispatchVerification = {
+        status: composition.status,
+        attempts: composition.attempts,
+        failures: composition.failures,
+        ...(composition.verifierError !== undefined ? { verifierError: composition.verifierError } : {}),
+        ...(lastVerdict?.retryHint !== undefined ? { retryHint: lastVerdict.retryHint } : {}),
+        ...(verifierUsage !== undefined ? { usage: verifierUsage } : {}),
+      };
+      // Exactly one finished bracket, after the final outcome is known: an
+      // exhausted dispatch is a failed bracket.
+      finishSubAgent(composition.isError);
       return {
         text,
         ...(childSessionId !== undefined ? { sessionId: childSessionId } : {}),
         ...(usageTotal !== undefined ? { usage: usageTotal } : {}),
+        verification,
+        rejected: composition.isError,
       };
     } catch (err) {
       if (!errorReported) finishSubAgent(true);
