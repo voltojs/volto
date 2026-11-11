@@ -116,7 +116,7 @@ describe('ChatPanel — plan 态 turn-end 拉取计划并打开标签', () => {
       planPreviousMode: null,
     });
     useChatStore.getState().clear();
-    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: false });
+    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: false, snapshots: {}, activeSessionKey: null });
     useConfigStore.setState({ projects: [], providers: [] });
   });
 
@@ -179,7 +179,7 @@ describe('ChatPanel — 「按计划执行」派发', () => {
       planPreviousMode: null,
     });
     useChatStore.getState().clear();
-    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: false });
+    usePaneStore.setState({ tabs: [], activeTabId: null, open: false, hidden: false, snapshots: {}, activeSessionKey: null });
     useConfigStore.setState({ projects: [], providers: [] });
   });
 

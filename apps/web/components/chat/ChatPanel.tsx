@@ -445,13 +445,28 @@ export function ChatPanel() {
   // plan 态会话时自动补开标签。
   const lastTurnEnd = useMemo(() => selectLastTurnEnd(chatEvents), [chatEvents]);
 
-  // plan 态会话每轮结束都可能有新计划落盘：拉一次，存在则打开（已开则
-  // 激活；内容刷新由标签体自身的 turn-end 重拉完成）。404（本轮没写计划）
-  // 与网络失败都不动面板。非 plan 态不查——执行轮（切回原档位后）的收口
-  // 不该再触发。
+  // A plan-mode session may write a new plan at every turn end: fetch once
+  // and open the tab when present (re-open activates; the tab body refreshes
+  // itself on turn-end). 404 (no plan this turn) and network failures leave
+  // the pane untouched. Non-plan mode never probes — an execution turn's
+  // close (after switching back to the prior mode) must not trigger it.
   const planMode = currentSession?.permissionMode === 'plan';
+  // Entering a session (mount or switch) delivers a restored turn-end batch;
+  // that is history, not a live signal, and must not pop the pane open. The
+  // first detail-loaded observation per session is adopted as the baseline;
+  // only turn-ends landing afterwards (live activity) may auto-open.
+  const planSessionRef = useRef<string | null>(null);
+  const planLoadedRef = useRef(false);
   useEffect(() => {
-    if (lastTurnEnd === null || !planMode || currentSessionId === null) return;
+    if (planSessionRef.current !== currentSessionId) {
+      planSessionRef.current = currentSessionId;
+      planLoadedRef.current = false;
+    }
+    const loaded = currentSession?.detailLoaded === true;
+    const isRestore = loaded && !planLoadedRef.current;
+    planLoadedRef.current = loaded;
+    if (currentSessionId === null || isRestore) return;
+    if (lastTurnEnd === null || !planMode) return;
     let cancelled = false;
     fetchPlan(currentSessionId)
       .then((plan) => {
@@ -466,7 +481,7 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, [lastTurnEnd, planMode, currentSessionId]);
+  }, [lastTurnEnd, planMode, currentSessionId, currentSession?.detailLoaded]);
 
   // 「按计划执行」派发（plan 标签按钮 → RightPane → PlanTab 上抛到这里）：
   // 切回进入 plan 前的权限档——内存里没记（页面刷新丢失）就回退 'ask'，
@@ -507,6 +522,27 @@ export function ChatPanel() {
     if (paneProjectId === null) return;
     retargetProjectTabs(paneProjectId);
   }, [paneProjectId, retargetProjectTabs]);
+  // Per-session pane memory: mount binds the current session (restoring its
+  // persisted snapshot after a refresh); a switch snapshots the session being
+  // left and restores the target's own state, defaulting to a collapsed empty
+  // pane for sessions never seen. Validation waits for the config load so a
+  // not-yet-loaded project list cannot drop workspace tabs.
+  const bindPaneSession = usePaneStore((s) => s.bindSession);
+  const switchPaneSession = usePaneStore((s) => s.switchSession);
+  const configLoaded = useConfigStore((s) => s.loaded);
+  const paneSessionRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const validProjectIds = configLoaded ? projects.map((p) => p.id) : null;
+    if (paneSessionRef.current === undefined) {
+      paneSessionRef.current = currentSessionId;
+      bindPaneSession(currentSessionId, validProjectIds);
+      return;
+    }
+    if (paneSessionRef.current === currentSessionId) return;
+    const from = paneSessionRef.current;
+    paneSessionRef.current = currentSessionId;
+    switchPaneSession(from, currentSessionId, validProjectIds);
+  }, [currentSessionId, bindPaneSession, switchPaneSession, configLoaded, projects]);
   const hasPaneProject = paneProjectId !== null;
   const paneVisible =
     paneOpen && !paneHidden && (paneTabs.length > 0 || hasPaneProject);

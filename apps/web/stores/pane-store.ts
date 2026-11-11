@@ -1,9 +1,14 @@
 /**
- * RightPane 的标签状态：tabs（有序）+ activeTabId + width。
- * PaneTab 是判别联合——每个标签自带数据引用（childSessionId / projectId /
- * projectId+path）。子代理标签跨会话保留；files / git-graph 在工作区切换时
- * 经 retargetProjectTabs 指向新项目。tabs 纯内存（刷新即空，重新点开即可）；
- * 只有 width 持久化。
+ * RightPane tab state: tabs (ordered) + activeTabId + width.
+ * PaneTab is a discriminated union — each tab carries its own data reference
+ * (childSessionId / projectId / projectId+path). The pane is remembered per
+ * session: switchSession snapshots the session being left and restores the
+ * target's own snapshot (a never-seen session defaults to a collapsed empty
+ * pane), so one conversation's subagent / plan panels never leak into
+ * another. Snapshots persist to localStorage (device-local view state, like
+ * width) with an LRU cap; files / git-graph are additionally pointed at the
+ * new workspace via retargetProjectTabs on workspace switch. Only width and
+ * the snapshot map persist; live tabs are otherwise memory-only.
  */
 
 import { create } from 'zustand';
@@ -87,6 +92,115 @@ function loadWidth(): number {
   return Number.isFinite(n) ? clampWidth(n) : PANE_WIDTH_DEFAULT;
 }
 
+/** Per-session pane state, serializable as-is (tab payloads are plain JSON). */
+export interface PaneSessionSnapshot {
+  v: 1;
+  tabs: PaneTab[];
+  activeTabId: string | null;
+  open: boolean;
+  hidden: boolean;
+  /** LRU stamp for storage eviction. */
+  usedAt: number;
+}
+
+const SESSIONS_KEY = 'volto.pane.sessions';
+const SNAPSHOT_LIMIT = 100;
+/** Serialized byte cap so large diff payloads cannot exhaust the quota. */
+const SNAPSHOT_BYTES = 2_000_000;
+
+function isSnapshot(x: unknown): x is PaneSessionSnapshot {
+  if (typeof x !== 'object' || x === null) return false;
+  const s = x as Partial<PaneSessionSnapshot>;
+  return (
+    s.v === 1 &&
+    Array.isArray(s.tabs) &&
+    typeof s.open === 'boolean' &&
+    typeof s.hidden === 'boolean'
+  );
+}
+
+function loadSnapshots(): Record<string, PaneSessionSnapshot> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(SESSIONS_KEY);
+    if (raw === null) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const out: Record<string, PaneSessionSnapshot> = {};
+    for (const [id, snap] of Object.entries(parsed)) {
+      if (isSnapshot(snap)) out[id] = snap;
+    }
+    return out;
+  } catch {
+    // Corrupt storage is treated as empty, never as a crash.
+    return {};
+  }
+}
+
+/** Drop project-scoped tabs whose workspace no longer exists. */
+function sanitizeTabs(
+  tabs: PaneTab[],
+  validProjectIds: readonly string[] | null,
+): PaneTab[] {
+  if (validProjectIds === null) return tabs;
+  const ok = new Set(validProjectIds);
+  return tabs.filter(
+    (t) =>
+      t.kind === 'subagent' ||
+      t.kind === 'plan' ||
+      t.kind === 'tasks' ||
+      ok.has(t.projectId),
+  );
+}
+
+function fallbackActive(tabs: PaneTab[], preferred: string | null): string | null {
+  return preferred !== null && tabs.some((t) => t.id === preferred)
+    ? preferred
+    : (tabs[tabs.length - 1]?.id ?? null);
+}
+
+function snapshotOf(s: {
+  tabs: PaneTab[];
+  activeTabId: string | null;
+  open: boolean;
+  hidden: boolean;
+}): PaneSessionSnapshot {
+  return {
+    v: 1,
+    tabs: s.tabs,
+    activeTabId: s.activeTabId,
+    open: s.open,
+    hidden: s.hidden,
+    usedAt: Date.now(),
+  };
+}
+
+function evict(
+  map: Record<string, PaneSessionSnapshot>,
+): Record<string, PaneSessionSnapshot> {
+  let entries = Object.entries(map);
+  if (entries.length > SNAPSHOT_LIMIT) {
+    entries.sort((a, b) => b[1].usedAt - a[1].usedAt);
+    entries = entries.slice(0, SNAPSHOT_LIMIT);
+  }
+  let json = JSON.stringify(Object.fromEntries(entries));
+  while (json.length > SNAPSHOT_BYTES && entries.length > 1) {
+    entries.sort((a, b) => b[1].usedAt - a[1].usedAt);
+    entries = entries.slice(0, entries.length - 1);
+    json = JSON.stringify(Object.fromEntries(entries));
+  }
+  return Object.fromEntries(entries);
+}
+
+function writeSnapshots(map: Record<string, PaneSessionSnapshot>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(evict(map)));
+  } catch {
+    // Quota exhaustion must not break the pane; the in-memory map survives.
+  }
+}
+
 interface PaneState {
   tabs: PaneTab[];
   activeTabId: string | null;
@@ -97,7 +211,7 @@ interface PaneState {
    * so the empty overview stays mounted instead of unmounting the pane.
    */
   open: boolean;
-  /** 面板折叠：标签保留，仅隐藏渲染——Header 的切换按钮负责翻转。 */
+  /** Pane collapsed: tabs kept, view unmounted — the toggles flip it. */
   hidden: boolean;
   /**
    * Latest "reveal this directory in the file tree" request. FileTreeTab
@@ -114,6 +228,33 @@ interface PaneState {
    * session-scoped and stay. Idempotent when the project is unchanged.
    */
   retargetProjectTabs: (projectId: string) => void;
+  /** Per-session pane snapshots, mirrored from localStorage. */
+  snapshots: Record<string, PaneSessionSnapshot>;
+  /** Session whose live pane state is write-through persisted. */
+  activeSessionKey: string | null;
+  /**
+   * Mount bind: adopt the persisted snapshot for `id` when one exists
+   * (refresh resilience); otherwise only arm write-through for `id` without
+   * touching live state. `null` (welcome) disarms persistence.
+   */
+  bindSession: (
+    id: string | null,
+    validProjectIds?: readonly string[] | null,
+  ) => void;
+  /**
+   * Session switch: snapshot the session being left, then restore the
+   * target's own snapshot — or default to a collapsed empty pane for a
+   * session never seen, so one conversation's panels never leak into
+   * another. Project-scoped tabs whose workspace no longer exists are
+   * dropped when `validProjectIds` is provided.
+   */
+  switchSession: (
+    from: string | null,
+    to: string | null,
+    validProjectIds?: readonly string[] | null,
+  ) => void;
+  /** Drop a deleted session's snapshot (memory + storage). */
+  forgetSession: (id: string) => void;
   setActive: (id: string) => void;
   setWidth: (n: number) => void;
   setHidden: (hidden: boolean) => void;
@@ -126,6 +267,8 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     width: loadWidth(),
     open: false,
     hidden: false,
+    snapshots: loadSnapshots(),
+    activeSessionKey: null,
     openTab: (tab) =>
       set((state) => {
         const existing = state.tabs.find((t) => t.id === tab.id);
@@ -246,6 +389,68 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
             : (tabs[tabs.length - 1]?.id ?? null);
         return { tabs, activeTabId };
       }),
+    bindSession: (id, validProjectIds = null) =>
+      set((state) => {
+        if (id === null) return { activeSessionKey: null };
+        const snap = state.snapshots[id];
+        if (snap === undefined) return { activeSessionKey: id };
+        const tabs = sanitizeTabs(snap.tabs, validProjectIds);
+        return {
+          activeSessionKey: id,
+          tabs,
+          activeTabId: fallbackActive(tabs, snap.activeTabId),
+          open: snap.open,
+          hidden: snap.hidden,
+        };
+      }),
+    switchSession: (from, to, validProjectIds = null) => {
+      set((state) => {
+        const snapshots =
+          from === null
+            ? state.snapshots
+            : { ...state.snapshots, [from]: snapshotOf(state) };
+        if (to === null) {
+          return {
+            snapshots,
+            activeSessionKey: null,
+            tabs: [],
+            activeTabId: null,
+            open: false,
+            hidden: true,
+          };
+        }
+        const snap = snapshots[to];
+        if (snap === undefined) {
+          return {
+            snapshots,
+            activeSessionKey: to,
+            tabs: [],
+            activeTabId: null,
+            open: false,
+            hidden: true,
+          };
+        }
+        const tabs = sanitizeTabs(snap.tabs, validProjectIds);
+        return {
+          snapshots,
+          activeSessionKey: to,
+          tabs,
+          activeTabId: fallbackActive(tabs, snap.activeTabId),
+          open: snap.open,
+          hidden: snap.hidden,
+        };
+      });
+      persistNow();
+    },
+    forgetSession: (id) => {
+      set((state) => {
+        if (!(id in state.snapshots)) return state;
+        const snapshots = { ...state.snapshots };
+        delete snapshots[id];
+        return { snapshots };
+      });
+      persistNow();
+    },
     setActive: (id) => set({ activeTabId: id }),
     setWidth: (n) => {
       const width = clampWidth(n);
@@ -257,6 +462,49 @@ export const usePaneStore: UseBoundStore<StoreApi<PaneState>> = create<PaneState
     setHidden: (hidden) => set({ hidden }),
   }),
 );
+
+// Write-through persistence: mirror the live pane into the active session's
+// snapshot and debounce the storage write. Switch/forget persist synchronously
+// so a reload immediately after a switch never loses the left session's state.
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePersist(): void {
+  if (typeof window === 'undefined') return;
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    writeSnapshots(usePaneStore.getState().snapshots);
+  }, 250);
+}
+
+function persistNow(): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  writeSnapshots(usePaneStore.getState().snapshots);
+}
+
+usePaneStore.subscribe((state, prev) => {
+  const key = state.activeSessionKey;
+  if (key === null) return;
+  const liveChanged =
+    state.tabs !== prev.tabs ||
+    state.activeTabId !== prev.activeTabId ||
+    state.open !== prev.open ||
+    state.hidden !== prev.hidden;
+  if (!liveChanged && key === prev.activeSessionKey) return;
+  // The mirror setState re-enters this subscriber with liveChanged=false and
+  // an unchanged key, so it terminates after one extra pass.
+  usePaneStore.setState({
+    snapshots: { ...state.snapshots, [key]: snapshotOf(state) },
+  });
+  schedulePersist();
+});
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', persistNow);
+}
 
 /** Stable tab id for a file preview — one tab per project+path. */
 export function filePreviewTabId(projectId: string, path: string): string {

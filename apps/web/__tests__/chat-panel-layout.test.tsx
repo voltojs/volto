@@ -103,6 +103,8 @@ describe('ChatPanel input layout', () => {
       width: PANE_WIDTH_DEFAULT,
       open: true,
       hidden: false,
+      snapshots: {},
+      activeSessionKey: null,
     });
     useConfigStore.setState({
       projects: [{ id: 'p1', path: '/tmp/p1', name: 'p1', createdAt: 0 }],

@@ -66,21 +66,57 @@ describe('useAutoOpenTasksTab', () => {
     expect(hasTasksTab()).toBe(false);
   });
 
-  it('resets the 0 → 1 baseline on session switch so restored tasks auto-open', () => {
+  it('adopts restored tasks as the baseline on session switch without auto-open', () => {
+    useSessionStore.setState({
+      currentSessionId: 's1',
+      sessions: [
+        { id: 's1', detailLoaded: true },
+        { id: 's2', detailLoaded: true },
+      ] as never,
+    });
     const { rerender } = renderHook(() => useAutoOpenTasksTab());
-    // Session A accumulates two tasks (prevCount lands on 2).
+    // Session A accumulates two tasks (live 0 → 2 auto-opens).
     mockTasks.current = [item('a1'), item('a2')];
     rerender();
     expect(hasTasksTab()).toBe(true);
 
     // User closes, then switches to session C whose restored feed already
-    // has one task. Without a session-scoped reset this looks like 2 → 1
-    // and auto-open never fires.
+    // has one task. Entering a session must not pop the pane open: the
+    // restored count becomes the baseline instead of an auto-open trigger.
     usePaneStore.getState().closeTab('tasks');
     mockTasks.current = [item('c1')];
     useSessionStore.setState({ currentSessionId: 's2' });
     rerender();
+    expect(hasTasksTab()).toBe(false);
+
+    // Live activity afterwards (dip to 0, then a fresh dispatch) still
+    // auto-opens within the session being viewed.
+    mockTasks.current = [];
+    rerender();
+    mockTasks.current = [item('c2')];
+    rerender();
     expect(hasTasksTab()).toBe(true);
+  });
+
+  it('does not auto-open when the detail load restores tasks after a switch', () => {
+    useSessionStore.setState({
+      currentSessionId: 's1',
+      sessions: [{ id: 's1', detailLoaded: false }] as never,
+    });
+    const { rerender } = renderHook(() => useAutoOpenTasksTab());
+    // Switch clears the feed first; the restored batch lands with the detail.
+    mockTasks.current = [];
+    useSessionStore.setState({
+      currentSessionId: 's2',
+      sessions: [{ id: 's2', detailLoaded: false }] as never,
+    });
+    rerender();
+    mockTasks.current = [item('r1')];
+    useSessionStore.setState({
+      sessions: [{ id: 's2', detailLoaded: true }] as never,
+    });
+    rerender();
+    expect(hasTasksTab()).toBe(false);
   });
 
   it('does not force-activate when the tab is already open', () => {

@@ -24,6 +24,8 @@ beforeEach(() => {
     width: PANE_WIDTH_DEFAULT,
     open: false,
     hidden: false,
+    snapshots: {},
+    activeSessionKey: null,
   });
   window.localStorage.clear();
 });
@@ -220,6 +222,113 @@ describe('tasks tab', () => {
       { kind: 'tasks', id: 'tasks' },
       { kind: 'files', id: 'files:p2', projectId: 'p2' },
     ]);
+  });
+});
+
+describe('switchSession / bindSession (per-session memory)', () => {
+  it('snapshots the left session and restores it on return', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().openTab({ kind: 'plan', id: 's1', sessionId: 's1' });
+    usePaneStore.getState().switchSession('s1', 's2');
+
+    // Never-seen target: collapsed empty pane, previous tabs not leaked.
+    let s = usePaneStore.getState();
+    expect(s.tabs).toEqual([]);
+    expect(s.activeTabId).toBeNull();
+    expect(s.hidden).toBe(true);
+    expect(s.activeSessionKey).toBe('s2');
+
+    // Give s2 its own tab, then return to s1.
+    usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+    usePaneStore.getState().switchSession('s2', 's1');
+    s = usePaneStore.getState();
+    expect(s.tabs).toEqual([
+      { kind: 'files', id: 'files:p1', projectId: 'p1' },
+      subagentTab('a', 's1'),
+      { kind: 'plan', id: 's1', sessionId: 's1' },
+    ]);
+    expect(s.activeTabId).toBe('s1');
+    expect(s.hidden).toBe(false);
+    expect(s.open).toBe(true);
+
+    // s2 kept its own state, independent of s1.
+    usePaneStore.getState().switchSession('s1', 's2');
+    expect(usePaneStore.getState().tabs).toEqual([{ kind: 'tasks', id: 'tasks' }]);
+  });
+
+  it('switching to null collapses and clears; the left session is still remembered', () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().switchSession('s1', null);
+    let s = usePaneStore.getState();
+    expect(s.tabs).toEqual([]);
+    expect(s.hidden).toBe(true);
+    expect(s.activeSessionKey).toBeNull();
+    usePaneStore.getState().switchSession(null, 's1');
+    s = usePaneStore.getState();
+    expect(s.tabs).toEqual([subagentTab('a', 's1')]);
+  });
+
+  it('bindSession restores a snapshot but leaves live state untouched without one', () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().switchSession('s1', 's2');
+    // Mount into s1 again: snapshot restored.
+    usePaneStore.getState().bindSession('s1');
+    expect(usePaneStore.getState().tabs).toEqual([subagentTab('a', 's1')]);
+    // Mount into an unknown session: live state preserved, key armed.
+    usePaneStore.setState({ tabs: [{ kind: 'tasks', id: 'tasks' }], open: true, hidden: false });
+    usePaneStore.getState().bindSession('s9');
+    const s = usePaneStore.getState();
+    expect(s.tabs).toEqual([{ kind: 'tasks', id: 'tasks' }]);
+    expect(s.open).toBe(true);
+    expect(s.activeSessionKey).toBe('s9');
+  });
+
+  it('drops workspace tabs whose project no longer exists on restore', () => {
+    usePaneStore.getState().openTab({ kind: 'files', id: 'files:p1', projectId: 'p1' });
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().switchSession('s1', 's2');
+    usePaneStore.getState().switchSession('s2', 's1', ['p2']);
+    const s = usePaneStore.getState();
+    expect(s.tabs).toEqual([subagentTab('a', 's1')]);
+  });
+
+  it('forgetSession prunes memory and storage', () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().switchSession('s1', 's2');
+    expect(usePaneStore.getState().snapshots['s1']).toBeDefined();
+    usePaneStore.getState().forgetSession('s1');
+    expect(usePaneStore.getState().snapshots['s1']).toBeUndefined();
+    const stored = JSON.parse(window.localStorage.getItem('volto.pane.sessions') ?? '{}');
+    expect(stored['s1']).toBeUndefined();
+  });
+
+  it('persists snapshots to localStorage and reloads them on module init', async () => {
+    usePaneStore.getState().openTab(subagentTab('a', 's1'));
+    usePaneStore.getState().switchSession('s1', 's2');
+    const raw = window.localStorage.getItem('volto.pane.sessions');
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!)['s1'].tabs).toEqual([subagentTab('a', 's1')]);
+    vi.resetModules();
+    const mod = await import('@/stores/pane-store');
+    expect(mod.usePaneStore.getState().snapshots['s1']?.tabs).toEqual([subagentTab('a', 's1')]);
+  });
+
+  it('evicts least-recently-used snapshots beyond the cap', () => {
+    // Guarantee strictly increasing usedAt so LRU ordering is deterministic
+    // even when 150 switches land within one real millisecond.
+    let clock = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => ++clock);
+    usePaneStore.getState().openTab({ kind: 'tasks', id: 'tasks' });
+    for (let i = 0; i < 150; i++) {
+      usePaneStore.getState().switchSession(i === 0 ? null : `s${i - 1}`, `s${i}`);
+    }
+    const stored = JSON.parse(window.localStorage.getItem('volto.pane.sessions') ?? '{}');
+    expect(Object.keys(stored).length).toBeLessThanOrEqual(100);
+    // The oldest session was evicted; the newest survives.
+    expect(stored['s0']).toBeUndefined();
+    expect(stored['s149']).toBeDefined();
+    nowSpy.mockRestore();
   });
 });
 

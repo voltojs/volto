@@ -13,6 +13,7 @@ import {
   loadSidebarWidth,
 } from '@/lib/sidebar-width';
 import { useConfigStore } from './config-store';
+import { usePaneStore } from './pane-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 
 /** The reasoning capability of the model a session is switching to, as reported by `configStore.getModelReasoning`. */
@@ -321,7 +322,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       ),
     })),
 
-  deleteSession: (id) =>
+  deleteSession: (id) => {
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== id);
       return {
@@ -338,7 +339,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             ? (sessions[0]?.id ?? null)
             : state.currentSessionId,
       };
-    }),
+    });
+    // The deleted conversation's pane memory must not outlive it.
+    usePaneStore.getState().forgetSession(id);
+  },
 
   updateSessionTitle: (id, title) =>
     set((state) => ({

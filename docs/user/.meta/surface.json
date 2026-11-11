@@ -258,7 +258,7 @@
       "names": []
     },
     "uiCatalog": {
-      "hash": "64da9b69206c1f35b3a4ba90a1e17514194e0678e1fc406a4e93c2274ddd1e22",
+      "hash": "21a7110a80a538fce8568ad4f16440a6d02aef604341291aae53ec1c58d6b743",
       "names": [
         "chat:activity",
         "chat:approval",
@@ -300,6 +300,7 @@
         "common:app",
         "common:meta",
         "pane:background",
+        "pane:collapse",
         "pane:diff",
         "pane:filePreview",
         "pane:fileTree",
