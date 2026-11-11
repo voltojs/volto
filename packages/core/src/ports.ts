@@ -505,6 +505,33 @@ export type UserMessageSource =
       parentSessionId?: string;
     };
 
+// ──────────────────────────────────────────────
+// Acceptance verification — dispatch-level verdict metadata
+// ──────────────────────────────────────────────
+
+/** Outcome of verifying a dispatch against its acceptance criteria. */
+export type AcceptanceStatus = "passed" | "failed" | "error";
+
+/**
+ * Verification outcome shared by the result envelope, display metadata and
+ * the `subagent_finished` event. `error` means verification itself could not
+ * run (timeout / unparseable output); it is not a substantive failure.
+ */
+export interface VerificationSummary {
+  status: AcceptanceStatus;
+  /** Child-agent runs actually executed (1..maxReworks+1), verifier calls excluded. */
+  attempts: number;
+  failures: string[];
+  verifierError?: string;
+}
+
+/** Full verification payload carried by the dispatch result envelope. */
+export interface DispatchVerification extends VerificationSummary {
+  retryHint?: string;
+  /** Sum over all verifier calls; never merged into the child's own usage. */
+  usage?: TokenUsage;
+}
+
 /**
  * The vocabulary of the durable session log. One entry per significant
  * moment; detail comes from the density of the vocabulary, not from any
@@ -694,6 +721,8 @@ export interface TranscriptEventMap {
     durationMs: number;
     /** Dispatch identity shared with the parent tool result; absent on old logs. */
     taskId?: string;
+    /** Acceptance verdict for dispatches that named criteria; absent on old logs and unverified dispatches. */
+    verification?: VerificationSummary;
   };
   /**
    * A definition (or a per-dispatch allowlist) named tools / capabilities the

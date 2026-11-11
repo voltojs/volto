@@ -121,6 +121,9 @@ export type {
   ChatSessionMeta,
   UserMessageSource,
   TokenUsage,
+  AcceptanceStatus,
+  VerificationSummary,
+  DispatchVerification,
   TurnEndReason,
   TranscriptEventMap,
   TranscriptEventType,
@@ -335,6 +338,25 @@ export {
   DEFAULT_MAX_SELF_CORRECTIONS,
 } from "./self-correct.js";
 export type { ValidationResult, SelfCorrectDecision, Validator } from "./self-correct.js";
+
+// Acceptance verification — pure verdict decisions, outcome composition and prompts
+export {
+  decideAcceptance,
+  composeAcceptanceOutcome,
+  renderAcceptanceNotice,
+  renderReworkMessage,
+  renderAcceptancePrompt,
+  renderEvidenceDigest,
+  renderVerificationNotice,
+  ACCEPTANCE_VERDICT_SCHEMA,
+  ACCEPTANCE_LIMITS,
+} from "./acceptance.js";
+export type {
+  AcceptanceVerdict,
+  AcceptanceAttempt,
+  AcceptanceAction,
+  AcceptanceComposition,
+} from "./acceptance.js";
 
 // Instructions — project instruction loading with @import expansion
 export { expandInstructions, mergeInstructionLayers } from "./instructions.js";

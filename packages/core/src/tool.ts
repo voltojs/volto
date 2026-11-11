@@ -16,6 +16,8 @@ export interface JSONSchema {
   properties?: Record<string, JSONSchema>;
   required?: string[];
   items?: JSONSchema;
+  /** Maximum array length; used by the acceptance verdict schema. */
+  maxItems?: number;
   enum?: unknown[];
   default?: unknown;
   additionalProperties?: boolean | JSONSchema;
