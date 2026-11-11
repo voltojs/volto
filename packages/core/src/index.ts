@@ -350,14 +350,6 @@ export { computeRAGInjectionIndex, buildRAGMessage } from "./retrieval.js";
 export { diffState } from "./state-diff.js";
 export type { StateDiff } from "./state-diff.js";
 
-// Orchestration — topology spec types (pure data)
-export type {
-  TopologyKind,
-  TopologyNodeSpec,
-  TopologySpec,
-  TopologyResult,
-} from "./orchestration.js";
-
 // Workspace instructions — AGENTS.md & friends chain path helpers (pure, zero I/O)
 export {
   ancestorChain,

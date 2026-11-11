@@ -118,10 +118,6 @@ export type { SlashCommand } from "./commands.js";
 // M13: Skills
 export type { Skill, ResourceLoader } from "./skills.js";
 
-// M12: Multi-agent orchestration
-export { createOrchestrator } from "./orchestration.js";
-export type { OrchestratorOptions } from "./orchestration.js";
-
 // SSE protocol layer (import as: import { sse } from '@volto/sdk')
 export * as sse from "./sse/index.js";
 
