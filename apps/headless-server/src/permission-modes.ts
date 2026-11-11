@@ -1,39 +1,25 @@
 /**
  * The permission presets offered to clients.
  *
- * A preset is nothing but a bundle of core's two orthogonal knobs — the
- * sandbox boundary and the approval policy. Core knows nothing about presets;
- * this table is the whole of the concept, and the same sandbox value also
- * drives the shell and filesystem decorators in wiring.ts, so the permission
- * decision and the enforced boundary come from one source of truth.
+ * The vocabulary and the preset table live in `@volto/core` (spec 2026-11-11
+ * D1): the SDK dispatches sub-agents by the same names the UI shows, and two
+ * copies of "what does `read-only` mean" would be two truths. This module is
+ * the gateway's thin face over it — the names below are the ones the server's
+ * routes, sessions and wiring already speak.
  */
 
-import type { ApprovalPolicy, PermissionConfig, SandboxMode } from "@volto/core";
+import {
+  PERMISSION_PRESETS,
+  isPermissionPreset,
+  permissionConfigOf,
+  type PermissionPreset,
+} from "@volto/core";
+import type { PermissionConfig, SandboxMode } from "@volto/core";
 
-export type UiPermissionMode = "read-only" | "plan" | "ask" | "auto" | "full";
+export type UiPermissionMode = PermissionPreset;
 
 /** In escalating order — a client renders the picker in this order. */
-export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = [
-  "read-only",
-  "plan",
-  "ask",
-  "auto",
-  "full",
-];
-
-const PRESETS: Record<UiPermissionMode, { sandbox: SandboxMode; approval: ApprovalPolicy }> = {
-  "read-only": { sandbox: "read-only", approval: "never" },
-  // Same boundary as read-only: the only write a plan-mode session makes is
-  // the plan document itself — volto's own storage (save_plan), not the
-  // workspace — and save_plan is a READ_ONLY-tier bookkeeping tool that this
-  // sandbox never removes. The ceiling (tools-*/task's visible-set
-  // derivation) strips the workspace-write tools; the preset says nothing
-  // about it.
-  plan: { sandbox: "read-only", approval: "never" },
-  ask: { sandbox: "workspace-write", approval: "ask" },
-  auto: { sandbox: "workspace-write", approval: "never" },
-  full: { sandbox: "danger-full-access", approval: "never" },
-};
+export const UI_PERMISSION_MODES: readonly UiPermissionMode[] = PERMISSION_PRESETS;
 
 /**
  * Retired preset names, still readable from persisted transcripts. Accepted
@@ -49,7 +35,7 @@ const LEGACY_ALIASES: Record<string, UiPermissionMode> = {
 const DEFAULT_MODE: UiPermissionMode = "ask";
 
 export function isUiPermissionMode(value: unknown): value is UiPermissionMode {
-  return typeof value === "string" && (UI_PERMISSION_MODES as readonly string[]).includes(value);
+  return isPermissionPreset(value);
 }
 
 /**
@@ -68,10 +54,10 @@ export function normaliseUiPermissionMode(value: unknown): UiPermissionMode {
 }
 
 export function buildPermissionConfig(mode: UiPermissionMode): PermissionConfig {
-  return { ...PRESETS[mode] };
+  return permissionConfigOf(mode);
 }
 
 /** The sandbox knob a preset bundles — what wiring.ts hands the decorators. */
 export function sandboxModeFor(mode: UiPermissionMode): SandboxMode {
-  return PRESETS[mode].sandbox;
+  return permissionConfigOf(mode).sandbox;
 }
