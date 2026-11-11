@@ -38,6 +38,11 @@ export function useSubagentConversation(childId: string | null): {
   isLoading: boolean;
   error: string | null;
   retry: () => void;
+  /**
+   * The child's own `session_meta` (durable across reloads), or undefined
+   * while neither the stored tail nor a live bucket has one.
+   */
+  meta: { permissionMode?: unknown } | undefined;
 } {
   const bucket = useChatStore((s) => (childId ? s.subagents[childId] : undefined));
   const [nonce, setNonce] = useState(0);
@@ -123,11 +128,20 @@ export function useSubagentConversation(childId: string | null): {
       ? 'idle'
       : (bucket?.status ??
         (state.error !== null ? 'idle' : state.stored !== null ? 'done' : 'idle'));
+  // The child's own `session_meta`, taken from whichever source the pane is
+  // reading. A reloaded tab has no live bucket, and the parent's event buffer
+  // is not replayed for a settled session — so this is the only durable place
+  // the child's boundary can come from (spec 2026-11-11 D7).
+  const sourceEvents = state.stored ?? bucket?.events ?? [];
+  const metaEvent = sourceEvents.find((event) => event.type === 'session_meta');
+  const meta = metaEvent?.data as { permissionMode?: unknown } | undefined;
+
   return {
     entries,
     status,
     isLoading: loading,
     error: state.error,
     retry: () => setNonce((n) => n + 1),
+    meta,
   };
 }

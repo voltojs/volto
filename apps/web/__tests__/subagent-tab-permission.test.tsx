@@ -24,6 +24,7 @@ vi.mock('@/lib/sessions-api', () => ({
   fetchSessionEvents: vi.fn().mockResolvedValue({ sessionId: 'x', events: [] }),
 }));
 
+let conversationMeta: { permissionMode?: string } | undefined;
 vi.mock('@/hooks/use-subagent-conversation', () => ({
   useSubagentConversation: () => ({
     entries: [],
@@ -31,6 +32,7 @@ vi.mock('@/hooks/use-subagent-conversation', () => ({
     isLoading: false,
     error: null,
     retry: () => {},
+    meta: conversationMeta,
   }),
 }));
 
@@ -100,6 +102,7 @@ function seedBucket(permission?: { sandbox: string; approval: string; preset?: s
 
 describe('SubagentTab permission display', () => {
   beforeEach(() => {
+    conversationMeta = undefined;
     useSessionStore.setState({ currentSessionId: 's1', sessions: [{ ...PARENT }] });
     useConfigStore.setState({
       projects: [{ id: 'p1', path: '/tmp/p1', name: 'p1', createdAt: 0 }],
@@ -120,6 +123,17 @@ describe('SubagentTab permission display', () => {
     const badge = screen.getByTestId('subagent-permission-badge');
     expect(badge).toHaveTextContent('只读');
     expect(screen.queryByTestId('subagent-permission-badge')).toHaveTextContent(/^(?!完全)/);
+    expect(screen.queryByText('完全')).not.toBeInTheDocument();
+  });
+
+  it("shows the child's preset after a reload, when only its session_meta survives", () => {
+    // A settled session replays no events, so the bucket is gone after F5 —
+    // the child's own meta is what the pane has left (reported regression).
+    seedBucket();
+    conversationMeta = { permissionMode: 'read-only' };
+    render(<SubagentTab tab={chatTab} />);
+
+    expect(screen.getByTestId('subagent-permission-badge')).toHaveTextContent('只读');
     expect(screen.queryByText('完全')).not.toBeInTheDocument();
   });
 

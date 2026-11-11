@@ -4108,7 +4108,13 @@ function createSubAgentExecutor(
               projectId: null,
               providerId: null,
               modelId: null,
-              permissionMode: null,
+              // The child's OWN boundary, so a reloaded tab can describe it
+              // without the parent's event buffer (the parent replays no
+              // events for a settled session — spec 2026-11-11 D7).
+              permissionMode:
+                childPermissionConfig !== undefined
+                  ? (presetOf(childPermissionConfig) ?? null)
+                  : null,
               parentSessionId: parentChatSessionId,
               delegationDepth: depth,
               origin: "subagent" as const,

@@ -143,11 +143,19 @@ export function SubagentTab({ tab }: { tab: PaneTab }) {
   // bucket; old sessions (and children whose dispatch never reported one)
   // fall back to the parent session, which is what the pane showed before.
   const childPermission = bucket?.permission;
+  // Three sources, most durable first: the child's own session_meta (survives
+  // a reload), the live dispatch bracket, then the parent session.
+  const metaMode =
+    feed.meta?.permissionMode !== null &&
+    typeof feed.meta?.permissionMode === 'string' &&
+    PERMISSION_BADGE_KEYS[feed.meta.permissionMode as PermissionMode] !== undefined
+      ? (feed.meta.permissionMode as PermissionMode)
+      : undefined;
+  const childMode =
+    metaMode ?? (childPermission?.preset as PermissionMode | undefined);
   const effectivePermission: PermissionMode =
-    overridePermission ??
-    ((childPermission?.preset as PermissionMode | undefined) ??
-      (parent?.permissionMode ?? 'ask'));
-  const showPermissionBadge = childPermission?.preset !== undefined;
+    overridePermission ?? childMode ?? parent?.permissionMode ?? 'ask';
+  const showPermissionBadge = childMode !== undefined;
 
   const usage = useSubagentContextUsage(childId ?? null);
 
