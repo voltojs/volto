@@ -482,12 +482,13 @@ interface WebDeps extends CliDeps {
  * `volto web` — the exported UI on its own port, every API path proxied to a
  * gateway.
  *
- * The credential belongs to the gateway, and today that is ONLY its
- * per-process launch token: a `?token=` exchange (302 + Set-Cookie) happens
- * when the token rides an API path (`/<api-prefix>?token=…`), because the
- * guard only sees proxied paths — `/?token=…` matches no API prefix and is
- * answered by the static shell. The persistent access token this command
- * prints is not yet an accepted credential; it becomes one in Task 12.
+ * The query token must be one the GATEWAY accepts: its per-process launch
+ * token today, and the persistent access token once Task 12 accepts it as a
+ * credential. A valid one exchanges for a cookie (302) whatever the path —
+ * `/` or any API path — because the gateway skips its static handler for any
+ * request carrying a query token and lets the guard answer; an invalid one
+ * gets the uniform 401, and a token-bearing request is never served the
+ * static shell.
  *
  * Remote mode (`--serve-remote`) is deliberately not implemented here.
  */
@@ -525,12 +526,11 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   const out = deps.stdout;
   out(`volto web ${packageVersion()} listening on http://${shownHost}:${port} -> ${gateway}\n`);
   out(`Open: http://${shownHost}:${port}/\n`);
-  // The persistent access token is printed so the operator has it in hand,
-  // but TODAY only the gateway's per-process launch token is an accepted
-  // credential: `/?token=` is answered by the static shell (it matches no API
-  // prefix, so the gateway's guard never sees it) and would 401 anyway. This
-  // URL becomes valid once the persistent access token is accepted as a
-  // credential — Task 12 — not before.
+  // The query token must be one the gateway accepts: the per-process launch
+  // token today (302 + Set-Cookie on `/` as on any API path), and the
+  // persistent access token printed here once Task 12 accepts it as a
+  // credential. Until then this URL is informational — that token is not yet
+  // accepted, so the gateway answers 401.
   const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
   out(`Login: http://${shownHost}:${port}/?token=${token}\n`);
   if (opts.serveRemote) {
