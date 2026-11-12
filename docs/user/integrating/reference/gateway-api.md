@@ -32,7 +32,7 @@ verified: 2026-11-11
 | `GET` | `/config/routing-tiers` | 模型路由档位表；首次写入前是出厂模板。 |
 | `PUT` | `/config/routing-tiers` | 整体替换路由档位表；删除仍被引用的档位会返回 409。 |
 | `GET` | `/events` | 一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。 |
-| `GET` | `/gateway-info` | 这个网关实例的模式与可用能力：`mode` 为 `local` 或 `remote`（`--serve-remote` 启动时为 `remote`），`capabilities` 说明本机原生对话框、浏览器工具、LSP 是否真的可用。需要鉴权。 |
+| `GET` | `/gateway-info` | 这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择 / 在文件管理器中显示（`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 返回 501）；`capabilities.browser`：是否真的创建了浏览器宿主（浏览器配置关闭或找不到浏览器可执行文件时为 `false`）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。 |
 | `GET` | `/health` | 存活检查：网关进程是否已就绪。 |
 | `POST` | `/interrupt` | 取消当前正在进行的回合。 |
 | `POST` | `/messages` | 触发一轮对话；流式事件从该会话的 `GET /events` 返回。 |

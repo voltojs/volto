@@ -622,10 +622,11 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),
   });
   // What this process can actually do, from the one place that knows both
-  // halves: the startup posture (`mode`, above) and the wiring facts. The
-  // agent's `lsp` decoration records whether `createWiredAgent` really
-  // constructed an LSP manager; a stub `agentFactory` attaches nothing, and
-  // then the fact is simply unknown → not claimed.
+  // halves: the startup posture (`mode`, above) and the wiring facts.
+  // `browser` is whether a host was really created; `lsp` is whether at least
+  // one language server is configured (the agent's decoration — the manager
+  // itself always exists). A stub `agentFactory` attaches no decoration, and
+  // then the fact is unknown → not claimed.
   const capabilities: Capabilities = resolveCapabilities({
     mode,
     browser: browserHost !== undefined,
@@ -2477,15 +2478,23 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       }
     }
 
+    // /fs/pick-directory — open the OS directory dialog on this machine.
+    //
+    // The capability 501 stands ABOVE the method check, and covers every
+    // method: a client probing whether this instance can open a dialog must
+    // get `capability_unavailable`, not the generic 404 that only says the
+    // route does not exist (which would suggest a typo rather than a
+    // withdrawn capability). It is also answered before the picker is
+    // touched — a remote caller's dialog would open on the host's screen
+    // with nobody to answer it, and whoever is sitting there would be
+    // choosing the caller's directory.
+    if (url.pathname === "/fs/pick-directory" && !capabilities.nativeDialogs) {
+      jsonResponse(res, 501, { error: "capability_unavailable" });
+      return;
+    }
+
     // POST /fs/pick-directory — open the OS directory dialog on this machine
     if (req.method === "POST" && url.pathname === "/fs/pick-directory") {
-      if (!capabilities.nativeDialogs) {
-        // Before touching the picker: a remote caller's dialog would open on
-        // the host's screen with nobody to answer it, and whoever is sitting
-        // there would be choosing the caller's directory.
-        jsonResponse(res, 501, { error: "capability_unavailable" });
-        return;
-      }
       try {
         // No request body is read: the dialog prompt is a server-side constant
         // and the caller has nothing to contribute.
@@ -2506,14 +2515,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       return;
     }
 
+    // /fs/reveal — same rule as /fs/pick-directory: the capability 501 covers
+    // every method and comes before the body is read, since the answer does
+    // not depend on it.
+    if (url.pathname === "/fs/reveal" && !capabilities.nativeDialogs) {
+      jsonResponse(res, 501, { error: "capability_unavailable" });
+      return;
+    }
+
     // POST /fs/reveal — open the OS file manager with the path selected
     if (req.method === "POST" && url.pathname === "/fs/reveal") {
-      if (!capabilities.nativeDialogs) {
-        // Same rule as /fs/pick-directory, and before the body is read: the
-        // answer does not depend on it.
-        jsonResponse(res, 501, { error: "capability_unavailable" });
-        return;
-      }
       try {
         const body = JSON.parse(await readBody(req)) as { path?: unknown };
         if (typeof body.path !== "string" || body.path.trim() === "") {

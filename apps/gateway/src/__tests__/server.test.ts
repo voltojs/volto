@@ -16,6 +16,7 @@ import { getConfigDir } from "../config/paths.js";
 import { loadPermissionRules } from "../config/permissions.js";
 import { rotateAccessToken } from "../auth/access-token.js";
 import { encodeWorkspaceName } from "@volto/store-jsonl";
+import type { BrowserHost } from "@volto/runtime-node";
 import {
   applyPartial,
   buildTurnRecords,
@@ -394,6 +395,20 @@ async function startEphemeralServer(
     base,
     launchToken: instance.launchToken,
     close: () => new Promise<void>((resolve) => instance.close(() => resolve())),
+  };
+}
+
+/**
+ * A BrowserHost that only has to exist: the capability fact is "a host was
+ * created", and no page is ever opened through it in these tests.
+ */
+function createStubBrowserHost(): BrowserHost {
+  return {
+    page() {
+      throw new Error("no page is opened in capability tests");
+    },
+    close: async () => undefined,
+    dispose: async () => undefined,
   };
 }
 
@@ -2249,48 +2264,141 @@ describe("remote mode: capabilities and local-only routes", () => {
     };
   }
 
-  it("GET /gateway-info reports local mode with native dialogs available", async () => {
-    const { status, data } = await getJson("/gateway-info");
-    expect(status).toBe(200);
-    const info = data as {
-      version: string;
-      mode: string;
-      capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
-    };
-    expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(info.mode).toBe("local");
-    expect(info.capabilities.nativeDialogs).toBe(true);
-    // Wiring facts, not guesses: this suite's server assembles a real (or
-    // explicitly absent) browser host and always builds an LSP manager.
-    expect(typeof info.capabilities.browser).toBe("boolean");
-    expect(info.capabilities.lsp).toBe(true);
-  });
+  type Info = {
+    version: string;
+    mode: string;
+    capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
+  };
 
-  it("GET /gateway-info reports remote mode with native dialogs withdrawn", async () => {
-    const instance = await boot({ modelPort: MOCK_MODEL, serveRemote: true });
+  /** `/gateway-info` for a dedicated instance, closing it afterwards. */
+  async function infoFor(opts: Parameters<typeof createServer>[0]): Promise<Info> {
+    const instance = await boot(opts);
     try {
       const response = await fetch(`${instance.base}/gateway-info`, {
         headers: authHeaders(instance.token),
       });
       expect(response.status).toBe(200);
-      const info = (await response.json()) as {
-        mode: string;
-        capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
-      };
-      expect(info.mode).toBe("remote");
-      expect(info.capabilities.nativeDialogs).toBe(false);
-      // Remote mode withdraws local-only capabilities only — the in-process
-      // ones (browser, LSP) keep their real wiring facts.
-      expect(typeof info.capabilities.browser).toBe("boolean");
+      return (await response.json()) as Info;
+    } finally {
+      await instance.close();
+    }
+  }
+
+  /**
+   * A config dir holding `config.json` with only the given sections. The
+   * suite's own VOLTO_CONFIG_DIR gains entries from other tests, so anything
+   * asserting a wiring FACT (browser / lsp) pins its own config instead of
+   * inheriting whatever ran before it.
+   */
+  async function bootWithConfig(
+    config: Record<string, unknown>,
+    opts: Parameters<typeof createServer>[0] = {},
+  ): Promise<{ base: string; token: string; close(): Promise<void> }> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-caps-"));
+    await fs.writeFile(path.join(dir, "config.json"), JSON.stringify(config), "utf-8");
+    const previous = process.env["VOLTO_CONFIG_DIR"];
+    process.env["VOLTO_CONFIG_DIR"] = dir;
+    try {
+      return await boot({ modelPort: MOCK_MODEL, ...opts });
+    } finally {
+      // The config is read during construction; the instance keeps running on
+      // the values it resolved, so restoring the env here is safe.
+      if (previous === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+      else process.env["VOLTO_CONFIG_DIR"] = previous;
+    }
+  }
+
+  it("GET /gateway-info reports local mode with native dialogs available", async () => {
+    const { status, data } = await getJson("/gateway-info");
+    expect(status).toBe(200);
+    const info = data as Info;
+    expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(info.mode).toBe("local");
+    expect(info.capabilities.nativeDialogs).toBe(true);
+    expect(info.capabilities.lsp).toBe(true);
+  });
+
+  it("GET /gateway-info reports remote mode with native dialogs withdrawn", async () => {
+    const info = await infoFor({ modelPort: MOCK_MODEL, serveRemote: true });
+    expect(info.mode).toBe("remote");
+    expect(info.capabilities.nativeDialogs).toBe(false);
+    // Remote mode withdraws local-only capabilities only: the in-process
+    // facts (browser, LSP) are unchanged by the posture.
+    expect(info.capabilities.lsp).toBe(true);
+  });
+
+  it("GET /gateway-info requires a credential", async () => {
+    const response = await fetch(`${baseUrl}/gateway-info`);
+    expect(response.status).toBe(401);
+  });
+
+  // M2 — `browser` is a wiring fact with two real values, so both are pinned.
+  it("reports browser: true when a browser host was actually created", async () => {
+    const info = await infoFor({ modelPort: MOCK_MODEL, browserHost: createStubBrowserHost() });
+    expect(info.capabilities.browser).toBe(true);
+  });
+
+  it("reports browser: false when browser settings are disabled", async () => {
+    const instance = await bootWithConfig({ browser: { enabled: false } });
+    try {
+      const response = await fetch(`${instance.base}/gateway-info`, {
+        headers: authHeaders(instance.token),
+      });
+      const info = (await response.json()) as Info;
+      expect(info.capabilities.browser).toBe(false);
+      // Same instance, same config: LSP keeps its own answer, so the two
+      // facts are independent rather than one flag copied twice.
       expect(info.capabilities.lsp).toBe(true);
     } finally {
       await instance.close();
     }
   });
 
-  it("GET /gateway-info requires a credential", async () => {
-    const response = await fetch(`${baseUrl}/gateway-info`);
-    expect(response.status).toBe(401);
+  it("reports browser: false when no browser executable can be found", async () => {
+    const instance = await bootWithConfig({
+      browser: { executablePath: path.join(os.tmpdir(), "volto-no-such-browser-binary") },
+    });
+    try {
+      const response = await fetch(`${instance.base}/gateway-info`, {
+        headers: authHeaders(instance.token),
+      });
+      const info = (await response.json()) as Info;
+      expect(info.capabilities.browser).toBe(false);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  // I1 — `lsp` means "at least one language server is configured to run", so
+  // an explicit empty table must read false even though the manager exists.
+  it("reports lsp: false when no language server is configured", async () => {
+    const instance = await bootWithConfig({ lsp: { servers: {} } });
+    try {
+      const response = await fetch(`${instance.base}/gateway-info`, {
+        headers: authHeaders(instance.token),
+      });
+      const info = (await response.json()) as Info;
+      expect(info.capabilities.lsp).toBe(false);
+      // The browser host is unaffected by the LSP table.
+      expect(info.capabilities.browser).toBe(true);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it("reports lsp: true when at least one language server is configured", async () => {
+    const instance = await bootWithConfig({
+      lsp: { servers: { python: { command: "pylsp" } } },
+    });
+    try {
+      const response = await fetch(`${instance.base}/gateway-info`, {
+        headers: authHeaders(instance.token),
+      });
+      const info = (await response.json()) as Info;
+      expect(info.capabilities.lsp).toBe(true);
+    } finally {
+      await instance.close();
+    }
   });
 
   it("answers /fs/pick-directory and /fs/reveal with 501 in remote mode, before any OS call", async () => {
@@ -2330,6 +2438,23 @@ describe("remote mode: capabilities and local-only routes", () => {
       // The point of the 501: the dialog and Finder were never touched.
       expect(picked).toEqual([]);
       expect(revealed).toEqual([]);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  // M1 — a client probing for capability must learn it regardless of method,
+  // not get the generic "route does not exist" 404.
+  it("answers the local-only routes with 501 in remote mode for GET too", async () => {
+    const instance = await boot({ modelPort: MOCK_MODEL, serveRemote: true });
+    try {
+      for (const route of ["/fs/pick-directory", "/fs/reveal"]) {
+        const response = await fetch(`${instance.base}${route}`, {
+          headers: authHeaders(instance.token),
+        });
+        expect(response.status, route).toBe(501);
+        expect(await response.json(), route).toEqual({ error: "capability_unavailable" });
+      }
     } finally {
       await instance.close();
     }

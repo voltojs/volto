@@ -859,11 +859,15 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // The kind travels on the instance so `doctor` and the server log can name
   // the store the agent actually uses; the AgentInstance contract is the
   // SDK's, so it rides as a host-side decoration rather than a new field.
-  // `lsp` is the same kind of decoration: whether an LSP manager was ACTUALLY
-  // assembled for this agent (as opposed to whether config declares one) is
-  // what `GET /gateway-info` reports, and it cannot be read back off the
-  // AgentInstance.
-  return Object.assign(agent, { sessionStoreSelection, lsp: lsp !== undefined });
+  // `lsp` is the same kind of decoration and records CONFIGURED — whether the
+  // resolved server table has at least one language server to run — never the
+  // manager's mere existence (it is constructed unconditionally, so
+  // `lsp !== undefined` would be a constant `true`). `GET /gateway-info`
+  // publishes this fact.
+  return Object.assign(agent, {
+    sessionStoreSelection,
+    lsp: Object.values(lspServers).some((spec) => spec !== undefined),
+  });
 }
 
 /** An agent instance as returned here: the SDK instance plus the store kind. */
@@ -876,7 +880,12 @@ export type WiredAgent = Awaited<ReturnType<typeof createWiredAgent>>;
  */
 export interface WiredAgentFacts {
   sessionStoreSelection?: SessionStoreSelection;
-  /** Whether an LSP manager was actually assembled for this agent. */
+  /**
+   * Whether at least one language server is configured for this agent. The
+   * LSP manager itself is always constructed (so the five tools stay wired and
+   * answer with configuration guidance); this flag is about the server table
+   * it was handed, which is empty when `config.json`'s `lsp.servers` is empty.
+   */
   lsp?: boolean;
 }
 
