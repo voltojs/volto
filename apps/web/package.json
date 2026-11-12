@@ -10,7 +10,8 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "export": "VOLTO_WEB_EXPORT=1 next build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -98,8 +98,10 @@ first. The full threat model is in
 
 `dist/` (the compiled gateway, with neither `__tests__` nor any compiled
 `*.test.*`), `web/` (the exported UI), `README.md`, `LICENSE` and
-`package.json` — `files` is `["dist", "web", "!dist/**/__tests__",
-"!dist/**/*.test.*"]`. `web/` is copied in by the `prepack` step (`web:copy`)
-from `apps/web/out` when the package is packed in the monorepo, and is already
-present in a published tarball. The one public entry is `dist/server.js`
-(`bin` → `dist/bin.js`).
+`package.json` — `files` is `["dist", "web", "README.md",
+"!dist/**/__tests__", "!dist/**/*.test.*"]`. In the monorepo `pnpm --filter
+@volto/gateway web:export` builds the export and stages it into `web/` (the
+`copy-web-assets.mjs` step wrapping `@volto/web build`); a published tarball
+already contains it. `pnpm pack` does NOT build or copy anything, so what is on
+disk is exactly what ships. The one server entry is `dist/server.js` (`bin` →
+`dist/bin.js`).
