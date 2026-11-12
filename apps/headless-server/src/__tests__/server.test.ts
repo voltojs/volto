@@ -51,7 +51,11 @@ let launchToken: string;
 
 beforeAll(async () => {
   process.env["VOLTO_CONFIG_DIR"] = await fs.mkdtemp(path.join(os.tmpdir(), "volto-test-"));
-  server = await createServer({ port: 0, modelPort: MOCK_MODEL });
+  // An existing, EMPTY web root: this suite is about the API. Static hosting
+  // would otherwise answer `/` from the installed build — or its "no web app"
+  // 503 when none is installed — which is not this suite's subject.
+  const webRoot = await fs.mkdtemp(path.join(os.tmpdir(), "volto-web-"));
+  server = await createServer({ port: 0, modelPort: MOCK_MODEL, webRoot });
   launchToken = server.launchToken;
   // Wait for the server to start. Binding to an explicit host (as opposed to
   // the previous no-host call, which bound synchronously) routes through
@@ -520,11 +524,18 @@ describe("authentication", () => {
   });
 
   it("answers every rejection with the same body", async () => {
-    // A caller must not learn whether a route or session exists.
+    // A caller must not learn whether a route or session exists. The unknown
+    // path is extensioned, so it is an asset request — never a client-side
+    // route, which the static host answers with the app shell by design
+    // (the export has one page).
+    //
+    // `webRoot` (see beforeAll) is an existing, EMPTY directory: it holds no
+    // build, so an extensioned unknown path is an ordinary 404 and this test
+    // isolates the auth guard's uniformity from the "no UI installed" 503.
     const a = await fetch(`${baseUrl}/providers`);
-    const b = await fetch(`${baseUrl}/nonexistent-route`);
-    expect(a.status).toBe(b.status);
-    expect(await a.text()).toBe(await b.text());
+    const b = await fetch(`${baseUrl}/nonexistent.js`);
+    const [aText, bText] = await Promise.all([a.text(), b.text()]);
+    expect({ status: a.status, body: aText }).toEqual({ status: b.status, body: bText });
   });
 
   it("exchanges a valid query token for a cookie and a clean redirect", async () => {

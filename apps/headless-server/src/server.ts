@@ -36,6 +36,8 @@ import * as http from "node:http";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { projectMessageEntries, foldStandingTodos, pendingSteeringEntries } from "@volto/core";
 import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@volto/core";
@@ -132,6 +134,7 @@ import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
+import { serveStatic } from "./static/serve.js";
 import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
 import {
   convertAttachments,
@@ -186,6 +189,12 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   /** Overridable chat transcript store — production writes to ~/.volto/sessions. */
   chatStore?: JsonlSessionStore;
   /**
+   * Directory of the exported web app (`apps/web/out`) served from `/`.
+   * Defaults to `web/` next to the installed package; when it does not
+   * exist the gateway still starts — every API route works, `/` answers 503.
+   */
+  webRoot?: string;
+  /**
    * Overridable agent constructor for the legacy shared (no-sessionId) agent
    * below — production uses createWiredAgent. Mirrors the same seam
    * sessions.ts exposes for per-session agents, so tests can observe how
@@ -203,6 +212,60 @@ const DEFAULT_CORS_ORIGIN = "http://localhost:6100";
 /** Hard cap on request bodies. Any larger POST is refused with 413. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
+/** `apps/headless-server/dist/server.js` -> `apps/headless-server`. */
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * The gateway's own version, published to the exported web app through
+ * `/volto-config.js`. Read once from the package manifest; a build without
+ * one (a test bundle) falls back to the manifest's placeholder.
+ */
+const packageVersion: string = readPackageVersion();
+
+function readPackageVersion(): string {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    if (typeof manifest.version === "string") return manifest.version;
+  } catch {
+    // Fall through: the version is display data, never a routing input.
+  }
+  return "0.0.0";
+}
+
+/**
+ * Root prefixes of the routes handled in `createServer` below. Kept as a
+ * list so static hosting can step aside for them (see `createStaticSite`'s
+ * `apiPaths`); a new route must be added here too.
+ */
+const API_PATHS = [
+  "/health",
+  "/events",
+  "/messages",
+  "/interrupt",
+  "/approvals",
+  "/run",
+  "/resume",
+  "/stream",
+  "/ws",
+  "/projects",
+  "/catalog",
+  "/preferences",
+  "/config",
+  "/sidebar-state",
+  "/providers",
+  "/commands",
+  "/skills",
+  "/tools",
+  "/agents",
+  "/sessions",
+  "/fs",
+  "/file-refs",
+  "/git",
+  "/attachments",
+] as const;
+
 /** Hosts the gateway is allowed to bind. Anything else is refused at startup. */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -215,6 +278,28 @@ export class BodyTooLargeError extends Error {
     super(`Request body exceeds the ${MAX_BODY_BYTES} byte limit`);
     this.name = "BodyTooLargeError";
   }
+}
+
+/** The request's own path portion, exactly as sent (no URL-parser repair). */
+function rawPathname(rawUrl: string | undefined): string {
+  const target = rawUrl ?? "/";
+  const queryStart = target.indexOf("?");
+  return queryStart < 0 ? target : target.slice(0, queryStart);
+}
+
+/**
+ * `true` when the request carries the launch token on its query string — the
+ * one-time exchange `?token=…` that `createAuthGuard` trades for a cookie.
+ *
+ * Such a request must reach the guard even when it names the app shell: the
+ * guard answers 302 + Set-Cookie, and a static 200 would leave the browser
+ * holding no credential. Every other query parameter is irrelevant here —
+ * the launch token is read the same way by the guard itself.
+ */
+function hasQueryToken(rawUrl: string | undefined): boolean {
+  const queryStart = (rawUrl ?? "").indexOf("?");
+  if (queryStart < 0) return false;
+  return new URLSearchParams((rawUrl ?? "").slice(queryStart + 1)).has("token");
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -511,7 +596,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // (JsonlSessionStore), not the already-scoped TranscriptStore createWiredAgent
   // expects. Only `registry` (below) wires chatStore in, per-session, via
   // scopeToWorkspace() inside sessions.ts's rebuild().
-  const { chatStore: _rawChatStore, agentFactory, pluginAgents = [], ...agentOpts } = opts;
+  // `webRoot` is this layer's own option (the static host below), not a wiring
+  // one: it must not travel into createWiredAgent / createSessionRegistry.
+  const { chatStore: _rawChatStore, agentFactory, pluginAgents = [], webRoot, ...agentOpts } = opts;
   const buildAgent = agentFactory ?? createWiredAgent;
   // This construction site has no sessionId, so it can never reach a
   // permissionMode default resolved per-session (sessions.ts's EMPTY_CONFIG)
@@ -597,10 +684,24 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
    * any out-of-tree host) sends none and is never subject to this check —
    * there is nothing for CORS to protect there.
+   *
+   * Same-origin is the exported web app's own case: the gateway serves the
+   * build, so the browser reports the gateway's host as the `Origin`. Host
+   * equality is the check — NOT "any localhost port", which is same-SITE and
+   * would therefore carry the SameSite=Strict auth cookie from a malicious
+   * page on a sibling port. Everything that is not same-origin still has to
+   * match the configured origin.
    */
-  function isOriginAllowed(origin: string | undefined): boolean {
+  function isOriginAllowed(origin: string | undefined, hostHeader: string | undefined): boolean {
     if (origin === undefined) return true;
-    return corsOrigin === "*" || origin === corsOrigin;
+    if (corsOrigin === "*" || origin === corsOrigin) return true;
+    if (hostHeader === undefined || hostHeader === "") return false;
+    try {
+      return new URL(origin).host === hostHeader;
+    } catch {
+      // Unparseable Origin: not something a browser sends, and not trusted.
+      return false;
+    }
   }
 
   function corsHeadersFor(origin: string | undefined): Record<string, string> {
@@ -610,7 +711,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       // entry; "*" is sent verbatim since it authorizes every origin anyway.
       "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Last-Event-ID",
+      // Authorization covers the bearer/launch-token callers; Last-Event-ID
+      // is replayed on every reconnect of the /events stream.
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, Last-Event-ID",
       // Auth is cookie-based, so a cross-origin caller must be told its
       // credentials may ride along — without this the browser discards the
       // response even on a 200. Omitted under "*": the pair is illegal and
@@ -642,6 +745,30 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     };
   }
 
+  // The exported web app, served from the same origin as the API. `webRoot`
+  // defaults to the `web/` directory shipped beside the compiled server.
+  //
+  // `gatewayUrl` is `""` on purpose: the exported client's default is
+  // same-origin, which is exactly the deployment this process is. The
+  // `corsOrigin` log line below prints a `/gateway`-prefixed URL only because
+  // that prefix is the DEV server's rewrite; publishing it here would point
+  // the app at a path this gateway does not have.
+  const webRootDir = webRoot ?? path.join(packageRoot, "web");
+  const configScript =
+    `// Generated by the volto gateway: runtime configuration of this deployment.\n` +
+    `window.__VOLTO_CONFIG__ = { gatewayUrl: "", version: ${JSON.stringify(packageVersion)} };\n`;
+  const webRootMissing = await fs
+    .stat(webRootDir)
+    .then((stat) => !stat.isDirectory())
+    .catch(() => true);
+  if (webRootMissing) {
+    // A warning, not a refusal: the API is fully usable without the UI.
+    console.warn(
+      `Web app not found at ${webRootDir}: GET / will answer 503 (every API route still works). ` +
+        "Build it with `VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build` and copy `apps/web/out` there, or pass `webRoot`.",
+    );
+  }
+
   // The whole route handler runs through a single async function so the
   // createServer callback below can install a top-level guard. Any exception
   // a route lets escape (e.g. decodeURIComponent throwing URIError on a
@@ -654,7 +781,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
 
-    if (!isOriginAllowed(originHeader)) {
+    if (!isOriginAllowed(originHeader, req.headers.host)) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: `Origin not allowed: ${originHeader}` }));
       return;
@@ -672,6 +799,29 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (req.method === "OPTIONS") {
       res.writeHead(204, corsHeaders);
       res.end();
+      return;
+    }
+
+    // Static hosting, BEFORE the auth guard: the login page itself has no
+    // cookie yet, so an asset that required one could never be fetched — and
+    // neither could the redirect that mints the cookie. Only GET/HEAD reach
+    // it, it answers nothing but files inside the web root, and a path under
+    // one of `API_PATHS` is left to the router below. Every API route stays
+    // behind the guard.
+    //
+    // It gets the RAW request path, not `url.pathname`: the URL parser
+    // already repaired `//`, `\\` and dot segments before the traversal
+    // check could run, so `//etc/passwd` arrives as `/etc/passwd` and
+    // `/attachments/%2E%2E` arrives as `/`.
+    const staticTarget = rawPathname(req.url);
+    if (
+      !hasQueryToken(req.url) &&
+      (await serveStatic(req, res, staticTarget, {
+        webRoot: webRootDir,
+        apiRoots: API_PATHS,
+        configScript,
+      }))
+    ) {
       return;
     }
 
@@ -2655,7 +2805,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // with the user's cookie. Missing Origin (curl, Node `ws` without
     // `origin`) stays allowed, same as HTTP.
     const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-    if (!isOriginAllowed(originHeader)) {
+    if (!isOriginAllowed(originHeader, req.headers.host)) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;

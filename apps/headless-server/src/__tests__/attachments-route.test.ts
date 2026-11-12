@@ -1,3 +1,4 @@
+import * as http from "node:http";
 import { describe, it, expect } from "vitest";
 import { startTestServer } from "./helpers.js";
 
@@ -7,6 +8,38 @@ const auth = (t: string) => ({
   authorization: `Bearer ${t}`,
   "content-type": "application/json",
 });
+
+/**
+ * GET with a request target sent verbatim — `fetch` cannot express one the
+ * URL parser would rewrite, and the traversal check has to see what the
+ * client actually sent.
+ */
+function rawGet(
+  base: URL,
+  target: string,
+  token: string,
+): Promise<{ status: number; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: base.hostname,
+        port: base.port,
+        path: target,
+        method: "GET",
+        headers: { authorization: `Bearer ${token}` },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 describe("/attachments", () => {
   it("stores an image and reports its dimensions", async () => {
@@ -191,12 +224,14 @@ describe("/attachments", () => {
   it("rejects a bare .. id", async () => {
     const { url, token, sessionId, close } = await startTestServer();
     try {
-      // Percent-encoded so the URL parser does not collapse the segment.
-      const res = await fetch(`${url}/attachments/%2E%2E?sessionId=${sessionId}`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
+      // Sent OVER THE WIRE literally, because `fetch`'s URL parser would
+      // collapse the dot segment client-side: `/attachments/..` becomes `/`,
+      // which tests the parser rather than the route. Percent-encoded is not
+      // enough either — WHATWG URL decoding happens after dot-segment
+      // removal but Node's server re-parses afterwards, and the two disagree.
+      const res = await rawGet(new URL(url), `/attachments/%2E%2E?sessionId=${sessionId}`, token);
       expect(res.status).toBe(404);
-      expect(Buffer.from(await res.arrayBuffer()).toString("base64")).not.toBe(PNG);
+      expect(Buffer.from(res.body).toString("base64")).not.toBe(PNG);
     } finally {
       await close();
     }

@@ -1,0 +1,286 @@
+/**
+ * Static hosting of the exported web app (`apps/web/out`).
+ *
+ * The gateway answers `/`, the Next static bundle and `volto-config.js`
+ * itself so one URL serves both the UI and the API it calls. The web root
+ * shares a machine with `~/.volto` (launch token, provider keys, transcripts),
+ * so every path is decoded, normalized and confined to the REAL web root
+ * before a single byte is read: `..`, encoded dots, backslashes, absolute
+ * paths and symlinks pointing out of the root all answer 404 and are never
+ * opened.
+ */
+
+import * as fsp from "node:fs/promises";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import * as path from "node:path";
+
+/**
+ * What static hosting derives from a request path, as a pure decision:
+ * `false` means the request is not static content and belongs to the router.
+ */
+export type StaticRoute =
+  /** `/_next/static/...`, a hashed asset: cache forever. */
+  | { kind: "asset"; rel: string; immutable: true }
+  /** Any other build file: revalidated every time. */
+  | { kind: "asset"; rel: string; immutable: false }
+  /** `/volto-config.js`, generated per request — never read from disk. */
+  | { kind: "config" }
+  /**
+   * Everything else (a deep link the client renders, a directory-ish path):
+   * the exported app has exactly one page, so it is the shell.
+   */
+  | { kind: "shell" }
+  | false;
+
+/** Path of the generated runtime config script, relative to the web root. */
+const CONFIG_SCRIPT_PATH = "/volto-config.js";
+
+/** Cache policy for the hashed Next bundle: the name changes with the bytes. */
+const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
+
+/** The shell and the config script must never be cached — they carry the deployment's address. */
+const NO_STORE = "no-store";
+
+/**
+ * Extension allowlist → Content-Type. Only build output lives here; an
+ * extension outside it is not served at all rather than served as a guess.
+ */
+const MIME_TYPES: Readonly<Record<string, string>> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function mimeTypeFor(filePath: string): string | undefined {
+  return MIME_TYPES[path.extname(filePath).toLowerCase()];
+}
+
+/**
+ * Percent-decode exactly once and reject anything that is not a plain
+ * relative path. The caller passes the RAW request path rather than
+ * `new URL(...).pathname`, because the URL parser leaves some escapes intact
+ * and silently repairs others (`\\` becomes `/`, `//` collapses) — both would
+ * hide an attack instead of letting this reject it.
+ */
+function decodePathname(rawPathname: string): string | undefined {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawPathname);
+  } catch {
+    // Malformed escape (e.g. `/%E0%A4%A`): not a static path.
+    return undefined;
+  }
+  if (!decoded.startsWith("/")) return undefined;
+  // `//x` is parsed by a browser as a protocol-relative URL, never as a path
+  // on this origin: it is an absolute-target attempt, not an asset name.
+  if (decoded.startsWith("//")) return undefined;
+  if (decoded.includes("\\")) return undefined;
+  if (decoded.includes("\0")) return undefined;
+  return decoded;
+}
+
+/** `true` when `child` is `parent` itself or sits below it (real paths). */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** Shared response headers for everything this module answers. */
+function headerCommon(): Record<string, string> {
+  // A local deployment's own page: no third-party embed to allow, and no
+  // reason for a content-sniffed or injected script to run.
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+  };
+}
+
+/**
+ * The real (symlink-free) web root, or `undefined` when it does not exist.
+ * Resolved per request so a build dropped in after start is picked up.
+ */
+async function realWebRoot(webRoot: string): Promise<string | undefined> {
+  try {
+    const stat = await fsp.stat(webRoot);
+    return stat.isDirectory() ? await fsp.realpath(webRoot) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read a file inside the real root, or `undefined` when it is missing, not a
+ * regular file, outside the root, or unreadable.
+ *
+ * The containment check runs on the file's OWN realpath — not just the
+ * joined path — so an in-root symlink that points outside is refused too. A
+ * file that disappears between `realpath` and `readFile` surfaces as
+ * `ENOENT` and is simply a miss; anything else is reported once, so a
+ * permissions or I/O error never turns into a 200 with an empty body.
+ */
+async function readInRoot(
+  rootReal: string,
+  rel: string,
+): Promise<{ bytes: Buffer; filePath: string } | undefined> {
+  const candidate = path.resolve(rootReal, rel);
+  if (!isInside(rootReal, candidate)) return undefined;
+  let fileReal: string;
+  try {
+    fileReal = await fsp.realpath(candidate);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // ENOENT/ENOTDIR: a miss. A symlink cycle (ELOOP) or a permissions error
+    // on the directory is worth recording, and still not a file to serve.
+    if (code !== "ENOENT" && code !== "ENOTDIR") {
+      console.warn(`static: cannot resolve ${rel}:`, err instanceof Error ? err.message : err);
+    }
+    return undefined;
+  }
+  if (!isInside(rootReal, fileReal)) {
+    console.warn(`static: refusing ${rel}: resolves outside the web root`);
+    return undefined;
+  }
+  try {
+    const stat = await fsp.stat(fileReal);
+    if (!stat.isFile()) return undefined;
+    return { bytes: await fsp.readFile(fileReal), filePath: fileReal };
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") {
+      console.warn(`static: cannot read ${rel}:`, err instanceof Error ? err.message : err);
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Classify a request path. `rawPathname` must be the request's own path
+ * (`req.url` up to `?`), NOT `new URL(...).pathname`: the URL parser repairs
+ * `//` and `\\` before any check could see them, and an attack that was
+ * silently rewritten is one this function can no longer reject.
+ *
+ * - `apiRoots` win first, so a same-origin browser navigation
+ *   (`Accept: text/html`) still reaches `/health` instead of the app shell.
+ * - The path is decoded exactly once; a malformed escape, a backslash, a NUL,
+ *   a protocol-relative `//x`, or any `..` segment is refused.
+ * - The result never leaves the web root: segments are rejected, not
+ *   normalized away, and the file's own realpath is checked again at open
+ *   time (see `serveStatic`).
+ */
+export function routeStaticPath(rawPathname: string, apiRoots: readonly string[]): StaticRoute {
+  const roots = apiRoots.map((root) => root.replace(/\/+$/, ""));
+  const isUnder = (pathname: string, root: string): boolean =>
+    pathname === root || pathname.startsWith(root + "/");
+  if (roots.some((root) => isUnder(rawPathname, root))) return false;
+
+  const decoded = decodePathname(rawPathname);
+  if (decoded === undefined) return false;
+  if (decoded === CONFIG_SCRIPT_PATH) return { kind: "config" };
+  const segments = decoded.split("/").filter((segment) => segment !== "");
+  if (segments.length === 0) return { kind: "shell" };
+  // `..` only ever appears from a traversal attempt: every legitimate segment
+  // of the decoded path is already separated by one `/`.
+  if (segments.some((segment) => segment === "..")) return false;
+  // A file has an extension. Anything else — `/`, `/sessions/abc`, a future
+  // `/messages/foo` — is a client-side route, which the single-page export
+  // resolves to the shell.
+  const last = segments[segments.length - 1] ?? "";
+  if (path.extname(last) === "") return { kind: "shell" };
+  return { kind: "asset", rel: segments.join("/"), immutable: decoded.startsWith("/_next/static/") };
+}
+
+/**
+ * Serve one path from the web root (the gateway's `/`).
+ *
+ * The web root shares a machine with `~/.volto` — launch token, provider
+ * keys, transcripts — so every read is confined to the REAL root: the joined
+ * path must stay inside it AND the file's own realpath must too, which is
+ * what refuses an in-root symlink pointing out. A path that is refused, a
+ * file that is missing, or a file that cannot be read all answer here with
+ * a 404; a request outside the shell/asset/config kinds is left to the router.
+ */
+export async function serveStatic(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rawPathname: string,
+  opts: { webRoot: string; apiRoots: readonly string[]; configScript: string },
+): Promise<boolean> {
+  // Only reads are the static host's business; everything else is the
+  // router's (POST /messages, OPTIONS preflight, …).
+  const method = req.method;
+  if (method !== "GET" && method !== "HEAD") return false;
+  const isHead = method === "HEAD";
+
+  const route = routeStaticPath(rawPathname, opts.apiRoots);
+  if (route === false) return false;
+
+  /** Answer 404 and claim the request: a rejected path is never a miss. */
+  const notFound = (): true => {
+    res.writeHead(404, {
+      ...headerCommon(),
+      "Content-Type": MIME_TYPES[".json"]!,
+      "Cache-Control": NO_STORE,
+    });
+    const body = JSON.stringify({ error: "Not found" });
+    res.end(isHead ? undefined : body);
+    return true;
+  };
+
+  if (route.kind === "config") {
+    res.writeHead(200, {
+      ...headerCommon(),
+      "Content-Type": MIME_TYPES[".js"]!,
+      "Cache-Control": NO_STORE,
+    });
+    res.end(isHead ? undefined : opts.configScript);
+    return true;
+  }
+
+  const webRoot = path.resolve(opts.webRoot);
+  const rootReal = await realWebRoot(webRoot);
+  if (rootReal === undefined) {
+    // A shell request with no build to serve still needs an answer: the API
+    // works, the UI does not. An asset request is an ordinary 404.
+    if (route.kind !== "shell") return notFound();
+    res.writeHead(503, { "Content-Type": MIME_TYPES[".json"]!, "Cache-Control": NO_STORE });
+    res.end(
+      JSON.stringify({
+        error: `Web app not found at ${webRoot}. Build it with VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build, then point webRoot at the output directory.`,
+      }),
+    );
+    return true;
+  }
+
+  const rel = route.kind === "shell" ? "index.html" : route.rel;
+  const found = await readInRoot(rootReal, rel);
+  if (found === undefined) return notFound();
+
+  // Content type comes from the file that was actually opened, not from the
+  // requested name: one allowlist, one source of truth.
+  const mime = mimeTypeFor(found.filePath);
+  if (mime === undefined) return notFound();
+
+  res.writeHead(200, {
+    ...headerCommon(),
+    "Content-Type": mime,
+    "Content-Length": String(found.bytes.byteLength),
+    "Cache-Control": route.kind === "asset" && route.immutable ? IMMUTABLE_CACHE : NO_STORE,
+  });
+  // The raw bytes go out untouched — images, fonts and source maps included.
+  // `Content-Length` is the byte length of exactly these bytes.
+  res.end(isHead ? undefined : found.bytes);
+  return true;
+}
