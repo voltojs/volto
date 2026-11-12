@@ -64,6 +64,10 @@ const DENIED_PAGE = `<!doctype html>
 <html><head><title>Denied</title></head>
 <body><h1>Denied</h1><a href="http://169.254.169.254/latest/meta-data">metadata</a></body></html>`;
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
 /** A tiny local app used by the opt-in browser host e2e test. */
 export async function startBrowserFixture(): Promise<BrowserFixture> {
   const server = createServer((req, res) => {
@@ -89,6 +93,15 @@ export async function startBrowserFixture(): Promise<BrowserFixture> {
     if (url === "/console") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(CONSOLE_PAGE);
+      return;
+    }
+    if (url.startsWith("/link")) {
+      const parsed = new URL(url, "http://fixture.invalid");
+      const to = parsed.searchParams.get("to") ?? "/";
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><html><head><title>Link</title></head><body><a href="${escapeHtml(to)}" target="_blank">open</a></body></html>`,
+      );
       return;
     }
     if (url === "/denied") {

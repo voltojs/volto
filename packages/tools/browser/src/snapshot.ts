@@ -126,7 +126,7 @@ export const SNAPSHOT_SCRIPT = String.raw`
     var style = view.getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
     var rect = el.getBoundingClientRect();
-    return rect.width > 0 || rect.height > 0;
+    return rect.width > 0 && rect.height > 0;
   }
 
   function roleOf(el) {

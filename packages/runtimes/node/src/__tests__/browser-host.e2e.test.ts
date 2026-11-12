@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,14 +110,35 @@ describeE2E("browser host (real Chromium)", () => {
     expect(console.text).toContain("fixture boom");
   });
 
-  it("blocks a click-driven navigation to a denied host", async () => {
-    const page = host.page("session-denied");
-    await page.navigate(`${fixture.url}/denied`);
-    const snapshot = await page.snapshot();
-    const link = refFor(snapshot.text, "link", "metadata");
-    await page.click(link);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const state = await page.state();
-    expect(state.url).not.toContain("169.254");
+  it("blocks a target=_blank navigation to a denied host", async () => {
+    let hits = 0;
+    const denied = createServer((_req, res) => {
+      hits += 1;
+      res.end("should not be reached");
+    });
+    await new Promise<void>((resolve) => denied.listen(0, "127.0.0.1", resolve));
+    const address = denied.address();
+    if (address === null || typeof address === "string") throw new Error("denied server did not bind");
+    const target = `http://localhost:${address.port}/`;
+    const executablePath = process.env["VOLTO_BROWSER_EXECUTABLE"] ??
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const policyHost = createNodeBrowserHost({
+      headless: false,
+      ...(existsSync(executablePath) ? { executablePath } : {}),
+    });
+    try {
+      const page = policyHost.page("session-popup", { egressPolicy: { denyHosts: ["localhost"] } });
+      await page.navigate(`${fixture.url}/link?to=${encodeURIComponent(target)}`);
+      const snapshot = await page.snapshot();
+      await page.click(refFor(snapshot.text, "link", "open"));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(hits).toBe(0);
+      expect((await page.state()).url.startsWith(target)).toBe(false);
+    } finally {
+      await policyHost.dispose();
+      await new Promise<void>((resolve, reject) => {
+        denied.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
   });
 });

@@ -93,8 +93,19 @@ describe("browser wiring", () => {
       await agent.dispose();
     }
     const names = requests[0]!.tools.map((tool) => tool.name);
-    expect(names).toContain("browser_snapshot");
-    expect(names).toContain("browser_diagnostics");
+    for (const name of [
+      "browser_navigate",
+      "browser_snapshot",
+      "browser_click",
+      "browser_type",
+      "browser_press_key",
+      "browser_wait_for",
+      "browser_screenshot",
+      "browser_diagnostics",
+      "browser_storage_state",
+    ]) {
+      expect(names, `missing ${name}`).toContain(name);
+    }
     expect(host.pages).toEqual([{ id: "session-1", egress: undefined }]);
     const system = requests[0]!.messages
       .filter((message) => message.role === "system")

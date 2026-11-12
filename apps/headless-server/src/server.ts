@@ -470,7 +470,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       const settings = await loadBrowserConfig(getConfigDir());
       if (settings.enabled && (await browserRuntimeAvailable(settings.executablePath))) {
         browserHost = createNodeBrowserHost({
-          headless: settings.headless,
+          ...(settings.headless !== undefined ? { headless: settings.headless } : {}),
           idleTimeoutMs: settings.idleTimeoutMs,
           ...(settings.storageStatePath !== undefined
             ? { storageStatePath: settings.storageStatePath }

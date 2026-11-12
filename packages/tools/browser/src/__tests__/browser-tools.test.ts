@@ -247,6 +247,13 @@ describe("browser_diagnostics", () => {
     expect(calls).toEqual(["diagnostics:network:error:20"]);
     expect(result.modelContent).toContain("boom");
   });
+
+  it("marks truncated diagnostics", async () => {
+    const { adapter } = createFakeAdapter();
+    adapter.diagnostics = async () => ({ text: "[error] latest", truncated: true });
+    const result = await createBrowserDiagnosticsTool(adapter).handler({ kind: "console" });
+    expect(result.modelContent).toContain("[truncated");
+  });
 });
 
 describe("browser_storage_state", () => {
@@ -270,5 +277,15 @@ describe("error normalization", () => {
     expect(result.isError).toBe(true);
     expect(result.modelContent).toContain("stale");
     expect(result.modelContent).toContain("browser_snapshot");
+  });
+
+  it("does not misdiagnose a connection failure as a stale ref", async () => {
+    const { adapter } = createFakeAdapter();
+    adapter.navigate = async () => {
+      throw new Error("net::ERR_CONNECTION_REFUSED");
+    };
+    const result = await createBrowserNavigateTool(adapter).handler({ url: "http://localhost:9/" });
+    expect(result.isError).toBe(true);
+    expect(result.modelContent).not.toContain("browser_snapshot");
   });
 });

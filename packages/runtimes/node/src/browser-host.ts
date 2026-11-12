@@ -8,7 +8,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { chmod, mkdir } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -317,6 +317,9 @@ class LivePage implements LiveBrowserPage {
       const directory = path.dirname(this.storageStatePath);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       await chmod(directory, 0o700).catch(() => undefined);
+      // Create the file with restrictive permissions before Playwright writes
+      // into it, so the cookie payload is never briefly world-readable.
+      await writeFile(this.storageStatePath, "", { mode: 0o600 });
       await context.storageState({ path: this.storageStatePath });
       await chmod(this.storageStatePath, 0o600);
       return { path: this.storageStatePath, savedAt: Date.now() };
@@ -346,8 +349,12 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
       } catch {
         throw new BrowserUnavailableError();
       }
+      const headless = resolveHeadless(opts.headless, process.env, process.platform);
+      if (opts.headless === undefined && headless && process.platform === "linux") {
+        console.warn("browser: no DISPLAY/WAYLAND_DISPLAY found; running Chromium headless");
+      }
       return playwright.chromium.launch({
-        headless: resolveHeadless(opts.headless, process.env, process.platform),
+        headless,
         ...(opts.executablePath !== undefined ? { executablePath: opts.executablePath } : {}),
       });
     })().catch((error: unknown) => {
@@ -430,13 +437,18 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
         await route.continue();
         return;
       }
-      let isMainFrame = false;
+      let isTopLevel = false;
       try {
-        isMainFrame = request.frame() === page.mainFrame();
+        // Any page's main frame is top-level; an iframe has a parent frame.
+        // A target=_blank/window.open page is a separate page in this context,
+        // so comparing against `page.mainFrame()` alone would miss it.
+        isTopLevel = request.frame().parentFrame() === null;
       } catch {
-        isMainFrame = false;
+        // A detached/unknown frame is treated as top-level: fail closed rather
+        // than letting a popup navigation escape the egress check.
+        isTopLevel = true;
       }
-      if (!isMainFrame) {
+      if (!isTopLevel) {
         await route.continue();
         return;
       }

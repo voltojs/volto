@@ -15,7 +15,7 @@ import type { ActionOutcome } from "./snapshot.js";
 
 function failure(tool: string, err: unknown): ToolResult {
   const message = err instanceof Error ? err.message : String(err);
-  const staleRef = /ref|stale|snapshot/i.test(message)
+  const staleRef = /stale|no element has that ref/i.test(message)
     ? " Call browser_snapshot and retry with a current ref."
     : "";
   return { modelContent: `${tool} failed: ${message}${staleRef}`, isError: true };
@@ -310,7 +310,12 @@ export function createBrowserDiagnosticsTool(browser: BrowserAdapter): Tool {
           ...(limit !== undefined ? { limit } : {}),
         });
         const empty = kind === "console" ? "No console entries." : "No failed or 4xx/5xx requests.";
-        return { modelContent: result.text.trim().length > 0 ? result.text : empty };
+        const text = result.text.trim().length > 0 ? result.text : empty;
+        return {
+          modelContent: result.truncated
+            ? `${text}\n... [truncated: showing the most recent entries only]`
+            : text,
+        };
       } catch (err) {
         return failure("browser_diagnostics", err);
       }

@@ -13,7 +13,7 @@ generated: false
 
 > 读完你会：让 Agent 自己打开一个网页，走完登录/表单流程，读 console 和网络失败，并把可重复的部分写成 Playwright 测试。
 
-内置浏览器是 Agent 的**内部能力**：没有右栏面板，也不共享你日常浏览器的登录态。它在网关所在机器上启动 Chromium，默认弹出一个真实窗口；Linux 没有显示环境时自动改用无头模式。
+内置浏览器是 Agent 的**内部能力**：没有右栏面板，也不共享你日常浏览器的登录态。它在网关所在机器上启动 Chromium；不设置 `headless` 时默认弹出真实窗口，Linux 没有显示环境时自动改用无头模式。
 
 ## 前提
 
@@ -26,7 +26,7 @@ generated: false
 {
   "browser": {
     "enabled": true,
-    "headless": false,
+    "headless": true,
     "idleTimeoutMs": 600000,
     "storageStatePath": "~/.volto/browser/auth.json"
   }
@@ -52,7 +52,7 @@ generated: false
 ## 出问题怎么办
 
 - **工具列表里没有 browser_*：** 网关启动日志会写“browser tools disabled”。先装 Chromium，或配置 `browser.executablePath` 指向现有 Chrome，然后重启网关。
-- **Linux/容器里启动失败：** 设 `"headless": true`，或提供 `DISPLAY`；默认是带头窗口的。
+- **Linux/容器里启动失败：** 不要显式写 `"headless": false`（它会强制带头并失败）；删掉该字段，或设 `true`，或提供 `DISPLAY`。
 - **导航被拒绝：** 顶层导航受出口名单约束；检查目标主机是否在 deny 列表，或允许列表是否漏了它（见[网络出口名单](network-egress.md)）。点击触发的拒绝会落到浏览器错误页。
 - **ref 失效：** 页面变化后旧 ref 不可用，让 Agent 重新 `browser_snapshot`；不要让它猜 CSS 选择器。
 
