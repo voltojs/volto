@@ -63,12 +63,16 @@ verified: 2026-11-11
 
 1. 启动时打印一条警告，明确写出现在用哪个目录存新会话、哪个库文件不再被读取；
 2. 改用 `~/.volto/sessions-store/` 下的文件存储，会话照常可用；
-3. `volto doctor` 的 `sqlite` 一行显示 `file (fallback)`。
+3. `volto doctor` 的 `sqlite` 一行显示 `warn (file (fallback: module missing))`。
 
-原来的 `sessions.db` 原样躺在磁盘上，装好原生模块后再次启动就会重新被读取。如果你确知当前环境的 sqlite 不能用，可以设 `VOLTO_SESSION_STORE=file` 显式使用文件存储，`doctor` 会显示 `file (forced)`。
+如果驱动装好了、但库文件本身打不开（权限、被占用、文件损坏），同样改用文件存储，但 `doctor` 显示的是
+`warn (file (fallback: db unusable))`，警告里会写明**这个库确实存在、只是没被读取**，并带上底层错误码。
+两种情况都不会删除或改写 `sessions.db`。
+
+原来的 `sessions.db` 原样躺在磁盘上，问题修好后再启动就会重新被读取。`doctor` 正常时这一行是 `sqlite: ok (sqlite (primary))`。如果你确知当前环境的 sqlite 不能用，可以设 `VOLTO_SESSION_STORE=file` 显式使用文件存储，`doctor` 会显示 `file (forced)`。
 
 ## 出问题怎么办
 
-- **会话列表里少了一段** → 检查是不是换了工作区目录（列表按工作区分组）；或者 `volto doctor` 的 `sqlite` 一行是不是 `file (fallback)`——那表示旧会话还在 `sessions.db` 里，只是当前进程没读它。
+- **会话列表里少了一段** → 检查是不是换了工作区目录（列表按工作区分组）；或者 `volto doctor` 的 `sqlite` 一行是不是 `file (fallback: …)`——那表示旧会话还在 `sessions.db` 里，只是当前进程没读它。
 - **点开会话报读不了**（接口返回 410，提示该会话由更早的版本写入）→ 当前构建读不了它；用能读它的版本导出后重开。
 - **附件不见了** → 会话被删过，附件随之清理。附件不跨会话复用。

@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { expect, it, vi } from "vitest";
@@ -291,7 +291,7 @@ it("doctor 每项检查独立成行，全部通过时退出 0", async () => {
     expect(text).toMatch(/^sandbox backend: /m);
     expect(text).toMatch(/^sandbox binary: /m);
     expect(text).toMatch(/^config dir: ok /m);
-    expect(text).toMatch(/^sqlite: /m);
+    expect(text).toMatch(/^sqlite: (ok|warn) \(/m);
     expect(text).toMatch(/^port: /m);
     // Every check reports one status word, so a bare "ok" line means a check
     // silently dropped out.
@@ -321,6 +321,62 @@ it("doctor 在 VOLTO_SESSION_STORE=file 时报 file (forced)，且不改动 sess
     expect(out.join("")).toMatch(/^sqlite: ok \(file \(forced\)\)$/m);
     // The escape hatch picks the file store; it does not create the database.
     await expect(stat(path.join(dir, "db", "sessions.db"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+/**
+ * `doctor` with a database the driver cannot open: a plain file at
+ * `db/sessions.db` is not a database, so the real store throws
+ * `file is not a database`. Nothing is injected — this exercises the same
+ * classification and wording the server would print.
+ */
+it("doctor 把「库打不开」报成 warn (file (fallback: db unusable))，警告只打一次且不判死", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    await mkdir(path.join(dir, "db"), { recursive: true });
+    await writeFile(path.join(dir, "db", "sessions.db"), "not a sqlite database", "utf-8");
+    const before = await stat(path.join(dir, "db", "sessions.db"));
+
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await main(["doctor", "--port", "0", "--config-dir", dir], {
+      stdout: (s) => out.push(s),
+      stderr: (s) => err.push(s),
+    });
+
+    // Not a hard failure: the gateway would start on the file store.
+    const hardFailure = /^(sandbox backend|sandbox binary): fail /m.test(out.join(""));
+    expect(code).toBe(hardFailure ? 1 : 0);
+    expect(out.join("")).toMatch(
+      /^sqlite: warn \(file \(fallback: db unusable\)\)$/m,
+    );
+    // The long explanation appears exactly once, on stderr, after the table.
+    const warning = err.join("");
+    expect(warning.match(/volto: WARNING/g)).toHaveLength(1);
+    expect(warning).toContain(path.join(dir, "db", "sessions.db"));
+    expect(warning).toContain("EXISTS but cannot be opened");
+    expect(warning).toContain("NOT being read");
+    // And the database itself is untouched.
+    const after = await stat(path.join(dir, "db", "sessions.db"));
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(await readFile(path.join(dir, "db", "sessions.db"), "utf-8")).toBe("not a sqlite database");
+  });
+});
+
+it("doctor 在 sqlite 正常时只报 sqlite (primary)，不打任何警告", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await main(["doctor", "--port", "0", "--config-dir", dir], {
+      stdout: (s) => out.push(s),
+      stderr: (s) => err.push(s),
+    });
+
+    const hardFailure = /^(sandbox backend|sandbox binary): fail /m.test(out.join(""));
+    expect(code).toBe(hardFailure ? 1 : 0);
+    expect(out.join("")).toMatch(/^sqlite: ok \(sqlite \(primary\)\)$/m);
+    expect(err.join("")).not.toContain("volto: WARNING");
   });
 });
 

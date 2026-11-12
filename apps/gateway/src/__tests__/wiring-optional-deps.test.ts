@@ -96,7 +96,9 @@ describe("wiring degradation when optional capabilities are missing", () => {
     });
     try {
       expect(agent.sessionStoreSelection.kind).toBe("file");
-      expect(agent.sessionStoreSelection.reason).toBe("fallback");
+      // R25: a missing native module is its own class, distinct from a
+      // database that exists but will not open.
+      expect(agent.sessionStoreSelection.reason).toBe("module-missing");
       await agent.run("hi");
     } finally {
       await agent.dispose();
