@@ -6,6 +6,16 @@
  */
 
 export type { BrowserAdapter } from "./browser-adapter.js";
+export type {
+  ActionOutcome,
+  BrowserState,
+  DiagnosticsOutcome,
+  FormatSnapshotOptions,
+  SnapshotNode,
+  SnapshotOutcome,
+  StorageStateOutcome,
+} from "./snapshot.js";
+export { formatSnapshot, SNAPSHOT_SCRIPT } from "./snapshot.js";
 export { CAP_BROWSER_CONTROL } from "./browser-adapter.js";
 export {
   createBrowserNavigateTool,
