@@ -90,6 +90,15 @@ describe("ToolsPanel browser settings", () => {
     );
   });
 
+  it("shows a configured custom path as the selected custom option", async () => {
+    stubBrowserApi({ ...VIEW, configuredPath: "/opt/chrome", resolvedPath: "/opt/chrome", browsers: [] });
+    render(<ToolsPanel />);
+    await screen.findByText("网关系统：macOS");
+    expect(screen.getByRole("combobox")).toHaveTextContent("自定义路径");
+    expect(screen.getByLabelText("浏览器可执行文件路径")).toHaveValue("/opt/chrome");
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
   it("saves null when auto-detect is selected", async () => {
     const calls = stubBrowserApi({ ...VIEW, configuredPath: CHROME });
     const user = userEvent.setup();
