@@ -50,7 +50,7 @@ cloudflared tunnel --url http://127.0.0.1:3100
 https://<随机词>.trycloudflare.com/?token=<volto token>
 ```
 
-token 怎么来见下文「换 token 与登录」。临时域名每次重启 `cloudflared` 都会变；要固定域名得用你自己的 Cloudflare 账号建命名隧道。
+token 怎么来见下文「换 token 与登录」（它应当被当作一次性凭据，并且假定会留在隧道的请求日志里）。临时域名每次重启 `cloudflared` 都会变；要固定域名得用你自己的 Cloudflare 账号建命名隧道。
 
 **tailscale serve**（设备本来就在你的 tailnet 里，最省事）：
 
@@ -147,7 +147,12 @@ npx @volto/gateway token
 
 你应看到两行：token 本身，然后一条 `Open: http://<地址>/?token=<token>` 的登录链接。**把里面的地址换成你的隧道域名**再打开就能登录。
 
-登录成功后 token 会被换成 cookie（7 天内有效），地址栏回到干净的 `/`。
+登录成功后 token 会被换成 cookie（7 天内有效），地址栏回到干净的那个页面——地址里的 `token=` 被去掉，其它参数原样保留。
+
+`?token=` 这种写法有两条要记住：
+
+- **一次性**：只在浏览器打开页面（一次地址栏导航）时起作用，换成 cookie 后同一个链接不必再用。已经登录的浏览器再打开带 token 的地址，会被重定向到去掉 `token` 的同一页面，不会换取新 cookie。
+- **应当假定它进了隧道的请求日志**：URL 就是请求的一部分，cloudflared / ngrok / Caddy 这些进程通常会把完整 URL 记进自己的日志。因此这个链接要和密码一样对待——**不要让它在别人的终端、聊天记录、工单里出现**。日常登录用 `volto token` 打的 `Login:` 链接，或者干脆用已经登录的浏览器；怀疑日志泄露就 `volto token --rotate` 换一个新的。
 
 怀疑 token 泄露了就换掉：
 
