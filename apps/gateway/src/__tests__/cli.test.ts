@@ -1,0 +1,303 @@
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { expect, it, vi } from "vitest";
+import { main, type CliDeps } from "../cli.js";
+import { loadOrCreateAccessToken, tokenFingerprint } from "../auth/access-token.js";
+import type { HeadlessServer, ServerOptions } from "../server.js";
+
+it("volto token 打印访问令牌", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  const out: string[] = [];
+  const code = await main(["token"], { configDir: dir, stdout: (s) => out.push(s) });
+  expect(code).toBe(0);
+  expect(out.join("")).toMatch(/[A-Za-z0-9_-]{43}/);
+});
+
+it("未知子命令返回 2", async () => {
+  expect(await main(["nope"], { stdout: () => {} })).toBe(2);
+});
+
+it("access token 稳定且指纹固定长度", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  const a = await loadOrCreateAccessToken(dir);
+  expect(await loadOrCreateAccessToken(dir)).toBe(a);
+  expect(tokenFingerprint(a)).toHaveLength(16);
+});
+
+/** Restores the process-wide config dir after a case touches it. */
+async function withEnvRestored(fn: () => Promise<void>): Promise<void> {
+  const previous = process.env["VOLTO_CONFIG_DIR"];
+  try {
+    await fn();
+  } finally {
+    if (previous === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+    else process.env["VOLTO_CONFIG_DIR"] = previous;
+  }
+}
+
+it("volto token 只打印令牌与登录 URL 两行，且令牌跨调用稳定", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  const out: string[] = [];
+  expect(await main(["token"], { configDir: dir, stdout: (s) => out.push(s) })).toBe(0);
+  expect(await main(["token"], { configDir: dir, stdout: (s) => out.push(s) })).toBe(0);
+
+  // Exactly two lines per invocation — no banner, no fingerprint, no advice.
+  expect(out.join("").match(/\n/g)).toHaveLength(4);
+  const lines = out.join("").split("\n").filter((line) => line !== "");
+  expect(lines).toHaveLength(4); // two invocations × two lines
+
+  const [token, open] = lines;
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(open).toBe(`Open: http://127.0.0.1:3100/?token=${token}`);
+  expect(lines[2]).toBe(token);
+  expect(lines[3]).toBe(open);
+
+  // R6: the printed token is the one persisted for this config dir.
+  expect((await readFile(path.join(dir, "access-token"), "utf-8")).trim()).toBe(token);
+});
+
+it("access token 文件权限是 0600，损坏则重写", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  const token = await loadOrCreateAccessToken(dir);
+  const file = path.join(dir, "access-token");
+  expect((await stat(file)).mode & 0o777).toBe(0o600);
+
+  await writeFile(file, "not-a-token");
+  await chmod(file, 0o644);
+  const rewritten = await loadOrCreateAccessToken(dir);
+  expect(rewritten).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(rewritten).not.toBe("not-a-token");
+  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  expect(token).not.toBe(rewritten);
+});
+
+it("token --rotate 换新令牌并让指纹随之改变", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  const before = await loadOrCreateAccessToken(dir);
+  const out: string[] = [];
+  expect(await main(["token", "--rotate"], { configDir: dir, stdout: (s) => out.push(s) })).toBe(0);
+
+  const after = await loadOrCreateAccessToken(dir);
+  expect(after).not.toBe(before);
+  expect(out.join("")).toContain(`Open: http://127.0.0.1:3100/?token=${after}`);
+  expect(tokenFingerprint(after)).not.toBe(tokenFingerprint(before));
+});
+
+it("未知子命令在 stderr 打印用法并以 2 退出", async () => {
+  const errors: string[] = [];
+  expect(await main(["nope"], { stdout: () => {}, stderr: (s) => errors.push(s) })).toBe(2);
+  expect(errors.join("")).toContain("Usage: volto");
+  expect(errors.join("")).toContain("Unknown command: nope");
+});
+
+it("非法参数以 2 退出", async () => {
+  expect(await main(["--port", "abc"], { stdout: () => {}, stderr: () => {} })).toBe(2);
+  expect(await main(["--open", "--no-open"], { stdout: () => {}, stderr: () => {} })).toBe(2);
+});
+
+/**
+ * A stand-in for the http.Server createServer returns. `close` resolves
+ * immediately and `address()` reports the port the CLI was asked for, so no
+ * socket is ever bound.
+ */
+function fakeServer(port: number, token = "T".repeat(43)): HeadlessServer {
+  return {
+    authenticatedUrl: `http://127.0.0.1:${port}/?token=${token}`,
+    address: () => ({ address: "127.0.0.1", family: "IPv4", port }),
+    // Already listening: the CLI must not rely on an event the real server
+    // fires later, but it must cope when a stub reports it up front too.
+    listening: true,
+    once: () => undefined,
+    close: (cb?: () => void) => {
+      cb?.();
+      return undefined as never;
+    },
+  } as unknown as HeadlessServer;
+}
+
+it("默认命令把解析后的选项交给 startServer 并打印两行启动信息", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    const opened: string[] = [];
+    const seen: ServerOptions[] = [];
+    const startServer = async (opts: ServerOptions) => {
+      seen.push(opts);
+      return fakeServer(opts.port ?? 0);
+    };
+
+    let waited = 0;
+    const code = await main(["--port", "0", "--config-dir", dir], {
+      startServer,
+      stdout: (s) => out.push(s),
+      openBrowser: (url) => opened.push(url),
+      waitForShutdown: async () => {
+        waited += 1;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ port: 0, host: "127.0.0.1" });
+    expect(waited).toBe(1);
+    expect(process.env["VOLTO_CONFIG_DIR"]).toBe(dir);
+
+    const lines = out.join("").split("\n").filter((line) => line !== "");
+    expect(lines[0]).toMatch(/^volto gateway \d+\.\d+\.\d+ listening on http:\/\/127\.0\.0\.1:\d+$/);
+    expect(lines[1]).toBe(`Open: http://127.0.0.1:0/?token=${"T".repeat(43)}`);
+    // Local mode opens the browser with the authenticated URL.
+    expect(opened).toEqual([`http://127.0.0.1:0/?token=${"T".repeat(43)}`]);
+  });
+});
+
+it("端口尚未绑定完成时等 listening 再打印（--port 0 的真实端口）", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    // createServer returns before listen completes: address() is null and the
+    // real port arrives with the `listening` event.
+    let listening = false;
+    let bound: { type: "listening"; cb: () => void } | undefined;
+    const late = {
+      authenticatedUrl: `http://127.0.0.1:0/?token=${"T".repeat(43)}`,
+      address: () => (listening ? { address: "127.0.0.1", family: "IPv4", port: 54321 } : null),
+      get listening() {
+        return listening;
+      },
+      once: (event: string, cb: () => void) => {
+        if (event === "listening") bound = { type: "listening", cb };
+        return undefined;
+      },
+      close: (cb?: () => void) => {
+        cb?.();
+        return undefined as never;
+      },
+    } as unknown as HeadlessServer;
+
+    const running = main(["--port", "0", "--no-open", "--config-dir", dir], {
+      startServer: async () => late,
+      stdout: (s) => out.push(s),
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+
+    // Let main reach the wait, then fire the event the real server fires.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(out).toEqual([]);
+    listening = true;
+    bound?.cb();
+    expect(await running).toBe(0);
+
+    const text = out.join("");
+    expect(text).toContain("listening on http://127.0.0.1:54321\n");
+    expect(text).toContain("Open: http://127.0.0.1:54321/?token=");
+  });
+});
+
+it("默认命令让 createServer 不再自行打印启动日志", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: ServerOptions[] = [];
+    const code = await main(["--no-open", "--config-dir", dir], {
+      startServer: async (opts) => {
+        seen.push(opts);
+        return fakeServer(opts.port ?? 0);
+      },
+      stdout: () => {},
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+    expect(code).toBe(0);
+    // Silent sink: the CLI prints the two lines, and the authenticated URL
+    // must not be duplicated (or leak) through the server's own logging.
+    expect(seen[0]?.log?.("x")).toBeUndefined();
+  });
+});
+
+it("--no-open 不打开浏览器，--host/--web-dir 透传", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const opened: string[] = [];
+    const seen: ServerOptions[] = [];
+    const code = await main(
+      ["--port", "3210", "--host", "localhost", "--web-dir", "/tmp/volto-web", "--no-open", "--config-dir", dir],
+      {
+        startServer: async (opts) => {
+          seen.push(opts);
+          return fakeServer(opts.port ?? 0);
+        },
+        stdout: () => {},
+        openBrowser: (url) => opened.push(url),
+        waitForShutdown: async () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(seen[0]).toMatchObject({ port: 3210, host: "localhost", webRoot: "/tmp/volto-web" });
+    expect(opened).toEqual([]);
+  });
+});
+
+it("非 loopback 绑定未加 --serve-remote 时拒绝启动", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const errors: string[] = [];
+    const startServer = vi.fn();
+    const code = await main(["--host", "0.0.0.0", "--config-dir", dir], {
+      startServer: startServer as unknown as CliDeps["startServer"],
+      stdout: () => {},
+      stderr: (s) => errors.push(s),
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+
+    expect(code).toBe(1);
+    expect(startServer).not.toHaveBeenCalled();
+    expect(errors.join("")).toContain("--serve-remote");
+  });
+});
+
+it("startServer 抛错时以 1 退出并把消息写到 stderr", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const errors: string[] = [];
+    const code = await main(["--config-dir", dir], {
+      startServer: async () => {
+        throw new Error("EADDRINUSE: port 3100 in use");
+      },
+      stdout: () => {},
+      stderr: (s) => errors.push(s),
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+    expect(code).toBe(1);
+    expect(errors.join("")).toContain("EADDRINUSE");
+  });
+});
+
+it("doctor 每项检查独立成行，全部通过时退出 0", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    const code = await main(["doctor", "--port", "0", "--config-dir", dir], {
+      stdout: (s) => out.push(s),
+    });
+
+    const text = out.join("");
+    expect(text).toMatch(/^node version: /m);
+    expect(text).toMatch(/^sandbox backend: /m);
+    expect(text).toMatch(/^sandbox binary: /m);
+    expect(text).toMatch(/^config dir: ok /m);
+    expect(text).toMatch(/^sqlite: /m);
+    expect(text).toMatch(/^port: /m);
+    // Every check reports one status word, so a bare "ok" line means a check
+    // silently dropped out.
+    for (const line of text.split("\n").filter((l) => l !== "")) {
+      expect(line).toMatch(/^[a-z ]+: (ok|warn|fail) \(/);
+    }
+    // A hard failure (no sandbox backend/binary) is the only reason to exit 1.
+    const hardFailure = /^(sandbox backend|sandbox binary): fail /m.test(text);
+    expect(code).toBe(hardFailure ? 1 : 0);
+  });
+});

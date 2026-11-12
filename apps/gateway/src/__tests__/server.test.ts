@@ -168,23 +168,31 @@ interface ProtocolFrame {
   data: unknown;
 }
 
-/** Parse the SSE wire format into frames, ignoring incomplete trailing data. */
+/**
+ * Parse the SSE wire format into frames, ignoring incomplete trailing data.
+ *
+ * A chunk boundary can split a frame's JSON payload; the collector reparses
+ * the whole buffer on every chunk, so a partial frame must be skipped rather
+ * than thrown on — an uncaught SyntaxError here fails an unrelated test.
+ */
 function parseFrames(raw: string): ProtocolFrame[] {
-  return raw
-    .split("\n\n")
-    .filter((block) => block.includes("event: "))
-    .map((block) => {
-      const frame: Record<string, string> = {};
-      for (const line of block.split("\n")) {
-        const idx = line.indexOf(": ");
-        if (idx > 0) frame[line.slice(0, idx)] = line.slice(idx + 2);
-      }
-      return {
-        id: frame["id"] ?? "",
-        event: frame["event"] ?? "",
-        data: JSON.parse(frame["data"] ?? "null"),
-      };
-    });
+  const frames: ProtocolFrame[] = [];
+  for (const block of raw.split("\n\n")) {
+    if (!block.includes("event: ")) continue;
+    const frame: Record<string, string> = {};
+    for (const line of block.split("\n")) {
+      const idx = line.indexOf(": ");
+      if (idx > 0) frame[line.slice(0, idx)] = line.slice(idx + 2);
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(frame["data"] ?? "null") as unknown;
+    } catch {
+      continue;
+    }
+    frames.push({ id: frame["id"] ?? "", event: frame["event"] ?? "", data });
+  }
+  return frames;
 }
 
 /**

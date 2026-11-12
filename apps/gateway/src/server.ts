@@ -195,6 +195,12 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
    */
   webRoot?: string;
   /**
+   * Startup log sink. Defaults to `console.log`; the CLI passes a no-op and
+   * prints its own lines, so `volto` output stays exactly what it promises
+   * (and the authenticated URL never lands in a stream it did not choose).
+   */
+  log?: (message: string) => void;
+  /**
    * Overridable agent constructor for the legacy shared (no-sessionId) agent
    * below — production uses createWiredAgent. Mirrors the same seam
    * sessions.ts exposes for per-session agents, so tests can observe how
@@ -598,7 +604,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // scopeToWorkspace() inside sessions.ts's rebuild().
   // `webRoot` is this layer's own option (the static host below), not a wiring
   // one: it must not travel into createWiredAgent / createSessionRegistry.
-  const { chatStore: _rawChatStore, agentFactory, pluginAgents = [], webRoot, ...agentOpts } = opts;
+  // `log` is read below by the listen callback; destructure it here too so it
+  // never travels into createWiredAgent through `agentOpts`.
+  const { chatStore: _rawChatStore, agentFactory, pluginAgents = [], webRoot, log: _log, ...agentOpts } = opts;
   const buildAgent = agentFactory ?? createWiredAgent;
   // This construction site has no sessionId, so it can never reach a
   // permissionMode default resolved per-session (sessions.ts's EMPTY_CONFIG)
@@ -2870,13 +2878,17 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // Configured-port URL for the return value. The listen callback re-derives
   // the real port (relevant when port: 0 asked the OS to pick one).
   const authenticatedUrl = auth.authenticatedUrl(`http://${host}:${port}`);
+  // A host that prints its own startup lines (the CLI) passes a silent one, so
+  // its output is exactly the lines it promises — no duplicates, and no
+  // password in a log line it never chose to write.
+  const log = _log ?? ((message: string) => console.log(message));
 
   httpServer.listen(port, host, () => {
     const addr = httpServer.address();
     const actualPort = typeof addr === "object" && addr !== null ? addr.port : port;
     const url = auth.authenticatedUrl(`http://${host}:${actualPort}`);
-    console.log(`Headless server listening on http://${host}:${actualPort}`);
-    console.log(`Open this URL to authenticate: ${url}`);
+    log(`Headless server listening on http://${host}:${actualPort}`);
+    log(`Open this URL to authenticate: ${url}`);
     // When a concrete web origin is configured (the common dev setup — the
     // web app rewrites /gateway/* to this gateway), also print the proxied
     // token URL so the browser lands on the UI's own origin and the cookie
@@ -2884,7 +2896,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (corsOrigin !== "*" && /^https?:\/\//.test(corsOrigin)) {
       const webUrl = new URL("/gateway", corsOrigin);
       webUrl.searchParams.set("token", auth.launchToken);
-      console.log(`Or open the web app URL: ${webUrl.toString()}`);
+      log(`Or open the web app URL: ${webUrl.toString()}`);
     }
 
     // Best-effort orphan reclaim on startup. Failures must never block or
@@ -2900,7 +2912,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
           liveSessionIds,
         });
         if (removed.length > 0) {
-          console.log(`Reclaimed ${removed.length} orphaned attachment dir(s): ${removed.join(", ")}`);
+          log(`Reclaimed ${removed.length} orphaned attachment dir(s): ${removed.join(", ")}`);
         }
       } catch (err: unknown) {
         console.warn(

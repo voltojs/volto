@@ -97,23 +97,32 @@ export interface TestServer {
   close: () => Promise<void>;
 }
 
-/** Parse the SSE wire format into frames, ignoring incomplete trailing data. */
+/**
+ * Parse the SSE wire format into frames, ignoring incomplete trailing data.
+ *
+ * A chunk boundary can fall inside a frame's JSON payload, and `absorb` below
+ * reparses the whole buffer on every chunk — so a partial frame must be
+ * skipped, never parsed. Throwing here escaped the socket's `data` handler as
+ * an uncaught exception that killed whichever test the worker was running.
+ */
 function parseFrames(raw: string): EventFrame[] {
-  return raw
-    .split("\n\n")
-    .filter((block) => block.includes("event: "))
-    .map((block) => {
-      const frame: Record<string, string> = {};
-      for (const line of block.split("\n")) {
-        const idx = line.indexOf(": ");
-        if (idx > 0) frame[line.slice(0, idx)] = line.slice(idx + 2);
-      }
-      return {
-        id: frame["id"] ?? "",
-        event: frame["event"] ?? "",
-        data: JSON.parse(frame["data"] ?? "null") as unknown,
-      };
-    });
+  const frames: EventFrame[] = [];
+  for (const block of raw.split("\n\n")) {
+    if (!block.includes("event: ")) continue;
+    const frame: Record<string, string> = {};
+    for (const line of block.split("\n")) {
+      const idx = line.indexOf(": ");
+      if (idx > 0) frame[line.slice(0, idx)] = line.slice(idx + 2);
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(frame["data"] ?? "null") as unknown;
+    } catch {
+      continue;
+    }
+    frames.push({ id: frame["id"] ?? "", event: frame["event"] ?? "", data });
+  }
+  return frames;
 }
 
 /** Payload shape of an `event` frame: a stamped TranscriptEventInput. */
