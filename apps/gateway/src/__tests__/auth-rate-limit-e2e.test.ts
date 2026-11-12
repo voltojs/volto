@@ -22,6 +22,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { WebSocket } from "ws";
 import type { ModelPort } from "@volto/core";
 import { createServer, type ServerOptions } from "../server.js";
 import { cookieAttributesFor } from "../auth/middleware.js";
@@ -326,6 +327,33 @@ describe("rate limiter is injectable end to end", () => {
       expect((await failAuth(s.port)).status).toBe(429);
       // …and the bucket is keyed by the socket address, as the default is.
       expect(rl.check("127.0.0.1").allowed).toBe(false);
+    } finally {
+      await s.close();
+    }
+  });
+});
+describe("the WS upgrade is the same guess channel", () => {
+  it("counts failed upgrades and answers 429 once over the limit", async () => {
+    // Without this a client would simply move its guessing to /ws, which does
+    // not go through the HTTP guard at all.
+    const s = await start({ rateLimit: { limit: 2 } });
+    try {
+      const attempt = (): Promise<number> =>
+        new Promise<number>((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws?message=hi`);
+          ws.on("open", () => {
+            ws.close();
+            resolve(101);
+          });
+          // `ws` reports a refused handshake here rather than as an error.
+          ws.on("unexpected-response", (_req, res) => {
+            resolve(res.statusCode ?? 0);
+          });
+          ws.on("error", () => resolve(-1));
+        });
+      expect(await attempt()).toBe(401);
+      expect(await attempt()).toBe(401);
+      expect(await attempt()).toBe(429);
     } finally {
       await s.close();
     }

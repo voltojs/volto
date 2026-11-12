@@ -963,7 +963,6 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       return;
     }
 
-
     /** Map a BodyTooLargeError to 413. Returns true when handled. */
     function respondBodyError(err: unknown): boolean {
       if (err instanceof BodyTooLargeError) {
@@ -2987,18 +2986,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // any status code and leaks nothing useful either way.
     //
     // The limiter applies here too, or a WS upgrade would be an unlimited
-    // guess channel straight past it. Same rule as HTTP: only failures count,
-    // success clears, a cooling-down address is refused before verification.
+    // guess channel straight past it. Same rule and same ORDER as the HTTP
+    // guard (middleware.ts): read the cooldown verdict, verify, count a
+    // failure, and only then answer 429 — so a valid credential still works
+    // from a cooling-down address instead of being locked out by it.
     const wsIp = resolveClientIp(req, { trustProxy });
     const wsVerdict = rateLimiter.check(wsIp);
-    if (!wsVerdict.allowed) {
-      const retryAfter = Math.max(1, Math.ceil(wsVerdict.retryAfterMs / 1000));
-      socket.write(
-        `HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${retryAfter}\r\nConnection: close\r\n\r\n`,
-      );
-      socket.destroy();
-      return;
-    }
     let authorized: boolean;
     try {
       authorized = isAuthorized(await auth.authorize(req));
@@ -3008,6 +3001,14 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     }
     if (!authorized) {
       rateLimiter.recordFailure(wsIp);
+      if (!wsVerdict.allowed) {
+        const retryAfter = Math.max(1, Math.ceil(wsVerdict.retryAfterMs / 1000));
+        socket.write(
+          `HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${retryAfter}\r\nConnection: close\r\n\r\n`,
+        );
+        socket.destroy();
+        return;
+      }
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
