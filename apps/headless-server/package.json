@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
@@ -11,6 +16,17 @@
     "test": "vitest run",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
     "@volto/core": "workspace:*",

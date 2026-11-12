@@ -15,11 +15,26 @@
       "import": "./dist/testing/store-contract.js"
     }
   },
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "lint": "node ../../scripts/check-core-zero-deps.mjs && eslint src/",
     "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {},
   "peerDependencies": {},

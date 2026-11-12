@@ -6,6 +6,21 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
   "scripts": { "build": "tsc --build", "typecheck": "tsc --noEmit", "lint": "eslint src/", "test": "vitest run" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
+  },
   "dependencies": { "@volto/core": "workspace:*", "@volto/tools-common": "workspace:*", "zod": "^4.4.3" }
 }
