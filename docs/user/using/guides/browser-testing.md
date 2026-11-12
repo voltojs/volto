@@ -48,7 +48,7 @@ generated: false
 1. **先把 dev server 起起来。** 在对话里告诉 Agent 端口，或让它自己用 `bash` 启动。它应先用 `browser_navigate` 打开页面，而不是直接猜接口。
 2. **让 Agent 先读页面再操作。** 它应调用 `browser_snapshot` 拿到元素 ref，再用 `browser_click` / `browser_type` 操作；每次动作后工具会回一份新快照。你可以要求它“先说看到哪些元素，再点”。
 3. **失败时先看诊断。** 页面没反应、按钮没生效时，让它调用 `browser_diagnostics`：`kind: "console"` 看 JS 报错，`kind: "network"` 看失败或 4xx/5xx 请求。诊断不含响应体。
-4. **需要视觉证据时截图。** `browser_screenshot` 返回 PNG；截图会作为工具结果出现在对话轨迹里；点缩略图可弹窗看大图，支持滚轮/按钮缩放和下载。当前模型不支持图片输入时，它会提示改用 `browser_snapshot { textOnly: true }`。
+4. **需要视觉证据时截图。** `browser_screenshot` 返回 PNG；截图会作为工具结果出现在对话轨迹里；点缩略图会在半透明全屏遮罩上打开大图，支持滚轮/按钮缩放、按住左键拖动和下载。当前模型不支持图片输入时，它会提示改用 `browser_snapshot { textOnly: true }`。
 5. **可重复的流程写成测试。** 探索用浏览器工具；回归让 Agent 写 Playwright 测试并用 `bash` 跑 `pnpm exec playwright test`。不要把同一套手点流程当成长期测试。
 6. **复用登录态。** 让 Agent 在页面里完成一次测试账号登录，然后调用 `browser_storage_state { action: "save" }`；cookie/localStorage 会写到 `storageStatePath`，后续会话的浏览器会自动加载。
 

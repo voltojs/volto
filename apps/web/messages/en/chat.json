@@ -94,7 +94,8 @@
     "removeAttachment": "Remove attachment",
     "retryUpload": "Retry upload",
     "imageUnavailable": "Image unavailable",
-    "imageBlock": "[image]"
+    "imageBlock": "[image]",
+    "close": "Close"
   },
   "status": {
     "loadingSession": "Loading session…"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolCallCard } from "../ToolCallCard";
 
@@ -50,6 +50,18 @@ describe("ToolCallCard result images", () => {
 
     fireEvent.wheel(screen.getByTestId("image-lightbox-viewport"), { deltaY: -100 });
     expect(await within(dialog).findByText("125%")).toBeInTheDocument();
+
+    const viewport = screen.getByTestId("image-lightbox-viewport");
+    const image = within(dialog).getByRole("img", { name: "截图" });
+    fireEvent.pointerDown(viewport, { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 140, clientY: 130 });
+    fireEvent.pointerUp(viewport, { pointerId: 1, clientX: 140, clientY: 130 });
+    await waitFor(() =>
+      expect(image).toHaveStyle({ transform: "translate3d(40px, 30px, 0) scale(1.25)" }),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("degrades to a named placeholder without a session", () => {

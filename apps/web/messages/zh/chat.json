@@ -94,7 +94,8 @@
     "removeAttachment": "移除附件",
     "retryUpload": "重试上传",
     "imageUnavailable": "图片已不可用",
-    "imageBlock": "[image]"
+    "imageBlock": "[image]",
+    "close": "关闭"
   },
   "status": {
     "loadingSession": "加载会话…"
