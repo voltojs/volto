@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { detectBackend, probeBinary } from "@volto/runtime-node";
-import { loadOrCreateAccessToken, rotateAccessToken, tokenFingerprint } from "./auth/access-token.js";
+import { loadAccessToken, loadOrCreateAccessToken, rotateAccessToken, tokenFingerprint } from "./auth/access-token.js";
 import { getConfigDir } from "./config/paths.js";
 import {
   describeSessionStoreKind,
@@ -711,8 +711,21 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   // proxy forwards `/?token=…` untouched, the gateway answers 302 with a
   // Set-Cookie, and the cookie is stored on the web app's own origin — the
   // origin every later API call through the proxy is sent from.
-  const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
+  const configDir = resolveConfigDir(opts, deps);
+  const { token, created } = await loadAccessToken(configDir);
   out(`Login: http://${shownHost}:${port}/?token=${token}\n`);
+  // A token minted HERE is a credential for this process's config directory
+  // only. The gateway on the other end of `--gateway` reads its own (usually
+  // `~/.volto`), so the line just printed would 401 with nothing explaining
+  // why. stdout stays the three-line contract; the diagnosis goes to stderr.
+  if (created) {
+    deps.stderr(
+      `A new access token was created in ${configDir}. Until the gateway accepts a token from THIS ` +
+        `directory, the Login: line above will be refused — it only works if the gateway runs with ` +
+        `--config-dir ${configDir}. If it does not, run \`volto token\` in the terminal that started ` +
+        "the gateway and open the link it prints.\n",
+    );
+  }
 
   await deps.waitForShutdown();
   await new Promise<void>((resolve) => server.close(() => resolve()));

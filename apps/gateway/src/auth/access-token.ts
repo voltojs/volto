@@ -67,11 +67,26 @@ async function writeToken(dir: string, token: string): Promise<void> {
 }
 
 /**
- * Read the token for `dir`, creating it on first use. A file whose contents do
- * not decode to a 43-character base64url token is treated as corrupt and
- * rewritten rather than handed to a caller that would then fail to match it.
+ * What `loadAccessToken` found: the token, and whether THIS call created it.
+ *
+ * `created` is not a detail: a token is per config directory, so a caller that
+ * minted one holds a credential for a gateway that may be reading a DIFFERENT
+ * directory — the login URL it prints from such a token cannot work anywhere
+ * else, and the caller must be able to say so.
  */
-export async function loadOrCreateAccessToken(dir: string): Promise<string> {
+export interface LoadedAccessToken {
+  token: string;
+  created: boolean;
+}
+
+/**
+ * Read the token for `dir`, creating it on first use, and report whether it
+ * was created. A file whose contents do not decode to a 43-character base64url
+ * token is treated as corrupt and rewritten (which counts as created: the
+ * value on disk before was unusable) rather than handed to a caller that would
+ * then fail to match it.
+ */
+export async function loadAccessToken(dir: string): Promise<LoadedAccessToken> {
   const file = tokenPath(dir);
   let raw: string | null = null;
   try {
@@ -85,7 +100,7 @@ export async function loadOrCreateAccessToken(dir: string): Promise<string> {
     if (existing !== null) {
       // A pre-existing file may predate this code path; keep the 0600 promise.
       await fs.chmod(file, 0o600).catch(() => undefined);
-      return existing;
+      return { token: existing, created: false };
     }
   }
 
@@ -95,13 +110,21 @@ export async function loadOrCreateAccessToken(dir: string): Promise<string> {
   } catch (err) {
     // A concurrent writer won the race and wrote its own token: read that one.
     const raced = parseAccessToken(await fs.readFile(file, "utf-8").catch(() => ""));
-    if (raced !== null) return raced;
+    if (raced !== null) return { token: raced, created: false };
     throw err;
   }
 
   // Report what is actually on disk, so two racing callers agree.
   const stored = parseAccessToken(await fs.readFile(file, "utf-8").catch(() => ""));
-  return stored ?? generated;
+  return { token: stored ?? generated, created: true };
+}
+
+/**
+ * The token alone, for callers that only need the value. Same semantics as
+ * `loadAccessToken` — see it when it matters whether the token is new.
+ */
+export async function loadOrCreateAccessToken(dir: string): Promise<string> {
+  return (await loadAccessToken(dir)).token;
 }
 
 /** Replace the token with a fresh one. Returns the new value. */

@@ -2,10 +2,10 @@ import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promis
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type * as http from "node:http";
 import { bindFailureMessage, main, type CliDeps } from "../cli.js";
-import { loadOrCreateAccessToken, tokenFingerprint } from "../auth/access-token.js";
+import { loadAccessToken, loadOrCreateAccessToken, tokenFingerprint } from "../auth/access-token.js";
 import type { HeadlessServer, ServerOptions } from "../server.js";
 import type { WebServerOptions } from "../web-server.js";
 
@@ -662,6 +662,78 @@ it("volto web 用默认端口/网关/包内 web 目录启动并打印两行", as
     // until Task 12 — the line is informational, not a working login yet.
     expect(lines[2]).toMatch(/^Login: http:\/\/127\.0\.0\.1:6100\/\?token=[A-Za-z0-9_-]{43}$/);
     expect(lines).toHaveLength(3);
+  });
+});
+
+it("access token 的值与是否新建：已有文件不重建，缺失时新建", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  // Missing file: this call creates it, and the next call reads that one.
+  const first = await loadAccessToken(dir);
+  expect(first.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(first.created).toBe(true);
+  const second = await loadAccessToken(dir);
+  expect(second).toEqual({ token: first.token, created: false });
+
+  // A corrupt file is unusable, so replacing it is a creation too.
+  const corruptDir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+  await writeFile(path.join(corruptDir, "access-token"), "not-a-token");
+  const rewritten = await loadAccessToken(corruptDir);
+  expect(rewritten.created).toBe(true);
+  expect(rewritten.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+});
+
+/**
+ * `volto web` prints a `Login:` URL built from the access token in ITS config
+ * directory. When that token is new, the gateway on the other end almost
+ * certainly reads another directory and will refuse the link — so the command
+ * says so, on stderr, before the user spends time on a 401.
+ */
+describe("volto web 的 Login: 令牌归属提示", () => {
+  /** Run `volto web` against a stub server; returns stdout, stderr and the code. */
+  async function runWebIn(dir: string): Promise<{ out: string; err: string; code: number }> {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await main(["web", "--config-dir", dir], {
+      startWeb: async () => fakeWebServer(6100),
+      stdout: (s) => stdout.push(s),
+      stderr: (s) => stderr.push(s),
+      waitForShutdown: async () => {},
+    });
+    return { out: stdout.join(""), err: stderr.join(""), code };
+  }
+
+  it("令牌是本次新建的：stdout 仍是三行，stderr 警告它只对同一个 --config-dir 生效", async () => {
+    await withEnvRestored(async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+      const { out, err, code } = await runWebIn(dir);
+
+      expect(code).toBe(0);
+      const lines = out.split("\n").filter((line) => line !== "");
+      expect(lines).toHaveLength(3);
+      expect(lines[2]).toMatch(/^Login: http:\/\/127\.0\.0\.1:6100\/\?token=[A-Za-z0-9_-]{43}$/);
+
+      // The warning names what was done, the condition, and the way out.
+      expect(err).toContain("A new access token was created");
+      expect(err).toContain(dir);
+      expect(err).toContain(`--config-dir ${dir}`);
+      expect(err).toContain("volto token");
+      // It does not echo stdout's contract line back, nor the token itself.
+      expect(err).not.toMatch(/^Login: /m);
+      expect(err).not.toMatch(/token=[A-Za-z0-9_-]{43}/);
+    });
+  });
+
+  it("令牌已存在：不警告，stdout 的三行不变", async () => {
+    await withEnvRestored(async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+      const existing = await loadOrCreateAccessToken(dir);
+      const { out, err, code } = await runWebIn(dir);
+
+      expect(code).toBe(0);
+      expect(err).toBe("");
+      expect(out).toContain(`Login: http://127.0.0.1:6100/?token=${existing}`);
+      expect(out.split("\n").filter((line) => line !== "")).toHaveLength(3);
+    });
   });
 });
 
