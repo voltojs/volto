@@ -376,6 +376,49 @@ it("带有效令牌访问 / 时转发到网关并拿回 302 + Set-Cookie", async
   expect(cookie).not.toMatch(/domain=/i);
 });
 
+it("已登录时带令牌访问深链接：`volto web` 原样转发网关的去令牌 302", async () => {
+  // The cleanup happens at the gateway (it owns the cookie), and this proxy is
+  // transparent to it: the 302 and its relative Location reach the browser on
+  // the WEB origin, so the address bar is cleaned here too.
+  const webRoot = await webFixture();
+  const seen: string[] = [];
+  const gateway = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    seen.push(`${url.pathname}${url.search}`);
+    if (url.pathname === "/sessions/abc" && req.headers.cookie === "volto_auth=held") {
+      res.writeHead(302, { Location: "/sessions/abc?tab=plan", "Cache-Control": "no-store" });
+      res.end();
+      return;
+    }
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "Unauthorized" }));
+  });
+  const gatewayPort = await listen(gateway);
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`, webRoot);
+
+  const wire = await new Promise<{ status: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+    http
+      .get(
+        {
+          host: "127.0.0.1",
+          port: webPort,
+          path: "/sessions/abc?tab=plan&token=held-token",
+          headers: { cookie: "volto_auth=held", "sec-fetch-mode": "navigate", accept: "text/html" },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers }));
+        },
+      )
+      .on("error", reject);
+  });
+
+  expect(wire.status).toBe(302);
+  expect(wire.headers["location"]).toBe("/sessions/abc?tab=plan");
+  expect(wire.headers["cache-control"]).toBe("no-store");
+  expect(seen).toEqual(["/sessions/abc?tab=plan&token=held-token"]);
+});
+
 it("网关回绝对 Location 指向自己的 origin 时改写为 web origin", async () => {
   const webRoot = await webFixture();
   let gatewayPort = 0;

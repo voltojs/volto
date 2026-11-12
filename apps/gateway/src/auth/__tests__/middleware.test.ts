@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createBrowserAuth, type BrowserAuth } from "../browser-auth.js";
-import { createAuthGuard, isAuthorized } from "../middleware.js";
+import { createAuthGuard, isAuthorized, cookieAttributesFor, tokenFreeTarget } from "../middleware.js";
 import { createAuthRateLimiter } from "../rate-limit.js";
 
 let dir: string;
@@ -84,7 +84,9 @@ describe("createAuthGuard", () => {
   it("exchanges a valid query token for a cookie and a clean redirect", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const { res, state } = mockRes();
-    expect(await guard(reqWith({}, `/?token=${auth.launchToken}`), res)).toBe(false);
+    // A navigation is what a login link is; see the GET/HEAD-only cases below
+    // for what a programmatic call and a POST get instead.
+    expect(await guard(reqWith({ "sec-fetch-mode": "navigate" }, `/?token=${auth.launchToken}`), res)).toBe(false);
     expect(state.status).toBe(302);
     expect(state.headers?.["Location"]).toBe("/");
     expect(String(state.headers?.["Set-Cookie"])).toContain("volto_auth=");
@@ -98,6 +100,196 @@ describe("createAuthGuard", () => {
     await guard(reqWith({ authorization: "Bearer not-the-token" }, "/projects"), invalid.res);
     expect(missing.state.status).toBe(invalid.state.status);
     expect(missing.state.body).toBe(invalid.state.body);
+  });
+});
+
+describe("query token never survives the address bar (GET/HEAD only)", () => {
+  const publicPaths = ["/health"] as const;
+  /** Bind the recording double's accessors to plain locals. */
+  function destructure(recorded: ReturnType<typeof recordingRes>): {
+    res: ServerResponse;
+    status: () => number | undefined;
+    headers: () => Record<string, unknown>;
+  } {
+    return { res: recorded.res, status: recorded.status, headers: recorded.headers };
+  }
+
+  /** A browser document navigation, as Chrome/Safari send it. */
+  const navigate = (extra: Record<string, string> = {}): Record<string, string> => ({
+    "sec-fetch-mode": "navigate",
+    accept: "text/html,application/xhtml+xml",
+    ...extra,
+  });
+
+  /**
+   * A response double that records what was written. `headers` is a getter,
+   * not a snapshot: reading it before the guard ran must not freeze an empty
+   * object into the assertion that follows.
+   */
+  function recordingRes(): {
+    res: ServerResponse;
+    status: () => number | undefined;
+    headers: () => Record<string, unknown>;
+  } {
+    const state: { status?: number; headers: Record<string, unknown> } = { headers: {} };
+    const res = {
+      writeHead(status: number, headers?: Record<string, unknown>) {
+        state.status = status;
+        state.headers = headers ?? {};
+        return res;
+      },
+      end() {
+        return res;
+      },
+    } as unknown as ServerResponse;
+    return { res, status: () => state.status, headers: () => state.headers };
+  }
+
+  /**
+   * Mint a real session cookie through the guard, then return it as a
+   * `Cookie:` header value (`volto_auth=…`). A navigation's redirect carries
+   * the cookie already -- nothing is kept in the browser by this suite.
+   */
+  async function sessionCookie(): Promise<string> {
+    const guard = createAuthGuard(auth, { publicPaths });
+    const exchange = recordingRes();
+    await guard(reqWith(navigate({}), `/?token=${auth.launchToken}`), exchange.res);
+    const header = String(exchange.headers()["Set-Cookie"]);
+    expect(exchange.status()).toBe(302);
+    return header.split(";")[0]!;
+  }
+
+  it("tokenFreeTarget rewrites only the token parameter, keeping the rest verbatim", () => {
+    expect(tokenFreeTarget("/?token=x")).toBe("/");
+    expect(tokenFreeTarget("/?token=x&")).toBe("/");
+    expect(tokenFreeTarget("/sessions/abc?token=x")).toBe("/sessions/abc");
+    expect(tokenFreeTarget("/?a=1&token=x&a=2")).toBe("/?a=1&a=2");
+    expect(tokenFreeTarget("/?next=%2Fsessions%2F1&token=x")).toBe("/?next=%2Fsessions%2F1");
+    // Nothing to remove -> no redirect.
+    expect(tokenFreeTarget("/?a=1")).toBeUndefined();
+    expect(tokenFreeTarget("/")).toBeUndefined();
+  });
+
+  it("an already authenticated navigation carrying ?token= is redirected once to the clean URL", async () => {
+    const guard = createAuthGuard(auth, { publicPaths });
+    const cookie = await sessionCookie();
+    const { res, status, headers } = destructure(recordingRes());
+    // Not a token exchange: the cookie is the credential, the URL is just dirty.
+    expect(await guard(reqWith(navigate({ cookie }), "/?token=stale-in-the-url"), res)).toBe(false);
+    expect(status()).toBe(302);
+    expect(headers()["Location"]).toBe("/");
+    // Nothing is minted: this redirect only cleans the URL.
+    expect(headers()["Set-Cookie"]).toBeUndefined();
+    expect(headers()["Cache-Control"]).toBe("no-store");
+  });
+
+  it("the exchange redirects to this request's own clean URL, not to a hardcoded root", async () => {
+    const guard = createAuthGuard(auth, { publicPaths });
+    const { res, status, headers } = destructure(recordingRes());
+    expect(
+      await guard(reqWith(navigate({}), `/sessions/abc?page=2&token=${auth.launchToken}`), res),
+    ).toBe(false);
+    expect(status()).toBe(302);
+    expect(headers()["Location"]).toBe("/sessions/abc?page=2");
+    expect(String(headers()["Set-Cookie"])).toContain("volto_auth=");
+  });
+
+  it("an unauthenticated navigation with a bad token still gets the uniform 401", async () => {
+    const guard = createAuthGuard(auth, { publicPaths });
+    const { res, status, headers } = destructure(recordingRes());
+    expect(await guard(reqWith(navigate({}), "/?token=not-the-token"), res)).toBe(false);
+    expect(status()).toBe(401);
+    expect(headers()["Location"]).toBeUndefined();
+  });
+
+  it("a programmatic fetch is not redirected: the credential it holds decides", async () => {
+    // `Sec-Fetch-Mode: cors` is not a navigation, so the guard never answers
+    // it with a 302 -- an API client that follows redirects or not must get
+    // the answer it asked for, not a bounce.
+    const guard = createAuthGuard(auth, { publicPaths });
+    const api = (mode: string): ReturnType<typeof recordingRes> & { mode: string } => ({
+      ...recordingRes(),
+      mode,
+    });
+
+    // With the cookie, the request goes through untouched (token and all).
+    // The URL's own token must not stand in for it: see the middle case.
+    const cookie = await sessionCookie();
+    const authorized = api("cors");
+    expect(
+      await guard(reqWith({ cookie, "sec-fetch-mode": authorized.mode, accept: "application/json" }, `/projects?token=stale`), authorized.res),
+    ).toBe(true);
+    expect(authorized.status()).toBeUndefined();
+
+    // Without it, not even a VALID token in the URL is exchanged into a
+    // cookie here: the answer is the uniform 401 that a POST (which cannot be
+    // redirected at all) would receive, never a redirect.
+    const unauthorized = api("cors");
+    expect(
+      await guard(
+        reqWith({ "sec-fetch-mode": unauthorized.mode, accept: "application/json" }, `/projects?token=${auth.launchToken}`),
+        unauthorized.res,
+      ),
+    ).toBe(false);
+    expect(unauthorized.status()).toBe(401);
+    expect(unauthorized.headers()["Set-Cookie"]).toBeUndefined();
+  });
+
+  it("a POST carrying ?token= is neither redirected nor answered with a cookie", async () => {
+    // A 302 re-issues the request as GET without its body, so the exchange
+    // (and the address-bar cleanup) must never apply here. 401 stays 401.
+    const guard = createAuthGuard(auth, { publicPaths });
+    const bad = recordingRes();
+    expect(
+      await guard(
+        { method: "POST", url: `/?token=not-the-token`, headers: navigate({ "content-type": "application/json" }) } as unknown as IncomingMessage,
+        bad.res,
+      ),
+    ).toBe(false);
+    expect(bad.status()).toBe(401);
+    expect(bad.headers()["Location"]).toBeUndefined();
+
+    // Even a VALID token on a POST is not exchanged: the request goes through
+    // untouched, and it is the caller's own credential that decides it.
+    const valid = recordingRes();
+    expect(
+      await guard(
+        { method: "POST", url: `/messages?token=${auth.launchToken}`, headers: navigate({}) } as unknown as IncomingMessage,
+        valid.res,
+      ),
+    ).toBe(false);
+    expect(valid.status()).toBe(401);
+    expect(valid.headers()["Set-Cookie"]).toBeUndefined();
+
+    // A valid token on a POST is not a credential at all, so it does not
+    // change what a held session cookie already decides.
+    const cookie = await sessionCookie();
+    const clean = recordingRes();
+    expect(
+      await guard(
+        { method: "POST", url: `/messages`, headers: { cookie } } as unknown as IncomingMessage,
+        clean.res,
+      ),
+    ).toBe(true);
+    expect(clean.status()).toBeUndefined();
+  });
+
+  it("an authenticated HEAD navigation is cleaned too", async () => {
+    const guard = createAuthGuard(auth, { publicPaths });
+    const cookie = await sessionCookie();
+    const { res, status, headers } = destructure(recordingRes());
+    expect(
+      await guard(
+        { method: "HEAD", url: "/?token=x", headers: navigate({ cookie }) } as unknown as IncomingMessage,
+        res,
+      ),
+    ).toBe(false);
+    expect(status()).toBe(302);
+    expect(headers()["Location"]).toBe("/");
+  });
+
+  it("cookieAttributesFor is still the only place Secure is decided for this guard", () => {
+    expect(cookieAttributesFor(reqWith({}), {})).toBe("");
   });
 });
 
@@ -174,8 +366,12 @@ describe("createAuthGuard with a rate limiter (R29)", () => {
     expect(await guard(reqAt({}, "127.0.0.1", "/health"), health.res)).toBe(true);
     expect(limiter.size()).toBe(0);
     // A valid launch-token exchange (302 + cookie) is a success, not a failure.
+    // The exchange is a navigation's; a token on a plain API GET is refused
+    // like any other non-credential and DOES count (see the GET/HEAD cases).
     const login = mockRes();
-    expect(await guard(reqAt({}, "127.0.0.1", `/?token=${auth.launchToken}`), login.res)).toBe(false);
+    expect(
+      await guard(reqAt({ "sec-fetch-mode": "navigate" }, "127.0.0.1", `/?token=${auth.launchToken}`), login.res),
+    ).toBe(false);
     expect(login.state.status).toBe(302);
     expect(limiter.size()).toBe(0);
   });

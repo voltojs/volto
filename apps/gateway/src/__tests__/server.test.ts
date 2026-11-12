@@ -512,6 +512,57 @@ async function pickFreeCatalogTarget(
 }
 
 describe("authentication", () => {
+  /**
+   * One raw HTTP request, carrying exactly the headers given — no ambient
+   * `fetch` defaults. It matters here: Node's `fetch` overwrites
+   * `sec-fetch-mode` with `cors` and follows a 302 for a POST (turning it
+   * into a bodiless GET), either of which would hide what the server wrote.
+   */
+  function rawRequest(
+    target: string,
+    method = "GET",
+    headers: Record<string, string> = {},
+  ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+    const url = new URL(target, baseUrl);
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: "127.0.0.1", port: Number(url.port), path: `${url.pathname}${url.search}`, method, headers },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () =>
+            resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf-8") }),
+          );
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  /** A browser document navigation: the only request the guard redirects. */
+  function navigate(
+    target: string,
+    method = "GET",
+    headers: Record<string, string> = {},
+    fetchMode = "navigate",
+  ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+    return rawRequest(target, method, {
+      "sec-fetch-mode": fetchMode,
+      accept: "text/html",
+      ...headers,
+    });
+  }
+
+  /** Log in like a browser would, and return the `Cookie:` header value. */
+  async function loginCookie(): Promise<string> {
+    const login = await navigate(`/?token=${launchToken}`);
+    const pair = (login.headers["set-cookie"] ?? [])[0]?.split(";")[0] ?? "";
+    expect(login.status).toBe(302);
+    expect(pair).toContain("volto_auth=");
+    return pair;
+  }
+
   it("refuses an unauthenticated request to every non-public route", async () => {
     for (const [method, route] of [
       ["GET", "/providers"],
@@ -629,10 +680,41 @@ describe("authentication", () => {
   });
 
   it("exchanges a valid query token for a cookie and a clean redirect", async () => {
-    const response = await fetch(`${baseUrl}/?token=${launchToken}`, { redirect: "manual" });
+    const response = await navigate(`/?token=${launchToken}`);
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/");
-    expect(response.headers.get("set-cookie")).toContain("volto_auth=");
+    expect(response.headers.location).toBe("/");
+    expect(response.headers["set-cookie"]?.join("; ")).toContain("volto_auth=");
+    // The credential is not left in a cache either.
+    expect(response.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("answers a POST carrying ?token= with 401, never with the redirect", async () => {
+    // A 302 re-issues the request as GET without its body, so the exchange is
+    // GET/HEAD only over the real chain too: the body never gets dropped.
+    const response = await navigate(`/messages?token=${launchToken}`, "POST");
+    expect(response.status).toBe(401);
+    expect(response.headers.location).toBeUndefined();
+    expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("does not redirect a programmatic fetch that carries a token", async () => {
+    // A page's own fetch() sends `Sec-Fetch-Mode: cors`, not `navigate`: its
+    // URL is not the address bar, and a bounce would hide the answer it asked
+    // for. It gets the uniform 401 unless it brings a credential of its own.
+    const response = await navigate(`/projects?token=${launchToken}`, "GET", {}, "cors");
+    expect(response.status).toBe(401);
+    expect(response.headers.location).toBeUndefined();
+  });
+
+  it("an authenticated navigation carrying ?token= is redirected to the clean URL", async () => {
+    // An ALREADY held session plus a `?token=` the caller does not need (a
+    // stale one here): the URL loses the parameter, nothing is exchanged.
+    const cookie = await loginCookie();
+    const response = await navigate(`/?token=stale-in-the-address-bar`, "GET", { cookie });
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe("/");
+    // Nothing is minted: the session the caller already holds is the point.
+    expect(response.headers["set-cookie"]).toBeUndefined();
   });
 
   it("exchanges the persistent access token for a cookie", async () => {
@@ -643,10 +725,10 @@ describe("authentication", () => {
     try {
       expect(server.bootstrapAccessToken).toHaveLength(43);
 
-      const login = await fetch(`${baseUrl}/?token=${server.bootstrapAccessToken}`, { redirect: "manual" });
+      const login = await navigate(`/?token=${server.bootstrapAccessToken}`);
       expect(login.status).toBe(302);
-      expect(login.headers.get("location")).toBe("/");
-      const setCookie = login.headers.get("set-cookie") ?? "";
+      expect(login.headers.location).toBe("/");
+      const setCookie = (login.headers["set-cookie"] ?? []).join("; ");
       expect(setCookie).toContain("volto_auth=");
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=Strict");
@@ -675,9 +757,9 @@ describe("authentication", () => {
     // which is what makes rotation a control you can count on.
     const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
     const saved = await fs.readFile(tokenPath, "utf-8");
-    const login = await fetch(`${baseUrl}/?token=${saved.trim()}`, { redirect: "manual" });
+    const login = await navigate(`/?token=${saved.trim()}`);
     expect(login.status).toBe(302);
-    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0]!;
+    const cookie = (login.headers["set-cookie"] ?? [])[0]?.split(";")[0] ?? "";
     const before = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
     expect(before.status).toBe(200);
     const oldToken = saved.trim();
@@ -696,9 +778,9 @@ describe("authentication", () => {
       expect(oldBearer.status).toBe(401);
 
       // The new token logs in through the same instance, minting a live cookie.
-      const relogin = await fetch(`${baseUrl}/?token=${rotatedToken}`, { redirect: "manual" });
+      const relogin = await navigate(`/?token=${rotatedToken}`);
       expect(relogin.status).toBe(302);
-      const fresh = (relogin.headers.get("set-cookie") ?? "").split(";")[0]!;
+      const fresh = (relogin.headers["set-cookie"] ?? [])[0]?.split(";")[0] ?? "";
       expect(fresh).not.toBe(cookie);
       const after = await fetch(`${baseUrl}/projects`, { headers: { Cookie: fresh } });
       expect(after.status).toBe(200);
@@ -715,9 +797,9 @@ describe("authentication", () => {
     const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
     const saved = await fs.readFile(tokenPath, "utf-8");
     // `saved` is the live token; restore it verbatim afterwards.
-    const login = await fetch(`${baseUrl}/?token=${saved.trim()}`, { redirect: "manual" });
+    const login = await navigate(`/?token=${saved.trim()}`);
     expect(login.status).toBe(302);
-    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0]!;
+    const cookie = (login.headers["set-cookie"] ?? [])[0]?.split(";")[0] ?? "";
     expect((await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } })).status).toBe(200);
 
     try {
@@ -744,14 +826,14 @@ describe("authentication", () => {
     try {
       await fs.rm(tokenPath);
 
-      const launched = await fetch(`${baseUrl}/?token=${launchToken}`, { redirect: "manual" });
+      const launched = await navigate(`/?token=${launchToken}`);
       expect(launched.status).toBe(401);
 
       // Byte-identical to every other rejection: the 500 was distinguishable,
       // this must not be.
-      const anonymous = await fetch(`${baseUrl}/providers`);
+      const anonymous = await navigate("/providers");
       expect(anonymous.status).toBe(401);
-      expect(await launched.text()).toBe(await anonymous.text());
+      expect(launched.body).toBe(anonymous.body);
 
       // A cookie minted before the deletion is dead too, and still 401.
       const stale = await fetch(`${baseUrl}/projects`, {

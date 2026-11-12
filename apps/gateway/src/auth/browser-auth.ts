@@ -179,6 +179,16 @@ function extractCookieValue(cookieHeader: string, name: string): string | null {
 }
 
 /**
+ * Whether a valid query token may be traded for a session at all: the answer
+ * is a 302 + Set-Cookie, which a browser acts on only for a GET/HEAD request
+ * and which re-issues that request as GET without its body.
+ */
+function redirectableMethod(req: IncomingMessage): boolean {
+  const method = req.method ?? "GET";
+  return method === "GET" || method === "HEAD";
+}
+
+/**
  * The one place either accepted credential is compared. Both are always
  * compared — no early return — so a caller cannot learn which kind of token
  * it guessed from response timing.
@@ -315,6 +325,14 @@ export async function createBrowserAuth(
     //    hands out (fresh per process, never persisted), so it has to be
     //    able to override a stale cookie.
     //
+    //    Only a GET/HEAD navigation is actually answered with the exchange
+    //    (`redirectable` in middleware.ts): a 302 re-issues the request as GET
+    //    without its body. A POST's `?token=` is therefore ignored here like
+    //    any other non-credential would be -- it cannot stand in for the
+    //    session that a body-carrying request has to be made with, and it
+    //    must never turn into a redirect that drops the body. (`isAuthorized`
+    //    still relies on the exchange shape for a WebSocket handshake.)
+    //
     //    Checking it last deadlocked the login: rotate the signing secret
     //    (change VOLTO_CONFIG_DIR, delete a corrupt auth-secret, run a
     //    second instance on the same localhost cookie host) and the browser
@@ -337,10 +355,13 @@ export async function createBrowserAuth(
     if (
       queryToken !== null &&
       queryToken !== "" &&
-      credentialMatches(queryToken, launchToken, accessToken)
+      credentialMatches(queryToken, launchToken, accessToken) &&
+      redirectableMethod(req)
     ) {
-      // Valid token: mint the cookie and redirect to a clean root URL so the
-      // token does not survive in the address bar.
+      // Valid token on a navigable request: mint the cookie and redirect to
+      // the same page without it, so the token does not survive in the
+      // address bar (the guard builds that Location; `redirectTo` is its
+      // fallback when the request target cannot be rewritten).
       //
       // A valid LAUNCH token is accepted even when the persistent generation
       // is unreadable, but the exchange cannot complete: there is no `tv` to

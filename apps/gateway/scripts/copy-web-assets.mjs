@@ -37,28 +37,6 @@ const destination = join(packageRoot, "web");
 const entryFile = join(source, "index.html");
 const BUILD_HINT = "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build";
 
-/** Top-level export directory Next uses for its own not-found route. */
-const NOT_FOUND_PREFIX = "_not-found/";
-
-/**
- * Whether a web-root-relative path (`/`-separated, as `cpSync` filter
- * receives it) belongs in the staged site.
- *
- * Dropped: any `.txt` document at the web root (Next's RSC payloads) and
- * everything under `_not-found/` (the same payloads plus a duplicate
- * `index.html` the single-page shell never links to). `404.html` is kept: a
- * static host in front of the gateway uses it.
- *
- * @param {string} relPath path relative to the export root
- * @returns {boolean} true when the path ships and is served
- */
-export function isShippedAsset(relPath) {
-  const rel = relPath.replace(/^\/+/, "");
-  // The directory entry itself (`cpSync` visits it before its children).
-  if (rel === NOT_FOUND_PREFIX.slice(0, -1) || rel.startsWith(NOT_FOUND_PREFIX)) return false;
-  return !(rel.endsWith(".txt") && !rel.includes("/"));
-}
-
 function fail(message) {
   console.error(`[copy-web-assets] ${message}`);
   process.exit(1);
@@ -79,6 +57,28 @@ if (!existsSync(entryFile) || !statSync(entryFile).isFile()) {
     `Missing web export entry: ${entryFile}\n` +
       `Run \`${BUILD_HINT}\` first (the export only exists after an explicit export build).`,
   );
+}
+
+/** Top-level export directory Next uses for its own not-found route. */
+const NOT_FOUND_PREFIX = "_not-found/";
+
+/**
+ * Whether a web-root-relative path (`/`-separated, as `cpSync` filter
+ * receives it) belongs in the staged site.
+ *
+ * Dropped: any `.txt` document at the web root (Next's RSC payloads) and
+ * everything under `_not-found/` (the same payloads plus a duplicate
+ * `index.html` the single-page shell never links to). `404.html` is kept: a
+ * static host in front of the gateway uses it.
+ *
+ * @param {string} relPath path relative to the export root
+ * @returns {boolean} true when the path ships and is served
+ */
+export function isShippedAsset(relPath) {
+  const rel = relPath.replace(/^\/+/, "");
+  // The directory entry itself (`cpSync` visits it before its children).
+  if (rel === NOT_FOUND_PREFIX.slice(0, -1) || rel.startsWith(NOT_FOUND_PREFIX)) return false;
+  return !(rel.endsWith(".txt") && !rel.includes("/"));
 }
 
 // Remove the destination first: `cpSync` merges, and a merged copy would ship

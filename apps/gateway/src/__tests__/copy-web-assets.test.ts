@@ -9,6 +9,10 @@
  * static files they would be one more thing answerable over the tunnel.
  */
 import { describe, expect, it } from "vitest";
+// The staging script is plain JS that also RUNS on import; its exported rule
+// therefore has no declaration file, and this spec only needs the value.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error -- untyped .mjs module
 import { isShippedAsset } from "../../scripts/copy-web-assets.mjs";
 
 describe("copy-web-assets · which export files ship", () => {

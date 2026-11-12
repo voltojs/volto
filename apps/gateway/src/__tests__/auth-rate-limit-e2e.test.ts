@@ -83,6 +83,13 @@ async function start(opts: ServerOptions = {}): Promise<Started> {
   };
 }
 
+/**
+ * A browser document navigation. The guard only redirects one of these (a
+ * token-bearing API call or POST is never bounced), and a navigation is what
+ * the login link actually is, so the cookie cases below present as one.
+ */
+const NAVIGATE = { "Sec-Fetch-Mode": "navigate", Accept: "text/html,application/xhtml+xml" };
+
 function request(
   port: number,
   pathname: string,
@@ -90,7 +97,7 @@ function request(
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port, path: pathname, method: "GET", headers },
+      { host: "127.0.0.1", port, path: pathname, method: "GET", headers: { ...NAVIGATE, ...headers } },
       (res) => {
         let body = "";
         res.setEncoding("utf-8");
