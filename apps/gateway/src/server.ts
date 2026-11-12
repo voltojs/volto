@@ -704,13 +704,13 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   });
   // What this process can actually do, from the one place that knows both
   // halves: the startup posture (`mode`, above) and the wiring facts.
-  // `browser` is whether a host was really created; `lsp` is whether at least
-  // one language server is configured (the agent's decoration — the manager
-  // itself always exists). A stub `agentFactory` attaches no decoration, and
-  // then the fact is unknown → not claimed.
+  // `browserAutomation` is whether a desktop-browser host was really created;
+  // `lsp` is whether at least one language server is configured (the agent's
+  // decoration — the manager itself always exists). A stub `agentFactory`
+  // attaches no decoration, and then the fact is unknown → not claimed.
   const capabilities: Capabilities = resolveCapabilities({
     mode,
-    browser: browserHost !== undefined,
+    browserAutomation: browserHost !== undefined,
     lsp: (agent as WiredAgentFacts).lsp === true,
   });
   // Same fallback as createWiredAgent's own `cwd` resolution (wiring.ts) — kept

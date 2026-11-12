@@ -143,7 +143,7 @@
     {
       "method": "GET",
       "path": "/gateway-info",
-      "note": "这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择与「在文件管理器中显示」；`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 的任何方法都返回 `501 capability_unavailable`（不是 404——路由存在，能力被撤下）。`capabilities.browser`：是否真的创建了浏览器宿主（浏览器配置关闭或找不到浏览器可执行文件时为 `false`）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。"
+      "note": "这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择与「在文件管理器中显示」；`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 的任何方法都返回 `501 capability_unavailable`（不是 404——路由存在，能力被撤下）。`capabilities.browserAutomation`：是否真的创建了桌面浏览器自动化宿主——Playwright 驱动本机真实的 Chrome/Chromium，供浏览器工具使用；浏览器配置关闭或找不到可执行文件时为 `false`（「有浏览器」不在这个字段的含义里，Web 客户端自己就是浏览器）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。"
     },
     {
       "method": "GET",

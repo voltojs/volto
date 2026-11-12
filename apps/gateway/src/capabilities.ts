@@ -23,13 +23,16 @@ export interface Capabilities {
    */
   nativeDialogs: boolean;
   /**
-   * Whether a browser host was actually assembled for this process — the
-   * fact that decides whether the browser tools are visible to the model,
-   * not a configuration wish.
+   * Whether the desktop-browser automation host (Playwright driving a real
+   * Chrome/Chromium on THIS machine) was actually assembled — the fact that
+   * decides whether the browser tools are visible to the model, not a
+   * configuration wish, and not "a web browser exists". The Web client is a
+   * browser too; that is not what this flag reports.
    */
-  browser: boolean;
+  browserAutomation: boolean;
   /**
-   * Whether an LSP manager was actually assembled. Same rule as `browser`.
+   * Whether an LSP manager was actually assembled. Same rule as
+   * `browserAutomation`.
    */
   lsp: boolean;
 }
@@ -40,12 +43,13 @@ export interface Capabilities {
  */
 export function resolveCapabilities(input: {
   mode: GatewayMode;
-  browser: boolean;
+  /** Whether the desktop-browser automation host was assembled (see `browserAutomation`). */
+  browserAutomation: boolean;
   lsp: boolean;
 }): Capabilities {
   return {
     nativeDialogs: input.mode === "local",
-    browser: input.browser,
+    browserAutomation: input.browserAutomation,
     lsp: input.lsp,
   };
 }
