@@ -4,19 +4,26 @@
 
 ## 快速开始
 
-要求 **Node ≥ 22**、pnpm。
+要求 **Node ≥ 22**（macOS / Linux）。
 
 ```bash
-pnpm install
-pnpm turbo run build
-
-cd apps/gateway && pnpm start   # 终端 1：网关（:3100），会打印带 token 的登录 URL
-cd apps/web && pnpm dev                  # 终端 2：Web 界面（:6100）
+npx @volto/gateway
 ```
 
-用网关打印的 `Or open the web app URL` 打开浏览器，然后在「设置 → 模型配置」里加供应商与 API Key，选一个工作区目录即可开始对话。
+网关同时提供 API 和 Web 界面，启动后只打印两行：
 
-逐步说明（含每一步「你应看到」）：[安装并启动](docs/user/using/tutorial/01-install.md)。
+```text
+volto gateway 0.1.0 listening on http://127.0.0.1:3100
+Open: http://127.0.0.1:3100/?token=…
+```
+
+打开 `Open:` 那个网址即可登录（token 会换成 cookie，之后 `http://127.0.0.1:3100/` 直接可进；没自动开浏览器时就手动粘这个链接）。然后在「设置 → 模型配置」里加供应商与 API Key，选一个工作区目录就能开始对话。
+
+- `npx @volto/gateway doctor` — 检查这台机器能否运行（Node 版本 / 沙箱 / 配置目录 / 会话库 / 端口）
+- `npx @volto/gateway token` — 打印持久 token 与登录链接；`--rotate` 立即作废已登录的浏览器
+- 从手机或另一台电脑用：[远程访问](docs/user/using/guides/remote-access.md)
+
+逐步说明（含每一步「你应看到」）：[安装并启动](docs/user/using/tutorial/01-install.md)。从源码跑、开发前端见同一页的「从源码运行 / 给贡献者」一节。
 
 ## 文档
 
@@ -34,6 +41,8 @@ cd apps/web && pnpm dev                  # 终端 2：Web 界面（:6100）
 ## 开发
 
 ```bash
+pnpm install
+pnpm turbo run build
 pnpm turbo run typecheck    # 类型检查
 pnpm turbo run lint         # 代码检查（含核心零依赖 / 纯度规则）
 pnpm turbo run test         # 测试（vitest）

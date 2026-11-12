@@ -6,7 +6,7 @@ source:
   - packages/sdk/src/defaults.ts
   - packages/providers/pi-ai/src/model-port.ts
 generated: false
-verified: 2026-11-11
+verified: 2026-11-12
 ---
 
 # 把 agent 嵌进自己的宿主
@@ -15,12 +15,27 @@ verified: 2026-11-11
 
 ## 前提
 
-- 仓库内使用：`@volto/sdk` 是 workspace 包，**不发布 npm**，在 monorepo 里直接依赖即可。
-- Node ≥ 22，仓库已 `pnpm install && pnpm turbo run build`。
+- **Node ≥ 22**（`node -v` 确认）。
+- 装 SDK：
+
+  ```bash
+  npm i @volto/sdk
+  ```
+
+- **只提供 ESM 入口**（`package.json` 里没有 `require`）。你的宿主用 `import` 就直接写；宿主是 CommonJS 时，用动态 `import()` 把它当模块加载：
+
+  ```js
+  // CommonJS 宿主（.cjs / "type" 不是 "module" 的老包）
+  const { createAgent } = await import("@volto/sdk");
+  ```
+
+  Node 20.19 / 22.12 起 `require()` 也能加载 ESM，但 SDK 的实际支持基准是 Node 22，别依赖更早的行为。
+
+- 可选包按需单独装，不全在 `@volto/sdk` 里：`@volto/provider-pi-ai`、`@volto/provider-openai`、`@volto/provider-anthropic`、`@volto/store-sqlite` 等。下面第一步只用 `@volto/sdk` 自带的默认值，可以先不装。
 
 ## 第一步：用假模型验证接线
 
-`createAgent` 只有一个必填项：模型连接（`modelPort`）。先用一个脚本化模型跑通，不烧 token、不需要 Key：
+`createAgent` 只有一个必填项：模型连接（`modelPort`）。先用一个脚本化模型跑通，不联网、不需要 Key：
 
 ```ts
 import { createAgent } from "@volto/sdk";
@@ -44,11 +59,15 @@ for await (const event of agent.stream("介绍一下你自己")) {
 
 你应看到：`你好，我在。`
 
-这一次调用已经走完了全部真实路径——核心状态机、工具路由器、事件流——只是模型部分被换成了假的。**这正是一个可替换内核的意义**：接错线在这里暴露，而不是在付费请求里。
+这一次调用已经走完了全部真实路径——核心状态机、工具路由器、事件流——只是模型部分被换成了假的。接错线在这里暴露，而不是在付费请求里。
 
 ## 第二步：换成真模型
 
-用 pi-ai 适配器接一个 OpenAI 兼容端点（自定义供应商）。换成任何厂商只是换 `providers` 里的配置：
+用 pi-ai 适配器接一个 OpenAI 兼容端点（自定义供应商）。换成任何厂商只是换 `providers` 里的配置。先装这个适配器：
+
+```bash
+npm i @volto/provider-pi-ai
+```
 
 ```ts
 import { createAgent } from "@volto/sdk";

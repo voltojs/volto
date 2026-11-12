@@ -23,6 +23,7 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 - [用浏览器测网页](using/guides/browser-testing.md) — 让 Agent 自己点页面、读 console/网络、复用测试登录态
 - [技能与 MCP](using/guides/skills-and-mcp.md) — 写技能；MCP 现在能用在哪
 - [代码智能与数据库](using/guides/lsp-and-database.md) — 语言服务器与 SQLite
+- [远程访问](using/guides/remote-access.md) — 隧道、`--serve-remote`、换 token、把界面单独开出去
 - [故障排查](using/guides/troubleshooting.md) — 按症状查原因
 
 查表：
