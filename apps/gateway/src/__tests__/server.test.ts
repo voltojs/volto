@@ -620,68 +620,102 @@ describe("authentication", () => {
     expect(response.headers.get("set-cookie")).toContain("volto_auth=");
   });
 
-  it("exchanges the persistent access token for a cookie, and rotation kills that cookie", async () => {
-    // F-17 / F-18 over the real request chain: the token `volto token` prints
-    // and `volto web` proxies is a credential, and `--rotate` invalidates
-    // cookies already issued instead of waiting out their 7-day Max-Age.
-    expect(server.accessToken).toHaveLength(43);
+  it("exchanges the persistent access token for a cookie", async () => {
+    // F-17 over the real request chain: the token `volto token` prints and
+    // `volto web` proxies is a credential in both entry points.
+    const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
+    const saved = await fs.readFile(tokenPath, "utf-8");
+    try {
+      expect(server.accessToken).toHaveLength(43);
 
-    const login = await fetch(`${baseUrl}/?token=${server.accessToken}`, { redirect: "manual" });
+      const login = await fetch(`${baseUrl}/?token=${server.accessToken}`, { redirect: "manual" });
+      expect(login.status).toBe(302);
+      expect(login.headers.get("location")).toBe("/");
+      const setCookie = login.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("volto_auth=");
+      expect(setCookie).toContain("HttpOnly");
+      expect(setCookie).toContain("SameSite=Strict");
+      const cookie = setCookie.split(";")[0]!;
+
+      // The minted cookie authenticates an API route (not just a 200 shell).
+      const before = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
+      expect(before.status).toBe(200);
+
+      // Same access token as a bearer, on the API surface.
+      const bearer = await fetch(`${baseUrl}/projects`, {
+        headers: { Authorization: `Bearer ${server.accessToken}` },
+      });
+      expect(bearer.status).toBe(200);
+    } finally {
+      // This suite shares one config dir; restore the generation so the
+      // rotation tests below start from a known token.
+      await fs.writeFile(tokenPath, saved, { mode: 0o600 });
+    }
+  });
+
+  it("invalidates a cookie on rotation against the SAME running server (R26)", async () => {
+    // No restart, no rebuilt auth object: `volto token --rotate` writes the
+    // file and this already-running process must stop honouring every cookie
+    // it issued under the old token. The generation is re-read per request,
+    // which is what makes rotation a control you can count on.
+    const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
+    const saved = await fs.readFile(tokenPath, "utf-8");
+    const login = await fetch(`${baseUrl}/?token=${saved.trim()}`, { redirect: "manual" });
     expect(login.status).toBe(302);
-    expect(login.headers.get("location")).toBe("/");
-    const setCookie = login.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain("volto_auth=");
-    expect(setCookie).toContain("HttpOnly");
-    expect(setCookie).toContain("SameSite=Strict");
-    const cookie = setCookie.split(";")[0]!;
-
-    // The minted cookie authenticates an API route (not just a 200 shell).
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0]!;
     const before = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
     expect(before.status).toBe(200);
+    const oldToken = saved.trim();
 
-    // Same access token as a bearer, on the API surface.
-    const bearer = await fetch(`${baseUrl}/projects`, {
-      headers: { Authorization: `Bearer ${server.accessToken}` },
-    });
-    expect(bearer.status).toBe(200);
-
-    // Rotate, then re-read it the way a restarted gateway would.
     const rotatedToken = await rotateAccessToken(process.env["VOLTO_CONFIG_DIR"]!);
-    expect(rotatedToken).not.toBe(server.accessToken);
-    const restarted = await createServer({ port: 0, modelPort: MOCK_MODEL });
+    expect(rotatedToken).not.toBe(oldToken);
     try {
-      expect(restarted.accessToken).toBe(rotatedToken);
-      await new Promise<void>((resolve) => {
-        restarted.on("listening", () => resolve());
-      });
-      const addr = restarted.address();
-      const restartedBase = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
-
-      // The previously minted cookie is dead NOW — not in 7 days.
-      const stale = await fetch(`${restartedBase}/projects`, { headers: { Cookie: cookie } });
+      // Same process, same connections, no restart.
+      const stale = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
       expect(stale.status).toBe(401);
-      // Byte-identical to an anonymous rejection: no hint about which half failed.
-      const anonymous = await fetch(`${restartedBase}/projects`);
+      const anonymous = await fetch(`${baseUrl}/projects`);
       expect(await stale.text()).toBe(await anonymous.text());
-
-      // ... and the new token logs in, minting a fresh usable cookie.
-      const relogin = await fetch(`${restartedBase}/?token=${rotatedToken}`, {
-        redirect: "manual",
+      const oldBearer = await fetch(`${baseUrl}/projects`, {
+        headers: { Authorization: `Bearer ${oldToken}` },
       });
-      expect(relogin.status).toBe(302);
-      const freshCookie = (relogin.headers.get("set-cookie") ?? "").split(";")[0]!;
-      expect(freshCookie).not.toBe(cookie);
-      const after = await fetch(`${restartedBase}/projects`, { headers: { Cookie: freshCookie } });
-      expect(after.status).toBe(200);
-    } finally {
-      await new Promise<void>((resolve) => restarted.close(() => resolve()));
-    }
+      expect(oldBearer.status).toBe(401);
 
-    // The main server keeps its own (pre-rotation) generation: it binds the
-    // token it loaded at startup, exactly like a running process that has
-    // not been restarted.
-    const stillCurrent = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
-    expect(stillCurrent.status).toBe(200);
+      // The new token logs in through the same instance, minting a live cookie.
+      const relogin = await fetch(`${baseUrl}/?token=${rotatedToken}`, { redirect: "manual" });
+      expect(relogin.status).toBe(302);
+      const fresh = (relogin.headers.get("set-cookie") ?? "").split(";")[0]!;
+      expect(fresh).not.toBe(cookie);
+      const after = await fetch(`${baseUrl}/projects`, { headers: { Cookie: fresh } });
+      expect(after.status).toBe(200);
+      const newBearer = await fetch(`${baseUrl}/projects`, {
+        headers: { Authorization: `Bearer ${rotatedToken}` },
+      });
+      expect(newBearer.status).toBe(200);
+    } finally {
+      await fs.writeFile(tokenPath, saved, { mode: 0o600 });
+    }
+  });
+
+  it("fails closed when the token file is deleted mid-flight (R26)", async () => {
+    const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
+    const saved = await fs.readFile(tokenPath, "utf-8");
+    // `saved` is the live token; restore it verbatim afterwards.
+    const login = await fetch(`${baseUrl}/?token=${saved.trim()}`, { redirect: "manual" });
+    expect(login.status).toBe(302);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0]!;
+    expect((await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } })).status).toBe(200);
+
+    try {
+      await fs.rm(tokenPath);
+      // Deleted token: no cookie is honoured. The last known generation must
+      // never be used as a fallback.
+      const stale = await fetch(`${baseUrl}/projects`, { headers: { Cookie: cookie } });
+      expect(stale.status).toBe(401);
+      const anonymous = await fetch(`${baseUrl}/projects`);
+      expect(await stale.text()).toBe(await anonymous.text());
+    } finally {
+      await fs.writeFile(tokenPath, saved, { mode: 0o600 });
+    }
   });
 
   it("puts CORS headers on the 401 so a cross-origin caller reads the status", async () => {

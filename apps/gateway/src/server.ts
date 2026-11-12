@@ -805,7 +805,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // unauthenticated caller must get 401 — never a route-dependent 404
     // that would leak which paths exist. Covers /events (SSE) as well;
     // the WebSocket upgrade path is wired separately below.
-    if (!guard(req, res, corsHeaders)) {
+    if (!(await guard(req, res, corsHeaders))) {
       return;
     }
 
@@ -2773,7 +2773,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // handshake does not pass through the createServer request handler.
   const wss = new WebSocketServer({ noServer: true });
 
-  httpServer.on("upgrade", (req, socket, head) => {
+  httpServer.on("upgrade", async (req, socket, head) => {
     // Origin BEFORE auth, mirroring the HTTP chain (isOriginAllowed above):
     // different localhost ports are same-site, so the SameSite=Strict cookie
     // WOULD be sent to us from another page on localhost — Origin is the
@@ -2792,7 +2792,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // leak which paths exist. A valid query-token exchange (isAuthorized)
     // is accepted: a WS handshake cannot complete a 302 + Set-Cookie
     // redirect, and the token was still valid.
-    if (!isAuthorized(auth.authorize(req))) {
+    // `authorize` resolves the live token generation, so a rotation is
+    // honoured by the very next upgrade — no restart involved.
+    if (!isAuthorized(await auth.authorize(req))) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;

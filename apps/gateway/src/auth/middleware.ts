@@ -23,8 +23,10 @@ export interface AuthGuardOptions {
 }
 
 /**
- * Returns true when the request may proceed; false when the guard has
- * already written the response.
+ * Resolves true when the request may proceed; false when the guard has
+ * already written the response. Asynchronous because `authorize` resolves the
+ * live token generation per request (a rotation must be honoured without a
+ * restart).
  *
  * `corsHeaders` must be the same headers the route handlers use. Without
  * them a cross-origin caller sees a CORS network error instead of the 401
@@ -34,7 +36,7 @@ export type AuthGuard = (
   req: IncomingMessage,
   res: ServerResponse,
   corsHeaders?: Record<string, string>,
-) => boolean;
+) => Promise<boolean>;
 
 function pathnameOf(url: string | undefined): string {
   try {
@@ -58,12 +60,12 @@ export function isAuthorized(result: AuthResult): boolean {
 export function createAuthGuard(auth: BrowserAuth, opts: AuthGuardOptions): AuthGuard {
   const publicPaths = new Set(opts.publicPaths);
 
-  return function guard(req, res, corsHeaders = {}): boolean {
+  return async function guard(req, res, corsHeaders = {}): Promise<boolean> {
     if (publicPaths.has(pathnameOf(req.url))) {
       return true;
     }
 
-    const result = auth.authorize(req);
+    const result = await auth.authorize(req);
 
     if (result.ok) {
       return true;

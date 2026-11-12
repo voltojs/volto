@@ -13,8 +13,13 @@
  * cookie payload is versioned and generation-bound — `{ v, exp, tv }`, where
  * `tv` is the fingerprint of the access token it was minted under — so
  * rotating the token invalidates every cookie already issued, immediately
- * rather than when its 7-day Max-Age runs out. Every failure path returns
- * the same result so a caller cannot tell why it was refused.
+ * rather than when its 7-day Max-Age runs out.
+ *
+ * "Immediately" is literal: the generation is resolved PER REQUEST (see
+ * `token-generation.ts`), not frozen when the auth object is built, so
+ * `volto token --rotate` takes effect against a running gateway. Every
+ * failure path returns the same result so a caller cannot tell why it was
+ * refused.
  */
 
 import * as crypto from "node:crypto";
@@ -23,6 +28,7 @@ import type { IncomingMessage } from "node:http";
 import * as path from "node:path";
 import { ensureConfigDir, getConfigDir } from "../config/paths.js";
 import { loadOrCreateAccessToken, tokenFingerprint } from "./access-token.js";
+import { createTokenGenerationReader, type TokenGeneration } from "./token-generation.js";
 
 const SECRET_BYTES = 32;
 const TOKEN_BYTES = 32;
@@ -63,10 +69,20 @@ export interface BrowserAuth {
   readonly accessToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   authenticatedUrl(baseUrl: string): string;
-  /** Evaluate cookie → bearer → query token. Failures are indistinguishable. */
-  authorize(req: IncomingMessage): AuthResult;
-  /** Full Set-Cookie header value for a session minted at `now`. */
-  cookieHeaderFor(now: number): string;
+  /**
+   * Evaluate cookie → bearer → query token. Failures are indistinguishable.
+   *
+   * Resolves the current token generation, so a rotation on disk is honoured
+   * by the very next request. When the generation cannot be read the
+   * persistent credential is treated as absent (fail closed).
+   */
+  authorize(req: IncomingMessage): Promise<AuthResult>;
+  /**
+   * Full Set-Cookie header value for a session minted at `now`, bound to the
+   * current token generation. Rejects when the generation is unreadable — a
+   * cookie that cannot be bound to a live token must not be issued.
+   */
+  cookieHeaderFor(now: number): Promise<string>;
 }
 
 export interface CreateBrowserAuthOptions {
@@ -78,11 +94,12 @@ export interface CreateBrowserAuthOptions {
   /** Cookie lifetime in days. Default 7. */
   maxAgeDays?: number;
   /**
-   * Access token to bind cookies to. Defaults to the one already persisted in
-   * `dir` (created on first use), so callers that just read the file — the
-   * CLI, a host that prints the login URL — can pass it in and prove both
-   * sides agree. Rotation must go through the file; pass the NEW value or
-   * omit this option.
+   * Pin the access token generation to this value instead of reading
+   * `<dir>/access-token` (created on first use when omitted).
+   *
+   * Tests and single-shot callers use this; a long-running gateway must NOT,
+   * because a pinned value cannot observe `volto token --rotate` without a
+   * rebuild — which is exactly what R26 forbids.
    */
   accessToken?: string;
 }
@@ -173,11 +190,26 @@ export async function createBrowserAuth(
   const maxAgeMs = maxAgeDays * MS_PER_DAY;
   const maxAgeSec = Math.floor(maxAgeMs / 1000);
   const secret = await loadSecret(dir);
-  // The generation every cookie this instance mints is bound to. An injected
-  // value is taken as-is (a rotating caller passes the NEW token, or omits it
-  // so the file is re-read); otherwise the persisted token is the truth.
-  const accessToken = opts.accessToken ?? (await loadOrCreateAccessToken(dir));
-  const tokenVersion = tokenFingerprint(accessToken);
+  // A pinned generation is fixed for the lifetime of this object; otherwise
+  // every request re-resolves it from disk so `--rotate` takes effect without
+  // a restart (R26).
+  const pinned: TokenGeneration | null =
+    opts.accessToken === undefined
+      ? null
+      : { token: opts.accessToken, version: tokenFingerprint(opts.accessToken) };
+  const generations = pinned === null ? createTokenGenerationReader(dir, tokenFingerprint) : null;
+  // Ensure the file exists so the login URL is usable, but never cache the
+  // result when unpinned — that read is only a one-time bootstrap.
+  const initialToken = pinned === null ? await loadOrCreateAccessToken(dir) : pinned.token;
+
+  /**
+   * Current generation, or `null` when the persistent credential cannot be
+   * resolved (fail closed: no fallback to a previously known value).
+   */
+  async function currentGeneration(): Promise<TokenGeneration | null> {
+    if (pinned !== null) return pinned;
+    return generations!.read();
+  }
 
   // Fresh every process. A restart invalidates every previously issued URL;
   // that is intentional.
@@ -186,19 +218,27 @@ export async function createBrowserAuth(
   /**
    * Cookie payload. Adding a field means bumping COOKIE_PAYLOAD_VERSION and
    * rejecting every older version in `verifyCookieValue` — an unversioned
-   * `{ exp, tv }` would let a cookie minted by a future release (or by a
-   * pre-`tv` release, which carried no generation at all) pass as current.
+   * `{ v, exp, tv }` unversioned would let a cookie minted by a future
+   * release (or by a pre-`tv` release, which carried no generation at all)
+   * pass as current.
    */
-  function cookieValueFor(now: number): string {
+  function cookieValueFor(now: number, tokenVersion: string): string {
     const exp = now + maxAgeMs;
     const body: CookiePayload = { v: COOKIE_PAYLOAD_VERSION, exp, tv: tokenVersion };
     const payload = Buffer.from(JSON.stringify(body), "utf-8").toString("base64url");
     return `${payload}.${signPayload(payload, secret)}`;
   }
 
-  function cookieHeaderFor(now: number): string {
+  /** Mint a cookie bound to the CURRENT generation. Throws when unpinnable. */
+  async function cookieHeaderFor(now: number): Promise<string> {
     const exp = now + maxAgeMs;
-    const value = cookieValueFor(now);
+    const generation = await currentGeneration();
+    if (generation === null) {
+      throw new Error(
+        `Cannot mint an auth cookie: the access token file is missing or unreadable in ${dir}. Run \`volto token\` to create one.`,
+      );
+    }
+    const value = cookieValueFor(now, generation.version);
     const expires = new Date(exp).toUTCString();
     return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}; Expires=${expires}`;
   }
@@ -208,7 +248,7 @@ export async function createBrowserAuth(
    * token generation. The generation check is what makes `--rotate` take
    * effect immediately instead of at the cookie's own Max-Age.
    */
-  function verifyCookieValue(value: string): boolean {
+  function verifyCookieValue(value: string, tokenVersion: string): boolean {
     const dot = value.indexOf(".");
     if (dot <= 0) return false;
     const payload = value.slice(0, dot);
@@ -246,7 +286,11 @@ export async function createBrowserAuth(
     return url.toString();
   }
 
-  function authorize(req: IncomingMessage): AuthResult {
+  async function authorize(req: IncomingMessage): Promise<AuthResult> {
+    // Resolve the generation ONCE per request: query, cookie and bearer all
+    // must agree on the same token, and one stat is enough for all three.
+    const generation = await currentGeneration();
+    const accessToken = generation?.token ?? "";
     // 1. Query token FIRST — it is the strongest credential this process
     //    hands out (fresh per process, never persisted), so it has to be
     //    able to override a stale cookie.
@@ -279,7 +323,7 @@ export async function createBrowserAuth(
       // token does not survive in the address bar.
       return {
         ok: false,
-        setCookie: cookieHeaderFor(Date.now()),
+        setCookie: await cookieHeaderFor(Date.now()),
         redirectTo: "/",
       };
     }
@@ -291,7 +335,9 @@ export async function createBrowserAuth(
     if (cookieHeader !== undefined && cookieHeader !== "") {
       const value = extractCookieValue(cookieHeader, COOKIE_NAME);
       if (value !== null && value !== "") {
-        if (verifyCookieValue(value)) {
+        // An unreadable generation means no cookie can be honoured: fail
+        // closed rather than fall back to a previously known `tv`.
+        if (generation !== null && verifyCookieValue(value, generation.version)) {
           return { ok: true };
         }
         return { ok: false };
@@ -325,7 +371,9 @@ export async function createBrowserAuth(
 
   return {
     launchToken,
-    accessToken,
+    // The bootstrap value. `authorize` never reads it; callers that need the
+    // live one should re-read the file (it changes under them on rotate).
+    accessToken: initialToken,
     authenticatedUrl,
     authorize,
     cookieHeaderFor,

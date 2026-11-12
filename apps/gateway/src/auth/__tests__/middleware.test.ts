@@ -46,55 +46,55 @@ function mockRes(): { res: ServerResponse; state: CapturedResponse } {
 describe("createAuthGuard", () => {
   const publicPaths = ["/health"] as const;
 
-  it("allows a public path with no credentials", () => {
+  it("allows a public path with no credentials", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const { res, state } = mockRes();
-    expect(guard(reqWith({}, "/health"), res)).toBe(true);
+    expect(await guard(reqWith({}, "/health"), res)).toBe(true);
     expect(state.status).toBeUndefined();
   });
 
-  it("allows an authenticated bearer request", () => {
+  it("allows an authenticated bearer request", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const { res, state } = mockRes();
-    expect(guard(reqWith({ authorization: `Bearer ${auth.launchToken}` }, "/projects"), res)).toBe(
-      true,
-    );
+    expect(
+      await guard(reqWith({ authorization: `Bearer ${auth.launchToken}` }, "/projects"), res),
+    ).toBe(true);
     expect(state.status).toBeUndefined();
   });
 
-  it("rejects an unauthenticated request with the uniform 401 body", () => {
+  it("rejects an unauthenticated request with the uniform 401 body", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const { res, state } = mockRes();
-    expect(guard(reqWith({}, "/providers"), res)).toBe(false);
+    expect(await guard(reqWith({}, "/providers"), res)).toBe(false);
     expect(state.status).toBe(401);
     expect(state.body).toBe(JSON.stringify({ error: "Unauthorized" }));
   });
 
-  it("answers an unknown route with the same 401 body as a known one", () => {
+  it("answers an unknown route with the same 401 body as a known one", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const known = mockRes();
     const unknown = mockRes();
-    guard(reqWith({}, "/providers"), known.res);
-    guard(reqWith({}, "/nonexistent-route"), unknown.res);
+    await guard(reqWith({}, "/providers"), known.res);
+    await guard(reqWith({}, "/nonexistent-route"), unknown.res);
     expect(known.state.status).toBe(unknown.state.status);
     expect(known.state.body).toBe(unknown.state.body);
   });
 
-  it("exchanges a valid query token for a cookie and a clean redirect", () => {
+  it("exchanges a valid query token for a cookie and a clean redirect", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const { res, state } = mockRes();
-    expect(guard(reqWith({}, `/?token=${auth.launchToken}`), res)).toBe(false);
+    expect(await guard(reqWith({}, `/?token=${auth.launchToken}`), res)).toBe(false);
     expect(state.status).toBe(302);
     expect(state.headers?.["Location"]).toBe("/");
     expect(String(state.headers?.["Set-Cookie"])).toContain("volto_auth=");
   });
 
-  it("rejects an invalid bearer token with the same 401 as a missing one", () => {
+  it("rejects an invalid bearer token with the same 401 as a missing one", async () => {
     const guard = createAuthGuard(auth, { publicPaths });
     const missing = mockRes();
     const invalid = mockRes();
-    guard(reqWith({}, "/projects"), missing.res);
-    guard(reqWith({ authorization: "Bearer not-the-token" }, "/projects"), invalid.res);
+    await guard(reqWith({}, "/projects"), missing.res);
+    await guard(reqWith({ authorization: "Bearer not-the-token" }, "/projects"), invalid.res);
     expect(missing.state.status).toBe(invalid.state.status);
     expect(missing.state.body).toBe(invalid.state.body);
   });
