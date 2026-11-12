@@ -177,3 +177,51 @@ it("browser plus lsp keeps all nine browser tools, all lsp tools, and two info s
   expect(names).toContain("web_fetch");
   expect(names).toContain("web_search");
 });
+
+// R24 — the LSP reservation must not depend on a browser being assembled.
+// `playwright-core` is optional, so "LSP wired, browser absent" is the common
+// gateway shape; before the fix a bare 20-slot cap left only ONE lsp_* tool
+// visible and silently withheld the other four.
+
+/** The production gateway shape: floor + basic + memory + lsp + info + db. */
+const gatewayDefs = () => [...FLOOR, ...BASIC, ...MEMORY, ...LSP, ...INFO, ...DB].map(def);
+
+it("R24 lsp wired, browser absent: all five lsp tools stay visible", () => {
+  const defs = gatewayDefs();
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: true,
+    hasDb: true,
+    hasBrowser: false,
+    hasMemory: true,
+  });
+  // 20 + five lsp slots + memory's one; the browser contributes nothing.
+  expect(limit).toBe(26);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  // Behaviour, not only the number: every lsp tool is actually offered.
+  for (const name of LSP) expect(names, `lsp lost without a browser: ${name}`).toContain(name);
+  expect(names).toContain("memory");
+  // The browser group was never assembled, so no browser slot was invented.
+  expect(scope.groups["browser"]).toBeUndefined();
+  expect(names.filter((name) => BROWSER.includes(name))).toEqual([]);
+});
+
+it("R24 lsp absent, browser present: the five lsp slots are NOT reserved", () => {
+  // The gateway with a browser and no LSP (present false -> the browser nine
+  // take their own slots; lsp_* names are wired in anyway).
+  const defs = [...FLOOR, ...BASIC, ...MEMORY, ...LSP, ...BROWSER, ...INFO].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: false,
+    hasDb: false,
+    hasBrowser: true,
+    hasMemory: true,
+  });
+  // 20 + ten browser slots + memory's one; no lsp slots.
+  expect(limit).toBe(31);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  for (const name of BROWSER) expect(names, `browser lost: ${name}`).toContain(name);
+  expect(names).toContain("memory");
+  // lsp_* names fall to the rest tier and are only reachable through the
+  // spare capacity themselves — the table keeps no lsp group at all.
+  expect(scope.groups["lsp"]).toBeUndefined();
+  expect(names.filter((name) => LSP.includes(name))).toEqual([]);
+});
