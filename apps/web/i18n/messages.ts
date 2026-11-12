@@ -37,7 +37,10 @@ export const NAMESPACES = [
 
 export type Namespace = (typeof NAMESPACES)[number];
 
-export const MESSAGES: Record<Locale, Record<Namespace, AbstractIntlMessages>> = {
+export const MESSAGES: Record<
+  Locale,
+  Record<Namespace, AbstractIntlMessages>
+> = {
   zh: {
     common: zhCommon,
     chat: zhChat,

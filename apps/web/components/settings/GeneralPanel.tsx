@@ -90,7 +90,7 @@ export function GeneralPanel() {
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const [theme, setThemePreference] = useThemePreference();
   const [density, setDensity] = useStreamDensity();
-  const localePreference = useLocalePreference();
+  const { setLocale } = useLocalePreference();
   const savePreference = usePreferencesStore((s) => s.save);
   const locale = usePreferencesStore((s) => s.preferences.locale) ?? 'zh';
   const defaultPermission = usePreferencesStore((s) => s.preferences.defaultPermissionMode);
@@ -151,7 +151,7 @@ export function GeneralPanel() {
               savePreference({ locale: value });
               // Re-renders the provider and rewrites the cookie. The stored
               // preference still leads on a fresh browser (LocalePreferenceSync).
-              localePreference?.setLocale(value);
+              setLocale(value);
             }}
           >
             <SelectTrigger size="sm" className="w-32">

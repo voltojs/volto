@@ -32,14 +32,18 @@ interface LocalePreference {
 const LocalePreferenceContext = createContext<LocalePreference | null>(null);
 
 /**
- * Locale of the running UI.
+ * Locale of the running UI, plus the way to change it.
  *
- * Returns `null` outside a provider rather than throwing: every consumer
- * (components, the preference sync) is also rendered by component tests that
- * only need `useTranslations` from the setup's next-intl mock.
+ * Throws without a provider: a tree that renders the language switch but not
+ * `I18nProvider` would otherwise save the preference and silently switch
+ * nothing. Failing at render makes the missing wiring impossible to miss.
  */
-export function useLocalePreference(): LocalePreference | null {
-  return useContext(LocalePreferenceContext);
+export function useLocalePreference(): LocalePreference {
+  const preference = useContext(LocalePreferenceContext);
+  if (preference === null) {
+    throw new Error('useLocalePreference must be used inside <I18nProvider>');
+  }
+  return preference;
 }
 
 /**

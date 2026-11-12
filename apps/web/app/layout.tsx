@@ -9,7 +9,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { sidebarWidthRestoreScript } from '@/lib/sidebar-width';
 import { cookies } from 'next/headers';
-import { resolveInitialLocale, type Locale } from '@/i18n/messages';
+import { resolveInitialLocale } from '@/i18n/messages';
 import { LOCALE_COOKIE, LOCALE_TAG } from '@/i18n/locale';
 
 // Fraunces carries the display headings — a warm, characterful serif with
@@ -40,18 +40,6 @@ export const metadata = {
   description: 'Volto — a console for project-level AI agents',
 };
 
-/**
- * Language for the first client render. The server only sees the cookie, so
- * the browser's own languages are used as the fallback a server render could
- * not offer; the preference sync corrects both once the stored preference
- * arrives.
- */
-function initialLocale(cookie: string | undefined): Locale {
-  const languages =
-    typeof navigator === 'undefined' ? [] : Array.from(navigator.languages ?? []);
-  return resolveInitialLocale({ cookie, languages });
-}
-
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -61,7 +49,13 @@ export default async function RootLayout({
   const cookieTheme = cookieStore.get(THEME_COOKIE)?.value;
   const initialTheme =
     cookieTheme === 'light' || cookieTheme === 'dark' ? cookieTheme : 'system';
-  const locale = initialLocale(cookieStore.get(LOCALE_COOKIE)?.value);
+  // Cookie only: reading `navigator.languages` here would let the server and
+  // client disagree on the first frame. A first-time visitor's browser
+  // language is Task 5's client bootstrap to decide; `resolveInitialLocale`
+  // already takes it as `languages` so that path can reuse the same rule.
+  const locale = resolveInitialLocale({
+    cookie: cookieStore.get(LOCALE_COOKIE)?.value,
+  });
   return (
     <html
       lang={LOCALE_TAG[locale]}

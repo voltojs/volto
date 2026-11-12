@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsDialog } from "../SettingsDialog";
+import { I18nProvider } from "@/components/i18n-provider";
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -46,7 +47,11 @@ afterEach(() => vi.unstubAllGlobals());
 describe("SettingsDialog", () => {
   it("orders tabs 通用设置 → 模型配置 → 工具配置 → 模型路由 → 子代理 → 技能", () => {
     stubFetch();
-    render(<SettingsDialog open onOpenChange={() => {}} />);
+    render(
+      <I18nProvider locale="zh">
+        <SettingsDialog open onOpenChange={() => {}} />
+      </I18nProvider>,
+    );
     const labels = screen.getAllByRole("tab").map((tab) => tab.textContent);
     expect(labels).toEqual(["通用设置", "模型配置", "工具配置", "模型路由", "子代理", "技能"]);
   });
@@ -54,7 +59,11 @@ describe("SettingsDialog", () => {
   it("scopes the subagents panel to the current workspace's project", async () => {
     const urls = stubFetch();
     const user = userEvent.setup();
-    render(<SettingsDialog open onOpenChange={() => {}} projectId="proj-1" />);
+    render(
+      <I18nProvider locale="zh">
+        <SettingsDialog open onOpenChange={() => {}} projectId="proj-1" />
+      </I18nProvider>,
+    );
     // The agents list fetch only fires once the subagents tab mounts its panel.
     await user.click(screen.getByRole("tab", { name: "子代理" }));
     await screen.findByText("新建子代理");
@@ -66,7 +75,11 @@ describe("SettingsDialog", () => {
   it("scopes the skills panel to the current workspace's project", async () => {
     const urls = stubFetch();
     const user = userEvent.setup();
-    render(<SettingsDialog open onOpenChange={() => {}} projectId="proj-1" />);
+    render(
+      <I18nProvider locale="zh">
+        <SettingsDialog open onOpenChange={() => {}} projectId="proj-1" />
+      </I18nProvider>,
+    );
     // The skills catalog is read-only, so the empty group is the ready signal.
     await user.click(screen.getByRole("tab", { name: "技能" }));
     await screen.findAllByText(/还没有技能/);

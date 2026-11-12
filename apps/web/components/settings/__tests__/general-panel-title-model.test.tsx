@@ -13,6 +13,7 @@ vi.mock('next-themes', () => ({
 }));
 
 import { GeneralPanel } from '../GeneralPanel';
+import { I18nProvider } from '@/components/i18n-provider';
 import { useConfigStore, type Provider } from '@/stores/config-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
@@ -80,7 +81,11 @@ function lastPreferencesPatch(): Record<string, unknown> {
 describe('GeneralPanel title model', () => {
   it('offers every configured model plus an explicit opt-out', async () => {
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     expect(screen.getByText('标题模型')).toBeInTheDocument();
     await user.click(titleModelSelect());
@@ -92,7 +97,11 @@ describe('GeneralPanel title model', () => {
 
   it('persists the picked provider and model', async () => {
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     await user.click(titleModelSelect());
     await user.click(await screen.findByRole('option', { name: /MiMo-V2\.5/ }));
@@ -109,7 +118,11 @@ describe('GeneralPanel title model', () => {
       loaded: true,
     });
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     // Provider-qualified, because two providers can carry the same model id.
     expect(screen.getByText('Xiaomi / MiMo-V2.5')).toBeInTheDocument();
@@ -125,7 +138,11 @@ describe('GeneralPanel title model', () => {
       preferences: { titleProviderId: 'gone', titleModelId: 'gone-model' },
       loaded: true,
     });
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     expect(screen.getByText('已失效，请重选')).toBeInTheDocument();
   });

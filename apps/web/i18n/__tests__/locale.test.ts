@@ -3,12 +3,12 @@ import { resolveInitialLocale } from '../messages';
 
 describe('resolveInitialLocale', () => {
   it('prefers the stored cookie over the browser languages', () => {
-    expect(
-      resolveInitialLocale({ cookie: 'en', languages: ['zh-CN'] }),
-    ).toBe('en');
-    expect(
-      resolveInitialLocale({ cookie: 'zh', languages: ['en-US'] }),
-    ).toBe('zh');
+    expect(resolveInitialLocale({ cookie: 'en', languages: ['zh-CN'] })).toBe(
+      'en',
+    );
+    expect(resolveInitialLocale({ cookie: 'zh', languages: ['en-US'] })).toBe(
+      'zh',
+    );
   });
 
   it('falls back to the first shipped browser language', () => {
@@ -24,8 +24,8 @@ describe('resolveInitialLocale', () => {
   });
 
   it('ignores values the product does not ship', () => {
-    expect(
-      resolveInitialLocale({ cookie: 'fr', languages: ['de'] }),
-    ).toBe('zh');
+    expect(resolveInitialLocale({ cookie: 'fr', languages: ['de'] })).toBe(
+      'zh',
+    );
   });
 });

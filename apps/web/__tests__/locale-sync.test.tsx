@@ -25,7 +25,10 @@ describe('LocalePreferenceSync', () => {
   });
 
   it('switches the rendered copy to the stored locale and rewrites the cookie', () => {
-    usePreferencesStore.setState({ preferences: { locale: 'en' }, loaded: true });
+    usePreferencesStore.setState({
+      preferences: { locale: 'en' },
+      loaded: true,
+    });
     render(
       <I18nProvider locale="zh">
         <LocalePreferenceSync />
@@ -38,7 +41,10 @@ describe('LocalePreferenceSync', () => {
   });
 
   it('does nothing when the rendered locale already matches', () => {
-    usePreferencesStore.setState({ preferences: { locale: 'zh' }, loaded: true });
+    usePreferencesStore.setState({
+      preferences: { locale: 'zh' },
+      loaded: true,
+    });
     render(
       <I18nProvider locale="zh">
         <LocalePreferenceSync />

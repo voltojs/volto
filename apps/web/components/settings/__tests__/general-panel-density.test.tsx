@@ -7,6 +7,7 @@ vi.mock('next-themes', () => ({
 }));
 
 import { GeneralPanel } from '../GeneralPanel';
+import { I18nProvider } from '@/components/i18n-provider';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
 vi.mock('next/navigation', () => ({
@@ -24,7 +25,11 @@ describe('GeneralPanel', () => {
 
   it('writes the chosen density', async () => {
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
     expect(screen.getByText('显示模式')).toBeInTheDocument();
 
     // Language, theme, density, default permission — density is the third.
@@ -40,7 +45,11 @@ describe('GeneralPanel', () => {
       new Response(JSON.stringify({ defaultPermissionMode: 'auto' }), { status: 200 }),
     );
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
     expect(screen.getByText('新会话默认权限')).toBeInTheDocument();
 
     const selects = screen.getAllByRole('combobox');

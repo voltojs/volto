@@ -33,7 +33,11 @@ describe('GeneralPanel appearance preferences', () => {
 
   it('stores the chosen theme in the gateway preferences', async () => {
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     const selects = screen.getAllByRole('combobox');
     await user.click(selects[1]!);

@@ -15,7 +15,7 @@ import { useLocalePreference } from '@/components/i18n-provider';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
 export function LocalePreferenceSync() {
-  const preference = useLocalePreference();
+  const { locale, setLocale } = useLocalePreference();
   const stored = usePreferencesStore((s) => s.preferences.locale);
   const load = usePreferencesStore((s) => s.load);
 
@@ -23,13 +23,10 @@ export function LocalePreferenceSync() {
     void load();
   }, [load]);
 
-  const current = preference?.locale;
-  const setLocale = preference?.setLocale;
   useEffect(() => {
-    if (stored === undefined || current === undefined || setLocale === undefined) return;
-    if (stored === current) return;
+    if (stored === undefined || stored === locale) return;
     setLocale(stored);
-  }, [stored, current, setLocale]);
+  }, [stored, locale, setLocale]);
 
   return null;
 }
