@@ -18,6 +18,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { ACCESS_TOKEN_FILE, parseAccessToken } from "./access-token.js";
 
 export interface TokenGeneration {
   /** Current access token. */
@@ -29,11 +30,6 @@ export interface TokenGeneration {
 /** The fingerprint function to use; injected so this module stays generic. */
 export type Fingerprint = (token: string) => string;
 
-/** File name of the persisted token inside the config directory. */
-const TOKEN_FILE = "access-token";
-/** base64url alphabet, fixed length — anything else is a corrupted file. */
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
 /**
  * Cache key: `mtimeMs` + size + inode. All three must match for a hit, so an
  * in-place rewrite that somehow preserved the timestamp but changed the size
@@ -43,18 +39,12 @@ function identityOf(stat: { mtimeMs: number; size: number; ino: number }): strin
   return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
 }
 
-/** Trim and validate; an unreadable/garbled file yields `null`, never a guess. */
-function normalize(raw: string): string | null {
-  const trimmed = raw.trim();
-  return TOKEN_PATTERN.test(trimmed) ? trimmed : null;
-}
-
 /**
  * A reader for `<dir>/access-token`. Create it once per auth instance; call
  * `read()` whenever the current generation is needed.
  */
 export function createTokenGenerationReader(dir: string, fingerprint: Fingerprint) {
-  const file = path.join(dir, TOKEN_FILE);
+  const file = path.join(dir, ACCESS_TOKEN_FILE);
   let cached: { identity: string; generation: TokenGeneration } | null = null;
 
   return {
@@ -73,7 +63,7 @@ export function createTokenGenerationReader(dir: string, fingerprint: Fingerprin
 
       let token: string | null;
       try {
-        token = normalize(await fs.readFile(file, "utf-8"));
+        token = parseAccessToken(await fs.readFile(file, "utf-8"));
       } catch {
         cached = null;
         return null;

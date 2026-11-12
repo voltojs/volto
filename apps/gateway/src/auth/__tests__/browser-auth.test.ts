@@ -40,7 +40,9 @@ function authorize(
 
 /** The `volto_auth` pair of a freshly minted cookie header. */
 async function cookieOf(auth: import("../browser-auth.js").BrowserAuth): Promise<string> {
-  return (await auth.cookieHeaderFor(Date.now())).split(";")[0]!;
+  const header = await auth.cookieHeaderFor(Date.now());
+  expect(header, "cookie should be mintable while a token exists").not.toBeNull();
+  return header!.split(";")[0]!;
 }
 
 describe("createBrowserAuth", () => {
@@ -61,7 +63,7 @@ describe("createBrowserAuth", () => {
   it("persists its signing secret across instances", async () => {
     const first = await createBrowserAuth({ dir });
     const cookie = await first.cookieHeaderFor(Date.now());
-    const value = cookie.split(";")[0]!;
+    const value = cookie!.split(";")[0]!;
 
     // A second instance over the same dir must accept the first one's cookie.
     const second = await createBrowserAuth({ dir });
@@ -113,7 +115,7 @@ describe("createBrowserAuth", () => {
   it("rejects an expired cookie", async () => {
     const auth = await createBrowserAuth({ dir, maxAgeDays: 1 });
     const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
-    const cookie = (await auth.cookieHeaderFor(twoDaysAgo)).split(";")[0]!;
+    const cookie = (await auth.cookieHeaderFor(twoDaysAgo))!.split(";")[0]!;
     expect((await authorize(auth, { cookie })).ok).toBe(false);
   });
 
@@ -197,7 +199,7 @@ describe("createBrowserAuth", () => {
   it("access token 可作为 bearer", async () => {
     const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
     const auth = await createBrowserAuth({ dir: authDir });
-    expect((await authorize(auth, { authorization: `Bearer ${auth.accessToken}` })).ok).toBe(true);
+    expect((await authorize(auth, { authorization: `Bearer ${auth.bootstrapAccessToken}` })).ok).toBe(true);
   });
 
   it("access token 可作为 query token 换取 cookie", async () => {
@@ -205,7 +207,7 @@ describe("createBrowserAuth", () => {
     const auth = await createBrowserAuth({ dir: authDir });
     // The `volto token` / `volto web` login URL: it mints the cookie and
     // redirects to a clean root, exactly like the per-process launch token.
-    const result = await auth.authorize(reqWith({}, `/?token=${auth.accessToken}`));
+    const result = await auth.authorize(reqWith({}, `/?token=${auth.bootstrapAccessToken}`));
     expect(result.redirectTo).toBe("/");
     expect(result.setCookie).toBeDefined();
     // The minted cookie is immediately usable and can be replayed by a
@@ -219,10 +221,10 @@ describe("createBrowserAuth", () => {
   it("rejects the pre-rotation access token as a bearer after rotation", async () => {
     const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
     const auth = await createBrowserAuth({ dir: authDir });
-    const oldToken = auth.accessToken;
+    const oldToken = auth.bootstrapAccessToken;
     const fresh = await rotateAccessToken(authDir);
     const rotated = await createBrowserAuth({ dir: authDir });
-    expect(rotated.accessToken).toBe(fresh);
+    expect(rotated.bootstrapAccessToken).toBe(fresh);
     expect((await rotated.authorize(reqWith({ authorization: `Bearer ${oldToken}` }))).ok).toBe(false);
     expect((await rotated.authorize(reqWith({ authorization: `Bearer ${fresh}` }))).ok).toBe(true);
     // The per-process launch token keeps working across a rotation: it is
@@ -244,7 +246,7 @@ describe("createBrowserAuth", () => {
 
     expect((await authorize(auth, { cookie })).ok).toBe(false);
     // The old bearer is gone too, and the new one is live — same instance.
-    expect((await authorize(auth, { authorization: `Bearer ${auth.accessToken}` })).ok).toBe(false);
+    expect((await authorize(auth, { authorization: `Bearer ${auth.bootstrapAccessToken}` })).ok).toBe(false);
     expect((await authorize(auth, { authorization: `Bearer ${rotatedToken}` })).ok).toBe(true);
     // The new token exchanges for a cookie that works, through the same object.
     const login = await auth.authorize(reqWith({}, `/?token=${rotatedToken}`));
@@ -264,8 +266,10 @@ describe("createBrowserAuth", () => {
     // Never fall back to the last known generation: the operator deleted the
     // token, so every cookie it authorized is dead right now.
     expect((await authorize(auth, { cookie })).ok).toBe(false);
-    // And a cookie cannot even be minted without a live generation.
-    await expect(auth.cookieHeaderFor(Date.now())).rejects.toThrow(/access token file/);
+    // A cookie cannot be minted without a live generation — and minting
+    // reports that as `null`, never by throwing (F1: a throw on this path
+    // becomes a 500 on the server).
+    await expect(auth.cookieHeaderFor(Date.now())).resolves.toBeNull();
   });
 
   it("re-reads a token that is restored after deletion, without a rebuild", async () => {

@@ -62,11 +62,15 @@ export interface BrowserAuth {
   /** Per-process launch token. Not persisted; dies with the process. */
   readonly launchToken: string;
   /**
-   * Persistent access token for the config directory. Survives restarts;
-   * `volto token --rotate` is the only way it changes. Cookies carry the
-   * fingerprint of THIS value, so a rotation invalidates them all.
+   * The persistent access token as captured when this object was built —
+   * a bootstrap value for logging and the login URL, NOT the live token.
+   *
+   * `authorize` never reads it: every request re-resolves the generation from
+   * `<dir>/access-token` (R26), so after `volto token --rotate` this field is
+   * stale while authorisation already follows the new token. Callers that
+   * need the current value must read the file (`loadOrCreateAccessToken`).
    */
-  readonly accessToken: string;
+  readonly bootstrapAccessToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   authenticatedUrl(baseUrl: string): string;
   /**
@@ -79,10 +83,11 @@ export interface BrowserAuth {
   authorize(req: IncomingMessage): Promise<AuthResult>;
   /**
    * Full Set-Cookie header value for a session minted at `now`, bound to the
-   * current token generation. Rejects when the generation is unreadable — a
-   * cookie that cannot be bound to a live token must not be issued.
+   * current token generation. Resolves to `null` — never throws — when the
+   * generation is unreadable, because a cookie that cannot be bound to a live
+   * token must not be issued.
    */
-  cookieHeaderFor(now: number): Promise<string>;
+  cookieHeaderFor(now: number): Promise<string | null>;
 }
 
 export interface CreateBrowserAuthOptions {
@@ -96,6 +101,12 @@ export interface CreateBrowserAuthOptions {
   /**
    * Pin the access token generation to this value instead of reading
    * `<dir>/access-token` (created on first use when omitted).
+   *
+   * This pins the GENERATION only; it does not make the auth object
+   * side-effect free. `dir` is still used for the cookie signing secret: the
+   * HMAC needs it, so `auth-secret` is read — and created on first use — in
+   * `dir` either way, which means the config directory must be readable and
+   * writable even when this option is set.
    *
    * Tests and single-shot callers use this; a long-running gateway must NOT,
    * because a pinned value cannot observe `volto token --rotate` without a
@@ -229,18 +240,27 @@ export async function createBrowserAuth(
     return `${payload}.${signPayload(payload, secret)}`;
   }
 
-  /** Mint a cookie bound to the CURRENT generation. Throws when unpinnable. */
-  async function cookieHeaderFor(now: number): Promise<string> {
+  /** Build the Set-Cookie header for an already-resolved generation. */
+  function cookieHeaderForGeneration(now: number, generation: TokenGeneration): string {
     const exp = now + maxAgeMs;
-    const generation = await currentGeneration();
-    if (generation === null) {
-      throw new Error(
-        `Cannot mint an auth cookie: the access token file is missing or unreadable in ${dir}. Run \`volto token\` to create one.`,
-      );
-    }
     const value = cookieValueFor(now, generation.version);
     const expires = new Date(exp).toUTCString();
     return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}; Expires=${expires}`;
+  }
+
+  /**
+   * Mint a cookie bound to the CURRENT generation, or `null` when there is
+   * none to bind to.
+   *
+   * Never throws: a cookie is only ever minted on a path that would otherwise
+   * answer 401, and a throw here escapes into the server's top-level catch as
+   * a 500 — which tells the caller the request reached a live route AND
+   * breaks the byte-identical rejection guarantee. Callers turn `null` into
+   * the same refusal as any other missing credential.
+   */
+  async function cookieHeaderFor(now: number): Promise<string | null> {
+    const generation = await currentGeneration();
+    return generation === null ? null : cookieHeaderForGeneration(now, generation);
   }
 
   /**
@@ -321,11 +341,15 @@ export async function createBrowserAuth(
     ) {
       // Valid token: mint the cookie and redirect to a clean root URL so the
       // token does not survive in the address bar.
-      return {
-        ok: false,
-        setCookie: await cookieHeaderFor(Date.now()),
-        redirectTo: "/",
-      };
+      //
+      // A valid LAUNCH token is accepted even when the persistent generation
+      // is unreadable, but the exchange cannot complete: there is no `tv` to
+      // bind a new cookie to. That must read as an ordinary refusal (401),
+      // not a 500 — the caller cannot distinguish it from any other rejection.
+      const setCookie =
+        generation === null ? null : cookieHeaderForGeneration(Date.now(), generation);
+      if (setCookie === null) return { ok: false };
+      return { ok: false, setCookie, redirectTo: "/" };
     }
 
     // 2. Cookie. Only a present, non-empty volto_auth is a credential.
@@ -371,9 +395,7 @@ export async function createBrowserAuth(
 
   return {
     launchToken,
-    // The bootstrap value. `authorize` never reads it; callers that need the
-    // live one should re-read the file (it changes under them on rotate).
-    accessToken: initialToken,
+    bootstrapAccessToken: initialToken,
     authenticatedUrl,
     authorize,
     cookieHeaderFor,

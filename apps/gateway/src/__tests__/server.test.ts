@@ -626,9 +626,9 @@ describe("authentication", () => {
     const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
     const saved = await fs.readFile(tokenPath, "utf-8");
     try {
-      expect(server.accessToken).toHaveLength(43);
+      expect(server.bootstrapAccessToken).toHaveLength(43);
 
-      const login = await fetch(`${baseUrl}/?token=${server.accessToken}`, { redirect: "manual" });
+      const login = await fetch(`${baseUrl}/?token=${server.bootstrapAccessToken}`, { redirect: "manual" });
       expect(login.status).toBe(302);
       expect(login.headers.get("location")).toBe("/");
       const setCookie = login.headers.get("set-cookie") ?? "";
@@ -643,7 +643,7 @@ describe("authentication", () => {
 
       // Same access token as a bearer, on the API surface.
       const bearer = await fetch(`${baseUrl}/projects`, {
-        headers: { Authorization: `Bearer ${server.accessToken}` },
+        headers: { Authorization: `Bearer ${server.bootstrapAccessToken}` },
       });
       expect(bearer.status).toBe(200);
     } finally {
@@ -718,6 +718,36 @@ describe("authentication", () => {
     }
   });
 
+  it("answers 401, never 500, to a valid launch token when the token file is gone (F1)", async () => {
+    // The query-token exchange has to bind a new cookie to the current token
+    // generation. With `access-token` missing there is nothing to bind to —
+    // that must read as an ordinary refusal. A throw here would escape into
+    // the server's top-level catch and become a 500, telling the caller both
+    // that the route exists and that the gateway is misconfigured.
+    const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
+    const saved = await fs.readFile(tokenPath, "utf-8");
+    try {
+      await fs.rm(tokenPath);
+
+      const launched = await fetch(`${baseUrl}/?token=${launchToken}`, { redirect: "manual" });
+      expect(launched.status).toBe(401);
+
+      // Byte-identical to every other rejection: the 500 was distinguishable,
+      // this must not be.
+      const anonymous = await fetch(`${baseUrl}/providers`);
+      expect(anonymous.status).toBe(401);
+      expect(await launched.text()).toBe(await anonymous.text());
+
+      // A cookie minted before the deletion is dead too, and still 401.
+      const stale = await fetch(`${baseUrl}/projects`, {
+        headers: { Cookie: "volto_auth=eyJ2IjoyLCJleHAiOjk5OTk5OTk5OTk5OTksInR2IjoiMDAwMDAwMDAwMDAwMDAwMCJ9.invalid" },
+      });
+      expect(stale.status).toBe(401);
+    } finally {
+      await fs.writeFile(tokenPath, saved, { mode: 0o600 });
+    }
+  });
+
   it("puts CORS headers on the 401 so a cross-origin caller reads the status", async () => {
     // Without them the browser surfaces a CORS network error instead, and
     // the app cannot tell "not authenticated" from "gateway is down".
@@ -785,6 +815,33 @@ describe("authentication", () => {
         });
       }),
     ).rejects.toThrow(/401/);
+  });
+
+  it("rejects a WS upgrade with a valid launch token when the token file is gone", async () => {
+    // The upgrade handler is async now (per-request generation). A rejection
+    // must close the handshake deterministically — never hang it.
+    const tokenPath = path.join(process.env["VOLTO_CONFIG_DIR"]!, "access-token");
+    const saved = await fs.readFile(tokenPath, "utf-8");
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    try {
+      await fs.rm(tokenPath);
+      await expect(
+        new Promise<void>((resolve, reject) => {
+          const ws = new WebSocket(`ws://localhost:${port}/ws?token=${launchToken}`);
+          ws.on("open", () => {
+            ws.close();
+            resolve();
+          });
+          ws.on("error", reject);
+          ws.on("unexpected-response", (_req, res) => {
+            reject(new Error(`upgrade rejected with ${res.statusCode}`));
+          });
+        }),
+      ).rejects.toThrow(/401/);
+    } finally {
+      await fs.writeFile(tokenPath, saved, { mode: 0o600 });
+    }
   });
 
   it("refuses an authenticated WebSocket upgrade with a disallowed Origin", async () => {

@@ -17,20 +17,36 @@ const TOKEN_BYTES = 32;
 /** base64url alphabet, fixed-length — anything else is a corrupted file. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-const TOKEN_FILE = "access-token";
+/**
+ * File name of the persisted token inside the config dir. Exported so the
+ * per-request generation reader (token-generation.ts) reads the same file
+ * this module writes; one source, no drift.
+ */
+export const ACCESS_TOKEN_FILE = "access-token";
 
 function generateToken(): string {
   return crypto.randomBytes(TOKEN_BYTES).toString("base64url");
 }
 
 function tokenPath(dir: string): string {
-  return path.join(dir, TOKEN_FILE);
+  return path.join(dir, ACCESS_TOKEN_FILE);
 }
 
-/** Fresh token with a leading newline tolerance removed — files are written with one. */
-function normalize(raw: string): string {
+/**
+ * Validated token, or `null` when the file's contents are not a token.
+ *
+ * The `null` return is deliberate and shared: both callers must be able to
+ * tell "there is no usable token here" apart from a valid one without
+ * inventing an empty-string sentinel that a caller could mistake for a value.
+ * (The previous private helper in `access-token.ts` returned `""` and the one
+ * in `token-generation.ts` returned `null` for the same input — the same
+ * semantics under two names.)
+ *
+ * Tolerates the trailing newline `writeToken` appends.
+ */
+export function parseAccessToken(raw: string): string | null {
   const trimmed = raw.trim();
-  return TOKEN_PATTERN.test(trimmed) ? trimmed : "";
+  return TOKEN_PATTERN.test(trimmed) ? trimmed : null;
 }
 
 async function writeToken(dir: string, token: string): Promise<void> {
@@ -65,8 +81,8 @@ export async function loadOrCreateAccessToken(dir: string): Promise<string> {
   }
 
   if (raw !== null) {
-    const existing = normalize(raw);
-    if (existing !== "") {
+    const existing = parseAccessToken(raw);
+    if (existing !== null) {
       // A pre-existing file may predate this code path; keep the 0600 promise.
       await fs.chmod(file, 0o600).catch(() => undefined);
       return existing;
@@ -78,14 +94,14 @@ export async function loadOrCreateAccessToken(dir: string): Promise<string> {
     await writeToken(dir, generated);
   } catch (err) {
     // A concurrent writer won the race and wrote its own token: read that one.
-    const raced = normalize(await fs.readFile(file, "utf-8").catch(() => ""));
-    if (raced !== "") return raced;
+    const raced = parseAccessToken(await fs.readFile(file, "utf-8").catch(() => ""));
+    if (raced !== null) return raced;
     throw err;
   }
 
   // Report what is actually on disk, so two racing callers agree.
-  const stored = normalize(await fs.readFile(file, "utf-8").catch(() => ""));
-  return stored !== "" ? stored : generated;
+  const stored = parseAccessToken(await fs.readFile(file, "utf-8").catch(() => ""));
+  return stored ?? generated;
 }
 
 /** Replace the token with a fresh one. Returns the new value. */

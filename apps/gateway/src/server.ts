@@ -482,10 +482,14 @@ export interface HeadlessServer extends http.Server {
   /** Per-process launch token. Not persisted; dies with the process. */
   readonly launchToken: string;
   /**
-   * Persistent access token for the config directory. Cookies are bound to
-   * its fingerprint, so `volto token --rotate` invalidates every one of them.
+   * The persistent access token captured when this server was built — a
+   * bootstrap value, NOT the live one. Authorisation re-reads
+   * `<configDir>/access-token` per request (R26), so after
+   * `volto token --rotate` this field is stale while the server already
+   * follows the new token. Callers needing the current value must read the
+   * file.
    */
-  readonly accessToken: string;
+  readonly bootstrapAccessToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   readonly authenticatedUrl: string;
   /**
@@ -2793,8 +2797,18 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // is accepted: a WS handshake cannot complete a 302 + Set-Cookie
     // redirect, and the token was still valid.
     // `authorize` resolves the live token generation, so a rotation is
-    // honoured by the very next upgrade — no restart involved.
-    if (!isAuthorized(await auth.authorize(req))) {
+    // honoured by the very next upgrade — no restart involved. A rejection
+    // here must destroy the socket: an async handler that throws would leave
+    // the handshake hanging until the client times out, which is worse than
+    // any status code and leaks nothing useful either way.
+    let authorized: boolean;
+    try {
+      authorized = isAuthorized(await auth.authorize(req));
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (!authorized) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -2899,7 +2913,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     .sessionStoreSelection;
   return Object.assign(httpServer, {
     launchToken: auth.launchToken,
-    accessToken: auth.accessToken,
+    bootstrapAccessToken: auth.bootstrapAccessToken,
     authenticatedUrl,
     registry,
     ...(sessionStoreSelection !== undefined ? { sessionStoreSelection } : {}),
