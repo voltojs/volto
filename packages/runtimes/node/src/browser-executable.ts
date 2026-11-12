@@ -7,7 +7,7 @@
  */
 
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -121,6 +121,8 @@ export function systemBrowserCandidates(
 
 async function isExecutable(candidate: string, platform: NodeJS.Platform): Promise<boolean> {
   try {
+    const info = await stat(candidate);
+    if (!info.isFile()) return false;
     await access(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
     return true;
   } catch {

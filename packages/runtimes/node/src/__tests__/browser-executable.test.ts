@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   detectSystemBrowsers,
   resolveBrowserExecutable,
@@ -68,6 +71,15 @@ describe("resolveBrowserExecutable", () => {
     await expect(
       resolveBrowserExecutable({ configured: "/missing", platform: "linux", exists: async () => false }),
     ).resolves.toBeUndefined();
+  });
+
+  it("rejects a directory even though it is executable", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-browser-dir-"));
+    try {
+      await expect(resolveBrowserExecutable({ configured: dir })).resolves.toBeUndefined();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("falls back to the first installed system browser", async () => {
