@@ -40,7 +40,9 @@ export const metadata = {
  * by the blocking script in `<head>` (`browserBootScript`), which publishes
  * them on `<html>`: `lang` is the default language there and the script
  * corrects it during parsing, which is why the element carries
- * `suppressHydrationWarning`.
+ * `suppressHydrationWarning`. Known window: the shipped markup says `zh-CN`,
+ * so an English visitor may see `lang` as `zh-CN` for the instant between the
+ * element being parsed and the boot script in `<head>` running.
  */
 export default function RootLayout({
   children,
@@ -73,8 +75,8 @@ export default function RootLayout({
             `next/script`) keeps it a synchronous head load — React already
             preloads it — and the boot script below supplies the same default
             when the gateway replaces this line. */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts -- it is read
-            synchronously by `gatewayUrl()`; deferring it would race the first
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the client
+            bundle reads it synchronously; deferring it would race the first
             request the shell makes. */}
         <script src={CONFIG_SCRIPT_URL} />
         {/* Same trick for the locale and theme: decide them from the cookies
