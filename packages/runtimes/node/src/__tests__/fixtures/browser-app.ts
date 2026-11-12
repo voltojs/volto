@@ -32,6 +32,30 @@ const LOGIN_PAGE = `<!doctype html>
   </script>
 </body></html>`;
 
+const LOGIN_OK_PAGE = `<!doctype html>
+<html><head><title>Sign in (ok)</title></head>
+<body>
+  <h1>Sign in</h1>
+  <form id="login">
+    <label for="email">Email</label>
+    <input id="email" name="email" />
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" />
+    <button type="submit">Sign in</button>
+  </form>
+  <script>
+    document.querySelector("#login").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch("/api/login-ok", { method: "POST" });
+      if (response.ok) {
+        window.location.href = "/dashboard";
+        return;
+      }
+      document.body.innerHTML = '<p role="alert">Invalid credentials</p>';
+    });
+  </script>
+</body></html>`;
+
 const CONSOLE_PAGE = `<!doctype html>
 <html><head><title>Console</title></head>
 <body><h1>Console</h1><script>console.error("fixture boom")</script></body></html>`;
@@ -49,9 +73,17 @@ export async function startBrowserFixture(): Promise<BrowserFixture> {
       res.end(LOGIN_PAGE);
       return;
     }
-    if (url === "/dashboard") {
+    if (url === "/login-ok") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end("<!doctype html><html><head><title>Dashboard</title></head><body><h1>Dashboard</h1></body></html>");
+      res.end(LOGIN_OK_PAGE);
+      return;
+    }
+    if (url === "/dashboard") {
+      const authed = (req.headers.cookie ?? "").includes("session=ok");
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><html><head><title>${authed ? "Dashboard" : "Login required"}</title></head><body><h1>${authed ? "Dashboard" : "Login required"}</h1></body></html>`,
+      );
       return;
     }
     if (url === "/console") {
@@ -67,6 +99,14 @@ export async function startBrowserFixture(): Promise<BrowserFixture> {
     if (url === "/api/login") {
       res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "invalid credentials" }));
+      return;
+    }
+    if (url === "/api/login-ok") {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "set-cookie": "session=ok; Path=/; HttpOnly",
+      });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
     res.writeHead(404, { "content-type": "text/plain" });

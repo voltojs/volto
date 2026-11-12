@@ -73,6 +73,35 @@ describeE2E("browser host (real Chromium)", () => {
     expect(info.mode & 0o777).toBe(0o600);
   });
 
+
+  it("reuses a saved storage state in a fresh context", async () => {
+    const executablePath = process.env["VOLTO_BROWSER_EXECUTABLE"] ??
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const options = {
+      headless: false,
+      storageStatePath: authPath,
+      ...(existsSync(executablePath) ? { executablePath } : {}),
+    };
+    const first = createNodeBrowserHost(options);
+    const page = first.page("auth-login");
+    await page.navigate(`${fixture.url}/login-ok`);
+    const snapshot = await page.snapshot();
+    await page.type(refFor(snapshot.text, "textbox", "Email"), "a@b.c");
+    await page.type(refFor(snapshot.text, "textbox", "Password"), "secret");
+    await page.click(refFor(snapshot.text, "button", "Sign in"));
+        await page.waitFor({ text: "Dashboard", timeoutMs: 5000 });
+    await page.storageState("save");
+    await first.dispose();
+
+    const second = createNodeBrowserHost(options);
+    try {
+      const state = await second.page("auth-reuse").navigate(`${fixture.url}/dashboard`);
+      expect(state.state.title).toBe("Dashboard");
+    } finally {
+      await second.dispose();
+    }
+  });
+
   it("records console errors", async () => {
     const page = host.page("session-console");
     await page.navigate(`${fixture.url}/console`);

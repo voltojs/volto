@@ -441,10 +441,10 @@ export interface HeadlessServer extends http.Server {
 }
 
 /** Probe the Playwright package and its Chromium binary without launching it. */
-async function browserRuntimeAvailable(): Promise<boolean> {
+async function browserRuntimeAvailable(executablePath?: string): Promise<boolean> {
   try {
     const playwright = await import("playwright");
-    await fs.access(playwright.chromium.executablePath());
+    await fs.access(executablePath ?? playwright.chromium.executablePath());
     return true;
   } catch {
     return false;
@@ -468,7 +468,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   if (browserHost === undefined) {
     try {
       const settings = await loadBrowserConfig(getConfigDir());
-      if (settings.enabled && (await browserRuntimeAvailable())) {
+      if (settings.enabled && (await browserRuntimeAvailable(settings.executablePath))) {
         browserHost = createNodeBrowserHost({
           headless: settings.headless,
           idleTimeoutMs: settings.idleTimeoutMs,
