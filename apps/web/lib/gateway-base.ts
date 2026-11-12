@@ -11,8 +11,19 @@
  *    (`public/volto-config.js`, loadable from the head before the app shell),
  * 3. `DEV_DEFAULT`.
  *
- * The result is cached on first use; `resetGatewayBaseForTest` is the only
- * invalidator, so nothing needs per-request `localStorage` reads.
+ * Ordering invariant: the base is resolved on the *first* call and memoized
+ * for the rest of the page's life (`resetGatewayBaseForTest` is the only
+ * invalidator, and it exists for tests only), so nothing re-reads
+ * `localStorage` per request. Consequences:
+ *
+ * - The config script must be in place before the first request. It is:
+ *   `app/layout.tsx` loads `public/volto-config.js` as a synchronous `<script>`
+ *   in `<head>`, and `browserBootScript` (also head, after it) fills the same
+ *   default when a host replaces that line.
+ * - Changing `volto.gatewayUrl` in `localStorage` takes effect on the next
+ *   page load, not immediately. Tests therefore set the value *first* and
+ *   call `resetGatewayBaseForTest()` *after* setting — the memo must not be
+ *   dropped before the value it should re-read exists.
  */
 
 declare global {

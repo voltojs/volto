@@ -12,7 +12,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RoutingTiersPanel } from '../RoutingTiersPanel';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
+import { GATEWAY_URL_KEY, gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
 import type { RoutingTier } from '@/lib/routing-tiers-api';
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
@@ -123,7 +123,7 @@ async function pickEffort(user: User, name: string) {
 const GATEWAY_BASE = 'http://gw.test';
 
 beforeEach(() => {
-  localStorage.setItem('volto.gatewayUrl', GATEWAY_BASE);
+  localStorage.setItem(GATEWAY_URL_KEY, GATEWAY_BASE);
   resetGatewayBaseForTest();
   useConfigStore.setState({
     providers: PROVIDERS,

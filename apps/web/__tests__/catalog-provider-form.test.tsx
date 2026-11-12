@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CatalogProviderSection } from '@/components/settings/CatalogProviderForm';
 import { useConfigStore } from '@/stores/config-store';
-import { resetGatewayBaseForTest } from '@/lib/gateway-base';
+import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from '@/lib/gateway-base';
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
 // Select uses internally; stub them so the popup can open in tests.
@@ -48,7 +48,7 @@ function stubFetch(routes: Record<string, unknown>): void {
 const GATEWAY_BASE = 'http://gw.test';
 
 beforeEach(() => {
-  localStorage.setItem('volto.gatewayUrl', GATEWAY_BASE);
+  localStorage.setItem(GATEWAY_URL_KEY, GATEWAY_BASE);
   resetGatewayBaseForTest();
   useConfigStore.setState({ providers: [], loaded: false, error: null });
 });

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { TrajectoryDrawer } from "../TrajectoryDrawer";
 import { useTrajectoryDrawerStore } from "@/stores/trajectory-drawer-store";
 import type { TrajectoryRow } from "@volto/sdk/sse";
-import { resetGatewayBaseForTest } from "@/lib/gateway-base";
+import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from "@/lib/gateway-base";
 
 const ROW: TrajectoryRow = {
   index: 1,
@@ -50,7 +50,7 @@ const REQUEST_ROW: TrajectoryRow = {
 // A fixed absolute base makes the image URL assertions read as real requests;
 // the resolver itself is covered by lib/__tests__/gateway-base.test.ts.
 beforeEach(() => {
-  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  localStorage.setItem(GATEWAY_URL_KEY, 'http://gw.test');
   resetGatewayBaseForTest();
 });
 

@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CustomProviderSection } from '@/components/settings/CustomProviderForm';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
+import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from '@/lib/gateway-base';
 
 const PROVIDER: Provider = {
   kind: 'custom',
@@ -31,7 +31,7 @@ const PROVIDER: Provider = {
 // A fixed absolute base keeps the stubbed URL readable; the resolver itself is
 // covered by gateway-base.test.ts.
 beforeEach(() => {
-  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  localStorage.setItem(GATEWAY_URL_KEY, 'http://gw.test');
   resetGatewayBaseForTest();
   useConfigStore.setState({ providers: [PROVIDER], loaded: true, error: null });
 });

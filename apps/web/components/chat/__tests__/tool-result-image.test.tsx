@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolCallCard } from "../ToolCallCard";
-import { resetGatewayBaseForTest } from "@/lib/gateway-base";
+import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from "@/lib/gateway-base";
 
 const SCREENSHOT = {
   attachmentId: "att-shot",
@@ -14,7 +14,7 @@ const SCREENSHOT = {
 // A fixed absolute base makes the image URL assertions read as real requests;
 // the resolver itself is covered by lib/__tests__/gateway-base.test.ts.
 beforeEach(() => {
-  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  localStorage.setItem(GATEWAY_URL_KEY, 'http://gw.test');
   resetGatewayBaseForTest();
 });
 

@@ -4,14 +4,14 @@
  */
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { resetGatewayBaseForTest } from '../lib/gateway-base.js';
+import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from '../lib/gateway-base.js';
 import { fetchCatalogProviders } from '../lib/config-api.js';
 
 // A fixed absolute base keeps the assertions readable; the resolver itself is
 // covered by gateway-base.test.ts.
 beforeEach(() => {
   vi.stubGlobal('localStorage', {
-    getItem: (key: string) => (key === 'volto.gatewayUrl' ? 'http://gw.test' : null),
+    getItem: (key: string) => (key === GATEWAY_URL_KEY ? 'http://gw.test' : null),
   });
   resetGatewayBaseForTest();
 });
