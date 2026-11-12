@@ -1,4 +1,4 @@
-// apps/headless-server/src/git/git.test.ts
+// apps/gateway/src/git/git.test.ts
 import { describe, it, expect } from "vitest";
 import {
   BRANCH_DEFAULT_LIMIT,

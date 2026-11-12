@@ -170,7 +170,7 @@ export function checkI18nHardcoded(roots) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const roots = process.argv.slice(2);
-  const targets = roots.length > 0 ? roots : ['apps/web', 'apps/headless-server/src', 'packages'];
+  const targets = roots.length > 0 ? roots : ['apps/web', 'apps/gateway/src', 'packages'];
   const hits = checkI18nHardcoded(targets);
   if (hits.length === 0) {
     console.log('i18n: no hardcoded CJK copy outside comments');

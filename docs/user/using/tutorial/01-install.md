@@ -2,8 +2,8 @@
 title: 安装并启动
 type: tutorial
 source:
-  - apps/headless-server/src/server.ts
-  - apps/headless-server/src/auth/browser-auth.ts
+  - apps/gateway/src/server.ts
+  - apps/gateway/src/auth/browser-auth.ts
   - apps/web/package.json
 generated: false
 verified: 2026-11-11
@@ -35,7 +35,7 @@ pnpm turbo run build
 ### 2. 启动网关（终端 1）
 
 ```bash
-cd apps/headless-server
+cd apps/gateway
 pnpm start
 ```
 

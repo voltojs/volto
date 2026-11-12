@@ -257,7 +257,7 @@ export async function refreshServerSessions(): Promise<void> {
 }
 
 /**
- * On mount, loads the session list the headless-server has durably recorded.
+ * On mount, loads the session list the gateway has durably recorded.
  * The server is the sole source of truth: client state is memory-only, so
  * this replaces the list rather than merging into it.
  */

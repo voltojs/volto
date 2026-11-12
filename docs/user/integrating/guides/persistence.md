@@ -5,7 +5,7 @@ source:
   - packages/core/src/ports.ts
   - packages/stores/jsonl/src
   - packages/sdk/src/transcript-reader.ts
-  - apps/headless-server/src/sessions.ts
+  - apps/gateway/src/sessions.ts
 generated: false
 verified: 2026-11-11
 ---

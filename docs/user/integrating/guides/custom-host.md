@@ -3,7 +3,7 @@ title: 自建宿主
 type: guide
 source:
   - packages/sdk/src/create-agent.ts
-  - apps/headless-server/src/wiring.ts
+  - apps/gateway/src/wiring.ts
   - packages/tools/mcp/src
 generated: false
 verified: 2026-11-11
@@ -15,7 +15,7 @@ verified: 2026-11-11
 
 ## 官方网关做了什么
 
-`apps/headless-server` 不是内核的一部分，它只是一份**接线示例**：把 SDK 与 Node 侧实现接起来，再用 HTTP + SSE 暴露给前端。你可以整套换掉。
+`apps/gateway` 不是内核的一部分，它只是一份**接线示例**：把 SDK 与 Node 侧实现接起来，再用 HTTP + SSE 暴露给前端。你可以整套换掉。
 
 它替你做的事，按重要性排：
 

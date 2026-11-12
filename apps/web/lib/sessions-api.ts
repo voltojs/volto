@@ -1,5 +1,5 @@
 /**
- * Client for `apps/headless-server`'s durable transcript endpoints
+ * Client for `apps/gateway`'s durable transcript endpoints
  * (`GET /sessions`, `GET /sessions/:id`, `GET /sessions/:id/trajectory`,
  * `GET /sessions/:id/events`) — the jsonl store's chat history, already
  * projected server-side into the shared `ConversationView` /

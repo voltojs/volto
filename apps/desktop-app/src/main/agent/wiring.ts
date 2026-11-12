@@ -111,7 +111,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
   // port AND builds the persistent-session spawner from this single config.
   // Without it the default (persistent-session) bash path ran unconfined
   // under the "ask" and "deny" tiers while permissionConfig claimed
-  // confinement — the same wiring gap the headless-server had. "auto" keeps
+  // confinement — the same wiring gap the gateway had. "auto" keeps
   // null: danger-full-access confines nothing by definition.
   const sandboxConfig: SandboxConfig | null =
     permissionMode === "auto"

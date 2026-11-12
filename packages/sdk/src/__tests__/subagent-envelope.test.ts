@@ -15,7 +15,7 @@ import type { AgentEntry } from "../agent-registry/scan.js";
 
 // ──────────────────────────────────────────────
 // Helpers (the reference pattern is
-// apps/headless-server/src/__tests__/lsp-db-session.test.ts:76 —
+// apps/gateway/src/__tests__/lsp-db-session.test.ts:76 —
 // captureModelPort is not exported from @volto/core, so each test file
 // defines its own.)
 // ──────────────────────────────────────────────

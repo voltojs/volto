@@ -5,7 +5,7 @@ source:
   - packages/runtimes/node/src/sandbox.ts
   - packages/runtimes/node/src/sandbox-enforcement.ts
   - packages/core/src/hooks.ts
-  - apps/headless-server/src/config/hooks.ts
+  - apps/gateway/src/config/hooks.ts
 generated: false
 verified: 2026-11-11
 ---

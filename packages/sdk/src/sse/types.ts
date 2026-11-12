@@ -88,7 +88,7 @@ export type TaggedTranscriptDelta = TranscriptDelta & {
  * token bound to this exact SSE connection. The client must echo it back on
  * `POST /approvals` for any approval it was shown on this channel; the
  * server rejects a missing or mismatched token with 403 (see
- * `apps/headless-server`'s `sessions.ts`/`server.ts`).
+ * `apps/gateway`'s `sessions.ts`/`server.ts`).
  */
 export interface ConnectedData {
   token: string;

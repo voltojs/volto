@@ -19,7 +19,7 @@
 title: 权限与审批
 type: guide
 source:
-  - apps/headless-server/src/config/permissions.ts
+  - apps/gateway/src/config/permissions.ts
 generated: false
 verified: 2026-11-11
 ---

@@ -3,7 +3,7 @@ title: 配置文件参考
 type: reference
 generated: true
 source:
-  - apps/headless-server/src/config/*.ts
+  - apps/gateway/src/config/*.ts
 verified: 2026-11-11
 ---
 <!-- GENERATED FILE — do not edit by hand.

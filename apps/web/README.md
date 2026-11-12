@@ -2,7 +2,7 @@
 
 Volto 的 Web 聊天端（Next.js + Tailwind + Zustand）。
 
-Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/headless-server`。因此本地开发需要同时起两个进程。
+Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/gateway`。因此本地开发需要同时起两个进程。
 
 ## 本地联调
 
@@ -19,7 +19,7 @@ Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/headless
 2. 启动 agent 网关（默认 `http://localhost:3100`）：
 
    ```bash
-   pnpm --filter @volto/headless-server dev
+   pnpm --filter @volto/gateway dev
    ```
 
 3. 启动 Web 端（默认 `http://localhost:6100`）：
@@ -97,7 +97,7 @@ apiKey 不会返回给浏览器，界面上只显示掩码。
 
 会话在创建时绑定项目且之后不可更改；模型与权限档位可随时切换，切换后下一条消息即生效，历史上下文保留。
 
-权限预设有四档。每档只是内核两个正交旋钮（沙箱边界 × 审批策略）的一个组合，见 `apps/headless-server/src/permission-modes.ts`：
+权限预设有四档。每档只是内核两个正交旋钮（沙箱边界 × 审批策略）的一个组合，见 `apps/gateway/src/permission-modes.ts`：
 
 | 预设 | sandbox | approval | 只读 | 普通写 | 高危写 | 不可逆 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -114,6 +114,6 @@ apiKey 不会返回给浏览器，界面上只显示掩码。
 
 ## 说明
 
-- 会话与消息不做客户端持久化：`headless-server` 的 jsonl transcript 是唯一真源，浏览器侧只在内存中保存当前打开的会话；刷新页面会重新从 `GET /sessions` / `GET /sessions/:id` 拉取。
+- 会话与消息不做客户端持久化：`gateway` 的 jsonl transcript 是唯一真源，浏览器侧只在内存中保存当前打开的会话；刷新页面会重新从 `GET /sessions` / `GET /sessions/:id` 拉取。
 - 工具调用卡片展示工具名、参数与执行状态；工具的原始输出只回传给模型，不进入对话流。
 - 审批流（HITL）已接入：`ask` 预设下高危与不可逆操作会在对话流里弹出审批卡片。每次审批都绑定在展示它的那条 SSE 连接上（`/events` 建连时下发的 `token`），同一用户的另一个标签页无法替它做决定。

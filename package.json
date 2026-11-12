@@ -12,7 +12,7 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "dev:web": "turbo run dev --filter @volto/headless-server --filter @volto/web",
+    "dev:web": "turbo run dev --filter @volto/gateway --filter @volto/web",
     "check:core-deps": "node scripts/check-core-zero-deps.mjs",
     "check:pack": "pnpm turbo run build && node scripts/check-pack-contents.mjs",
     "smoke:install": "node scripts/smoke-install.mjs",

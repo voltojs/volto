@@ -2,7 +2,7 @@
  * Event mapper — wraps transcript events and deltas into the wire-level SSE
  * frames defined in `./types.ts`.
  *
- * Hosts (headless-server, desktop, future mobile gateways) share this mapper
+ * Hosts (gateway, desktop, future mobile gateways) share this mapper
  * so every transport speaks the same protocol. The mapper is stateful only in
  * the event id counter used for Last-Event-ID recovery.
  */

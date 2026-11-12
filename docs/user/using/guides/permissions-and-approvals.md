@@ -2,8 +2,8 @@
 title: 权限与审批
 type: guide
 source:
-  - apps/headless-server/src/permission-modes.ts
-  - apps/headless-server/src/config/permissions.ts
+  - apps/gateway/src/permission-modes.ts
+  - apps/gateway/src/config/permissions.ts
   - packages/core/src/permission-presets.ts
   - apps/web/components/chat/ApprovalCard.tsx
 generated: false

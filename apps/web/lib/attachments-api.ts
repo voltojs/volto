@@ -15,7 +15,7 @@ import { gatewayUrl } from './gateway-base';
  * outside this table — so this copy only keeps impossible picks from ever
  * reaching the network (spec §9.3: the client filter is UX, not the
  * boundary). It mirrors `classifyUpload` in
- * apps/headless-server/src/attachments/routes.ts: `text/*` by prefix rule,
+ * apps/gateway/src/attachments/routes.ts: `text/*` by prefix rule,
  * `application/pdf` and `application/json` by exact match. The `image/`
  * prefix stays broader than the server's image enumeration — a mismatch
  * fails closed at the gateway, never open here.

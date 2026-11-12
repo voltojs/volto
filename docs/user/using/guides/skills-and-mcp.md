@@ -2,8 +2,8 @@
 title: 技能与 MCP
 type: guide
 source:
-  - apps/headless-server/src/skills/registry.ts
-  - apps/headless-server/src/skills/frontmatter.ts
+  - apps/gateway/src/skills/registry.ts
+  - apps/gateway/src/skills/frontmatter.ts
   - packages/tools/mcp/src
 generated: false
 verified: 2026-11-11

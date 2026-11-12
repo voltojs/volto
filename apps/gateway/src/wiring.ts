@@ -283,7 +283,7 @@ export interface WiringOptions {
    * Config binding recorded once as a `session_meta` transcript event (via
    * chatStore.appendEvents()) when the agent is (re)built. Widened with an
    * optional `reasoningEffort` beyond core's own `ChatSessionMeta` — this is
-   * headless-server's own extra config-binding field, not a core concept, so
+   * gateway's own extra config-binding field, not a core concept, so
    * it is added here rather than by touching `@volto/core`'s type; createAgent()'s
    * own `chatMeta` parameter still accepts this structurally (a superset of
    * what it requires), and the persisted jsonl record is untyped JSON at rest.

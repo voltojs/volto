@@ -212,7 +212,7 @@ const DEFAULT_CORS_ORIGIN = "http://localhost:6100";
 /** Hard cap on request bodies. Any larger POST is refused with 413. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
-/** `apps/headless-server/dist/server.js` -> `apps/headless-server`. */
+/** `apps/gateway/dist/server.js` -> `apps/gateway`. */
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
@@ -725,7 +725,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   /**
    * Flattens a session's persisted chatMeta into the response's binding fields.
    *
-   * `reasoningEffort` is headless-server's own extra config-binding field (see
+   * `reasoningEffort` is gateway's own extra config-binding field (see
    * wiring.ts's `chatMeta` option) — it is not part of core's `ChatSessionMeta`
    * and is persisted as untyped JSON at rest, so it is read back here via the
    * same local widening wiring.ts uses to write it, rather than by touching

@@ -210,7 +210,7 @@ export function extractTools() {
  * gateway-notes.json, and the notes check keeps them honest against this file.
  */
 export function extractHttpRoutes() {
-  const file = path.join(ROOT, "apps/headless-server/src/server.ts");
+  const file = path.join(ROOT, "apps/gateway/src/server.ts");
   if (!fs.existsSync(file)) return [];
   const source = readText(file);
   const routes = new Set();
@@ -235,7 +235,7 @@ export function extractHttpRoutes() {
 
 /** Section names of `~/.volto/config.json`, read from the store's legacy-file map. */
 export function extractConfigSections() {
-  const file = path.join(ROOT, "apps/headless-server/src/config/store.ts");
+  const file = path.join(ROOT, "apps/gateway/src/config/store.ts");
   if (!fs.existsSync(file)) return [];
   const source = readText(file);
   const block = /LEGACY_FILES\s*=\s*\{([\s\S]*?)\}\s*as const/.exec(source);
@@ -247,7 +247,7 @@ export function extractConfigSections() {
 
 /** Keys each config validator accepts, harvested from its `*_KEYS` constant arrays. */
 export function extractConfigKeys() {
-  const dir = path.join(ROOT, "apps/headless-server/src/config");
+  const dir = path.join(ROOT, "apps/gateway/src/config");
   const keys = {};
   for (const file of walk(dir, (entry) => entry.endsWith(".ts") && !entry.includes("__tests__"))) {
     const section = path.basename(file, ".ts");
@@ -471,7 +471,7 @@ export function buildConfigPage(sections, keys, notes) {
       title: "配置文件参考",
       type: "reference",
       generated: true,
-      source: ["apps/headless-server/src/config/*.ts"],
+      source: ["apps/gateway/src/config/*.ts"],
       verified: VERIFIED,
     }),
     GENERATED_HEADER,
@@ -520,14 +520,14 @@ export function buildGatewayPage(routes, notes) {
       title: "网关 HTTP 接口",
       type: "reference",
       generated: true,
-      source: ["apps/headless-server/src/server.ts"],
+      source: ["apps/gateway/src/server.ts"],
       verified: VERIFIED,
     }),
     GENERATED_HEADER,
     "",
     "# 网关 HTTP 接口",
     "",
-    "网关（`apps/headless-server`）是官方宿主：它把 SDK 与模型、沙箱、文件系统接线，再用 HTTP + SSE 暴露给 Web UI 与桌面端。",
+    "网关（`apps/gateway`）是官方宿主：它把 SDK 与模型、沙箱、文件系统接线，再用 HTTP + SSE 暴露给 Web UI 与桌面端。",
     "",
     "**对外契约**指自建宿主或替代前端可以直接依赖的接口：路径、方法、鉴权方式与响应形状保持向后兼容。也可以完全不用网关，直接调 `@volto/sdk`（见 [接入 SDK](../tutorial/01-embed-agent.md)）。",
     "",

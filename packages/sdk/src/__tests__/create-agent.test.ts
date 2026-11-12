@@ -246,7 +246,7 @@ describe("createAgent — SDK facade", () => {
     });
 
     it("seeds turnCounter from initialTurn so a rebuilt agent's next turn continues numbering instead of restarting at 1", async () => {
-      // Simulates apps/headless-server rebuilding an agent instance
+      // Simulates apps/gateway rebuilding an agent instance
       // mid-conversation: the durable transcript already has 5 completed
       // turns, so this fresh instance must record its first turn as 6, not 1.
       const events: TranscriptEventInput[] = [];
@@ -303,7 +303,7 @@ describe("createAgent — SDK facade", () => {
         },
       };
 
-      // Simulates apps/headless-server rebuilding an agent instance mid-conversation
+      // Simulates apps/gateway rebuilding an agent instance mid-conversation
       // (e.g. model/permission switch) and re-seeding the messages that were already
       // durably persisted to chatStore before the rebuild.
       const seededHistory: Message[] = [
@@ -937,7 +937,7 @@ describe("createAgent — SDK facade", () => {
     it("seeds turnCounter from initialTurn so a cross-process resume reports the real turn, not the 0 sentinel", async () => {
       // Same shape as the previous test, but this simulates a fresh SDK
       // instance built with `initialTurn` seeded from a host's own durable
-      // transcript (e.g. apps/headless-server rebuilding on a config change)
+      // transcript (e.g. apps/gateway rebuilding on a config change)
       // — the very first thing it does is resume a turn that was claimed
       // BEFORE this instance ever existed. Without seeding, turnCounter
       // starts at 0, and `RunnerOptions.turn` defaults to that same 0 used
@@ -1153,7 +1153,7 @@ describe("createAgent — SDK facade", () => {
         modelPort,
         enableTaskTool: true,
         // No top-level eventSink here on purpose — this is exactly the shape
-        // apps/headless-server's wiring uses, which reproduces the bug.
+        // apps/gateway's wiring uses, which reproduces the bug.
       });
 
       for await (const event of agent.stream("please delegate")) {

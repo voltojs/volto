@@ -4,7 +4,7 @@ type: tutorial
 source:
   - apps/web/components/settings*
   - apps/web/messages/zh/settings.json
-  - apps/headless-server/src/config/providers.ts
+  - apps/gateway/src/config/providers.ts
 generated: false
 verified: 2026-11-11
 ---

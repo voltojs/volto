@@ -71,7 +71,7 @@ const TRIAGED_PACKAGES = new Set([
   "@volto/tool-skill",
   "@volto/tools-vcs",
   "@volto/tools-web",
-  "@volto/headless-server",
+  "@volto/gateway",
 ]);
 
 /** Dependency sections whose `workspace:` ranges must be rewritten before publishing. */

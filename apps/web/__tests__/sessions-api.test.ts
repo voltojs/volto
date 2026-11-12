@@ -1,5 +1,5 @@
 /**
- * Client for the headless-server's durable transcript endpoints. Stubs
+ * Client for the gateway's durable transcript endpoints. Stubs
  * fetch rather than talking to a real gateway, same convention as
  * config-store.test.ts.
  */

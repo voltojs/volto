@@ -4,7 +4,7 @@ type: guide
 source:
   - packages/core/src/ports.ts
   - packages/runtimes/node/src/runner.ts
-  - apps/headless-server/src/event-sinks.ts
+  - apps/gateway/src/event-sinks.ts
   - packages/sdk/src/sse
 generated: false
 verified: 2026-11-11

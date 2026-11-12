@@ -1,7 +1,7 @@
 /**
  * `@volto/sdk/file-refs` — shared file-reference parsing and settle-time
  * annotation. Consumed by the web chat UI (chips, tool rows, links) and by
- * headless-server (resolveMessageRefs), so both ends share one parser.
+ * gateway (resolveMessageRefs), so both ends share one parser.
  */
 
 export * from "./types.js";

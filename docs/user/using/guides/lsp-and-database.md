@@ -2,10 +2,10 @@
 title: 代码智能与数据库
 type: guide
 source:
-  - apps/headless-server/src/config/lsp.ts
+  - apps/gateway/src/config/lsp.ts
   - packages/runtimes/node/src/lsp.ts
   - packages/runtimes/node/src/database.ts
-  - apps/headless-server/src/wiring.ts
+  - apps/gateway/src/wiring.ts
 generated: false
 verified: 2026-11-11
 ---

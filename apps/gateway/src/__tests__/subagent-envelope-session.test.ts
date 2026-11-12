@@ -25,7 +25,7 @@ import { createWiredAgent } from "../wiring.js";
 /** One typed sub-agent definition, injected the way a plugin agent arrives. */
 const TYPED_SPEC: AgentSpec = {
   name: "e2e-typed",
-  description: "Typed sub-agent for the headless-server session acceptance",
+  description: "Typed sub-agent for the gateway session acceptance",
 };
 
 /** Parent chat session id: the child id is derived as `<parent>-sub-<n>`. */

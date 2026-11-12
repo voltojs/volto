@@ -480,7 +480,7 @@ function tierSummariesForTool(
  * whose own doc comments promise "never throws into the caller" — a
  * synchronous throw here would silently replace the real error the caller
  * was about to see. Same class of bug fixed in the transcript recorder by
- * commit 21bd938 and in apps/headless-server/src/sessions.ts's own catch
+ * commit 21bd938 and in apps/gateway/src/sessions.ts's own catch
  * block; this is every remaining call site in this file brought up to the
  * same standard.
  */
@@ -657,7 +657,7 @@ export interface CreateAgentOptions {
    * option (catalog layer + skill tool), joined into the same
    * once-per-conversation resolution. No default —
    * packages/sdk stays host-agnostic and does not know about `~/.volto` or any
-   * instruction-file directory convention (that is apps/headless-server's job).
+   * instruction-file directory convention (that is apps/gateway's job).
    * Omitted means contextLayers is always empty, identical to today's behavior.
    */
   resolveContextLayers?: (input: string) => Promise<ContextLayer[]>;
@@ -744,7 +744,7 @@ export interface CreateAgentOptions {
    *
    * The SDK cannot recover this value on its own: `SessionSnapshot` carries
    * no turn number and `TranscriptStore` is write-only. A host that rebuilds
-   * agent instances mid-conversation (e.g. apps/headless-server rebuilding
+   * agent instances mid-conversation (e.g. apps/gateway rebuilding
    * on every config change) must compute it from its own transcript and pass
    * it here — otherwise every rebuild silently restarts turn numbering at 1,
    * and a fresh cross-process resume records the sentinel `0` instead of the

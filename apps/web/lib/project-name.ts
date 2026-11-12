@@ -1,6 +1,6 @@
 /**
  * Derive the project name from the directory path chosen by the native
- * directory picker (see `apps/headless-server/src/fs/directory-picker.ts`).
+ * directory picker (see `apps/gateway/src/fs/directory-picker.ts`).
  *
  * The gateway can run on macOS, Linux, or Windows, so the path may use either
  * `/` (POSIX) or `\` (Windows) separators — splitting on `/` alone would turn

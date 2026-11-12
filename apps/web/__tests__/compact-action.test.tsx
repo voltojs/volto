@@ -1,7 +1,7 @@
 /**
  * Manual context-compaction entry: `POST /sessions/:id/compact` client,
  * toast-facing runner, and the ChatHeader button. Contract mirrors Task 5
- * (headless-server): branch on `compacted === false` vs `replacedCount`;
+ * (gateway): branch on `compacted === false` vs `replacedCount`;
  * 409 = busy; conversation content must not change as a result of compact
  * itself (the runner has no message-feed callbacks by design).
  */

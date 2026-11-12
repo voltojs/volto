@@ -4,7 +4,7 @@ type: guide
 source:
   - packages/runtimes/node/src/sandbox.ts
   - packages/runtimes/node/src/sandbox-enforcement.ts
-  - apps/headless-server/src/wiring.ts
+  - apps/gateway/src/wiring.ts
 generated: false
 verified: 2026-11-11
 ---

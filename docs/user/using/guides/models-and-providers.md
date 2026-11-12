@@ -2,8 +2,8 @@
 title: 模型与供应商
 type: guide
 source:
-  - apps/headless-server/src/config/providers.ts
-  - apps/headless-server/src/config/routing-tiers.ts
+  - apps/gateway/src/config/providers.ts
+  - apps/gateway/src/config/routing-tiers.ts
   - apps/web/components/settings*
 generated: false
 verified: 2026-11-11

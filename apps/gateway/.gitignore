@@ -3,3 +3,4 @@
 *.db-wal
 node_modules/
 dist/
+web/

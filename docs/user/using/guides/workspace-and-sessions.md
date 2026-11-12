@@ -2,10 +2,10 @@
 title: 工作区与会话
 type: guide
 source:
-  - apps/headless-server/src/config/projects.ts
-  - apps/headless-server/src/config/sidebar-state.ts
-  - apps/headless-server/src/sessions.ts
-  - apps/headless-server/src/attachments
+  - apps/gateway/src/config/projects.ts
+  - apps/gateway/src/config/sidebar-state.ts
+  - apps/gateway/src/sessions.ts
+  - apps/gateway/src/attachments
 generated: false
 verified: 2026-11-11
 ---

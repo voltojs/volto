@@ -1,4 +1,4 @@
-// apps/headless-server/src/__tests__/fs-files.test.ts
+// apps/gateway/src/__tests__/fs-files.test.ts
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";

@@ -192,7 +192,7 @@ for (const section of Object.keys(configNotes)) {
 }
 
 const gatewayNotes = loadNotes("reference/gateway-notes.json");
-const serverSource = readText(path.join(ROOT, "apps/headless-server/src/server.ts"));
+const serverSource = readText(path.join(ROOT, "apps/gateway/src/server.ts"));
 const publicKeys = new Set((gatewayNotes.public ?? []).map((entry) => `${entry.method} ${entry.path}`));
 const internalPaths = new Set(gatewayNotes.internal ?? []);
 const publicPaths = new Set(

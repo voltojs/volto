@@ -10,7 +10,7 @@
 pnpm install
 pnpm turbo run build
 
-cd apps/headless-server && pnpm start   # 终端 1：网关（:3100），会打印带 token 的登录 URL
+cd apps/gateway && pnpm start   # 终端 1：网关（:3100），会打印带 token 的登录 URL
 cd apps/web && pnpm dev                  # 终端 2：Web 界面（:6100）
 ```
 
@@ -40,6 +40,6 @@ pnpm turbo run test         # 测试（vitest）
 pnpm docs:check             # 用户文档门（链接 / 生成页 / 表面漂移）
 ```
 
-pnpm workspace + Turborepo：`packages/`（core · sdk · tools · providers · runtimes · stores · eval · embedders · memories）+ `apps/`（headless-server · web · desktop-app）。
+pnpm workspace + Turborepo：`packages/`（core · sdk · tools · providers · runtimes · stores · eval · embedders · memories）+ `apps/`（gateway · web · desktop-app）。
 
 两条贯穿性约定：`packages/core/` 内禁止任何 I/O 与副作用；依赖单向向下（`core ← tools/providers/runtimes/stores ← sdk ← apps`）。细节与架构文档索引见 [AGENTS.md](AGENTS.md)。

@@ -3,7 +3,7 @@ title: 斜杠命令与输入技巧
 type: reference
 source:
   - apps/web/lib/input-commands.ts
-  - apps/headless-server/src/commands.ts
+  - apps/gateway/src/commands.ts
 generated: false
 verified: 2026-11-11
 ---

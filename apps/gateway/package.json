@@ -1,11 +1,12 @@
 {
-  "name": "@volto/headless-server",
+  "name": "@volto/gateway",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
   "files": [
     "dist",
+    "web",
     "!dist/**/__tests__"
   ],
   "scripts": {
@@ -14,7 +15,10 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "web:build": "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build",
+    "web:copy": "node scripts/copy-web-assets.mjs",
+    "prepack": "node scripts/copy-web-assets.mjs"
   },
   "publishConfig": {
     "access": "public"

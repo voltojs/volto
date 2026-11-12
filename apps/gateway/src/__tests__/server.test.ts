@@ -542,7 +542,7 @@ describe("authentication", () => {
 
   it("serves /volto-config.js with this package's own version and a same-origin base", async () => {
     // WIRING, not just a string: the version comes from
-    // `apps/headless-server/package.json` at startup, and the base is the
+    // `apps/gateway/package.json` at startup, and the base is the
     // same-origin `""` the exported client expects — a `/gateway` prefix
     // baked in here would break every API call of the deployed UI.
     const manifest = JSON.parse(

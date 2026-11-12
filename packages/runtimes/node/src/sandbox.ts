@@ -1631,7 +1631,7 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
     // both). Seatbelt appears to degrade this particular filter into a
     // match-all deny rather than actually evaluating the remote address.
     // Loopback cannot be selectively filtered here — the control plane is
-    // protected at the route instead (see apps/headless-server's
+    // protected at the route instead (see apps/gateway's
     // POST /approvals per-connection token). Do not re-add this rule.
   } else {
     lines.push("(deny network*)");
@@ -1667,7 +1667,7 @@ export function buildSeatbeltProfile(config: SandboxConfig): string {
  * (buildSeatbeltProfile's `(allow network*)` has no loopback carve-out
  * either — see that function's own comment for why one was tried and
  * reverted). The control plane is protected at the route instead, not by
- * either sandbox backend — see apps/headless-server's POST /approvals
+ * either sandbox backend — see apps/gateway's POST /approvals
  * per-connection token.
  */
 export function buildBwrapArgs(config: SandboxConfig): string[] {

@@ -7,7 +7,7 @@
       "@volto/core",
       "@volto/embedder-openai",
       "@volto/eval",
-      "@volto/headless-server",
+      "@volto/gateway",
       "@volto/i18n",
       "@volto/memory-common",
       "@volto/memory-file",

@@ -5,7 +5,7 @@ source:
   - packages/tools/agent/src/task.ts
   - packages/sdk/src/create-agent.ts
   - packages/sdk/src/agent-registry/scan.ts
-  - apps/headless-server/src/agents/routes.ts
+  - apps/gateway/src/agents/routes.ts
   - packages/core/src/acceptance.ts
   - apps/web/lib/verification-badge.ts
 generated: false

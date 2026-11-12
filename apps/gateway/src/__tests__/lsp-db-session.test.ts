@@ -322,7 +322,7 @@ describe("F-126 / F-127 proxy — a real typescript-language-server session", ()
       // across a module boundary depends on which TS project the server
       // configures for the workspace, and what F-126 measures is that the
       // returned location matches `read_file`'s own line numbering.
-      const targetFile = "apps/headless-server/src/permission-modes.ts";
+      const targetFile = "apps/gateway/src/permission-modes.ts";
       const source = await fs.readFile(path.join(REPO_ROOT, targetFile), "utf-8");
 
       const usage = positionOf(source, "LEGACY_ALIASES, value");

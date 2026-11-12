@@ -322,7 +322,7 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
  * `process.env` inside pi-ai. Keeping `source.auth` here would silently
  * reintroduce an env-var fallback, violating this repo's "nothing is read
  * from the environment" invariant (see comments at top of this file and
- * apps/headless-server/src/wiring.ts). Using a fixed-key auth here — the
+ * apps/gateway/src/wiring.ts). Using a fixed-key auth here — the
  * same helper the custom-provider path uses — makes the no-env-fallback
  * behavior structural rather than dependent on the UI always supplying a key.
  */

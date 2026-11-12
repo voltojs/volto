@@ -25,7 +25,7 @@
   },
   "connection": {
     "connecting": "Connecting to the agent service…",
-    "offline": "Not connected to the agent service; check that headless-server is running at {url}"
+    "offline": "Not connected to the agent service; check that gateway is running at {url}"
   },
   "tabs": {
     "chat": "Chat",
@@ -246,7 +246,7 @@
     "toggle": "Toggle theme"
   },
   "errors": {
-    "connectionTimeout": "Timed out connecting to the agent service; check that headless-server is running",
+    "connectionTimeout": "Timed out connecting to the agent service; check that gateway is running",
     "missingBinding": "⚠️ This session has no project or model bound, so it cannot send. Create a session and finish the selection.",
     "sendFailed": "Send failed, please retry",
     "interruptFailed": "Could not interrupt, please retry",

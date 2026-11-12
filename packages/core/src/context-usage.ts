@@ -41,7 +41,7 @@ export interface ContextUsageAnchor {
  * snapshotFold below): retains the header's full text, which is what lets
  * the server re-price a whole session if the tokenizer changes, and backs
  * the oracle used by the snapshot-equivalence tests. It currently has no
- * production consumer — every production path (headless-server, web) uses
+ * production consumer — every production path (gateway, web) uses
  * the snapshot API (`ContextUsageSnapshot`, `emptyContextUsageSnapshot`,
  * `foldSnapshotEvent`, `snapshotView`) instead, which is the entry point for
  * anything crossing a process or storage boundary. This is not deprecated —

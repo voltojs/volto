@@ -2,8 +2,8 @@
 title: 故障排查
 type: guide
 source:
-  - apps/headless-server/src/server.ts
-  - apps/headless-server/src/config/store.ts
+  - apps/gateway/src/server.ts
+  - apps/gateway/src/config/store.ts
   - apps/web/lib/sse-client.ts
 generated: false
 verified: 2026-11-11

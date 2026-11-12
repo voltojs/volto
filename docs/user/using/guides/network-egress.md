@@ -2,7 +2,7 @@
 title: 网络出口名单
 type: guide
 source:
-  - apps/headless-server/src/config/egress.ts
+  - apps/gateway/src/config/egress.ts
   - packages/runtimes/node/src/egress.ts
 generated: false
 verified: 2026-11-11

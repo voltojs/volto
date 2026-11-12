@@ -10,7 +10,7 @@
  * auto-injected.
  *
  * `Skill` and `ResourceLoader` remain exported for hosts that still model
- * skill metadata themselves (e.g. apps/headless-server's skill directory
+ * skill metadata themselves (e.g. apps/gateway's skill directory
  * loader).
  */
 

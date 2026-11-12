@@ -1,5 +1,5 @@
 /**
- * Shared test-server bootstrap for headless-server integration tests.
+ * Shared test-server bootstrap for gateway integration tests.
  *
  * Encapsulates the createServer + temp-dir + auth boilerplate that every
  * route test needs, so each test file only declares what it actually
