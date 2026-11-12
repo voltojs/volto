@@ -634,10 +634,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   const egressPolicy = await loadEgressPolicy(getConfigDir());
   const browserAdapter =
     opts.browserHost !== undefined && opts.chatSessionId !== undefined
-      ? opts.browserHost.page(
-          opts.chatSessionId,
-          egressPolicy !== null ? { egressPolicy } : undefined,
-        )
+      ? opts.browserHost.page(opts.chatSessionId, { egressPolicy: egressPolicy ?? undefined })
       : undefined;
   const baseSystemPrompt =
     opts.systemPrompt === null ? null : (opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT);

@@ -41,7 +41,8 @@ export interface BrowserHostOptions {
 }
 
 export interface PageOptions {
-  egressPolicy?: EgressPolicy;
+  /** Updating this clears the previous policy when it is null/undefined. */
+  egressPolicy?: EgressPolicy | null;
 }
 
 export interface LiveBrowserPage extends BrowserAdapter {
@@ -130,6 +131,7 @@ interface SessionEntry {
   lastUsed: number;
   idleTimer?: NodeJS.Timeout;
   crashed: boolean;
+  closed: boolean;
 }
 
 interface HostCallbacks {
@@ -179,6 +181,9 @@ class LivePage implements LiveBrowserPage {
   }
 
   private run<T>(fn: (page: Page) => Promise<T>): Promise<T> {
+    if (this.entry.closed) {
+      throw new Error("Browser session closed. Use a browser tool again to start a new page.");
+    }
     this.host.touch(this.entry);
     return this.entry.queue(async () => {
       const { page } = await this.host.ensure(this.entry);
@@ -309,7 +314,9 @@ class LivePage implements LiveBrowserPage {
         );
       }
       const { context } = await this.host.ensure(this.entry);
-      await mkdir(path.dirname(this.storageStatePath), { recursive: true, mode: 0o700 });
+      const directory = path.dirname(this.storageStatePath);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700).catch(() => undefined);
       await context.storageState({ path: this.storageStatePath });
       await chmod(this.storageStatePath, 0o600);
       return { path: this.storageStatePath, savedAt: Date.now() };
@@ -351,6 +358,9 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
   }
 
   async function ensure(entry: SessionEntry): Promise<{ context: BrowserContext; page: Page }> {
+    if (entry.closed) {
+      throw new Error("Browser session closed. Use a browser tool again to start a new page.");
+    }
     if (entry.crashed && entry.context !== undefined) {
       const crashed = entry.context;
       entry.context = undefined;
@@ -371,6 +381,10 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
         ...(storageState !== undefined ? { storageState } : {}),
       });
       const page = await context.newPage();
+      if (entry.closed) {
+        await context.close().catch(() => undefined);
+        throw new Error("Browser session closed. Use a browser tool again to start a new page.");
+      }
       entry.context = context;
       entry.page = page;
       attachDiagnostics(entry, page);
@@ -447,6 +461,7 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
     const entry = sessions.get(sessionId);
     if (entry === undefined) return;
     sessions.delete(sessionId);
+    entry.closed = true;
     if (entry.idleTimer !== undefined) clearTimeout(entry.idleTimer);
     const context = entry.context;
     entry.context = undefined;
@@ -470,6 +485,10 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
   function page(sessionId: string, pageOpts: PageOptions = {}): LiveBrowserPage {
     if (disposed) throw new Error("Browser host has been disposed.");
     let entry = sessions.get(sessionId);
+    if (entry?.closed === true) {
+      sessions.delete(sessionId);
+      entry = undefined;
+    }
     if (entry === undefined) {
       const diagnostics = createDiagnosticsBuffer(200);
       const created: SessionEntry = {
@@ -477,16 +496,17 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
         queue: createSerialQueue(),
         diagnostics,
         live: undefined as unknown as LivePage,
-        egressPolicy: pageOpts.egressPolicy,
+        egressPolicy: pageOpts.egressPolicy ?? undefined,
         lastUsed: Date.now(),
         crashed: false,
+        closed: false,
       };
       created.live = new LivePage(created, { ensure, touch, close }, storageStatePath);
       sessions.set(sessionId, created);
       entry = created;
       evictIfNeeded();
-    } else if (pageOpts.egressPolicy !== undefined) {
-      entry.egressPolicy = pageOpts.egressPolicy;
+    } else if (Object.prototype.hasOwnProperty.call(pageOpts, "egressPolicy")) {
+      entry.egressPolicy = pageOpts.egressPolicy ?? undefined;
     }
     touch(entry);
     return entry.live;
