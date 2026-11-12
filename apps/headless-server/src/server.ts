@@ -54,7 +54,7 @@ import {
 } from "@volto/store-jsonl";
 import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
-import { createNodeBrowserHost, type BrowserHost } from "@volto/runtime-node";
+import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
 import { loadBrowserConfig } from "./config/browser.js";
 import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
@@ -440,17 +440,6 @@ export interface HeadlessServer extends http.Server {
   readonly registry: ReturnType<typeof createSessionRegistry>;
 }
 
-/** Probe the Playwright package and its Chromium binary without launching it. */
-async function browserRuntimeAvailable(executablePath?: string): Promise<boolean> {
-  try {
-    const playwright = await import("playwright");
-    await fs.access(executablePath ?? playwright.chromium.executablePath());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
   // One-shot migration of the per-domain config files into config.json.
   // A failure here must not stop the gateway: reads still fall back to the
@@ -468,20 +457,23 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   if (browserHost === undefined) {
     try {
       const settings = await loadBrowserConfig(getConfigDir());
-      if (settings.enabled && (await browserRuntimeAvailable(settings.executablePath))) {
+      const executablePath = await resolveBrowserExecutable({
+        ...(settings.executablePath !== undefined ? { configured: settings.executablePath } : {}),
+      });
+      if (settings.enabled && executablePath !== undefined) {
         browserHost = createNodeBrowserHost({
           ...(settings.headless !== undefined ? { headless: settings.headless } : {}),
           idleTimeoutMs: settings.idleTimeoutMs,
+          executablePath,
           ...(settings.storageStatePath !== undefined
             ? { storageStatePath: settings.storageStatePath }
-            : {}),
-          ...(settings.executablePath !== undefined
-            ? { executablePath: settings.executablePath }
             : {}),
         });
       } else if (settings.enabled) {
         console.warn(
-          "browser tools disabled: Playwright Chromium is not installed. Run: pnpm exec playwright install chromium",
+          settings.executablePath !== undefined
+            ? `browser tools disabled: browser.executablePath does not exist: ${settings.executablePath}`
+            : "browser tools disabled: no Chrome/Chromium executable found. Set browser.executablePath in ~/.volto/config.json to your browser binary.",
         );
       }
     } catch (err) {

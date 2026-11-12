@@ -59,6 +59,8 @@ export type {
   LiveBrowserPage,
   PageOptions,
 } from "./browser-host.js";
+export { resolveBrowserExecutable, systemBrowserCandidates } from "./browser-executable.js";
+export type { ResolveBrowserExecutableOptions } from "./browser-executable.js";
 export { createNodeLspManager, LspManagerError, LSP_ERROR_CODES, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS } from "./lsp.js";
 export type { LspManager, LspManagerOptions, LspServerSpec, LspProbeResult, LspErrorCode } from "./lsp.js";
 export { createSqliteDatabaseOpener, DatabasePathError } from "./database.js";

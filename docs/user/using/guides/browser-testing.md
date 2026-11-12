@@ -13,11 +13,11 @@ generated: false
 
 > 读完你会：让 Agent 自己打开一个网页，走完登录/表单流程，读 console 和网络失败，并把可重复的部分写成 Playwright 测试。
 
-内置浏览器是 Agent 的**内部能力**：没有右栏面板，也不共享你日常浏览器的登录态。它在网关所在机器上启动 Chromium；不设置 `headless` 时默认弹出真实窗口，Linux 没有显示环境时自动改用无头模式。
+内置浏览器是 Agent 的**内部能力**：没有右栏面板，也不共享你日常浏览器的登录态。它在网关所在机器上启动你本机的 Chrome/Chromium/Edge；不设置 `headless` 时默认弹出真实窗口，Linux 没有显示环境时自动改用无头模式。
 
 ## 前提
 
-- 已安装 Playwright 的 Chromium：`pnpm exec playwright install chromium`。如果本机已有 Chrome/Chromium，也可以不下载，改在 `~/.volto/config.json` 里设置 `browser.executablePath`。
+- **不需要把 Chromium 下载进仓库**。Volto 只用 `playwright-core` 作为驱动，启动的是你本机已安装的 Chrome / Chromium / Edge。推荐在 `~/.volto/config.json` 的 `browser.executablePath` 里明确指定；不设置时会自动探测常见安装位置。
 - 网关能访问目标地址。测试本地 dev server 时，`localhost:5173` 指的是**网关所在机器**，不是另一台电脑。
 
 最小配置（全部可省略）：
@@ -27,6 +27,7 @@ generated: false
   "browser": {
     "enabled": true,
     "headless": true,
+    "executablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "idleTimeoutMs": 600000,
     "storageStatePath": "~/.volto/browser/auth.json"
   }
@@ -44,14 +45,14 @@ generated: false
 
 ## 你应看到
 
-- 第一次使用浏览器时，网关所在机器弹出 Chromium 窗口（或日志说明已回退无头模式）。
+- 第一次使用浏览器时，网关所在机器弹出浏览器窗口（或日志说明已回退无头模式）。
 - 工具结果是一段带 `[ref=eN]` 的页面结构，而不是只有一句“已点击”。
 - 失败流程里 `browser_diagnostics` 能指出具体报错或 HTTP 状态。
 - `storageStatePath` 指向的文件权限是 `0600`；它包含真实登录 cookie，**不要提交到 git**。
 
 ## 出问题怎么办
 
-- **工具列表里没有 browser_*：** 网关启动日志会写“browser tools disabled”。先装 Chromium，或配置 `browser.executablePath` 指向现有 Chrome，然后重启网关。
+- **工具列表里没有 browser_*：** 网关启动日志会写“browser tools disabled”。把 `browser.executablePath` 指向本机 Chrome/Chromium/Edge 的可执行文件，然后重启网关；程序不会自动下载浏览器。
 - **Linux/容器里启动失败：** 不要显式写 `"headless": false`（它会强制带头并失败）；删掉该字段，或设 `true`，或提供 `DISPLAY`。
 - **导航被拒绝：** 顶层导航受出口名单约束；检查目标主机是否在 deny 列表，或允许列表是否漏了它（见[网络出口名单](network-egress.md)）。点击触发的拒绝会落到浏览器错误页。
 - **ref 失效：** 页面变化后旧 ref 不可用，让 Agent 重新 `browser_snapshot`；不要让它猜 CSS 选择器。

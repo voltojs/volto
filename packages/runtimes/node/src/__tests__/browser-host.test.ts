@@ -61,10 +61,10 @@ describe("createSerialQueue", () => {
 });
 
 describe("BrowserUnavailableError", () => {
-  it("tells the user how to install Chromium", () => {
+  it("tells the user to configure their own browser", () => {
     const error = new BrowserUnavailableError();
     expect(error.name).toBe("BrowserUnavailableError");
-    expect(error.message).toContain("playwright install chromium");
+    expect(error.message).toContain("browser.executablePath");
   });
 });
 

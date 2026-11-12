@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 import type {
   ActionOutcome,
   BrowserAdapter,
@@ -25,6 +25,8 @@ import type {
 } from "@volto/tools-browser";
 import { formatSnapshot, SNAPSHOT_SCRIPT } from "@volto/tools-browser";
 import { createDiagnosticsBuffer, type DiagnosticsBuffer } from "./browser-diagnostics.js";
+import { expandHome, resolveBrowserExecutable } from "./browser-executable.js";
+export { expandHome } from "./browser-executable.js";
 import { isHostAllowed, type EgressPolicy } from "./egress.js";
 
 export interface BrowserHostOptions {
@@ -36,7 +38,7 @@ export interface BrowserHostOptions {
   maxContexts?: number;
   /** Optional Playwright storage state file loaded into new contexts. */
   storageStatePath?: string;
-  /** Optional Chromium executable override. */
+  /** User browser executable; auto-detects common installs when absent. */
   executablePath?: string;
 }
 
@@ -56,9 +58,10 @@ export interface BrowserHost {
 }
 
 export class BrowserUnavailableError extends Error {
-  constructor() {
+  constructor(message?: string) {
     super(
-      "Playwright is required for the browser host. Install it with: pnpm exec playwright install chromium",
+      message ??
+        "No Chrome/Chromium executable was found. Set browser.executablePath in ~/.volto/config.json to your browser binary.",
     );
     this.name = "BrowserUnavailableError";
   }
@@ -75,13 +78,6 @@ export function resolveHeadless(
     return true;
   }
   return false;
-}
-
-/** Expand a leading `~` or `~/` to `home`; other paths pass through. */
-export function expandHome(value: string, home: string): string {
-  if (value === "~") return home;
-  if (value.startsWith("~/")) return path.join(home, value.slice(2));
-  return value;
 }
 
 /** One FIFO queue for one page's actions. Rejections never poison the queue. */
@@ -343,20 +339,29 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
   async function ensureBrowser(): Promise<Browser> {
     if (disposed) throw new Error("Browser host has been disposed.");
     browserPromise ??= (async () => {
-      let playwright: typeof import("playwright");
+      let playwright: typeof import("playwright-core");
       try {
-        playwright = await import("playwright");
+        playwright = await import("playwright-core");
       } catch {
-        throw new BrowserUnavailableError();
+        throw new BrowserUnavailableError(
+          "playwright-core is not installed. Add it as a dependency (it is only a driver; it does not ship a browser).",
+        );
+      }
+      const executablePath = await resolveBrowserExecutable({
+        ...(opts.executablePath !== undefined ? { configured: opts.executablePath } : {}),
+      });
+      if (executablePath === undefined) {
+        throw new BrowserUnavailableError(
+          opts.executablePath !== undefined
+            ? `browser.executablePath does not exist: ${opts.executablePath}`
+            : "No Chrome/Chromium executable was found. Set browser.executablePath in ~/.volto/config.json to your browser binary.",
+        );
       }
       const headless = resolveHeadless(opts.headless, process.env, process.platform);
       if (opts.headless === undefined && headless && process.platform === "linux") {
         console.warn("browser: no DISPLAY/WAYLAND_DISPLAY found; running Chromium headless");
       }
-      return playwright.chromium.launch({
-        headless,
-        ...(opts.executablePath !== undefined ? { executablePath: opts.executablePath } : {}),
-      });
+      return playwright.chromium.launch({ headless, executablePath });
     })().catch((error: unknown) => {
       browserPromise = undefined;
       throw error;

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,12 +25,12 @@ describeE2E("browser host (real Chromium)", () => {
     fixture = await startBrowserFixture();
     dir = await mkdtemp(join(tmpdir(), "volto-browser-"));
     authPath = join(dir, "auth.json");
-    const executablePath = process.env["VOLTO_BROWSER_EXECUTABLE"] ??
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     host = createNodeBrowserHost({
       headless: false,
       storageStatePath: authPath,
-      ...(existsSync(executablePath) ? { executablePath } : {}),
+      ...(process.env["VOLTO_BROWSER_EXECUTABLE"] !== undefined
+        ? { executablePath: process.env["VOLTO_BROWSER_EXECUTABLE"] }
+        : {}),
     });
   });
 
@@ -76,12 +75,12 @@ describeE2E("browser host (real Chromium)", () => {
 
 
   it("reuses a saved storage state in a fresh context", async () => {
-    const executablePath = process.env["VOLTO_BROWSER_EXECUTABLE"] ??
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     const options = {
       headless: false,
       storageStatePath: authPath,
-      ...(existsSync(executablePath) ? { executablePath } : {}),
+      ...(process.env["VOLTO_BROWSER_EXECUTABLE"] !== undefined
+        ? { executablePath: process.env["VOLTO_BROWSER_EXECUTABLE"] }
+        : {}),
     };
     const first = createNodeBrowserHost(options);
     const page = first.page("auth-login");
@@ -120,11 +119,11 @@ describeE2E("browser host (real Chromium)", () => {
     const address = denied.address();
     if (address === null || typeof address === "string") throw new Error("denied server did not bind");
     const target = `http://localhost:${address.port}/`;
-    const executablePath = process.env["VOLTO_BROWSER_EXECUTABLE"] ??
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     const policyHost = createNodeBrowserHost({
       headless: false,
-      ...(existsSync(executablePath) ? { executablePath } : {}),
+      ...(process.env["VOLTO_BROWSER_EXECUTABLE"] !== undefined
+        ? { executablePath: process.env["VOLTO_BROWSER_EXECUTABLE"] }
+        : {}),
     });
     try {
       const page = policyHost.page("session-popup", { egressPolicy: { denyHosts: ["localhost"] } });
