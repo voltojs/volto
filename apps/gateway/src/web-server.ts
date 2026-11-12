@@ -7,6 +7,14 @@
  * tunnel can expose ONLY the UI: the browser talks to this origin, and every
  * API path is forwarded upstream with its method, headers and body intact.
  *
+ * A request carrying a `token` query parameter is ALSO forwarded, whatever
+ * its path — the same rule `server.ts` applies (`hasQueryToken`, one
+ * implementation for both). Without it the login link would be dead here:
+ * `/?token=…` is not an API path, so the local shell would answer 200 and the
+ * gateway's guard would never see the token. With `volto web`,
+ * `/?token=<credential>` reaches the gateway and sets the cookie; a bare `/`
+ * is still the local shell.
+ *
  * Two properties are load-bearing:
  *
  * - STREAMING. `/events` is server-sent events; a body that is read to
@@ -28,7 +36,7 @@
 
 import * as http from "node:http";
 import type { Duplex } from "node:stream";
-import { buildConfigScript, serveStatic } from "./static/serve.js";
+import { buildConfigScript, hasQueryToken, serveStatic } from "./static/serve.js";
 
 /**
  * Root prefixes of the gateway's API routes — the list the gateway's own
@@ -206,7 +214,10 @@ export async function startWebServer(opts: WebServerOptions): Promise<http.Serve
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const pathname = rawPathname(req.url);
-    if (isApiPath(pathname)) {
+    // A token-bearing request is the guard's, never the shell's: the guard
+    // answers 302 + Set-Cookie (or 401), and a local 200 here would leave the
+    // browser with no credential — the same rule `server.ts` applies.
+    if (isApiPath(pathname) || hasQueryToken(req.url)) {
       proxy(req, res);
       return;
     }

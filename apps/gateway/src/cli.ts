@@ -485,10 +485,9 @@ interface WebDeps extends CliDeps {
  * The query token must be one the GATEWAY accepts: its per-process launch
  * token today, and the persistent access token once Task 12 accepts it as a
  * credential. A valid one exchanges for a cookie (302) whatever the path —
- * `/` or any API path — because the gateway skips its static handler for any
- * request carrying a query token and lets the guard answer; an invalid one
- * gets the uniform 401, and a token-bearing request is never served the
- * static shell.
+ * `/?token=…` or any API path — because a token-bearing request is proxied
+ * upstream instead of served from the local shell; an invalid one gets the
+ * uniform 401, and a token-bearing request is never answered with the shell.
  *
  * Remote mode (`--serve-remote`) is deliberately not implemented here.
  */

@@ -134,7 +134,7 @@ import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
-import { buildConfigScript, serveStatic } from "./static/serve.js";
+import { buildConfigScript, hasQueryToken, serveStatic } from "./static/serve.js";
 import { API_PREFIXES } from "./web-server.js";
 import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
 import {
@@ -260,21 +260,6 @@ function rawPathname(rawUrl: string | undefined): string {
   const target = rawUrl ?? "/";
   const queryStart = target.indexOf("?");
   return queryStart < 0 ? target : target.slice(0, queryStart);
-}
-
-/**
- * `true` when the request carries the launch token on its query string — the
- * one-time exchange `?token=…` that `createAuthGuard` trades for a cookie.
- *
- * Such a request must reach the guard even when it names the app shell: the
- * guard answers 302 + Set-Cookie, and a static 200 would leave the browser
- * holding no credential. Every other query parameter is irrelevant here —
- * the launch token is read the same way by the guard itself.
- */
-function hasQueryToken(rawUrl: string | undefined): boolean {
-  const queryStart = (rawUrl ?? "").indexOf("?");
-  if (queryStart < 0) return false;
-  return new URLSearchParams((rawUrl ?? "").slice(queryStart + 1)).has("token");
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {

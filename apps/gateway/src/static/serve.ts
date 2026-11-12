@@ -185,6 +185,23 @@ async function readInRoot(
 }
 
 /**
+ * `true` when the request carries a `token` query parameter — the one-time
+ * `?token=…` exchange the auth guard trades for a cookie.
+ *
+ * Applies to the RAW request target (`req.url`), not `new URL(...).searchParams`
+ * on a reconstructed URL, and is shared by the gateway and `volto web`: a
+ * token-bearing request must reach the guard, so neither may answer it from
+ * the static handler. Only the PARAMETER's presence matters here; whether the
+ * token is valid is the guard's decision.
+ */
+export function hasQueryToken(rawUrl: string | undefined): boolean {
+  const target = rawUrl ?? "";
+  const queryStart = target.indexOf("?");
+  if (queryStart < 0) return false;
+  return new URLSearchParams(target.slice(queryStart + 1)).has("token");
+}
+
+/**
  * Classify a request path. `rawPathname` must be the request's own path
  * (`req.url` up to `?`), NOT `new URL(...).pathname`: the URL parser repairs
  * `//` and `\\` before any check could see them, and an attack that was

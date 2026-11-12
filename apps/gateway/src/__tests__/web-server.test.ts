@@ -321,3 +321,116 @@ it("网关压缩响应（声明长度与编码一致）原样透传，body 不�
   });
   expect(decoded.toString("utf-8")).toBe(payload);
 });
+
+/** A cookie-producing gateway: valid token → 302 + Set-Cookie, anything else → 401. */
+async function guardGateway(validToken: string): Promise<{ port: number; seen: string[] }> {
+  const seen: string[] = [];
+  const gateway = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    seen.push(`${url.pathname}${url.search}`);
+    if (url.searchParams.get("token") === validToken) {
+      res.writeHead(302, {
+        Location: "/",
+        "Set-Cookie": "volto_auth=cookie-value; HttpOnly; SameSite=Strict; Path=/",
+      });
+      res.end();
+      return;
+    }
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "Unauthorized" }));
+  });
+  const port = await listen(gateway);
+  return { port, seen };
+}
+
+it("带有效令牌访问 / 时转发到网关并拿回 302 + Set-Cookie", async () => {
+  const webRoot = await webFixture();
+  const { port: gatewayPort, seen } = await guardGateway("good");
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`, webRoot);
+
+  // A raw client: fetch would follow the redirect and hide the 302.
+  const wire = await new Promise<{ status: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+    http
+      .get({ host: "127.0.0.1", port: webPort, path: "/?token=good" }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers }));
+      })
+      .on("error", reject);
+  });
+
+  // The guard exchanged it — the local shell did NOT answer.
+  expect(wire.status).toBe(302);
+  expect(seen).toEqual(["/?token=good"]);
+  // A relative `Location` is resolved against the WEB origin the browser is
+  // on — which is the rewrite's whole point: the browser never learns the
+  // gateway's address. (An absolute gateway URL would be rewritten to the web
+  // origin explicitly — see the multi-cookie case in the header test.)
+  expect(wire.headers["location"]).toBe("/");
+  expect(new URL(wire.headers["location"] as string, `http://127.0.0.1:${webPort}`).origin).toBe(
+    `http://127.0.0.1:${webPort}`,
+  );
+  // No Domain: the cookie is stored for this origin, which is where the
+  // browser will send it back.
+  const cookie = wire.headers["set-cookie"]?.[0] ?? "";
+  expect(cookie.startsWith("volto_auth=cookie-value;")).toBe(true);
+  expect(cookie).not.toMatch(/domain=/i);
+});
+
+it("网关回绝对 Location 指向自己的 origin 时改写为 web origin", async () => {
+  const webRoot = await webFixture();
+  let gatewayPort = 0;
+  const gateway = http.createServer((_req, res) => {
+    // The realistic absolute form: a redirect naming the gateway's own
+    // origin, which the browser cannot reach behind the tunnel.
+    res.writeHead(302, { location: `http://127.0.0.1:${gatewayPort}/somewhere?x=1` });
+    res.end();
+  });
+  gatewayPort = await listen(gateway);
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`, webRoot);
+
+  const wire = await new Promise<{ status: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+    http
+      .get({ host: "127.0.0.1", port: webPort, path: "/health" }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers }));
+      })
+      .on("error", reject);
+  });
+
+  expect(wire.status).toBe(302);
+  expect(wire.headers["location"]).toBe(`http://127.0.0.1:${webPort}/somewhere?x=1`);
+});
+
+it("带无效令牌访问 / 时得到网关的 401，而不是本地外壳", async () => {
+  const webRoot = await webFixture();
+  const { port: gatewayPort, seen } = await guardGateway("good");
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`, webRoot);
+
+  const wire = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    http
+      .get({ host: "127.0.0.1", port: webPort, path: "/?token=wrong" }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf-8") }),
+        );
+      })
+      .on("error", reject);
+  });
+
+  expect(wire.status).toBe(401);
+  expect(wire.body).toBe(JSON.stringify({ error: "Unauthorized" }));
+  expect(seen).toEqual(["/?token=wrong"]);
+});
+
+it("不带令牌访问 / 仍是本地外壳，网关一次请求都收不到", async () => {
+  const webRoot = await webFixture();
+  const { port: gatewayPort, seen } = await guardGateway("good");
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`, webRoot);
+
+  const home = await fetch(`http://127.0.0.1:${webPort}/`);
+  expect(home.status).toBe(200);
+  expect(await home.text()).toContain("shell");
+  // Not "the gateway returned something harmless" — it was never dialled.
+  expect(seen).toEqual([]);
+});
