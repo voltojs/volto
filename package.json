@@ -15,6 +15,7 @@
     "dev:web": "turbo run dev --filter @volto/headless-server --filter @volto/web",
     "check:core-deps": "node scripts/check-core-zero-deps.mjs",
     "check:pack": "pnpm turbo run build && node scripts/check-pack-contents.mjs",
+    "smoke:install": "node scripts/smoke-install.mjs",
     "check:i18n": "node scripts/check-i18n-hardcoded.mjs",
     "release": "pnpm turbo run build && node scripts/publish-manifest.mjs --strict-workspace && pnpm check:pack && pnpm -r publish --access public",
     "version:all": "pnpm changeset version && node scripts/publish-manifest.mjs",
