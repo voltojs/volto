@@ -453,16 +453,14 @@ describe('session store persistence', () => {
     }
   });
 
-  it('never writes the session store to localStorage', () => {
-    useSessionStore.getState().createSession({ title: 't' });
-    useSessionStore
-      .getState()
-      .updateSessionTitle(
-        useSessionStore.getState().sessions[0]!.id,
-        'renamed',
-      );
+  it('never writes the session store to localStorage, only the active id', () => {
+    window.localStorage.clear();
+    const id = useSessionStore.getState().createSession({ title: 't' });
+    useSessionStore.getState().updateSessionTitle(id, 'renamed');
     expect(window.localStorage.getItem('volto-sessions')).toBeNull();
-    expect(window.localStorage.length).toBe(0);
+    // The active-conversation key is view state, not the session store.
+    expect(window.localStorage.getItem('volto.currentSessionId')).toBe(id);
+    expect(window.localStorage.length).toBe(1);
   });
 });
 

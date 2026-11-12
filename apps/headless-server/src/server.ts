@@ -1839,6 +1839,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
               messageCount: projectMessageEntries(record.events).length,
               createdAt: record.createdAt,
               updatedAt: record.updatedAt,
+              running: registry.isRunning(record.sessionId),
               snippet: hit.snippet,
             }];
           });
@@ -1861,6 +1862,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
             messageCount: projectMessageEntries(record.events).length,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
+            running: registry.isRunning(record.sessionId),
           })),
           unreadableSessions: skipped.length,
         });

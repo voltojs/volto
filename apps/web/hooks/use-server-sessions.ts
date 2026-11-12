@@ -9,6 +9,7 @@ import {
   SessionDetailUnavailableError,
   type ServerSessionSummary,
 } from '@/lib/sessions-api';
+import { loadStoredSessionId, persistSessionId } from '@/lib/session-persistence';
 import {
   useSessionStore,
   type PermissionMode,
@@ -191,6 +192,7 @@ export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
       detailError: null,
       createdAt: summary.createdAt,
       updatedAt: summary.updatedAt,
+      running: summary.running === true,
       projectId: summary.projectId,
       providerId: summary.providerId,
       modelId: summary.modelId,
@@ -225,8 +227,33 @@ export async function refreshServerSessions(): Promise<void> {
  * The server is the sole source of truth: client state is memory-only, so
  * this replaces the list rather than merging into it.
  */
+/** Restore the last active conversation if the server still knows it. */
+export function restoreStoredSession(summaries: ServerSessionSummary[]): string | null {
+  const stored = loadStoredSessionId();
+  if (stored === null) return null;
+  if (!summaries.some((summary) => summary.id === stored)) {
+    persistSessionId(null);
+    return null;
+  }
+  useSessionStore.getState().setCurrentSession(stored);
+  return stored;
+}
+
 export function useServerSessions(): void {
   const t = useTranslations('chat');
+  const anyRunning = useSessionStore((state) => state.sessions.some((session) => session.running));
+
+  // A turn can finish while the user is looking at another conversation, and
+  // that session has no live SSE channel to deliver its turn_end. Poll the
+  // list while anything is running so the sidebar spinner clears.
+  useEffect(() => {
+    if (!anyRunning) return;
+    const timer = setInterval(() => {
+      void refreshServerSessions().catch(() => {});
+    }, 4_000);
+    return () => clearInterval(timer);
+  }, [anyRunning]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -242,6 +269,12 @@ export function useServerSessions(): void {
       if (cancelled) return;
 
       applyServerSummaries(summaries);
+
+      // Restore the conversation the user was looking at. The server list is
+      // the authority on whether that id still exists; a deleted session
+      // clears the stored id instead of reopening a dead view.
+      const stored = restoreStoredSession(summaries);
+      if (stored !== null) void ensureSessionDetail(stored, t).catch(() => {});
     })();
 
     return () => {

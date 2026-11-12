@@ -17,7 +17,6 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useChatStore } from '@/stores/chat-store';
 import { useConfigStore } from '@/stores/config-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useSidebarStateStore } from '@/stores/sidebar-state-store';
@@ -47,9 +46,6 @@ export function PinnedList() {
   const sessions = useSessionStore((s) => s.sessions);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const projects = useConfigStore((s) => s.projects);
-  const generatingSessionId = useChatStore((s) =>
-    s.isGenerating ? s.currentSessionId : null,
-  );
   const doc = useSidebarStateStore((s) => s.state);
   const update = useSidebarStateStore((s) => s.update);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +150,7 @@ export function PinnedList() {
             key={session.id}
             session={session}
             isActive={currentSessionId === session.id}
-            isGenerating={generatingSessionId === session.id}
+            isGenerating={session.running === true}
             isPinned
             projectName={
               session.projectId === null

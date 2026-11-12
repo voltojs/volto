@@ -60,6 +60,17 @@ afterEach(() => {
 });
 
 describe('ProjectList', () => {
+  it('shows a spinner for a running session even when it is not the active one', () => {
+    seed({
+      sessions: [session({ id: 's-run', projectId: 'p-1', running: true })],
+      projects: [project('p-1', 'volto')],
+      sidebar: { ...DEFAULT_SIDEBAR_STATE, expandedProjectIds: ['p-1'] },
+    });
+    render(<ProjectList />);
+    const row = screen.getByText('s-run-title').closest('.group');
+    expect(row?.querySelector('.lucide-loader-circle')).not.toBeNull();
+  });
+
   it('expands several projects at once from the stored set', () => {
     seed({
       ...base,

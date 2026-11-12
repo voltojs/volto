@@ -75,6 +75,8 @@ export interface ServerSessionSummary {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** True while the gateway has a live turn for this session. */
+  running?: boolean;
 }
 
 export interface ServerSessionDetail {

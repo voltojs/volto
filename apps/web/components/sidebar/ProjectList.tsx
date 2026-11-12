@@ -84,12 +84,6 @@ export function ProjectList() {
   const removeProject = useConfigStore((s) => s.removeProject);
   const sessions = useSessionStore((s) => s.sessions);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
-  // The chat store's buffer belongs to exactly one session at a time — the
-  // one whose channel is currently attached — so "is this sidebar row
-  // generating" is just "is it the buffer's session, and is it generating".
-  const generatingSessionId = useChatStore((s) =>
-    s.isGenerating ? s.currentSessionId : null,
-  );
   const doc = useSidebarStateStore((s) => s.state);
   const update = useSidebarStateStore((s) => s.update);
   const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
@@ -507,7 +501,7 @@ export function ProjectList() {
                       key={session.id}
                       session={session}
                       isActive={currentSessionId === session.id}
-                      isGenerating={generatingSessionId === session.id}
+                      isGenerating={session.running === true}
                       isPinned={false}
                       onTogglePin={() => {
                         update((state) => pinSession(state, session.id));

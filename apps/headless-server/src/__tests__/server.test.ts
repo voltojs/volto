@@ -1208,12 +1208,14 @@ describe("Headless server", () => {
 
     const { status, data } = await getJson("/sessions");
     expect(status).toBe(200);
-    const body = data as { sessions: Array<{ id: string; projectId: string; messageCount: number }>; unreadableSessions: number };
+    const body = data as { sessions: Array<{ id: string; projectId: string; messageCount: number; running?: boolean }>; unreadableSessions: number };
     const summary = body.sessions.find((s) => s.id === sessionId);
     expect(summary).toBeDefined();
     expect(summary!.projectId).toBe(config.projectId);
     // One user message + one assistant message from the mock model's reply.
     expect(summary!.messageCount).toBe(2);
+    // A settled turn must not look like a live one after a sidebar refresh.
+    expect(summary!.running).toBe(false);
   });
 
   it("GET /sessions/:id/export returns Markdown or JSONL with a download header", async () => {

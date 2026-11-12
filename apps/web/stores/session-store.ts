@@ -15,6 +15,7 @@ import {
 import { useConfigStore } from './config-store';
 import { usePaneStore } from './pane-store';
 import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
+import { persistSessionId } from '@/lib/session-persistence';
 
 /** The reasoning capability of the model a session is switching to, as reported by `configStore.getModelReasoning`. */
 type ReasoningCapability = Model['reasoning'];
@@ -65,6 +66,8 @@ export interface Session {
   providerId: string | null;
   modelId: string | null;
   permissionMode: PermissionMode;
+  /** Server truth: a turn is currently running for this session. */
+  running?: boolean;
   /**
    * Opaque id of the selected reasoning-effort tier, or undefined when none
    * is selected. Never hardcode or interpret this id — display strings come
@@ -172,6 +175,8 @@ interface SessionState {
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setCurrentSession: (id: string | null) => void;
+  /** Mirror the gateway's running flag for one session. */
+  setSessionRunning: (id: string, running: boolean) => void;
   getSessionMessages: (id: string) => ConversationMessage[];
   updateSessionMessages: (id: string, messages: ConversationMessage[]) => void;
 
@@ -267,6 +272,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       projectId: options.projectId ?? null,
       providerId: options.providerId ?? null,
       modelId: options.modelId ?? null,
+      running: false,
       // 'ask' is the default when the caller doesn't specify one — not
       // a floor. A caller that lets the user pick a tier up front (the
       // welcome screen) passes it straight through.
@@ -277,6 +283,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       sessions: [session, ...state.sessions],
       currentSessionId: id,
     }));
+    persistSessionId(id);
     return id;
   },
 
@@ -290,11 +297,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       const currentStillPresent =
         state.currentSessionId === null ||
         sorted.some((s) => s.id === state.currentSessionId);
+      if (state.currentSessionId !== null && !currentStillPresent) persistSessionId(null);
       return {
         sessions: sorted,
         currentSessionId: currentStillPresent ? state.currentSessionId : null,
       };
     }),
+
 
   applySessionDetail: (id, detail) =>
     set((state) => ({
@@ -323,8 +332,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     })),
 
   deleteSession: (id) => {
+    let nextId: string | null = null;
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== id);
+      nextId =
+        state.currentSessionId === id
+          ? (sessions[0]?.id ?? null)
+          : state.currentSessionId;
       return {
         sessions,
         // Land on the first remaining session in list order (not
@@ -334,12 +348,10 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
         // resorting, so this array isn't guaranteed to stay sorted) rather
         // than the welcome screen: with the list coming from the server, an
         // empty selection after a delete reads as data loss.
-        currentSessionId:
-          state.currentSessionId === id
-            ? (sessions[0]?.id ?? null)
-            : state.currentSessionId,
+        currentSessionId: nextId,
       };
     });
+    persistSessionId(nextId);
     // The deleted conversation's pane memory must not outlive it.
     usePaneStore.getState().forgetSession(id);
   },
@@ -351,7 +363,15 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       ),
     })),
 
-  setCurrentSession: (id) => set({ currentSessionId: id }),
+  setCurrentSession: (id) => {
+    set({ currentSessionId: id });
+    persistSessionId(id);
+  },
+
+  setSessionRunning: (id, running) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) => (s.id === id ? { ...s, running } : s)),
+    })),
 
   getSessionMessages: (id) =>
     get().sessions.find((s) => s.id === id)?.messages ?? [],

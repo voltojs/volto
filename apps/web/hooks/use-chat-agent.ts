@@ -143,6 +143,7 @@ async function syncRunningTurn(sessionId: string): Promise<void> {
   if (tail === null) return;
   const chat = useChatStore.getState();
   if (chat.currentSessionId !== sessionId) return;
+  useSessionStore.getState().setSessionRunning(sessionId, tail.running);
   // A settled session needs nothing: its history already comes from the
   // detail endpoint, and seeding a crashed turn's leftover events would only
   // add rows the projection has to dedupe again.
@@ -238,8 +239,13 @@ export function useChatAgent(): UseChatAgentReturn {
             );
           }
         }
-        if (event.type === 'turn_end') chat.setGenerating(false);
-        else if (event.type === 'turn_start') chat.setGenerating(true);
+        if (event.type === 'turn_end') {
+          chat.setGenerating(false);
+          useSessionStore.getState().setSessionRunning(sessionId, false);
+        } else if (event.type === 'turn_start') {
+          chat.setGenerating(true);
+          useSessionStore.getState().setSessionRunning(sessionId, true);
+        }
       });
 
       client.onDelta((delta) => {
@@ -261,6 +267,7 @@ export function useChatAgent(): UseChatAgentReturn {
           data: { message: data.message },
         });
         useChatStore.getState().setGenerating(false);
+        useSessionStore.getState().setSessionRunning(sessionId, false);
       });
 
       const ready = new Promise<void>((resolve, reject) => {
@@ -355,6 +362,7 @@ export function useChatAgent(): UseChatAgentReturn {
       // and rolls it back on failure as before.
       const alreadyGenerating = useChatStore.getState().isGenerating;
       useChatStore.getState().setGenerating(true);
+      useSessionStore.getState().setSessionRunning(sessionId, true);
       // No optimistic copy of the user message: the server echoes it back as
       // a user_message event on the channel.
 
@@ -383,7 +391,10 @@ export function useChatAgent(): UseChatAgentReturn {
           type: 'error',
           data: { message },
         });
-        if (!alreadyGenerating) useChatStore.getState().setGenerating(false);
+        if (!alreadyGenerating) {
+          useChatStore.getState().setGenerating(false);
+          useSessionStore.getState().setSessionRunning(sessionId, false);
+        }
       }
     },
     [ensureConnection],
@@ -401,7 +412,10 @@ export function useChatAgent(): UseChatAgentReturn {
       // user send the next message while the aborted turn is still unwinding.
       // When the server had nothing running, though, no `turn_end` is ever
       // coming, so this is the only place that can unstick the UI.
-      if (!interrupted) useChatStore.getState().cancelStreaming();
+      if (!interrupted) {
+        useChatStore.getState().cancelStreaming();
+        useSessionStore.getState().setSessionRunning(sessionId, false);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t('errors.interruptFailed');
