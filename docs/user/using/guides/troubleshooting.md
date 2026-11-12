@@ -20,7 +20,7 @@ verified: 2026-11-12
 | `Cannot find module .../dist/server.js` | 从源码跑但没构建 | `pnpm turbo run build` |
 | 启动日志出现 `[sandbox] No sandbox backend available on this platform` | 平台无后端，或 Linux 缺 `bwrap` | Linux 装 `bwrap` 后重启；Windows 目前无解（网关默认档要求隔离） |
 | 启动即报配置损坏 | `config.json` 语法错或字段名拼错 | 修 `~/.volto/config.json`；坏文件会被拒绝而不是忽略 |
-| 最后一行是 `listen EADDRINUSE` | 端口（默认 3100）被旧进程占用。注意它**会先打印两行启动信息**，以这行报错为准 | 停掉旧进程，或换个端口 |
+| 报错 `Could not listen on 127.0.0.1:3100: EADDRINUSE` | 端口（默认 3100）被旧进程占用。此时**不打印**那两行启动信息，标准输出为空，退出码 1 | 停掉旧进程，或换个端口 |
 
 ## 登录与连接
 

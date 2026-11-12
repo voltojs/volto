@@ -197,8 +197,14 @@ function reportNoTunnel(socket: Duplex, status: number, reason: string): void {
 
 /**
  * Start the web server. Resolves once it is listening, so a caller can read
- * the bound port (and fail fast on `EADDRINUSE`) before returning to the
- * caller's own loop.
+ * the bound port before returning to the caller's own loop.
+ *
+ * A failed bind REJECTS. The `error` listener installed while waiting is
+ * removed on success but deliberately left attached on failure: that listener
+ * rejects a promise which is then already settled (a no-op), and it is what
+ * stops Node from reporting the same `error` a second time as an
+ * uncaughtException. Callers therefore handle a bind failure exactly once, in
+ * their `await` — the server never reports it again through an event.
  */
 export async function startWebServer(opts: WebServerOptions): Promise<http.Server> {
   const gatewayBase = new URL(opts.gateway);
@@ -370,9 +376,13 @@ export async function startWebServer(opts: WebServerOptions): Promise<http.Serve
   }
 
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
+    // `once("error")` would also swallow the event from any later request-level
+    // failure; the listen-phase listener is removed on success instead (see the
+    // contract above).
+    const onListenError = (err: Error): void => reject(err);
+    server.once("error", onListenError);
     server.listen({ port: opts.port, ...(opts.host !== undefined ? { host: opts.host } : {}) }, () => {
-      server.off("error", reject);
+      server.off("error", onListenError);
       resolve();
     });
   });

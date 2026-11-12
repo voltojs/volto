@@ -74,8 +74,8 @@ npx @volto/gateway doctor
 ## 登录不上时
 
 - **页面 401 或一直停在登录** → 网关重启过，旧的 `token=` 链接会失效（每次启动都会生成新的）。用本次启动打印的 `Open:` 链接，或确认浏览器里还有上一步的 cookie。
-- **终端最后一行是 `listen EADDRINUSE`** → 3100 已被占用：先停掉旧进程，或换个端口（见上面的换端口参数）。注意这种情况下它**也会先打印那两行**，以最后一行报错为准。
-- **启动即退出、没有任何输出** → 跑一次 `npx @volto/gateway doctor`，失败的硬性项就是原因。
+- **终端出现 `Could not listen on 127.0.0.1:3100: EADDRINUSE`** → 3100 已被占用：先停掉旧进程，或换个端口（见上面的换端口参数）。这种情况**不会打印** `volto gateway … listening on …` 和 `Open: …` 这两行，标准输出是空的，只有这一条报错，退出码 1。
+- **启动即退出，终端里没有被上面两条覆盖的报错** → 跑一次 `npx @volto/gateway doctor`，失败的硬性项就是原因。
 
 更多症状见 [故障排查](../guides/troubleshooting.md)。
 

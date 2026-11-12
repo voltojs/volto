@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { expect, it, vi } from "vitest";
 import type * as http from "node:http";
-import { main, type CliDeps } from "../cli.js";
+import { bindFailureMessage, main, type CliDeps } from "../cli.js";
 import { loadOrCreateAccessToken, tokenFingerprint } from "../auth/access-token.js";
 import type { HeadlessServer, ServerOptions } from "../server.js";
 import type { WebServerOptions } from "../web-server.js";
@@ -577,6 +577,63 @@ function fakeWebServer(port: number): http.Server {
     },
   } as unknown as http.Server;
 }
+
+it("绑定失败的信息用系统错误码，且 --port 0 不会把 0 当成端口打印", () => {
+  const withCode = Object.assign(new Error("listen EADDRINUSE: address already in use"), { code: "EADDRINUSE" });
+  expect(bindFailureMessage("127.0.0.1", 3100, withCode)).toBe("Could not listen on 127.0.0.1:3100: EADDRINUSE\n");
+  // `--port 0` lets the OS choose: naming ":0" would send the reader looking
+  // for a process bound to a port nobody asked for.
+  const dynamic = bindFailureMessage("127.0.0.1", 0, withCode);
+  expect(dynamic).toBe("Could not listen on 127.0.0.1:<system-assigned port>: EADDRINUSE\n");
+  expect(dynamic).not.toContain(":0:");
+  // No OS code (some platforms/wrappers): fall back to the message, never blank.
+  expect(bindFailureMessage("127.0.0.1", 3100, new Error("boom"))).toBe("Could not listen on 127.0.0.1:3100: boom\n");
+});
+
+/**
+ * `volto web` shares `serve`'s bind-then-announce step, so it must fail the
+ * same way: no startup lines on a bind that never happened, the OS error code
+ * on stderr, a non-zero exit. Same real socket as the `serve` case — a stub
+ * would prove the code path, not the boundary.
+ */
+it("volto web 端口被占用时以非零退出、stderr 带 EADDRINUSE，且不打印任何启动行", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    // `web` binds every interface (`::`, dual-stack) when no --host is given,
+    // and on macOS a `::` bind co-exists with a `127.0.0.1` one on the same
+    // port. So the blocker has to be the same shape, or this test would pass
+    // on a bind that never failed.
+    const blocker = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      // `ipv6Only: false` is already the default (dual-stack); stated so the
+      // shape matching `web`'s own bind is explicit rather than incidental.
+      blocker.listen({ port: 0, host: "::", ipv6Only: false }, () => resolve());
+    });
+    const address = blocker.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const out: string[] = [];
+    const errors: string[] = [];
+    try {
+      const code = await main(["web", "--port", String(port), "--config-dir", dir], {
+        stdout: (s) => out.push(s),
+        stderr: (s) => errors.push(s),
+        waitForShutdown: async () => {},
+      });
+      expect(code).not.toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+
+    // Byte-identical wording to `serve`: `startWebServer` rejects on a bind
+    // failure, so this arrives through the startWeb catch, not the helper.
+    expect(errors.join("")).toBe(`Could not listen on 127.0.0.1:${port}: EADDRINUSE\n`);
+    // None of the three startup lines: not "listening", not "Open:", not "Login:".
+    expect(out.join("")).toBe("");
+  });
+});
 
 it("volto web 用默认端口/网关/包内 web 目录启动并打印两行", async () => {
   await withEnvRestored(async () => {

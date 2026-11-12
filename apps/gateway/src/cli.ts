@@ -503,12 +503,49 @@ async function waitForListening(server: ListeningServer): Promise<number | undef
   return typeof address === "object" && address !== null ? address.port : undefined;
 }
 
+/** A listen-phase failure, told apart from a wiring failure by its OS code. */
+function isBindError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EADDRINUSE" || code === "EACCES" || code === "EADDRNOTAVAIL";
+}
+
 /** `EADDRINUSE` and friends carry the OS code; a message is the fallback. */
-function bindFailureMessage(host: string, port: number, err: unknown): string {
+export function bindFailureMessage(host: string, port: number, err: unknown): string {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   const detail = typeof code === "string" && code !== "" ? code : err instanceof Error ? err.message : String(err);
-  return `Could not listen on ${host}:${port}: ${detail}\n`;
+  // `--port 0` asked the OS to choose, so "0" is not the port anyone tried to
+  // bind — naming it would send the reader looking for a process on :0.
+  const where = port === 0 ? `${host}:<system-assigned port>` : `${host}:${port}`;
+  return `Could not listen on ${where}: ${detail}\n`;
 }
+
+/**
+ * The bind-then-announce step both commands share: wait for the socket, and
+ * when that fails report it (stderr, OS error code) and hand back `undefined`
+ * so the caller exits 1 **without printing a single startup line**.
+ *
+ * One implementation, so `serve` and `web` cannot drift apart on what a
+ * failed bind looks and exits like.
+ */
+async function bindOrReport(
+  server: ListeningServer & Pick<http.Server, "close">,
+  host: string,
+  requestedPort: number,
+  stderr: (s: string) => void,
+): Promise<number | undefined> {
+  try {
+    return await waitForListening(server);
+  } catch (err) {
+    stderr(bindFailureMessage(host, requestedPort, err));
+    // A server that never listened may still own a pending handle; closing is
+    // cheap and keeps the process from lingering on it.
+    await new Promise<void>((resolve) => server.close(() => resolve())).catch(() => undefined);
+    return undefined;
+  }
+}
+
+/** Exit code for a bind that never happened. */
+const BIND_FAILED = 1;
 
 /** The seams `runServe` needs, with the defaults already applied by `main`. */
 interface ServeDeps extends CliDeps {
@@ -561,20 +598,11 @@ async function runServe(
     return 1;
   }
 
-  const port = await waitForListening(server).then(
-    (bound) => bound,
-    (err: unknown) => err,
-  );
   // A bind that never happened prints NOTHING on stdout: the two lines below
   // are a contract a script parses, and "listening" for a port this process
   // does not hold is a lie the caller cannot detect.
-  if (port instanceof Error || typeof port !== "number") {
-    deps.stderr(bindFailureMessage(opts.host, opts.port, port));
-    // A server that never listened may still own a pending handle; closing is
-    // cheap and keeps the process from lingering on it.
-    await new Promise<void>((resolve) => server.close(() => resolve())).catch(() => undefined);
-    return 1;
-  }
+  const port = await bindOrReport(server, opts.host, opts.port, deps.stderr);
+  if (port === undefined) return BIND_FAILED;
   const url = new URL(server.authenticatedUrl);
   // The return value is built from the configured port; `listen(0)` gets its
   // real port from the callback, so re-derive the URL against the bound port.
@@ -657,20 +685,20 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
       webRoot,
     });
   } catch (err) {
-    deps.stderr(`${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+    // `startWebServer` reports a failed bind by REJECTING (it resolves only
+    // once the socket is listening), so the failure lands here, not in the
+    // await below. Same wording as `serve`: both commands describe a bind
+    // failure identically.
+    if (isBindError(err)) deps.stderr(bindFailureMessage(opts.host, opts.port, err));
+    else deps.stderr(`${err instanceof Error ? err.message : String(err)}\n`);
+    return BIND_FAILED;
   }
 
-  // Same rule as `serve`: a failed bind prints none of the startup lines.
-  const port = await waitForListening(server).then(
-    (bound) => bound,
-    (err: unknown) => err,
-  );
-  if (port instanceof Error || typeof port !== "number") {
-    deps.stderr(bindFailureMessage(opts.host, opts.port, port));
-    await new Promise<void>((resolve) => server.close(() => resolve())).catch(() => undefined);
-    return 1;
-  }
+  // Same rule as `serve`, through the same helper: a failed bind prints none
+  // of the startup lines. (A `startWeb` that resolves before binding — the
+  // test seam — takes this path instead of the catch above.)
+  const port = await bindOrReport(server, opts.host, opts.port, deps.stderr);
+  if (port === undefined) return BIND_FAILED;
   // The printed URL must name the interface that was actually bound: with no
   // `--host` the listener stays loopback, and `opts.host` already defaults to
   // `127.0.0.1`, so the two agree for `--port 0` as well.
