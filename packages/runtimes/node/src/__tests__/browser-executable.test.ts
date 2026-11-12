@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveBrowserExecutable, systemBrowserCandidates } from "../browser-executable.js";
+import {
+  detectSystemBrowsers,
+  resolveBrowserExecutable,
+  systemBrowserCandidates,
+  systemBrowsers,
+} from "../browser-executable.js";
 
 describe("systemBrowserCandidates", () => {
   it("lists common macOS Chrome/Chromium/Edge locations", () => {
@@ -14,6 +19,37 @@ describe("systemBrowserCandidates", () => {
     expect(systemBrowserCandidates("win32", { ProgramFiles: "C:\\Program Files" })).toContain(
       "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
     );
+  });
+});
+
+describe("systemBrowsers", () => {
+  it("labels the macOS catalog", () => {
+    const browsers = systemBrowsers("darwin", {});
+    expect(browsers.map((browser) => browser.label)).toEqual([
+      "Google Chrome",
+      "Google Chrome",
+      "Chromium",
+      "Microsoft Edge",
+      "Brave Browser",
+    ]);
+    expect(browsers[0]?.path).toContain("Google Chrome.app");
+  });
+
+  it("labels the Linux catalog and detects only installed browsers", async () => {
+    const all = systemBrowsers("linux", {});
+    expect(all[0]).toEqual({
+      id: "chrome",
+      label: "Google Chrome",
+      path: "/usr/bin/google-chrome",
+    });
+    const detected = await detectSystemBrowsers({
+      platform: "linux",
+      env: {},
+      exists: async (candidate) => candidate === "/usr/bin/chromium",
+    });
+    expect(detected).toEqual([
+      { id: "chromium", label: "Chromium", path: "/usr/bin/chromium" },
+    ]);
   });
 });
 
