@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createBrowserAuth } from "../browser-auth.js";
+import { rotateAccessToken } from "../access-token.js";
 
 let dir: string;
 const extraDirs: string[] = [];
@@ -162,6 +165,57 @@ describe("createBrowserAuth", () => {
     expect(result.ok).toBe(false);
     expect(result.redirectTo).toBe("/");
     expect(result.setCookie).toBeDefined();
+  });
+
+  it("rotate 后旧 cookie 立即失效", async () => {
+    const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
+    const auth1 = await createBrowserAuth({ dir: authDir });
+    const cookie = auth1.cookieHeaderFor(Date.now()).split(";")[0]!;
+    expect(auth1.authorize(reqWith({ cookie })).ok).toBe(true);
+
+    const rotated = await createBrowserAuth({
+      dir: authDir,
+      accessToken: await rotateAccessToken(authDir),
+    });
+    expect(rotated.authorize(reqWith({ cookie })).ok).toBe(false);
+  });
+
+  it("access token 可作为 bearer", async () => {
+    const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
+    const auth = await createBrowserAuth({ dir: authDir });
+    expect(auth.authorize(reqWith({ authorization: `Bearer ${auth.accessToken}` })).ok).toBe(true);
+  });
+
+  it("access token 可作为 query token 换取 cookie", async () => {
+    const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
+    const auth = await createBrowserAuth({ dir: authDir });
+    // The `volto token` / `volto web` login URL: it mints the cookie and
+    // redirects to a clean root, exactly like the per-process launch token.
+    const result = auth.authorize(reqWith({}, `/?token=${auth.accessToken}`));
+    expect(result.redirectTo).toBe("/");
+    expect(result.setCookie).toBeDefined();
+    // The minted cookie is immediately usable and can be replayed by a
+    // later instance over the same config dir.
+    const minted = result.setCookie!.split(";")[0]!;
+    expect(auth.authorize(reqWith({ cookie: minted })).ok).toBe(true);
+    const restarted = await createBrowserAuth({ dir: authDir });
+    expect(restarted.authorize(reqWith({ cookie: minted })).ok).toBe(true);
+  });
+
+  it("rejects the pre-rotation access token as a bearer after rotation", async () => {
+    const authDir = await mkdtemp(path.join(tmpdir(), "volto-auth-"));
+    const auth = await createBrowserAuth({ dir: authDir });
+    const oldToken = auth.accessToken;
+    const fresh = await rotateAccessToken(authDir);
+    const rotated = await createBrowserAuth({ dir: authDir });
+    expect(rotated.accessToken).toBe(fresh);
+    expect(rotated.authorize(reqWith({ authorization: `Bearer ${oldToken}` })).ok).toBe(false);
+    expect(rotated.authorize(reqWith({ authorization: `Bearer ${fresh}` })).ok).toBe(true);
+    // The per-process launch token keeps working across a rotation: it is
+    // not derived from the persisted file.
+    expect(rotated.authorize(reqWith({ authorization: `Bearer ${rotated.launchToken}` })).ok).toBe(
+      true,
+    );
   });
 
   it("writes its secret file with owner-only permissions", async () => {

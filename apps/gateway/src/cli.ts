@@ -587,11 +587,11 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   const out = deps.stdout;
   out(`volto web ${packageVersion()} listening on http://${shownHost}:${port} -> ${gateway}\n`);
   out(`Open: http://${shownHost}:${port}/\n`);
-  // The query token must be one the gateway accepts: the per-process launch
-  // token today (302 + Set-Cookie on `/` as on any API path), and the
-  // persistent access token printed here once Task 12 accepts it as a
-  // credential. Until then this URL is informational — that token is not yet
-  // accepted, so the gateway answers 401.
+  // The query token must be one the gateway accepts. Since the gateway takes
+  // the persistent access token as a credential this URL works as-is: the
+  // proxy forwards `/?token=…` untouched, the gateway answers 302 with a
+  // Set-Cookie, and the cookie is stored on the web app's own origin — the
+  // origin every later API call through the proxy is sent from.
   const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
   out(`Login: http://${shownHost}:${port}/?token=${token}\n`);
   if (opts.serveRemote) {

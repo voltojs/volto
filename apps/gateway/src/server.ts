@@ -481,6 +481,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
 export interface HeadlessServer extends http.Server {
   /** Per-process launch token. Not persisted; dies with the process. */
   readonly launchToken: string;
+  /**
+   * Persistent access token for the config directory. Cookies are bound to
+   * its fingerprint, so `volto token --rotate` invalidates every one of them.
+   */
+  readonly accessToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   readonly authenticatedUrl: string;
   /**
@@ -2892,6 +2897,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     .sessionStoreSelection;
   return Object.assign(httpServer, {
     launchToken: auth.launchToken,
+    accessToken: auth.accessToken,
     authenticatedUrl,
     registry,
     ...(sessionStoreSelection !== undefined ? { sessionStoreSelection } : {}),

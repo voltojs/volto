@@ -1,10 +1,20 @@
 /**
  * Browser authentication for the headless gateway.
  *
- * A per-process launch token rides the root URL once and is exchanged for an
- * HMAC-signed HttpOnly cookie. Non-browser clients present the same token as
- * a bearer credential. Every failure path returns the same result so a caller
- * cannot tell why it was refused.
+ * Two credentials are accepted, in every entry point (query token, cookie,
+ * bearer):
+ *
+ * - the per-process launch token, never persisted, which dies with the
+ *   process; and
+ * - the persistent access token (`access-token`, 0600), which survives
+ *   restarts so a remote client can be handed a stable credential.
+ *
+ * A valid query token is exchanged for an HMAC-signed HttpOnly cookie. The
+ * cookie payload is versioned and generation-bound — `{ v, exp, tv }`, where
+ * `tv` is the fingerprint of the access token it was minted under — so
+ * rotating the token invalidates every cookie already issued, immediately
+ * rather than when its 7-day Max-Age runs out. Every failure path returns
+ * the same result so a caller cannot tell why it was refused.
  */
 
 import * as crypto from "node:crypto";
@@ -12,12 +22,26 @@ import * as fs from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import * as path from "node:path";
 import { ensureConfigDir, getConfigDir } from "../config/paths.js";
+import { loadOrCreateAccessToken, tokenFingerprint } from "./access-token.js";
 
 const SECRET_BYTES = 32;
 const TOKEN_BYTES = 32;
 const DEFAULT_MAX_AGE_DAYS = 7;
 const COOKIE_NAME = "volto_auth";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/**
+ * Cookie payload version. v1 was `{ exp }` with no generation binding; v2 is
+ * `{ v, exp, tv }`. A bump invalidates every older cookie, which is the point:
+ * verification demands an exact match.
+ */
+const COOKIE_PAYLOAD_VERSION = 2;
+
+interface CookiePayload {
+  v: typeof COOKIE_PAYLOAD_VERSION;
+  exp: number;
+  /** tokenFingerprint of the access token this cookie was minted under. */
+  tv: string;
+}
 
 /**
  * Authorization outcome. `setCookie` / `redirectTo` appear only on the
@@ -31,6 +55,12 @@ export type AuthResult =
 export interface BrowserAuth {
   /** Per-process launch token. Not persisted; dies with the process. */
   readonly launchToken: string;
+  /**
+   * Persistent access token for the config directory. Survives restarts;
+   * `volto token --rotate` is the only way it changes. Cookies carry the
+   * fingerprint of THIS value, so a rotation invalidates them all.
+   */
+  readonly accessToken: string;
   /** Root URL carrying the launch token as its only auth input. */
   authenticatedUrl(baseUrl: string): string;
   /** Evaluate cookie → bearer → query token. Failures are indistinguishable. */
@@ -40,10 +70,21 @@ export interface BrowserAuth {
 }
 
 export interface CreateBrowserAuthOptions {
-  /** Config directory holding `auth-secret`. Defaults to `getConfigDir()`. */
+  /**
+   * Config directory holding `auth-secret` and `access-token`. Defaults to
+   * `getConfigDir()`.
+   */
   dir?: string;
   /** Cookie lifetime in days. Default 7. */
   maxAgeDays?: number;
+  /**
+   * Access token to bind cookies to. Defaults to the one already persisted in
+   * `dir` (created on first use), so callers that just read the file — the
+   * CLI, a host that prints the login URL — can pass it in and prove both
+   * sides agree. Rotation must go through the file; pass the NEW value or
+   * omit this option.
+   */
+  accessToken?: string;
 }
 
 /**
@@ -109,6 +150,17 @@ function extractCookieValue(cookieHeader: string, name: string): string | null {
   return null;
 }
 
+/**
+ * The one place either accepted credential is compared. Both are always
+ * compared — no early return — so a caller cannot learn which kind of token
+ * it guessed from response timing.
+ */
+function credentialMatches(presented: string, launchToken: string, accessToken: string): boolean {
+  const asLaunch = tokensMatch(presented, launchToken);
+  const asAccess = tokensMatch(presented, accessToken);
+  return asLaunch || asAccess;
+}
+
 function signPayload(payload: string, secret: Buffer): string {
   return crypto.createHmac("sha256", secret).update(payload, "utf-8").digest("base64url");
 }
@@ -121,14 +173,26 @@ export async function createBrowserAuth(
   const maxAgeMs = maxAgeDays * MS_PER_DAY;
   const maxAgeSec = Math.floor(maxAgeMs / 1000);
   const secret = await loadSecret(dir);
+  // The generation every cookie this instance mints is bound to. An injected
+  // value is taken as-is (a rotating caller passes the NEW token, or omits it
+  // so the file is re-read); otherwise the persisted token is the truth.
+  const accessToken = opts.accessToken ?? (await loadOrCreateAccessToken(dir));
+  const tokenVersion = tokenFingerprint(accessToken);
 
   // Fresh every process. A restart invalidates every previously issued URL;
   // that is intentional.
   const launchToken = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
 
+  /**
+   * Cookie payload. Adding a field means bumping COOKIE_PAYLOAD_VERSION and
+   * rejecting every older version in `verifyCookieValue` — an unversioned
+   * `{ exp, tv }` would let a cookie minted by a future release (or by a
+   * pre-`tv` release, which carried no generation at all) pass as current.
+   */
   function cookieValueFor(now: number): string {
     const exp = now + maxAgeMs;
-    const payload = Buffer.from(JSON.stringify({ exp }), "utf-8").toString("base64url");
+    const body: CookiePayload = { v: COOKIE_PAYLOAD_VERSION, exp, tv: tokenVersion };
+    const payload = Buffer.from(JSON.stringify(body), "utf-8").toString("base64url");
     return `${payload}.${signPayload(payload, secret)}`;
   }
 
@@ -139,7 +203,11 @@ export async function createBrowserAuth(
     return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}; Expires=${expires}`;
   }
 
-  /** Verify signature first, then parse payload and check expiry. */
+  /**
+   * Verify signature first, then the payload: version, expiry, and the
+   * token generation. The generation check is what makes `--rotate` take
+   * effect immediately instead of at the cookie's own Max-Age.
+   */
   function verifyCookieValue(value: string): boolean {
     const dot = value.indexOf(".");
     if (dot <= 0) return false;
@@ -152,16 +220,21 @@ export async function createBrowserAuth(
       return false;
     }
 
-    let exp: unknown;
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
-      if (typeof parsed !== "object" || parsed === null) return false;
-      exp = (parsed as { exp?: unknown }).exp;
+      parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
     } catch {
       return false;
     }
+    if (typeof parsed !== "object" || parsed === null) return false;
+    const { v, exp, tv } = parsed as { v?: unknown; exp?: unknown; tv?: unknown };
+    if (v !== COOKIE_PAYLOAD_VERSION) return false;
     if (typeof exp !== "number" || !Number.isFinite(exp)) return false;
-    return exp > Date.now();
+    if (exp <= Date.now()) return false;
+    if (typeof tv !== "string" || tv === "") return false;
+    // Constant-time, like every other credential comparison — a cookie that
+    // carries the wrong generation must not leak how it differs.
+    return tokensMatch(tv, tokenVersion);
   }
 
   function authenticatedUrl(baseUrl: string): string {
@@ -197,7 +270,11 @@ export async function createBrowserAuth(
     } catch {
       queryToken = null;
     }
-    if (queryToken !== null && queryToken !== "" && tokensMatch(queryToken, launchToken)) {
+    if (
+      queryToken !== null &&
+      queryToken !== "" &&
+      credentialMatches(queryToken, launchToken, accessToken)
+    ) {
       // Valid token: mint the cookie and redirect to a clean root URL so the
       // token does not survive in the address bar.
       return {
@@ -222,14 +299,16 @@ export async function createBrowserAuth(
       // Cookie header without volto_auth — fall through.
     }
 
-    // 3. Authorization: Bearer <launchToken>. Only a non-empty Bearer token
-    //    is a credential; other schemes and empty tokens fall through.
+    // 3. Authorization: Bearer <token>, where the token is either the
+    //    per-process launch token or the persistent access token. Only a
+    //    non-empty Bearer token is a credential; other schemes and empty
+    //    tokens fall through.
     const authorization = getHeader(req, "authorization");
     if (authorization !== undefined) {
       const match = /^Bearer\s+(.*)$/i.exec(authorization);
       if (match) {
         const token = (match[1] ?? "").trim();
-        if (token !== "" && tokensMatch(token, launchToken)) {
+        if (token !== "" && credentialMatches(token, launchToken, accessToken)) {
           return { ok: true };
         }
         if (token !== "") {
@@ -246,6 +325,7 @@ export async function createBrowserAuth(
 
   return {
     launchToken,
+    accessToken,
     authenticatedUrl,
     authorize,
     cookieHeaderFor,
