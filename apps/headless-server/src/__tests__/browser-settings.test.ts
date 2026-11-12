@@ -54,8 +54,12 @@ describe("/config/browser", () => {
         body: JSON.stringify({ executablePath: process.execPath }),
       });
       expect(put.status).toBe(200);
-      const body = (await put.json()) as { configuredPath: string | null };
+      const body = (await put.json()) as {
+        configuredPath: string | null;
+        resolvedPath: string | null;
+      };
       expect(body.configuredPath).toBe(process.execPath);
+      expect(body.resolvedPath).toBe(process.execPath);
       await expect(readBrowserSection()).resolves.toMatchObject({
         executablePath: process.execPath,
       });
@@ -121,6 +125,34 @@ describe("/config/browser", () => {
       expect(await readBrowserSection().catch(() => undefined)).not.toMatchObject({
         executablePath: "/definitely/missing/browser",
       });
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects a body without executablePath", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    try {
+      const put = await fetch(`${url}/config/browser`, {
+        method: "PUT",
+        headers: authJson(token),
+        body: JSON.stringify({}),
+      });
+      expect(put.status).toBe(400);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects malformed JSON", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    try {
+      const put = await fetch(`${url}/config/browser`, {
+        method: "PUT",
+        headers: authJson(token),
+        body: "{not-json",
+      });
+      expect(put.status).toBe(400);
     } finally {
       await close();
     }
