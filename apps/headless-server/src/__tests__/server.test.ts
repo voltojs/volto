@@ -11,6 +11,7 @@ import { CommandTimeoutError } from "../fs/command-runner.js";
 import { buildSandboxConfigs } from "../wiring.js";
 import { buildPermissionConfig } from "../permission-modes.js";
 import { createPlanStore } from "../config/plan-store.js";
+import { buildConfigScript } from "../static/serve.js";
 import { getConfigDir } from "../config/paths.js";
 import { loadPermissionRules } from "../config/permissions.js";
 import { encodeWorkspaceName } from "@volto/store-jsonl";
@@ -55,6 +56,7 @@ beforeAll(async () => {
   // would otherwise answer `/` from the installed build — or its "no web app"
   // 503 when none is installed — which is not this suite's subject.
   const webRoot = await fs.mkdtemp(path.join(os.tmpdir(), "volto-web-"));
+  await fs.writeFile(path.join(webRoot, "index.html"), "<html>fixture</html>");
   server = await createServer({ port: 0, modelPort: MOCK_MODEL, webRoot });
   launchToken = server.launchToken;
   // Wait for the server to start. Binding to an explicit host (as opposed to
@@ -538,23 +540,68 @@ describe("authentication", () => {
     expect(await a.text()).toBe(await b.text());
   });
 
+  it("serves /volto-config.js with this package's own version and a same-origin base", async () => {
+    // WIRING, not just a string: the version comes from
+    // `apps/headless-server/package.json` at startup, and the base is the
+    // same-origin `""` the exported client expects — a `/gateway` prefix
+    // baked in here would break every API call of the deployed UI.
+    const manifest = JSON.parse(
+      await fs.readFile(new URL("../../package.json", import.meta.url), "utf-8"),
+    ) as { version: string };
+    const response = await fetch(`${baseUrl}/volto-config.js`);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toBe(buildConfigScript({ gatewayUrl: "", version: manifest.version }));
+    expect(body).toContain(`version: ${JSON.stringify(manifest.version)}`);
+    expect(body).toContain('gatewayUrl: ""');
+    expect(body).not.toContain("/gateway");
+    // Deployment data, never cached by a proxy or the browser.
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves the app shell at / before any cookie exists", async () => {
+    // The login page itself has no credential yet, so the static host runs
+    // ahead of the guard: an anonymous `/` gets the shell, not a 401.
+    const response = await fetch(`${baseUrl}/`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("fixture");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("answers an unauthenticated asset miss with a non-revealing 404, never a 401", async () => {
     // The exported web app is served from this origin BEFORE the auth guard
     // (a page that needs a cookie to load could never be reached), so an
     // unauthenticated request for a missing asset cannot be answered 401 —
     // and 404 is exactly what an asset request needs to see.
+    // The by-design status for an asset request is 404 — never 401 (the
+    // guard runs after the static host, and the login page's own assets must
+    // load without a cookie).
+    const anonymous = await fetch(`${baseUrl}/nonexistent.js`);
+    expect(anonymous.status).toBe(404);
+    expect(anonymous.status).not.toBe(401);
+
     const bodies: string[] = [];
     for (const path of ["/nonexistent.js", "/_next/static/chunks/does-not-exist.js"]) {
-      const response = await fetch(`${baseUrl}${path}`);
+      const response = await fetch(`${baseUrl}${path}`, { headers: authHeaders() });
       const body = await response.text();
+      // Status alone is ambiguous here: the fallback router's 404 carries the
+      // same body as the static host's. The `X-Content-Type-Options` header is
+      // what this static host stamps on every answer and the router does not,
+      // so asserting it proves the ASSET path answered — not the router.
       expect(response.status, path).toBe(404);
       expect(response.status, path).not.toBe(401);
-      // The body must not distinguish "missing" from "not yours" — it is the
-      // same JSON the router's own 404 carries.
+      expect(response.headers.get("x-content-type-options"), path).toBe("nosniff");
+      expect(response.headers.get("cache-control"), path).toBe("no-store");
+      // The body must not distinguish "missing" from "not yours".
       expect(body, path).toBe(JSON.stringify({ error: "Not found" }));
       bodies.push(body);
     }
     expect(bodies[0]).toBe(bodies[1]);
+
+    // Without a build installed, `/` still answers the shell (200) here: the
+    // static host owns root paths whether or not it has an `index.html`.
+    const shell = await fetch(`${baseUrl}/`);
+    expect(shell.status).toBe(200);
   });
 
   it("exchanges a valid query token for a cookie and a clean redirect", async () => {

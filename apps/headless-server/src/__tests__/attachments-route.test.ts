@@ -10,15 +10,20 @@ const auth = (t: string) => ({
 });
 
 /**
- * GET with a request target sent verbatim — `fetch` cannot express one the
- * URL parser would rewrite, and the traversal check has to see what the
- * client actually sent.
+ * The miss body this route answers with — shared by "unknown id" and "wrong
+ * session" (see attachments/routes.ts). The fallback router answers a
+ * different shape, so requiring THIS body is what proves the request reached
+ * `/attachments` at all rather than falling through it.
  */
-function rawGet(
-  base: URL,
-  target: string,
-  token: string,
-): Promise<{ status: number; body: Buffer }> {
+const ROUTE_MISS = JSON.stringify({ error: "Not found" });
+
+/**
+ * GET with a request target sent verbatim, with the same `auth(token)`
+ * credentials every other case in this file uses. `fetch` cannot express a
+ * target the URL parser would rewrite, and the traversal check has to see
+ * what the client actually sent.
+ */
+function rawGet(base: URL, target: string, token: string): Promise<{ status: number; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -26,7 +31,7 @@ function rawGet(
         port: base.port,
         path: target,
         method: "GET",
-        headers: { authorization: `Bearer ${token}` },
+        headers: auth(token),
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -230,7 +235,12 @@ describe("/attachments", () => {
       // enough either — WHATWG URL decoding happens after dot-segment
       // removal but Node's server re-parses afterwards, and the two disagree.
       const res = await rawGet(new URL(url), `/attachments/%2E%2E?sessionId=${sessionId}`, token);
+      const text = Buffer.from(res.body).toString("utf-8");
+      // Route-specific, not merely "not 200": a 401 from the auth guard or a
+      // router 404 (`not 503`) would both satisfy a bare status check, so the
+      // body has to be the one `/attachments` writes for a miss.
       expect(res.status).toBe(404);
+      expect(text).toBe(ROUTE_MISS);
       expect(Buffer.from(res.body).toString("base64")).not.toBe(PNG);
     } finally {
       await close();

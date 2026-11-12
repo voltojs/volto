@@ -139,6 +139,12 @@ type SessionRegistryTitlePortFactory = NonNullable<
 
 export interface StartTestServerOptions {
   /**
+   * Directory the static host serves the exported app from. Defaults to an
+   * empty temp directory, so `/` answers a shell-shaped 404-free path without
+   * depending on whether this machine has a `web/` build installed.
+   */
+  webRoot?: string;
+  /**
    * Model port the gateway hands to createAgent. Defaults to IDLE_MODEL;
    * tests that need to inspect the assembled ModelRequest inject a
    * capturing port here.
@@ -252,6 +258,11 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
     // `!== undefined`, not truthiness: null is the meaningful "no system
     // message" value and must survive the spread.
     ...(opts.systemPrompt !== undefined ? { systemPrompt: opts.systemPrompt } : {}),
+    // An existing, EMPTY web root by default: static hosting answers the app
+    // shell from it, so a route miss stays a route miss instead of becoming
+    // the "no web app installed" 503. Pass `webRoot` to exercise the static
+    // host itself.
+    ...(opts.webRoot !== undefined ? { webRoot: opts.webRoot } : { webRoot: await fs.mkdtemp(path.join(os.tmpdir(), "volto-web-")) }),
   });
 
   await new Promise<void>((resolve) => server.on("listening", resolve));
