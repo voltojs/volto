@@ -319,10 +319,8 @@ export async function startWebServer(opts: WebServerOptions): Promise<http.Serve
   /** Forward one request upstream and stream its answer straight back. */
   function proxy(req: http.IncomingMessage, res: http.ServerResponse): void {
     const target = new URL(req.url ?? "/", gatewayBase);
-    // Keep the client's own host so the gateway's Origin/Host check compares
-    // the same values a browser sent; the socket goes to the gateway either way.
+    // The client's own `Host` is already in here — see `upstreamHeaders`.
     const headers = upstreamHeaders(req);
-    if (typeof req.headers.host === "string") headers["host"] = req.headers.host;
 
     const upstream = http.request(
       {

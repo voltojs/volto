@@ -480,9 +480,14 @@ interface WebDeps extends CliDeps {
 
 /**
  * `volto web` — the exported UI on its own port, every API path proxied to a
- * gateway. The credential is the gateway's: the `?token=` exchange (302 +
- * Set-Cookie) is answered upstream and forwarded here, so the login link works
- * against this port's origin too.
+ * gateway.
+ *
+ * The credential belongs to the gateway, and today that is ONLY its
+ * per-process launch token: a `?token=` exchange (302 + Set-Cookie) happens
+ * when the token rides an API path (`/<api-prefix>?token=…`), because the
+ * guard only sees proxied paths — `/?token=…` matches no API prefix and is
+ * answered by the static shell. The persistent access token this command
+ * prints is not yet an accepted credential; it becomes one in Task 12.
  *
  * Remote mode (`--serve-remote`) is deliberately not implemented here.
  */
