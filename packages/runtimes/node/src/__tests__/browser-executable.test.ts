@@ -53,6 +53,12 @@ describe("systemBrowsers", () => {
     expect(detected).toEqual([
       { id: "chromium", label: "Chromium", path: "/usr/bin/chromium" },
     ]);
+    const chrome = await detectSystemBrowsers({
+      platform: "darwin",
+      home: "/Users/example",
+      exists: async (candidate) => candidate.includes("Google Chrome"),
+    });
+    expect(chrome).toHaveLength(1);
   });
 });
 

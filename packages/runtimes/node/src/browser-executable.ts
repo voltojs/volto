@@ -163,9 +163,9 @@ export async function detectSystemBrowsers(
   const detected: SystemBrowser[] = [];
   const seen = new Set<string>();
   for (const browser of systemBrowsers(platform, env, home)) {
-    if (seen.has(browser.path)) continue;
+    if (seen.has(browser.id)) continue;
     if (await exists(browser.path)) {
-      seen.add(browser.path);
+      seen.add(browser.id);
       detected.push(browser);
     }
   }
