@@ -11,7 +11,17 @@ const BASIC = ["task","task_output","todo_write","ask_user","skill"];
 const INFO  = ["web_search","web_fetch","read_document","http_query","save_plan"];
 const LSP   = ["lsp_definition","lsp_hover","lsp_references","lsp_rename","lsp_diagnostics"];
 const DB    = ["db_query","db_exec"];
-const BROWSER = ["browser_navigate","browser_click","browser_type","browser_get_page_text","browser_screenshot"];
+const BROWSER = [
+  "browser_navigate",
+  "browser_snapshot",
+  "browser_click",
+  "browser_type",
+  "browser_press_key",
+  "browser_wait_for",
+  "browser_screenshot",
+  "browser_diagnostics",
+  "browser_storage_state",
+];
 const MEMORY = ["memory"];
 const UNKNOWN = ["future_tool","mcp__srv__echo","plugin_thing","watch_files","build","git_push"];
 
@@ -128,4 +138,20 @@ it("T11 memory tool falls to rest when memory is not assembled", () => {
   expect(limit).toBe(20);
   expect(scope.groups["memory"]).toBeUndefined();
   expect(scope.toolGroups!["memory"]).toBe("rest");
+});
+
+
+it("browser assembly raises the limit to 30 and keeps all nine browser tools", () => {
+  const defs = [...FLOOR, ...BASIC, ...BROWSER, ...INFO].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: false,
+    hasDb: false,
+    hasBrowser: true,
+    hasMemory: false,
+  });
+  expect(limit).toBe(30);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  for (const name of BROWSER) expect(names, `browser lost: ${name}`).toContain(name);
+  expect(names).toContain("web_fetch");
+  expect(names).toContain("web_search");
 });

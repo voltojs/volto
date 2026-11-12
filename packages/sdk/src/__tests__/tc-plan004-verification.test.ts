@@ -365,7 +365,7 @@ describe("TC-011: browser 工具缺 adapter 不可见", () => {
     // 验证 capabilities 不含 browser:control（通过 ports 间接验证）
     // 注：完整验证需要访问内部状态，此处验证 agent 正常运行 + browser 工具名定义
     const { BROWSER_TOOL_NAMES } = await import("@volto/tools-browser");
-    expect(BROWSER_TOOL_NAMES.size).toBe(5);
+    expect(BROWSER_TOOL_NAMES.size).toBe(9);
   });
 });
 

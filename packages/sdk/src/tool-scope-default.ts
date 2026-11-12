@@ -57,10 +57,14 @@ const LSP_TOOLS = [
 const DB_TOOLS = ["db_query", "db_exec"];
 const BROWSER_TOOLS = [
   "browser_navigate",
+  "browser_snapshot",
   "browser_click",
   "browser_type",
-  "browser_get_page_text",
+  "browser_press_key",
+  "browser_wait_for",
   "browser_screenshot",
+  "browser_diagnostics",
+  "browser_storage_state",
 ];
 
 // Tier 4: information tools, priority 20.
@@ -116,8 +120,11 @@ export function buildDefaultToolVisibility(
   }
   return {
     scope: { groups: buildGroups(presence), toolGroups },
-    // Memory-enabled sessions get one extra slot so the single `memory`
-    // tool and the lsp discretionary slot can coexist (T11 spec D6).
-    limit: DEFAULT_TOOL_VISIBILITY_LIMIT + (presence.hasMemory ? 1 : 0),
+    // Browser sessions need all nine tools plus two info slots; memory keeps
+    // its one extra slot from T11.
+    limit:
+      DEFAULT_TOOL_VISIBILITY_LIMIT +
+      (presence.hasBrowser ? 10 : 0) +
+      (presence.hasMemory ? 1 : 0),
   };
 }

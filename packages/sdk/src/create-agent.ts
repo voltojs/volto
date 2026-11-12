@@ -208,11 +208,16 @@ import type { DocumentParserAdapter, DocumentParseOptions } from "@volto/tools-d
 import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
 import { createSkillTool } from "@volto/tool-skill";
 import {
+  BROWSER_TOOL_NAMES,
   createBrowserNavigateTool,
+  createBrowserSnapshotTool,
   createBrowserClickTool,
   createBrowserTypeTool,
+  createBrowserPressKeyTool,
+  createBrowserWaitForTool,
   createBrowserScreenshotTool,
-  createBrowserGetPageTextTool,
+  createBrowserDiagnosticsTool,
+  createBrowserStorageStateTool,
 } from "@volto/tools-browser";
 import type { BrowserAdapter } from "@volto/tools-browser";
 import {
@@ -1744,10 +1749,17 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   if (opts.browserAdapter) {
     adapterTools.push(
       createBrowserNavigateTool(opts.browserAdapter),
+      createBrowserSnapshotTool(opts.browserAdapter),
       createBrowserClickTool(opts.browserAdapter),
       createBrowserTypeTool(opts.browserAdapter),
-      createBrowserScreenshotTool(opts.browserAdapter),
-      createBrowserGetPageTextTool(opts.browserAdapter),
+      createBrowserPressKeyTool(opts.browserAdapter),
+      createBrowserWaitForTool(opts.browserAdapter),
+      createBrowserScreenshotTool(opts.browserAdapter, {
+        attachments: attachmentStore,
+        visionSupported: opts.modelVision,
+      }),
+      createBrowserDiagnosticsTool(opts.browserAdapter),
+      createBrowserStorageStateTool(opts.browserAdapter),
     );
   }
   if (opts.db) {
@@ -3584,7 +3596,7 @@ export function assembleSubAgent(opts: {
   );
   const tools: Tool[] =
     spec.tools === undefined
-      ? [...parentTools]
+      ? parentTools.filter((tool) => !BROWSER_TOOL_NAMES.has(tool.definition.name))
       : spec.tools.flatMap((name) => {
           const t = parentToolsByName.get(name);
           return t ? [t] : [];
