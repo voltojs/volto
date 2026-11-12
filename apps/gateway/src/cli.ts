@@ -294,8 +294,8 @@ async function checkConfigDirWritable(configDir: string): Promise<DoctorCheck> {
 
 /**
  * Which session store the server would actually use — the answer comes from
- * the same factory the wiring calls (`createSessionStore`), so `doctor`
- * cannot drift from the server. Three outcomes:
+ * the same call the wiring makes (`selectSessionStore`), so `doctor` cannot
+ * drift from the server (it prints the fallback warning too). Three outcomes:
  *
  *   sqlite             — loaded; sessions live in `sessions.db`
  *   file (forced)      — `VOLTO_SESSION_STORE=file`, the operator's choice

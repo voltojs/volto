@@ -2886,16 +2886,15 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     })();
   });
 
+  // The store is chosen inside createWiredAgent; only a real wiring call
+  // carries the selection, so a stub factory leaves this undefined.
+  const sessionStoreSelection = (agent as { sessionStoreSelection?: SessionStoreSelection })
+    .sessionStoreSelection;
   return Object.assign(httpServer, {
     launchToken: auth.launchToken,
     authenticatedUrl,
     registry,
-    // The store is chosen inside createWiredAgent; only a real wiring call
-    // carries the selection, so a stub factory leaves this undefined.
-    ...(typeof (agent as { sessionStoreSelection?: unknown }).sessionStoreSelection === "object" &&
-    (agent as { sessionStoreSelection?: unknown }).sessionStoreSelection !== null
-      ? { sessionStoreSelection: (agent as { sessionStoreSelection: SessionStoreSelection }).sessionStoreSelection }
-      : {}),
+    ...(sessionStoreSelection !== undefined ? { sessionStoreSelection } : {}),
   });
 }
 
