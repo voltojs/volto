@@ -55,7 +55,7 @@
       ]
     },
     "httpRoutes": {
-      "hash": "22813c38efc38e5af29f92614e37d5b88e39a8c204550e6742dd41c75671ce1c",
+      "hash": "939ff40602bbe41ed0ccde1f242191be85e3f2b0365be697d10064b778584d87",
       "names": [
         "* /config/routing-tiers",
         "DELETE /agents/*",
@@ -65,6 +65,7 @@
         "GET /agents",
         "GET /catalog/providers",
         "GET /commands",
+        "GET /config/browser",
         "GET /events",
         "GET /file-refs",
         "GET /fs/file",
@@ -99,6 +100,7 @@
         "POST /resume",
         "POST /run",
         "PUT /agents/*",
+        "PUT /config/browser",
         "PUT /preferences",
         "PUT /providers/*",
         "PUT /sidebar-state"
@@ -269,7 +271,7 @@
       "names": []
     },
     "uiCatalog": {
-      "hash": "21a7110a80a538fce8568ad4f16440a6d02aef604341291aae53ec1c58d6b743",
+      "hash": "940aaa46c3acc8bedbc589aacabd574c74d539f403d31b90da7b1cfb2da37dd6",
       "names": [
         "chat:activity",
         "chat:approval",
@@ -328,6 +330,7 @@
         "settings:skills",
         "settings:subagentForm",
         "settings:subagents",
+        "settings:tools",
         "sidebar:addWorkspace",
         "sidebar:cancel",
         "sidebar:connection",

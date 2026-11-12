@@ -27,6 +27,8 @@ verified: 2026-11-11
 | `POST` | `/approvals` | 对一个待审批的工具调用给出 allow / deny / 回答。 |
 | `GET` | `/catalog/providers` | 内置供应商目录，供「添加供应商」表单选择。 |
 | `GET` | `/commands` | 斜杠命令的模板列表，`/` 面板的数据源。 |
+| `GET` | `/config/browser` | 网关所在系统的浏览器设置：当前 executablePath、解析结果与已探测浏览器。 |
+| `PUT` | `/config/browser` | 把 `executablePath` 写入 config.json；null 表示删除并回到自动探测。需重启网关生效。 |
 | `GET` | `/config/routing-tiers` | 模型路由档位表；首次写入前是出厂模板。 |
 | `PUT` | `/config/routing-tiers` | 整体替换路由档位表；删除仍被引用的档位会返回 409。 |
 | `GET` | `/events` | 一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。 |

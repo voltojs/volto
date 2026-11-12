@@ -82,6 +82,16 @@
     },
     {
       "method": "GET",
+      "path": "/config/browser",
+      "note": "网关所在系统的浏览器设置：当前 executablePath、解析结果与已探测浏览器。"
+    },
+    {
+      "method": "PUT",
+      "path": "/config/browser",
+      "note": "把 `executablePath` 写入 config.json；null 表示删除并回到自动探测。需重启网关生效。"
+    },
+    {
+      "method": "GET",
       "path": "/sidebar-state",
       "note": "侧边栏布局文档（置顶、顺序）。"
     },
