@@ -76,10 +76,14 @@ it("F-162 with mode tools present, they take the discretionary slots after floor
   const defs = [...FLOOR, ...BASIC, ...LSP, ...INFO, ...UNKNOWN].map(def);   // 14+5+5+5+6 = 35
   const { scope, limit } = buildDefaultToolVisibility(defs, { hasLsp: true, hasDb: false, hasBrowser: false, hasMemory: false });
   const names = filterByScope(defs, scope, limit).map((t) => t.name);
-  expect(names).toHaveLength(20);
+  // LSP assembles its own five slots: a bare 20 kept one lsp tool and dropped
+  // the other four, whether or not a browser was present.
+  expect(limit).toBe(25);
+  expect(names).toHaveLength(25);
   expect(names.slice(14, 19).sort()).toEqual([...BASIC].sort());             // tier 2 owns 15-19
-  expect(names.slice(19).every((n) => n.startsWith("lsp_"))).toBe(true);      // tier 3 owns the last 1
-  expect(names.some((n) => INFO.includes(n) || UNKNOWN.includes(n))).toBe(false);
+  expect(names.slice(19, 24).sort()).toEqual([...LSP].sort());                // tier 3 owns 20-24
+  expect(names.slice(24)).toEqual(["web_search"]);                            // then one info slot
+  expect(names.filter((n) => UNKNOWN.includes(n))).toEqual([]);               // never the rest tier
 });
 
 it("F-162 db and browser groups join the table only when assembled", () => {
@@ -120,7 +124,8 @@ it("T11 memory slot never evicts the floor or basic tools when the limit rises t
     hasBrowser: false,
     hasMemory: true,
   });
-  expect(limit).toBe(21);
+  // 20 + the five LSP slots + memory's one.
+  expect(limit).toBe(26);
   const names = filterByScope(defs, scope, limit).map((t) => t.name);
   for (const f of FLOOR) expect(names, `floor lost: ${f}`).toContain(f);
   for (const b of BASIC) expect(names, `basic lost: ${b}`).toContain(b);

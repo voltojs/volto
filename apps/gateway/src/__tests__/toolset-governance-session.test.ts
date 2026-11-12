@@ -132,12 +132,14 @@ async function sessionToolNames(permissionMode: UiPermissionMode): Promise<strin
 }
 
 describe("F-166 real session toolset governance (the SDK default, no toolVisibility)", () => {
-  it("F-166 a real session shows at most 21 tools with memory and the floor of 14 present", async () => {
+  it("F-166 a real session shows the floor of 14, the basic 5 and every mode group", async () => {
     // Production assembly (no toolVisibility anywhere), default "ask" preset
     // (workspace-write ceiling).
     const tools = await sessionToolNames("ask");
 
-    expect(tools.length).toBeLessThanOrEqual(21);
+    // LSP is always wired (its five tools are offered; whether a server binary
+    // exists is a call-time question), so the cap is 20 + 5 LSP + 1 memory.
+    expect(tools.length).toBeLessThanOrEqual(26);
     // The floor is a set guarantee: every one of the 14 names must be in the
     // visible list — an empty difference is the only honest proof.
     for (const name of FLOOR_14) {
@@ -148,16 +150,16 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     for (const name of BASIC_5) {
       expect(tools, `basic tool trimmed: ${name}`).toContain(name);
     }
-    // Memory adds one slot (20 → 21): 14 floor + 5 basic + memory, plus at
-    // most one mode/info tool. T3 contract amended by T11 spec D6.
+    // Memory and all five lsp tools get their reserved slots; the one info
+    // slot left over (by priority) is the only discretionary entry.
     expect(tools).toContain("memory");
     const discretionary = tools.filter(
       (name) => !(FLOOR_14 as readonly string[]).includes(name) && !(BASIC_5 as readonly string[]).includes(name),
     );
-    expect(discretionary.length).toBeLessThanOrEqual(2); // memory + at most one mode/info
+    expect(discretionary.length).toBeLessThanOrEqual(7); // memory + 5 lsp + one info
   });
 
-  it("F-166 with lsp wired, memory takes slot 20 and lsp takes slot 21", async () => {
+  it("F-166 with lsp wired, memory comes before lsp and all five lsp tools survive", async () => {
     // A fully configured language server (the runtime-node LSP fixture over
     // real stdio), so opts.lsp is present and the lsp tier joins the table.
     await writeLspConfig({
@@ -166,17 +168,19 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
 
     const tools = await sessionToolNames("ask");
 
-    expect(tools).toHaveLength(21);
+    expect(tools).toHaveLength(26);
     for (const name of FLOOR_14) {
       expect(tools, `floor tool trimmed: ${name}`).toContain(name);
     }
     for (const name of BASIC_5) {
       expect(tools, `basic tool trimmed: ${name}`).toContain(name);
     }
-    // Memory (priority 45) takes index 19; the extra slot (20) goes to lsp
-    // (priority 40). No info or rest name may occupy either.
+    // Memory (priority 45) takes index 19; the five reserved lsp slots (20-24,
+    // priority 40) follow; the last slot (25) goes to the next tier by
+    // priority — db here, info (web_search) when db is not wired.
     expect(tools[19]).toBe("memory");
-    expect(tools[20]).toMatch(/^lsp_/);
+    expect(tools.slice(20, 25).every((name) => name.startsWith("lsp_"))).toBe(true);
+    expect(tools[25]).toBe("db_query");
     for (const name of INFO_TOOLS) {
       expect(tools, `info tool occupied the discretionary slot: ${name}`).not.toContain(name);
     }
@@ -190,7 +194,7 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     // it does not lift the governance cap.
     const tools = await sessionToolNames("read-only");
 
-    expect(tools.length).toBeLessThanOrEqual(21);
+    expect(tools.length).toBeLessThanOrEqual(26);
     // WRITE_LOW memory is above the READ_ONLY ceiling and is pruned.
     expect(tools).not.toContain("memory");
     // The READ_ONLY floor subset that must survive both layers.
@@ -202,7 +206,7 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     expect(tools).not.toContain("write_file");
   });
 
-  it("F-166 memory:false preserves the 20-tool default and hides the memory tool", async () => {
+  it("F-166 memory:false drops the memory slot and hides the memory tool", async () => {
     const { modelPort, requests } = captureModelPort([textScript("ok")]);
     const agent = await createWiredAgent({
       modelPort,
@@ -215,7 +219,8 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     try {
       await agent.run("which tools do you have?");
       const tools = requests[0]!.tools.map((tool) => tool.name);
-      expect(tools).toHaveLength(20);
+      // 20 + the five lsp slots, without memory's one.
+      expect(tools).toHaveLength(25);
       expect(tools).not.toContain("memory");
     } finally {
       await agent.dispose();

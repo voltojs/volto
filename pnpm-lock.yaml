@@ -129,6 +129,9 @@ importers:
       '@volto/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@volto/store-file':
+        specifier: workspace:*
+        version: link:../../packages/stores/file
       '@volto/store-jsonl':
         specifier: workspace:*
         version: link:../../packages/stores/jsonl
@@ -138,12 +141,6 @@ importers:
       '@volto/tools-common':
         specifier: workspace:*
         version: link:../../packages/tools/common
-      playwright-core:
-        specifier: ^1.60.0
-        version: 1.60.0
-      typescript-language-server:
-        specifier: ^5.3.0
-        version: 5.3.0
       ws:
         specifier: ^8.16.0
         version: 8.21.0
@@ -154,6 +151,13 @@ importers:
       tsx:
         specifier: ^4.23.13
         version: 4.23.13
+    optionalDependencies:
+      playwright-core:
+        specifier: ^1.60.0
+        version: 1.60.0
+      typescript-language-server:
+        specifier: ^5.3.0
+        version: 5.3.0
 
   apps/web:
     dependencies:
@@ -15741,6 +15745,7 @@ snapshots:
     dependencies:
       vscode-jsonrpc: 5.0.1
       vscode-languageserver-protocol: 3.18.4
+    optional: true
 
   typescript@5.9.3: {}
 
@@ -16065,16 +16070,20 @@ snapshots:
       - tsx
       - yaml
 
-  vscode-jsonrpc@5.0.1: {}
+  vscode-jsonrpc@5.0.1:
+    optional: true
 
-  vscode-jsonrpc@9.0.3: {}
+  vscode-jsonrpc@9.0.3:
+    optional: true
 
   vscode-languageserver-protocol@3.18.4:
     dependencies:
       vscode-jsonrpc: 9.0.3
       vscode-languageserver-types: 3.18.4
+    optional: true
 
-  vscode-languageserver-types@3.18.4: {}
+  vscode-languageserver-types@3.18.4:
+    optional: true
 
   w3c-keyname@2.2.8: {}
 

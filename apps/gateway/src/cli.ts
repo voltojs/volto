@@ -23,7 +23,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { detectBackend, probeBinary } from "@volto/runtime-node";
 import { loadOrCreateAccessToken, rotateAccessToken, tokenFingerprint } from "./auth/access-token.js";
-import { getConfigDir } from "./config/paths.js";
+import { getConfigDir, getConfigPath } from "./config/paths.js";
+import { describeSessionStoreKind, selectSessionStore } from "./session-store-factory.js";
 import { createServer, type HeadlessServer, type ServerOptions } from "./server.js";
 import { startWebServer, type WebServerOptions } from "./web-server.js";
 
@@ -292,23 +293,39 @@ async function checkConfigDirWritable(configDir: string): Promise<DoctorCheck> {
 }
 
 /**
- * Whether the sqlite session store can be loaded. Task 11 moves the store to
- * a dynamic import with a file-store fallback; this probe stays a single
- * function so that move touches one place: today a load failure is a warning
- * (the gateway has no fallback yet), and the `VOLTO_SESSION_STORE=file`
- * escape hatch is honoured by the task-11 switch.
+ * Which session store the server would actually use — the answer comes from
+ * the same factory the wiring calls (`createSessionStore`), so `doctor`
+ * cannot drift from the server. Three outcomes:
+ *
+ *   sqlite             — loaded; sessions live in `sessions.db`
+ *   file (forced)      — `VOLTO_SESSION_STORE=file`, the operator's choice
+ *   file (fallback)    — sqlite failed to load; the file store is in use and
+ *                        the database file is NOT read (never deleted either)
+ *
+ * A failed probe is a warning, not a hard failure: the gateway starts anyway
+ * on the file store, so `doctor` must not exit 1 over it.
  */
-async function checkSqlite(): Promise<DoctorCheck> {
-  if (process.env["VOLTO_SESSION_STORE"] === "file") {
-    return { name: "sqlite", status: "ok", detail: "file (forced by VOLTO_SESSION_STORE)", hard: false };
+async function checkSessionStore(): Promise<DoctorCheck> {
+  const selection = await selectSessionStore({
+    dbPath: path.join(getConfigPath("db"), "sessions.db"),
+    fallbackDir: path.join(getConfigDir(), "sessions-store"),
+  });
+  if (selection.kind === "sqlite") {
+    return { name: "sqlite", status: "ok", detail: describeSessionStoreKind("sqlite"), hard: false };
   }
-  try {
-    await import("@volto/store-sqlite");
-    return { name: "sqlite", status: "ok", detail: "available (@volto/store-sqlite loaded)", hard: false };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { name: "sqlite", status: "fail", detail: `unavailable (${message})`, hard: false };
+  if (selection.reason === "forced") {
+    return { name: "sqlite", status: "ok", detail: describeSessionStoreKind("file", "forced"), hard: false };
   }
+  const message = selection.error instanceof Error ? selection.error.message : String(selection.error);
+  return {
+    name: "sqlite",
+    status: "fail",
+    detail:
+      `${describeSessionStoreKind("file", "fallback")}: ${message}; ` +
+      `sessions go to ${path.join(getConfigDir(), "sessions-store")}, ` +
+      `${selection.dbPath ?? "sessions.db"} is not read (and is not deleted)`,
+    hard: false,
+  };
 }
 
 /** Try to bind the port, then release it — the check must not keep the socket. */
@@ -346,7 +363,7 @@ export async function runDoctorChecks(opts: { configDir: string; port: number; h
     checkSandboxBackend,
     checkSandboxBinary,
     () => checkConfigDirWritable(opts.configDir),
-    checkSqlite,
+    checkSessionStore,
     () => checkPort(opts.port, opts.host),
   ];
   const results: DoctorCheck[] = [];

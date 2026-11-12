@@ -33,7 +33,6 @@ import {
 } from "@volto/runtime-node";
 import type { BrowserHost, SandboxConfig } from "@volto/runtime-node";
 import type { AttachmentParsePdf } from "./attachments/convert.js";
-import { createStore as createSqliteStore } from "@volto/store-sqlite";
 import { createFileMemoryStore } from "@volto/memory-file";
 import {
   dedupeInstructions,
@@ -45,6 +44,11 @@ import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instru
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
 import { createSkillRegistry } from "./skills/registry.js";
+import {
+  createSessionStore,
+  selectSessionStore,
+  type CreateSessionStoreOptions,
+} from "./session-store-factory.js";
 import { buildWorkspaceReminder } from "./workspace-reminder.js";
 
 /**
@@ -151,6 +155,18 @@ export interface WiringOptions {
   resolveSubagentModelPort?: CreateAgentOptions["resolveSubagentModelPort"];
   cwd?: string;
   dbPath?: string;
+  /**
+   * Directory of the JSON file store used when sqlite cannot be loaded.
+   * Defaults to `<config dir>/sessions-store` — beside the database, never
+   * over it.
+   */
+  fallbackStoreDir?: string;
+  /**
+   * Overrides the factory in tests. `dbPath` / `fallbackDir` always come from
+   * the options above; this only injects the seams (`loadSqlite`,
+   * `onFallback`, `env`).
+   */
+  sessionStoreFactory?: Omit<CreateSessionStoreOptions, "dbPath" | "fallbackDir">;
   /**
    * Process-wide browser host. When present and the session has a
    * `chatSessionId`, this session gets an adapter bound to its own context.
@@ -528,6 +544,10 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // siblings stay out of the config root. The sqlite store creates that
   // directory itself (see stores/sqlite's createStore).
   const dbPath = opts.dbPath ?? path.join(getConfigPath("db"), "sessions.db");
+  // The file store lives beside the database but never over it: a sqlite that
+  // fails to load must not present an empty session list, so the two stores
+  // coexist and the warning below names the file that is now unread.
+  const fallbackStoreDir = opts.fallbackStoreDir ?? path.join(getConfigDir(), "sessions-store");
 
   // One sandbox knob drives both paths — see buildSandboxConfigs for how (and
   // why) the fs and shell sides diverge (C5). Without a mode both stay null
@@ -599,7 +619,15 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
       // Unknown window → fixed fallback. Never fail agent construction here.
     }
   }
-  const sessionStore = createSqliteStore({ path: dbPath });
+  // Loaded through the factory, not a static import: `better-sqlite3` is a
+  // native module, and a machine that loses it must still start (see
+  // session-store-factory.ts). The selection rides back on the instance so
+  // `doctor` can name the store; tests swap only the loader in.
+  const sessionStorePaths = { dbPath, fallbackDir: fallbackStoreDir };
+  const sessionStoreSelection = await (opts.sessionStoreFactory
+    ? createSessionStore({ ...sessionStorePaths, ...opts.sessionStoreFactory })
+    : selectSessionStore(sessionStorePaths));
+  const sessionStore = sessionStoreSelection.store;
 
   const skillRegistry = createSkillRegistry(cwd);
 
@@ -728,7 +756,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
           tools: memoryConfig?.tools ?? true,
         };
 
-  return createAgent({
+  const agent = await createAgent({
     modelPort,
     model: opts.model ?? DEFAULT_MODEL,
     ...(opts.providerId !== undefined ? { providerId: opts.providerId } : {}),
@@ -827,7 +855,14 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
       ? { compaction: opts.compaction }
       : {}),
   });
+  // The kind travels on the instance so `doctor` and the server log can name
+  // the store the agent actually uses; the AgentInstance contract is the
+  // SDK's, so it rides as a host-side decoration rather than a new field.
+  return Object.assign(agent, { sessionStoreSelection });
 }
+
+/** An agent instance as returned here: the SDK instance plus the store kind. */
+export type WiredAgent = Awaited<ReturnType<typeof createWiredAgent>>;
 
 /**
  * Builds the `parsePdf` dependency of the attachment converter (spec

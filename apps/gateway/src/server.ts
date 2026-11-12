@@ -56,6 +56,7 @@ import {
 } from "@volto/store-jsonl";
 import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
+import type { SessionStoreSelection } from "./session-store-factory.js";
 import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
 import {
   BrowserPathError,
@@ -488,6 +489,12 @@ export interface HeadlessServer extends http.Server {
    * `runTurn`) that no route surfaces.
    */
   readonly registry: ReturnType<typeof createSessionRegistry>;
+  /**
+   * The session store this server's agents use (sqlite or the file fallback).
+   * Exposed so `doctor` — and a host's startup log — can name it instead of
+   * guessing. A host that injects `agentFactory` owns its own store.
+   */
+  readonly sessionStoreSelection?: SessionStoreSelection;
 }
 
 export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
@@ -2883,6 +2890,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     launchToken: auth.launchToken,
     authenticatedUrl,
     registry,
+    // The store is chosen inside createWiredAgent; only a real wiring call
+    // carries the selection, so a stub factory leaves this undefined.
+    ...(typeof (agent as { sessionStoreSelection?: unknown }).sessionStoreSelection === "object" &&
+    (agent as { sessionStoreSelection?: unknown }).sessionStoreSelection !== null
+      ? { sessionStoreSelection: (agent as { sessionStoreSelection: SessionStoreSelection }).sessionStoreSelection }
+      : {}),
   });
 }
 

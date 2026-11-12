@@ -303,6 +303,27 @@ it("doctor 每项检查独立成行，全部通过时退出 0", async () => {
     expect(code).toBe(hardFailure ? 1 : 0);
   });
 });
+it("doctor 在 VOLTO_SESSION_STORE=file 时报 file (forced)，且不改动 sessions.db", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    const previous = process.env["VOLTO_SESSION_STORE"];
+    process.env["VOLTO_SESSION_STORE"] = "file";
+    try {
+      const code = await main(["doctor", "--port", "0", "--config-dir", dir], {
+        stdout: (s) => out.push(s),
+      });
+      expect(code).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env["VOLTO_SESSION_STORE"];
+      else process.env["VOLTO_SESSION_STORE"] = previous;
+    }
+    expect(out.join("")).toMatch(/^sqlite: ok \(file \(forced\)\)$/m);
+    // The escape hatch picks the file store; it does not create the database.
+    await expect(stat(path.join(dir, "db", "sessions.db"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
 /** A listening `web` server stand-in: only the address and close are used. */
 function fakeWebServer(port: number): http.Server {
   return {
