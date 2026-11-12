@@ -4,7 +4,7 @@
     "packages/i18n/src/messages/",
     "packages/eval/scripts/",
     "packages/memories/common/src/score.ts",
-    "apps/web/components/settings/GeneralPanel.tsx:40",
+    "apps/web/components/settings/GeneralPanel.tsx:39",
     "apps/web/messages/"
   ]
 }

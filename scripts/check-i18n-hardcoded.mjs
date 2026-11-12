@@ -19,6 +19,7 @@ const IGNORED_PATH_SEGMENTS = new Set([
   'node_modules',
   '.next',
   'dist',
+  'out',
   '__tests__',
   '.superpowers',
 ]);
