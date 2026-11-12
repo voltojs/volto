@@ -46,8 +46,19 @@ export { wrapNetworkWithEgress } from "./egress.js";
 export type { EgressPolicy } from "./egress.js";
 export { createNodeScheduler } from "./scheduler.js";
 export type { NodeSchedulerOptions } from "./scheduler.js";
-export { createNodeBrowserAdapter } from "./browser.js";
-export type { NodeBrowserOptions } from "./browser.js";
+export {
+  BrowserUnavailableError,
+  createNodeBrowserHost,
+  createSerialQueue,
+  expandHome,
+  resolveHeadless,
+} from "./browser-host.js";
+export type {
+  BrowserHost,
+  BrowserHostOptions,
+  LiveBrowserPage,
+  PageOptions,
+} from "./browser-host.js";
 export { createNodeLspManager, LspManagerError, LSP_ERROR_CODES, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS } from "./lsp.js";
 export type { LspManager, LspManagerOptions, LspServerSpec, LspProbeResult, LspErrorCode } from "./lsp.js";
 export { createSqliteDatabaseOpener, DatabasePathError } from "./database.js";
