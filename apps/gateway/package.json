@@ -18,7 +18,7 @@
     "dev": "tsx watch src/server.ts",
     "web:build": "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build",
     "web:copy": "node scripts/copy-web-assets.mjs",
-    "prepack": "node scripts/copy-web-assets.mjs"
+    "prepack": "pnpm run web:copy"
   },
   "publishConfig": {
     "access": "public"

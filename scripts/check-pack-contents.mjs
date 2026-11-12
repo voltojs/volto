@@ -133,6 +133,25 @@ export function inspectPackList(files, required = [], resolve = {}) {
   return problems;
 }
 
+/**
+ * The JSON document in `pnpm pack --json`'s stdout.
+ *
+ * A package whose lifecycle scripts print (or whose `prepack` fans out to
+ * `pnpm run`, which announces `> name script`) gets that output mixed into the
+ * same stream ahead of the document; the report itself is still the last thing
+ * pnpm writes, so the first line that opens a top-level object is its start.
+ * Kept here rather than in each package: the gate must read the same output a
+ * human would, and no pnpm flag currently separates the two streams.
+ *
+ * @param {string} output raw stdout of `pnpm pack --dry-run --json`
+ * @returns {string} the JSON document
+ */
+function extractPackJson(output) {
+  const start = output.search(/^\{$/m);
+  if (start === -1) throw new Error(`no JSON object in pack output: ${output.slice(0, 200)}`);
+  return output.slice(start);
+}
+
 /** The file list pnpm would pack for `name`, or a thrown error with pnpm's stderr. */
 function packedFiles(name) {
   const output = execFileSync("pnpm", ["--filter", name, "pack", "--dry-run", "--json"], {
@@ -141,7 +160,7 @@ function packedFiles(name) {
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
   });
-  const parsed = JSON.parse(output);
+  const parsed = JSON.parse(extractPackJson(output));
   const [entry] = Array.isArray(parsed) ? parsed : [parsed];
   if (!Array.isArray(entry?.files)) throw new Error(`no file list in pack output for ${name}`);
   return entry.files.map((file) => normalizePath(typeof file === "string" ? file : file.path));

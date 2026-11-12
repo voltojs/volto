@@ -33,6 +33,16 @@ function fail(message) {
   process.exit(1);
 }
 
+// Run from a packed tarball, `repoRoot` points at wherever the package happens to
+// be installed, so the export path below would name a nonsense location. Say what
+// actually went wrong instead of blaming a missing build.
+if (!existsSync(join(repoRoot, "apps", "web"))) {
+  fail(
+    `No apps/web next to ${repoRoot}: this script only works inside the volto monorepo ` +
+      "(a published tarball already contains web/ — do not copy into it).",
+  );
+}
+
 if (!existsSync(entryFile) || !statSync(entryFile).isFile()) {
   fail(
     `Missing web export entry: ${entryFile}\n` +
