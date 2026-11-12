@@ -24,7 +24,7 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | browser_diagnostics | browser | 看最近的 console/page 错误和失败/4xx/5xx 请求，不含响应体。 |
 | browser_navigate | browser | 让 Agent 打开 http(s) 页面，或前进/后退/刷新，返回带 ref 的页面快照。 |
 | browser_press_key | browser | 在页面或焦点元素上按键（Enter、Escape、Tab、方向键等）。 |
-| browser_screenshot | browser | 截当前页面为 PNG；截图会作为工具结果显示在轨迹中，可点缩略图弹窗查看。需要附件存储和图像模型。 |
+| browser_screenshot | browser | 截当前页面为 PNG；截图会作为工具结果显示在轨迹中，可点缩略图弹窗缩放、下载。需要附件存储和图像模型。 |
 | browser_snapshot | browser | 读当前页面结构，拿到可点击/可输入的 ref；优先用它定位元素。 |
 | browser_storage_state | browser | 把当前登录态（cookie/localStorage）保存到配置的路径，供后续会话复用。 |
 | browser_type | browser | 按 ref 填写输入框，可顺便回车提交。 |

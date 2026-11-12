@@ -149,7 +149,10 @@
     "failed": "Failed",
     "todoItems": "{count} items",
     "screenshot": "Screenshot",
-    "expandScreenshot": "Open screenshot"
+    "expandScreenshot": "Open screenshot",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "download": "Download"
   },
   "todo": {
     "title": "Tasks",

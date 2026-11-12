@@ -149,7 +149,10 @@
     "failed": "执行失败",
     "todoItems": "{count} 项",
     "screenshot": "截图",
-    "expandScreenshot": "查看截图"
+    "expandScreenshot": "查看截图",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "download": "下载"
   },
   "todo": {
     "title": "任务",

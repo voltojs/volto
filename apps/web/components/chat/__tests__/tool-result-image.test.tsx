@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolCallCard } from "../ToolCallCard";
 
@@ -39,6 +39,17 @@ describe("ToolCallCard result images", () => {
       "src",
       "/gateway/attachments/att-shot?sessionId=session-1",
     );
+
+    const download = within(dialog).getByRole("link", { name: "下载" });
+    expect(download).toHaveAttribute("href", "/gateway/attachments/att-shot?sessionId=session-1");
+    expect(download).toHaveAttribute("download", "att-shot.png");
+
+    await user.click(within(dialog).getByRole("button", { name: "放大" }));
+    expect(within(dialog).getByText("125%")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "缩小" }));
+
+    fireEvent.wheel(screen.getByTestId("image-lightbox-viewport"), { deltaY: -100 });
+    expect(await within(dialog).findByText("125%")).toBeInTheDocument();
   });
 
   it("degrades to a named placeholder without a session", () => {

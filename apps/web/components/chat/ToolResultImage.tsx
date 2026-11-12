@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { SERVER_URL } from '@/lib/agent-config';
 import { cn } from '@/lib/utils';
+import { ImageLightbox } from './ImageLightbox';
 import type { ConversationImage } from '@volto/sdk/sse';
 
 function imageSrc(image: ConversationImage, sessionId: string): string {
@@ -56,16 +56,15 @@ export function ToolResultImage({
           className="max-h-44 w-auto max-w-full object-contain transition-opacity group-hover:opacity-90"
         />
       </button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-auto max-w-[min(92vw,1200px)] p-2 sm:max-w-[min(92vw,1200px)]">
-          <DialogTitle className="sr-only">{t('tool.screenshot')}</DialogTitle>
-          <img
-            src={src}
-            alt={t('tool.screenshot')}
-            className="max-h-[82vh] max-w-full object-contain"
-          />
-        </DialogContent>
-      </Dialog>
+      {open && (
+        <ImageLightbox
+          open
+          onOpenChange={setOpen}
+          src={src}
+          alt={t('tool.screenshot')}
+          downloadName={`${image.attachmentId}.png`}
+        />
+      )}
     </>
   );
 }
