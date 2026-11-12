@@ -41,7 +41,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 工具配置 Tab：目前只有 Agent 浏览器的执行文件选择。 */
+/** Tools tab: for now it only selects the Agent browser executable. */
 export function ToolsPanel() {
   const t = useTranslations('settings');
   const [view, setView] = useState<BrowserSettingsView | null>(null);
@@ -154,7 +154,11 @@ export function ToolsPanel() {
                   setError(null);
                 }}
               >
-                <SelectTrigger size="sm" className="w-56">
+                <SelectTrigger
+                  size="sm"
+                  className="w-56"
+                  aria-label={t('tools.executable')}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false} width="content">
@@ -203,11 +207,9 @@ export function ToolsPanel() {
               <span className="text-xs text-muted-foreground">{t('tools.restartHint')}</span>
             </div>
 
-            {saved && (
-              <p role="status" className="text-xs text-emerald-600">
-                {t('tools.saved')}
-              </p>
-            )}
+            <p role="status" aria-live="polite" className="text-xs text-emerald-600">
+              {saved ? t('tools.saved') : ''}
+            </p>
             {error && (
               <p role="alert" className="text-xs text-destructive">
                 {error}

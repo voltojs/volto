@@ -244,7 +244,7 @@
     "auto": "Auto-detect",
     "custom": "Custom path",
     "customPath": "Browser executable path",
-    "customPlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "customPlaceholder": "/path/to/chrome",
     "resolved": "Resolved: {path}",
     "notFound": "No usable Chrome/Chromium/Edge/Brave found.",
     "loading": "Loading browser settings…",

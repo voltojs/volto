@@ -244,7 +244,7 @@
     "auto": "自动探测",
     "custom": "自定义路径",
     "customPath": "浏览器可执行文件路径",
-    "customPlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "customPlaceholder": "/path/to/chrome",
     "resolved": "当前解析：{path}",
     "notFound": "未检测到可用的 Chrome/Chromium/Edge/Brave。",
     "loading": "正在加载浏览器配置…",

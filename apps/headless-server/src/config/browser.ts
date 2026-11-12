@@ -31,6 +31,14 @@ export class BrowserConfigError extends Error {
   }
 }
 
+/** The request named a path volto cannot launch (missing/empty/directory). */
+export class BrowserPathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BrowserPathError";
+  }
+}
+
 const BROWSER_KEYS = ["enabled", "headless", "idleTimeoutMs", "storageStatePath", "executablePath"] as const;
 
 function asBoolean(key: string, value: unknown): boolean {
@@ -131,14 +139,18 @@ export async function updateBrowserExecutablePath(
   configDir: string,
   executablePath: string | null,
 ): Promise<BrowserSettings> {
+  // Validate the existing document before touching it: a malformed section
+  // must fail the request without being partially rewritten.
+  await loadBrowserConfig(configDir);
+
   let nextPath: string | null = null;
   if (executablePath !== null) {
     const trimmed = executablePath.trim();
     if (trimmed === "") {
-      throw new BrowserConfigError("browser.executablePath must not be empty");
+      throw new BrowserPathError("browser.executablePath must not be empty");
     }
     if ((await resolveBrowserExecutable({ configured: trimmed })) === undefined) {
-      throw new BrowserConfigError(
+      throw new BrowserPathError(
         `browser.executablePath is not an existing executable: ${trimmed}`,
       );
     }

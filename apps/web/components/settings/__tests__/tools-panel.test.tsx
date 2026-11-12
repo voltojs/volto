@@ -50,7 +50,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 async function chooseBrowser(label: string): Promise<void> {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("combobox"));
+  await user.click(screen.getByRole("combobox", { name: "执行浏览器" }));
   await user.click(await screen.findByRole("option", { name: label }));
 }
 
@@ -61,7 +61,7 @@ describe("ToolsPanel browser settings", () => {
     expect(await screen.findByText("网关系统：macOS")).toBeInTheDocument();
     expect(screen.getByText(/重启网关后生效/)).toBeInTheDocument();
     await chooseBrowser("Google Chrome");
-    expect(screen.getByRole("combobox")).toHaveTextContent("Google Chrome");
+    expect(screen.getByRole("combobox", { name: "执行浏览器" })).toHaveTextContent("Google Chrome");
   });
 
   it("saves a detected browser path", async () => {
@@ -94,7 +94,7 @@ describe("ToolsPanel browser settings", () => {
     stubBrowserApi({ ...VIEW, configuredPath: "/opt/chrome", resolvedPath: "/opt/chrome", browsers: [] });
     render(<ToolsPanel />);
     await screen.findByText("网关系统：macOS");
-    expect(screen.getByRole("combobox")).toHaveTextContent("自定义路径");
+    expect(screen.getByRole("combobox", { name: "执行浏览器" })).toHaveTextContent("自定义路径");
     expect(screen.getByLabelText("浏览器可执行文件路径")).toHaveValue("/opt/chrome");
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });

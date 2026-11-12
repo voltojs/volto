@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import { getConfigPath } from "../config/paths.js";
 import { getConfigStore } from "../config/store.js";
@@ -17,10 +17,6 @@ async function readBrowserSection(): Promise<Record<string, unknown> | undefined
 }
 
 describe("/config/browser", () => {
-  afterEach(async () => {
-    // startRouteTestServer cleans its own temp dir in its close handler.
-  });
-
   it("returns the gateway platform, current path, and detected browsers", async () => {
     const { url, token, close } = await startRouteTestServer();
     try {
@@ -71,10 +67,11 @@ describe("/config/browser", () => {
   it("preserves unrelated browser keys", async () => {
     const { url, token, close } = await startRouteTestServer();
     try {
-      await getConfigStore().update("browser", (current) => ({
-        ...(typeof current === "object" && current !== null ? current : {}),
+      await getConfigStore().update("browser", () => ({
+        enabled: false,
         headless: true,
         idleTimeoutMs: 1234,
+        storageStatePath: "/tmp/auth.json",
       }));
       const put = await fetch(`${url}/config/browser`, {
         method: "PUT",
@@ -84,8 +81,10 @@ describe("/config/browser", () => {
       expect(put.status).toBe(200);
       await expect(readBrowserSection()).resolves.toMatchObject({
         executablePath: process.execPath,
+        enabled: false,
         headless: true,
         idleTimeoutMs: 1234,
+        storageStatePath: "/tmp/auth.json",
       });
     } finally {
       await close();
@@ -122,9 +121,34 @@ describe("/config/browser", () => {
         body: JSON.stringify({ executablePath: "/definitely/missing/browser" }),
       });
       expect(put.status).toBe(400);
-      expect(await readBrowserSection().catch(() => undefined)).not.toMatchObject({
-        executablePath: "/definitely/missing/browser",
+      await expect(readBrowserSection()).resolves.toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns 500 for an invalid browser section", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    try {
+      await getConfigStore().update("browser", () => ({ foo: 1 }));
+      const res = await fetch(`${url}/config/browser`, { headers: auth(token) });
+      expect(res.status).toBe(500);
+    } finally {
+      await close();
+    }
+  });
+
+  it("does not write when the existing browser section is invalid", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    try {
+      await getConfigStore().update("browser", () => ({ foo: 1 }));
+      const put = await fetch(`${url}/config/browser`, {
+        method: "PUT",
+        headers: authJson(token),
+        body: JSON.stringify({ executablePath: process.execPath }),
       });
+      expect(put.status).toBe(500);
+      await expect(readBrowserSection()).resolves.toEqual({ foo: 1 });
     } finally {
       await close();
     }
@@ -158,7 +182,24 @@ describe("/config/browser", () => {
     }
   });
 
-  it("requires auth", async () => {
+  it("rejects a non-object body, a number, and an empty path", async () => {
+    const { url, token, close } = await startRouteTestServer();
+    try {
+      for (const body of ["[]", JSON.stringify({ executablePath: 1 }), JSON.stringify({ executablePath: "" })]) {
+        const put = await fetch(`${url}/config/browser`, {
+          method: "PUT",
+          headers: authJson(token),
+          body,
+        });
+        expect(put.status).toBe(400);
+      }
+      await expect(readBrowserSection()).resolves.toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
+  it("requires auth and does not write without it", async () => {
     const { url, close } = await startRouteTestServer();
     try {
       expect((await fetch(`${url}/config/browser`)).status).toBe(401);
@@ -169,6 +210,8 @@ describe("/config/browser", () => {
           body: JSON.stringify({ executablePath: process.execPath }),
         })).status,
       ).toBe(401);
+      const config = await getConfigStore().read();
+      expect(config["browser"]).toBeUndefined();
     } finally {
       await close();
     }

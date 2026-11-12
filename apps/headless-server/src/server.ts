@@ -56,7 +56,7 @@ import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
 import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
 import {
-  BrowserConfigError,
+  BrowserPathError,
   loadBrowserConfig,
   readBrowserSettingsView,
   updateBrowserExecutablePath,
@@ -1343,7 +1343,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       try {
         jsonResponse(res, 200, await readBrowserSettingsView(getConfigDir()));
       } catch (err: unknown) {
-        jsonResponse(res, err instanceof BrowserConfigError ? 400 : 500, {
+        jsonResponse(res, 500, {
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -1374,7 +1374,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         await updateBrowserExecutablePath(getConfigDir(), value);
         jsonResponse(res, 200, await readBrowserSettingsView(getConfigDir()));
       } catch (err: unknown) {
-        jsonResponse(res, err instanceof BrowserConfigError ? 400 : 500, {
+        jsonResponse(res, err instanceof BrowserPathError ? 400 : 500, {
           error: err instanceof Error ? err.message : String(err),
         });
       }
