@@ -1,11 +1,19 @@
 /**
- * @volto/tools-browser — browser/computer-use tools
+ * @volto/tools-browser — agent browser automation tools.
  *
- * BrowserAdapter provides the runtime capabilities; these tools
- * wrap it with defineTool and capability gating.
+ * BrowserAdapter provides the runtime capabilities; these tools wrap it
+ * with defineTool and capability gating.
  */
 
-export type { BrowserAdapter } from "./browser-adapter.js";
+export type {
+  BrowserAdapter,
+  BrowserClickOptions,
+  BrowserDiagnosticsOptions,
+  BrowserScreenshot,
+  BrowserTypeOptions,
+  BrowserWaitOptions,
+} from "./browser-adapter.js";
+export { CAP_BROWSER_CONTROL } from "./browser-adapter.js";
 export type {
   ActionOutcome,
   BrowserState,
@@ -16,12 +24,16 @@ export type {
   StorageStateOutcome,
 } from "./snapshot.js";
 export { formatSnapshot, SNAPSHOT_SCRIPT } from "./snapshot.js";
-export { CAP_BROWSER_CONTROL } from "./browser-adapter.js";
 export {
   createBrowserNavigateTool,
+  createBrowserSnapshotTool,
   createBrowserClickTool,
   createBrowserTypeTool,
+  createBrowserPressKeyTool,
+  createBrowserWaitForTool,
   createBrowserScreenshotTool,
-  createBrowserGetPageTextTool,
+  createBrowserDiagnosticsTool,
+  createBrowserStorageStateTool,
   BROWSER_TOOL_NAMES,
+  type BrowserScreenshotToolOptions,
 } from "./browser-tools.js";
