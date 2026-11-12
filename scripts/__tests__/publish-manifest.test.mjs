@@ -18,7 +18,7 @@ test("完整清单无问题", () => {
 });
 test("workspace:* 未替换时报告", () => {
   const bad = { ...BASE, dependencies: { "@volto/core": "workspace:*" } };
-  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["dependencies.@volto/core: workspace protocol left"]);
+  assert.deepEqual(validateManifest(bad, "/tmp/x", { strictWorkspace: true }), ["dependencies.@volto/core: workspace protocol left"]);
 });
 test("缺 files / engines / license 都报告", () => {
   const bad = { ...BASE, files: undefined, engines: undefined, license: undefined };

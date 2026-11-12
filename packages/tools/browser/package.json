@@ -1,7 +1,6 @@
 {
   "name": "@volto/tools-browser",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/voltojs/volto.git"
+    "url": "git+https://github.com/zlipeng/volto.git"
   },
   "dependencies": { "@volto/core": "workspace:*", "@volto/tools-common": "workspace:*", "zod": "^4.4.3" }
 }

@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 /**
- * Publishes gate: every publishable workspace package must carry complete npm
+ * Publishing gate: every publishable workspace package must carry complete npm
  * metadata, or a packed tarball drops the built output / publishes privately.
  *
  * Usage:
- *   node scripts/publish-manifest.mjs            validate every publishable package (exit 1 on problems)
- *   node scripts/publish-manifest.mjs --write    fill in missing fields, keep existing values
- *   node scripts/publish-manifest.mjs --self-test run the built-in fixture assertions
+ *   node scripts/publish-manifest.mjs                       check publishable packages (exit 1 on problems)
+ *   node scripts/publish-manifest.mjs --write               fill in missing fields, keep existing values
+ *   node scripts/publish-manifest.mjs --strict-workspace    also fail on `workspace:` ranges (publish gate)
+ *   node scripts/publish-manifest.mjs --self-test           run the built-in fixture assertions
+ *
+ * Two modes, by design:
+ *   - Default (dev time): source manifests legitimately keep `workspace:*`; pnpm rewrites
+ *     those ranges when packing/publishing. Checking them here would make every local run
+ *     fail, so `workspace:` ranges are ignored and the run is expected to exit 0.
+ *   - `--strict-workspace` (publish time): any surviving `workspace:` range is reported.
+ *     Task 2's tarball inspection is what proves pnpm actually rewrote them.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -21,10 +29,11 @@ const WORKSPACE_GLOBS = ["packages/*", "packages/*/*", "apps/*"];
 const PRIVATE_PACKAGES = new Set(["@volto/web", "@volto/desktop-app"]);
 
 /**
- * Packages the release plan already triaged for publishing. Their manifests still
- * carry `private: true` (dropping it is a later release step), so they are selected
- * explicitly. Mirrors the plan's publish table; everything not listed here must stay
- * `private: true` to be skipped.
+ * Packages the release plan triaged for publishing, mirroring the plan's publish table.
+ *
+ * Selection itself is "not `private`" (see `isPublishableManifest`); this list is only a
+ * sanity guard, so a triaged package that still says `private: true` is still checked
+ * instead of silently vanishing from the gate.
  */
 const TRIAGED_PACKAGES = new Set([
   "@volto/core",
@@ -73,7 +82,7 @@ const REQUIRED_METADATA = {
   publishConfig: { access: "public" },
   engines: { node: ">=22" },
   license: "MIT",
-  repository: { type: "git", url: "git+https://github.com/voltojs/volto.git" },
+  repository: { type: "git", url: "git+https://github.com/zlipeng/volto.git" },
   type: "module",
 };
 
@@ -127,9 +136,11 @@ function isPrivatePackage(name) {
 }
 
 /**
- * Whether a manifest is one of the packages that ship to a registry: a triaged
- * package, or any package that has already dropped `private`. Everything else,
- * including the fixed denylist, is skipped.
+ * Whether a manifest is one of the packages that ship to a registry: everything that is
+ * not `private`, except the client bundles that are never published. The triage list
+ * keeps a package selected while `--write` has not dropped its `private` flag yet,
+ * which is what makes the first run self-hosting; `assertTriagedArePublishable` then
+ * fails the run if such a package is still private afterwards.
  *
  * @param {Record<string, unknown>} manifest parsed package.json contents
  */
@@ -138,16 +149,27 @@ export function isPublishableManifest(manifest) {
   return manifest.private !== true || TRIAGED_PACKAGES.has(manifest.name);
 }
 
+/** The triaged packages are published: after `--write` none may still say `private`. */
+function assertTriagedArePublishable(packages) {
+  const privateLeft = packages
+    .filter(({ manifest }) => TRIAGED_PACKAGES.has(manifest.name) && manifest.private === true)
+    .map(({ manifest }) => manifest.name);
+  if (privateLeft.length > 0) {
+    throw new Error(`triaged packages still marked private: ${privateLeft.join(", ")}`);
+  }
+}
+
 /**
  * Check one manifest against the publishing contract.
  * Returns stable, ordered, machine-assertable messages; an empty array means OK.
  *
  * @param {Record<string, unknown>} manifest parsed package.json contents
  * @param {string} dir package directory, handed to `reportWith` so the CLI can say which package failed
- * @param {(problem: string) => void} [reportWith] called once per problem; problems are also returned
- * @returns {string[]}
+ * @param {{ strictWorkspace?: boolean }} [opts] `strictWorkspace` also reports surviving `workspace:` ranges
+ * @param {(problem: string) => void} [reportWith] called once per problem, prefixed with `dir`
+ * @returns {string[]} problems in fixed check order; empty means OK
  */
-export function validateManifest(manifest, dir, reportWith) {
+export function validateManifest(manifest, dir, opts, reportWith) {
   const problems = [];
   const report = (message) => {
     problems.push(message);
@@ -179,6 +201,7 @@ export function validateManifest(manifest, dir, reportWith) {
   if (!pointsIntoDist(manifest.types)) {
     report("types: not under dist");
   }
+  if (!opts?.strictWorkspace) return problems;
   for (const field of DEPENDENCY_FIELDS) {
     const section = manifest[field];
     if (!isPlainObject(section)) continue;
@@ -201,7 +224,11 @@ export function validateManifest(manifest, dir, reportWith) {
  */
 export function applyManifest(manifest, dir) {
   const next = structuredClone(manifest);
-  if (isPrivatePackage(manifest.name)) return next;
+  // Client bundles are never published; the two client packages keep `private` as is.
+  if (!isPublishableManifest(manifest)) return next;
+
+  // Everything else is published, so it must not stay in the private set.
+  delete next.private;
 
   for (const [field, value] of Object.entries(REQUIRED_METADATA)) {
     if (next[field] === undefined) next[field] = structuredClone(value);
@@ -214,18 +241,25 @@ export function applyManifest(manifest, dir) {
   for (const [field, value] of Object.entries(REQUIRED_METADATA)) {
     if (!isPlainObject(next[field])) next[field] = structuredClone(value);
   }
+  // The upstream URL is a fact about the repo, not a per-package choice: normalize it
+  // so a package that copied a placeholder from another manifest is corrected, not skipped.
+  if (next.repository.url !== REQUIRED_METADATA.repository.url) {
+    next.repository = { ...next.repository, ...structuredClone(REQUIRED_METADATA.repository) };
+  }
   return placeKeys(manifest, next);
 }
 
 /**
  * Rebuild the manifest in its original key order, inserting newly added keys right
  * after the key that precedes them in KEY_ORDER, so `--write` diffs stay local.
+ * Keys removed from `next` (such as `private`) stay removed.
  */
 function placeKeys(original, next) {
+  const present = new Set(Object.keys(next));
   const added = new Set(Object.keys(next).filter((key) => !(key in original)));
   const ordered = [];
   for (const key of KEY_ORDER) {
-    if (key in original) ordered.push(key);
+    if (key in original && present.has(key)) ordered.push(key);
     if (added.has(key)) ordered.push(key);
   }
   for (const key of Object.keys(next)) {
@@ -244,11 +278,15 @@ function placeKeys(original, next) {
  */
 function renderManifest(manifest, raw) {
   const baseIndent = raw.match(/^[ \t]+/)?.[0] ?? "  ";
+  const original = JSON.parse(raw);
   const blocks = splitTopLevelBlocks(raw);
   const lines = ["{"];
   const keys = Object.keys(manifest);
   keys.forEach((key, index) => {
-    const block = blocks.get(key) ?? renderBlock(manifest[key], baseIndent);
+    // Reuse the source text only while the value is unchanged; a changed value is
+    // re-rendered, otherwise the edit would be silently dropped.
+    const unchanged = JSON.stringify(original[key]) === JSON.stringify(manifest[key]);
+    const block = (unchanged && blocks.get(key)) || renderBlock(manifest[key], baseIndent);
     lines.push(`${baseIndent}${JSON.stringify(key)}: ${block}${index === keys.length - 1 ? "" : ","}`);
   });
   lines.push("}");
@@ -396,15 +434,18 @@ const COMPLETE_FIXTURE = {
 function selfTest() {
   const dir = "/tmp/volto-self-test";
   const applied = applyManifest({ name: "@volto/fixture", version: "0.1.0" }, dir);
+  const withWorkspaceRange = { ...COMPLETE_FIXTURE, dependencies: { "@volto/core": "workspace:*" } };
   const cases = [
     ["complete manifest passes", validateManifest(COMPLETE_FIXTURE, dir), []],
     [
       "workspace protocol is reported",
-      validateManifest(
-        { ...COMPLETE_FIXTURE, dependencies: { "@volto/core": "workspace:*" } },
-        dir,
-      ),
+      validateManifest(withWorkspaceRange, dir, { strictWorkspace: true }),
       ["dependencies.@volto/core: workspace protocol left"],
+    ],
+    [
+      "workspace protocol is ignored by default",
+      validateManifest(withWorkspaceRange, dir),
+      [],
     ],
     ["applyManifest fills files", applied.files, ["dist", "!dist/**/__tests__"]],
     ["applyManifest fills license", applied.license, "MIT"],
@@ -418,6 +459,21 @@ function selfTest() {
       "private packages are left untouched",
       applyManifest({ name: "@volto/web", private: true }, dir),
       { name: "@volto/web", private: true },
+    ],
+    [
+      "applyManifest drops private on triaged packages",
+      "private" in applyManifest({ name: "@volto/core", private: true }, dir),
+      false,
+    ],
+    [
+      "applyManifest uses the zlipeng repository URL",
+      applied.repository.url,
+      "git+https://github.com/zlipeng/volto.git",
+    ],
+    [
+      "applyManifest corrects a stale repository URL",
+      applyManifest({ ...COMPLETE_FIXTURE, name: "@volto/fixture2" }, dir).repository.url,
+      "git+https://github.com/zlipeng/volto.git",
     ],
   ];
   let failed = 0;
@@ -441,6 +497,7 @@ function main(argv) {
     return;
   }
   const write = argv.includes("--write");
+  const strictWorkspace = argv.includes("--strict-workspace");
   const packages = loadPublishablePackages();
   const failures = [];
   let written = 0;
@@ -452,16 +509,25 @@ function main(argv) {
       written += 1;
       console.log(`wrote ${relative(ROOT, path)}`);
     }
-    validateManifest(write ? next : manifest, dir, (problem) => failures.push(problem));
+    validateManifest(write ? next : manifest, dir, { strictWorkspace }, (problem) =>
+      failures.push(problem),
+    );
   }
+
+  // Check mode runs against the committed manifests, which must already be publishable.
+  const checked = write
+    ? packages.map((entry) => ({ ...entry, manifest: applyManifest(entry.manifest, entry.dir) }))
+    : packages;
+  assertTriagedArePublishable(checked);
 
   if (failures.length > 0) {
     for (const failure of failures) console.error(`FAIL ${failure}`);
     console.error(`${failures.length} problem(s) in ${packages.length} publishable package(s)`);
     process.exit(1);
   }
+  const mode = strictWorkspace ? " [strict workspace]" : "";
   const summary = write ? ` (${written} file(s) updated)` : "";
-  console.log(`PASS: ${packages.length} publishable package(s) have complete metadata${summary}`);
+  console.log(`PASS: ${packages.length} publishable package(s) have complete metadata${mode}${summary}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === join(process.argv[1])) {
