@@ -179,10 +179,36 @@ export function selectUnpersistedSessions(
  */
 export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
   const local = useSessionStore.getState().sessions;
+  const previousById = new Map(local.map((session) => [session.id, session]));
   const unpersisted = selectUnpersistedSessions(local, summaries);
-  useSessionStore.getState().setSessions([
-    ...unpersisted,
-    ...summaries.map((summary) => ({
+  const stopped: string[] = [];
+
+  const next = summaries.map((summary) => {
+    const previous = previousById.get(summary.id);
+    const wasRunning = previous?.running === true;
+    if (wasRunning && summary.running !== true) stopped.push(summary.id);
+
+    // A background status refresh must not throw away an already-loaded
+    // conversation and force the chat panel back to its skeleton. Keep the
+    // detail fields and update only what the list actually owns.
+    if (previous?.detailLoaded === true) {
+      return {
+        ...previous,
+        title: summary.title,
+        messageCount: summary.messageCount,
+        updatedAt: summary.updatedAt,
+        running: summary.running === true,
+        projectId: summary.projectId,
+        providerId: summary.providerId,
+        modelId: summary.modelId,
+        permissionMode: normalisePermissionMode(summary.permissionMode),
+        ...(summary.reasoningEffort === undefined
+          ? { reasoningEffort: undefined }
+          : { reasoningEffort: summary.reasoningEffort }),
+      };
+    }
+
+    return {
       id: summary.id,
       title: summary.title,
       messages: [],
@@ -201,8 +227,16 @@ export function applyServerSummaries(summaries: ServerSessionSummary[]): void {
         ? {}
         : { reasoningEffort: summary.reasoningEffort }),
       contextUsage: null,
-    })),
-  ]);
+    };
+  });
+
+  useSessionStore.getState().setSessions([...unpersisted, ...next]);
+
+  // The background turn ended while this session was not attached. Refresh
+  // its detail once so the cached transcript includes the completed turn.
+  for (const id of stopped) {
+    void ensureSessionDetail(id, (key) => key, { force: true }).catch(() => {});
+  }
 }
 
 // Monotonic token for list refreshes: a slower EARLIER request must never

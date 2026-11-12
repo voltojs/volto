@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSessionStore } from "../session-store";
 import { loadStoredSessionId, persistSessionId } from "@/lib/session-persistence";
-import { restoreStoredSession } from "@/hooks/use-server-sessions";
+import { applyServerSummaries, restoreStoredSession } from "@/hooks/use-server-sessions";
 import type { ServerSessionSummary } from "@/lib/sessions-api";
 
 const summary = (id: string): ServerSessionSummary => ({
@@ -41,6 +41,24 @@ describe("active session persistence", () => {
     persistSessionId("gone");
     expect(restoreStoredSession([summary("s-1")])).toBeNull();
     expect(loadStoredSessionId()).toBeNull();
+  });
+
+  it("keeps loaded detail when a background status refresh replaces summaries", () => {
+    const loaded = {
+      ...summary("s-1"),
+      title: "old",
+      detailLoaded: true,
+      messages: [{ id: "m1", role: "user", content: "hello", blocks: [] }],
+      running: false,
+    };
+    useSessionStore.setState({ sessions: [loaded as never], currentSessionId: "s-1" });
+
+    applyServerSummaries([{ ...summary("s-1"), title: "new", running: false }]);
+
+    const refreshed = useSessionStore.getState().sessions[0];
+    expect(refreshed?.title).toBe("new");
+    expect(refreshed?.detailLoaded).toBe(true);
+    expect(refreshed?.messages).toEqual(loaded.messages);
   });
 
   it("tracks the running flag per session", () => {
