@@ -26,7 +26,15 @@
     "background": "后台任务",
     "backgroundYes": "是",
     "modelTier": "模型档位",
-    "images": "图片"
+    "images": "图片",
+    "requestModel": "模型",
+    "requestHeaderHash": "Header hash",
+    "requestTools": "工具",
+    "requestMessages": "消息数",
+    "requestBlocks": "块",
+    "requestToolUse": "工具调用",
+    "requestToolResults": "工具结果",
+    "requestImages": "图片"
   },
   "panel": {
     "empty": "选择一个会话后查看轨迹",
@@ -64,7 +72,8 @@
     "thinking": "思考",
     "layers": "系统层",
     "timing": "计时",
-    "content": "内容"
+    "content": "内容",
+    "request": "请求"
   },
   "location": {
     "turn": "第{turn}轮",

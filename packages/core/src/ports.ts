@@ -537,6 +537,37 @@ export interface DispatchVerification extends VerificationSummary {
  * moment; detail comes from the density of the vocabulary, not from any
  * single record being wide.
  */
+/** One message's structural summary in a model request manifest. */
+export interface ModelRequestMessage {
+  /** Stable message id from core state. */
+  id: string;
+  role: "system" | "user" | "assistant" | "tool";
+  /** Content block type names, in order (never text or image bytes). */
+  blocks: string[];
+  /** Text/structured character count; absent for non-text content. */
+  textChars?: number;
+  /** Assistant tool_use ids in this message. */
+  toolUseIds?: string[];
+  /** Tool-result ids carried by this message. */
+  toolResultIds?: string[];
+  /** Image attachment refs, never bytes. */
+  imageRefs?: Array<{ id: string; mediaType: string; width?: number; height?: number }>;
+}
+
+/**
+ * Audit manifest for one model call. It records *what was sent* structurally
+ * (message ids/roles, block kinds, image refs, tool names), never the full
+ * body or image bytes. `request_header` remains the static-prefix snapshot.
+ */
+export interface ModelRequestManifest {
+  headerHash: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  toolNames: string[];
+  messages: ModelRequestMessage[];
+}
+
 export interface TranscriptEventMap {
   // ── Lifecycle ──
   session_meta: ChatSessionMeta & {
@@ -556,6 +587,8 @@ export interface TranscriptEventMap {
     /** Points at the most recent request_header's hash. */
     headerHash: string;
   };
+  /** Per-call request manifest, written after RAG/image finalization. */
+  model_request: ModelRequestManifest;
   /** One model call's complete output, aggregated. */
   assistant_message: {
     /** Includes the reasoning block when the model produced one — the single source of truth. */

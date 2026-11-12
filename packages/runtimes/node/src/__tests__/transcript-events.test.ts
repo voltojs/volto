@@ -25,6 +25,7 @@ import type {
   SessionStore,
   ApprovalGate,
   Hook,
+  ModelRequestManifest,
 } from "@volto/core";
 
 function fakeChatStore() {
@@ -105,6 +106,52 @@ function firstOf<T = Record<string, unknown>>(events: TranscriptEventInput[], ty
   });
 
 describe("Runner transcript capture", () => {
+  it("records a structural request manifest for every model call", async () => {
+    const echoTool: ToolDefinition = {
+      name: "echo",
+      description: "echo input",
+      inputSchema: { type: "object", properties: {} },
+      requires: [],
+      riskTier: "READ_ONLY",
+    };
+    const model = createMockModelPort([
+      [
+        toolUseStart("call-1", "echo"),
+        toolUseDelta("call-1", "{}"),
+        modelDone("tool_use"),
+      ],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+    const { store, events } = fakeChatStore();
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [echoTool], model: "test-model" },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      toolExecutor: async () => ({ modelContent: "ok" }),
+    });
+
+    await runner.run({ type: "user_message", content: "hello" });
+
+    const manifests = events
+      .filter((event) => event.type === "model_request")
+      .map((event) => event.data as ModelRequestManifest);
+    expect(manifests).toHaveLength(2);
+    for (const manifest of manifests) {
+      expect(manifest.headerHash).toMatch(/^[0-9a-f]+$/);
+      expect(manifest.model).toBe("test-model");
+      expect(manifest.toolNames).toEqual(["echo"]);
+      expect(manifest.messages.length).toBeGreaterThan(0);
+      expect(manifest.messages.every((message) => typeof message.id === "string")).toBe(true);
+    }
+    const first = manifests[0]!;
+    expect(first.messages.some((message) => message.role === "user")).toBe(true);
+    // The first request predates the tool call; the second carries it.
+    expect(manifests[1]!.messages.some((message) => message.toolUseIds?.includes("call-1"))).toBe(
+      true,
+    );
+  });
+
   it("brackets the turn and the model call", async () => {
     const model = createMockModelPort([[textDelta("hi"), { type: "done", stopReason: "end_turn" }]]);
     const { store, events } = fakeChatStore();

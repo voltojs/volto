@@ -60,6 +60,8 @@ export type {
   ConversationSegment,
   ConversationToolCall,
   ConversationImage,
+  ModelRequestManifest,
+  ModelRequestMessage,
   VerificationSummary,
   FileChange,
   TurnUsage,

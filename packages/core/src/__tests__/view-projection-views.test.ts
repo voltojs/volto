@@ -849,3 +849,36 @@ it("projects a tool result's image block onto the call and trajectory row", () =
     { attachmentId: "att-shot", mediaType: "image/png", width: 1280, height: 800 },
   ]);
 });
+
+it("attaches a per-call request manifest to the step and trajectory row", () => {
+  const manifest = {
+    headerHash: "h1",
+    model: "deepseek-v4.1-flash-1017",
+    toolNames: ["browser_screenshot"],
+    messages: [
+      { id: "u1", role: "user", blocks: ["text"], textChars: 5 },
+      { id: "a1", role: "assistant", blocks: ["tool_use"], toolUseIds: ["c1"] },
+    ],
+  } as const;
+  const events = log([
+    { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+    { time: 110, type: "user_message", data: { content: "hello" }, turn: 1 },
+    { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+    { time: 121, type: "model_request", data: manifest, turn: 1, step: 1 },
+    {
+      time: 130,
+      type: "assistant_message",
+      data: { content: [{ type: "text", text: "hi" }], stopReason: "end_turn", durationMs: 10 },
+      turn: 1,
+      step: 1,
+    },
+    { time: 140, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+  ]);
+
+  const records = buildTurnRecords(events);
+  expect(records[0]?.steps[0]?.requestManifest).toEqual(manifest);
+
+  const view = toTrajectoryView(records, events);
+  const assistant = view.rows.find((row) => row.kind === "assistant" && row.step === 1);
+  expect(assistant?.requestManifest).toEqual(manifest);
+});

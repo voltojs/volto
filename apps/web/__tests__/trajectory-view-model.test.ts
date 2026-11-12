@@ -78,8 +78,8 @@ describe('drawerTabsFor', () => {
     expect(drawerTabsFor('tool')).toEqual(['overview', 'input', 'output', 'schema', 'timing']);
     expect(drawerTabsFor('subagent')).toEqual(['overview', 'input', 'output', 'schema', 'timing']);
   });
-  it('gives assistant rows output + thinking', () => {
-    expect(drawerTabsFor('assistant')).toEqual(['overview', 'output', 'thinking', 'timing']);
+  it('gives assistant rows request + output + thinking', () => {
+    expect(drawerTabsFor('assistant')).toEqual(['overview', 'request', 'output', 'thinking', 'timing']);
   });
   it('gives context rows layers + schema', () => {
     expect(drawerTabsFor('context')).toEqual(['overview', 'layers', 'schema']);

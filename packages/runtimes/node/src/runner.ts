@@ -18,7 +18,12 @@ import type {
   ModelEvent,
   ToolResult,
   ToolResultBlock,
+  ToolResultContent,
   ContentBlock,
+  ImageContent,
+  ModelRequestManifest,
+  ModelRequestMessage,
+  ToolDefinition,
   AttachmentStore,
   ReadFileRecord,
   PermissionConfig,
@@ -671,6 +676,79 @@ export async function drainBackgroundTasks(opts: {
  * handlers branch on them exactly as written.
  */
 type PendingLoopInjection = Extract<AgentInput, { type: "loop_reminder" | "loop_intervention" }>;
+
+function manifestImage(
+  source: ImageContent["source"],
+  width?: number,
+  height?: number,
+): { id: string; mediaType: string; width?: number; height?: number } {
+  return {
+    id: source.type === "ref" ? source.id : "inline",
+    mediaType: source.mediaType,
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+  };
+}
+
+function manifestMessage(message: Message): ModelRequestMessage {
+  if (typeof message.content === "string") {
+    return {
+      id: message.id,
+      role: message.role,
+      blocks: ["text"],
+      textChars: message.content.length,
+    };
+  }
+  const blocks: string[] = [];
+  const toolUseIds: string[] = [];
+  const toolResultIds: string[] = [];
+  const imageRefs: Array<{ id: string; mediaType: string; width?: number; height?: number }> = [];
+  let textChars = 0;
+
+  const scan = (block: ContentBlock | ToolResultContent): void => {
+    blocks.push(block.type);
+    if (block.type === "text" || block.type === "structured") {
+      textChars += block.text.length;
+    } else if (block.type === "image") {
+      imageRefs.push(manifestImage(block.source, block.width, block.height));
+    } else if (block.type === "tool_use") {
+      toolUseIds.push(block.id);
+    } else if (block.type === "tool_result") {
+      toolResultIds.push(block.toolUseId);
+      for (const nested of block.content) scan(nested);
+    }
+  };
+  for (const block of message.content) scan(block);
+
+  return {
+    id: message.id,
+    role: message.role,
+    blocks,
+    ...(textChars > 0 ? { textChars } : {}),
+    ...(toolUseIds.length > 0 ? { toolUseIds } : {}),
+    ...(toolResultIds.length > 0 ? { toolResultIds } : {}),
+    ...(imageRefs.length > 0 ? { imageRefs } : {}),
+  };
+}
+
+/** Structural, byte-free snapshot of one model request. */
+function buildRequestManifest(
+  messages: readonly Message[],
+  tools: readonly ToolDefinition[],
+  headerHash: string,
+  model: string | undefined,
+  temperature: number | undefined,
+  maxTokens: number | undefined,
+): ModelRequestManifest {
+  return {
+    headerHash,
+    ...(model !== undefined ? { model } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    toolNames: tools.map((tool) => tool.name),
+    messages: messages.map(manifestMessage),
+  };
+}
 
 export function createRunner(opts: RunnerOptions): Runner {
   // Validate: permissionConfig requires approvalGate (otherwise "ask" decisions hang)
@@ -1881,6 +1959,24 @@ export function createRunner(opts: RunnerOptions): Runner {
           });
         }
       }
+    }
+
+    // The manifest describes the request before refs become base64, so image
+    // entries keep their attachment ids. It includes RAG injection because
+    // that is already part of finalMessages here.
+    if (currentHeaderHash !== undefined) {
+      recorder.record(
+        "model_request",
+        buildRequestManifest(
+          finalMessages,
+          stepContext.tools,
+          currentHeaderHash,
+          stepContext.model,
+          stepContext.temperature,
+          stepContext.maxTokens,
+        ),
+        { step, time: callStartedAt },
+      );
     }
 
     // Resolve AttachmentStore refs → base64 for the request surface only.

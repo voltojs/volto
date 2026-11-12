@@ -27,6 +27,25 @@ afterEach(() => {
   useTrajectoryDrawerStore.setState({ row: null, projectId: undefined, sessionId: undefined });
 });
 
+const REQUEST_ROW: TrajectoryRow = {
+  index: 2,
+  id: "a-request",
+  kind: "assistant",
+  turn: 1,
+  step: 1,
+  summary: "hi",
+  startedAt: 1,
+  requestManifest: {
+    headerHash: "h1",
+    model: "deepseek-v4.1-flash-1017",
+    toolNames: ["browser_screenshot"],
+    messages: [
+      { id: "u1", role: "user", blocks: ["text"], textChars: 5 },
+      { id: "a1", role: "assistant", blocks: ["tool_use"], toolUseIds: ["c1"] },
+    ],
+  },
+};
+
 describe("TrajectoryDrawer result images", () => {
   it("shows a screenshot in the overview and opens the dialog on click", async () => {
     useTrajectoryDrawerStore.setState({ sessionId: "session-1", projectId: null });
@@ -42,5 +61,17 @@ describe("TrajectoryDrawer result images", () => {
     await user.click(thumb);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("img", { name: "截图" })).toBeInTheDocument();
+  });
+
+  it("renders the request manifest tab for an assistant step", async () => {
+    const user = userEvent.setup();
+    useTrajectoryDrawerStore.setState({ sessionId: "session-1", projectId: null });
+    render(<TrajectoryDrawer row={REQUEST_ROW} open onOpenChange={() => {}} />);
+
+    await user.click(screen.getByRole("tab", { name: "请求" }));
+    expect(await screen.findByText("deepseek-v4.1-flash-1017")).toBeInTheDocument();
+    expect(screen.getByText("h1")).toBeInTheDocument();
+    expect(screen.getByText(/browser_screenshot/)).toBeInTheDocument();
+    expect(screen.getByText(/c1/)).toBeInTheDocument();
   });
 });

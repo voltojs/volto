@@ -26,7 +26,15 @@
     "background": "Background",
     "backgroundYes": "Yes",
     "modelTier": "Model tier",
-    "images": "Images"
+    "images": "Images",
+    "requestModel": "Model",
+    "requestHeaderHash": "Header hash",
+    "requestTools": "Tools",
+    "requestMessages": "Messages",
+    "requestBlocks": "Blocks",
+    "requestToolUse": "Tool use",
+    "requestToolResults": "Tool results",
+    "requestImages": "Images"
   },
   "panel": {
     "empty": "Select a session to see its trace",
@@ -64,7 +72,8 @@
     "thinking": "Thinking",
     "layers": "System layers",
     "timing": "Timing",
-    "content": "Content"
+    "content": "Content",
+    "request": "Request"
   },
   "location": {
     "turn": "Turn {turn}",

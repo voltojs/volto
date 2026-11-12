@@ -121,6 +121,8 @@ export type {
   ChatSessionMeta,
   UserMessageSource,
   TokenUsage,
+  ModelRequestManifest,
+  ModelRequestMessage,
   AcceptanceStatus,
   VerificationSummary,
   DispatchVerification,

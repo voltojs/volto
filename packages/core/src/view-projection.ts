@@ -21,6 +21,7 @@ import type {
   TurnEndReason,
   UserMessageSource,
   VerificationSummary,
+  ModelRequestManifest,
 } from "./ports.js";
 import { extractBlockText } from "./text-extract.js";
 import { totalUsageTokens } from "./pricing.js";
@@ -167,6 +168,8 @@ export interface StepRecord {
   startedAt: number;
   endedAt?: number;
   headerHash: string;
+  /** Per-call request manifest, when the host records one. */
+  requestManifest?: ModelRequestManifest;
   /** Present once the call completed; while streaming, see `partial`. */
   assistant?: AssistantRecord;
   /** Only ever on the last step of the last turn. */
@@ -627,6 +630,13 @@ export function buildTurnRecords(
           opening.lastMoved = target.record;
           turnOpenings.set(delivering.turn, opening);
         }
+        break;
+      }
+
+      case "model_request": {
+        const data = event.data as TranscriptEventMap["model_request"];
+        const step = stepFor(turnFor(event), event.step, event.time);
+        if (step) step.requestManifest = data;
         break;
       }
 
@@ -1591,6 +1601,8 @@ export interface TrajectoryRow {
   subagentTitle?: string;
   /** `subagent_type` the dispatch named, when it named one. */
   subagentType?: string;
+  /** Structural manifest of the request that produced this assistant step. */
+  requestManifest?: ModelRequestManifest;
   /** Tools the dispatch named that the child could not get. */
   subagentDroppedTools?: string[];
   /** Capabilities the dispatch named that the parent does not grant. */
@@ -1770,6 +1782,7 @@ export function toTrajectoryView(
         startedAt: step.startedAt,
         ...(assistant !== undefined ? { durationMs: assistant.durationMs } : {}),
         ...(step.error !== undefined ? { isError: true } : {}),
+        ...(step.requestManifest !== undefined ? { requestManifest: step.requestManifest } : {}),
         ...(outputText ? { outputDetail: outputText } : {}),
         ...(assistant?.reasoning !== undefined ? { thinkingDetail: assistant.reasoning } : {}),
         ...(assistant !== undefined

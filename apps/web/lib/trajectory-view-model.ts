@@ -78,6 +78,7 @@ export type DrawerTabKey =
   | 'schema'
   | 'thinking'
   | 'layers'
+  | 'request'
   | 'timing';
 
 export const TAB_LABEL_KEYS: Record<DrawerTabKey, string> = {
@@ -87,11 +88,12 @@ export const TAB_LABEL_KEYS: Record<DrawerTabKey, string> = {
   schema: 'tab.schema',
   thinking: 'tab.thinking',
   layers: 'tab.layers',
+  request: 'tab.request',
   timing: 'tab.timing',
 };
 
 const TOOL_TABS: readonly DrawerTabKey[] = ['overview', 'input', 'output', 'schema', 'timing'];
-const ASSISTANT_TABS: readonly DrawerTabKey[] = ['overview', 'output', 'thinking', 'timing'];
+const ASSISTANT_TABS: readonly DrawerTabKey[] = ['overview', 'request', 'output', 'thinking', 'timing'];
 const CONTEXT_TABS: readonly DrawerTabKey[] = ['overview', 'layers', 'schema'];
 const INFO_TABS: readonly DrawerTabKey[] = ['overview'];
 const REMINDER_TABS: readonly DrawerTabKey[] = ['overview', 'output'];

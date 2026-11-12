@@ -24,7 +24,7 @@ import {
   parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
-import type { ConversationImage, TrajectoryRow } from '@volto/sdk/sse';
+import type { ConversationImage, ModelRequestManifest, TrajectoryRow } from '@volto/sdk/sse';
 
 interface TrajectoryDrawerProps {
   row: TrajectoryRow | null;
@@ -63,6 +63,59 @@ function RowImages({
       {images.map((image) => (
         <ToolResultImage key={image.attachmentId} image={image} sessionId={sessionId} />
       ))}
+    </div>
+  );
+}
+
+function RequestTab({ manifest }: { manifest?: ModelRequestManifest }) {
+  const t = useTranslations('trajectory');
+  if (manifest === undefined) return <Cell text={undefined} />;
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1">
+        <span className="text-muted-foreground">{t('drawer.requestModel')}</span>
+        <code>{manifest.model ?? '—'}</code>
+        <span className="text-muted-foreground">{t('drawer.requestHeaderHash')}</span>
+        <code className="break-all">{manifest.headerHash}</code>
+        <span className="text-muted-foreground">{t('drawer.requestTools')}</span>
+        <span className="break-words">{manifest.toolNames.join(', ') || '—'}</span>
+        <span className="text-muted-foreground">{t('drawer.requestMessages')}</span>
+        <span>{manifest.messages.length}</span>
+      </div>
+
+      <div className="divide-y">
+        {manifest.messages.map((message, index) => (
+          <div key={`${message.id}:${index}`} className="space-y-1 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-muted-foreground/60 font-mono text-[10px]">
+                #{index + 1}
+              </span>
+              <span className="font-mono text-[11px]">{message.role}</span>
+              <code className="text-muted-foreground break-all text-[10px]">{message.id}</code>
+            </div>
+            <div className="text-muted-foreground">
+              {t('drawer.requestBlocks')}: {message.blocks.join(' · ') || '—'}
+              {message.textChars !== undefined ? ` · ${message.textChars} chars` : ''}
+            </div>
+            {message.toolUseIds !== undefined && message.toolUseIds.length > 0 && (
+              <div className="text-muted-foreground break-all">
+                {t('drawer.requestToolUse')}: {message.toolUseIds.join(', ')}
+              </div>
+            )}
+            {message.toolResultIds !== undefined && message.toolResultIds.length > 0 && (
+              <div className="text-muted-foreground break-all">
+                {t('drawer.requestToolResults')}: {message.toolResultIds.join(', ')}
+              </div>
+            )}
+            {message.imageRefs !== undefined && message.imageRefs.length > 0 && (
+              <div className="text-muted-foreground break-all">
+                {t('drawer.requestImages')}:{' '}
+                {message.imageRefs.map((image) => image.id).join(', ')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -291,6 +344,8 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
       return <OverviewTab row={row} />;
     case 'input':
       return <Code text={row.inputDetail ?? ''} />;
+    case 'request':
+      return <RequestTab manifest={row.requestManifest} />;
     case 'output': {
       // 错误行：整体红显、原样文本（含空 → 「（无）」）；正常行非空走 Markdown，
       // 空结果渲染占位而非空白 Markdown。Images ride above the text so a
