@@ -1,10 +1,8 @@
 import { render, screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 
 // The shared setup mocks next-intl's lookup against the zh catalog; this spec
 // must exercise the real provider with the real catalogs instead.
-import { vi } from 'vitest';
-
 vi.unmock('next-intl');
 
 import { useTranslations } from 'next-intl';
