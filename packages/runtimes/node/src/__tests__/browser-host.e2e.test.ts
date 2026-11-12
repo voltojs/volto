@@ -89,7 +89,7 @@ describeE2E("browser host (real Chromium)", () => {
     await page.type(refFor(snapshot.text, "textbox", "Email"), "a@b.c");
     await page.type(refFor(snapshot.text, "textbox", "Password"), "secret");
     await page.click(refFor(snapshot.text, "button", "Sign in"));
-        await page.waitFor({ text: "Dashboard", timeoutMs: 5000 });
+      await page.waitFor({ text: "Dashboard", timeoutMs: 5000 });
     await page.storageState("save");
     await first.dispose();
 
@@ -100,6 +100,14 @@ describeE2E("browser host (real Chromium)", () => {
     } finally {
       await second.dispose();
     }
+  });
+
+  it("snapshots a dialog inside a zero-height portal wrapper", async () => {
+    const page = host.page("session-portal");
+    await page.navigate(`${fixture.url}/portal-modal`);
+    const snapshot = await page.snapshot();
+    expect(snapshot.text).toContain("Settings");
+    expect(refFor(snapshot.text, "button", "Save")).toMatch(/^e\d+$/);
   });
 
   it("records console errors", async () => {

@@ -17,7 +17,7 @@ import { getConfigStore } from "./store.js";
 
 export interface BrowserSettings {
   enabled: boolean;
-  /** Absent means "let the host decide"; explicit false wins even without a display. */
+  /** Defaults to background headless; explicit false opens a visible window. */
   headless?: boolean;
   idleTimeoutMs: number;
   storageStatePath?: string;
@@ -78,6 +78,7 @@ export async function loadBrowserConfig(configDir: string): Promise<BrowserSetti
 
   const settings: BrowserSettings = {
     enabled: true,
+    headless: true,
     idleTimeoutMs: 600_000,
   };
   if (section === undefined) return settings;

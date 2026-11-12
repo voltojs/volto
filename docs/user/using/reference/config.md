@@ -24,13 +24,13 @@ verified: 2026-11-11
 
 ## `browser`
 
-Agent 内置浏览器。它跑在网关所在机器上，用你本机安装的 Chrome/Chromium/Edge 做执行环境；Volto 只依赖 playwright-core 驱动，不向仓库下载浏览器。默认带头窗口，Linux 无显示环境自动回退无头。
+Agent 内置浏览器。它跑在网关所在机器上，用你本机安装的 Chrome/Chromium/Edge 做执行环境；Volto 只依赖 playwright-core 驱动，不向仓库下载浏览器。默认后台无头运行，一个回合结束后自动关闭。
 
 | 字段 | 说明 |
 | --- | --- |
 | `enabled` | 是否装配浏览器工具，默认 true。共享/远程部署建议显式设为 false。 |
 | `executablePath` | 你本机 Chrome/Chromium/Edge 的可执行文件路径。不设置时自动探测常见安装位置；找不到会禁用浏览器工具，不会下载浏览器。 |
-| `headless` | 是否无头运行。不设置时非 Linux 带头、Linux 无显示环境自动无头；显式 false 会强制带头（无显示会启动失败）。 |
+| `headless` | 是否无头运行，默认 true（后台运行，不占用窗口）。设为 false 会弹出真实浏览器窗口；无显示环境请保持 true。 |
 | `idleTimeoutMs` | 无工具调用多久后关闭该会话的浏览器，默认 600000（10 分钟）。 |
 | `storageStatePath` | 可选的 Playwright storage state 文件路径；新会话浏览器会加载它，`browser_storage_state` 会写入它。文件含登录 cookie，需自行排除出 git。 |
 

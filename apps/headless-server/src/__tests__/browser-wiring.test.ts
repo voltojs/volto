@@ -7,6 +7,7 @@ import type { ModelPort, ModelRequest } from "@volto/core";
 import type { BrowserHost, LiveBrowserPage } from "@volto/runtime-node";
 import { BROWSER_GUIDANCE, createWiredAgent } from "../wiring.js";
 import { createServer } from "../server.js";
+import { startRouteTestServer } from "./helpers.js";
 
 let configDir: string;
 let projectDir: string;
@@ -129,6 +130,17 @@ describe("browser wiring", () => {
       .map((message) => (typeof message.content === "string" ? message.content : ""))
       .join("\n");
     expect(system).not.toContain(BROWSER_GUIDANCE);
+  });
+
+  it("closes the session browser when a turn ends", async () => {
+    const host = fakeHost();
+    const server = await startRouteTestServer({ browserHost: host });
+    try {
+      await server.runTurn("hi");
+      await vi.waitFor(() => expect(host.close).toHaveBeenCalled());
+    } finally {
+      await server.close();
+    }
   });
 
   it("disposes the host when the server closes", async () => {

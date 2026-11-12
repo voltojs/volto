@@ -14,6 +14,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ModelPort, ModelRequest, ToolDefinition } from "@volto/core";
 import type { AgentSpec } from "@volto/sdk";
+import type { BrowserHost } from "@volto/runtime-node";
 import { createStore, type JsonlSessionStore } from "@volto/store-jsonl";
 import { createServer, type HeadlessServer, type ServerOptions } from "../server.js";
 import type { SessionRegistryOptions } from "../sessions.js";
@@ -419,6 +420,8 @@ export async function startTestServer(opts: StartTestServerOptions = {}): Promis
 export interface StartRouteTestServerOptions {
   /** Plugin-provided agent specs the /agents routes list as read-only entries. */
   pluginAgents?: AgentSpec[];
+  /** Optional browser host seam for lifecycle tests. */
+  browserHost?: BrowserHost;
 }
 
 export interface TestServerHandle {
@@ -500,6 +503,7 @@ export async function startRouteTestServer(
     // reads and writes never touch the repository the suite runs from.
     cwd: projectDir,
     ...(options.pluginAgents ? { pluginAgents: options.pluginAgents } : {}),
+    ...(options.browserHost ? { browserHost: options.browserHost } : {}),
   });
   await new Promise<void>((resolve) => server.on("listening", resolve));
   const addr = server.address();

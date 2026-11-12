@@ -22,6 +22,7 @@ describe("loadBrowserConfig", () => {
   it("returns the documented defaults when the section is absent", async () => {
     await expect(loadBrowserConfig(dir)).resolves.toEqual({
       enabled: true,
+      headless: true,
       idleTimeoutMs: 600_000,
     });
   });

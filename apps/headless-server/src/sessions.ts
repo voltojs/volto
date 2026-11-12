@@ -2095,6 +2095,14 @@ export function createSessionRegistry(opts: SessionRegistryOptions = {}) {
           push(session, session.mapper.error(err instanceof Error ? err.message : String(err)));
         }
       }
+      // Browser tools are turn-scoped: never leave a visible/headless Chromium
+      // alive after the turn that opened it. Closing here also bounds resource
+      // use for abandoned sessions; the next browser turn opens a fresh page.
+      try {
+        await opts.browserHost?.close(sessionId);
+      } catch {
+        // Cleanup is best-effort; it must not turn a settled turn into a failure.
+      }
       session.running = false;
       session.abort = null;
     }

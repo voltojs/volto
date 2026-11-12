@@ -56,6 +56,17 @@ const LOGIN_OK_PAGE = `<!doctype html>
   </script>
 </body></html>`;
 
+const PORTAL_PAGE = `<!doctype html>
+<html><head><title>Portal</title></head>
+<body>
+  <div style="height: 0; overflow: visible">
+    <div role="dialog" style="position: fixed; top: 20px; left: 20px; width: 320px; padding: 20px; background: white">
+      <h1>Settings</h1>
+      <button>Save</button>
+    </div>
+  </div>
+</body></html>`;
+
 const CONSOLE_PAGE = `<!doctype html>
 <html><head><title>Console</title></head>
 <body><h1>Console</h1><script>console.error("fixture boom")</script></body></html>`;
@@ -88,6 +99,11 @@ export async function startBrowserFixture(): Promise<BrowserFixture> {
       res.end(
         `<!doctype html><html><head><title>${authed ? "Dashboard" : "Login required"}</title></head><body><h1>${authed ? "Dashboard" : "Login required"}</h1></body></html>`,
       );
+      return;
+    }
+    if (url === "/portal-modal") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(PORTAL_PAGE);
       return;
     }
     if (url === "/console") {

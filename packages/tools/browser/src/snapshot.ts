@@ -120,12 +120,22 @@ export const SNAPSHOT_SCRIPT = String.raw`
     return (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
   }
 
-  function isVisible(el) {
+  function isRendered(el) {
     var view = el.ownerDocument && el.ownerDocument.defaultView;
     if (!view) return false;
     var style = view.getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  }
+
+  function hasBox(el) {
     var rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function textHasBox(node) {
+    var range = document.createRange();
+    range.selectNodeContents(node);
+    var rect = range.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   }
 
@@ -206,41 +216,49 @@ export const SNAPSHOT_SCRIPT = String.raw`
     if (nodes.length >= MAX_NODES || !raw) return;
     if (raw.nodeType === 3) {
       var value = (raw.textContent || "").replace(/\s+/g, " ").trim();
-      if (value) push({ depth: depth, role: "text", text: value.slice(0, 300) });
+      if (value && raw.parentElement && isRendered(raw.parentElement) && textHasBox(raw)) {
+        push({ depth: depth, role: "text", text: value.slice(0, 300) });
+      }
       return;
     }
     if (raw.nodeType !== 1) return;
     var el = raw;
     var tag = el.tagName.toLowerCase();
     if (tag === "script" || tag === "style" || tag === "noscript" || tag === "template") return;
-    if (el.getAttribute("aria-hidden") === "true") return;
-    if (!isVisible(el)) return;
+    if (el.getAttribute("aria-hidden") === "true" &&
+        !el.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    if (!isRendered(el)) return;
+    var boxed = hasBox(el);
 
     var role = roleOf(el);
     var nextDepth = depth;
     if (isInteractive(el)) {
-      var ref = "e" + (++refCounter);
-      el.setAttribute("data-volto-ref", ref);
-      var item = { depth: depth, role: role, ref: ref };
-      var name = accessibleName(el);
-      if (name) item.name = name;
-      if (el.disabled === true) item.disabled = true;
-      if (el.checked === true) item.checked = true;
-      push(item);
-      nextDepth = depth + 1;
+      if (boxed) {
+        var ref = "e" + (++refCounter);
+        el.setAttribute("data-volto-ref", ref);
+        var item = { depth: depth, role: role, ref: ref };
+        var name = accessibleName(el);
+        if (name) item.name = name;
+        if (el.disabled === true) item.disabled = true;
+        if (el.checked === true) item.checked = true;
+        push(item);
+        nextDepth = depth + 1;
+      }
     } else if (role === "heading" || role === "list" || role === "listitem" ||
       role === "navigation" || role === "main" || role === "banner" || role === "contentinfo") {
-      var structural = { depth: depth, role: role };
-      var label = accessibleName(el);
-      if (label && role !== "list" && role !== "main" && role !== "banner" && role !== "contentinfo") {
-        structural.name = label;
+      if (boxed) {
+        var structural = { depth: depth, role: role };
+        var label = accessibleName(el);
+        if (label && role !== "list" && role !== "main" && role !== "banner" && role !== "contentinfo") {
+          structural.name = label;
+        }
+        if (role === "heading") {
+          var level = parseInt(tag.charAt(1), 10);
+          if (level) structural.level = level;
+        }
+        push(structural);
+        nextDepth = depth + 1;
       }
-      if (role === "heading") {
-        var level = parseInt(tag.charAt(1), 10);
-        if (level) structural.level = level;
-      }
-      push(structural);
-      nextDepth = depth + 1;
     }
 
     for (var child = el.firstChild; child; child = child.nextSibling) {
