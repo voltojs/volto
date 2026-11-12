@@ -2227,6 +2227,150 @@ describe("Headless server", () => {
   });
 });
 
+/**
+ * Remote posture (`--serve-remote`): one mode decided at construction, the
+ * capabilities derived from it, and the local-only routes withdrawn before
+ * they ever reach the OS. Every case boots its own instance — the suite's
+ * shared server is local mode and must stay that way.
+ */
+describe("remote mode: capabilities and local-only routes", () => {
+  /** Boot one instance on an ephemeral port and hand back its base URL. */
+  async function boot(
+    opts: Parameters<typeof createServer>[0],
+  ): Promise<{ base: string; token: string; close(): Promise<void> }> {
+    const instance = await createServer({ ...opts, port: 0 });
+    await new Promise<void>((resolve) => instance.on("listening", resolve));
+    const addr = instance.address();
+    const base = `http://localhost:${typeof addr === "object" && addr ? addr.port : 0}`;
+    return {
+      base,
+      token: instance.launchToken,
+      close: () => new Promise<void>((resolve) => instance.close(() => resolve())),
+    };
+  }
+
+  it("GET /gateway-info reports local mode with native dialogs available", async () => {
+    const { status, data } = await getJson("/gateway-info");
+    expect(status).toBe(200);
+    const info = data as {
+      version: string;
+      mode: string;
+      capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
+    };
+    expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(info.mode).toBe("local");
+    expect(info.capabilities.nativeDialogs).toBe(true);
+    // Wiring facts, not guesses: this suite's server assembles a real (or
+    // explicitly absent) browser host and always builds an LSP manager.
+    expect(typeof info.capabilities.browser).toBe("boolean");
+    expect(info.capabilities.lsp).toBe(true);
+  });
+
+  it("GET /gateway-info reports remote mode with native dialogs withdrawn", async () => {
+    const instance = await boot({ modelPort: MOCK_MODEL, serveRemote: true });
+    try {
+      const response = await fetch(`${instance.base}/gateway-info`, {
+        headers: authHeaders(instance.token),
+      });
+      expect(response.status).toBe(200);
+      const info = (await response.json()) as {
+        mode: string;
+        capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
+      };
+      expect(info.mode).toBe("remote");
+      expect(info.capabilities.nativeDialogs).toBe(false);
+      // Remote mode withdraws local-only capabilities only — the in-process
+      // ones (browser, LSP) keep their real wiring facts.
+      expect(typeof info.capabilities.browser).toBe("boolean");
+      expect(info.capabilities.lsp).toBe(true);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it("GET /gateway-info requires a credential", async () => {
+    const response = await fetch(`${baseUrl}/gateway-info`);
+    expect(response.status).toBe(401);
+  });
+
+  it("answers /fs/pick-directory and /fs/reveal with 501 in remote mode, before any OS call", async () => {
+    const picked: unknown[] = [];
+    const revealed: string[] = [];
+    const instance = await boot({
+      modelPort: MOCK_MODEL,
+      serveRemote: true,
+      directoryPicker: {
+        pick: async () => {
+          picked.push(true);
+          return "/tmp/chosen";
+        },
+      },
+      pathRevealer: {
+        reveal: async (target: string) => {
+          revealed.push(target);
+        },
+      },
+    });
+    try {
+      const pick = await fetch(`${instance.base}/fs/pick-directory`, {
+        method: "POST",
+        headers: authHeaders(instance.token),
+      });
+      expect(pick.status).toBe(501);
+      expect(await pick.json()).toEqual({ error: "capability_unavailable" });
+
+      const reveal = await fetch(`${instance.base}/fs/reveal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(instance.token) },
+        body: JSON.stringify({ path: "/tmp/project" }),
+      });
+      expect(reveal.status).toBe(501);
+      expect(await reveal.json()).toEqual({ error: "capability_unavailable" });
+
+      // The point of the 501: the dialog and Finder were never touched.
+      expect(picked).toEqual([]);
+      expect(revealed).toEqual([]);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it("keeps both routes live in local mode (no capability_unavailable)", async () => {
+    const picked: unknown[] = [];
+    const instance = await boot({
+      modelPort: MOCK_MODEL,
+      directoryPicker: {
+        pick: async () => {
+          picked.push(true);
+          return "/tmp/chosen";
+        },
+      },
+    });
+    try {
+      const response = await fetch(`${instance.base}/fs/pick-directory`, {
+        method: "POST",
+        headers: authHeaders(instance.token),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ path: "/tmp/chosen" });
+      expect(picked).toHaveLength(1);
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it("--serve-remote is what unlocks a non-loopback bind", async () => {
+    const remote = await createServer({ port: 0, host: "0.0.0.0", modelPort: MOCK_MODEL, serveRemote: true });
+    await new Promise<void>((resolve) => remote.on("listening", resolve));
+    await new Promise<void>((resolve) => remote.close(() => resolve()));
+
+    // Without the flag the refusal stands, and now names the flag.
+    await expect(
+      createServer({ port: 0, host: "0.0.0.0", modelPort: MOCK_MODEL }),
+    ).rejects.toThrow(/--serve-remote/);
+  });
+});
+
 describe("POST /approvals", () => {
   it("rejects a body with no callId", async () => {
     const response = await fetch(`${baseUrl}/approvals`, {

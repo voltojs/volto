@@ -186,6 +186,10 @@ function packageVersion(): string {
 /**
  * Whether this invocation points at a directory or a URL a remote client
  * could reach. Only the loopback bind keeps native dialogs available.
+ *
+ * The flag is what counts: after `--serve-remote` is accepted, a remote host
+ * without the flag is refused (see `runServe` / `runWeb`), so `serveRemote`
+ * alone is already the full posture.
  */
 function isRemoteMode(opts: CliOptions): boolean {
   return opts.serveRemote || !LOOPBACK_HOSTS.has(opts.host);
@@ -497,12 +501,15 @@ async function runServe(
     server = await startServer({
       port: opts.port,
       host: opts.host,
+      // The posture the server records and reports as `mode`. `server.ts`
+      // refuses a non-loopback host without it, so the flag is the single
+      // switch — never inferred from the host here.
+      serveRemote: opts.serveRemote,
       ...(opts.webRoot !== undefined ? { webRoot: opts.webRoot } : {}),
       // The CLI owns the startup output: these two lines are the contract.
       log: () => undefined,
-      // Task 13 teaches createServer `serveRemote` / `trustProxy`; passing
-      // them now would be a type error against today's ServerOptions, so the
-      // flags parse here and wait for that task.
+      // Task 14 teaches createServer `trustProxy`; the flag parses here and
+      // waits for that task.
     });
   } catch (err) {
     deps.stderr(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -516,10 +523,14 @@ async function runServe(
   url.port = String(port);
   const authenticatedUrl = url.toString();
 
+  // R28: these two lines are the whole stdout contract — a script parses
+  // them. Anything extra goes to stderr.
   out(`volto gateway ${packageVersion()} listening on http://${opts.host}:${port}\n`);
   out(`Open: ${authenticatedUrl}\n`);
   if (isRemoteMode(opts)) {
-    out("Remote mode: native dialogs disabled; access token required.\n");
+    deps.stderr(
+      "Remote mode: native dialogs disabled (POST /fs/pick-directory and /fs/reveal answer 501); access token required.\n",
+    );
   }
   const shouldOpen = opts.open ?? !isRemoteMode(opts);
   if (shouldOpen) deps.openBrowser(authenticatedUrl);
@@ -551,7 +562,9 @@ interface WebDeps extends CliDeps {
  * upstream instead of served from the local shell; an invalid one gets the
  * uniform 401, and a token-bearing request is never answered with the shell.
  *
- * Remote mode (`--serve-remote`) is deliberately not implemented here.
+ * Remote mode (`--serve-remote`) is the same explicit posture as `serve`:
+ * it is what allows a non-loopback `--host`, and a non-loopback `--host`
+ * without it is refused here, before any listener exists.
  */
 async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   const startWeb = deps.startWeb ?? startWebServer;
@@ -562,6 +575,17 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   } catch {
     deps.stderr(`Invalid --gateway: ${gateway}\n`);
     return 2;
+  }
+
+  // Same rule as `serve` (server.ts refuses it too): exposing the UI and its
+  // proxy to the network is an explicit choice, not a side effect of a host
+  // value.
+  if (!LOOPBACK_HOSTS.has(opts.host) && !opts.serveRemote) {
+    deps.stderr(
+      `Refusing to bind to non-loopback host "${opts.host}" without --serve-remote. ` +
+        "The proxy exposes the gateway's API to the network.\n",
+    );
+    return 1;
   }
 
   const webRoot = opts.webRoot ?? path.join(packageRoot, "web");
@@ -594,9 +618,6 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   // origin every later API call through the proxy is sent from.
   const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
   out(`Login: http://${shownHost}:${port}/?token=${token}\n`);
-  if (opts.serveRemote) {
-    out("Note: --serve-remote does not apply to `volto web` yet.\n");
-  }
 
   await deps.waitForShutdown();
   await new Promise<void>((resolve) => server.close(() => resolve()));

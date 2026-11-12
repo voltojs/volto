@@ -48,6 +48,7 @@ import {
   createSessionStore,
   selectSessionStore,
   type CreateSessionStoreOptions,
+  type SessionStoreSelection,
 } from "./session-store-factory.js";
 import { buildWorkspaceReminder } from "./workspace-reminder.js";
 
@@ -858,11 +859,26 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // The kind travels on the instance so `doctor` and the server log can name
   // the store the agent actually uses; the AgentInstance contract is the
   // SDK's, so it rides as a host-side decoration rather than a new field.
-  return Object.assign(agent, { sessionStoreSelection });
+  // `lsp` is the same kind of decoration: whether an LSP manager was ACTUALLY
+  // assembled for this agent (as opposed to whether config declares one) is
+  // what `GET /gateway-info` reports, and it cannot be read back off the
+  // AgentInstance.
+  return Object.assign(agent, { sessionStoreSelection, lsp: lsp !== undefined });
 }
 
 /** An agent instance as returned here: the SDK instance plus the store kind. */
 export type WiredAgent = Awaited<ReturnType<typeof createWiredAgent>>;
+
+/**
+ * The host-side facts `createWiredAgent` attaches to the instance it returns.
+ * They are not part of the SDK's AgentInstance contract, so a caller reading
+ * them must tolerate their absence — a stub `agentFactory` attaches nothing.
+ */
+export interface WiredAgentFacts {
+  sessionStoreSelection?: SessionStoreSelection;
+  /** Whether an LSP manager was actually assembled for this agent. */
+  lsp?: boolean;
+}
 
 /**
  * Builds the `parsePdf` dependency of the attachment converter (spec

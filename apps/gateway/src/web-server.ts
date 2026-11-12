@@ -48,6 +48,7 @@ import { buildConfigScript, hasQueryToken, serveStatic } from "./static/serve.js
  */
 export const API_PREFIXES = [
   "/health",
+  "/gateway-info",
   "/events",
   "/messages",
   "/interrupt",

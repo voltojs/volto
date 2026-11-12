@@ -1,0 +1,51 @@
+/**
+ * What this gateway instance can actually do, and the posture it was started
+ * in.
+ *
+ * Exactly one source: `mode` is the explicit posture chosen at startup
+ * (`--serve-remote`), never inferred from a request (a header, `Origin`, a
+ * source IP — Task 14's territory). `resolveCapabilities` is the single pure
+ * projection from that posture plus the wiring facts onto what `GET
+ * /gateway-info` publishes and what the routes gate on, so a route and the
+ * advertised answer can never disagree.
+ */
+
+/** The gateway's own posture. One value per process, fixed at startup. */
+export type GatewayMode = "local" | "remote";
+
+export interface Capabilities {
+  /**
+   * Whether routes that open something on THIS machine's desktop
+   * (`/fs/pick-directory`, `/fs/reveal`) may run. Local-only: a remote
+   * caller asking for a Finder window would pop one on the host's screen
+   * with nobody to answer it, and the dialog's answer would be chosen by
+   * someone who is not the caller.
+   */
+  nativeDialogs: boolean;
+  /**
+   * Whether a browser host was actually assembled for this process — the
+   * fact that decides whether the browser tools are visible to the model,
+   * not a configuration wish.
+   */
+  browser: boolean;
+  /**
+   * Whether an LSP manager was actually assembled. Same rule as `browser`.
+   */
+  lsp: boolean;
+}
+
+/**
+ * Project the startup posture and the wiring facts onto the published
+ * capabilities. Pure: no I/O, no request data.
+ */
+export function resolveCapabilities(input: {
+  mode: GatewayMode;
+  browser: boolean;
+  lsp: boolean;
+}): Capabilities {
+  return {
+    nativeDialogs: input.mode === "local",
+    browser: input.browser,
+    lsp: input.lsp,
+  };
+}

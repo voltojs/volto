@@ -142,6 +142,11 @@
     },
     {
       "method": "GET",
+      "path": "/gateway-info",
+      "note": "这个网关实例的模式与可用能力：`mode` 为 `local` 或 `remote`（`--serve-remote` 启动时为 `remote`），`capabilities` 说明本机原生对话框、浏览器工具、LSP 是否真的可用。需要鉴权。"
+    },
+    {
+      "method": "GET",
       "path": "/sessions/*",
       "note": "单条会话的读取族：完整转录、轨迹、原始事件、计划文档、导出。具体子路径见 server.ts 的 `/sessions/:id/...` 注释。"
     },

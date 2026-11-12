@@ -55,7 +55,12 @@ import {
   type JsonlSessionStore,
 } from "@volto/store-jsonl";
 import { t } from "@volto/i18n";
-import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
+import {
+  createWiredAgent,
+  createAttachmentParsePdf,
+  type WiredAgentFacts,
+  type WiringOptions,
+} from "./wiring.js";
 import type { SessionStoreSelection } from "./session-store-factory.js";
 import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
 import {
@@ -134,6 +139,7 @@ import {
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
+import { resolveCapabilities, type Capabilities, type GatewayMode } from "./capabilities.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
 import { buildConfigScript, hasQueryToken, serveStatic } from "./static/serve.js";
 import { API_PREFIXES } from "./web-server.js";
@@ -181,9 +187,23 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   /**
    * Interface to bind. Defaults to loopback: the client may name any absolute
    * path as a project root, so binding all interfaces would expose this
-   * machine's filesystem to the local network.
+   * machine's filesystem to the local network. A non-loopback value is
+   * refused at startup unless `serveRemote` also opts in.
    */
   host?: string;
+  /**
+   * Remote posture (`--serve-remote`): the only way a non-loopback bind is
+   * allowed, and the only way this process is `mode: "remote"` in `GET
+   * /gateway-info`. Remote mode withdraws the capabilities that only make
+   * sense on the machine running the gateway — currently the native desktop
+   * dialogs (`/fs/pick-directory`, `/fs/reveal` answer 501
+   * `capability_unavailable`).
+   *
+   * A posture, never an inference: it is fixed here at construction and no
+   * request-header, origin or source-IP heuristic changes it.
+   * @default false
+   */
+  serveRemote?: boolean;
   /** Overridable directory picker — production uses the native dialog. */
   directoryPicker?: ReturnType<typeof createDirectoryPicker>;
   /** Overridable path revealer — production opens Finder/Explorer. */
@@ -555,12 +575,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
 
   // The client may name any absolute path as a project root and the agent
   // runs arbitrary commands, so a non-loopback bind would expose this
-  // machine to the network. Refuse at startup rather than warn.
-  if (!LOOPBACK_HOSTS.has(host)) {
+  // machine to the network. Refuse at startup rather than warn — the bind
+  // is a posture the operator has to state explicitly, so there is no
+  // request-time inference to fall back on.
+  if (!LOOPBACK_HOSTS.has(host) && opts.serveRemote !== true) {
     throw new Error(
-      `Refusing to bind to non-loopback host "${host}": the gateway exposes this machine's filesystem and an arbitrary-command agent. Bind to 127.0.0.1, localhost, or ::1.`,
+      `Refusing to bind to non-loopback host "${host}": the gateway exposes this machine's filesystem and an arbitrary-command agent. Bind to 127.0.0.1, localhost, or ::1, or pass --serve-remote to accept that exposure.`,
     );
   }
+
+  const mode: GatewayMode = opts.serveRemote === true ? "remote" : "local";
 
   const auth = await createBrowserAuth();
   const guard = createAuthGuard(auth, { publicPaths: ["/health"] });
@@ -596,6 +620,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     pluginAgents,
     permissionConfig: agentOpts.permissionConfig ?? buildPermissionConfig("read-only"),
     sandboxMode: agentOpts.sandboxMode ?? sandboxModeFor("read-only"),
+  });
+  // What this process can actually do, from the one place that knows both
+  // halves: the startup posture (`mode`, above) and the wiring facts. The
+  // agent's `lsp` decoration records whether `createWiredAgent` really
+  // constructed an LSP manager; a stub `agentFactory` attaches nothing, and
+  // then the fact is simply unknown → not claimed.
+  const capabilities: Capabilities = resolveCapabilities({
+    mode,
+    browser: browserHost !== undefined,
+    lsp: (agent as WiredAgentFacts).lsp === true,
   });
   // Same fallback as createWiredAgent's own `cwd` resolution (wiring.ts) — kept
   // in sync here so /skills reports the same workspace the legacy (no
@@ -2445,6 +2479,13 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
 
     // POST /fs/pick-directory — open the OS directory dialog on this machine
     if (req.method === "POST" && url.pathname === "/fs/pick-directory") {
+      if (!capabilities.nativeDialogs) {
+        // Before touching the picker: a remote caller's dialog would open on
+        // the host's screen with nobody to answer it, and whoever is sitting
+        // there would be choosing the caller's directory.
+        jsonResponse(res, 501, { error: "capability_unavailable" });
+        return;
+      }
       try {
         // No request body is read: the dialog prompt is a server-side constant
         // and the caller has nothing to contribute.
@@ -2467,6 +2508,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
 
     // POST /fs/reveal — open the OS file manager with the path selected
     if (req.method === "POST" && url.pathname === "/fs/reveal") {
+      if (!capabilities.nativeDialogs) {
+        // Same rule as /fs/pick-directory, and before the body is read: the
+        // answer does not depend on it.
+        jsonResponse(res, 501, { error: "capability_unavailable" });
+        return;
+      }
       try {
         const body = JSON.parse(await readBody(req)) as { path?: unknown };
         if (typeof body.path !== "string" || body.path.trim() === "") {
@@ -2737,6 +2784,16 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // GET /health
     if (req.method === "GET" && url.pathname === "/health") {
       jsonResponse(res, 200, { status: "ok" });
+      return;
+    }
+
+    // GET /gateway-info — what this instance is and what it can do. Behind
+    // the auth guard (it is bracketed by it above), because `mode` and the
+    // capability flags describe the operator's exposure choices, not a
+    // liveness probe. The web app reads `mode` from here to tell a remote
+    // user why the native picker is unavailable.
+    if (req.method === "GET" && url.pathname === "/gateway-info") {
+      jsonResponse(res, 200, { version: packageVersion, mode, capabilities });
       return;
     }
 

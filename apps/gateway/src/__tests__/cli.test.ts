@@ -260,6 +260,62 @@ it("非 loopback 绑定未加 --serve-remote 时拒绝启动", async () => {
   });
 });
 
+it("--serve-remote 放行非 loopback 绑定：选项透传，警告只走 stderr", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const out: string[] = [];
+    const errors: string[] = [];
+    const opened: string[] = [];
+    const seen: ServerOptions[] = [];
+    const code = await main(
+      ["--host", "0.0.0.0", "--port", "0", "--serve-remote", "--config-dir", dir],
+      {
+        startServer: async (opts) => {
+          seen.push(opts);
+          return fakeServer(opts.port ?? 0);
+        },
+        stdout: (s) => out.push(s),
+        stderr: (s) => errors.push(s),
+        openBrowser: (url) => opened.push(url),
+        waitForShutdown: async () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(seen[0]).toMatchObject({ host: "0.0.0.0", serveRemote: true });
+    // R28: stdout stays exactly the two promised lines — the remote notice
+    // must not appear in a stream a script parses.
+    const lines = out.join("").split("\n").filter((line) => line !== "");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^volto gateway \d+\.\d+\.\d+ listening on http:\/\/0\.0\.0\.0:\d+$/);
+    // The Open line comes from the server's own authenticatedUrl (the stub's
+    // host is fixed there); only its port is re-derived here.
+    expect(lines[1]).toBe(`Open: http://127.0.0.1:0/?token=${"T".repeat(43)}`);
+    expect(errors.join("")).toContain("native dialogs disabled");
+    // A remote bind does not pop a browser on whatever machine ran the CLI.
+    expect(opened).toEqual([]);
+  });
+});
+
+it("本地模式不把 serveRemote 传给 createServer", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: ServerOptions[] = [];
+    expect(
+      await main(["--no-open", "--config-dir", dir], {
+        startServer: async (opts) => {
+          seen.push(opts);
+          return fakeServer(opts.port ?? 0);
+        },
+        stdout: () => {},
+        openBrowser: () => {},
+        waitForShutdown: async () => {},
+      }),
+    ).toBe(0);
+    expect(seen[0]?.serveRemote).toBe(false);
+  });
+});
+
 it("startServer 抛错时以 1 退出并把消息写到 stderr", async () => {
   await withEnvRestored(async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
@@ -467,5 +523,45 @@ it("volto web 的非法 --gateway 直接以 2 退出且不启动服务器", asyn
     expect(code).toBe(2);
     expect(startWeb).not.toHaveBeenCalled();
     expect(errors.join("")).toContain("Invalid --gateway");
+  });
+});
+
+it("volto web 非 loopback --host 未加 --serve-remote 时拒绝启动", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const errors: string[] = [];
+    const startWeb = vi.fn();
+    const code = await main(["web", "--host", "0.0.0.0", "--config-dir", dir], {
+      startWeb: startWeb as unknown as CliDeps["startWeb"],
+      stdout: () => {},
+      stderr: (s) => errors.push(s),
+      waitForShutdown: async () => {},
+    });
+    expect(code).toBe(1);
+    expect(startWeb).not.toHaveBeenCalled();
+    expect(errors.join("")).toContain("--serve-remote");
+  });
+});
+
+it("volto web 加 --serve-remote 后允许非 loopback 绑定，且不再打印「不适用」", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: WebServerOptions[] = [];
+    const out: string[] = [];
+    const code = await main(
+      ["web", "--host", "0.0.0.0", "--port", "0", "--serve-remote", "--config-dir", dir],
+      {
+        startWeb: async (opts) => {
+          seen.push(opts);
+          return fakeWebServer(6301);
+        },
+        stdout: (s) => out.push(s),
+        waitForShutdown: async () => {},
+      },
+    );
+    expect(code).toBe(0);
+    expect(seen[0]).toMatchObject({ host: "0.0.0.0" });
+    expect(out.join("")).toContain("listening on http://0.0.0.0:6301 -> ");
+    expect(out.join("")).not.toContain("does not apply");
   });
 });

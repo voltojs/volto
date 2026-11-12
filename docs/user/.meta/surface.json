@@ -55,7 +55,7 @@
       ]
     },
     "httpRoutes": {
-      "hash": "939ff40602bbe41ed0ccde1f242191be85e3f2b0365be697d10064b778584d87",
+      "hash": "0dee94909e94c76bae10056df0e661c7e90dd1a2e4da74e4163826d7365e5114",
       "names": [
         "* /config/routing-tiers",
         "DELETE /agents/*",
@@ -71,6 +71,7 @@
         "GET /fs/file",
         "GET /fs/search",
         "GET /fs/tree",
+        "GET /gateway-info",
         "GET /git/branches",
         "GET /git/graph",
         "GET /git/summary",
