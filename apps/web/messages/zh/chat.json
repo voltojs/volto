@@ -147,7 +147,9 @@
     "params": "参数",
     "output": "输出",
     "failed": "执行失败",
-    "todoItems": "{count} 项"
+    "todoItems": "{count} 项",
+    "screenshot": "截图",
+    "expandScreenshot": "查看截图"
   },
   "todo": {
     "title": "任务",

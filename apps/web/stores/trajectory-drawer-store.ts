@@ -14,13 +14,16 @@ interface TrajectoryDrawerState {
    * in the drawer resolve against it, not whichever session is current.
    */
   projectId: string | null | undefined;
-  open: (row: TrajectoryRow, projectId?: string | null) => void;
+  /** Session owning the row's attachments (screenshots). */
+  sessionId: string | null | undefined;
+  open: (row: TrajectoryRow, projectId?: string | null, sessionId?: string | null) => void;
   close: () => void;
 }
 
 export const useTrajectoryDrawerStore = create<TrajectoryDrawerState>((set) => ({
   row: null,
   projectId: undefined,
-  open: (row, projectId) => set({ row, projectId }),
-  close: () => set({ row: null, projectId: undefined }),
+  sessionId: undefined,
+  open: (row, projectId, sessionId) => set({ row, projectId, sessionId }),
+  close: () => set({ row: null, projectId: undefined, sessionId: undefined }),
 }));

@@ -400,7 +400,7 @@ function SubagentTrajectoryView({
       <TrajectoryList
         rows={stored.rows ?? []}
         streamingRowId={null}
-        onSelect={(row) => useTrajectoryDrawerStore.getState().open(row, fileProjectId)}
+        onSelect={(row) => useTrajectoryDrawerStore.getState().open(row, fileProjectId, sessionId)}
       />
     </div>
   );

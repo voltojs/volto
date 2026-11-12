@@ -147,7 +147,9 @@
     "params": "Arguments",
     "output": "Output",
     "failed": "Failed",
-    "todoItems": "{count} items"
+    "todoItems": "{count} items",
+    "screenshot": "Screenshot",
+    "expandScreenshot": "Open screenshot"
   },
   "todo": {
     "title": "Tasks",

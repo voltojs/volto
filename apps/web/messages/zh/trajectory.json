@@ -25,7 +25,8 @@
     "taskId": "任务 ID",
     "background": "后台任务",
     "backgroundYes": "是",
-    "modelTier": "模型档位"
+    "modelTier": "模型档位",
+    "images": "图片"
   },
   "panel": {
     "empty": "选择一个会话后查看轨迹",

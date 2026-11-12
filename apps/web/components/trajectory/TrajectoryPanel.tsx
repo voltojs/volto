@@ -60,7 +60,7 @@ export function TrajectoryPanel({ sessionId }: TrajectoryPanelProps) {
             rows={feed.rows}
             streamingRowId={feed.streamingRowId}
             selectedId={drawerRow?.id ?? null}
-            onSelect={(row) => openDrawer(row, projectIdForSession(sessionId))}
+            onSelect={(row) => openDrawer(row, projectIdForSession(sessionId), sessionId)}
           />
         </div>
       )}

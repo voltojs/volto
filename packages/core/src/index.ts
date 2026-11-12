@@ -211,6 +211,7 @@ export type {
   ConversationMessage,
   ConversationBlock,
   ConversationToolCall,
+  ConversationImage,
   ConversationSegment,
   TurnUsage,
 } from "./view-projection.js";

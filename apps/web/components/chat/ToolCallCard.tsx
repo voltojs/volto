@@ -3,12 +3,13 @@
 import { memo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
-import type { ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationImage, ConversationToolCall } from '@volto/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
 import { verificationBadge } from '@/lib/verification-badge';
 import { toolCallFileRef } from '@volto/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 import { TraceRow } from './TraceRow';
+import { ToolResultImage } from './ToolResultImage';
 
 interface ToolCallCardProps {
   call: ConversationToolCall;
@@ -20,6 +21,8 @@ interface ToolCallCardProps {
    * read the same.
    */
   label?: string;
+  /** Session owning this call's attachments (screenshots need the store URL). */
+  sessionId?: string | null;
 }
 
 function StatusIcon({ call }: { call: ConversationToolCall }) {
@@ -54,7 +57,9 @@ export function toolCallCardComparator(
     JSON.stringify(a.call.verification) === JSON.stringify(b.call.verification) &&
     a.call.approval?.decision === b.call.approval?.decision &&
     a.label === b.label &&
-    a.fileProjectId === b.fileProjectId
+    a.fileProjectId === b.fileProjectId &&
+    a.sessionId === b.sessionId &&
+    JSON.stringify(a.call.images) === JSON.stringify(b.call.images)
   );
 }
 
@@ -63,6 +68,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   call,
   label,
   fileProjectId,
+  sessionId,
 }: ToolCallCardProps) {
   const t = useTranslations('chat');
   const failed = call.isError === true || call.approval?.decision === 'deny';
@@ -76,6 +82,11 @@ export const ToolCallCard = memo(function ToolCallCard({
   const verification =
     call.name === 'task_output' ? verificationBadge(t, call.verification) : undefined;
   const ref = toolCallFileRef(call.name, call.args);
+  const images: ConversationImage[] = call.images ?? [];
+  // A screenshot's value is the picture: open the result body as soon as it
+  // lands instead of hiding it behind the row disclosure. A manual collapse
+  // still wins (manualOpen below).
+  const autoOpen = failed || images.length > 0;
   const renderDetail = () => {
     if (summary === undefined) return undefined;
     if (ref === null || fileProjectId === null) return summary;
@@ -113,7 +124,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       meta={call.durationMs === undefined ? undefined : `${call.durationMs}ms`}
       status={<StatusIcon call={call} />}
       failed={failed}
-      open={manualOpen ?? failed}
+      open={manualOpen ?? autoOpen}
       onOpenChange={setManualOpen}
       scrollable
     >
@@ -135,6 +146,17 @@ export const ToolCallCard = memo(function ToolCallCard({
           <pre className="text-muted-foreground font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
             {call.result}
           </pre>
+          {images.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {images.map((image) => (
+                <ToolResultImage
+                  key={image.attachmentId}
+                  image={image}
+                  sessionId={sessionId}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </TraceRow>

@@ -156,6 +156,7 @@ export function MessageList({
                   density={effectiveDensity}
                   onOpenSubagent={onOpenSubagent}
                   fileProjectId={fileProjectId}
+                  sessionId={sessionId}
                 />
                 {row.footer !== null && <MessageFooter message={row.footer} />}
               </div>,

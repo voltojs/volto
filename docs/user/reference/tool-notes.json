@@ -5,7 +5,7 @@
   "bash_output": "读取后台命令的增量输出，不必等它跑完。",
   "browser_click": "按快照里的 ref 点击元素；ref 失效时让 Agent 重新 snapshot。",
   "browser_navigate": "让 Agent 打开 http(s) 页面，或前进/后退/刷新，返回带 ref 的页面快照。",
-  "browser_screenshot": "截当前页面为 PNG；需要附件存储和图像模型。",
+  "browser_screenshot": "截当前页面为 PNG；截图会作为工具结果显示在轨迹中，可点缩略图弹窗查看。需要附件存储和图像模型。",
   "browser_type": "按 ref 填写输入框，可顺便回车提交。",
   "build": "在给定的构建命令下执行一次构建，返回成功/失败与错误摘要（命令由调用方传入）。",
   "cancel_task": "取消一个已排定的定时任务。",

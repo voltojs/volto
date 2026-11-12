@@ -28,12 +28,15 @@ export function ActivitySteps({
   density,
   onOpenSubagent,
   fileProjectId,
+  sessionId,
 }: {
   blocks: ActivityBlock[];
   density: StreamDensity;
   onOpenSubagent?: (childSessionId: string, meta?: SubagentOpenMeta) => void;
   /** Project the content belongs to; undefined → current session at click time. */
   fileProjectId?: string | null;
+  /** Session owning tool-result attachments (screenshots). */
+  sessionId?: string | null;
 }) {
   const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
@@ -61,6 +64,7 @@ export function ActivitySteps({
         call={block.call}
         label={toolCallSummary(block.call.name, block.call.args, t)}
         fileProjectId={fileProjectId}
+        sessionId={sessionId}
       />
     ),
   );

@@ -25,7 +25,8 @@
     "taskId": "Task ID",
     "background": "Background",
     "backgroundYes": "Yes",
-    "modelTier": "Model tier"
+    "modelTier": "Model tier",
+    "images": "Images"
   },
   "panel": {
     "empty": "Select a session to see its trace",

@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { ImageIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   KIND_BADGE_CLASS,
@@ -49,6 +50,9 @@ export function TrajectoryRowItem({ row, streaming, isSelected, onSelect }: Traj
         </span>
       )}
       <span className="text-foreground/90 min-w-0 flex-1 truncate">{row.summary}</span>
+      {row.images !== undefined && row.images.length > 0 && (
+        <ImageIcon className="text-muted-foreground/60 h-3 w-3 shrink-0" aria-hidden />
+      )}
       {streaming && (
         <span className="bg-primary/70 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" />
       )}

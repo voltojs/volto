@@ -1025,12 +1025,25 @@ export function buildTurnRecords(
 // ConversationView
 // ──────────────────────────────────────────────
 
+/** An image block attached to a tool result (screenshot, rendered file). */
+export interface ConversationImage {
+  attachmentId: string;
+  mediaType: string;
+  width?: number;
+  height?: number;
+}
+
 export interface ConversationToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
   /** The tool's real output — not a metadata summary. */
   result?: string;
+  /**
+   * Image blocks from the same tool result, ref-only. The UI resolves them
+   * through the attachment endpoint; base64 never enters this projection.
+   */
+  images?: ConversationImage[];
   isError?: boolean;
   durationMs?: number;
   /**
@@ -1176,6 +1189,22 @@ function fileChangeFields(displayMetadata: Record<string, unknown> | undefined):
 } {
   const change = extractFileChange(displayMetadata);
   return change === null ? {} : { fileChange: change };
+}
+
+/** Image blocks from a tool result, projected as attachment refs. */
+function toolImageFields(
+  content: string | ToolResultBlock[] | undefined,
+): { images?: ConversationImage[] } {
+  if (!Array.isArray(content)) return {};
+  const images = content
+    .filter((block): block is Extract<ToolResultBlock, { type: "image" }> => block.type === "image")
+    .map((block) => ({
+      attachmentId: block.source.id,
+      mediaType: block.source.mediaType,
+      ...(block.width !== undefined ? { width: block.width } : {}),
+      ...(block.height !== undefined ? { height: block.height } : {}),
+    }));
+  return images.length > 0 ? { images } : {};
 }
 
 /**
@@ -1352,6 +1381,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   name: block.name,
                   args: block.input,
                   ...(call?.content !== undefined ? { result: toolResultText(call.content) } : {}),
+                  ...toolImageFields(call?.content),
                   ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                   ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
                   ...fileChangeFields(call?.displayMetadata),
@@ -1575,6 +1605,8 @@ export interface TrajectoryRow {
   taskId?: string;
   /** True when the subagent row ran detached. */
   background?: true;
+  /** Image blocks produced by this tool call, for the drawer's output tab. */
+  images?: ConversationImage[];
   /** Collected child session on a tool row (task_output), without upgrading its kind. */
   relatedSessionId?: string;
   /** A routing tier that could not resolve for this dispatch. */
@@ -1799,6 +1831,7 @@ export function toTrajectoryView(
               }
             : {
                 ...(call.content !== undefined ? { outputDetail: toolResultText(call.content) } : {}),
+                ...toolImageFields(call.content),
                 ...(call.relatedSessionId !== undefined
                   ? { relatedSessionId: call.relatedSessionId }
                   : {}),

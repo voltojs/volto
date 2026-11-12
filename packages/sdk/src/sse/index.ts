@@ -59,6 +59,7 @@ export type {
   ConversationBlock,
   ConversationSegment,
   ConversationToolCall,
+  ConversationImage,
   VerificationSummary,
   FileChange,
   TurnUsage,

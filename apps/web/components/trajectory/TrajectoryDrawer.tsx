@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Markdown } from '@/components/chat/Markdown';
+import { ToolResultImage } from '@/components/chat/ToolResultImage';
 import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { cn } from '@/lib/utils';
@@ -23,7 +24,7 @@ import {
   parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { ConversationImage, TrajectoryRow } from '@volto/sdk/sse';
 
 interface TrajectoryDrawerProps {
   row: TrajectoryRow | null;
@@ -49,6 +50,23 @@ function Cell({ text }: { text: string | null | undefined }) {
   );
 }
 
+function RowImages({
+  images,
+  sessionId,
+}: {
+  images: ConversationImage[];
+  sessionId?: string | null;
+}) {
+  if (images.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {images.map((image) => (
+        <ToolResultImage key={image.attachmentId} image={image} sessionId={sessionId} />
+      ))}
+    </div>
+  );
+}
+
 function Code({ text }: { text: string }) {
   return (
     <pre className="bg-muted/60 text-foreground/80 overflow-x-auto rounded p-2 font-mono text-[11px]">
@@ -59,6 +77,7 @@ function Code({ text }: { text: string }) {
 
 function OverviewTab({ row }: { row: TrajectoryRow }) {
   const t = useTranslations('trajectory');
+  const sessionId = useTrajectoryDrawerStore((s) => s.sessionId);
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
   // Keep the original truthiness guard; the const also carries the narrowing
   // into the onClick closure. relatedSessionId is the collected task_output
@@ -121,6 +140,11 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
       <Field label={t('drawer.duration')}>
         <Cell text={duration} />
       </Field>
+      {row.images !== undefined && row.images.length > 0 && (
+        <Field label={t('drawer.images')}>
+          <RowImages images={row.images} sessionId={sessionId} />
+        </Field>
+      )}
       {row.kind === 'assistant' && row.metrics?.usage && (
         <>
           <Field label={t('drawer.inputTokens')}>
@@ -260,6 +284,7 @@ export function TrajectoryDrawer({ row, open, onOpenChange }: TrajectoryDrawerPr
 function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
   const t = useTranslations('trajectory');
   const fileProjectId = useTrajectoryDrawerStore((s) => s.projectId);
+  const sessionId = useTrajectoryDrawerStore((s) => s.sessionId);
   const locale = useLocale();
   switch (tab) {
     case 'overview':
@@ -268,18 +293,26 @@ function TabBody({ row, tab }: { row: TrajectoryRow; tab: DrawerTabKey }) {
       return <Code text={row.inputDetail ?? ''} />;
     case 'output': {
       // 错误行：整体红显、原样文本（含空 → 「（无）」）；正常行非空走 Markdown，
-      // 空结果渲染占位而非空白 Markdown。
+      // 空结果渲染占位而非空白 Markdown。Images ride above the text so a
+      // screenshot-only result is not an empty tab.
+      const images = row.images ?? [];
       if (row.isError) {
         return (
-          <div className="text-destructive">
+          <div className="space-y-2 text-destructive">
+            <RowImages images={images} sessionId={sessionId} />
             <Cell text={row.outputDetail} />
           </div>
         );
       }
-      return row.outputDetail ? (
-        <Markdown content={row.outputDetail} projectId={fileProjectId} />
-      ) : (
-        <Cell text={row.outputDetail} />
+      return (
+        <div className="space-y-2">
+          <RowImages images={images} sessionId={sessionId} />
+          {row.outputDetail ? (
+            <Markdown content={row.outputDetail} projectId={fileProjectId} />
+          ) : (
+            <Cell text={row.outputDetail} />
+          )}
+        </div>
       );
     }
     case 'schema':

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTurnRecords, toConversationView } from "../view-projection.js";
+import { applyPartial, buildTurnRecords, toConversationView, toTrajectoryView } from "../view-projection.js";
 import { projectMessages } from "../transcript-projection.js";
 import type { TranscriptEvent, ContentBlock } from "../index.js";
 import legacy from "./__snapshots__/legacy-ui-messages.json";
@@ -408,7 +408,6 @@ describe("toConversationView", () => {
   });
 });
 
-import { applyPartial, toTrajectoryView } from "../view-projection.js";
 
 describe("applyPartial", () => {
   const OPEN_STEP = log([
@@ -790,4 +789,63 @@ describe("toConversationView — steering realization", () => {
     ]);
     expect(view.messages.filter((m) => m.content === "wait")).toHaveLength(1);
   });
+});
+
+it("projects a tool result's image block onto the call and trajectory row", () => {
+  const events = log([
+    { time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },
+    { time: 110, type: "user_message", data: { content: "take a screenshot" }, turn: 1 },
+    { time: 120, type: "model_call_start", data: { headerHash: "h1" }, turn: 1, step: 1 },
+    {
+      time: 130,
+      type: "assistant_message",
+      data: {
+        content: [{ type: "tool_use", id: "c-img", name: "browser_screenshot", input: {} }],
+        stopReason: "tool_use",
+        durationMs: 10,
+      },
+      turn: 1,
+      step: 1,
+    },
+    { time: 140, type: "tool_call", data: { callId: "c-img", name: "browser_screenshot", input: {} }, turn: 1, step: 1 },
+    {
+      time: 180,
+      type: "tool_result",
+      data: {
+        callId: "c-img",
+        name: "browser_screenshot",
+        content: [
+          { type: "text", text: "Screenshot (1280x800)" },
+          {
+            type: "image",
+            source: { type: "ref", id: "att-shot", mediaType: "image/png" },
+            width: 1280,
+            height: 800,
+          },
+        ],
+        isError: false,
+        durationMs: 40,
+        orderInBatch: 0,
+      },
+      turn: 1,
+      step: 1,
+    },
+    { time: 210, type: "turn_end", data: { turn: 1, reason: "done" }, turn: 1 },
+  ]);
+
+  const view = toConversationView(buildTurnRecords(events));
+  const call = view.messages
+    .flatMap((message) => message.blocks)
+    .find((block) => block.type === "tool_call" && block.call.id === "c-img");
+  expect(call).toMatchObject({
+    type: "tool_call",
+    call: {
+      images: [{ attachmentId: "att-shot", mediaType: "image/png", width: 1280, height: 800 }],
+    },
+  });
+
+  const trajectory = toTrajectoryView(buildTurnRecords(events), events);
+  expect(trajectory.rows.find((row) => row.id === "c-img")?.images).toEqual([
+    { attachmentId: "att-shot", mediaType: "image/png", width: 1280, height: 800 },
+  ]);
 });
