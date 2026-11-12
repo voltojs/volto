@@ -4,9 +4,10 @@
  * closure must install into a project that knows nothing about the workspace, and
  * `@volto/sdk` must work from there through node's normal resolution.
  *
- * Flow: temp dir → `npm init -y` → `pnpm pack` every package in the closure into the
- * temp dir → `npm install` all those tarballs → copy `scripts/fixtures/smoke-agent.mjs`
- * into the project and run it with plain `node`. The project uses npm on purpose:
+ * Flow: build the closure into fresh `dist/` → temp dir → `npm init -y`
+ * → `pnpm pack` every package in the closure into the temp dir → `npm install` all those
+ * tarballs → copy `scripts/fixtures/smoke-agent.mjs` into the project and run it with
+ * plain `node`. The project uses npm on purpose:
  * installing the tarballs with the same package manager that produced them (pnpm,
  * with its workspace linking and hoisting) would hide a `workspace:` range or a
  * hoisting-dependent import that an outside consumer would hit.
@@ -67,6 +68,35 @@ function dependencyClosure(packages, entry) {
 }
 
 /**
+ * Build the closure before packing it, forcing a real `tsc` run: `pnpm pack` ships
+ * whatever `dist/` holds, so a stale build would smoke-test code that predates the
+ * working tree. `--force` is required because turbo replays a cache hit without
+ * restoring `dist/` (it trusts its output log) and without `tsc --build` noticing a
+ * source that is untouched-but-newer; neither path refreshes the built files.
+ *
+ * @param {{ manifest: { name: string } }[]} packs the closure being packed
+ */
+function buildClosure(packs) {
+  const names = packs.map(({ manifest }) => manifest.name);
+  const filter = names.flatMap((name) => ["--filter", name]);
+  const result = spawnSync("pnpm", ["turbo", "run", "build", "--force", ...filter], {
+    cwd: ROOT,
+    encoding: "utf-8",
+    timeout: TIMEOUT_MS,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  const summary = output.trimEnd().split("\n").find((line) => line.includes("successful")) ?? "no turbo summary";
+  if (result.error || result.status !== 0) {
+    const tail = output.trimEnd().split("\n").slice(-STDERR_TAIL);
+    console.error(`FAIL: build (${result.error?.message ?? `exit ${result.status}`})`);
+    for (const line of tail) console.error(`  ${line}`);
+    throw new Error("build failed");
+  }
+  console.log(`Build: ${names.length} package(s), ${summary.trim()}`);
+}
+
+/**
  * Run a child process. A silent step only fails; a verbose one also echoes its output,
  * so the smoke log shows progress without npm/pnpm boilerplate.
  */
@@ -119,6 +149,7 @@ function main() {
   const project = mkdtempSync(join(tmpdir(), "volto-smoke-install-"));
   console.log(`Temp project: ${project}`);
   try {
+    buildClosure(packs);
     run("npm", ["init", "-y"], { cwd: project }, "npm init -y");
     console.log("npm init -y: done");
 
