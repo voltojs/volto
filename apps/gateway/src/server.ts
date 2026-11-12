@@ -135,6 +135,7 @@ import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
 import { buildConfigScript, serveStatic } from "./static/serve.js";
+import { API_PREFIXES } from "./web-server.js";
 import { cleanupOrphanAttachments } from "./attachments/cleanup.js";
 import {
   convertAttachments,
@@ -239,38 +240,6 @@ function readPackageVersion(): string {
   }
   return "0.0.0";
 }
-
-/**
- * Root prefixes of the routes handled in `createServer` below. Kept as a
- * list so static hosting can step aside for them (see `createStaticSite`'s
- * `apiPaths`); a new route must be added here too.
- */
-const API_PATHS = [
-  "/health",
-  "/events",
-  "/messages",
-  "/interrupt",
-  "/approvals",
-  "/run",
-  "/resume",
-  "/stream",
-  "/ws",
-  "/projects",
-  "/catalog",
-  "/preferences",
-  "/config",
-  "/sidebar-state",
-  "/providers",
-  "/commands",
-  "/skills",
-  "/tools",
-  "/agents",
-  "/sessions",
-  "/fs",
-  "/file-refs",
-  "/git",
-  "/attachments",
-] as const;
 
 /** Hosts the gateway is allowed to bind. Anything else is refused at startup. */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -814,7 +783,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // cookie yet, so an asset that required one could never be fetched — and
     // neither could the redirect that mints the cookie. Only GET/HEAD reach
     // it, it answers nothing but files inside the web root, and a path under
-    // one of `API_PATHS` is left to the router below. Every API route stays
+    // one of `API_PREFIXES` is left to the router below. Every API route stays
     // behind the guard.
     //
     // It gets the RAW request path, not `url.pathname`: the URL parser
@@ -826,7 +795,9 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       !hasQueryToken(req.url) &&
       (await serveStatic(req, res, staticTarget, {
         webRoot: webRootDir,
-        apiRoots: API_PATHS,
+        // The route roots handled below. One list, shared with `web-server.ts`'s
+        // proxy so static hosting and `volto web` cannot drift.
+        apiRoots: API_PREFIXES,
         configScript,
       }))
     ) {

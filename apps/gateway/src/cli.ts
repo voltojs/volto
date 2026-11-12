@@ -15,6 +15,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
+import type * as http from "node:http";
 import * as net from "node:net";
 import * as path from "node:path";
 import { readFileSync } from "node:fs";
@@ -24,6 +25,7 @@ import { detectBackend, probeBinary } from "@volto/runtime-node";
 import { loadOrCreateAccessToken, rotateAccessToken, tokenFingerprint } from "./auth/access-token.js";
 import { getConfigDir } from "./config/paths.js";
 import { createServer, type HeadlessServer, type ServerOptions } from "./server.js";
+import { startWebServer, type WebServerOptions } from "./web-server.js";
 
 /** `dist/cli.js` -> the package directory. */
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +34,8 @@ const DEFAULT_PORT = 3100;
 const DEFAULT_HOST = "127.0.0.1";
 /** The tunnel-facing port `volto web` proxies to unless told otherwise. */
 const DEFAULT_GATEWAY_URL = "http://127.0.0.1:3100";
+/** `volto web`'s own port — the same one the web dev server uses. */
+const DEFAULT_WEB_PORT = 6100;
 const HOSTS_NEEDING_REFERENCE_NOTE = new Set(["0.0.0.0", "::"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 const COMMANDS = ["serve", "token", "doctor", "web"] as const;
@@ -60,6 +64,8 @@ const USAGE = [
 export interface CliDeps {
   /** Swap the server factory in tests — no real port is ever bound. */
   startServer?: (opts: ServerOptions) => Promise<HeadlessServer>;
+  /** Same seam for `volto web`. */
+  startWeb?: (opts: WebServerOptions) => Promise<http.Server>;
   /** Overrides `--config-dir`; still exported as VOLTO_CONFIG_DIR for the process. */
   configDir?: string;
   stdout?: (s: string) => void;
@@ -123,7 +129,10 @@ export function parseCliArgs(argv: string[]): { ok: true; options: CliOptions } 
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
 
-  let port = DEFAULT_PORT;
+  // `web` listens on its own default: reusing 3100 would collide with the
+  // gateway it proxies to, which is the one configuration this command exists
+  // for.
+  let port = command === "web" ? DEFAULT_WEB_PORT : DEFAULT_PORT;
   if (typeof values["port"] === "string") {
     port = Number(values["port"]);
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -380,7 +389,10 @@ async function runDoctor(opts: CliOptions, configDir: string, out: (s: string) =
  * so `address()` is still null here — `listening` is the earliest point the
  * OS-assigned port (for `--port 0`) exists.
  */
-async function listeningPort(server: HeadlessServer, fallback: number): Promise<number> {
+async function listeningPort(
+  server: Pick<http.Server, "listening" | "once" | "address">,
+  fallback: number,
+): Promise<number> {
   await new Promise<void>((resolve) => {
     if (server.listening) {
       resolve();
@@ -456,6 +468,68 @@ async function runServe(
 }
 
 // ──────────────────────────────────────────────
+// web
+// ──────────────────────────────────────────────
+
+/** The seams `runWeb` needs, with the defaults already applied by `main`. */
+interface WebDeps extends CliDeps {
+  stdout: (s: string) => void;
+  stderr: (s: string) => void;
+  waitForShutdown: () => Promise<void>;
+}
+
+/**
+ * `volto web` — the exported UI on its own port, every API path proxied to a
+ * gateway. The credential is the gateway's: the `?token=` exchange (302 +
+ * Set-Cookie) is answered upstream and forwarded here, so the login link works
+ * against this port's origin too.
+ *
+ * Remote mode (`--serve-remote`) is deliberately not implemented here.
+ */
+async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
+  const startWeb = deps.startWeb ?? startWebServer;
+  const gateway = opts.gateway ?? DEFAULT_GATEWAY_URL;
+  try {
+    // Fail here, with the flag named, rather than on the first request.
+    new URL(gateway);
+  } catch {
+    deps.stderr(`Invalid --gateway: ${gateway}\n`);
+    return 2;
+  }
+
+  const webRoot = opts.webRoot ?? path.join(packageRoot, "web");
+  let server: http.Server;
+  try {
+    server = await startWeb({
+      port: opts.port,
+      // An unspecified bind stays loopback, like the gateway's own default.
+      ...(opts.host !== DEFAULT_HOST ? { host: opts.host } : {}),
+      gateway,
+      webRoot,
+    });
+  } catch (err) {
+    deps.stderr(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+
+  const port = await listeningPort(server, opts.port);
+  const out = deps.stdout;
+  out(`volto web ${packageVersion()} listening on http://${opts.host}:${port} -> ${gateway}\n`);
+  out(`Open: http://${opts.host}:${port}/\n`);
+  // The proxy forwards the gateway's 302 + Set-Cookie verbatim, so the login
+  // link works through EITHER port; print the one the browser will use.
+  const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
+  out(`Login: http://${opts.host}:${port}/?token=${token}\n`);
+  if (opts.serveRemote) {
+    out("Note: --serve-remote does not apply to `volto web` yet.\n");
+  }
+
+  await deps.waitForShutdown();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return 0;
+}
+
+// ──────────────────────────────────────────────
 // main
 // ──────────────────────────────────────────────
 
@@ -486,8 +560,12 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     case "doctor":
       return runDoctor(opts, configDir, out);
     case "web":
-      err(`The web command ships in a later release.\n`);
-      return 2;
+      return runWeb(opts, {
+        ...deps,
+        stdout: out,
+        stderr: err,
+        waitForShutdown: deps.waitForShutdown ?? defaultWaitForShutdown,
+      });
     case "serve":
       return runServe(opts, {
         ...deps,
