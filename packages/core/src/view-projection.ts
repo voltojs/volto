@@ -832,7 +832,11 @@ export function buildTurnRecords(
               (data.taskId !== undefined ? findCallByTaskId(turn, data.taskId) : undefined)
               ?? turn.steps.flatMap((step) => step.toolCalls)
                 .find((candidate) => candidate.name === "task" && candidate.childSessionId === data.childSessionId);
-            if (call !== undefined) call.verification = verdict;
+            if (call !== undefined) {
+              call.verification = verdict;
+              if (data.isError === true) call.isError = true;
+              if (typeof data.durationMs === "number") call.durationMs = data.durationMs;
+            }
           }
         }
         break;
