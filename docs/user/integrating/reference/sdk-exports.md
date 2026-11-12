@@ -145,4 +145,4 @@ verified: 2026-11-11
 | `ToolSource` |
 | `ToolVisibility` |
 
-> 这张表由 `pnpm docs:gen` 生成。**`@volto/sdk` 目前不发布 npm**：集成方式是 workspace 依赖或源码引用，因此没有版本号与 peer 依赖契约。
+> 这张表由 `pnpm docs:gen` 生成。`@volto/sdk` 与其他包同版本发布到 npm（`npm i @volto/sdk`），要求 **Node ≥ 22**，**只提供 ESM 入口**：`import` 或动态 `import()` 可用，`require()` 不能直接加载它。

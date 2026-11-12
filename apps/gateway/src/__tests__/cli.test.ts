@@ -1,4 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { expect, it, vi } from "vitest";
@@ -171,6 +172,9 @@ it("端口尚未绑定完成时等 listening 再打印（--port 0 的真实端�
         if (event === "listening") bound = { type: "listening", cb };
         return undefined;
       },
+      // The CLI unsubscribes the losing event; a stub without this would
+      // crash the very success path it is meant to prove.
+      removeListener: () => undefined,
       close: (cb?: () => void) => {
         cb?.();
         return undefined as never;
@@ -194,6 +198,131 @@ it("端口尚未绑定完成时等 listening 再打印（--port 0 的真实端�
     const text = out.join("");
     expect(text).toContain("listening on http://127.0.0.1:54321\n");
     expect(text).toContain("Open: http://127.0.0.1:54321/?token=");
+  });
+});
+
+/**
+ * Occupy a real port and start the gateway command on it. The bind fails, so
+ * the two startup lines — the stdout contract scripts parse — must NOT be
+ * printed: "listening" for a port this process never held is a lie, and the
+ * caller has no way to tell it from a real one.
+ *
+ * A real socket (not a stub) is what makes this test touch the boundary: the
+ * `error` comes from the OS, with its own code.
+ */
+it("端口被占用时以非零退出、stderr 带 EADDRINUSE，且不打印任何 listening 行", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const blocker = net.createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", () => resolve()));
+    const address = blocker.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const out: string[] = [];
+    const errors: string[] = [];
+    try {
+      const code = await main(["--port", String(port), "--no-open", "--config-dir", dir], {
+        stdout: (s) => out.push(s),
+        stderr: (s) => errors.push(s),
+        openBrowser: () => {},
+        waitForShutdown: async () => {},
+      });
+      expect(code).not.toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+
+    expect(errors.join("")).toContain("EADDRINUSE");
+    expect(errors.join("")).toContain(`127.0.0.1:${port}`);
+    // Zero startup lines: not "listening on", not "Open:".
+    expect(out.join("")).not.toContain("listening");
+    expect(out.join("")).not.toContain("Open:");
+    expect(out.join("")).toBe("");
+  });
+});
+
+/**
+ * The two events cannot both decide the outcome. `listening` first must not
+ * be undone by a later `error` (which a real server would otherwise raise as
+ * an uncaught exception), and `error` first must not be papered over by a
+ * late `listening`.
+ */
+it("listening 之后到来的 error 不改变结果，error 之后到来的 listening 也不改变", async () => {
+  await withEnvRestored(async () => {
+    type Handler = (arg?: unknown) => void;
+    const makeStub = (boundPort: number, initial: boolean) => {
+      const handlers = new Map<string, Handler[]>();
+      let listening = initial;
+      const stub = {
+        authenticatedUrl: `http://127.0.0.1:0/?token=${"T".repeat(43)}`,
+        address: () => (listening ? { address: "127.0.0.1", family: "IPv4", port: boundPort } : null),
+        get listening() {
+          return listening;
+        },
+        once: (event: string, cb: Handler) => {
+          handlers.set(event, [...(handlers.get(event) ?? []), cb]);
+          return stub;
+        },
+        removeListener: (event: string, cb: Handler) => {
+          handlers.set(event, (handlers.get(event) ?? []).filter((entry) => entry !== cb));
+          return stub;
+        },
+        fire: (event: string, arg?: unknown) => {
+          if (event === "listening") listening = true;
+          const list = [...(handlers.get(event) ?? [])];
+          handlers.set(event, []);
+          for (const cb of list) cb(arg);
+        },
+        pending: (event: string) => (handlers.get(event) ?? []).length,
+        close: (cb?: () => void) => {
+          cb?.();
+          return undefined as never;
+        },
+      };
+      return stub;
+    };
+
+    // Case 1: listening fires, then a late error arrives — the CLI stays up.
+    const dirA = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const lateError = makeStub(54321, false);
+    const outA: string[] = [];
+    const errA: string[] = [];
+    const runA = main(["--port", "0", "--no-open", "--config-dir", dirA], {
+      startServer: (async () => lateError) as unknown as CliDeps["startServer"],
+      stdout: (s) => outA.push(s),
+      stderr: (s) => errA.push(s),
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    lateError.fire("listening");
+    expect(await runA).toBe(0);
+    // The error listener was removed when listening won: a late error is the
+    // server's own business, never an uncaught exception from the wait.
+    expect(lateError.pending("error")).toBe(0);
+    expect(outA.join("")).toContain("listening on http://127.0.0.1:54321");
+    expect(errA.join("")).not.toContain("Could not listen");
+
+    // Case 2: error fires, then a late listening arrives — success stays off.
+    const dirB = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const lateListening = makeStub(54322, false);
+    const outB: string[] = [];
+    const errB: string[] = [];
+    const runB = main(["--port", "0", "--no-open", "--config-dir", dirB], {
+      startServer: (async () => lateListening) as unknown as CliDeps["startServer"],
+      stdout: (s) => outB.push(s),
+      stderr: (s) => errB.push(s),
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    lateListening.fire("error", Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" }));
+    expect(await runB).not.toBe(0);
+    // The listening listener was removed when the error won.
+    expect(lateListening.pending("listening")).toBe(0);
+    expect(outB.join("")).not.toContain("listening");
+    expect(errB.join("")).toContain("EADDRINUSE");
   });
 });
 
