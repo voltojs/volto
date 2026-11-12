@@ -25,7 +25,7 @@ export class BrowserConfigError extends Error {
   }
 }
 
-const KEYS = ["enabled", "headless", "idleTimeoutMs", "storageStatePath", "executablePath"] as const;
+const BROWSER_KEYS = ["enabled", "headless", "idleTimeoutMs", "storageStatePath", "executablePath"] as const;
 
 function asBoolean(key: string, value: unknown): boolean {
   if (typeof value !== "boolean") {
@@ -73,10 +73,10 @@ export async function loadBrowserConfig(configDir: string): Promise<BrowserSetti
   }
 
   const record = section as Record<string, unknown>;
-  const unknown = Object.keys(record).filter((key) => !(KEYS as readonly string[]).includes(key));
+  const unknown = Object.keys(record).filter((key) => !(BROWSER_KEYS as readonly string[]).includes(key));
   if (unknown.length > 0) {
     throw new BrowserConfigError(
-      `config.json: browser has unknown key(s): ${unknown.join(", ")} — expected ${KEYS.join(" / ")}`,
+      `config.json: browser has unknown key(s): ${unknown.join(", ")} — expected ${BROWSER_KEYS.join(" / ")}`,
     );
   }
   if (record["enabled"] !== undefined) settings.enabled = asBoolean("enabled", record["enabled"]);

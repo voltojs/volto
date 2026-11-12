@@ -64,7 +64,7 @@
     }
   },
   "egress": {
-    "summary": "网络出口名单。只约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`），不是机器级防火墙——bash 里跑的 curl 不经过它。denylist 优先，精确主机名匹配，无通配符。",
+    "summary": "网络出口名单。约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`）以及 Agent 浏览器的顶层导航；不是机器级防火墙——bash 里跑的 curl 和浏览器页面内的子资源不经过它。denylist 优先，精确主机名匹配，无通配符。",
     "fields": {
       "allowHosts": "允许访问的主机名列表。**一旦写了这个字段就进入白名单模式**：不在名单里的主机全部拒绝；`[]` 表示拒绝全部。",
       "denyHosts": "拒绝访问的主机名列表，优先于 allowHosts。"
@@ -73,5 +73,15 @@
   "sidebar": {
     "summary": "侧边栏布局（置顶会话、分组）。运行时状态，由界面写入，手改会在下次布局变更时被覆盖。",
     "fields": {}
+  },
+  "browser": {
+    "summary": "Agent 内置浏览器。它跑在网关所在机器上，用于自动化测试与前端调试；不是右栏可见面板，也不共享日常浏览器的登录态。默认带头窗口，Linux 无显示环境自动回退无头。",
+    "fields": {
+      "enabled": "是否装配浏览器工具，默认 true。共享/远程部署建议显式设为 false。",
+      "headless": "是否无头运行，默认 false。Linux 没有 DISPLAY/WAYLAND_DISPLAY 时无论此值都会回退无头。",
+      "idleTimeoutMs": "无工具调用多久后关闭该会话的浏览器，默认 600000（10 分钟）。",
+      "storageStatePath": "可选的 Playwright storage state 文件路径；新会话浏览器会加载它，`browser_storage_state` 会写入它。文件含登录 cookie，需自行排除出 git。",
+      "executablePath": "可选的本机 Chrome/Chromium 可执行文件路径；不填则使用 Playwright 自带的 Chromium。"
+    }
   }
 }

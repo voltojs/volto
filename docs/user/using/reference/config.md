@@ -22,9 +22,21 @@ verified: 2026-11-11
 
 怎么改、什么时候生效、改坏了怎么办，见 [权限与审批](../guides/permissions-and-approvals.md) 与 [模型与供应商](../guides/models-and-providers.md)；本文只列字段。
 
+## `browser`
+
+Agent 内置浏览器。它跑在网关所在机器上，用于自动化测试与前端调试；不是右栏可见面板，也不共享日常浏览器的登录态。默认带头窗口，Linux 无显示环境自动回退无头。
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 是否装配浏览器工具，默认 true。共享/远程部署建议显式设为 false。 |
+| `executablePath` | 可选的本机 Chrome/Chromium 可执行文件路径；不填则使用 Playwright 自带的 Chromium。 |
+| `headless` | 是否无头运行，默认 false。Linux 没有 DISPLAY/WAYLAND_DISPLAY 时无论此值都会回退无头。 |
+| `idleTimeoutMs` | 无工具调用多久后关闭该会话的浏览器，默认 600000（10 分钟）。 |
+| `storageStatePath` | 可选的 Playwright storage state 文件路径；新会话浏览器会加载它，`browser_storage_state` 会写入它。文件含登录 cookie，需自行排除出 git。 |
+
 ## `egress`
 
-网络出口名单。只约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`），不是机器级防火墙——bash 里跑的 curl 不经过它。denylist 优先，精确主机名匹配，无通配符。
+网络出口名单。约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`）以及 Agent 浏览器的顶层导航；不是机器级防火墙——bash 里跑的 curl 和浏览器页面内的子资源不经过它。denylist 优先，精确主机名匹配，无通配符。
 
 | 字段 | 说明 |
 | --- | --- |

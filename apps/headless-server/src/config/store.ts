@@ -32,6 +32,7 @@ export const LEGACY_FILES = {
   hooks: "hooks.json",
   lsp: "lsp.json",
   egress: "egress.json",
+  browser: "browser.json",
 } as const;
 
 /**

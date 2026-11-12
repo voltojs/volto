@@ -2,17 +2,21 @@
   "version": 1,
   "sections": {
     "tools": {
-      "hash": "71b089216a31692f195d808ba0917b84a1209bced56a49c76330aa01b2a307ab",
+      "hash": "5e123c0c20339fec61c83735751c63a04d6085dc060c1aef3bc0a45eda88a119",
       "names": [
         "apply_patch",
         "ask_user",
         "bash",
         "bash_output",
         "browser_click",
-        "browser_get_page_text",
+        "browser_diagnostics",
         "browser_navigate",
+        "browser_press_key",
         "browser_screenshot",
+        "browser_snapshot",
+        "browser_storage_state",
         "browser_type",
+        "browser_wait_for",
         "build",
         "cancel_task",
         "db_exec",
@@ -101,8 +105,13 @@
       ]
     },
     "config": {
-      "hash": "d270172e9548b17c2742e88a1221351f605a6ff00cd7526eb9a41f59f6bf7c6e",
+      "hash": "ee9ef99d2ff4b1e35d1378501def037e0bbcffa95e1e5231145092fdd0c108d4",
       "names": [
+        "browser.enabled",
+        "browser.executablePath",
+        "browser.headless",
+        "browser.idleTimeoutMs",
+        "browser.storageStatePath",
         "egress.allowHosts",
         "egress.denyHosts",
         "lsp.args",
@@ -117,6 +126,7 @@
         "permissions.rules",
         "permissions.toolName",
         "permissions.toolPattern",
+        "section:browser",
         "section:egress",
         "section:hooks",
         "section:lsp",

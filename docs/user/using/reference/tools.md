@@ -20,11 +20,15 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | ask_user | ask | 向用户提问并等回答——用于需求含糊、需要人做选择时。 |
 | bash | shell | 执行 shell 命令，默认走持久会话（cd、环境变量在轮次之间保留）。 |
 | bash_output | shell | 读取后台命令的增量输出，不必等它跑完。 |
-| browser_click | browser | 在打开的网页里点击元素。 |
-| browser_get_page_text | browser | 取当前网页的正文文本。 |
-| browser_navigate | browser | 让浏览器打开一个 URL 并返回标题。 |
-| browser_screenshot | browser | 截当前网页，并把可见内容转成一段文字描述返回（返回的是描述，不是图片本身）。 |
-| browser_type | browser | 往网页输入框里输入文字。 |
+| browser_click | browser | 按快照里的 ref 点击元素；ref 失效时让 Agent 重新 snapshot。 |
+| browser_diagnostics | browser | 看最近的 console/page 错误和失败/4xx/5xx 请求，不含响应体。 |
+| browser_navigate | browser | 让 Agent 打开 http(s) 页面，或前进/后退/刷新，返回带 ref 的页面快照。 |
+| browser_press_key | browser | 在页面或焦点元素上按键（Enter、Escape、Tab、方向键等）。 |
+| browser_screenshot | browser | 截当前页面为 PNG；需要附件存储和图像模型。 |
+| browser_snapshot | browser | 读当前页面结构，拿到可点击/可输入的 ref；优先用它定位元素。 |
+| browser_storage_state | browser | 把当前登录态（cookie/localStorage）保存到配置的路径，供后续会话复用。 |
+| browser_type | browser | 按 ref 填写输入框，可顺便回车提交。 |
+| browser_wait_for | browser | 等某段文字出现或等一段时间，再回一份新快照。 |
 | build | vcs | 在给定的构建命令下执行一次构建，返回成功/失败与错误摘要（命令由调用方传入）。 |
 | cancel_task | schedule | 取消一个已排定的定时任务。 |
 | db_exec | data | 执行写 SQL；只有宿主授予写权限时才出现。 |
@@ -61,6 +65,6 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | web_search | web | 联网搜索。 |
 | write_file | fs | 新建或整体覆盖一个文件；覆盖已存在的文件要求先 read_file。 |
 
-共 44 个。分组对应 `packages/tools/<分组>`；同一分组的工具共享一组权限能力。
+共 48 个。分组对应 `packages/tools/<分组>`；同一分组的工具共享一组权限能力。
 
 > 这张表由 `pnpm docs:gen` 生成：中文用途来自 `docs/user/reference/tool-notes.json`，新增工具缺条目会让 `pnpm docs:check` 失败。
