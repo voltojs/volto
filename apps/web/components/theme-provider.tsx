@@ -3,17 +3,24 @@
 import * as React from 'react';
 import { ThemeProvider as NextThemesProvider, useTheme } from 'next-themes';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { THEME_COOKIE, type ThemePreference } from '@/lib/theme-preference';
 
-/** Cookie cache of the stored theme, so the first server render is right. */
-export const THEME_COOKIE = 'volto_theme';
+// The cookie and the accepted values live in `@/lib/theme-preference`, free
+// of store imports, so the pre-paint boot script can share them.
+export {
+  THEME_COOKIE,
+  THEME_VALUES,
+  isThemePreference,
+  type ThemePreference,
+} from '@/lib/theme-preference';
 
 function ThemeProvider({
   children,
   initialTheme = 'system',
   ...props
 }: React.ComponentProps<typeof NextThemesProvider> & {
-  /** Preference snapshot handed in by the server render (cookie cache). */
-  initialTheme?: 'light' | 'dark' | 'system';
+  /** Preference the page booted with (from the `volto_theme` cookie). */
+  initialTheme?: ThemePreference;
 }) {
   return (
     <NextThemesProvider
@@ -38,8 +45,6 @@ function ThemeProvider({
  * sees the stored (old) value disagreeing with the new class and puts it
  * straight back, which reads as the toggle "flashing" and doing nothing.
  */
-export type ThemePreference = 'light' | 'dark' | 'system';
-
 export function useThemePreference(): readonly [
   ThemePreference | undefined,
   (next: ThemePreference) => void,

@@ -3,7 +3,7 @@
 /**
  * Keeps the rendered locale in step with the stored preference.
  *
- * The server render can only see the `volto_locale` cookie (it never reads
+ * The page render can only see the `volto_locale` cookie (it never reads
  * `~/.volto/config.json` directly), so a fresh browser — or one whose cookie
  * was cleared — may render the browser's language while the user's stored
  * preference says otherwise. Once the preferences arrive, the stored value

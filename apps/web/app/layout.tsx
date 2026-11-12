@@ -1,16 +1,9 @@
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 
 import './globals.css';
-import { ThemeProvider, THEME_COOKIE } from '@/components/theme-provider';
-import { I18nProvider } from '@/components/i18n-provider';
-import { LocalePreferenceSync } from '@/components/locale-sync';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import { Toaster } from '@/components/ui/sonner';
+import { browserBootScript, CONFIG_SCRIPT_URL } from '@/lib/browser-boot';
 import { cn } from '@/lib/utils';
 import { sidebarWidthRestoreScript } from '@/lib/sidebar-width';
-import { cookies } from 'next/headers';
-import { resolveInitialLocale } from '@/i18n/messages';
-import { LOCALE_COOKIE, LOCALE_TAG } from '@/i18n/locale';
 
 // Fraunces carries the display headings — a warm, characterful serif with
 // optical sizing, standing in for the generic sans-only look most AI chat
@@ -40,25 +33,23 @@ export const metadata = {
   description: 'Volto — a console for project-level AI agents',
 };
 
-export default async function RootLayout({
+/**
+ * The static shell. It reads no request state — an exported build is plain
+ * files, so there is no cookie to read here — and renders the same markup for
+ * every visitor. The locale and theme that the first frame shows are decided
+ * by the blocking script in `<head>` (`browserBootScript`), which publishes
+ * them on `<html>`: `lang` is the default language there and the script
+ * corrects it during parsing, which is why the element carries
+ * `suppressHydrationWarning`.
+ */
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const cookieTheme = cookieStore.get(THEME_COOKIE)?.value;
-  const initialTheme =
-    cookieTheme === 'light' || cookieTheme === 'dark' ? cookieTheme : 'system';
-  // Cookie only: reading `navigator.languages` here would let the server and
-  // client disagree on the first frame. A first-time visitor's browser
-  // language is Task 5's client bootstrap to decide; `resolveInitialLocale`
-  // already takes it as `languages` so that path can reuse the same rule.
-  const locale = resolveInitialLocale({
-    cookie: cookieStore.get(LOCALE_COOKIE)?.value,
-  });
   return (
     <html
-      lang={LOCALE_TAG[locale]}
+      lang="zh-CN"
       suppressHydrationWarning
       className={cn(
         'antialiased',
@@ -73,17 +64,25 @@ export default async function RootLayout({
             persisted sidebar width into the CSS variable the layout reads,
             so the first visible frame already carries it (no default-width
             flash, no hydration mismatch — both sides render `var(...)`). */}
-        <script dangerouslySetInnerHTML={{ __html: sidebarWidthRestoreScript() }} />
+        <script
+          dangerouslySetInnerHTML={{ __html: sidebarWidthRestoreScript() }}
+        />
+        {/* Runtime configuration of the deployment, read by the client. The
+            gateway serves its own content for this path; the copy shipped in
+            `public/` is the same-origin default. A plain `src` (not
+            `next/script`) keeps it a synchronous head load — React already
+            preloads it — and the boot script below supplies the same default
+            when the gateway replaces this line. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- it is read
+            synchronously by `gatewayUrl()`; deferring it would race the first
+            request the shell makes. */}
+        <script src={CONFIG_SCRIPT_URL} />
+        {/* Same trick for the locale and theme: decide them from the cookies
+            and `navigator.languages` while the document is still parsing, so
+            the first frame is already in the right language and theme. */}
+        <script dangerouslySetInnerHTML={{ __html: browserBootScript() }} />
       </head>
-      <body>
-        <I18nProvider locale={locale}>
-          <LocalePreferenceSync />
-          <ThemeProvider initialTheme={initialTheme}>
-            <TooltipProvider>{children}</TooltipProvider>
-            <Toaster />
-          </ThemeProvider>
-        </I18nProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

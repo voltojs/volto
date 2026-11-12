@@ -1,15 +1,18 @@
 'use client';
 
-import { Sidebar } from '@/components/sidebar/Sidebar';
-import { ChatPanel } from '@/components/chat/ChatPanel';
+import dynamic from 'next/dynamic';
+
+/**
+ * The exported page is a shell: the real layout renders only in the browser,
+ * after the boot script has decided the locale and theme. Prerendering it
+ * would bake one language's copy into static HTML that every visitor shares,
+ * so the page renders on the client only.
+ */
+const AppShell = dynamic(() => import('./app-shell'), {
+  ssr: false,
+  loading: () => <div className="bg-background h-screen" />,
+});
 
 export default function Home() {
-  return (
-    <div className="bg-background flex h-screen">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ChatPanel />
-      </div>
-    </div>
-  );
+  return <AppShell />;
 }
