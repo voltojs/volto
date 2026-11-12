@@ -66,6 +66,7 @@ import { SectionHeader } from './SectionHeader';
 import { SessionItem } from './SessionItem';
 import { SortableRow } from './SortableRow';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
+import { AddWorkspaceByPathDialog } from '@/components/chat/AddWorkspaceByPathDialog';
 
 /**
  * The workspaces section: title row (collapse + sort + add) and one row per
@@ -86,7 +87,13 @@ export function ProjectList() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const doc = useSidebarStateStore((s) => s.state);
   const update = useSidebarStateStore((s) => s.update);
-  const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
+  const {
+    run: addProjectViaPicker,
+    addByPath,
+    manual: addByPathOpen,
+    closeManual: closeAddByPath,
+    pending: addingProject,
+  } = useAddProject();
 
   const [error, setError] = useState<string | null>(null);
   // The project whose deletion is awaiting confirmation. One piece of state
@@ -268,6 +275,14 @@ export function ProjectList() {
           {t('project.emptyHintPrefix')} <FolderGit2 className="inline h-3 w-3 align-[-1px]" />{' '}
           {t('project.emptyHintAction')}
         </div>
+        <AddWorkspaceByPathDialog
+          open={addByPathOpen}
+          onOpenChange={(open) => {
+            if (!open) closeAddByPath();
+          }}
+          onSubmit={addByPath}
+          pending={addingProject}
+        />
       </>
     );
   }
@@ -584,6 +599,16 @@ export function ProjectList() {
           }
           setProjectPendingDelete(null);
         }}
+      />
+
+      {/* Remote mode has no native dialog: the same "add" button opens this. */}
+      <AddWorkspaceByPathDialog
+        open={addByPathOpen}
+        onOpenChange={(open) => {
+          if (!open) closeAddByPath();
+        }}
+        onSubmit={addByPath}
+        pending={addingProject}
       />
     </div>
   );

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { useConfigStore } from '@/stores/config-store';
 import { useAddProject } from '@/hooks/use-add-project';
+import { AddWorkspaceByPathDialog } from './AddWorkspaceByPathDialog';
 
 interface ProjectPickerProps {
   value: string | null;
@@ -25,7 +26,13 @@ const ADD_PROJECT_VALUE = '__add_project__';
 export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
   const t = useTranslations('chat');
   const projects = useConfigStore((s) => s.projects);
-  const { run: addProjectViaPicker, pending } = useAddProject();
+  const {
+    run: addProjectViaPicker,
+    addByPath,
+    manual: addByPathOpen,
+    closeManual: closeAddByPath,
+    pending,
+  } = useAddProject();
   const items = projects.map((p) => ({ value: p.id, label: p.name }));
 
   const handleValueChange = (next: unknown) => {
@@ -41,29 +48,45 @@ export function ProjectPicker({ value, onChange }: ProjectPickerProps) {
   };
 
   return (
-    <Select items={items} value={value} onValueChange={handleValueChange}>
-      <SelectTrigger size="sm" variant="ghost" className="font-mono">
-        <Folder className="text-primary/80 h-3.5 w-3.5" />
-        <SelectValue placeholder={t('picker.selectWorkspace')} />
-      </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
-        <SelectGroup>
-          {projects.map((project) => (
-            <SelectItem key={project.id} value={project.id}>
-              {project.name}
+    <>
+      <Select items={items} value={value} onValueChange={handleValueChange}>
+        <SelectTrigger size="sm" variant="ghost" className="font-mono">
+          <Folder className="text-primary/80 h-3.5 w-3.5" />
+          <SelectValue placeholder={t('picker.selectWorkspace')} />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {projects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
+              </SelectItem>
+            ))}
+            {projects.length > 0 && <SelectSeparator />}
+            <SelectItem value={ADD_PROJECT_VALUE} disabled={pending}>
+              {pending ? (
+                <Loader2 className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FolderPlus className="text-muted-foreground h-3.5 w-3.5" />
+              )}
+              {pending ? t('workspace.waitingDialog') : t('workspace.add')}
             </SelectItem>
-          ))}
-          {projects.length > 0 && <SelectSeparator />}
-          <SelectItem value={ADD_PROJECT_VALUE} disabled={pending}>
-            {pending ? (
-              <Loader2 className="text-muted-foreground h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FolderPlus className="text-muted-foreground h-3.5 w-3.5" />
-            )}
-            {pending ? t('workspace.waitingDialog') : t('workspace.add')}
-          </SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {/* Remote mode has no native dialog: selecting "add" opens this instead. */}
+      <AddWorkspaceByPathDialog
+        open={addByPathOpen}
+        onOpenChange={(open) => {
+          if (!open) closeAddByPath();
+        }}
+        onSubmit={(path) =>
+          addByPath(path).then((project) => {
+            if (project) onChange(project.id);
+            return project;
+          })
+        }
+        pending={pending}
+      />
+    </>
   );
 }

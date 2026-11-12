@@ -10,7 +10,14 @@
     "add": "Add workspace",
     "added": "Added workspace “{name}”",
     "dialogBusy": "A system directory dialog is already open; finish or close it first",
-    "addFailed": "Could not add the workspace"
+    "addFailed": "Could not add the workspace",
+    "nativeDialogUnavailable": "This gateway cannot open a system dialog (remote mode). Add the workspace by typing a directory path on the gateway's machine.",
+    "pathTitle": "Add workspace by path",
+    "pathDescription": "This gateway cannot open a system dialog (remote mode). Type a directory path on the machine running the gateway.",
+    "pathLabel": "Directory path",
+    "pathPlaceholder": "/home/me/myrepo",
+    "pathAdd": "Add workspace",
+    "pathCancel": "Cancel"
   },
   "composer": {
     "placeholder": "Describe what you want to build…",

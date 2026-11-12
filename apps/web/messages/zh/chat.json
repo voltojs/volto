@@ -10,7 +10,14 @@
     "add": "添加工作区",
     "added": "已添加工作区「{name}」",
     "dialogBusy": "系统目录对话框已打开，请先完成或关闭它",
-    "addFailed": "添加工作区失败"
+    "addFailed": "添加工作区失败",
+    "nativeDialogUnavailable": "这个网关无法打开系统对话框（远程模式）。请直接填写网关那台机器上的目录路径来添加工作区。",
+    "pathTitle": "按路径添加工作区",
+    "pathDescription": "这个网关无法打开系统对话框（远程模式）。请填写运行网关那台机器上的目录路径。",
+    "pathLabel": "目录路径",
+    "pathPlaceholder": "/home/me/myrepo",
+    "pathAdd": "添加工作区",
+    "pathCancel": "取消"
   },
   "composer": {
     "placeholder": "描述你想要构建的内容…",

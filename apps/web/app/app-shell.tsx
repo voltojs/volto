@@ -14,6 +14,7 @@ import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatPanel } from '@/components/chat/ChatPanel';
 import { I18nProvider } from '@/components/i18n-provider';
 import { LocalePreferenceSync } from '@/components/locale-sync';
+import { CapabilitiesBoot } from '@/components/capabilities-boot';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -26,6 +27,7 @@ export default function AppShell() {
   return (
     <I18nProvider locale={boot.locale}>
       <LocalePreferenceSync />
+      <CapabilitiesBoot />
       <ThemeProvider initialTheme={boot.theme}>
         <TooltipProvider>
           <div className="bg-background flex h-screen">

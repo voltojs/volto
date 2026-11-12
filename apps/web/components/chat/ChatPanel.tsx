@@ -15,6 +15,7 @@ import { TodoDock } from './TodoDock';
 import { ApprovalCard } from './ApprovalCard';
 import { ChatHeader } from './ChatHeader';
 import { ProjectPicker } from './ProjectPicker';
+import { AddWorkspaceByPathDialog } from './AddWorkspaceByPathDialog';
 import { GitBranchPicker } from './GitBranchPicker';
 import { ModelSettingsPicker } from './ModelSettingsPicker';
 import { PermissionPicker } from './PermissionPicker';
@@ -93,7 +94,13 @@ export function ChatPanel() {
     void usePreferencesStore.getState().load();
   }, []);
   const setPendingProjectId = useSessionStore((s) => s.setPendingProjectId);
-  const { run: addProjectViaPicker, pending: addingProject } = useAddProject();
+  const {
+    run: addProjectViaPicker,
+    addByPath,
+    manual: addByPathOpen,
+    closeManual: closeAddByPath,
+    pending: addingProject,
+  } = useAddProject();
 
   // Model and permission choices for a session that doesn't exist yet.
   // Unlike `pendingProjectId`, nothing outside this component ever needs to
@@ -1184,6 +1191,15 @@ export function ChatPanel() {
             </div>
           </DialogContent>
         </Dialog>
+        {/* Remote mode has no native dialog: the same "add" button opens this. */}
+        <AddWorkspaceByPathDialog
+          open={addByPathOpen}
+          onOpenChange={(open) => {
+            if (!open) closeAddByPath();
+          }}
+          onSubmit={addByPath}
+          pending={addingProject}
+        />
       </div>
       </div>
       <RightPane
