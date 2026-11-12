@@ -10,7 +10,8 @@
   "files": [
     "dist",
     "web",
-    "!dist/**/__tests__"
+    "!dist/**/__tests__",
+    "!dist/**/*.test.*"
   ],
   "scripts": {
     "build": "tsc --build",

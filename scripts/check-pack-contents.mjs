@@ -30,6 +30,15 @@ const SRC_PREFIX = "src/";
 const TESTS_SEGMENT = "__tests__";
 
 /**
+ * Compiled test output. Excluding `__tests__` segments alone is not enough: a
+ * `.test.ts` sitting next to its source compiles to a `.test.js` beside it
+ * (plus its `.d.ts`, `.js.map` and `.d.ts.map`), which no segment rule sees.
+ * The TypeScript emitter produces exactly these suffixes, so the pattern is
+ * fixed rather than generic.
+ */
+const TEST_ARTIFACT = /\.test\.(?:js|d\.ts|js\.map|d\.ts\.map)$/;
+
+/**
  * Files a package must ship beyond the generic `dist/` entry and types, keyed by package.
  * `@volto/core` promises `dist/testing/store-contract.js` through `exports["./testing"]`;
  * asserting it by name keeps that public contract from regressing silently. Other
@@ -103,6 +112,15 @@ export function declaredFiles(manifest) {
  * Check the packed file list of one package.
  * Returns stable, ordered, machine-assertable messages; an empty array means OK.
  *
+ * Rules, in the order problems are reported:
+ * - `src/` is never packed (the manifest ships `dist/` only);
+ * - a `__tests__` segment is never packed;
+ * - compiled test output (`*.test.js` / `*.test.d.ts` / `*.test.js.map` /
+ *   `*.test.d.ts.map`) is never packed, wherever it sits — a `.test.ts` beside
+ *   its source is exactly the case a segment rule cannot see;
+ * - the entry and types are present, `dist/` is not empty, and every declared
+ *   subpath ships.
+ *
  * @param {string[]} files package-relative paths, as reported by `pnpm pack --dry-run --json`
  * @param {string[]} [required] additional paths that must ship (the package's declared
  *   subpaths), checked after the generic rules
@@ -117,6 +135,9 @@ export function inspectPackList(files, required = [], resolve = {}) {
   }
   for (const file of files) {
     if (file.split("/").includes(TESTS_SEGMENT)) problems.push(`unexpected tests: ${file}`);
+  }
+  for (const file of files) {
+    if (TEST_ARTIFACT.test(file)) problems.push(`test artifact: ${file}`);
   }
   const shipped = new Set(files.filter((file) => !file.endsWith("/")));
   const entry = resolve.entry ?? ENTRY_FILE;
@@ -190,6 +211,32 @@ function selfTest() {
       "tests are rejected",
       inspectPackList([...COMPLETE_FILES, "dist/__tests__/agent.js"]),
       ["unexpected tests: dist/__tests__/agent.js"],
+    ],
+    [
+      "a compiled test next to its source is a test artifact",
+      inspectPackList([...COMPLETE_FILES, "dist/git/git.test.js"]),
+      ["test artifact: dist/git/git.test.js"],
+    ],
+    [
+      "every compiled test suffix is a test artifact",
+      inspectPackList([
+        ...COMPLETE_FILES,
+        "dist/index.test.js",
+        "dist/index.test.d.ts",
+        "dist/index.test.js.map",
+        "dist/index.test.d.ts.map",
+      ]),
+      [
+        "test artifact: dist/index.test.js",
+        "test artifact: dist/index.test.d.ts",
+        "test artifact: dist/index.test.js.map",
+        "test artifact: dist/index.test.d.ts.map",
+      ],
+    ],
+    [
+      "a name that merely contains '.test.' is not a test artifact",
+      inspectPackList([...COMPLETE_FILES, "dist/contest.latest.js"]),
+      [],
     ],
     [
       "a bare dist directory entry alone is empty output",

@@ -10,6 +10,27 @@ test("拒绝 src 与测试文件", () => {
     "unexpected tests: dist/__tests__/a.js",
   ]);
 });
+test("位于 __tests__ 之外的编译测试文件同样被拒绝", () => {
+  // The bug this pins: `apps/gateway/src/git/git.test.ts` compiles to
+  // `dist/git/git.test.js`, which a `__tests__`-segment rule never sees.
+  const files = [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/git/git.test.js",
+    "dist/git/git.test.d.ts",
+    "dist/git/git.test.js.map",
+    "dist/git/git.test.d.ts.map",
+  ];
+  assert.deepEqual(inspectPackList(files), [
+    "test artifact: dist/git/git.test.js",
+    "test artifact: dist/git/git.test.d.ts",
+    "test artifact: dist/git/git.test.js.map",
+    "test artifact: dist/git/git.test.d.ts.map",
+  ]);
+});
+test("名字里只是含 .test. 的文件不算测试产物", () => {
+  assert.deepEqual(inspectPackList(["dist/index.js", "dist/index.d.ts", "dist/contest.latest.js"]), []);
+});
 test("要求 dist 里有 js 与 d.ts", () => {
   assert.deepEqual(inspectPackList(["dist/index.js"]), ["missing types: dist/index.d.ts"]);
 });

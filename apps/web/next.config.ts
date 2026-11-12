@@ -10,7 +10,16 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@volto/sdk', '@volto/i18n'],
   ...(isExport
-    ? { output: 'export' as const, trailingSlash: true }
+    ? {
+        output: 'export' as const,
+        trailingSlash: true,
+        // Next writes a static export into `distDir` (`.next` by default) --
+        // there is no separate outdir option. Every consumer of the export
+        // (turbo's `out/**` outputs, copy-web-assets, `--web-dir apps/web/out`)
+        // points at `apps/web/out`, so put it there and keep no default dir
+        // behind: a cache replay restores exactly what was declared.
+        distDir: 'out',
+      }
     : {
         async rewrites() {
           return [
