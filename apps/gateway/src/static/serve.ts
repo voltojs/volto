@@ -53,6 +53,9 @@ export function buildConfigScript(opts: { gatewayUrl: string; version: string })
   );
 }
 
+/** Top-level export directory Next uses for its own not-found route. */
+const NOT_FOUND_PREFIX = "_not-found/";
+
 /** Cache policy for the hashed Next bundle: the name changes with the bytes. */
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
 
@@ -79,7 +82,9 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
   ".woff": "font/woff",
-  ".txt": "text/plain; charset=utf-8",
+  // No `.txt`: the only text documents a Next export writes are its RSC
+  // payloads (`index.txt`, `__next._full.txt`, …), which `isNotExposed` below
+  // refuses. Without a mapping here a staged one is a 404 rather than a 200.
 };
 
 function mimeTypeFor(filePath: string): string | undefined {
@@ -215,6 +220,21 @@ export function hasQueryToken(rawUrl: string | undefined): boolean {
  *   normalized away, and the file's own realpath is checked again at open
  *   time (see `serveStatic`).
  */
+/**
+ * Paths an export writes but the browser-facing site never serves: Next's RSC
+ * payload documents (`.txt` at the web root) and its own `_not-found/` route.
+ * `apps/gateway/scripts/copy-web-assets.mjs` drops them from the staged site;
+ * this is the same rule at request time, so a `web/` produced another way
+ * (a hand-made export, an older tarball, `--web-dir apps/web/out`) cannot make
+ * them public either.
+ *
+ * @param rel `decoded`, `/`-separated path relative to the web root
+ */
+export function isNotExposed(rel: string): boolean {
+  if (rel === NOT_FOUND_PREFIX.slice(0, -1) || rel.startsWith(NOT_FOUND_PREFIX)) return true;
+  return rel.endsWith(".txt") && !rel.includes("/");
+}
+
 export function routeStaticPath(rawPathname: string, apiRoots: readonly string[]): StaticRoute {
   const roots = apiRoots.map((root) => root.replace(/\/+$/, ""));
   const isUnder = (pathname: string, root: string): boolean =>
@@ -234,7 +254,11 @@ export function routeStaticPath(rawPathname: string, apiRoots: readonly string[]
   // resolves to the shell.
   const last = segments[segments.length - 1] ?? "";
   if (path.extname(last) === "") return { kind: "shell" };
-  return { kind: "asset", rel: segments.join("/"), immutable: decoded.startsWith("/_next/static/") };
+  const rel = segments.join("/");
+  // Refused, not rewritten to the shell: a request NAMING one of these files
+  // asked for content this deployment does not publish.
+  if (isNotExposed(rel)) return false;
+  return { kind: "asset", rel, immutable: decoded.startsWith("/_next/static/") };
 }
 
 /**

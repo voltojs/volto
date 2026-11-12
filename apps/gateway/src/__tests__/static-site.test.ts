@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
-import { buildConfigScript, routeStaticPath, serveStatic } from "../static/serve.js";
+import { buildConfigScript, isNotExposed, routeStaticPath, serveStatic } from "../static/serve.js";
 
 /** Secret planted outside the web root; asserted absent from every rejection. */
 const SECRET = "TOP-SECRET-OUTSIDE-WEB-ROOT";
@@ -232,6 +232,47 @@ describe("静态托管 · 路由判定", () => {
     for (const attack of attacks) {
       expect(routeStaticPath(attack, []), attack).toBe(false);
     }
+  });
+});
+
+describe("静态托管 · Next 的 RSC 载荷不对外提供", () => {
+  it("Web 根上的 .txt 与 _not-found/ 被判为不提供，其余照常", () => {
+    for (const rel of [
+      "index.txt",
+      "__next._full.txt",
+      "__next._tree.txt",
+      "__next.__PAGE__.txt",
+      "_not-found/index.txt",
+      "_not-found/__next._full.txt",
+      "_not-found/index.html",
+    ]) {
+      expect(isNotExposed(rel), rel).toBe(true);
+      expect(routeStaticPath(`/${rel}`, []), rel).toBe(false);
+    }
+    // Not a payload: 404.html is what a static host in front of the gateway serves.
+    for (const rel of ["404.html", "index.html", "favicon.ico", "_next/static/chunks/a.js"]) {
+      expect(isNotExposed(rel), rel).toBe(false);
+      expect(routeStaticPath(`/${rel}`, []), rel).not.toBe(false);
+    }
+  });
+
+  it("即使文件仍在 webRoot 里也不返回内容（黑盒：自己写一份导出布局）", async () => {
+    // The copy step drops these, but a `web/` staged another way (an older
+    // tarball, `--web-dir apps/web/out`) must not make them public either.
+    const root = await fixture();
+    await writeFile(path.join(root, "index.txt"), "RSC-PAYLOAD-DO-NOT-SERVE");
+    await writeFile(path.join(root, "__next._full.txt"), "RSC-PAYLOAD-DO-NOT-SERVE");
+    await mkdir(path.join(root, "_not-found"), { recursive: true });
+    await writeFile(path.join(root, "_not-found", "index.html"), "<html>not found</html>");
+    const site = siteFor(root);
+    for (const target of ["/index.txt", "/__next._full.txt", "/_not-found/index.html"]) {
+      const res = await serve(site, target);
+      expect(res.routerStatus, target).toBe(404);
+      expect(res.body, target).not.toContain("RSC-PAYLOAD-DO-NOT-SERVE");
+      expect(res.body, target).not.toContain("not found");
+    }
+    // The shell is untouched by that refusal.
+    expect((await serve(site, "/")).body).toContain("ok");
   });
 });
 

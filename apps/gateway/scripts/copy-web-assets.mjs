@@ -16,6 +16,15 @@
  * earlier build cannot survive into the next tarball. Fails loudly (non-zero
  * exit) when the export is missing rather than shipping a gateway whose UI is
  * a 503.
+ *
+ * Not everything an export writes is for the browser. Next also emits the RSC
+ * payload documents (`__next._full.txt`, `__next._tree.txt`, `index.txt`,
+ * `_not-found/**`): router internals fetched by its own client, carrying the
+ * same content as the HTML the shell already serves. Shipped, they would be
+ * static files the gateway answers 200 with as `text/plain` like any other
+ * asset, which is more public surface than the UI needs. `isShippedAsset`
+ * names what to drop, and `static/serve.ts` refuses the same paths even when a
+ * `web/` directory was produced another way.
  */
 import { cpSync, existsSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -27,6 +36,28 @@ const source = join(repoRoot, "apps", "web", "out");
 const destination = join(packageRoot, "web");
 const entryFile = join(source, "index.html");
 const BUILD_HINT = "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build";
+
+/** Top-level export directory Next uses for its own not-found route. */
+const NOT_FOUND_PREFIX = "_not-found/";
+
+/**
+ * Whether a web-root-relative path (`/`-separated, as `cpSync` filter
+ * receives it) belongs in the staged site.
+ *
+ * Dropped: any `.txt` document at the web root (Next's RSC payloads) and
+ * everything under `_not-found/` (the same payloads plus a duplicate
+ * `index.html` the single-page shell never links to). `404.html` is kept: a
+ * static host in front of the gateway uses it.
+ *
+ * @param {string} relPath path relative to the export root
+ * @returns {boolean} true when the path ships and is served
+ */
+export function isShippedAsset(relPath) {
+  const rel = relPath.replace(/^\/+/, "");
+  // The directory entry itself (`cpSync` visits it before its children).
+  if (rel === NOT_FOUND_PREFIX.slice(0, -1) || rel.startsWith(NOT_FOUND_PREFIX)) return false;
+  return !(rel.endsWith(".txt") && !rel.includes("/"));
+}
 
 function fail(message) {
   console.error(`[copy-web-assets] ${message}`);
@@ -55,7 +86,11 @@ if (!existsSync(entryFile) || !statSync(entryFile).isFile()) {
 rmSync(destination, { recursive: true, force: true });
 
 try {
-  cpSync(source, destination, { recursive: true });
+  cpSync(source, destination, {
+    recursive: true,
+    // `src` is the absolute path `cpSync` was handed, `dest` the one it would write.
+    filter: (src) => isShippedAsset(src.slice(source.length)),
+  });
 } catch (error) {
   fail(`Copying ${source} → ${destination} failed: ${error instanceof Error ? error.message : error}`);
 }
