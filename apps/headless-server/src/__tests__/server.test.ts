@@ -524,18 +524,37 @@ describe("authentication", () => {
   });
 
   it("answers every rejection with the same body", async () => {
-    // A caller must not learn whether a route or session exists. The unknown
-    // path is extensioned, so it is an asset request — never a client-side
-    // route, which the static host answers with the app shell by design
-    // (the export has one page).
+    // A caller must not learn whether a route or session exists. This is the
+    // guarantee for the API: an unauthenticated caller gets one identical 401
+    // for /providers whether or not /sessions/does-not-exist exists.
     //
-    // `webRoot` (see beforeAll) is an existing, EMPTY directory: it holds no
-    // build, so an extensioned unknown path is an ordinary 404 and this test
-    // isolates the auth guard's uniformity from the "no UI installed" 503.
+    // It compares API paths only. Static assets are deliberately NOT covered
+    // here: the login page has to load without a cookie, so an asset miss must
+    // be answered 404 (below) rather than be coerced into a 401 — the
+    // byte-identical guarantee is a property of API routes, not of assets.
     const a = await fetch(`${baseUrl}/providers`);
-    const b = await fetch(`${baseUrl}/nonexistent.js`);
-    const [aText, bText] = await Promise.all([a.text(), b.text()]);
-    expect({ status: a.status, body: aText }).toEqual({ status: b.status, body: bText });
+    const b = await fetch(`${baseUrl}/sessions/does-not-exist`);
+    expect(a.status).toBe(b.status);
+    expect(await a.text()).toBe(await b.text());
+  });
+
+  it("answers an unauthenticated asset miss with a non-revealing 404, never a 401", async () => {
+    // The exported web app is served from this origin BEFORE the auth guard
+    // (a page that needs a cookie to load could never be reached), so an
+    // unauthenticated request for a missing asset cannot be answered 401 —
+    // and 404 is exactly what an asset request needs to see.
+    const bodies: string[] = [];
+    for (const path of ["/nonexistent.js", "/_next/static/chunks/does-not-exist.js"]) {
+      const response = await fetch(`${baseUrl}${path}`);
+      const body = await response.text();
+      expect(response.status, path).toBe(404);
+      expect(response.status, path).not.toBe(401);
+      // The body must not distinguish "missing" from "not yours" — it is the
+      // same JSON the router's own 404 carries.
+      expect(body, path).toBe(JSON.stringify({ error: "Not found" }));
+      bodies.push(body);
+    }
+    expect(bodies[0]).toBe(bodies[1]);
   });
 
   it("exchanges a valid query token for a cookie and a clean redirect", async () => {
