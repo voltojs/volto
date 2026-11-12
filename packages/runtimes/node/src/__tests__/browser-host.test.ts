@@ -3,6 +3,7 @@ import {
   BrowserUnavailableError,
   createSerialQueue,
   expandHome,
+  isNavigationAllowed,
   resolveHeadless,
 } from "../browser-host.js";
 
@@ -64,5 +65,27 @@ describe("BrowserUnavailableError", () => {
     const error = new BrowserUnavailableError();
     expect(error.name).toBe("BrowserUnavailableError");
     expect(error.message).toContain("playwright install chromium");
+  });
+});
+
+describe("isNavigationAllowed", () => {
+  it("allows http(s) and about:blank", () => {
+    expect(isNavigationAllowed("https://example.com/a", undefined)).toBe(true);
+    expect(isNavigationAllowed("http://localhost:5173/", undefined)).toBe(true);
+    expect(isNavigationAllowed("about:blank", undefined)).toBe(true);
+  });
+
+  it("rejects non-http schemes, credentials, and metadata hosts", () => {
+    expect(isNavigationAllowed("file:///etc/passwd", undefined)).toBe(false);
+    expect(isNavigationAllowed("javascript:alert(1)", undefined)).toBe(false);
+    expect(isNavigationAllowed("https://user:pass@example.com/", undefined)).toBe(false);
+    expect(isNavigationAllowed("http://169.254.169.254/latest/meta-data", undefined)).toBe(false);
+    expect(isNavigationAllowed("http://100.100.100.200/", undefined)).toBe(false);
+  });
+
+  it("applies the egress policy", () => {
+    expect(isNavigationAllowed("https://example.com/", { denyHosts: ["example.com"] })).toBe(false);
+    expect(isNavigationAllowed("https://example.com/", { allowHosts: ["other.com"] })).toBe(false);
+    expect(isNavigationAllowed("https://example.com/", { allowHosts: ["example.com"] })).toBe(true);
   });
 });

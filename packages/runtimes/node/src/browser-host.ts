@@ -8,6 +8,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { chmod, mkdir } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -18,10 +19,13 @@ import type {
   BrowserScreenshot,
   BrowserState,
   DiagnosticsOutcome,
+  SnapshotNode,
   SnapshotOutcome,
   StorageStateOutcome,
 } from "@volto/tools-browser";
-import type { EgressPolicy } from "./egress.js";
+import { formatSnapshot, SNAPSHOT_SCRIPT } from "@volto/tools-browser";
+import { createDiagnosticsBuffer, type DiagnosticsBuffer } from "./browser-diagnostics.js";
+import { isHostAllowed, type EgressPolicy } from "./egress.js";
 
 export interface BrowserHostOptions {
   /** Default false; Linux without a display falls back to headless. */
@@ -92,9 +96,32 @@ export function createSerialQueue(): <T>(fn: () => Promise<T>) => Promise<T> {
   };
 }
 
+const METADATA_HOSTS = new Set(["169.254.169.254", "100.100.100.200"]);
+
+function normalizedHost(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, "").toLowerCase();
+}
+
+/** Top-level navigation policy: http(s), no credentials, egress, no metadata. */
+export function isNavigationAllowed(url: string, policy: EgressPolicy | undefined): boolean {
+  if (url === "about:blank") return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.username !== "" || parsed.password !== "") return false;
+  const host = normalizedHost(parsed.hostname);
+  if (METADATA_HOSTS.has(host) || host.startsWith("169.254.")) return false;
+  return isHostAllowed(host, policy ?? {});
+}
+
 interface SessionEntry {
   readonly id: string;
   readonly queue: ReturnType<typeof createSerialQueue>;
+  readonly diagnostics: DiagnosticsBuffer;
   live: LivePage;
   context?: BrowserContext;
   page?: Page;
@@ -102,101 +129,191 @@ interface SessionEntry {
   egressPolicy?: EgressPolicy;
   lastUsed: number;
   idleTimer?: NodeJS.Timeout;
+  crashed: boolean;
+}
+
+interface HostCallbacks {
+  ensure(entry: SessionEntry): Promise<{ context: BrowserContext; page: Page }>;
+  touch(entry: SessionEntry): void;
+  close(sessionId: string): Promise<void>;
+}
+
+async function settle(page: Page): Promise<void> {
+  await page.waitForLoadState("networkidle", { timeout: 1500 }).catch(() => undefined);
+}
+
+async function readSnapshot(page: Page, textOnly = false): Promise<SnapshotOutcome> {
+  const nodes = (await page.evaluate(SNAPSHOT_SCRIPT)) as SnapshotNode[];
+  return formatSnapshot(nodes, { maxChars: 8000, ...(textOnly ? { textOnly: true } : {}) });
+}
+
+async function readState(page: Page): Promise<BrowserState> {
+  const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+  return {
+    url: page.url(),
+    title: await page.title(),
+    status: "live",
+    viewport,
+  };
+}
+
+async function outcomeOf(page: Page, textOnly = false): Promise<ActionOutcome> {
+  const [state, snapshot] = await Promise.all([readState(page), readSnapshot(page, textOnly)]);
+  return { state, ...snapshot };
+}
+
+function locatorFor(page: Page, ref: string) {
+  if (!/^e\d+$/.test(ref)) throw new Error(`invalid ref "${ref}"`);
+  return page.locator(`[data-volto-ref="${ref}"]`).first();
 }
 
 class LivePage implements LiveBrowserPage {
   private readonly entry: SessionEntry;
-  private readonly host: {
-    ensure(entry: SessionEntry): Promise<{ context: BrowserContext; page: Page }>;
-    touch(entry: SessionEntry): void;
-    close(sessionId: string): Promise<void>;
-  };
+  private readonly host: HostCallbacks;
+  private readonly storageStatePath?: string;
 
-  constructor(
-    entry: SessionEntry,
-    host: {
-      ensure(entry: SessionEntry): Promise<{ context: BrowserContext; page: Page }>;
-      touch(entry: SessionEntry): void;
-      close(sessionId: string): Promise<void>;
-    },
-  ) {
+  constructor(entry: SessionEntry, host: HostCallbacks, storageStatePath: string | undefined) {
     this.entry = entry;
     this.host = host;
+    this.storageStatePath = storageStatePath;
   }
 
-  private run<T>(fn: () => Promise<T>): Promise<T> {
+  private run<T>(fn: (page: Page) => Promise<T>): Promise<T> {
     this.host.touch(this.entry);
-    return this.entry.queue(fn);
-  }
-
-  private async page(): Promise<Page> {
-    const { page } = await this.host.ensure(this.entry);
-    return page;
-  }
-
-  private async unimplemented(): Promise<never> {
-    await this.page();
-    throw new Error("browser host action not implemented yet");
-  }
-
-  async state(): Promise<BrowserState> {
-    return this.run(async () => {
-      const page = await this.page();
-      return {
-        url: page.url(),
-        title: await page.title(),
-        status: "live",
-        viewport: { width: 1280, height: 800 },
-      };
+    return this.entry.queue(async () => {
+      const { page } = await this.host.ensure(this.entry);
+      return fn(page);
     });
   }
 
-  async navigate(_url: string): Promise<ActionOutcome> {
-    return this.unimplemented();
+  async state(): Promise<BrowserState> {
+    return this.run((page) => readState(page));
+  }
+
+  async navigate(url: string): Promise<ActionOutcome> {
+    return this.run(async (page) => {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
   async goBack(): Promise<ActionOutcome> {
-    return this.unimplemented();
+    return this.run(async (page) => {
+      const response = await page.goBack({ waitUntil: "domcontentloaded", timeout: 15_000 });
+      if (response === null) throw new Error("No previous page in history. Use browser_navigate.");
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
   async goForward(): Promise<ActionOutcome> {
-    return this.unimplemented();
+    return this.run(async (page) => {
+      const response = await page.goForward({ waitUntil: "domcontentloaded", timeout: 15_000 });
+      if (response === null) throw new Error("No next page in history. Use browser_navigate.");
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
   async reload(): Promise<ActionOutcome> {
-    return this.unimplemented();
+    return this.run(async (page) => {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
-  async snapshot(_opts?: { textOnly?: boolean }): Promise<SnapshotOutcome> {
-    return this.unimplemented();
+  async snapshot(opts?: { textOnly?: boolean }): Promise<SnapshotOutcome> {
+    return this.run((page) => readSnapshot(page, opts?.textOnly === true));
   }
 
-  async click(_ref: string, _opts?: { button?: "left" | "right"; clickCount?: 1 | 2 }): Promise<ActionOutcome> {
-    return this.unimplemented();
+  async click(
+    ref: string,
+    opts?: { button?: "left" | "right"; clickCount?: 1 | 2 },
+  ): Promise<ActionOutcome> {
+    return this.run(async (page) => {
+      const locator = locatorFor(page, ref);
+      if ((await locator.count()) === 0) {
+        throw new Error(`ref "${ref}" is stale: no element has that ref. Call browser_snapshot.`);
+      }
+      await locator.click({
+        timeout: 5000,
+        ...(opts?.button !== undefined ? { button: opts.button } : {}),
+        ...(opts?.clickCount !== undefined ? { clickCount: opts.clickCount } : {}),
+      });
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
-  async type(_ref: string, _text: string, _opts?: { submit?: boolean }): Promise<ActionOutcome> {
-    return this.unimplemented();
+  async type(ref: string, text: string, opts?: { submit?: boolean }): Promise<ActionOutcome> {
+    return this.run(async (page) => {
+      const locator = locatorFor(page, ref);
+      if ((await locator.count()) === 0) {
+        throw new Error(`ref "${ref}" is stale: no element has that ref. Call browser_snapshot.`);
+      }
+      await locator.fill(text, { timeout: 5000 });
+      if (opts?.submit === true) await page.keyboard.press("Enter");
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
-  async pressKey(_key: string): Promise<ActionOutcome> {
-    return this.unimplemented();
+  async pressKey(key: string): Promise<ActionOutcome> {
+    return this.run(async (page) => {
+      await page.keyboard.press(key);
+      await settle(page);
+      return outcomeOf(page);
+    });
   }
 
-  async waitFor(_opts: { text?: string; timeoutMs?: number }): Promise<ActionOutcome> {
-    return this.unimplemented();
+  async waitFor(opts: { text?: string; timeoutMs?: number }): Promise<ActionOutcome> {
+    return this.run(async (page) => {
+      const timeout = opts.timeoutMs ?? 5000;
+      if (opts.text !== undefined) {
+        await page.getByText(opts.text, { exact: false }).first().waitFor({
+          state: "visible",
+          timeout,
+        });
+      } else {
+        await page.waitForTimeout(timeout);
+      }
+      return outcomeOf(page);
+    });
   }
 
-  async screenshot(_opts?: { fullPage?: boolean }): Promise<BrowserScreenshot> {
-    return this.unimplemented();
+  async screenshot(opts?: { fullPage?: boolean }): Promise<BrowserScreenshot> {
+    return this.run(async (page) => {
+      const data = await page.screenshot({
+        type: "png",
+        fullPage: opts?.fullPage === true,
+      });
+      const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+      return { data: data.toString("base64"), width: viewport.width, height: viewport.height };
+    });
   }
 
-  async diagnostics(_opts: BrowserDiagnosticsOptions): Promise<DiagnosticsOutcome> {
-    return this.unimplemented();
+  async diagnostics(opts: BrowserDiagnosticsOptions): Promise<DiagnosticsOutcome> {
+    return this.run(async () => this.entry.diagnostics.format(opts.kind, {
+      ...(opts.level !== undefined ? { level: opts.level } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    }));
   }
 
   async storageState(_action: "save"): Promise<StorageStateOutcome> {
-    return this.unimplemented();
+    return this.run(async () => {
+      if (this.storageStatePath === undefined) {
+        throw new Error(
+          "No browser.storageStatePath is configured. Set it in config.json before saving a storage state.",
+        );
+      }
+      const { context } = await this.host.ensure(this.entry);
+      await mkdir(path.dirname(this.storageStatePath), { recursive: true, mode: 0o700 });
+      await context.storageState({ path: this.storageStatePath });
+      await chmod(this.storageStatePath, 0o600);
+      return { path: this.storageStatePath, savedAt: Date.now() };
+    });
   }
 
   async close(): Promise<void> {
@@ -226,11 +343,22 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
         headless: resolveHeadless(opts.headless, process.env, process.platform),
         ...(opts.executablePath !== undefined ? { executablePath: opts.executablePath } : {}),
       });
-    })();
+    })().catch((error: unknown) => {
+      browserPromise = undefined;
+      throw error;
+    });
     return browserPromise;
   }
 
   async function ensure(entry: SessionEntry): Promise<{ context: BrowserContext; page: Page }> {
+    if (entry.crashed && entry.context !== undefined) {
+      const crashed = entry.context;
+      entry.context = undefined;
+      entry.page = undefined;
+      entry.ready = undefined;
+      entry.crashed = false;
+      await crashed.close().catch(() => undefined);
+    }
     if (entry.context !== undefined && entry.page !== undefined) {
       return { context: entry.context, page: entry.page };
     }
@@ -245,9 +373,65 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
       const page = await context.newPage();
       entry.context = context;
       entry.page = page;
+      attachDiagnostics(entry, page);
+      attachNavigationPolicy(entry, page);
+      page.on("crash", () => {
+        entry.crashed = true;
+      });
       return { context, page };
-    })();
+    })().catch((error: unknown) => {
+      entry.ready = undefined;
+      throw error;
+    });
     return entry.ready;
+  }
+
+  function attachDiagnostics(entry: SessionEntry, page: Page): void {
+    page.on("console", (message) => {
+      const type = message.type();
+      const level = type === "error" ? "error" : type === "warning" ? "warning" : "info";
+      entry.diagnostics.console(level, message.text());
+    });
+    page.on("pageerror", (error) => {
+      entry.diagnostics.console("error", error.message);
+    });
+    page.on("requestfailed", (request) => {
+      entry.diagnostics.networkFailure(
+        request.method(),
+        request.url(),
+        request.failure()?.errorText ?? "failed",
+      );
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) {
+        entry.diagnostics.networkStatus(response.status(), response.request().method(), response.url());
+      }
+    });
+  }
+
+  function attachNavigationPolicy(entry: SessionEntry, page: Page): void {
+    void page.context().route("**/*", async (route) => {
+      const request = route.request();
+      if (!request.isNavigationRequest()) {
+        await route.continue();
+        return;
+      }
+      let isMainFrame = false;
+      try {
+        isMainFrame = request.frame() === page.mainFrame();
+      } catch {
+        isMainFrame = false;
+      }
+      if (!isMainFrame) {
+        await route.continue();
+        return;
+      }
+      if (!isNavigationAllowed(request.url(), entry.egressPolicy)) {
+        await route.abort("blockedbyclient");
+        return;
+      }
+      await route.continue();
+    });
   }
 
   function touch(entry: SessionEntry): void {
@@ -287,14 +471,17 @@ export function createNodeBrowserHost(opts: BrowserHostOptions = {}): BrowserHos
     if (disposed) throw new Error("Browser host has been disposed.");
     let entry = sessions.get(sessionId);
     if (entry === undefined) {
+      const diagnostics = createDiagnosticsBuffer(200);
       const created: SessionEntry = {
         id: sessionId,
         queue: createSerialQueue(),
+        diagnostics,
         live: undefined as unknown as LivePage,
         egressPolicy: pageOpts.egressPolicy,
         lastUsed: Date.now(),
+        crashed: false,
       };
-      created.live = new LivePage(created, { ensure, touch, close });
+      created.live = new LivePage(created, { ensure, touch, close }, storageStatePath);
       sessions.set(sessionId, created);
       entry = created;
       evictIfNeeded();

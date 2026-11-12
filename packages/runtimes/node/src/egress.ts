@@ -22,7 +22,7 @@ function extractHost(url: string): string {
   }
 }
 
-function isHostAllowed(host: string, policy: EgressPolicy): boolean {
+export function isHostAllowed(host: string, policy: EgressPolicy): boolean {
   // Empty host = malformed URL → fail-closed (deny)
   if (!host) return false;
 
