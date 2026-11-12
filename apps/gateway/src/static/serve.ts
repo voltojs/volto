@@ -123,8 +123,13 @@ function isInside(parent: string, child: string): boolean {
 
 /** Shared response headers for everything this module answers. */
 function headerCommon(): Record<string, string> {
-  // A local deployment's own page: no third-party embed to allow, and no
-  // reason for a content-sniffed or injected script to run.
+  // `nosniff` only stops MIME sniffing: the browser must not reinterpret a
+  // file whose Content-Type disagrees with its bytes (an image served as JS,
+  // a script served as text). It does NOT stop an injected script from
+  // running, and this module sends no Content-Security-Policy — the app's
+  // scripts are part of the same origin and no CSP is deployed for it.
+  // `no-referrer` keeps paths (and any credential in one) out of the
+  // Referer of a link leaving the page.
   return {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",

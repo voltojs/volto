@@ -58,9 +58,17 @@ export interface AuthGuardHooks {
 }
 
 /**
- * Companion attributes a caller appends when it forwards the exchange's
- * `Set-Cookie` to a Response it builds itself. Only the request knows the
- * protocol it arrived on, so `Secure` is decided here and nowhere else.
+ * Companion attributes for a session cookie, computed from the request that
+ * earned it: only the request knows the protocol it arrived on, so `Secure`
+ * follows the request that actually authenticated, not the listener's
+ * configuration.
+ *
+ * The guard uses this for the `Set-Cookie` it writes. A reverse proxy that
+ * forwards a gateway `Set-Cookie` (as `volto web` does) ships that header
+ * verbatim — this function is not in the proxy's path, and cannot be: the
+ * gateway already decided the flag from the request it saw. That is why
+ * `--trust-proxy` matters behind a TLS-terminating tunnel; without it the
+ * gateway sees plain HTTP and the cookie carries no `Secure`.
  */
 export function cookieAttributesFor(
   req: IncomingMessage,

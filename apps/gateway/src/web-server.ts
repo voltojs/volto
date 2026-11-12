@@ -31,7 +31,12 @@
  * server therefore also registers an `upgrade` listener that tunnels to the
  * gateway (see `tunnelUpgrade`).
  *
- * `--serve-remote` / auth for this port are NOT this module's business.
+ * What this module does NOT do: bind policy and authentication. This server
+ * only answers the requests it is given; `cli.ts` decides whether the port may
+ * be exposed (`--serve-remote`, refused otherwise for a non-loopback `--host`,
+ * see `runWeb`) and the gateway decides whether a request is authenticated.
+ * The proxy does not authenticate anything itself — it forwards the cookie and
+ * relies on the gateway's 401/302.
  */
 
 import * as http from "node:http";
