@@ -2349,7 +2349,7 @@ describe("remote mode: capabilities and local-only routes", () => {
   type Info = {
     version: string;
     mode: string;
-    capabilities: { nativeDialogs: boolean; browser: boolean; lsp: boolean };
+    capabilities: { nativeDialogs: boolean; browserAutomation: boolean; lsp: boolean };
   };
 
   /** `/gateway-info` for a dedicated instance, closing it afterwards. */
@@ -2417,7 +2417,7 @@ describe("remote mode: capabilities and local-only routes", () => {
   // M2 — `browser` is a wiring fact with two real values, so both are pinned.
   it("reports browser: true when a browser host was actually created", async () => {
     const info = await infoFor({ modelPort: MOCK_MODEL, browserHost: createStubBrowserHost() });
-    expect(info.capabilities.browser).toBe(true);
+    expect(info.capabilities.browserAutomation).toBe(true);
   });
 
   it("reports browser: false when browser settings are disabled", async () => {
@@ -2427,7 +2427,7 @@ describe("remote mode: capabilities and local-only routes", () => {
         headers: authHeaders(instance.token),
       });
       const info = (await response.json()) as Info;
-      expect(info.capabilities.browser).toBe(false);
+      expect(info.capabilities.browserAutomation).toBe(false);
       // Same instance, same config: LSP keeps its own answer, so the two
       // facts are independent rather than one flag copied twice.
       expect(info.capabilities.lsp).toBe(true);
@@ -2445,7 +2445,7 @@ describe("remote mode: capabilities and local-only routes", () => {
         headers: authHeaders(instance.token),
       });
       const info = (await response.json()) as Info;
-      expect(info.capabilities.browser).toBe(false);
+      expect(info.capabilities.browserAutomation).toBe(false);
     } finally {
       await instance.close();
     }
@@ -2462,7 +2462,7 @@ describe("remote mode: capabilities and local-only routes", () => {
       const info = (await response.json()) as Info;
       expect(info.capabilities.lsp).toBe(false);
       // The browser host is unaffected by the LSP table.
-      expect(info.capabilities.browser).toBe(true);
+      expect(info.capabilities.browserAutomation).toBe(true);
     } finally {
       await instance.close();
     }
