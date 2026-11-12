@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Bot, KeyRound, Route, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Bot, KeyRound, Route, SlidersHorizontal, Sparkles, Wrench } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import { GeneralPanel } from './GeneralPanel';
 import { SubagentsPanel } from './SubagentsPanel';
 import { RoutingTiersPanel } from './RoutingTiersPanel';
 import { SkillsPanel } from './SkillsPanel';
+import { ToolsPanel } from './ToolsPanel';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -33,6 +34,7 @@ interface SettingsDialogProps {
 const TABS = [
   { value: 'general', labelKey: 'dialog.tabs.general', icon: SlidersHorizontal },
   { value: 'models', labelKey: 'dialog.tabs.models', icon: KeyRound },
+  { value: 'tools', labelKey: 'dialog.tabs.tools', icon: Wrench },
   { value: 'routing-tiers', labelKey: 'dialog.tabs.routingTiers', icon: Route },
   { value: 'subagents', labelKey: 'dialog.tabs.subagents', icon: Bot },
   { value: 'skills', labelKey: 'dialog.tabs.skills', icon: Sparkles },
@@ -81,6 +83,9 @@ export function SettingsDialog({ open, onOpenChange, projectId = null }: Setting
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="models">
               <ProvidersPanel />
+            </TabsContent>
+            <TabsContent value="tools">
+              <ToolsPanel />
             </TabsContent>
             <TabsContent value="routing-tiers">
               <RoutingTiersPanel />

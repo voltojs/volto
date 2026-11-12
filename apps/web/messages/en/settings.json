@@ -6,7 +6,8 @@
       "models": "Models",
       "routingTiers": "Model routing",
       "subagents": "Subagents",
-      "skills": "Skills"
+      "skills": "Skills",
+      "tools": "Tools"
     }
   },
   "general": {
@@ -234,5 +235,24 @@
     "toolsUnavailable": "Unavailable tools (not provided by this gateway, dropped on dispatch):",
     "removeTool": "Remove tool {name}",
     "removeAllUnavailable": "Remove all"
+  },
+  "tools": {
+    "browserTitle": "Browser",
+    "browserHint": "The agent uses a browser on the gateway machine for automation tests; this choice only affects that machine.",
+    "platform": "Gateway OS: {platform}",
+    "executable": "Browser executable",
+    "auto": "Auto-detect",
+    "custom": "Custom path",
+    "customPath": "Browser executable path",
+    "customPlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "resolved": "Resolved: {path}",
+    "notFound": "No usable Chrome/Chromium/Edge/Brave found.",
+    "loading": "Loading browser settings…",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Written to config.json; restart the gateway to apply.",
+    "saveFailed": "Could not save: {error}",
+    "loadFailed": "Could not load browser settings: {error}",
+    "restartHint": "Restart the gateway to apply."
   }
 }

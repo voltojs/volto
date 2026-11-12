@@ -335,3 +335,28 @@ export const revealPath = (path: string) =>
     method: 'POST',
     body: JSON.stringify({ path }),
   });
+
+/** One browser installed on the gateway host, as shown in 设置 → 工具配置. */
+export interface BrowserCandidate {
+  id: string;
+  label: string;
+  path: string;
+}
+
+/** `GET /config/browser`: the gateway OS, stored path, and detected browsers. */
+export interface BrowserSettingsView {
+  platform: string;
+  configuredPath: string | null;
+  resolvedPath: string | null;
+  browsers: BrowserCandidate[];
+}
+
+export const fetchBrowserSettings = () =>
+  request<BrowserSettingsView>('/config/browser');
+
+/** Persist the selection in config.json; null clears it (auto-detect). */
+export const updateBrowserSettings = (executablePath: string | null) =>
+  request<BrowserSettingsView>('/config/browser', {
+    method: 'PUT',
+    body: JSON.stringify({ executablePath }),
+  });

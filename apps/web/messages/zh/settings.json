@@ -6,7 +6,8 @@
       "models": "模型配置",
       "routingTiers": "模型路由",
       "subagents": "子代理",
-      "skills": "技能"
+      "skills": "技能",
+      "tools": "工具配置"
     }
   },
   "general": {
@@ -234,5 +235,24 @@
     "toolsUnavailable": "不可用工具（本网关不提供，派发时会被丢弃）：",
     "removeTool": "移除工具 {name}",
     "removeAllUnavailable": "全部移除"
+  },
+  "tools": {
+    "browserTitle": "浏览器",
+    "browserHint": "Agent 使用网关所在机器上的浏览器执行自动化测试；这里的选择只影响这台机器。",
+    "platform": "网关系统：{platform}",
+    "executable": "执行浏览器",
+    "auto": "自动探测",
+    "custom": "自定义路径",
+    "customPath": "浏览器可执行文件路径",
+    "customPlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "resolved": "当前解析：{path}",
+    "notFound": "未检测到可用的 Chrome/Chromium/Edge/Brave。",
+    "loading": "正在加载浏览器配置…",
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "已写入 config.json；重启网关后生效。",
+    "saveFailed": "保存失败：{error}",
+    "loadFailed": "加载浏览器配置失败：{error}",
+    "restartHint": "重启网关后生效。"
   }
 }
