@@ -16,15 +16,22 @@
 
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
+import type { Duplex } from "node:stream";
+import { gunzip, gzip } from "node:zlib";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
 import { API_PREFIXES, startWebServer } from "../web-server.js";
 
 /** Every server this file opens, so none outlives its case. */
 const open: Array<http.Server | { close(): Promise<void> }> = [];
 
+/** WebSocket clients opened by a case; they must not keep the process alive. */
+const sockets: WebSocket[] = [];
+
 afterEach(async () => {
+  for (const socket of sockets.splice(0)) socket.terminate();
   for (const server of open.splice(0)) {
     await new Promise<void>((resolve) => {
       const closed = typeof (server as http.Server).closeAllConnections === "function";
@@ -160,8 +167,10 @@ it("透传方法、头和 body，保留状态码、Set-Cookie 与响应头", asy
     "other=1; Path=/",
   ]);
   expect(await res.json()).toEqual({ ok: true });
-  // The client's own `Host` rides along (the gateway's Origin/Host check
-  // compares the values the browser sent); nothing else is dropped.
+  // The client's own `Host` rides along — deliberately. The gateway decides
+  // same-origin with `new URL(Origin).host === Host`, so rewriting `Host` to
+  // the gateway's own address would 403 every browser request made through
+  // this proxy. Nothing else is dropped.
   expect(seen).toHaveLength(1);
   expect(seen[0]).toMatchObject({ method: "POST", cookie: "volto_auth=abc" });
   expect(seen[0]?.host).toBe(`127.0.0.1:${webPort}`);
@@ -201,4 +210,114 @@ it("每个 API 根都被代理（含前缀子路径），不被静态托管吞�
       await res.arrayBuffer();
     }
   }
+});
+/**
+ * Open a WS, collect messages, and resolve on the first message or error.
+ * Every socket is registered above, so no case can leak one.
+ */
+function wsOnce(url: string): { socket: WebSocket; first: Promise<string | Error> } {
+  const socket = new WebSocket(url);
+  sockets.push(socket);
+  const first = new Promise<string | Error>((resolve) => {
+    socket.once("message", (data: Buffer) => resolve(data.toString("utf-8")));
+    // `unexpected-response` fires when the peer answers with a non-101; the
+    // error alone would hide the status the proxy chose.
+    socket.once("unexpected-response", (_req, res) => resolve(new Error(`HTTP ${res.statusCode}`)));
+    socket.once("error", (err: Error) => resolve(err));
+  });
+  return { socket, first };
+}
+
+it("WebSocket 升级转发到网关并完成一次往返", async () => {
+  const wss = new WebSocketServer({ noServer: true });
+  const seen: Array<{ url?: string; host?: string }> = [];
+  const gateway = http.createServer();
+  gateway.on("upgrade", (req, socket, head) => {
+    seen.push({ url: req.url, host: req.headers.host });
+    wss.handleUpgrade(req, socket, head as Buffer, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  });
+  wss.on("connection", (ws) => {
+    ws.on("message", (data: Buffer) => ws.send(`echo:${data.toString("utf-8")}`));
+  });
+  open.push(wss as unknown as http.Server);
+  const gatewayPort = await listen(gateway);
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`);
+
+  const { socket, first } = wsOnce(`ws://127.0.0.1:${webPort}/ws?sessionId=a`);
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", () => resolve());
+    socket.once("error", reject);
+  });
+  socket.send("hello");
+  expect(await first).toBe("echo:hello");
+  // Same-origin: the gateway sees the client's own Host, not its own address.
+  expect(seen).toHaveLength(1);
+  expect(seen[0]?.url).toBe("/ws?sessionId=a");
+  expect(seen[0]?.host).toBe(`127.0.0.1:${webPort}`);
+});
+
+it("未知路径的升级不会被隧道化", async () => {
+  let upgrades = 0;
+  const gateway = http.createServer();
+  gateway.on("upgrade", (_req, socket: Duplex) => {
+    upgrades += 1;
+    socket.destroy();
+  });
+  const gatewayPort = await listen(gateway);
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`);
+
+  const { first } = wsOnce(`ws://127.0.0.1:${webPort}/not-an-api/socket`);
+  const outcome = await first;
+  expect(outcome).toBeInstanceOf(Error);
+  // The proxy refused it locally: Node's own 400 would mean no listener at
+  // all, and a tunnel would have reached the gateway's upgrade listener.
+  expect((outcome as Error).message).toMatch(/^HTTP 404$/);
+  expect(upgrades).toBe(0);
+});
+
+it("网关压缩响应（声明长度与编码一致）原样透传，body 不被截断", async () => {
+  const payload = "x".repeat(2048);
+  const compressed = await new Promise<Buffer>((resolve, reject) => {
+    gzip(payload, (err, out) => (err ? reject(err) : resolve(out)));
+  });
+  const gateway = http.createServer((req, res) => {
+    req.resume();
+    // A gateway that always gzips (whatever the client advertised) and
+    // declares the COMPRESSED length — `Content-Length` counts the bytes on
+    // the wire, which is exactly what this proxy forwards unchanged.
+    res.writeHead(200, {
+      "content-type": "text/plain; charset=utf-8",
+      "content-encoding": "gzip",
+      "content-length": String(compressed.byteLength),
+    });
+    res.end(compressed);
+  });
+  const gatewayPort = await listen(gateway);
+  const webPort = await webFor(`http://127.0.0.1:${gatewayPort}`);
+
+  // A raw response (no Node fetch, which would decompress and hide framing).
+  const wire = await new Promise<{ status: number; headers: http.IncomingHttpHeaders; raw: Buffer }>((resolve, reject) => {
+    http
+      .get(
+        { host: "127.0.0.1", port: webPort, path: "/health", headers: { "accept-encoding": "gzip" } },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, raw: Buffer.concat(chunks) }));
+          res.on("error", reject);
+        },
+      )
+      .on("error", reject);
+  });
+
+  expect(wire.status).toBe(200);
+  expect(wire.headers["content-encoding"]).toBe("gzip");
+  expect(wire.headers["content-length"]).toBe(String(compressed.byteLength));
+  expect(wire.raw.byteLength).toBe(compressed.byteLength);
+  const decoded = await new Promise<Buffer>((resolve, reject) => {
+    gunzip(wire.raw, (err, out) => (err ? reject(err) : resolve(out)));
+  });
+  expect(decoded.toString("utf-8")).toBe(payload);
 });

@@ -513,13 +513,21 @@ async function runWeb(opts: CliOptions, deps: WebDeps): Promise<number> {
   }
 
   const port = await listeningPort(server, opts.port);
+  // The printed URL must name the interface that was actually bound: with no
+  // `--host` the listener stays loopback, and `opts.host` already defaults to
+  // `127.0.0.1`, so the two agree for `--port 0` as well.
+  const shownHost = opts.host;
   const out = deps.stdout;
-  out(`volto web ${packageVersion()} listening on http://${opts.host}:${port} -> ${gateway}\n`);
-  out(`Open: http://${opts.host}:${port}/\n`);
-  // The proxy forwards the gateway's 302 + Set-Cookie verbatim, so the login
-  // link works through EITHER port; print the one the browser will use.
+  out(`volto web ${packageVersion()} listening on http://${shownHost}:${port} -> ${gateway}\n`);
+  out(`Open: http://${shownHost}:${port}/\n`);
+  // The persistent access token is printed so the operator has it in hand,
+  // but TODAY only the gateway's per-process launch token is an accepted
+  // credential: `/?token=` is answered by the static shell (it matches no API
+  // prefix, so the gateway's guard never sees it) and would 401 anyway. This
+  // URL becomes valid once the persistent access token is accepted as a
+  // credential — Task 12 — not before.
   const token = await loadOrCreateAccessToken(resolveConfigDir(opts, deps));
-  out(`Login: http://${opts.host}:${port}/?token=${token}\n`);
+  out(`Login: http://${shownHost}:${port}/?token=${token}\n`);
   if (opts.serveRemote) {
     out("Note: --serve-remote does not apply to `volto web` yet.\n");
   }

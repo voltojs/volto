@@ -2,9 +2,11 @@ import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { expect, it, vi } from "vitest";
+import type * as http from "node:http";
 import { main, type CliDeps } from "../cli.js";
 import { loadOrCreateAccessToken, tokenFingerprint } from "../auth/access-token.js";
 import type { HeadlessServer, ServerOptions } from "../server.js";
+import type { WebServerOptions } from "../web-server.js";
 
 it("volto token 打印访问令牌", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
@@ -299,5 +301,94 @@ it("doctor 每项检查独立成行，全部通过时退出 0", async () => {
     // A hard failure (no sandbox backend/binary) is the only reason to exit 1.
     const hardFailure = /^(sandbox backend|sandbox binary): fail /m.test(text);
     expect(code).toBe(hardFailure ? 1 : 0);
+  });
+});
+/** A listening `web` server stand-in: only the address and close are used. */
+function fakeWebServer(port: number): http.Server {
+  return {
+    listening: true,
+    address: () => ({ address: "127.0.0.1", family: "IPv4", port }),
+    once: () => undefined,
+    close: (cb?: () => void) => {
+      cb?.();
+      return undefined as never;
+    },
+  } as unknown as http.Server;
+}
+
+it("volto web 用默认端口/网关/包内 web 目录启动并打印两行", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: WebServerOptions[] = [];
+    const out: string[] = [];
+    const code = await main(["web", "--config-dir", dir], {
+      startWeb: async (opts) => {
+        seen.push(opts);
+        return fakeWebServer(6100);
+      },
+      stdout: (s) => out.push(s),
+      waitForShutdown: async () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(seen[0]).toMatchObject({ port: 6100, gateway: "http://127.0.0.1:3100" });
+    // The packaged build ships beside the compiled CLI, never an absolute path.
+    expect(seen[0]?.webRoot).toBe(path.resolve(__dirname, "../../web"));
+    expect(seen[0]?.webRoot).toMatch(/apps\/gateway\/web$/);
+
+    const lines = out.join("").split("\n").filter((line) => line !== "");
+    expect(lines[0]).toBe("volto web 0.1.0 listening on http://127.0.0.1:6100 -> http://127.0.0.1:3100");
+    expect(lines[1]).toBe("Open: http://127.0.0.1:6100/");
+    // The persistent token is printed, but it is NOT an accepted credential
+    // until Task 12 — the line is informational, not a working login yet.
+    expect(lines[2]).toMatch(/^Login: http:\/\/127\.0\.0\.1:6100\/\?token=[A-Za-z0-9_-]{43}$/);
+    expect(lines).toHaveLength(3);
+  });
+});
+
+it("volto web 透传 --port/--gateway/--web-dir", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: WebServerOptions[] = [];
+    const out: string[] = [];
+    const code = await main(
+      ["web", "--port", "0", "--gateway", "http://127.0.0.1:3999", "--web-dir", "/tmp/volto-out", "--config-dir", dir],
+      {
+        startWeb: async (opts) => {
+          seen.push(opts);
+          // `--port 0`: the real listener would report the assigned port.
+          return fakeWebServer(6201);
+        },
+        stdout: (s) => out.push(s),
+        waitForShutdown: async () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(seen[0]).toMatchObject({
+      port: 0,
+      gateway: "http://127.0.0.1:3999",
+      webRoot: "/tmp/volto-out",
+    });
+    // The printed URL names the port actually bound, not the requested 0.
+    expect(out.join("")).toContain("listening on http://127.0.0.1:6201 -> http://127.0.0.1:3999");
+    expect(out.join("")).toContain("Open: http://127.0.0.1:6201/");
+  });
+});
+
+it("volto web 的非法 --gateway 直接以 2 退出且不启动服务器", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const errors: string[] = [];
+    const startWeb = vi.fn();
+    const code = await main(["web", "--gateway", "not a url", "--config-dir", dir], {
+      startWeb: startWeb as unknown as CliDeps["startWeb"],
+      stdout: () => {},
+      stderr: (s) => errors.push(s),
+      waitForShutdown: async () => {},
+    });
+    expect(code).toBe(2);
+    expect(startWeb).not.toHaveBeenCalled();
+    expect(errors.join("")).toContain("Invalid --gateway");
   });
 });
