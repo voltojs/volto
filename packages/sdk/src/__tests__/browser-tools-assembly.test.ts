@@ -72,7 +72,7 @@ describe("browser tool assembly", () => {
     for (const name of BROWSER_NAMES) expect(tools).toContain(name);
     expect(tools).toContain("web_fetch");
     expect(tools).toContain("web_search");
-    expect(tools.length).toBeLessThanOrEqual(30);
+    expect(tools.length).toBeLessThanOrEqual(35);
   });
 
   it("registers no browser tools when no adapter is supplied", async () => {

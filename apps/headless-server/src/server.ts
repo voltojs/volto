@@ -54,6 +54,8 @@ import {
 } from "@volto/store-jsonl";
 import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
+import { createNodeBrowserHost, type BrowserHost } from "@volto/runtime-node";
+import { loadBrowserConfig } from "./config/browser.js";
 import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
@@ -438,6 +440,17 @@ export interface HeadlessServer extends http.Server {
   readonly registry: ReturnType<typeof createSessionRegistry>;
 }
 
+/** Probe the Playwright package and its Chromium binary without launching it. */
+async function browserRuntimeAvailable(): Promise<boolean> {
+  try {
+    const playwright = await import("playwright");
+    await fs.access(playwright.chromium.executablePath());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createServer(opts: ServerOptions = {}): Promise<HeadlessServer> {
   // One-shot migration of the per-domain config files into config.json.
   // A failure here must not stop the gateway: reads still fall back to the
@@ -449,6 +462,34 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       "config migration skipped:",
       err instanceof Error ? err.message : err,
     );
+  }
+
+  let browserHost: BrowserHost | undefined = opts.browserHost;
+  if (browserHost === undefined) {
+    try {
+      const settings = await loadBrowserConfig(getConfigDir());
+      if (settings.enabled && (await browserRuntimeAvailable())) {
+        browserHost = createNodeBrowserHost({
+          headless: settings.headless,
+          idleTimeoutMs: settings.idleTimeoutMs,
+          ...(settings.storageStatePath !== undefined
+            ? { storageStatePath: settings.storageStatePath }
+            : {}),
+          ...(settings.executablePath !== undefined
+            ? { executablePath: settings.executablePath }
+            : {}),
+        });
+      } else if (settings.enabled) {
+        console.warn(
+          "browser tools disabled: Playwright Chromium is not installed. Run: pnpm exec playwright install chromium",
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "browser tools disabled: invalid browser config:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   const port = opts.port ?? 3100;
@@ -486,6 +527,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   // approval gate is never consulted and can safely stay absent.
   const agent = await buildAgent({
     ...agentOpts,
+    browserHost,
     // Destructured out of agentOpts above (the /agents routes read it from
     // the same binding); pass it back so this agent's scan lists the same
     // plugin entries the UI shows.
@@ -544,6 +586,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   });
   const registry = createSessionRegistry({
     ...opts,
+    browserHost,
     // Normalized here so the /messages cold-window wait below (which shares
     // the registry's awaitAgent) runs on exactly this value.
     steerAgentWaitMs: opts.steerAgentWaitMs ?? STEER_AGENT_WAIT_MS,
@@ -2102,6 +2145,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         // reachable projectPath; the empty one degrades to an rm of a path
         // that cannot exist (force:true), a harmless no-op.
         await planStore.deleteBySession(id, registry.getSessionProjectPath(id) ?? "");
+        await browserHost?.close(id);
         res.writeHead(204, corsHeaders);
         res.end();
       } catch (err: unknown) {
@@ -2625,7 +2669,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     })();
   });
 
-  httpServer.on("close", () => void registry.closeAll());
+  httpServer.on("close", () => {
+    void registry.closeAll();
+    void browserHost?.dispose();
+  });
 
   // Configured-port URL for the return value. The listen callback re-derives
   // the real port (relevant when port: 0 asked the OS to pick one).

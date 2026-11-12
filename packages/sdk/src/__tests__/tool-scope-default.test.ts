@@ -88,7 +88,7 @@ it("F-162 db and browser groups join the table only when assembled", () => {
   expect(db.scope.groups["db"]).toEqual({ priority: 40, enabled: true });
   expect(db.scope.groups["browser"]).toBeUndefined();
   const browser = buildDefaultToolVisibility(defs, { hasLsp: false, hasDb: false, hasBrowser: true, hasMemory: false });
-  expect(browser.scope.groups["browser"]).toEqual({ priority: 40, enabled: true });
+  expect(browser.scope.groups["browser"]).toEqual({ priority: 45, enabled: true });
   expect(browser.scope.groups["db"]).toBeUndefined();
   // a presence-false mode name never leaves the table: it falls to rest instead
   expect(db.scope.toolGroups!["browser_navigate"]).toBe("rest");
@@ -152,6 +152,23 @@ it("browser assembly raises the limit to 30 and keeps all nine browser tools", (
   expect(limit).toBe(30);
   const names = filterByScope(defs, scope, limit).map((t) => t.name);
   for (const name of BROWSER) expect(names, `browser lost: ${name}`).toContain(name);
+  expect(names).toContain("web_fetch");
+  expect(names).toContain("web_search");
+});
+
+
+it("browser plus lsp keeps all nine browser tools, all lsp tools, and two info slots", () => {
+  const defs = [...FLOOR, ...BASIC, ...LSP, ...BROWSER, ...INFO].map(def);
+  const { scope, limit } = buildDefaultToolVisibility(defs, {
+    hasLsp: true,
+    hasDb: false,
+    hasBrowser: true,
+    hasMemory: false,
+  });
+  expect(limit).toBe(35);
+  const names = filterByScope(defs, scope, limit).map((t) => t.name);
+  for (const name of BROWSER) expect(names, `browser lost: ${name}`).toContain(name);
+  for (const name of LSP) expect(names, `lsp lost: ${name}`).toContain(name);
   expect(names).toContain("web_fetch");
   expect(names).toContain("web_search");
 });

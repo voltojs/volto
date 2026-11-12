@@ -6,7 +6,7 @@ import type { ScopeGroupConfig, ToolDefinition, ToolScopeConfig } from "@volto/c
  * Pure: no I/O, deterministic, no sorting. Given the actual assembled tool
  * list and the assembly state, it produces a five-tier `ToolScopeConfig`
  * (spec 2026-10-15-toolset-governance-design.md, D3/D4) plus a fixed
- * `limit` of 20 (21 when `hasMemory` — the T11 revision of that contract).
+ * `limit` of 20 (21 with memory; 30 with browser; 35 with browser + LSP).
  *
  * Every actual tool is mapped to exactly one group that is present in
  * `groups`: `filterByScope` keeps only tools whose group exists and is
@@ -101,7 +101,7 @@ function buildGroups(presence: AssemblyPresence): Record<string, ScopeGroupConfi
   };
   if (presence.hasLsp) groups["lsp"] = { priority: 40, enabled: true };
   if (presence.hasDb) groups["db"] = { priority: 40, enabled: true };
-  if (presence.hasBrowser) groups["browser"] = { priority: 40, enabled: true };
+  if (presence.hasBrowser) groups["browser"] = { priority: 45, enabled: true };
   if (presence.hasMemory) groups["memory"] = { priority: 45, enabled: true };
   groups["info"] = { priority: 20, enabled: true };
   groups["rest"] = { priority: 0, enabled: true };
@@ -120,11 +120,14 @@ export function buildDefaultToolVisibility(
   }
   return {
     scope: { groups: buildGroups(presence), toolGroups },
-    // Browser sessions need all nine tools plus two info slots; memory keeps
+    // Browser sessions need all nine tools plus two info slots. The default
+    // gateway also assembles five lsp tools; reserve five more slots for them
+    // so the browser does not silently truncate to six tools. Memory keeps
     // its one extra slot from T11.
     limit:
       DEFAULT_TOOL_VISIBILITY_LIMIT +
       (presence.hasBrowser ? 10 : 0) +
+      (presence.hasBrowser && presence.hasLsp ? 5 : 0) +
       (presence.hasMemory ? 1 : 0),
   };
 }
