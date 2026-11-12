@@ -55,7 +55,12 @@ import {
 import { t } from "@volto/i18n";
 import { createWiredAgent, createAttachmentParsePdf, type WiringOptions } from "./wiring.js";
 import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
-import { loadBrowserConfig } from "./config/browser.js";
+import {
+  BrowserConfigError,
+  loadBrowserConfig,
+  readBrowserSettingsView,
+  updateBrowserExecutablePath,
+} from "./config/browser.js";
 import { builtInCommands } from "./commands.js";
 import { createSkillRegistry, listSkillDefinitions } from "./skills/registry.js";
 import { readContextUsageSnapshot } from "./context-usage.js";
@@ -1328,6 +1333,50 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, 200, await patchPreferences(patch));
       } catch (err: unknown) {
         jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // GET /config/browser — browser settings plus the browsers installed on
+    // the gateway host. Read-only: detection never writes config.json.
+    if (req.method === "GET" && url.pathname === "/config/browser") {
+      try {
+        jsonResponse(res, 200, await readBrowserSettingsView(getConfigDir()));
+      } catch (err: unknown) {
+        jsonResponse(res, err instanceof BrowserConfigError ? 400 : 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // PUT /config/browser — set or clear browser.executablePath. The running
+    // browser host is not rebuilt; the UI says a gateway restart is required.
+    if (req.method === "PUT" && url.pathname === "/config/browser") {
+      let body: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(await readBody(req));
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          jsonResponse(res, 400, { error: "request body must be a JSON object" });
+          return;
+        }
+        body = parsed as Record<string, unknown>;
+      } catch {
+        jsonResponse(res, 400, { error: "request body must be valid JSON" });
+        return;
+      }
+      const value = body["executablePath"];
+      if (value !== null && typeof value !== "string") {
+        jsonResponse(res, 400, { error: "executablePath must be a string or null" });
+        return;
+      }
+      try {
+        await updateBrowserExecutablePath(getConfigDir(), value);
+        jsonResponse(res, 200, await readBrowserSettingsView(getConfigDir()));
+      } catch (err: unknown) {
+        jsonResponse(res, err instanceof BrowserConfigError ? 400 : 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
       return;
     }

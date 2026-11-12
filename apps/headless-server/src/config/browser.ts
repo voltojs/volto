@@ -7,6 +7,11 @@
  * the launch behavior.
  */
 
+import {
+  detectSystemBrowsers,
+  resolveBrowserExecutable,
+  type SystemBrowser,
+} from "@volto/runtime-node";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
 
@@ -91,4 +96,64 @@ export async function loadBrowserConfig(configDir: string): Promise<BrowserSetti
     settings.executablePath = asPath("executablePath", record["executablePath"]);
   }
   return settings;
+}
+
+
+/** Everything the settings page needs, without exposing unrelated config. */
+export interface BrowserSettingsView {
+  platform: NodeJS.Platform;
+  configuredPath: string | null;
+  resolvedPath: string | null;
+  browsers: SystemBrowser[];
+}
+
+/** Read the current browser settings plus the browsers installed on the gateway. */
+export async function readBrowserSettingsView(configDir: string): Promise<BrowserSettingsView> {
+  const settings = await loadBrowserConfig(configDir);
+  const browsers = await detectSystemBrowsers();
+  const resolved = await resolveBrowserExecutable({
+    ...(settings.executablePath !== undefined ? { configured: settings.executablePath } : {}),
+  });
+  return {
+    platform: process.platform,
+    configuredPath: settings.executablePath ?? null,
+    resolvedPath: resolved ?? null,
+    browsers,
+  };
+}
+
+/**
+ * Set or clear `browser.executablePath` in config.json, preserving every
+ * other key in that section. The host is not reloaded; the caller tells the
+ * user a gateway restart is required.
+ */
+export async function updateBrowserExecutablePath(
+  configDir: string,
+  executablePath: string | null,
+): Promise<BrowserSettings> {
+  let nextPath: string | null = null;
+  if (executablePath !== null) {
+    const trimmed = executablePath.trim();
+    if (trimmed === "") {
+      throw new BrowserConfigError("browser.executablePath must not be empty");
+    }
+    if ((await resolveBrowserExecutable({ configured: trimmed })) === undefined) {
+      throw new BrowserConfigError(
+        `browser.executablePath is not an existing executable: ${trimmed}`,
+      );
+    }
+    nextPath = trimmed;
+  }
+
+  await getConfigStore(configDir).update<Record<string, unknown>>("browser", (current) => {
+    if (current !== undefined && (typeof current !== "object" || current === null || Array.isArray(current))) {
+      throw new BrowserConfigError("config.json: browser must be a JSON object");
+    }
+    const next: Record<string, unknown> = { ...(current ?? {}) };
+    if (nextPath === null) delete next["executablePath"];
+    else next["executablePath"] = nextPath;
+    return next;
+  });
+
+  return loadBrowserConfig(configDir);
 }
